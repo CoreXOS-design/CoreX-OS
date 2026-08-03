@@ -568,6 +568,16 @@
      * The image an element displays. opts.overrides is the generator's per-element
      * "change photo" map, keyed by element id — it wins over the slot's default and
      * survives a re-render.
+     *
+     * §15.2 — an Agent Image element with `removeBackground` on now prefers the
+     * SERVER-STORED AI cutout (`prop.agent_avatar_cutout`/`agent_2_avatar_cutout`,
+     * populated by Property::adData() from User::profilePhotoCutoutUrl()) over the
+     * plain photo. Falls back to the plain photo whenever no cutout is recorded
+     * (never attempted, still processing, agency disabled, or the API call
+     * failed) — this can only ever ADD a cutout, never remove the original as a
+     * fallback, so an ad can never render blank. Supersedes the client-side
+     * flood-fill cutout (stripBackground()/_processBackgroundRemoval()) in the
+     * live render path — see imgTag().
      */
     function imageSrc(el, prop, opts) {
         prop = prop || {};
@@ -577,6 +587,9 @@
 
         if (f === 'custom_image' || f === 'custom_video') {
             return ov[el.id] || el.src || null;
+        }
+        if (isAgentAvatarField(f) && el.removeBackground && prop[f + '_cutout']) {
+            return prop[f + '_cutout'];
         }
         var base = (f === 'agency_logo') ? (prop.logo || null) : (prop[f] || null);
         if (/^image_[1-5]$/.test(f) && ov[el.id]) return ov[el.id];
@@ -619,12 +632,13 @@
         else if (/avatar$/.test(f))   attrs += ' class="js-ad-avatar"';
         else if (opts.tagPhotos)      attrs += ' data-el-id="' + esc(el.id) + '" data-orig-src="' + esc(baseSrc) + '"';
 
-        // Remove Background — an onload hook works identically whether this <img>
-        // was inserted via Alpine's x-html (Builder) or renderLayout()'s innerHTML
-        // (generator/bulk manager), so this is the ONLY per-surface change needed.
-        if (isAgentAvatarField(f) && el.removeBackground) {
-            attrs += ' onload="window.CoreXAd.stripBackground(this)"';
-        }
+        // §15.2 — background removal is now a SERVER-side AI cutout, resolved by
+        // imageSrc() before this function ever runs (it just decides WHICH src to
+        // put in the <img>, exactly like every other image field). No onload hook
+        // needed here any more — the client-side flood-fill pipeline this used to
+        // trigger (stripBackground()/_processBackgroundRemoval()/_floodFillTransparent()/
+        // _fillEnclosedHoles()/_featherAlpha()) is superseded and left in place,
+        // unused, pending removal in a later round once the AI path is proven live.
 
         return '<img src="' + esc(src) + '" ' + attrs + '>';
     }
@@ -727,30 +741,106 @@
      * truly colour-identical to the backdrop with zero edge between them —
      * that is a real, inherent limit of colour-based cutout, not a bug to
      * patch around with a blind position rule.
+     *
+     * *Round 5 — a real photo hit a THIRD failure shape: a smooth lighting
+     * gradient.* A well-lit collar's highlight can sit only a MODEST colour
+     * distance from the backdrop (measured on a real photo: median ~18,
+     * up to ~26 — i.e. individually within tolerance, never "identical")
+     * while being 4-connected, pixel by pixel, all the way back to a real
+     * seed through a gradual, unbroken chain. Each step alone passes the
+     * flat tolerance check, so the fill marches out of genuine backdrop and
+     * deep into lit fabric. Measured directly on the failing photo: distance
+     * from the fixed backdrop reference sits at ~0 for ~600 hops of the
+     * fill's actual path (real backdrop, correctly flat), then jumps to
+     * ~23 in a single hop at the exact point the fill crosses from
+     * background into the lit collar edge — and stays elevated (17–25) for
+     * the rest of the path deeper into the fabric. A per-pixel tolerance
+     * check alone cannot see this: it only ever asks "is THIS pixel close
+     * enough to backdrop", never "how far has the fill already drifted to
+     * get here."
+     *
+     * Fix: track `pathMax2` — the HIGHEST single-pixel squared colour
+     * distance seen ANYWHERE along the chain of already-accepted pixels
+     * connecting a given pixel back to its seed (each pixel inherits the max
+     * of its own distance and whichever neighbour first reached it). Once
+     * `pathMax2` exceeds `floodFillDriftCapPx` (squared), stop — do not
+     * remove this pixel, and do not propagate past it either, so everything
+     * beyond it is protected too. Real backdrop keeps `pathMax2` at ~0 for
+     * its entire (often very long) path, since it's genuinely flat —
+     * measured across 5 real photos, the 90th percentile of path-max-distance
+     * across every removed pixel is 0 in EVERY photo tested, so this cap is
+     * invisible to ordinary backdrop removal. It only engages at the exact
+     * point a path's drift first exceeds the cap — which on the failing
+     * photo is right where genuine backdrop ends and the lit collar begins.
+     * `floodFillDriftCapPx` (default 20) sits below where that photo's leak
+     * sits (~22–25) and above where four OTHER real photos' entire removed
+     * area sat (their own 95th-98th percentiles), so it engages ONLY on the
+     * one failure case tested, not as a blanket tightening of every photo's
+     * cutout.
      */
     function _floodFillTransparent(imageData, w, h) {
         var px = imageData.data;
         var bg = _cornerColor(px, w, h);
         var tol2 = 26 * 26; // Euclidean colour-distance tolerance, squared (avoid a sqrt per pixel)
+        var driftCapPx = _bgRemovalConfig.floodFillDriftCapPx;
+        var driftCap2 = driftCapPx * driftCapPx;
         var visited = new Uint8Array(w * h);
-        var stack = [];
+        var stack = []; // (x, y, pathMax2-inherited-from-whichever-neighbour-reached-it-first) triples
         var sideSeedLimit = Math.floor(h * 0.5);
 
-        for (var x = 0; x < w; x++) { stack.push(x, 0); }
-        for (var y = 0; y < sideSeedLimit; y++) { stack.push(0, y, w - 1, y); }
+        for (var x = 0; x < w; x++) { stack.push(x, 0, 0); }
+        for (var y = 0; y < sideSeedLimit; y++) { stack.push(0, y, 0, w - 1, y, 0); }
 
         while (stack.length) {
-            var yy = stack.pop(), xx = stack.pop();
+            var inheritedPathMax2 = stack.pop(), yy = stack.pop(), xx = stack.pop();
             if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
             var idx = yy * w + xx;
             if (visited[idx]) continue;
             visited[idx] = 1;
             var o = idx * 4;
             var dr = px[o] - bg[0], dg = px[o + 1] - bg[1], db = px[o + 2] - bg[2];
-            if ((dr * dr + dg * dg + db * db) > tol2) continue; // not backdrop-like — stop here
+            var d2 = dr * dr + dg * dg + db * db;
+            if (d2 > tol2) continue; // not backdrop-like — stop here
+            var pathMax2 = d2 > inheritedPathMax2 ? d2 : inheritedPathMax2;
+            if (pathMax2 > driftCap2) continue; // drifted too far from true backdrop along this path — stop, protect this pixel and everything beyond it
             px[o + 3] = 0;
-            stack.push(xx + 1, yy, xx - 1, yy, xx, yy + 1, xx, yy - 1);
+            stack.push(xx + 1, yy, pathMax2, xx - 1, yy, pathMax2, xx, yy + 1, pathMax2, xx, yy - 1, pathMax2);
         }
+    }
+
+    /**
+     * Agency-configurable thresholds for the background-removal pipeline —
+     * see `_floodFillTransparent()`'s and `_fillEnclosedHoles()`'s docblocks
+     * for what each one protects against and the evidence behind its
+     * default. Never hardcode a NEW threshold here without going through
+     * `configureBgRemoval()`; these are read from `agencies.ad_bg_removal_*`
+     * (nullable — null means "use this file's default"), passed in once per
+     * page by each of the three render surfaces (ad.blade.php,
+     * ad-builder.blade.php, tools/ad-manager.blade.php). Spec: ad-manager.md
+     * §15.1 rounds 4–5.
+     */
+    var _bgRemovalConfig = {
+        holeMinPx: 30,          // below this, treat it as a catch-light/noise — never fill
+        holeMaxPx: 1200,        // above this AREA, treat it as clothing/fabric — never fill
+        holeMaxDimensionPx: 45, // above this LONGEST bbox side, treat it as clothing/fabric — never fill
+        floodFillDriftCapPx: 20, // round 5 — see _floodFillTransparent()'s docblock
+    };
+
+    /**
+     * Called once per page (ad.blade.php / ad-builder.blade.php /
+     * tools/ad-manager.blade.php) with the current agency's settings. Any
+     * key that is null/undefined/omitted keeps this file's default — a
+     * property with no agency (shouldn't happen) or an agency that has never
+     * touched these settings gets identical behaviour to before this
+     * existed.
+     */
+    function configureBgRemoval(cfg) {
+        cfg = cfg || {};
+        ['holeMinPx', 'holeMaxPx', 'holeMaxDimensionPx', 'floodFillDriftCapPx'].forEach(function (key) {
+            if (cfg[key] !== null && cfg[key] !== undefined && !isNaN(cfg[key])) {
+                _bgRemovalConfig[key] = +cfg[key];
+            }
+        });
     }
 
     /**
@@ -761,25 +851,58 @@
      * collar, both read as "pasted on" because they were never touched at all.
      *
      * A pocket is filled ONLY if it (a) touches NO edge of the frame anywhere
-     * along its connected boundary, and (b) is at least `HOLE_MIN_PX` pixels.
-     * (a) is what keeps this from ever regressing the "ate a light shirt"
-     * fix (§15.1 round 1/2) — anything connected to a border, even a
-     * backdrop-coloured pocket that snakes all the way to one, is left alone,
-     * exactly like the main fill already does. (b) is what keeps this from
-     * removing a catch-light: a specular highlight in an eye is ALSO within
-     * colour tolerance of a white backdrop and ALSO fully enclosed, but on a
-     * real photo measured 19px and under; real holes (earrings, clothing
-     * gaps) measured 46-851px. 30 sits with comfortable margin on both sides,
-     * verified empirically against a real photo before shipping this, not
-     * picked arbitrarily.
+     * along its connected boundary, (b) is at least `holeMinPx` pixels, (c) is
+     * at most `holeMaxPx` pixels in area, AND (d) its bounding box's LONGEST
+     * side is at most `holeMaxDimensionPx`.
+     *
+     * (a) is what keeps this from ever regressing the "ate a light shirt" fix
+     * (§15.1 round 1/2) — anything connected to a border, even a backdrop-
+     * coloured pocket that snakes all the way to one, is left alone, exactly
+     * like the main fill already does.
+     *
+     * (b) is what keeps this from removing a catch-light: a specular
+     * highlight in an eye is ALSO within colour tolerance of a white backdrop
+     * and ALSO fully enclosed, but on a real photo measured 19px and under.
+     *
+     * (c) and (d) exist because (b) alone is NOT enough — round 3 shipped
+     * with only a floor, and a DIFFERENT pose (arms crossed, a wide V-neck
+     * collar fully enclosed by a dark jacket on both sides) hit the opposite
+     * failure: a large genuine patch of shirt, not an earring, got treated as
+     * a "hole" and erased, because nothing capped how big an enclosed pocket
+     * was allowed to be. Measured on real photos, both defaults come from the
+     * SAME dataset a floor-only fix was checked against, extended with the
+     * failing case:
+     *   - genuine holes (earrings, small gaps): 46–851px area, bounding box
+     *     never wider/taller than 41px.
+     *   - the failing case (an open collar's visible V, fully enclosed by a
+     *     dark jacket): one component alone was 2059px, bbox 60×131.
+     *   - a second, smaller failing case on the SAME photo: 602px, bbox
+     *     30×51 — notably, its AREA (602) is SMALLER than the largest
+     *     genuine hole (851px), so an area cap ALONE cannot separate every
+     *     case correctly; a cap that excludes 602 would also wrongly exclude
+     *     725 and 851. The bounding-box DIMENSION is what actually separates
+     *     every measured case cleanly: every genuine hole's longest side is
+     *     ≤41px; every failing case's longest side is ≥51px. That gap is why
+     *     (d) exists as its own guard, not folded into (c).
+     * `holeMaxPx` (default 1200) sits with margin above the largest genuine
+     * hole (851) and below the large failing case (2059) — a second,
+     * independent line of defence for a large pocket even if some future
+     * photo's proportions happened to keep its longest side under the
+     * dimension cap.
+     *
+     * All three numbers are read from `_bgRemovalConfig` (agency-
+     * configurable — see `configureBgRemoval()`), never hardcoded per-call —
+     * a photo/agent/pose-specific fix would only mask the next pose that
+     * exposes the same class of bug.
      */
-    var HOLE_MIN_PX = 30;
-
     function _fillEnclosedHoles(imageData, w, h) {
         var px = imageData.data;
         var bg = _cornerColor(px, w, h);
         var tol2 = 26 * 26;
         var visited = new Uint8Array(w * h);
+        var holeMinPx = _bgRemovalConfig.holeMinPx;
+        var holeMaxPx = _bgRemovalConfig.holeMaxPx;
+        var holeMaxDimensionPx = _bgRemovalConfig.holeMaxDimensionPx;
 
         for (var y0 = 0; y0 < h; y0++) {
             for (var x0 = 0; x0 < w; x0++) {
@@ -790,10 +913,12 @@
                 var dr0 = px[o0] - bg[0], dg0 = px[o0 + 1] - bg[1], db0 = px[o0 + 2] - bg[2];
                 if ((dr0 * dr0 + dg0 * dg0 + db0 * db0) > tol2) { visited[idx0] = 1; continue; } // not backdrop-coloured
 
-                // Flood this connected backdrop-coloured island; track border contact.
+                // Flood this connected backdrop-coloured island; track border
+                // contact and the bounding box alongside it.
                 var stack = [x0, y0];
                 var component = [idx0];
                 var touchesBorder = (x0 === 0 || y0 === 0 || x0 === w - 1 || y0 === h - 1);
+                var minX = x0, maxX = x0, minY = y0, maxY = y0;
                 visited[idx0] = 1;
 
                 while (stack.length) {
@@ -810,12 +935,16 @@
                         var ndr = px[no] - bg[0], ndg = px[no + 1] - bg[1], ndb = px[no + 2] - bg[2];
                         if ((ndr * ndr + ndg * ndg + ndb * ndb) > tol2) continue; // not backdrop-coloured — a boundary
                         if (nx === 0 || ny === 0 || nx === w - 1 || ny === h - 1) touchesBorder = true;
+                        if (nx < minX) minX = nx; if (nx > maxX) maxX = nx;
+                        if (ny < minY) minY = ny; if (ny > maxY) maxY = ny;
                         component.push(nidx);
                         stack.push(nx, ny);
                     }
                 }
 
-                if (!touchesBorder && component.length >= HOLE_MIN_PX) {
+                var size = component.length;
+                var longestSide = Math.max(maxX - minX + 1, maxY - minY + 1);
+                if (!touchesBorder && size >= holeMinPx && size <= holeMaxPx && longestSide <= holeMaxDimensionPx) {
                     for (var c = 0; c < component.length; c++) px[component[c] * 4 + 3] = 0;
                 }
             }
@@ -1203,6 +1332,7 @@
         cornerColor: _cornerColor,
         fillEnclosedHoles: _fillEnclosedHoles,
         featherAlpha: _featherAlpha,
+        configureBgRemoval: configureBgRemoval,
         resolveTemplateLayout: resolveTemplateLayout,
         isClipShape: isClipShape,
         canShadow: canShadow,

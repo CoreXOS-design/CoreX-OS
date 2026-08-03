@@ -333,16 +333,29 @@ K.floodFillTransparent(identical, W, H2);
 ok('a garment truly colour-identical to the backdrop is NOT distinguishable — accepted limit, asserted explicitly rather than left as an undocumented surprise',
     alphaAt(identical, W, 20, 38) === 0);
 
-const photoProp = { agent_avatar: '/storage/agents/1.jpg', agent_2_avatar: '/storage/agents/2.jpg' };
-ok('removeBackground=true on an Agent Image emits the onload hook',
-    K.contentHtml(el({ field: 'agent_avatar', removeBackground: true }), photoProp, {})
-        .includes('onload="window.CoreXAd.stripBackground(this)"'));
-ok('removeBackground=false (the default) emits NO onload hook — a legacy avatar is untouched',
-    !K.contentHtml(el({ field: 'agent_avatar' }), photoProp, {}).includes('stripBackground'));
+// §15.2 — background removal is now a SERVER-side AI cutout: imageSrc() picks
+// between the plain photo and the stored cutout URL; imgTag() no longer emits
+// ANY onload hook (the client-side flood-fill pipeline below is superseded in
+// the live path, kept in the file unused pending a later removal round).
+const photoProp = {
+    agent_avatar: '/storage/agents/1.jpg',
+    agent_avatar_cutout: '/storage/agents/1-cutout.png',
+    agent_2_avatar: '/storage/agents/2.jpg',
+    agent_2_avatar_cutout: '/storage/agents/2-cutout.png',
+};
+ok('removeBackground=true on an Agent Image with a stored cutout prefers the cutout URL',
+    K.imageSrc(el({ field: 'agent_avatar', removeBackground: true }), photoProp, {}) === '/storage/agents/1-cutout.png');
+ok('removeBackground=true but NO stored cutout falls back to the plain photo (never blank)',
+    K.imageSrc(el({ field: 'agent_avatar', removeBackground: true }), { agent_avatar: '/storage/agents/1.jpg' }, {}) === '/storage/agents/1.jpg');
+ok('removeBackground=false (the default) always uses the plain photo, even if a cutout exists',
+    K.imageSrc(el({ field: 'agent_avatar' }), photoProp, {}) === '/storage/agents/1.jpg');
 ok('applies to Agent 2 as well as Agent 1',
-    K.contentHtml(el({ field: 'agent_2_avatar', removeBackground: true }), photoProp, {}).includes('stripBackground'));
-ok('an unrelated image field ignores removeBackground even if somehow set (scoped to Agent Image only)',
-    !K.contentHtml(el({ field: 'image_1', removeBackground: true }), { image_1: '/storage/p/1.jpg' }, {}).includes('stripBackground'));
+    K.imageSrc(el({ field: 'agent_2_avatar', removeBackground: true }), photoProp, {}) === '/storage/agents/2-cutout.png');
+ok('an unrelated image field ignores the _cutout convention (scoped to Agent Image only)',
+    K.imageSrc(el({ field: 'image_1' }), { image_1: '/storage/p/1.jpg', image_1_cutout: '/storage/p/1-cutout.png' }, {}) === '/storage/p/1.jpg');
+ok('imgTag never emits an onload hook any more, regardless of removeBackground (client-side pipeline superseded)',
+    !K.contentHtml(el({ field: 'agent_avatar', removeBackground: true }), photoProp, {}).includes('onload')
+    && !K.contentHtml(el({ field: 'agent_avatar', removeBackground: true }), photoProp, {}).includes('stripBackground'));
 
 // REGRESSION #3 (property 3080, agent Elize Reichel): two hard-edged white
 // discs at the ear/earring positions and a pale block near the collar were
@@ -389,6 +402,137 @@ K.floodFillTransparent(borderTouchFrame, W, H2);
 K.fillEnclosedHoles(borderTouchFrame, W, H2);
 ok('a border-touching patch is never touched by the enclosed-holes pass, garment stays intact',
     alphaAt(borderTouchFrame, W, 10, 37) === 255 && alphaAt(borderTouchFrame, W, 20, 38) === 255);
+
+// REGRESSION #4 (property 2934, SAME agent, a different pose — arms crossed,
+// an open V-neck collar fully enclosed by a dark jacket on both sides): round
+// 3 shipped with only a size FLOOR, so this large, fully-enclosed patch of
+// genuine shirt/collar was treated exactly like a small earring gap and
+// erased outright. Measured on the real photo: genuine holes never exceeded
+// 41px on their longest bounding-box side; the failing collar patch measured
+// 60x131 (2059px) and a second, smaller failing patch measured 30x51 (602px)
+// — notably SMALLER in raw area than the largest genuine hole (851px), which
+// is why an area cap alone cannot separate every case: the bounding-box
+// DIMENSION is the guard that actually does, cleanly, on every measured case.
+section('_fillEnclosedHoles() upper-bound guard — round 4 (a large enclosed patch of clothing must survive)');
+
+// A dedicated larger canvas — the small 40x40 canvas used above has no room
+// for the bounding boxes these cases need.
+const BW = 100, BH = 100;
+const bigSubject = { x: 5, y: 5, w: 90, h: 90, color: [40, 90, 160] };
+
+// A big enclosed hole — well past the default area cap (1200px) — must NOT
+// be filled, unlike the small earring-sized hole above.
+const bigHoleFrame = makeHoleFrame(BW, BH, white, bigSubject, { x: 20, y: 20, w: 50, h: 50 }); // 2500px
+K.floodFillTransparent(bigHoleFrame, BW, BH);
+K.fillEnclosedHoles(bigHoleFrame, BW, BH);
+ok('a large enclosed hole (2500px, past the default 1200px area cap) is NOT filled — a real collar/shirt patch, not an earring',
+    alphaAt(bigHoleFrame, BW, 45, 45) === 255);
+
+// A hole with modest AREA but an elongated bounding box exceeding the default
+// max-dimension (45px) — simulating the 602px/30x51 real-photo case, which an
+// area cap alone would have let through (851px legit hole has MORE area).
+const elongatedFrame = makeHoleFrame(BW, BH, white, bigSubject, { x: 20, y: 15, w: 8, h: 55 }); // 440px, longest side 55
+K.floodFillTransparent(elongatedFrame, BW, BH);
+K.fillEnclosedHoles(elongatedFrame, BW, BH);
+ok('a modest-area but elongated hole (440px, longest side 55px > the 45px default) is NOT filled — area alone would have missed this',
+    alphaAt(elongatedFrame, BW, 23, 40) === 255);
+
+// The small earring-sized hole from the very first case in this section must
+// STILL be filled — the new upper bound must not have tightened the floor.
+ok('the guard does not regress the original earring-sized fix (re-asserted after adding the upper bound)',
+    alphaAt(earringFrame, W, 17, 17) === 0);
+
+// configureBgRemoval() actually takes effect — an agency that raises its own
+// max-dimension threshold gets a DIFFERENT (more permissive) outcome for the
+// SAME elongated hole above, then the config is restored to defaults so it
+// doesn't leak into any later test in this file.
+K.configureBgRemoval({ holeMaxDimensionPx: 60 });
+const elongatedFrameRaised = makeHoleFrame(BW, BH, white, bigSubject, { x: 20, y: 15, w: 8, h: 55 });
+K.floodFillTransparent(elongatedFrameRaised, BW, BH);
+K.fillEnclosedHoles(elongatedFrameRaised, BW, BH);
+ok('configureBgRemoval() raising holeMaxDimensionPx actually changes the outcome for the same elongated hole',
+    alphaAt(elongatedFrameRaised, BW, 23, 40) === 0);
+K.configureBgRemoval({ holeMinPx: 30, holeMaxPx: 1200, holeMaxDimensionPx: 45 }); // restore defaults for later tests
+
+// REGRESSION #5 (property 2934, SAME photo/agent as round 4 — a THIRD,
+// distinct failure shape found on the SAME real photo): a well-lit collar
+// highlight sits at a MODEST colour distance from the backdrop — measured on
+// the real photo, individual pixels ran up to ~26 (i.e. within the flat
+// per-pixel tolerance, never "identical") — while being 4-connected, pixel by
+// pixel, all the way back to a real seed through a gradual, unbroken chain.
+// Each step alone passes the flat tolerance check, so the ORIGINAL flood
+// fill (rounds 1/2) marches straight out of genuine backdrop and deep into
+// lit fabric. `floodFillDriftCapPx` tracks the HIGHEST single-pixel colour
+// distance seen anywhere along a pixel's path back to its seed and stops
+// propagation once that exceeds the cap — even though every individual step
+// stays under the flat tolerance.
+section('_floodFillTransparent() drift cap — round 5 (a smooth lighting gradient must not leak deep into fabric)');
+
+// A vertical corridor whose colour distance from white climbs linearly from
+// 0 (touching the seeded background) to 24 over 20 rows, then PLATEAUS at 24
+// for the rest — simulating the real photo's gradient-into-highlight, then
+// "deep in the fabric, but individually still within the flat tolerance".
+// Outside the corridor is solid black (nowhere near tolerance) so the fill
+// can ONLY travel down this one path — isolates the test to just the new
+// path-max mechanism.
+function makeGradientCorridorFrame(w, h, corridorX0, corridorW) {
+    const frame = { data: new Uint8ClampedArray(w * h * 4) };
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const i = (y * w + x) * 4;
+            const inCorridor = x >= corridorX0 && x < corridorX0 + corridorW;
+            // Open white backdrop across the full width for the first 10 rows
+            // (so corner-sampling at (0,0)/(w-1,0) correctly reads white, and
+            // the fill has real open backdrop to seed from) — below that,
+            // only the corridor continues; everything else is a solid black
+            // wall, never within tolerance, so the fill can ONLY travel down
+            // the one corridor path once past row 10.
+            if (y < 10 || inCorridor) {
+                let delta = 0;
+                if (inCorridor && y >= 10) delta = y < 30 ? Math.round((y - 10) / 19 * 24) : 24;
+                // Vary ONLY the red channel so the actual Euclidean colour
+                // distance equals `delta` exactly (varying all 3 channels
+                // would scale the real distance by sqrt(3)).
+                frame.data[i] = 255 - delta; frame.data[i + 1] = 255; frame.data[i + 2] = 255; frame.data[i + 3] = 255;
+            } else {
+                frame.data[i] = 0; frame.data[i + 1] = 0; frame.data[i + 2] = 0; frame.data[i + 3] = 255;
+            }
+        }
+    }
+    return frame;
+}
+
+const GW = 40, GH = 50;
+const CORRIDOR_X = 15, CORRIDOR_W = 10;
+
+// With the default cap (20): propagation must stop partway up the gradient,
+// well before reaching the y>=30 plateau (distance 24 there).
+const gradientDefault = makeGradientCorridorFrame(GW, GH, CORRIDOR_X, CORRIDOR_W);
+K.floodFillTransparent(gradientDefault, GW, GH);
+ok('genuine flat backdrop (top strip, distance 0) is removed as always',
+    alphaAt(gradientDefault, GW, CORRIDOR_X + 2, 2) === 0);
+ok('default drift cap (20) stops propagation before the gradient reaches the deep plateau (distance 24) — the collar-leak regression',
+    alphaAt(gradientDefault, GW, CORRIDOR_X + 2, 45) === 255);
+
+// Raising the cap well above 26 (the flat per-pixel tolerance itself) removes
+// the new protection entirely — recovers the OLD (pre-round-5) behaviour,
+// proving the cap — not some other change — is what's responsible.
+K.configureBgRemoval({ floodFillDriftCapPx: 100 });
+const gradientRaised = makeGradientCorridorFrame(GW, GH, CORRIDOR_X, CORRIDOR_W);
+K.floodFillTransparent(gradientRaised, GW, GH);
+ok('raising floodFillDriftCapPx above the flat tolerance recovers the old behaviour — the plateau IS swept, proving the cap (not something else) is what protects it above',
+    alphaAt(gradientRaised, GW, CORRIDOR_X + 2, 45) === 0);
+K.configureBgRemoval({ floodFillDriftCapPx: 20 }); // restore default for later tests
+
+// The original "ate a light shirt" regression tests (rounds 1/2) must still
+// pass unchanged — the drift cap must not be so aggressive that it reproduces
+// that bug via a different mechanism. (Re-run here, after touching
+// configureBgRemoval, to prove no cross-test pollution.)
+const distinctRecheck = makeFrame(W, H2, white, head, null);
+paintRect(distinctRecheck, W, { x: 5, y: 34, w: 30, h: 6 }, garmentColor);
+K.floodFillTransparent(distinctRecheck, W, H2);
+ok('round 1/2\'s "a garment with a real colour difference survives touching the bottom edge" is NOT regressed by the round-5 drift cap',
+    alphaAt(distinctRecheck, W, 10, 37) === 255 && alphaAt(distinctRecheck, W, 20, 38) === 255);
 
 // _featherAlpha(): a hard 0/255 edge should soften to an intermediate value
 // right at the boundary, without changing fully-interior or fully-exterior

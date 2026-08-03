@@ -1,0 +1,7 @@
+# CoreX background-removal service dependencies (Python 3.12). Loose pins:
+# stable majors, room for patch updates. Mirrors services/hf-ai/requirements.txt's
+# pinning style.
+rembg[cpu]>=2.0.77,<3.0
+fastapi>=0.110,<1.0
+uvicorn[standard]>=0.29,<1.0
+python-multipart>=0.0.9

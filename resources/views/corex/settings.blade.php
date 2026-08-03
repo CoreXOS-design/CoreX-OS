@@ -2241,6 +2241,33 @@
                     </form>
                 </div>
 
+                {{-- AI background removal (agent photos) toggle — ad-manager.md §15.2 --}}
+                <div class="p-4 rounded-md flex items-center justify-between gap-4" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div>
+                        <div class="text-sm font-semibold" style="color:var(--text-primary);">AI background removal for agent photos</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">When enabled, a new or replaced agent photo is automatically sent to an AI background-removal service and the cutout is used wherever the Ad Builder's "Remove background" option is turned on. Turn off to stop sending this agency's agent photos to the service — existing cutouts stay in place, but no new ones are generated.</div>
+                    </div>
+                    <form method="POST" action="{{ route('corex.settings.ad-bg-removal-api') }}" class="flex items-center gap-3 flex-shrink-0">
+                        @csrf
+                        @method('PUT')
+                        <input type="hidden" name="ad_bg_removal_api_enabled" value="0">
+                        <label class="relative cursor-pointer flex-shrink-0" style="width:44px; height:24px; display:block;"
+                               title="{{ $adBgRemovalApiEnabled ? 'Enabled — click to disable' : 'Disabled — click to enable' }}">
+                            <input type="checkbox" name="ad_bg_removal_api_enabled" value="1"
+                                   {{ $adBgRemovalApiEnabled ? 'checked' : '' }}
+                                   class="sr-only"
+                                   onchange="this.closest('form').submit()">
+                            <span class="block w-full h-full rounded-full transition-colors duration-200"
+                                  style="background:{{ $adBgRemovalApiEnabled ? 'var(--brand-button, #0ea5e9)' : 'var(--border-hover)' }}"></span>
+                            <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-all duration-200"
+                                  style="transform:translateX({{ $adBgRemovalApiEnabled ? '20px' : '0' }})"></span>
+                        </label>
+                        <span class="text-sm font-semibold" style="color:{{ $adBgRemovalApiEnabled ? 'var(--brand-button, #0ea5e9)' : 'var(--text-muted)' }};">
+                            {{ $adBgRemovalApiEnabled ? 'On' : 'Off' }}
+                        </span>
+                    </form>
+                </div>
+
                 {{-- Syndication portals — controls which portals appear in the property syndication panel --}}
                 <div class="p-4 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
                     <div class="mb-3">

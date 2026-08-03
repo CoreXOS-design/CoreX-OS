@@ -64,12 +64,19 @@ class UserDocument extends Model
         'uploaded_by_admin',
         'admin_upload_reason',
         'notes',
+        // §15.2 — AI background-removal cutout tracking (profile_photo rows only).
+        'bg_removal_status',
+        'bg_removal_cutout_path',
+        'bg_removal_driver',
+        'bg_removal_processed_at',
+        'bg_removal_error',
     ];
 
     protected $casts = [
         'expiry_date'  => 'date',
         'verified_at'  => 'datetime',
         'rejected_at'  => 'datetime',
+        'bg_removal_processed_at' => 'datetime',
     ];
 
     // ── Relationships ──

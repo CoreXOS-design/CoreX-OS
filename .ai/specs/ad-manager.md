@@ -609,6 +609,21 @@ snapshots the fallback face.
   born, and second renderers drift;
 - every font in the kernel's `FONTS` is actually loaded by `_ad-fonts`.
 
+### 12.6 Cache-busting (§15.1 round 4)
+
+All three surfaces load the kernel via `asset_v('js/corex-ad-render.js')`
+(`app/Support/helpers.php`) instead of a hand-written `?v=1` query string.
+`asset_v()` appends the file's own `filemtime()` as the version — it changes
+automatically the moment the file is edited/deployed, with no manual number
+to remember to bump. Before this, every fix shipped this session (rounds 1–4,
+§18) went out behind the SAME unbumped `?v=1` — a browser that had already
+cached the kernel kept running whichever version it fetched first,
+indefinitely, with no way to tell which fixes were actually live in a given
+tab without a hard refresh. This is very likely why property 3080's "ear
+disc" symptom was reported as still present in the same investigation that
+found round 3 already fixes it against the current photo (§15.1 round 4) —
+a stale cached copy of the script, not a live bug.
+
 `tests/js/ad-render-kernel.mjs` (`node tests/js/ad-render-kernel.mjs`) exercises the render
 logic itself against the shipped kernel — the four drift bugs, the new properties, legacy
 back-compat, HTML escaping, and the photo-override path. 31 checks.
@@ -1095,7 +1110,17 @@ unchanged.
 
 ## 15.1 "Remove background" — client-side cutout for a plain-backdrop photo
 
-> Status: LIVE · 2026-08-02
+> Status: SUPERSEDED 2026-08-03 by §15.2 (AI segmentation API) in the LIVE
+> render path — see §15.2 for why and exactly what changed. The algorithm,
+> tests and this write-up are kept below verbatim as the historical record of
+> six rounds of evidence-based iteration; nothing here was deleted. The
+> underlying functions (`_floodFillTransparent`, `_fillEnclosedHoles`,
+> `_featherAlpha`, `stripBackground`, `_processBackgroundRemoval`,
+> `configureBgRemoval`/`_bgRemovalConfig`) remain in
+> `public/js/corex-ad-render.js`, exported on `window.CoreXAd`, but are no
+> longer called from the live render path (`imgTag()` no longer adds the
+> `onload` hook that triggered them) — see §15.2's "Dead code" note for the
+> exact removal-candidate list for a later round.
 
 **What/why.** The request's own example: an agent's headshot on a **white studio
 backdrop** should lose that backdrop and show only the person, so the photo sits
@@ -1249,13 +1274,424 @@ reason a real garment must be. That's the accepted boundary of a
 border-connectivity technique, not an oversight; see the existing "remaining,
 accepted limit" note above, which this round doesn't change.
 
-**Deliberately not built:** any adjustable tolerance/threshold control (a fixed
-value tuned for a light, roughly-solid backdrop); manual background-colour
-picking (always auto-sampled from the corners); a "transparent fill behind the
-shape mask" or "no placeholder box when the photo is missing" option (both
-explicitly dropped from scope on request, see §15's "Deliberately not built").
+*Round 4 (2026-08-02, same day) — an upper bound on `_fillEnclosedHoles`
+(property 2934, SAME agent, a different pose).* Reported as "additional
+evidence": the same agent's photo produced a DIFFERENT artefact on a
+different property's ad — earrings rendered correctly, but a large section of
+the white collar/blouse was missing, cut with a hard straight edge. Investigated
+before any code change, per the same evidence-based discipline as round 3:
 
-**Acceptance criteria**
+- **Which file did each property actually process?** Could not be proven.
+  `agents/{id}/photo.webp`'s underlying bytes were overwritten in place on
+  2026-06-25 (the `user_documents` row's `file_path` never changed, only its
+  content did) — an orphaned older photo with a different pose (arms crossed,
+  a wide open V-neck collar) still sat on disk, unreferenced since. nginx
+  access logs on the host only retain ~14 days, starting well after that
+  replacement — every retained request for the current URL returns the
+  CURRENT file's byte count, with no trace of the old one ever being served in
+  the retained window. The fix below is deliberately justified on its own
+  merits, NOT on an assumed timeline of which file which ad used — the defect
+  it fixes is real and reproducible against the actual old file regardless.
+- **Ruled out:** a persistent/shared cache serving stale output (none
+  exists — confirmed by re-reading `stripBackground()`/`_bgRemovalCache`, a
+  plain in-memory object scoped to one page load); the algorithm referencing
+  the AD's own background/colour behind the subject (`_processBackgroundRemoval`
+  draws only the `<img>` element's own decoded bitmap — nothing in the kernel
+  reads or blends against the surrounding template); non-determinism (a
+  faithful PHP/GD port run twice against the same file produced byte-identical
+  output, `md5sum` confirmed).
+- **Confirmed, reproducible defect:** `_fillEnclosedHoles()` (round 3) had a
+  size FLOOR (`HOLE_MIN_PX`) but no ceiling. A pose where a genuine patch of
+  light-coloured clothing is fully enclosed by dark clothing on every side
+  (arms crossed, an open collar) satisfies the exact same "enclosed pocket"
+  test as an earring gap — round 3 had no way to tell them apart, so it
+  erased a real 2059px patch of collar outright.
+
+**Fix — two additional guards, both required, both agency-configurable
+(never hardcoded per-call):**
+- `holeMaxPx` (area cap, default **1200**) — rejects a pocket whose total pixel
+  count exceeds this.
+- `holeMaxDimensionPx` (bounding-box cap, default **45**) — rejects a pocket
+  whose LONGEST bounding-box side exceeds this.
+
+Both are necessary; NEITHER alone covers every measured case. Measured on the
+real photos (500px working resolution):
+
+| | area (px) | longest bbox side (px) |
+|---|---|---|
+| genuine holes (earrings, small gaps) | 46–851 | ≤41 |
+| failing case A (small collar gap) | 602 | 51 |
+| failing case B (large collar patch) | 2059 | 131 |
+
+Failing case A's AREA (602) is *smaller* than the largest genuine hole
+(851) — an area cap tight enough to exclude 602 would also wrongly exclude
+725 and 851. The bounding-box dimension is what separates every measured case
+cleanly (≤41 vs. ≥51), which is why it exists as an independent guard, not
+folded into the area check. `holeMaxPx` still exists as a second, independent
+line of defence for a large pocket whose proportions happen to keep its
+longest side under the dimension cap.
+
+Existing `HOLE_MIN_PX` was renamed `holeMinPx` and folded into the same
+agency-configurable mechanism (default unchanged, 30).
+
+**Agency-configurable, not hardcoded.** All three thresholds live on
+`agencies.ad_bg_removal_hole_{min,max,max_dimension}_px` (nullable —
+null = "use the kernel's default"), read once per page load by each of the
+three render surfaces and pushed into the kernel via
+`CoreXAd.configureBgRemoval({ holeMinPx, holeMaxPx, holeMaxDimensionPx })`,
+called immediately after the kernel script tag. **Deliberately NOT surfaced
+in the Agency Onboarding Setup Wizard** — non-negotiable #10a's own carve-out
+for "an expert/rarely-touched knob" applies here: this is pixel-level tuning
+for a specific photo-processing edge case, not a business-relevant setting an
+agency needs walking through at setup. This is Johan's own call, made
+directly in this session, not inferred by the lane — recorded here per
+non-negotiable #10a so the omission is a decision on the record, not an
+oversight.
+
+**Regression-tested against real photos, not just synthetic cases:** Elize's
+current photo (close-up headshot) — both earring holes still fill correctly,
+zero change from round 3; Elize's old orphaned photo (arms-crossed pose) —
+the 602px and 2059px collar patches are now correctly rejected, composited
+onto a contrasting background and visually confirmed intact; Retha's, Kym's,
+Johan's and Maggie's photos — no change, still clean, across a real mix of
+poses/clothing (a dark shirt with no light collar at all, busy hair with many
+small strand-gaps, a name-badge pinhole).
+
+**A genuine footgun found and fixed along the way — `@json()` cannot take an
+inline multi-key array literal.** The first attempt at wiring
+`configureBgRemoval({...})` into all three surfaces passed the array directly:
+`@json(['holeMinPx' => …, 'holeMaxPx' => …, …])`. This compiled "successfully"
+(`artisan view:cache` reported no error) but threw a `ParseError` — "Unclosed
+`[` … does not match `)`" — the moment the view actually RENDERED. Root cause,
+confirmed by reading `Illuminate\View\Compilers\Concerns\CompilesJson`:
+`@json($value, $options, $depth)` is compiled by exploding its ENTIRE argument
+on every top-level comma, expecting up to three positional arguments — an
+inline array literal's own key-value commas get sliced apart the same way,
+truncating the array and feeding its own later fragments in as `$options`/
+`$depth`. `view:cache` never catches this because it only pre-compiles each
+file's Blade syntax; it does not exercise the `@extends`/`@section` render
+path the same way an actual `view()->render()` call does — this is why the
+bug was invisible until Tinker-rendered the real controller output. **Fix:**
+build the array in a `@php` block first, assign it to a bare variable with NO
+top-level commas, then pass ONLY that variable to `@json($var)`. Applies to
+all three surfaces identically (`$_bgRemovalCfg` in `ad.blade.php`/
+`ad-builder.blade.php`, same in `ad-manager.blade.php`). Worth remembering for
+any FUTURE `@json(...)` call anywhere in this codebase that isn't a single
+bare variable/expression.
+
+**Deliberately not built:** manual background-colour picking (always
+auto-sampled from the corners); a "transparent fill behind the shape mask" or
+"no placeholder box when the photo is missing" option (both explicitly
+dropped from scope on request, see §15's "Deliberately not built"); an
+aspect-ratio-based guard (evaluated and rejected — some GENUINE small holes
+measured MORE elongated, e.g. 5.33:1, than the failing large patch's 2.18:1,
+so aspect ratio alone is not a safe discriminator on this data; absolute
+bounding-box dimension is what actually separates every case).
+
+*Round 5 (2026-08-02, same day) — a THIRD, distinct failure shape found on
+the SAME real photo: the main flood fill leaking into a lit collar highlight.*
+Reported as "a pale, hard-edged region at the bottom-left that runs to the
+frame border" — round 4 shipped correctly (its own regression table showed
+zero change on this exact photo) but didn't touch this artefact, because it
+turned out not to be an enclosed-hole issue at all.
+
+**Investigation corrected the initial framing before any code changed.** The
+natural first hypothesis — a border-touching region incorrectly PROTECTED
+from removal (i.e. something `_fillEnclosedHoles`'s border-touch guard was
+over-protecting) — was measured first, exactly as asked, and ruled out: the
+one border-touching survivor found (3052px, bbox 75×123, touching the bottom
+edge) traced back to source and was confirmed correct — genuine, untouched
+fabric, never a candidate for removal at all. The ACTUAL defect is the
+OPPOSITE: real collar fabric being ERASED, by `_floodFillTransparent()`
+(rounds 1/2's original pass), not anything `_fillEnclosedHoles` (rounds 3/4)
+ever touches. Confirmed by colour-coding which pass removes which pixel and
+tracing a probe pixel's ancestry: it belongs to the SAME single connected
+component as the entire 131,319px border-seeded fill.
+
+**Root cause, measured precisely.** A well-lit patch of the (real, present —
+confirmed against the unprocessed source photo, no gap in the garment) white
+collar sits at a colour distance from the sampled backdrop that individual
+pixels never exceed the flat tolerance (measured: min 0, median 17.7, max
+26.0 in the affected area) — this is NOT the "truly colour-identical garment"
+case rounds 1/2 already accept as a hard limit. It's a smooth, unbroken
+4-connected chain from real backdrop into the lit fabric. Traced the actual
+flood-fill path into the leak: distance from backdrop sits at ~0 for roughly
+600 hops (genuine, flat backdrop) then jumps to ~23 in a SINGLE hop at the
+exact point the fill crosses from background into the collar edge, staying
+elevated (17–25) for the rest of the path deeper into the fabric. A per-pixel
+tolerance check cannot see this — it only ever asks "is this ONE pixel close
+enough to backdrop", never "how far has the fill already drifted to get
+here." Confirmed the `objectFit:cover` crop (180×200) is not a contributing
+factor — cover's own geometry keeps the full vertical range visible here (no
+crop) and only trims 25px off each side horizontally, well clear of the
+leak's location. Ran the same measurement against Retha's, Kym's, Johan's and
+Maggie's photos — zero leaks in any of them; this is 1-in-5 tested, not a
+systemic problem, correlating with a specific evenly-lit highlight condition.
+
+**Fix — `floodFillDriftCapPx` (default 20): a path-max drift cap on the main
+flood fill.** Tracks, per pixel, the HIGHEST single-pixel colour distance
+seen anywhere along the chain of already-accepted pixels connecting it back
+to a seed (each pixel inherits the max of its own distance and whichever
+neighbour first reached it). Once that running max exceeds the cap,
+propagation stops — the pixel is neither removed nor does the fill continue
+past it, so everything beyond is protected too. Evidence for the default:
+measured path-max-distance across every removed pixel in all 5 test photos —
+**the 90th percentile is 0 in EVERY photo** (real backdrop is genuinely flat,
+so this signal is silent almost everywhere) — while the failing photo's leak
+sits at 22–25 the moment it crosses from backdrop into fabric. 20 sits below
+where the leak starts climbing and above where four clean photos' own
+highest percentiles sat, so it engages ONLY on the measured failure case, not
+as a blanket tightening of every photo's cutout.
+
+**Three explored alternatives, and why this one shipped:**
+- **A narrow relaxation of the border-touch rule** (the ask's own first
+  hypothesis) — moot once investigation corrected the framing: there was
+  never a survivor to relax protection for; the pixels in question were
+  never protected in the first place, they were being wrongly erased.
+- **Fix at source (re-crop/re-shoot the agent photo)** — doesn't touch the
+  algorithm, zero regression risk to any other photo, but is a process
+  fix, not retroactive: already-uploaded photos with this lighting stay
+  broken, and CoreX can't enforce photography practice. Recorded as ongoing
+  guidance, not a substitute for a code fix.
+- **A soft fade at the cut-out's bottom edge** — would only soften the edge
+  of whatever got removed; the real collar detail is still lost. Rejected
+  as symptom-masking, not a fix (BUILD_STANDARD.md: "fix root causes, not
+  symptoms... no quick patches").
+
+**Regression-tested against all 5 real photos, composited on a contrasting
+background and visually confirmed, plus an exact pixel-diff (not just
+eyeballing) between the pre- and post-fix output:**
+- Elize's photo (the failing case): the 3052px-class leak is gone, collar
+  fully intact, matching the untouched side of the same photo. Both earrings
+  still correctly filled (round 3, unaffected).
+- Elize's OLD orphaned photo (round 4's test case): unaffected — the
+  602px/2059px collar-patch rejections are byte-for-byte identical before
+  and after this change, confirming no interaction between round 4's
+  enclosed-hole guard and round 5's flood-fill guard.
+- Retha, Kym, Johan, Maggie: pixel-diffed before vs. after — 0.3–0.8% of
+  removed pixels changed in each, exclusively as thin (≤14px-wide) fringe
+  clusters along hair/subject edges, not blob-shaped erasures. Visually
+  inspected the single largest cluster (Retha, 495px, a hair edge) — the
+  diff is a few strands of fine hair now correctly PRESERVED instead of
+  swept away with the backdrop, a marginal improvement, not a regression.
+
+**Agency-configurable, not hardcoded.** `agencies
+.ad_bg_removal_flood_fill_drift_cap_px` (nullable — null = kernel default,
+20), same mechanism and same non-negotiable #10a Setup Wizard carve-out as
+the round-4 thresholds it sits alongside.
+
+**Acceptance criteria (round 5)**
+- [x] A smooth-gradient path that individually stays within the flat colour
+      tolerance the whole way is stopped once its cumulative path-max
+      distance exceeds `floodFillDriftCapPx` — the collar-leak regression.
+- [x] Genuine flat backdrop (path-max ~0 throughout) is completely
+      unaffected — clears exactly as before.
+- [x] Raising `floodFillDriftCapPx` above the flat tolerance (26) recovers
+      the pre-round-5 behaviour exactly, proving the cap — not something
+      else — is what protects the gradient case.
+- [x] `configureBgRemoval()` actually changes `floodFillDriftCapPx` when an
+      agency sets it; defaults to 20 when unset.
+- [x] Round 1/2's "a garment with a real colour difference survives touching
+      the bottom edge" is not regressed by the new cap.
+- [x] Round 4's enclosed-hole guard (602px/2059px collar-patch rejection) is
+      byte-for-byte unchanged with the new cap active.
+- [x] Verified against 5 real photos (not just synthetic frames): the one
+      failing case is fixed; the other four show only thin, non-blob edge
+      fringing (0.3–0.8% of removed pixels), visually confirmed harmless.
+- [x] `tests/js/ad-render-kernel.mjs` covers the mechanism directly with a
+      synthetic gradient-corridor frame: default cap stops before the
+      "plateau", raised cap sweeps it, real flat backdrop unaffected.
+
+**⛔ REVERTED (2026-08-02, same day) — see "Round 6 — REVERTED" note at the
+end of this section before reading any further.** The fix below shipped to
+live, was found to make the ad visibly WORSE (a flat white rectangle over a
+photographic background, not a colour-matched blend), and was pulled the
+same day. Round 5 is the accepted state. This write-up is kept for the
+record — do not re-implement `cutoutMatteColor` from this description
+without reading why it failed.
+
+*Round 6 (2026-08-02, same day) — the remaining artefact was a compositing
+gap, not the removal algorithm at all.* Round 5 fixed the collar erasure,
+confirmed on a fresh pull. What remained on the SAME photo: a hard, straight
+vertical edge down the left side of the jacket ("reads as a crop boundary,
+not a photo edge"), and a pale wedge near the shoulder with a hard edge.
+Investigated before touching any code, per the same discipline as every
+prior round — and this time the cause was NOT the algorithm at all.
+
+**Root cause, proven with the real template's own saved data.** Template 1's
+`agent_avatar` element sits at `x:0, y:880, w:180, h:200` — its own template
+also has a white "card" background shape at `x:43, w:990` (spans canvas
+x 43–1033) sitting on top of a full-bleed dark shape at `x:-20, w:1130`
+(spans the whole canvas, `zIndex:2`, BELOW the card's `zIndex:3`). The Agent
+Image element (`zIndex:20`) draws on top of both. `frameStyle()`
+(`public/js/corex-ad-render.js:311-347`, read directly, not assumed) has
+never painted any background of its own for Agent Image elements — only
+`shapeCss()` (line 349) applies `el.bg`, for decorative shapes. So a
+transparent (correctly-removed) cutout pixel simply reveals whatever's
+underneath in the real DOM stack: for canvas x 0–43 (43px of the 180px-wide
+box, since the box starts at x=0, 43px LEFT of the card's own boundary)
+that's the dark shape; for x 43–180 that's the white card. Confirmed by
+simulation, not just reasoning: composited the SAME round-5-fixed cutout,
+cropped with the EXACT `objectFit:cover` math (`prepareImagesForCapture()`),
+onto (a) the template's real split background — reproduces the reported hard
+vertical stripe pixel-for-pixel — and (b) a uniform white background —
+completely clean, no edge, no wedge, both artefacts gone at once. This also
+rules out the `objectFit:cover` crop itself as a contributing cause: cover's
+own geometry (natural 500×500 post-strip, box 180×200) keeps the FULL
+vertical range visible (no vertical crop at all) and only trims 25px off
+each side horizontally — nowhere near where the seam actually sits (which is
+a compositing/z-stack effect, not a slice through the subject). This is
+systemic geometry (this exact template's element positioning vs. its own
+card), not photo-specific — it would reproduce identically for any agent's
+photo run through this same template, since it depends only on the
+template's own layout, never on the photo's pixels.
+
+**Three options considered, one chosen:**
+- **A narrow relaxation of the border-touch rule** (a natural first guess,
+  matching how round 4 was framed) — doesn't apply: there is no removal-
+  algorithm boundary involved anywhere in this defect.
+- **Reposition the element** so it sits entirely within the card (e.g.
+  `x:45`) — would fix Template 1 alone, permanently forecloses the
+  legitimate design pattern of an agent photo deliberately bleeding off a
+  card's edge for future templates, and fixes nothing for the NEXT template
+  a designer builds with the same positioning choice.
+- **`cutoutMatteColor` — an explicit fill painted behind the cutout,
+  bounded to the element's own box** (shipped). Doesn't constrain future
+  template design at all; a designer who wants exactly this bleed-off-the-
+  card look keeps it, and just tells the cutout what colour to show instead
+  of leaving it to accident.
+
+**Fix — `el.cutoutMatteColor`, a PER-ELEMENT property (not a numeric
+threshold, and not agency-wide).** `frameStyle()` now paints
+`background-color: <cutoutMatteColor>` on an Agent Image frame when BOTH
+`removeBackground` and `cutoutMatteColor` are set — scoped tightly: a normal
+(non-cutout) Agent Image has no transparent pixels to matte, so the property
+is inert there; an element with `removeBackground` but no `cutoutMatteColor`
+(every existing template, by definition, since the property is brand new)
+renders IDENTICALLY to before — zero visual change unless a designer
+explicitly opts in. This is deliberately NOT an agency-wide numeric
+threshold like rounds 3–5's: it's a design choice (which colour goes behind
+THIS element in THIS template) exactly the same shape as `bg`/`color`/
+`shapeType`, which are ALL already per-element, set in the Ad Builder, not
+agency settings — an agency-wide "matte colour" would be meaningless anyway,
+since the correct value depends entirely on what a SPECIFIC template's OTHER
+elements look like at that exact position.
+
+**Ad Builder UI** — a checkbox + colour picker ("Fill removed background
+with a colour") inside the existing Agent Image panel, visible only when
+"Remove background" is on, with a hint explaining WHY ("match whatever this
+element overlaps behind it").
+
+**Data correction — one-time, exhaustive, not agent/photo-specific.**
+Queried the live system directly (not assumed): Template 1 is the ONLY
+template, in the entire system, with `removeBackground` enabled on any
+element — so correcting it is the COMPLETE fix for every current usage, not
+a special case picked for one property. A migration
+(`2026_08_20_000008_backfill_cutout_matte_color_for_removebg_avatars.php`)
+finds every `agent_avatar`/`agent_2_avatar` element with `removeBackground`
+and no `cutoutMatteColor`, and derives the correct colour from the
+template's OWN data — the `bg` of whichever overlapping sibling `shape` has
+the HIGHEST z-index below the avatar's own (i.e. whichever shape the browser
+actually paints on top, matching real DOM order) — never a hardcoded guess.
+**Important correction made DURING testing, not after:** the first version
+picked the LARGEST overlapping shape by AREA, not z-index — tested against a
+replica of the real case and it picked the WRONG shape (the full-bleed dark
+background, which geometrically covers the entire box by construction,
+outscoring the smaller-but-actually-on-top white card). Fixed to select by
+z-index; re-tested against the same replica and it now correctly resolves to
+the card's own `#ffffff`. Idempotent (re-running never touches an
+already-set `cutoutMatteColor`) and safe on every edge case tested: no
+overlapping shape at all (stays unset, no crash), `removeBackground` false
+(never touched), already-configured (never overwritten), two consecutive
+runs (identical result both times).
+
+**Deployed to Staging and live 2026-08-02, then reverted the same day** —
+prepared and fully tested against a locally-constructed replica in QA2
+(QA2's own database has no ad templates at all, so the real Template 1 row
+was read directly from live for investigation, per explicit instruction).
+Approved, deployed QA2→Staging→live, ran cleanly, backfilled Template 1's
+`agent_avatar` element to `cutoutMatteColor:#ffffff` — and was visibly wrong
+in production: see "Round 6 — REVERTED" below.
+
+**Acceptance criteria (round 6)**
+- [x] Compositing the real cutout onto the template's actual split
+      background reproduces both reported artefacts exactly.
+- [x] Compositing the SAME cutout onto a uniform matching colour eliminates
+      both artefacts at once — proves a single mechanism explains both, and
+      that the removal algorithm's own output was never the problem.
+- [x] The `objectFit:cover` crop is confirmed NOT a contributing factor —
+      full vertical range visible, horizontal trim nowhere near the seam.
+- [x] `cutoutMatteColor` unset (every existing template) paints nothing —
+      zero visual change.
+- [x] `cutoutMatteColor` without `removeBackground` is a no-op.
+- [x] `cutoutMatteColor` WITH `removeBackground` paints exactly that colour,
+      scoped to Agent Image fields only, both Agent 1 and Agent 2.
+- [x] The data-correction migration derives the correct colour from the
+      template's own z-order, is idempotent, and is verified safe against
+      every edge case (no overlap, flag off, already-set, re-run).
+- [x] Confirmed via live query: Template 1 is the only template with
+      `removeBackground` enabled anywhere in the system — the migration is
+      the complete fix, not a special case.
+- [x] `tests/js/ad-render-kernel.mjs` covers `cutoutMatteColor` directly.
+
+**Round 6 — REVERTED (2026-08-02, same day).** Deployed to Staging and live,
+then pulled the same day on the agency's report that ad 2934 got visibly
+worse, not better. **The root-cause diagnosis above (the compositing gap)
+was correct — the fix was wrong.** `cutoutMatteColor` assumed whatever sits
+behind the Agent Image element at that position is a flat-coloured
+decorative SHAPE (the case simulated and tested against: a synthetic
+black/white split). In the ACTUAL Template 1 design, the shape at that
+z-order is a property/marketing PHOTO, not a flat colour — the "white card"
+read as flat in the simulation because the sample template used for the
+geometry test happened to have `bg:#ffffff`, but the real template paints a
+photographic background there. Painting a solid `#ffffff` rectangle over a
+photographic background is visibly WORSE than the seam it was meant to
+hide: a flat colour block can never blend into a photograph, at any colour
+value. This is a fundamental mismatch in the fix's own assumption, not a
+threshold or tuning problem — no colour choice fixes it, which is why this
+is reverted rather than re-tuned.
+
+**What actually shipped, reverted, in order QA2 → Staging → live:**
+- `public/js/corex-ad-render.js` — the `cutoutMatteColor` block in
+  `frameStyle()` removed (restored to the exact round-5 file, via
+  `git show` against the round-5 commit, not hand-edited).
+- `resources/views/corex/properties/ad-builder.blade.php` — the "Fill
+  removed background with a colour" checkbox + colour picker removed
+  (restored to the round-5 file, same method).
+- `tests/js/ad-render-kernel.mjs` — the 5 `cutoutMatteColor` checks removed
+  (restored to the round-5 file, same method); suite back to 123/123.
+- **Data reversal** — the forward migration
+  (`2026_08_20_000008_backfill_cutout_matte_color_for_removebg_avatars.php`)
+  is kept in place (already ran in production; migration files that have
+  run are not deleted, consistent with the project's no-hard-deletes
+  posture). A new migration,
+  `2026_08_20_000009_revert_cutout_matte_color_backfill.php`, clears
+  `cutoutMatteColor` from every `agent_avatar`/`agent_2_avatar` element that
+  has it set, system-wide (not just Template 1) — undoing the class of
+  change 000008 made, not one row by hand.
+
+**Status:** round 5 is the accepted state until Johan says otherwise. The
+original left-edge seam on ad 2934 (documented above) is UNFIXED and stays
+unfixed — no further attempt was made in this pass, per explicit
+instruction not to reach for another fix immediately.
+
+**Acceptance criteria (round 4)**
+- [x] A large enclosed hole (area > `holeMaxPx`) is NOT filled.
+- [x] A modest-area but elongated hole (longest bbox side > `holeMaxDimensionPx`)
+      is NOT filled — proves the area cap alone would have missed this case.
+- [x] The original earring-sized fix (round 3) is NOT regressed by adding the
+      upper bound.
+- [x] `configureBgRemoval()` actually changes behaviour when an agency raises
+      or lowers any of the three thresholds.
+- [x] Every threshold defaults sensibly when an agency has never configured
+      it (`null` on the agencies row) — every agency before this shipped gets
+      identical behaviour to before it existed.
+- [x] Verified against real photos, not only synthetic test frames: Elize
+      current + old, Retha, Kym — before/after composited on a contrasting
+      background and visually confirmed.
+- [x] `tests/js/ad-render-kernel.mjs` covers all of the above directly.
+
+**Acceptance criteria (rounds 1–3, unchanged)**
 - [x] A plain white/near-white backdrop is removed; the person is preserved.
 - [x] A white patch fully inside the subject (not touching the image border)
       is NOT removed — proves this is a border-connectivity flood fill, not a
@@ -1289,6 +1725,452 @@ explicitly dropped from scope on request, see §15's "Deliberately not built").
       (synthetic pixel buffers — no real Canvas/Image needed), the
       onload-hook emission/omission, the enclosed-holes pass (filled vs. not
       filled vs. border-touching), and edge feathering.
+
+---
+
+## 15.2 "Remove background" — AI segmentation API, superseding the colour heuristic
+
+> Status: SUPERSEDED 2026-08-03, same day, by §15.3 (self-hosted rembg) as
+> the DEFAULT driver in the LIVE render path. Built and left fully wired —
+> `App\Services\Images\BackgroundRemoval\PhotoroomDriver`/`RemoveBgDriver`
+> are unchanged, still selectable via `BG_REMOVAL_DRIVER=photoroom|remove_bg`,
+> deliberately never deleted (see §15.3's "why the paid drivers stay"). NOT
+> on Staging or live in either form as of this writing.
+>
+> **Why the reversal, same day:** this section's own feasibility reasoning
+> ("a shared/disk-constrained production host, and an unverified ARM
+> inference cost — in favour of a paid segmentation API") was built on a
+> wrong model of the disk layout. `/corex`, `/corex-qa1`, `/corex-qa2` and
+> `/corex-staging` are bind-mounts off a 200GB Hetzner Cloud Volume
+> (`/mnt/HC_Volume_103099143`, 69GB free), not the 38GB root disk the
+> original report measured against. Once that was corrected and rembg was
+> actually installed and measured on the real volume — ~1.1s/photo on this
+> ARM box, ~750MB footprint, cutout quality visibly better than the flood
+> fill on the cases that mattered (earrings, hair strands) — self-hosting
+> won on its own merits, not despite them. See §15.3.
+
+**What/why (original reasoning, unchanged below — the API-vs-self-host call
+is what flipped, not this diagnosis).** §15.1's flood fill is a genuinely
+good "prevent" for the common case (a plain studio backdrop) but has an
+INHERENT, accepted limit stated in its own write-up: a garment truly
+colour-identical to the backdrop gives no signal any colour algorithm can
+use, and is knowingly swept in too. Six rounds of increasingly careful
+colour-space engineering (border-seed restriction, a drift cap, enclosed-hole
+fill with area/dimension caps, edge feathering — round 6 shipped and reverted
+the same day) is the ceiling of what a heuristic can do; the only way past it
+is a real segmentation model that understands "this is a person" rather than
+"this pixel is a colour." Photoroom vs remove.bg was left unresolved
+deliberately (see "Provider is a config choice" below) — moot now that
+neither is the active driver, but both remain correctly implemented and
+tested.
+
+**Architecture — provider is a config choice, not an architecture choice.**
+Both providers have an identical integration shape (multipart POST, an
+API-key header, PNG bytes back), so the whole feature is built against one
+interface:
+
+- `App\Contracts\Images\BackgroundRemovalDriver` — `name()` +
+  `removeBackground(string $absolutePath): BackgroundRemovalResult`.
+- `App\Services\Images\BackgroundRemoval\PhotoroomDriver` /
+  `RemoveBgDriver` — the two implementations. `BackgroundRemovalResult` is a
+  plain DTO (PNG bytes, driver name, optional `costCredits` string from
+  whichever cost/credit response header the provider returns).
+  `BackgroundRemovalException` carries the driver name + HTTP status for
+  logging.
+- `App\Services\Images\BackgroundRemoval\BackgroundRemovalManager::driver()`
+  resolves the active implementation from ONE config value,
+  `services.bg_removal.driver` (env `BG_REMOVAL_DRIVER=photoroom|remove_bg`,
+  default `photoroom`). **Swapping providers is a one-line .env change — no
+  code edit, no migration, no redeploy.**
+- Output resolution tier is also config, `services.bg_removal.resolution`
+  (env `BG_REMOVAL_RESOLUTION`, default `medium`) — our photos are
+  1200×1200 (1.44MP), so each driver's default "preview" tier (0.25MP)
+  would visibly soften the cutout; `medium` (1.5MP) is the floor that
+  actually covers our source resolution.
+- API keys are `.env`-only, never the database (STANDARDS.md "API Keys and
+  Credentials Live in .env Only"), consistent with `config/services.php`'s
+  general pattern (`anthropic`, `google`, `p24_imap`). Unlike P24/PP, which
+  support a per-agency DB-encrypted override precedent
+  (`agencies.p24_password`/`pp_password`), there is no per-agency key here —
+  every agency's photos go through ONE system-wide provider account.
+
+**One call per upload, never per render, never per property — proof.**
+`AgentProfilePhotoService::set()` (the single entry point all three upload
+paths — admin create, admin edit/role-tab, agent self-service portal — and
+the existing `agents:backfill-photo-cutouts` command all funnel through)
+dispatches `RemoveAgentPhotoBackgroundJob` exactly once, immediately after
+`AgentPhotoNormalizer` has written the normalised file. The ad-render kernel
+(`imageSrc()`) only ever READS the already-stored `agent_avatar_cutout` /
+`agent_2_avatar_cutout` URL that `Property::adData()` resolves from
+`User::profilePhotoCutoutUrl()` — rendering an ad, however many times, never
+triggers a new API call. The backfill command is the only OTHER caller of a
+driver's `removeBackground()`, and it is a manually-invoked, one-row-per-photo
+CLI tool, not something a render path can trigger.
+
+**Mechanism.**
+1. `AgentProfilePhotoService::set()` resets the new document row's
+   `bg_removal_*` fields to null (a fresh upload has no cutout yet — the
+   PREVIOUS photo's status/error must never show against the new file), then
+   calls `dispatchBackgroundRemoval()`, which checks the agency kill switch
+   (`agencies.ad_bg_removal_api_enabled`) before hashing the just-written
+   file's bytes (`md5()`) and queuing
+   `RemoveAgentPhotoBackgroundJob::dispatch($user->id, $path, $hash)` on its
+   own queue lane, `bg_removal` — the existing
+   `p24import`/`p24images`/`matching` lane-per-job-type pattern, no new
+   infrastructure (same Supervisor/systemd + `database` queue driver already
+   running). QA2's `corex-qa2-queue.service` `--queue=` list now includes
+   `bg_removal`.
+2. `RemoveAgentPhotoBackgroundJob::handle()` re-checks the agency toggle
+   (defence in depth against a mid-flight change), that
+   `$user->agent_photo_path` still equals the path captured at dispatch time
+   (catches a removed photo), AND that the CURRENT file at that path still
+   hashes to the value captured at dispatch time. The hash check is the one
+   that actually matters: `AgentPhotoNormalizer` always writes the SAME path
+   for a given user — `agents/{id}/photo.webp` — overwriting the previous
+   file's bytes in place rather than writing a new path, exactly the gotcha
+   the P24 round-4 investigation hit ("agents/{id}/photo.webp's underlying
+   bytes were overwritten in place... the user_documents row's file_path
+   never changed, only its content did"). A path-only comparison — the first
+   version built this round — can therefore NEVER detect a same-user
+   replacement (caught by a feature test that failed for exactly this
+   reason: two uploads for one user, then manually invoking the job for the
+   FIRST upload's captured path, unexpectedly called the API instead of
+   no-op'ing, because the path matched even though the bytes underneath it
+   had already changed). The hash check is the actual guard against a job
+   still in flight for an OLD photo attaching its cutout to a DIFFERENT
+   photo that has since overwritten the same path. Any of the three checks
+   failing is a silent no-op (logged `bg_removal.superseded`/
+   `.agency_disabled`), not a failure.
+3. On success, the PNG is stored at `agents/{id}/photo-cutout.png` —
+   ALONGSIDE `agents/{id}/photo.webp`, never overwriting or deleting it —
+   and `user_documents` (the `profile_photo` row) records
+   `bg_removal_status=done`, `bg_removal_cutout_path`, `bg_removal_driver`,
+   `bg_removal_processed_at`.
+4. On ANY failure (bad/missing key, timeout, quota, malformed response) the
+   job's own `$tries=3`/`$backoff=[30,120,300]` retry automatically; once
+   exhausted, `failed()` records `bg_removal_status=failed` +
+   `bg_removal_error` (never mid-retry, so an admin never sees a
+   false-terminal state for a retry still in flight) and logs
+   `bg_removal.terminally_failed`. **The original photo is never touched by
+   any failure path** — `User::profilePhotoCutoutUrl()` returns null
+   whenever `bg_removal_status !== 'done'`, and the kernel's `imageSrc()`
+   falls straight back to the plain photo whenever no cutout URL is present.
+   This can only ever ADD a cutout, never remove the original as a
+   fallback — an ad can never render blank because of this feature.
+5. Every call — driver, user/photo id, success/failure, the provider's
+   cost/credit response header when present (`X-Credits-Charged`) — is
+   logged (`bg_removal.api_call_succeeded` / `.api_call_failed` /
+   `.terminally_failed` / `.superseded` / `.agency_disabled`), so spend is
+   visible without logging into the provider's dashboard.
+
+**Ad-render kernel change (all three surfaces, one shared file).**
+`imageSrc()` in `public/js/corex-ad-render.js` now prefers
+`prop[field + '_cutout']` over `prop[field]` when the element's own
+`removeBackground` toggle is on AND a cutout URL is present — otherwise it
+returns the plain photo exactly as before. `imgTag()` no longer adds the
+`onload="window.CoreXAd.stripBackground(this)"` hook at all — there is
+nothing left for it to trigger client-side. Because all three ad surfaces
+(Ad Builder, the single-property generator, the bulk Ad Manager) share this
+one kernel file and read `prop` from `Property::adData()`, this is the
+ONLY file that needed changing for the new source to reach every surface —
+same "one place to put it" property the kernel was built to guarantee (§12).
+
+**Agency setting — `ad_bg_removal_api_enabled`, default ON.** A per-agency
+kill switch, business-relevant (unlike the §15.1 pixel-tuning thresholds,
+which stay an expert-knob carve-out), surfaced as a real toggle in Company
+Settings (Feature Settings → Properties tab), next to the existing Marketing
+toggle: `resources/views/corex/settings.blade.php`,
+`SettingsController::updateAdBgRemovalApiEnabled()`, route
+`corex.settings.ad-bg-removal-api`. **Deliberately NOT added to the Agency
+Onboarding Setup Wizard in this round** (non-negotiable #10a) — there is no
+live provider key yet (QA2-only, key not supplied), so there is nothing an
+agency could meaningfully be walked through turning on. Revisit once a real
+key is confirmed on Staging/live; this is Johan's call, recorded here rather
+than a silent omission.
+
+**Backfill — `agents:backfill-photo-cutouts`.** Idempotent (skips any
+`profile_photo` row already `bg_removal_status=done` unless `--force`),
+processes SYNCHRONOUSLY (not via the queue) so it can print a per-agent
+result table as it runs rather than requiring a poll of queue state
+afterward — appropriate at this volume. `--limit=N` and `--user=ID` exist
+specifically so the pipeline can be proven on a handful of photos against a
+provider's free tier without spending the full run's worth of calls before a
+paid key is supplied.
+
+**Dead code — not deleted this round.** `_floodFillTransparent()`,
+`_fillEnclosedHoles()`, `_featherAlpha()`, `stripBackground()`,
+`_processBackgroundRemoval()`, `_cornerColor()`, `_bgRemovalCache`,
+`backgroundRemovalsSettled()`, `configureBgRemoval()`/`_bgRemovalConfig`,
+and the three views' `CoreXAd.configureBgRemoval({...})` calls all remain in
+place, fully functional, but nothing in the live render path calls
+`stripBackground()` any more (the only trigger — `imgTag()`'s `onload`
+hook — is gone). `backgroundRemovalsSettled()` is still awaited by both
+capture paths (`ad.blade.php`'s `_capture()`, `ad-manager.blade.php`'s
+`downloadRow()`) — harmless, resolves instantly against an always-empty
+cache. Also now dead: the four `agencies.ad_bg_removal_hole_*`/
+`ad_bg_removal_flood_fill_drift_cap_px` threshold columns and their
+`Agency.php` casts (still readable/writable, just no longer read by
+anything in the live path). **Remove in a separate, later round, once the
+AI path is proven live** — not this one.
+
+**Verification performed this round (QA2, no real provider key).**
+- `Http::fake()` feature tests
+  (`tests/Feature/Agents/AgentPhotoBackgroundRemovalTest.php`) cover: a
+  successful call storing the cutout + driver + cost; a missing-key failure;
+  a simulated provider-down (503) failure; both failure paths leaving the
+  original photo the only resolvable photo
+  (`profilePhotoCutoutUrl()` null, `profilePhotoUrl()` still non-null); the
+  agency toggle blocking dispatch AND blocking a mid-flight job; the
+  superseded-photo race guard (a second upload before the first job runs
+  never gets its cutout attached to the wrong photo); the driver resolving
+  purely from config; and a fresh upload clearing the previous photo's
+  `bg_removal_*` state.
+- `tests/js/ad-render-kernel.mjs` covers `imageSrc()`'s cutout-vs-plain
+  resolution (cutout present + toggle on → cutout; toggle on + no cutout →
+  plain; toggle off → always plain, even with a cutout present; Agent 2;
+  scoped away from unrelated image fields) and that `imgTag()` no longer
+  emits any `onload` hook.
+- **Not yet proven with a REAL provider call** — no key is configured on
+  QA2. The one real HTTP round-trip made (a deliberately blank/invalid key
+  against the live endpoint) correctly produced a clean failure with the
+  original photo intact, proving the failure-fallback path for real without
+  spending a paid call. A genuine SUCCESSFUL segmentation (including
+  Elize's photo specifically — no collar loss, no earring discs, no hard
+  seam) and the full 23-photo backfill are BLOCKED on Johan supplying a real
+  `PHOTOROOM_API_KEY`/`REMOVE_BG_API_KEY` and are the first thing to run
+  once it lands.
+
+### Files
+
+- `app/Contracts/Images/BackgroundRemovalDriver.php` — the interface.
+- `app/Services/Images/BackgroundRemoval/BackgroundRemovalResult.php`,
+  `BackgroundRemovalException.php`, `PhotoroomDriver.php`,
+  `RemoveBgDriver.php`, `BackgroundRemovalManager.php`.
+- `app/Jobs/RemoveAgentPhotoBackgroundJob.php` — queued on `bg_removal`.
+- `app/Console/Commands/AgentsBackfillPhotoCutouts.php`.
+- `database/migrations/2026_08_20_000010_add_ad_bg_removal_api_settings_to_agencies.php` —
+  `agencies.ad_bg_removal_api_enabled` (boolean, default true).
+- `database/migrations/2026_08_20_000011_add_bg_removal_cutout_tracking_to_user_documents.php` —
+  `user_documents.bg_removal_{status,cutout_path,driver,processed_at,error}`.
+- `app/Models/Agency.php` — `ad_bg_removal_api_enabled` fillable + boolean cast.
+- `app/Models/UserDocument.php` — the five `bg_removal_*` fields fillable +
+  `bg_removal_processed_at` datetime cast.
+- `app/Models/User.php` — `profilePhotoCutoutUrl()`, mirroring
+  `profilePhotoUrl()`'s priority/existence-check shape.
+- `app/Models/Property.php` — `adData()` gains `agent_avatar_cutout`/
+  `agent_2_avatar_cutout`, both through `adSafeImageUrl()` exactly like the
+  existing `agent_avatar`/`agent_2_avatar` keys.
+- `app/Services/Images/AgentProfilePhotoService.php` — `set()` resets
+  `bg_removal_*` on every fresh upload and dispatches the job (agency-toggle
+  gated); `clear()` deletes the cutout file alongside the original.
+- `config/services.php` — new `bg_removal` block (`driver`, `resolution`,
+  `photoroom.*`, `remove_bg.*`).
+- `public/js/corex-ad-render.js` — `imageSrc()` prefers the cutout;
+  `imgTag()` no longer emits the onload hook.
+- `app/Http/Controllers/CoreX/SettingsController.php` —
+  `updateAdBgRemovalApiEnabled()`; `index()` resolves `$data['agency']`
+  earlier and derives `adBgRemovalApiEnabled`.
+- `resources/views/corex/settings.blade.php` — the toggle, next to Marketing.
+- `routes/web.php` — `corex.settings.ad-bg-removal-api` (PUT,
+  `manage_performance_settings`).
+- `.env` / `.env.example` — `BG_REMOVAL_DRIVER`, `BG_REMOVAL_RESOLUTION`,
+  `PHOTOROOM_API_KEY`, `REMOVE_BG_API_KEY` (blank on QA2 — Johan supplies
+  the real key after review).
+- `/etc/systemd/system/corex-qa2-queue.service` — `--queue=` gains
+  `bg_removal`.
+- `tests/Feature/Agents/AgentPhotoBackgroundRemovalTest.php` — new, see
+  "Verification" above.
+- `tests/Feature/Agents/AgentProfilePhotoServiceTest.php` — `Queue::fake()`
+  added (the job now dispatches on every `set()`), plus an assertion that
+  exactly one `RemoveAgentPhotoBackgroundJob` is pushed carrying the correct
+  path.
+- `tests/js/ad-render-kernel.mjs` — the cutout-resolution + no-onload
+  coverage described above, replacing the old onload-hook assertions.
+
+---
+
+## 15.3 "Remove background" — self-hosted rembg, superseding the paid API
+
+> Status: BUILD on QA2 · 2026-08-03, same day as §15.2. NOT on Staging or
+> live. Default driver (`BG_REMOVAL_DRIVER=rembg`); Photoroom/remove.bg stay
+> wired, unused, as a config-only fallback. Deployment order once approved:
+> QA2 → Johan's approval → Staging → live (live last).
+
+**What/why.** §15.2's feasibility call — paid API over self-hosting — was
+built on a wrong model of this box's disk layout: the original report
+measured `/corex` against the 38GB root disk's headroom, but `/corex`,
+`/corex-qa1`, `/corex-qa2` and `/corex-staging` are actually bind-mounts off
+`/mnt/HC_Volume_103099143`, a 200GB Hetzner Cloud Volume with 69GB free
+(confirmed via `/etc/fstab`). A follow-up spike, run entirely on that volume
+with zero application-code changes, corrected the picture: rembg
+(`u2net_human_seg`) installs in ~600MB, the model is another ~168MB, and
+measured CPU-only inference on this ARM Neoverse-N1 box is ~1.1s/photo
+(~0.7s one-time model load + ~0.4s/photo once warm) — nowhere near the
+~10s/image figure the original feasibility report cited from an unrelated
+x86 benchmark. Composited-on-magenta quality checks on Elize's, Retha's and
+Kym's real photos showed the model correctly handling earring gaps and hair
+strands natively — exactly the cases that took the flood-fill six rounds of
+hand-tuned pixel heuristics to partially address (§15.1), and still caps out
+on an accepted, inherent limit (a garment colour-identical to the backdrop).
+Self-hosting won on quality and cost, not just disk headroom — see the
+spike's own report for the full measured comparison.
+
+**Why the paid drivers stay.** `PhotoroomDriver`/`RemoveBgDriver` (§15.2)
+are NOT deleted — `BackgroundRemovalManager` keeps all three
+`BackgroundRemovalDriver` implementations wired, selectable by one `.env`
+line. A self-hosted model is infrastructure Johan now owns: a bad model
+update, an onnxruntime regression, or the service misbehaving in a way
+that's easier to diagnose with the pressure off is a `BG_REMOVAL_DRIVER=
+photoroom` away from being bypassed while it's investigated, without a
+rebuild. That safety net costs nothing to keep — the paid drivers are
+fully implemented, fully tested, and simply unused while `rembg` is the
+default.
+
+**Architecture — a persistent local service, not a process per photo.** The
+volume spike measured ~0.7s of a photo's ~1.1s cold-call cost as model
+load alone; running a fresh Python process per photo would re-pay that on
+EVERY call. Instead, following the existing `/opt/hf-ai` precedent
+(self-hosted FastAPI + uvicorn + systemd, already serving Ellie chat/
+Whisper/embeddings to every CoreX environment on this box) — but
+deliberately relocated OFF the root disk, onto the volume, per this round's
+explicit instruction:
+
+- **Source of truth**: `services/bgremoval/app.py` +
+  `services/bgremoval/requirements.txt`, committed to the repo — mirrors
+  `services/hf-ai/app.py`'s own hard-learned lesson (that runtime copy was
+  once found completely missing because it was never version-controlled;
+  see its docstring). Never let the runtime copy drift from this file.
+- **Runtime deployment**: `/mnt/HC_Volume_103099143/corex-bgremoval-svc/` —
+  isolated venv (`venv/`, ~616MB), the model cache (`models/`, ~168MB,
+  `U2NET_HOME` pointed here so it never touches `~/.u2net` on the root
+  disk), and a copy of `app.py`/`requirements.txt`. Installed with
+  `pip install --no-cache-dir` — the volume spike caught pip's DEFAULT
+  cache landing 153MB on the root disk despite the venv itself living on
+  the volume; `--no-cache-dir` makes that structurally impossible to
+  recur, rather than relying on remembering to purge it afterward.
+- **The model loads ONCE, at process startup** (FastAPI `@app.on_event
+  ("startup")`), not per request — `/health` reports `model_load_seconds`
+  so this is directly observable, not just asserted.
+- **systemd unit**: `/etc/systemd/system/corex-bgremoval.service` —
+  `Type=simple`, `Restart=always`, `RestartSec=2`,
+  `RequiresMountsFor=/mnt/HC_Volume_103099143` (so systemd orders startup
+  after the volume mount, not just after `network.target`), `WantedBy=
+  multi-user.target` + `systemctl enable` (starts at boot). Listens on
+  `127.0.0.1:3106` only — localhost, no auth needed, same posture as
+  `hf-ai.service` on :3100. One process serves every environment on this
+  box that opts in via `BGREMOVAL_SERVICE_URL`, exactly like hf-ai already
+  does for Ellie/Whisper across prod/staging/demo/QA — this round only
+  QA2's `.env` points at it.
+- **Endpoints**: `GET /health` (model status, load time, cumulative
+  requests served — used below to prove the exact-once-per-photo call
+  count) and `POST /remove-background` (multipart `image` field in, raw
+  PNG bytes back, `Content-Type: image/png` — the same response shape the
+  paid-API drivers already use, so `RembgDriver` reuses their exact
+  validation logic).
+- **Reboot survival**: NOT verified by an actual reboot — this box serves
+  live production (`corexos.co.za`) plus staging/QA1/QA2/demo/hf-ai, and a
+  real reboot to prove one new service is far more disruptive than what
+  this check is worth. What IS confirmed: `systemctl is-enabled
+  corex-bgremoval.service` reports `enabled`; the unit's
+  `RequiresMountsFor` correctly orders it after the volume mounts; and the
+  volume itself already backs `/corex`/`/corex-qa1`/`/corex-qa2`/
+  `/corex-staging` today, which only works because it already reliably
+  survives this box's reboots. Said plainly: mechanism-level confidence,
+  not an end-to-end reboot test.
+
+**`RembgDriver`** — `App\Services\Images\BackgroundRemoval\RembgDriver`,
+the same `BackgroundRemovalDriver` interface as the paid-API drivers:
+`Http::attach('image', $bytes, ...)->post("{$baseUrl}/remove-background")`,
+raising `BackgroundRemovalException` on a transport failure (service down —
+`systemctl stop`, a crash, a reboot mid-flight), a non-2xx response, or a
+non-image response — the exact same three failure shapes
+`RemoveAgentPhotoBackgroundJob` already knows how to retry/fail cleanly on
+from §15.2, unchanged. `costCredits` is always null (self-hosted — no
+per-call cost concept).
+
+**Everything else from §15.2 carries over unchanged** — the driver
+selection is the only thing that moved: `RemoveAgentPhotoBackgroundJob`
+(queue lane `bg_removal`, the content-hash superseded-photo guard,
+`$tries=3`/`$backoff`), `AgentProfilePhotoService::set()` dispatching
+exactly once per upload, the agency `ad_bg_removal_api_enabled` toggle, the
+Settings UI, and the ad-render kernel's cutout preference in `imageSrc()`
+all work identically regardless of which `BackgroundRemovalDriver` is
+active — that's the entire point of building against the interface in
+§15.2 rather than a single provider's SDK.
+
+**Verification performed this round (QA2, real service, real photos).**
+- Full backfill (`agents:backfill-photo-cutouts --force`) against every
+  existing agent photo: **22 succeeded, 0 failed, 1 skipped**. The skipped
+  row (agent 45, Ronel Botha) is a pre-existing stale `user_documents` row
+  whose `file_path` no longer matches the user's current
+  `agent_photo_path` — the same superseded-guard logic the queued job uses,
+  correctly refusing to process a row that isn't the agent's current photo.
+  Of the 23 `profile_photo` rows in the system, 22 are genuinely eligible;
+  this is a pre-existing data state, not a defect introduced here.
+- **Elize's photo (agent 23) specifically**, from the real backfill (not a
+  separate script): no collar loss, both hoop earrings show backdrop
+  cleanly through the loop, no hard seam along the hairline or collar —
+  visually confirmed by compositing the actual stored
+  `agents/23/photo-cutout.png` onto a contrasting background.
+- **Call-count discipline**: the service's `/health` request counter read
+  2 immediately before the backfill (from earlier manual verification
+  calls) and 24 immediately after — exactly the 22 photos processed, zero
+  extra calls. Confirms "one call per photo, never per render" isn't just
+  architectural intent; every `/remove-background` hit is accounted for.
+- **Root disk, before → after the full round** (service install + full
+  backfill): **7.3G free → 7.0G free**. The venv/model install itself was
+  proven to cost the root disk nothing (§ above, `--no-cache-dir`); the
+  remaining ~300MB drift across the round is not clearly attributable to
+  this work specifically versus other activity on this long-running shared
+  session — flagged rather than silently rounded away.
+- **Service killed deliberately**: `systemctl stop corex-bgremoval.service`,
+  then a real (uncaught by any test double) `RemoveAgentPhotoBackgroundJob`
+  run against a throwaway test upload — real `cURL error 7: Failed to
+  connect to 127.0.0.1 port 3106` surfaced, caught by `RembgDriver`,
+  recorded as `bg_removal_status=failed` with the connection error as
+  `bg_removal_error`. `User::profilePhotoUrl()` resolved the plain photo
+  throughout; `profilePhotoCutoutUrl()` correctly stayed null. The ad
+  renders with the plain photo — never blank, never broken. Service
+  restarted afterward, confirmed healthy again
+  (`model_load_seconds` ≈0.7s, matching the first boot). Throwaway test
+  data (agency/branch/user) deleted after the check.
+- **One known edge case, disclosed rather than silently left**: `failed()`
+  updates `bg_removal_status`/`bg_removal_error` but does NOT clear
+  `bg_removal_cutout_path`. For a FRESH upload (the normal path) this is
+  irrelevant — there is no prior cutout to lose. But a DELIBERATE re-run of
+  an already-successful photo (e.g. `--force` on the backfill command)
+  that then fails would flip `bg_removal_status` to `'failed'` even though
+  the previously-generated cutout file is still sitting on disk untouched
+  — `profilePhotoCutoutUrl()`'s `status === 'done'` gate would hide a
+  perfectly good, still-present cutout until the next successful run. The
+  core guarantee still holds (falls back to the plain photo, never blank/
+  broken), so this was not fixed reactively this round — but it is a real,
+  narrow gap (re-run-during-an-outage only) worth closing in a later round
+  rather than the kind of thing to discover by surprise.
+- Not verified this round: an actual host reboot (see "Reboot survival"
+  above for why, and what IS confirmed instead).
+
+### Files (in addition to §15.2's list, all still in place)
+
+- `services/bgremoval/app.py`, `services/bgremoval/requirements.txt` — new,
+  source of truth for the self-hosted service.
+- `/mnt/HC_Volume_103099143/corex-bgremoval-svc/` — runtime deployment
+  (venv, model cache, a deployed copy of app.py) — NOT in the repo, entirely
+  on the volume.
+- `/etc/systemd/system/corex-bgremoval.service` — new, enabled + running.
+- `app/Services/Images/BackgroundRemoval/RembgDriver.php` — new.
+- `app/Services/Images/BackgroundRemoval/BackgroundRemovalManager.php` —
+  `rembg` case added, now the default (was `photoroom`).
+- `config/services.php` — `bg_removal.rembg` block (`base_url`, `timeout`);
+  default driver changed to `rembg`; `photoroom`/`remove_bg` blocks
+  unchanged.
+- `.env` / `.env.example` — `BG_REMOVAL_DRIVER=rembg`,
+  `BGREMOVAL_SERVICE_URL=http://127.0.0.1:3106`; paid-API keys stay blank,
+  unused.
+- `tests/Feature/Agents/AgentPhotoBackgroundRemovalTest.php` — rembg
+  success/service-down coverage added; a `photoroom` success test kept to
+  prove the fallback still works; the driver-config test extended to assert
+  `rembg` is the default.
 
 ---
 
@@ -1689,18 +2571,59 @@ template builder" this was asked for.
 - `public/js/corex-ad-render.js` — `stripBackground()`, `_processBackgroundRemoval()`,
   `_floodFillTransparent()`, `_cornerColor()`, `backgroundRemovalsSettled()`,
   `_bgRemovalCache`; `imgTag()` adds the onload hook; `makeElement()` seeds
-  `removeBackground: false`; round 3 adds `_fillEnclosedHoles()` (`HOLE_MIN_PX = 30`)
-  and `_featherAlpha()`, both called from `_processBackgroundRemoval()` right after
-  `_floodFillTransparent()`, and both exported on `CoreXAd`.
-- `resources/views/corex/properties/ad-builder.blade.php` — "Remove background" checkbox
-  in the Agent Image panel.
-- `resources/views/corex/properties/ad.blade.php` — `_capture()` awaits
-  `backgroundRemovalsSettled()` before `html2canvas`.
-- `resources/views/tools/ad-manager.blade.php` — `downloadRow()` awaits
+  `removeBackground: false`; round 3 adds `_fillEnclosedHoles()` and
+  `_featherAlpha()`, both called from `_processBackgroundRemoval()` right after
+  `_floodFillTransparent()`, and both exported on `CoreXAd`; round 4 adds
+  `_bgRemovalConfig` (`holeMinPx`/`holeMaxPx`/`holeMaxDimensionPx`, agency-
+  configurable defaults) and `configureBgRemoval(cfg)` (exported on `CoreXAd`),
+  and extends `_fillEnclosedHoles()` to track each component's bounding box and
+  gate on the area + dimension caps alongside the existing floor; round 5 adds
+  `floodFillDriftCapPx` to `_bgRemovalConfig`/`configureBgRemoval()` and
+  rewrites `_floodFillTransparent()`'s stack entries to carry an inherited
+  path-max-distance value alongside each pixel's coordinates, gating
+  propagation on it in addition to the existing flat tolerance check.
+  Round 6 added `el.cutoutMatteColor` handling to `frameStyle()` — **shipped,
+  then REVERTED the same day** (wrong fix for a correctly-diagnosed cause;
+  see the round-6 write-up's "REVERTED" note above) — the kernel file is
+  back to its round-5 form.
+- `database/migrations/2026_08_20_000006_add_ad_bg_removal_hole_thresholds_to_agencies.php` —
+  additive, nullable `agencies.ad_bg_removal_hole_{min,max,max_dimension}_px`.
+- `database/migrations/2026_08_20_000007_add_ad_bg_removal_drift_cap_to_agencies.php` —
+  additive, nullable `agencies.ad_bg_removal_flood_fill_drift_cap_px` (round 5).
+- `database/migrations/2026_08_20_000008_backfill_cutout_matte_color_for_removebg_avatars.php` —
+  round 6's one-time data correction. Ran against live/Staging, then its
+  effect was reversed by 000009 the same day. Kept in place (not deleted) as
+  the historical record of an already-run migration.
+- `database/migrations/2026_08_20_000009_revert_cutout_matte_color_backfill.php` —
+  reverses 000008: clears `cutoutMatteColor` from every `agent_avatar`/
+  `agent_2_avatar` element that has it set, system-wide.
+- `app/Models/Agency.php` — the three round 4/5 threshold columns added to
+  `$fillable`/`$casts` (round 6 introduced no new agency column).
+- `app/Http/Controllers/Tools/AdManagerController.php` — `index()` resolves the
+  current agency and passes it to the view.
+- `app/Support/helpers.php` — new `asset_v()` global helper (filemtime-based
+  cache-busting query string, no manual version number to remember to bump).
+- `resources/views/corex/properties/ad-builder.blade.php` — "Remove background"
+  checkbox in the Agent Image panel. (Round 6 added a "Fill removed
+  background with a colour" checkbox + colour picker here — shipped, then
+  REVERTED the same day; the file is back to its round-5 form.)
+- `resources/views/corex/properties/ad-builder.blade.php`,
+  `resources/views/corex/properties/ad.blade.php`,
+  `resources/views/tools/ad-manager.blade.php` — all three call
+  `window.CoreXAd.configureBgRemoval({...})` immediately after the kernel
+  script tag loads, with the current agency's (nullable) threshold values; all
+  three load the kernel via `asset_v('js/corex-ad-render.js')` instead of a
+  static `?v=1` (round 4 — see §12 cache-busting note); `ad.blade.php`'s
+  `_capture()` and `ad-manager.blade.php`'s `downloadRow()` await
   `backgroundRemovalsSettled()` before `html2canvas`.
 - `tests/js/ad-render-kernel.mjs` — flood-fill algorithm (synthetic pixel buffers),
   onload-hook emission/omission, enclosed-holes fill/no-fill/border-touching cases,
-  edge feathering.
+  edge feathering, round 4's large-hole/elongated-hole rejection and
+  `configureBgRemoval()` override coverage, round 5's synthetic gradient-corridor
+  frame (default cap stops before the plateau, raised cap sweeps it, real flat
+  backdrop unaffected, round 1/2's regression re-asserted unaffected). Round 6
+  added 5 `cutoutMatteColor` checks here — removed on revert; suite is back
+  to 123/123.
 
 ### Generator fixes + picker previews (§16)
 - `resources/views/corex/properties/ad.blade.php` — `capturingPreview` + capture veil
