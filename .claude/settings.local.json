@@ -108,7 +108,6 @@
       "PowerShell(git stash pop 2>&1)",
       "mcp__claude_ai_Atlassian_Rovo__addCommentToJiraIssue",
       "mcp__claude_ai_Atlassian_Rovo__transitionJiraIssue",
-
       "mcp__claude_ai_Atlassian_Rovo__createJiraIssue",
       "mcp__claude_ai_Atlassian_Rovo__editJiraIssue",
       "mcp__claude_ai_Atlassian_Rovo__searchJiraIssuesUsingJql",
@@ -116,7 +115,6 @@
       "mcp__claude_ai_Atlassian_Rovo__getTransitionsForJiraIssue",
       "mcp__claude_ai_Atlassian_Rovo__getVisibleJiraProjects",
       "mcp__claude_ai_Atlassian_Rovo__getAccessibleAtlassianResources",
-
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git push:*)",
@@ -130,7 +128,6 @@
       "Bash(git branch:*)",
       "Bash(git rev-parse:*)",
       "Bash(git show:*)",
-
       "Bash(php artisan migrate)",
       "Bash(php artisan migrate --force)",
       "Bash(php artisan schema:dump:*)",
@@ -143,8 +140,8 @@
       "Bash(php artisan test:*)",
       "Bash(php artisan corex:sync-permissions:*)",
       "Bash(php -l:*)",
-
-      "Read(/tmp/**)"
+      "Read(/tmp/**)",
+      "mcp__claude_ai_Atlassian_Rovo__lookupJiraAccountId"
     ],
     "deny": [
       "Bash(rm:*)",
