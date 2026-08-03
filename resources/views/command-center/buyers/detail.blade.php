@@ -376,18 +376,26 @@
                     </div>
 
                     {{-- Inline accordion: this wishlist's matches, ALL of them, in
-                         place — no cap, no navigate-away link (Johan's review). The
-                         grid is STATIC (never replaced, only appended into) so "Load
-                         more" can insertAdjacentHTML without disturbing what's already
-                         rendered. Default-expanded wishlist's page 1 is server-rendered
-                         directly; every other wishlist's page 1 (and every wishlist's
-                         page 2+) is fetched as JSON and appended by the component. --}}
+                         place — no cap, no navigate-away link (Johan's review). Rich
+                         cards — the SAME <x-match-card> component Core Matches results
+                         uses — so this is a vertical stack (space-y-3), not a grid; the
+                         card's own layout is a horizontal photo+content+actions row.
+                         The wrapper is STATIC (never replaced, only appended into) so
+                         "Load more" can insertAdjacentHTML without disturbing what's
+                         already rendered. Default-expanded wishlist's page 1 is
+                         server-rendered directly; every other wishlist's page 1 (and
+                         every wishlist's page 2+) is fetched as JSON and appended. --}}
                     <div x-show="wishlistOpen[{{ $wishlist->id }}]" x-cloak x-collapse style="border-top: 1px solid var(--border);">
                         <div class="p-3">
-                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5 overflow-y-auto"
-                                 style="max-height: 420px;" x-ref="wlMatches{{ $wishlist->id }}">
+                            <div class="space-y-3 overflow-y-auto"
+                                 style="max-height: 600px;" x-ref="wlMatches{{ $wishlist->id }}">
                                 @if($wishlist->id === $defaultExpandedWishlistId)
-                                    @include('command-center.buyers._wishlist-match-cards', ['matches' => $expandedWishlistMatches])
+                                    @include('command-center.buyers._wishlist-match-cards', [
+                                        'matches'  => $expandedWishlistMatches,
+                                        'match'    => $wishlist,
+                                        'contact'  => $buyer,
+                                        'feedback' => $expandedWishlistFeedback,
+                                    ])
                                 @endif
                             </div>
                             <div class="text-center mt-2" x-show="wishlistHasMore[{{ $wishlist->id }}]" x-cloak>

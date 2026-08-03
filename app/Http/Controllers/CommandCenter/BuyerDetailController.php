@@ -40,9 +40,15 @@ class BuyerDetailController extends Controller
 
         // AT-363 — per-wishlist match count badge + the default-expanded
         // wishlist's (first in the primary-first ordering above) FIRST PAGE
-        // of matches. One resolve() per wishlist (bounded to this buyer's own
-        // handful of wishlists) reused for both the count AND, for the
-        // default-expanded one, the mapped list — never resolved twice.
+        // of matches, now rendered with the SAME rich match-card component
+        // Core Matches results uses (Johan's review) — so resolve WITH
+        // hidden properties included (matching that screen's convention:
+        // visible first, hidden grouped at the bottom, still viewable/
+        // un-hideable inline) and derive the visible-only badge count by
+        // filtering in PHP rather than a second resolve() call. One
+        // resolve() per wishlist (bounded to this buyer's own handful of
+        // wishlists), reused for both the count AND, for the default-
+        // expanded one, the ordered property list — never resolved twice.
         // Every OTHER wishlist's full property set is intentionally NOT
         // built here; it's fetched lazily via wishlistMatches() only if the
         // agent expands it (page 1, then "Load more" appends further pages).
@@ -50,14 +56,15 @@ class BuyerDetailController extends Controller
         $defaultExpandedId = $contact->matches->first()?->id;
         $wishlistMatchCounts = [];
         $expandedWishlistMatches = collect();
+        $expandedWishlistFeedback = collect();
         $defaultExpandedHasMore = false;
         foreach ($contact->matches as $wishlist) {
-            $resolved = $resolver->resolve($wishlist, false);
-            $mapped = $this->mapMatchedProperties($resolved);
-            $wishlistMatchCounts[$wishlist->id] = $mapped->count();
+            $ordered = $this->orderedPropertiesFor($resolver, $wishlist);
+            $wishlistMatchCounts[$wishlist->id] = $ordered->reject(fn ($p) => $wishlist->isPropertyHidden($p->id))->count();
             if ($wishlist->id === $defaultExpandedId) {
-                $expandedWishlistMatches = $mapped->forPage(1, self::MATCHES_PER_PAGE)->values();
-                $defaultExpandedHasMore = $mapped->count() > self::MATCHES_PER_PAGE;
+                $expandedWishlistMatches = $ordered->forPage(1, self::MATCHES_PER_PAGE)->values();
+                $expandedWishlistFeedback = $wishlist->feedback()->get()->keyBy('property_id');
+                $defaultExpandedHasMore = $ordered->count() > self::MATCHES_PER_PAGE;
             }
         }
 
@@ -82,6 +89,7 @@ class BuyerDetailController extends Controller
             'wishlistMatchCounts'     => $wishlistMatchCounts,
             'defaultExpandedWishlistId' => $defaultExpandedId,
             'expandedWishlistMatches' => $expandedWishlistMatches,
+            'expandedWishlistFeedback' => $expandedWishlistFeedback,
             'defaultExpandedHasMore'  => $defaultExpandedHasMore,
         ]);
     }
@@ -102,14 +110,18 @@ class BuyerDetailController extends Controller
         abort_if($match->contact_id !== $contact->id, 403);
 
         $page = max(1, (int) $request->query('page', 1));
-        $mapped = $this->mapMatchedProperties(
-            app(\App\Services\Matching\ClientMatchResolver::class)->resolve($match, false)
-        );
-        $total = $mapped->count();
-        $pageItems = $mapped->forPage($page, self::MATCHES_PER_PAGE)->values();
+        $ordered = $this->orderedPropertiesFor(app(\App\Services\Matching\ClientMatchResolver::class), $match);
+        $total = $ordered->count();
+        $pageItems = $ordered->forPage($page, self::MATCHES_PER_PAGE)->values();
+        $feedback = $match->feedback()->get()->keyBy('property_id');
 
         return response()->json([
-            'html'     => view('command-center.buyers._wishlist-match-cards', ['matches' => $pageItems])->render(),
+            'html'     => view('command-center.buyers._wishlist-match-cards', [
+                'matches'  => $pageItems,
+                'match'    => $match,
+                'contact'  => $contact,
+                'feedback' => $feedback,
+            ])->render(),
             'hasMore'  => ($page * self::MATCHES_PER_PAGE) < $total,
             'nextPage' => $page + 1,
             'total'    => $total,
@@ -117,23 +129,21 @@ class BuyerDetailController extends Controller
     }
 
     /**
-     * Same shape as BuyerIntelligenceService::getMatchedProperties() — kept
-     * in lockstep so the primary card grid partial renders identically
-     * whether fed from show() (default-expanded wishlist) or wishlistMatches()
-     * (lazy-loaded on accordion expand).
+     * Resolve a wishlist's matching properties — INCLUDING hidden ones,
+     * visible first then hidden grouped at the end — matching the exact
+     * ordering convention the Core Matches results screen uses (so the
+     * shared <x-match-card> component renders identically and an agent can
+     * still see/un-hide a hidden property inline). Display only: this is
+     * the same ClientMatchResolver call every other Core Matches / AT-360
+     * surface uses, just with includeHidden=true and a stable sort.
      */
-    private function mapMatchedProperties(\Illuminate\Support\Collection $properties): \Illuminate\Support\Collection
+    private function orderedPropertiesFor(\App\Services\Matching\ClientMatchResolver $resolver, ContactMatch $wishlist): \Illuminate\Support\Collection
     {
-        return $properties
-            ->map(fn ($p) => [
-                'id'             => $p->id,
-                'address'        => $p->address ?: $p->title,
-                'price'          => $p->price,
-                'suburb'         => $p->suburb,
-                'match_score'    => (int) ($p->match_score ?? 0),
-                'days_on_market' => $p->published_at ? (int) $p->published_at->diffInDays(now()) : null,
-            ])
-            ->values();
+        $resolved = $resolver->resolve($wishlist, true);
+        $visible = $resolved->reject(fn ($p) => $wishlist->isPropertyHidden($p->id))->values();
+        $hidden  = $resolved->filter(fn ($p) => $wishlist->isPropertyHidden($p->id))->values();
+
+        return $visible->concat($hidden);
     }
 
     /**
