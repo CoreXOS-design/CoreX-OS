@@ -191,6 +191,9 @@
                     @endif
                 </div>
 
+                {{-- AT-361 — linked contact documents (wet-ink branch has its own docs block) --}}
+                @include('compliance.fica.partials._linked-contact-documents', ['submission' => $submission, 'canManageLinks' => $canRemove])
+
                 {{-- Paper form notice --}}
                 <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
                      style="background:color-mix(in srgb, var(--ds-amber,#f59e0b) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber,#f59e0b) 30%, transparent); color:var(--text-primary);">
@@ -249,6 +252,41 @@
                     @error('file.*') <p class="text-xs mt-1" style="color:var(--ds-crimson,#c41e3a);">{{ $message }}</p> @enderror
                     @error('document_type') <p class="text-xs mt-1" style="color:var(--ds-crimson,#c41e3a);">{{ $message }}</p> @enderror
                     @error('document_type.*') <p class="text-xs mt-1" style="color:var(--ds-crimson,#c41e3a);">{{ $message }}</p> @enderror
+
+                    {{-- AT-361 — link EXISTING contact documents (reference, no re-upload). Contact is
+                         fixed here, so the list is server-rendered. Linked docs become viewable to the
+                         reviewing + compliance officers for approval. --}}
+                    @php $contactDocs = $submission->contact ? $submission->contact->documents()->with('documentType')->get() : collect(); @endphp
+                    <div class="mt-5 pt-4" style="border-top:1px dashed var(--border);">
+                        <h4 class="text-sm font-bold mb-1" style="color:var(--text-primary);">Or link existing contact documents</h4>
+                        <p class="text-xs mb-2" style="color:var(--text-secondary);">Pull documents already on this contact (e.g. from the splitter) into this FICA — no re-upload. They become viewable to the reviewing &amp; compliance officers.</p>
+                        @if($contactDocs->isEmpty())
+                            <p class="text-xs" style="color:var(--text-muted);">This contact has no documents on file to link.</p>
+                        @else
+                        <form method="POST" action="{{ route('compliance.fica.link-contact-documents', $submission) }}">
+                            @csrf
+                            <div class="mb-2">
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Link as</label>
+                                <select name="document_type" class="rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <option value="supporting">Supporting Document</option>
+                                    <option value="fica_form">FICA Form</option>
+                                    <option value="id_copy">ID Copy</option>
+                                    <option value="proof_of_address">Proof of Address</option>
+                                </select>
+                            </div>
+                            <div class="space-y-1 mb-3">
+                                @foreach($contactDocs as $cd)
+                                <label class="flex items-center gap-2 text-xs">
+                                    <input type="checkbox" name="document_ids[]" value="{{ $cd->id }}" style="accent-color:var(--brand-icon);">
+                                    <span style="color:var(--text-primary);">@if($cd->documentType)[{{ $cd->documentType->label }}] @endif{{ $cd->original_name }} <span style="color:var(--text-muted);">· {{ optional($cd->created_at)->format('d M Y') }}</span></span>
+                                </label>
+                                @endforeach
+                            </div>
+                            <button type="submit" class="corex-btn-outline text-sm">Link selected documents</button>
+                        </form>
+                        @endif
+                        @error('document_ids') <p class="text-xs mt-1" style="color:var(--ds-crimson,#c41e3a);">{{ $message }}</p> @enderror
+                    </div>
                 </div>
             @endif
         </div>
