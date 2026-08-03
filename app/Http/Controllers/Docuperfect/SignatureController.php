@@ -2542,6 +2542,154 @@ class SignatureController extends Controller
     }
 
     /**
+     * AT-352 item 2 — Agent live "View document" (READ-ONLY recipient mirror).
+     *
+     * A content-identical, read-only mirror of the EXACT accumulated document the
+     * current recipient is looking at mid-ceremony: every prior party's baked ink
+     * (signatures / initials / fills) is already present, at the current signing
+     * state. The agent, sitting live with the client, watches this while walking
+     * them through signing.
+     *
+     * ADDITIVE + REGRESSION-SAFE by construction:
+     *  - Renders the ONE canonical artifact via CanonicalDocumentRenderer::forDisplay
+     *    (the same read-only accumulated HTML the agent-approval review + the PDF
+     *    already serve). No per-viewer editability overlay, no CONTEXT_RECIPIENT_
+     *    SIGNING re-render, no token stamp — so NO interactive/writable affordance.
+     *  - No status gate: works at any point while a document is out for signature
+     *    (and on completed docs — the final signed artifact).
+     *  - There is NO write path here (no POST, no field persist), so nothing the
+     *    agent does on this screen can mutate the document.
+     *  - Touches none of the signing-engine paths (show(), CanonicalInkComposer,
+     *    InsertableBlockRenderer, completeWeb): this is a display-only read.
+     *
+     * `?state=1` returns a tiny JSON fingerprint (canonical version + completed
+     * count + updated_at) so the screen can light-poll and auto-refresh when a new
+     * signature lands — without the agent reloading (J3).
+     */
+    public function viewLive(Request $request, Document $document)
+    {
+        $user = $request->user();
+        // Reuse the exact agent-on-deal scoping used by the approval review.
+        $this->authorizeDocument($user, $document);
+
+        $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+        $template->loadMissing(['requests', 'markers.signatures', 'signatures']);
+
+        $webTemplateData = $document->web_template_data ?? [];
+
+        // ── Light-poll fingerprint. Read-only GET; changes only when a party
+        // signs (canonical_version bumps) or a request completes. ──
+        if ($request->boolean('state')) {
+            return response()->json([
+                'version'   => (int) ($webTemplateData['canonical_version'] ?? 0),
+                'completed' => (int) $template->requests
+                    ->where('status', SignatureRequest::STATUS_COMPLETED)->count(),
+                'updated'   => optional($template->updated_at)->timestamp,
+            ]);
+        }
+
+        // ── Which recipient is being signed right now (for the read-only banner).
+        // The accumulated forDisplay() output IS this recipient's current view. ──
+        $currentRequest = $template->requests
+            ->first(fn ($r) => in_array($r->status, [
+                SignatureRequest::STATUS_PENDING,
+                SignatureRequest::STATUS_VIEWED,
+                'partially_signed',
+            ]));
+
+        // ── Body composition — IDENTICAL to the approval review's body-prep
+        // (forDisplay canonical → web path; page-image + marker overlay → PDF path).
+        $docTemplate    = $document->template;
+        $flattenedPages = $template->flattened_pages_json ?? [];
+        $hasFlattened   = !empty($flattenedPages);
+        $pageImages     = [];
+        $hasDocPages    = !empty($webTemplateData['flattened_page_count']);
+
+        $isWebTemplate   = false;
+        $webTemplateHtml = null;
+        $canonical = app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)
+            ->forDisplay($template);
+        if (trim($canonical) !== '') {
+            $isWebTemplate   = true;
+            $webTemplateHtml = $canonical;
+        } elseif (!empty($webTemplateData['merged_html'])) {
+            $isWebTemplate   = true;
+            $webTemplateHtml = $webTemplateData['merged_html'];
+        }
+
+        if (!$isWebTemplate) {
+            if ($hasDocPages && !$hasFlattened) {
+                $pageCount = (int) $webTemplateData['flattened_page_count'];
+                for ($n = 0; $n < $pageCount; $n++) {
+                    $pageImages[] = route('docuperfect.documents.pageImage', ['id' => $document->id, 'page' => $n]);
+                }
+            } else {
+                $pageCount = !empty($flattenedPages) ? count($flattenedPages) : ($docTemplate ? $docTemplate->page_count : 0);
+                if ($pageCount < 1 && $hasDocPages) {
+                    $pageCount = (int) $webTemplateData['flattened_page_count'];
+                }
+                for ($n = 0; $n < $pageCount; $n++) {
+                    if ($hasFlattened && isset($flattenedPages[$n])) {
+                        $pageImages[] = route('docuperfect.signatures.flattenedPage', ['templateId' => $template->id, 'page' => $n]);
+                    } elseif ($hasDocPages) {
+                        $pageImages[] = route('docuperfect.documents.pageImage', ['id' => $document->id, 'page' => $n]);
+                    } elseif ($docTemplate) {
+                        $pageImages[] = route('docuperfect.page.image', ['id' => $docTemplate->id, 'page' => $n]);
+                    }
+                }
+            }
+        }
+        $pageCount = $isWebTemplate ? 0 : ($pageCount ?? 0);
+
+        $allMarkers = $template->markers()
+            ->with('signatures')
+            ->orderBy('page_number')
+            ->orderBy('sort_order')
+            ->get();
+
+        $progress = $template->partyProgress();
+
+        $signingParties = collect($template->parties_json ?? [])->filter(function ($p) {
+            return ($p['role'] ?? '') !== 'supervisor_final';
+        })->map(fn($p) => [
+            'role'  => $p['role'] ?? 'unknown',
+            'label' => ucfirst(str_replace('_', ' ', $p['role_label'] ?? $p['role'] ?? 'unknown')),
+        ])->unique('role')->values()->toArray();
+
+        // §20 — per-segment titles for a pack body (matches the review surface).
+        $packTemplateIds  = $webTemplateData['template_ids'] ?? [];
+        $packSegmentTitles = [];
+        if (is_array($packTemplateIds) && count($packTemplateIds) > 0) {
+            foreach ($packTemplateIds as $tid) {
+                $segTpl = \App\Models\Docuperfect\Template::find($tid);
+                $packSegmentTitles[] = $segTpl->name ?? ('Document ' . $tid);
+            }
+        } else {
+            $packSegmentTitles[] = $document->name;
+        }
+
+        return view('docuperfect.signatures.view-live', [
+            'document'          => $document,
+            'template'          => $template,
+            'currentRequest'    => $currentRequest,
+            'progress'          => $progress,
+            'pageImages'        => $pageImages,
+            'pageCount'         => $pageCount,
+            'allMarkers'        => $allMarkers,
+            'hasFlattened'      => $hasFlattened,
+            'isWebTemplate'     => $isWebTemplate,
+            'webTemplateHtml'   => $webTemplateHtml,
+            'signingParties'    => $signingParties,
+            'packSegmentTitles' => $packSegmentTitles,
+            'storedInitials'    => $webTemplateData['signed_initials'] ?? [],
+            'disclosureAnswers' => $webTemplateData['disclosure_answers'] ?? [],
+            'pollVersion'       => (int) ($webTemplateData['canonical_version'] ?? 0),
+            'pollCompleted'     => (int) $template->requests
+                ->where('status', SignatureRequest::STATUS_COMPLETED)->count(),
+        ]);
+    }
+
+    /**
      * Redirect supervisor to the external signing view for candidate flow authorisation.
      * Generates a token on the supervisor's SignatureRequest so they can sign.
      */

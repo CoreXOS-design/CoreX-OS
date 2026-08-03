@@ -384,6 +384,8 @@
                             <div class="flex flex-col items-end gap-1">
                                 @if($doc)
                                 <a href="{{ route('docuperfect.signatures.sendConfirmation', $doc) }}" class="text-xs font-semibold hover:underline transition-colors duration-150" style="color: var(--brand-icon);">View Progress</a>
+                                {{-- AT-352 item 2 — read-only mirror of the current recipient's exact view --}}
+                                <a href="{{ route('docuperfect.signatures.viewLive', $doc) }}" target="_blank" class="text-xs font-semibold hover:underline transition-colors duration-150" style="color: var(--brand-icon);">View Document</a>
                                 @endif
                                 @php
                                     $activeReq = $tpl->requests->first(fn($r) => in_array($r->status, ['pending', 'viewed', 'partially_signed']));
@@ -560,7 +562,9 @@
                                 @if($doc)
                                 <div class="flex flex-col items-end gap-1">
                                     <div>
-                                        <a href="{{ route('docuperfect.signatures.audit', $doc) }}" class="text-xs font-semibold hover:underline transition-colors duration-150" style="color: var(--brand-icon);">Audit</a>
+                                        {{-- AT-352 item 2 — read-only mirror of the final signed document --}}
+                                        <a href="{{ route('docuperfect.signatures.viewLive', $doc) }}" target="_blank" class="text-xs font-semibold hover:underline transition-colors duration-150" style="color: var(--brand-icon);">View Document</a>
+                                        <a href="{{ route('docuperfect.signatures.audit', $doc) }}" class="text-xs font-semibold hover:underline ml-3 transition-colors duration-150" style="color: var(--brand-icon);">Audit</a>
                                         <a href="{{ route('docuperfect.signatures.download', $doc) }}" class="text-xs font-semibold hover:underline ml-3 transition-colors duration-150" style="color: var(--ds-green);">Download</a>
                                     </div>
                                     {{-- AT-294 — resend the completed signed-document email per recipient (stored PDF) --}}
