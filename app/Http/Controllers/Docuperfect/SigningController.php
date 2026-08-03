@@ -1794,6 +1794,9 @@ class SigningController extends Controller
                 $signaturesOnly[$sigKey] = $sigVal;
             }
         }
+        // E-Sign P1 — remember the canonical version before this hop's bake, so a
+        // sealed copy is written ONLY when this hop actually produces a fresh version.
+        $sealVersionBefore = (int) ($webData['canonical_version'] ?? 0);
         if (trim($canonicalHtml) !== '' && (!empty($signaturesOnly) || !empty($initials) || !empty($ceremonyValues))) {
             // Bleed-safe party fallback is permitted only when this signer is the
             // SOLE recipient of their role (agent, single seller/buyer) — see
@@ -1869,6 +1872,32 @@ class SigningController extends Controller
             $updates['signed_paginated_html'] = $paginatedHtml;
         }
         $document->update($updates);
+
+        // ═══ E-Sign P1 — SEAL this signed copy (additive, passive, fail-open) ═══
+        // "Save each copy as it got signed." When this hop baked a fresh canonical
+        // version, seal an immutable, hash-chained snapshot of the document exactly as
+        // it now stands. The seal never alters signing state and swallows its own
+        // errors (DocumentSealService is fail-open), so it cannot affect the ceremony.
+        if ((int) ($webData['canonical_version'] ?? 0) > $sealVersionBefore) {
+            $sealPartyRole = (string) $signingRequest->party_role;
+            $sealEvent = str_starts_with($sealPartyRole, 'supervisor')
+                ? \App\Services\Docuperfect\DocumentSealService::EVENT_AUTHORISER_COSIGNED
+                : ($sealPartyRole === 'agent'
+                    ? \App\Services\Docuperfect\DocumentSealService::EVENT_CANDIDATE_SIGNED
+                    : \App\Services\Docuperfect\DocumentSealService::EVENT_RECIPIENT_SIGNED);
+            app(\App\Services\Docuperfect\DocumentSealService::class)->seal($document, $sealEvent, [
+                'template'        => $template,
+                'signer_identity' => method_exists($signingRequest, 'canonicalPartyKey') ? $signingRequest->canonicalPartyKey() : $sealPartyRole,
+                'signer_user_id'  => $signingRequest->user_id ?? null,
+                'actor_type'      => \App\Models\Docuperfect\SignatureAuditLog::ACTOR_SIGNER,
+                'actor_name'      => $signingRequest->signer_name,
+                'actor_email'     => $signingRequest->signer_email,
+                'actor_role'      => $sealPartyRole,
+                'request_id'      => $signingRequest->id,
+                'ip'              => $request->ip(),
+                'ua'              => $request->userAgent(),
+            ]);
+        }
 
         // --- Amendment Detection (Other Conditions) ---
         $otherConditionsText = $request->input('other_conditions_text', '');

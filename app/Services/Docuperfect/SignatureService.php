@@ -2061,6 +2061,22 @@ class SignatureService
             documentHash: $template->document_hash,
         );
 
+        // E-Sign P1 — seal the FINAL completed copy as a distinct terminal version
+        // (additive, passive, fail-open). Captures "the copy at completion" even when
+        // the last hop produced no new bake, and closes the hash chain for the document.
+        if ($template->document) {
+            app(\App\Services\Docuperfect\DocumentSealService::class)->seal(
+                $template->document,
+                \App\Services\Docuperfect\DocumentSealService::EVENT_COMPLETED,
+                [
+                    'template'   => $template,
+                    'actor_type' => SignatureAuditLog::ACTOR_SYSTEM,
+                    'actor_name' => 'System',
+                    'actor_role' => 'completion',
+                ]
+            );
+        }
+
         // Steps 2-6 run AFTER the completion commits. Completion (status +
         // audit above) is the legal record and must be durable on its own.
         // PDF generation (Puppeteer) is slow/external-failure-prone and was
