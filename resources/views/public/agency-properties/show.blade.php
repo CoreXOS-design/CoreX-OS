@@ -1,9 +1,27 @@
+@php
+    $images = is_array($property->images_json) ? $property->images_json : (json_decode($property->images_json ?? '[]', true) ?: []);
+    $ogTitle = $property->headline ?? $property->title ?? 'Property';
+    $ogImageUrl = \App\Models\Property::publicImageUrl($property->allImages()[0] ?? null) ?: ($agency->logo_path ? asset('storage/'.$agency->logo_path) : null);
+    $ogDescription = trim(preg_replace('/\s+/', ' ', strip_tags((string) $property->description)));
+    $ogDescription = strlen($ogDescription) > 200 ? substr($ogDescription, 0, 197).'...' : $ogDescription;
+@endphp
 <!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ $property->headline ?? $property->title ?? 'Property' }} — {{ $agency->name }}</title>
+    <title>{{ $ogTitle }} — {{ $agency->name }}</title>
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="{{ $ogTitle }} — {{ $agency->name }}">
+    @if($ogDescription)
+    <meta property="og:description" content="{{ $ogDescription }}">
+    @endif
+    <meta property="og:url" content="{{ url()->current() }}">
+    @if($ogImageUrl)
+    <meta property="og:image" content="{{ $ogImageUrl }}">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="{{ $ogImageUrl }}">
+    @endif
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @if(!empty($agency->sidebar_color))
     <style>
@@ -18,13 +36,14 @@
 </head>
 <body class="bg-surface text-default font-sans">
 
-@php
-    $images = is_array($property->images_json) ? $property->images_json : (json_decode($property->images_json ?? '[]', true) ?: []);
-@endphp
-
 <header class="px-6 py-4" style="background:var(--brand-default, #0b2a4a);">
     <div class="max-w-7xl mx-auto flex items-center justify-between">
-        <a href="{{ route('public.agency.properties.index', $agency->slug) }}" class="text-white/80 hover:text-white text-sm">← Back to {{ $agency->name }}</a>
+        <div class="flex items-center gap-3">
+            @if($agency->logo_path)
+                <img src="{{ asset('storage/'.$agency->logo_path) }}" alt="{{ $agency->name }}" class="h-20 w-auto">
+            @endif
+            <a href="{{ route('public.agency.properties.index', $agency->slug) }}" class="text-white/80 hover:text-white text-sm">← Back to {{ $agency->name }}</a>
+        </div>
     </div>
 </header>
 
