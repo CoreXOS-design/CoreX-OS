@@ -79,16 +79,30 @@ final class BuyerDetailWishlistRedesignTest extends TestCase
         // asserts the DOM structure itself: the component's JS/HTML-string
         // fragments may appear ONLY inside a real <script> block, never in
         // the surrounding page markup.
+        // Include a real matching Property — NOT just a wishlist — so the
+        // Schedule Viewing picker's "Continue to schedule" button (which
+        // legitimately renders @click="continueToSchedule()", a bare method
+        // INVOCATION) actually appears on the page. Testing against an empty
+        // $matched would let a same-named-substring bug slip through: the
+        // leak markers below must be fragments that exist ONLY inside the
+        // function BODIES, never in a legitimate @click="…()" call.
         [$agencyId, $agent, $suburbId] = $this->fixture();
         $buyer = $this->buyer($agencyId, $agent->id);
-        $this->match($agencyId, $buyer->id, [
+        $wishlist = $this->match($agencyId, $buyer->id, [
             'is_primary' => true, 'price_min' => 1_500_000, 'price_max' => 2_000_000,
             'p24_suburb_ids' => [$suburbId],
         ]);
+        $this->property($agencyId, $agent->id, $suburbId, ['price' => 1_800_000]);
 
         $resp = $this->actingAs($agent)->get(route('command-center.buyers.show', $buyer) . '?tab=wishlists');
         $resp->assertStatus(200);
         $html = $resp->getContent();
+
+        // Sanity: the picker's "Continue to schedule" button — a legitimate
+        // bare method CALL — really is on this page, so the leak-check below
+        // is exercised against the exact button that caused the false
+        // positive during manual QA1 verification, not an empty branch.
+        $resp->assertSee('continueToSchedule()', false);
 
         // The component must be registered in a real <script> block …
         $resp->assertSee("Alpine.data('buyerWishlists'", false);
@@ -101,11 +115,18 @@ final class BuyerDetailWishlistRedesignTest extends TestCase
         );
 
         // Structural proof: strip every <script>…</script> block and confirm
-        // none of the component's JS fragments leak into the remaining body
-        // markup as visible text — this is exactly what would have failed
-        // on the broken version (the leaked script WAS in this remainder).
+        // none of the component's JS IMPLEMENTATION fragments leak into the
+        // remaining body markup as visible text — this is exactly what would
+        // have failed on the broken version (the leaked script WAS in this
+        // remainder). Every marker here exists ONLY inside a function body,
+        // never in a legitimate @click="…()" invocation elsewhere on the page.
         $withoutScripts = preg_replace('#<script\b[^>]*>.*?</script>#is', '', $html);
-        foreach (['continueToSchedule', 'toggleWishlistMatches(id)', 'Loading matches', 'el.innerHTML'] as $leak) {
+        foreach ([
+            'toggleWishlistMatches(id)',   // the function's own parameter name
+            'Loading matches',              // the innerHTML placeholder text
+            'el.innerHTML',                 // only appears inside the function body
+            'cfg.calendarBaseUrl',          // only appears inside continueToSchedule()'s body
+        ] as $leak) {
             $this->assertStringNotContainsString(
                 $leak, $withoutScripts,
                 "\"{$leak}\" leaked outside <script> — the quote-collision bug is back"
