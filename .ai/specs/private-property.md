@@ -1,7 +1,7 @@
 # Private Property (PP) Syndication — Spec
 > Living reference for the Private Property integration. Reflects the
 > ACTUAL current implementation, not an idealised target.
-> Last updated: 2026-04-28
+> Last updated: 2026-08-03
 
 ---
 
@@ -216,9 +216,25 @@ edit page. Sidebar → System Developer → **PP Agents** opens a three-tab page
 
 The old per-agent Private Property card on `admin/users/{user}/edit` was removed — that
 page is now a tabbed Profile / Role & Access / Finance / Compliance / Actions layout.
-5. Image upload — `submitAgentImages()` reads `User::agent_photo_path`, builds `PP_IMAGE_BASE_URL/storage/<path>`, enforces HTTPS + ≤1MB, calls `UpdateAgentImage` with field name **`imgurl`** (lowercase).
+5. Image upload — `submitAgentImages()` builds `PP_IMAGE_BASE_URL/storage/<path>` from the agent's **JPEG rendition** (see §7a — not `agent_photo_path`, which is WebP), enforces HTTPS + ≤1MB, calls `UpdateAgentImage` with field name **`imgurl`** (lowercase).
 
-PP image spec: minimum 160×120px, max 1MB. The 1MB check is enforced server-side; the dimension minimum is documented but not validated server-side (would require GD/Imagick) — agents must comply when uploading.
+PP image spec: minimum 160×120px, max 1MB, **JPG only**. The 1MB check is enforced server-side; the dimension minimum is documented but not validated server-side (would require GD/Imagick) — agents must comply when uploading. `UpdateAgentImage`'s response is a plain SOAP 200 even when PP rejects the image — the real verdict is the `UpdateAgentImageResult` string (`"Successful"` vs. e.g. `"only jpg images are supported"`); `uploadAgentImage()` inspects it explicitly rather than trusting the absence of a `SoapFault` (see §7a).
+
+### 7a. Agent photo format & the JPG-only fix (2026-08-03)
+
+**Root cause found investigating agent #47 (Shalan)**: CoreX normalises every agent photo to WebP (`App\Services\Images\AgentPhotoNormalizer`, `agents/{id}/photo.webp` — see `.ai/specs/agent-photo.md`). PP's `UpdateAgentImage` only accepts JPG and silently rejects everything else with `UpdateAgentImageResult: "only jpg images are supported"` — confirmed on **145/145** historical calls across every agent. `uploadAgentImage()` previously only checked the SOAP transport-level `error` flag (set on a `SoapFault`), never the response body, so every rejection was logged and returned as a success. Established agents still showed a photo only because PP had an old JPG on file from before this became an issue (Feb 2026 agent registrations); Shalan's PP profile was created fresh on 2026-08-03 with nothing to fall back on.
+
+**Fix:**
+- `AgentPhotoNormalizer::store()` now also writes a JPEG rendition at `agents/{id}/photo.jpg` (flattened onto white — JPEG has no alpha) alongside the canonical WebP, from the same 1200×1200 square canvas. `ensureJpeg(int $userId)` lazily regenerates it on demand for agents whose photo predates this change (absorb, not a one-off backfill migration) — called from `submitAgentImages()` before every push.
+- `submitAgentImages()` builds `imgurl` from the JPEG rendition, not `agent_photo_path`. A legacy `.jpg`/`.jpeg` `agent_photo_path` (pre-normalizer agents) is used as-is.
+- `uploadAgentImage()` now extracts `UpdateAgentImageResult` via `extractFromSoapResponse()` and only treats the literal string `"Successful"` as success — anything else (PP's real rejection reason) is returned as a failure with PP's own message.
+- `AgentProfilePhotoService::clear()` deletes the JPEG rendition alongside the WebP and its `user_documents` row.
+
+### 7b. Agent identity persistence after registration (2026-08-03)
+
+**Root cause**: neither `registerAgent()` (admin "Sync Agent to PP" button) nor the private `ensureAgentRegistered()` (auto-register on first listing submit — the path Shalan's registration actually took) ever persisted `pp_unique_agent_id`/`pp_external_ref` back onto the `users` row after a successful `UpdateAgent` — `UpdateAgent`'s own response never returns the encrypted id, only `"Successful"`. Only the admin "Update PP Agent ID" flow (`AgentPpController::updateExternalRef`) wrote these columns. An agent registered only via auto-register therefore looked permanently "never synced" to CoreX, risking a duplicate PP profile on the next `ensureNoDuplicateBeforeUpdateAgent` check or manual remap.
+
+**Fix:** both `registerAgent()` and `ensureAgentRegistered()` call a new private `persistPpAgentIdentity(User $user)` after a successful `UpdateAgent` — looks up the encrypted id via `GetAgent` (mirrors `AgentPpController::fetchEncryptedAgentIdFromPp`'s proven candidate extraction) and writes `pp_unique_agent_id`/`pp_external_ref`. Guarded to fire the extra SOAP call only once per agent (skipped once both columns are already correct), so this does not add a `GetAgent` call to every listing submit.
 
 ---
 

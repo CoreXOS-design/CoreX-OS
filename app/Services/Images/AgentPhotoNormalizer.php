@@ -35,6 +35,12 @@ class AgentPhotoNormalizer
      * Normalize + store. Returns the public-disk relative path
      * (e.g. "agents/42/photo.webp"). Deletes $existingPath if it differs.
      *
+     * Also writes a JPEG rendition at photoJpegPath($userId) from the same
+     * square canvas — Private Property's UpdateAgentImage rejects every
+     * non-JPG upload ("only jpg images are supported"), so the portal-facing
+     * copy can never be the WebP CoreX uses everywhere else. See
+     * PrivatePropertySyndicationService::submitAgentImages().
+     *
      * @throws ValidationException when the source is unreadable or too small.
      */
     public function store(UploadedFile $file, int $userId, ?string $existingPath = null): string
@@ -43,6 +49,7 @@ class AgentPhotoNormalizer
 
         $relPath = "agents/{$userId}/photo.webp";
         Storage::disk('public')->put($relPath, $this->encodeWebp($square));
+        Storage::disk('public')->put($this->photoJpegPath($userId), $this->encodeJpeg($square));
         imagedestroy($square);
 
         if ($existingPath && $existingPath !== $relPath) {
@@ -50,6 +57,47 @@ class AgentPhotoNormalizer
         }
 
         return $relPath;
+    }
+
+    /**
+     * Public-disk relative path of the JPEG rendition for a given user.
+     */
+    public function photoJpegPath(int $userId): string
+    {
+        return "agents/{$userId}/photo.jpg";
+    }
+
+    /**
+     * Absorb (Robustness Charter, prevent-or-absorb): agents whose photo was
+     * uploaded before the JPEG rendition existed have no photo.jpg on disk.
+     * Regenerate it on demand from the current WebP rather than requiring a
+     * separate backfill pass. Returns the relative path, or null when there
+     * is no source photo to regenerate from.
+     */
+    public function ensureJpeg(int $userId): ?string
+    {
+        $jpegPath = $this->photoJpegPath($userId);
+        $disk = Storage::disk('public');
+
+        if ($disk->exists($jpegPath)) {
+            return $jpegPath;
+        }
+
+        $webpPath = "agents/{$userId}/photo.webp";
+        if (!$disk->exists($webpPath)) {
+            return null;
+        }
+
+        $bytes = $disk->get($webpPath);
+        $src = $bytes ? @imagecreatefromstring($bytes) : false;
+        if (! $src instanceof \GdImage) {
+            return null;
+        }
+
+        $disk->put($jpegPath, $this->encodeJpeg($src));
+        imagedestroy($src);
+
+        return $jpegPath;
     }
 
     /**
@@ -155,5 +203,38 @@ class AgentPhotoNormalizer
         }
 
         return $bytes; // unreachable; satisfies static analysis
+    }
+
+    /**
+     * Encode JPEG, stepping quality down until under MAX_BYTES (or floor 60).
+     * JPEG has no alpha channel, so the square canvas (which carries a
+     * semi-transparent-white fill for non-opaque sources) is first flattened
+     * onto a solid white background — otherwise transparent regions render
+     * as black/garbage in consumers that don't understand the source's alpha.
+     */
+    private function encodeJpeg(\GdImage $img): string
+    {
+        $w = imagesx($img);
+        $h = imagesy($img);
+
+        $flat = imagecreatetruecolor($w, $h);
+        imagefill($flat, 0, 0, imagecolorallocate($flat, 255, 255, 255));
+        imagealphablending($flat, true);
+        imagecopy($flat, $img, 0, 0, 0, 0, $w, $h);
+
+        $bytes = '';
+        for ($quality = 85; $quality >= 60; $quality -= 8) {
+            ob_start();
+            imagejpeg($flat, null, $quality);
+            $bytes = (string) ob_get_clean();
+
+            if (strlen($bytes) <= self::MAX_BYTES || $quality === 60) {
+                break;
+            }
+        }
+
+        imagedestroy($flat);
+
+        return $bytes;
     }
 }
