@@ -21,12 +21,15 @@
 /vendor
 /bootstrap/cache/packages.php
 /bootstrap/cache/services.php
+/bootstrap/cache/config.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
 NUL
 *.bak-*
 storage/framework/views/
+storage/framework/cache/
+__pycache__/
 database/database.sqlite
 database/*.sqlite
 database/*.sqlite.*
@@ -55,3 +58,4 @@ bootstrap/cache/events.php
 /public/staging-imgs/
 staging-vs-main.txt
 .env.testing
+.claude/settings.local.json
