@@ -38,8 +38,17 @@
                     Download Certificate
                 </a>
             @endif
-            <a href="{{ route('docuperfect.rental') }}"
-               class="text-sm text-white/70 hover:text-white">Back to Rental</a>
+            @php
+                // Back target must follow the document TYPE — this audit trail serves
+                // sales AND rental documents; a hardcoded "Back to Rental" stranded
+                // sales docs in the wrong dashboard (AT-365). Same derivation as
+                // signatures/review.blade.php.
+                $auditType      = $document->template?->template_type ?? 'rentals';
+                $auditBackRoute = $auditType === 'sales' ? route('docuperfect.sales') : route('docuperfect.rental');
+                $auditBackLabel = $auditType === 'sales' ? 'Back to Sales' : 'Back to Rental';
+            @endphp
+            <a href="{{ $auditBackRoute }}"
+               class="text-sm text-white/70 hover:text-white">{{ $auditBackLabel }}</a>
         </div>
     </div>
 

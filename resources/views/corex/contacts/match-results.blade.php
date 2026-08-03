@@ -220,7 +220,7 @@
         <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No active properties match these criteria</h3>
         <p class="text-sm mb-4" style="color: var(--text-muted);">Try broadening the price range, suburb, or room requirements.</p>
         <a href="{{ route('corex.contacts.show', $contact) }}?tab=matches" class="corex-btn-outline">
-            ← Back to Core Matches
+            ← Back to {{ $contact->full_name }}
         </a>
     </div>
     @else
