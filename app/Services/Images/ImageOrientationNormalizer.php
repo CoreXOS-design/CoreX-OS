@@ -34,21 +34,28 @@ use Illuminate\Support\Facades\Log;
  * -------------------------------------------------------------------------------
  * A valid EXIF Orientation tag is 1–8. Anything else was previously treated as
  * "no work needed" — the same bucket as a genuinely upright photo. That is false
- * for some HUAWEI devices (confirmed: HUAWEI Mate X6, software
- * ICL-L29 15.0.0.209): the camera pipeline writes `Orientation => 0` (not a
- * valid value) while the pixel buffer is still stored in the sensor's
- * non-upright native orientation — a firmware quirk, not a missing tag. Every
- * sampled photo from that device (33/33 in property 6142's gallery) needed the
- * identical 90° CCW correction (the same transform as EXIF value 8).
+ * for some HUAWEI/HONOR devices — confirmed on two, same day:
+ *   - HUAWEI Mate X6, software ICL-L29 15.0.0.209: writes `Orientation => 0`
+ *     (not a valid value). 33/33 sampled photos needed correction.
+ *   - HONOR BRP-NX1: writes no Orientation tag at all.
+ * Both store the pixel buffer in the sensor's non-upright native orientation
+ * regardless — a firmware/camera-stack quirk (HUAWEI and HONOR share camera
+ * pipeline lineage pre-2020 split), not a genuinely-upright missing tag. Every
+ * sampled photo from both devices needed the identical 90° CCW correction (the
+ * same transform as EXIF value 8).
  *
  * We cannot guess a rotation direction for an unknown/invalid tag in general —
  * there is no signal to guess from. This is a narrow, evidence-backed exception
- * for the one device/value combination we have verified, gated on the defect's
- * own signature (Make=HUAWEI, invalid/absent Orientation, portrait-shaped
- * canvas — a landscape scene could never legitimately fill a portrait canvas
- * without rotation). Every other invalid/absent case is left untouched, exactly
- * as before, but now logged instead of silently swallowed — so the next unknown
- * device/value shows up in the logs instead of shipping sideways for months.
+ * for the device/value combinations we have verified (self::HEURISTIC_MAKES),
+ * gated on the defect's own signature (Make matches, invalid/absent
+ * Orientation, portrait-shaped canvas — a landscape scene could never
+ * legitimately fill a portrait canvas without rotation). Every other
+ * invalid/absent case is left untouched, exactly as before, but now logged
+ * instead of silently swallowed — so the next unknown device/value shows up in
+ * the logs instead of shipping sideways for months. This is a client-side
+ * capture defect; the real fix belongs in the mobile app (bake orientation
+ * before upload). This absorbs it server-side in the meantime — prevent AND
+ * absorb, not one or the other.
  */
 class ImageOrientationNormalizer
 {
@@ -58,6 +65,14 @@ class ImageOrientationNormalizer
      * that actually need rotation are ever re-encoded; upright ones are untouched.
      */
     private const QUALITY = 92;
+
+    /**
+     * Device makes with a verified orientation-0/absent firmware quirk (see
+     * class docblock). Evidence-first list — extend only after visually
+     * confirming the rotation direction across multiple real samples, never
+     * speculatively.
+     */
+    private const HEURISTIC_MAKES = ['HUAWEI', 'HONOR'];
 
     /**
      * Normalise the orientation of the JPEG at $absPath IN PLACE.
@@ -94,16 +109,25 @@ class ImageOrientationNormalizer
         }
 
         // Absent or invalid (e.g. 0) — the tag gives no actionable direction.
-        // Verified exception: HUAWEI's orientation-0 firmware quirk (see class
-        // docblock). Gated on the defect's own signature so this never fires
-        // for a device/value combination we have no evidence about.
+        // Verified exception: the HUAWEI/HONOR orientation-0/absent firmware
+        // quirk (see class docblock). Gated on the defect's own signature so
+        // this never fires for a device/value combination we have no evidence about.
         $make = trim((string) ($exif['Make'] ?? ''));
         $width = (int) ($info[0] ?? 0);
         $height = (int) ($info[1] ?? 0);
 
-        if ($width > 0 && $width < $height && strcasecmp($make, 'HUAWEI') === 0) {
-            $this->logBestEffort('info', 'Image orientation: applied HUAWEI orientation-0 heuristic (90 CCW)', [
+        $matchedMake = null;
+        foreach (self::HEURISTIC_MAKES as $known) {
+            if (strcasecmp($make, $known) === 0) {
+                $matchedMake = $known;
+                break;
+            }
+        }
+
+        if ($width > 0 && $width < $height && $matchedMake !== null) {
+            $this->logBestEffort('info', "Image orientation: applied {$matchedMake} orientation heuristic (90 CCW)", [
                 'path' => $absPath,
+                'make' => $make,
                 'model' => $exif['Model'] ?? null,
                 'software' => $exif['Software'] ?? null,
                 'raw_orientation' => $rawOrientation,

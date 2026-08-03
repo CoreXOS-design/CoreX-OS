@@ -1,13 +1,17 @@
 # Image Orientation Normalization (ingest-time)
 
 **Status:** Built (2026-07-20, `ImageOrientationNormalizer`) — this spec formalizes it
-retroactively and documents the 2026-08-03 fix for the orientation-0 gap.
+retroactively and documents the 2026-08-03 fix for the orientation-0 gap, extended
+same-day to a second confirmed device (HONOR).
 **Date:** 2026-08-03
 **Author:** Johan + Claude
 **Origin:** Property 6118 (2026-07-20) — mobile-captured gallery photos landed sideways.
 Property 6142 (2026-08-03) — Johan reported the same symptom recurring on the
 mobile app despite the July fix; investigation found a specific device
-(HUAWEI Mate X6) falling through a gap the original fix didn't cover.
+(HUAWEI Mate X6) falling through a gap the original fix didn't cover. Hours
+later, a second device (HONOR BRP-NX1) hit the same gap on a fresh upload to
+the same property — caught immediately by this fix's own new logging, and
+extended the same day using the same evidence-first process.
 
 ---
 
@@ -107,16 +111,48 @@ applied for EXIF value 8).
 
 This is a narrow fix scoped to real, verified evidence — not a blanket "treat
 any invalid value as needing rotation" rule, which would risk mis-rotating an
-unrelated device/scenario we have no evidence about.
+unrelated device/scenario we have no evidence about. The verified makes live
+in `ImageOrientationNormalizer::HEURISTIC_MAKES` (currently `HUAWEI`, `HONOR`)
+so extending the list is a one-line, evidence-gated change, not a rewrite.
 
-### 5.2 Retroactive repair
+### 5.2 Same-day extension: HONOR (confirmed, not speculative)
 
-Property 6142's 33 already-stored gallery photos (uploaded before this fix
-landed) were repaired by re-running the fixed `normalizeInPlace()` against
-each file in place, then regenerating their list-view thumbnails
+Within hours of the fix going live, a fresh upload to property 6142 from a
+HONOR BRP-NX1 hit the exact same gap — this time with the Orientation tag
+**entirely absent** rather than `0`. The new `Log::warning` this fix added
+caught it immediately (visible in `storage/logs/laravel.log` within minutes),
+which is exactly the detection mechanism §8 describes. Two of the two sampled
+photos were visually confirmed sideways, needing the identical 90° CCW
+correction. HUAWEI and HONOR share pre-2020-split camera-stack lineage, so
+this is treated as the same verified defect class rather than a coincidence.
+`HEURISTIC_MAKES` was extended to include `HONOR`, covering both the `0` and
+absent-tag variants of the same underlying signature (the numeric-validity
+check already treats both identically as "no actionable tag").
+
+### 5.3 Retroactive repair
+
+Property 6142's already-stored gallery photos (uploaded before each fix
+landed — 33 for the HUAWEI pass, 2 more for the HONOR pass) were repaired by
+re-running the fixed `normalizeInPlace()` against each file in place, then
+regenerating their list-view thumbnails
 (`PropertyThumbnailService::generateForProperty($property, force: true)`).
 No schema/data change — file-level repair only, same pattern as
 `properties:repair-gallery-references`.
+
+### 5.4 The real fix belongs on the mobile side
+
+This server-side heuristic is an ABSORB, not a PREVENT — it only fires for
+device signatures already seen in production, after the fact. The root cause
+is client-side: the OEM camera pipeline hands the app a JPEG whose pixels
+don't match reality and whose metadata can't be trusted to say so. A
+mobile-side fix (bake the correct rotation into the image before it is ever
+uploaded, using a source of truth the OEM camera app can't corrupt) closes the
+gap for every device, known or not — not just the ones logged so far. See
+`.ai/prompts/mobile-image-orientation-fix.md` for the brief handed to the
+mobile app team/session. Both fixes should stay in place together: the mobile
+fix prevents the defect at the source; this one keeps absorbing whatever slips
+through (a new device, an app version regression) so a sideways photo is never
+the only line of defence away from reaching a listing.
 
 ## 6. Files touched
 
@@ -127,7 +163,10 @@ No schema/data change — file-level repair only, same pattern as
   direction via a corner-marked fixture, not just "some" rotation) and for the
   unresolved/left-untouched case.
 - **Created:** `tests/Fixtures/Images/huawei-orientation0.jpg`,
+  `tests/Fixtures/Images/honor-no-orientation-tag.jpg`,
   `tests/Fixtures/Images/unknown-orientation-no-make.jpg`.
+- **Created:** `.ai/prompts/mobile-image-orientation-fix.md` — brief for the
+  mobile app team/session to fix the client-side root cause.
 - **No migration, no route, no UI change** — this is a backend ingest-path fix.
 
 ## 7. Acceptance criteria
