@@ -4,6 +4,7 @@ namespace App\Services\Compliance;
 
 use App\Events\Fica\FicaSubmitted;
 use App\Models\Contact;
+use App\Models\Document;
 use App\Models\FicaDocument;
 use App\Models\FicaSubmission;
 use Illuminate\Http\UploadedFile;
@@ -129,6 +130,35 @@ class FicaWetInkService
             'uploaded_at'        => now(),
             'uploaded_by'        => Auth::id(),
         ]);
+    }
+
+    /**
+     * AT-361 — LINK (reference) an existing contact document into the FICA process.
+     * No bytes are copied and nothing is re-uploaded: the fica_submission_documents
+     * pivot points at the contact's already-stored Document (its Drive / splitter
+     * output). Guard: the document must belong to THIS submission's contact.
+     * Idempotent (unique pivot on submission+document). Returns true if linked.
+     *
+     * @param string $slot fica_form | id_copy | proof_of_address | supporting
+     */
+    public function linkContactDocument(FicaSubmission $submission, Document $document, string $slot = 'supporting', ?int $actorId = null): bool
+    {
+        // Only the submission's OWN contact's documents may be linked in.
+        $belongsToContact = $document->contacts()
+            ->where('contacts.id', $submission->contact_id)
+            ->exists();
+        if (! $belongsToContact) {
+            return false;
+        }
+
+        $submission->linkedDocuments()->syncWithoutDetaching([
+            $document->id => [
+                'document_type' => $slot,
+                'linked_by'     => $actorId ?? Auth::id(),
+            ],
+        ]);
+
+        return true;
     }
 
     /**

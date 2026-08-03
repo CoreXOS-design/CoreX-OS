@@ -149,6 +149,8 @@
     @endforelse
 </div>
 
+@include('compliance.fica.partials._linked-contact-documents', ['submission' => $submission])
+
 {{-- Signature --}}
 @if($submission->signature_data)
 <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">

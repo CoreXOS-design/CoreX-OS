@@ -184,15 +184,23 @@ class FicaController extends Controller
      */
     public function storeWetInk(Request $request)
     {
+        // AT-361 — each required slot is satisfied by EITHER a fresh upload OR a
+        // LINK to one of the contact's existing documents (Drive / splitter output).
+        // required_without pairs keep the upload mandatory only when no link is given.
         $validated = $request->validate([
             'contact_id'              => 'required|exists:contacts,id',
             'entity_type'             => 'required|in:natural,company,trust,partnership',
             'wet_ink_received_date'   => 'required|date|before_or_equal:today',
             'confirmed_signed_paper'  => 'required|accepted',
-            'fica_form_file'          => 'required|file|mimes:pdf,jpg,jpeg,png|max:10240',
-            'id_copy_file'            => 'required|file|mimes:pdf,jpg,jpeg,png|max:10240',
-            'proof_of_address_file'   => 'required|file|mimes:pdf,jpg,jpeg,png|max:10240',
+            'fica_form_file'          => 'required_without:linked_fica_form_document_id|nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
+            'linked_fica_form_document_id' => 'required_without:fica_form_file|nullable|integer|exists:documents,id',
+            'id_copy_file'            => 'required_without:linked_id_copy_document_id|nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
+            'linked_id_copy_document_id' => 'required_without:id_copy_file|nullable|integer|exists:documents,id',
+            'proof_of_address_file'   => 'required_without:linked_proof_of_address_document_id|nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
+            'linked_proof_of_address_document_id' => 'required_without:proof_of_address_file|nullable|integer|exists:documents,id',
             'supporting_docs.*'       => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
+            'linked_supporting_document_ids'   => 'nullable|array',
+            'linked_supporting_document_ids.*' => 'integer|exists:documents,id',
         ]);
 
         $contact = Contact::findOrFail($validated['contact_id']);
@@ -213,13 +221,29 @@ class FicaController extends Controller
                 'wet_ink_received_date' => $validated['wet_ink_received_date'],
             ]);
 
-            $service->addUploadedDocument($submission, $request->file('fica_form_file'), 'fica_form');
-            $service->addUploadedDocument($submission, $request->file('id_copy_file'), 'id_copy');
-            $service->addUploadedDocument($submission, $request->file('proof_of_address_file'), 'proof_of_address');
+            // Required slots: a fresh upload, or a LINK to an existing contact document (AT-361).
+            foreach (['fica_form', 'id_copy', 'proof_of_address'] as $slot) {
+                if ($request->hasFile($slot . '_file')) {
+                    $service->addUploadedDocument($submission, $request->file($slot . '_file'), $slot);
+                } elseif ($linkedId = $request->input('linked_' . $slot . '_document_id')) {
+                    $doc = Document::findOrFail($linkedId);
+                    if (! $service->linkContactDocument($submission, $doc, $slot, Auth::id())) {
+                        throw \Illuminate\Validation\ValidationException::withMessages([
+                            'linked_' . $slot . '_document_id' => 'That document does not belong to the selected contact.',
+                        ]);
+                    }
+                }
+            }
 
+            // Supporting: any fresh uploads PLUS any linked contact documents.
             if ($request->hasFile('supporting_docs')) {
                 foreach ($request->file('supporting_docs') as $file) {
                     $service->addUploadedDocument($submission, $file, 'supporting');
+                }
+            }
+            foreach ((array) $request->input('linked_supporting_document_ids', []) as $linkedId) {
+                if ($doc = Document::find($linkedId)) {
+                    $service->linkContactDocument($submission, $doc, 'supporting', Auth::id());
                 }
             }
         });
@@ -245,7 +269,7 @@ class FicaController extends Controller
             Log::warning('TFS auto-screen on show failed', ['submission_id' => $submission->id, 'error' => $e->getMessage()]);
         }
 
-        $submission->load(['contact', 'requestedBy', 'verifiedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents', 'referredBy']);
+        $submission->load(['contact', 'requestedBy', 'verifiedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents', 'referredBy', 'linkedDocuments.documentType']);
 
         $referralEnabled = $referrals->referralEnabled((int) $submission->agency_id);
         $viewerIsPrimaryCo = Auth::user()->isPrimaryComplianceOfficer((int) $submission->agency_id);
@@ -398,7 +422,7 @@ class FicaController extends Controller
         $this->authorizeAgency($submission);
         abort_unless(Auth::user()->isComplianceOfficer(), 403, 'Only compliance officers can access this page.');
 
-        $submission->load(['contact', 'requestedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents', 'referredBy']);
+        $submission->load(['contact', 'requestedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents', 'referredBy', 'linkedDocuments.documentType']);
 
         $referralEnabled = $referrals->referralEnabled((int) $submission->agency_id);
         $viewerIsPrimaryCo = Auth::user()->isPrimaryComplianceOfficer((int) $submission->agency_id);
@@ -755,7 +779,7 @@ class FicaController extends Controller
         $this->authorizeAgency($submission);
         abort_unless($submission->status === 'approved', 404, 'PDF only available for approved submissions.');
 
-        $submission->load(['contact', 'agency', 'requestedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents']);
+        $submission->load(['contact', 'agency', 'requestedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents', 'linkedDocuments.documentType']);
 
         // Return the HTML template as a printable page (Puppeteer rendering is a server-side concern)
         return view('compliance.fica.pdf', compact('submission'));
@@ -988,6 +1012,129 @@ class FicaController extends Controller
         abort_unless((int) $document->fica_submission_id === (int) $submission->id, 404);
 
         return app(\App\Services\Compliance\FicaDocumentStorage::class)->stream($document);
+    }
+
+    /**
+     * AT-361 — JSON list of the contact's existing documents for the wet-ink create
+     * picker (the contact is chosen dynamically client-side, so the list is fetched
+     * after selection). Read-only; gated by the route (access_compliance +
+     * agency.required) plus an agency check on the contact.
+     */
+    public function contactDocuments(Contact $contact)
+    {
+        $user = Auth::user();
+        abort_unless(
+            $user->isOwnerRole() || (int) $contact->agency_id === (int) ($user->effectiveAgencyId() ?? 0),
+            403
+        );
+
+        $docs = $contact->documents()->with('documentType')->get()->map(fn (Document $d) => [
+            'id'     => $d->id,
+            'name'   => $d->original_name,
+            'type'   => $d->documentType?->label,
+            'date'   => optional($d->created_at)->format('d M Y'),
+            'source' => $d->source_type,
+        ])->values();
+
+        return response()->json(['documents' => $docs]);
+    }
+
+    /**
+     * AT-361 — LINK existing contact documents into a FICA submission from the agent
+     * review touchpoint (no upload, no copy — a reference via fica_submission_documents).
+     * Same stage + authorship gate as agentUpload().
+     */
+    public function linkContactDocuments(Request $request, FicaSubmission $submission)
+    {
+        $this->authorizeAgency($submission);
+        abort_unless(
+            in_array($submission->status, ['submitted', 'under_review', 'corrections_requested']),
+            400,
+            'Cannot link documents at this stage.'
+        );
+        $user = Auth::user();
+        abort_unless(
+            $submission->requested_by === $user->id || $user->isOwnerRole() || $user->hasPermission('manage_compliance'),
+            403,
+            'Only the requesting agent or an admin can link documents.'
+        );
+
+        $data = $request->validate([
+            'document_ids'   => 'required|array|min:1',
+            'document_ids.*' => 'integer|exists:documents,id',
+            'document_type'  => 'nullable|string|in:fica_form,id_copy,proof_of_address,supporting',
+        ]);
+        $slot = $data['document_type'] ?? 'supporting';
+
+        $service = app(\App\Services\Compliance\FicaWetInkService::class);
+        $linked = 0;
+        foreach ($data['document_ids'] as $id) {
+            $doc = Document::find($id);
+            if ($doc && $service->linkContactDocument($submission, $doc, $slot, $user->id)) {
+                $linked++;
+            }
+        }
+
+        Log::info('FICA agent linked contact documents', [
+            'submission_id' => $submission->id,
+            'linked_count'  => $linked,
+            'agent_id'      => $user->id,
+        ]);
+
+        return back()->with('success', $linked === 1
+            ? 'Contact document linked to this FICA.'
+            : "{$linked} contact documents linked to this FICA.");
+    }
+
+    /**
+     * AT-361 — remove a contact-document LINK (detaches the pivot only; the contact's
+     * document itself is untouched — nothing is deleted).
+     */
+    public function unlinkContactDocument(Request $request, FicaSubmission $submission, Document $contactDocument)
+    {
+        $this->authorizeAgency($submission);
+        abort_unless(
+            in_array($submission->status, ['submitted', 'under_review', 'corrections_requested']),
+            400,
+            'Cannot unlink documents at this stage.'
+        );
+        $user = Auth::user();
+        abort_unless(
+            $submission->requested_by === $user->id || $user->isOwnerRole() || $user->hasPermission('manage_compliance'),
+            403,
+            'Only the requesting agent or an admin can unlink documents.'
+        );
+
+        $submission->linkedDocuments()->detach($contactDocument->id);
+
+        return back()->with('success', 'Contact document unlinked (the document itself was not deleted).');
+    }
+
+    /**
+     * AT-361 — stream a LINKED contact document for RO/CO review. Linked docs live in
+     * the unified `documents` store (the contact's own disk), NOT the encrypted FICA
+     * store, so they are served here — gated by the route (access_compliance +
+     * agency.required), the agency check, and a membership check that the document is
+     * actually linked to THIS submission. Inline preview, never a public URL.
+     */
+    public function viewLinkedDocument(FicaSubmission $submission, Document $contactDocument)
+    {
+        $this->authorizeAgency($submission);
+        abort_unless(
+            $submission->linkedDocuments()->where('documents.id', $contactDocument->id)->exists(),
+            404
+        );
+        abort_unless(
+            Storage::disk($contactDocument->disk)->exists($contactDocument->storage_path),
+            404,
+            'File not found.'
+        );
+
+        return Storage::disk($contactDocument->disk)->response(
+            $contactDocument->storage_path,
+            $contactDocument->original_name,
+            ['Content-Type' => $contactDocument->mime_type ?: 'application/octet-stream']
+        );
     }
 
     /**
