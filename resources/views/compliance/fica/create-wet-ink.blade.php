@@ -51,10 +51,13 @@
               docsLoaded: false,
               links: { fica_form: null, id_copy: null, proof_of_address: null },
               supportingLinks: [],
+              // Build from the NAMED route so the app's route prefix (/corex) is included —
+              // a hand-built url('/compliance/...') omits it and 404s, silently emptying the picker.
+              docsUrl: {{ \Illuminate\Support\Js::from(route('compliance.fica.contact-documents', ['contact' => '__CID__'])) }},
               fetchDocs() {
                   if (!this.selected) { this.contactDocs = []; this.docsLoaded = false; return; }
                   this.docsLoading = true; this.docsLoaded = false;
-                  fetch('{{ url('/compliance/fica/contact') }}/' + this.selected + '/documents', { headers: { Accept: 'application/json' } })
+                  fetch(this.docsUrl.replace('__CID__', this.selected), { headers: { Accept: 'application/json' } })
                       .then(r => r.ok ? r.json() : { documents: [] })
                       .then(j => { this.contactDocs = j.documents || []; })
                       .catch(() => { this.contactDocs = []; })
