@@ -75,6 +75,9 @@ class CandidateAuthoriserSurfaceInjector
     /** Ceremony field types for the once-per-segment authoriser attestation (no-block docs). */
     private const CEREMONY_TYPES = ['location', 'day', 'month', 'year', 'time'];
 
+    /** Monotonic sequence for unique candidate-mark ↔ mirror anchor links within one pass. */
+    private int $authAnchorSeq = 0;
+
     /**
      * @param string $html        merged document body (one or more .corex-document-wrapper segments)
      * @param string $identity    authoriser role-identity stamped on every mirrored/routed mark (base checkpoint identity)
@@ -317,24 +320,51 @@ class CandidateAuthoriserSurfaceInjector
      *
      * Pairing must be exact per mark: several candidate marks can share one parent, so "any
      * authoriser mark among the siblings" would let the mirror of the FIRST mark satisfy the
-     * rest. The paired mark is therefore:
-     *   1. this mark's immediate next element sibling, when that is an authoriser mark of the
-     *      same type — where insertMirror()/insertOwnLineSignatureMirror() place the mirror
-     *      (re-run idempotency) AND where an adjacent enumerated authoriser slot sits; ELSE
-     *   2. a PRE-EXISTING (non-mirror) authoriser mark of the same type among the siblings —
-     *      the enumerated per-condition/per-row authoriser slot. Our own freshly-inserted
-     *      mirrors (tagged data-authoriser-mirror) are excluded here so they never satisfy a
-     *      DIFFERENT mark.
+     * rest. The paired mark is therefore, in priority order:
+     *   1. the authoriser mirror EXPLICITLY LINKED to this candidate mark — its
+     *      data-authoriser-mirror-for equals this mark's data-authoriser-anchor. This is the
+     *      robust, placement-independent link (Johan 2026-08-03): the own-line SIGNATURE
+     *      mirror is now relocated to its OWN separated slot AFTER the candidate's cell (so
+     *      the candidate's name is never mislabelled with the authoriser designation), so it
+     *      is no longer an immediate sibling — the anchor link finds it wherever it sits.
+     *      insertMirror()/insertOwnLineSignatureMirror() stamp this link. ELSE
+     *   2. this mark's immediate next element NON-MIRROR sibling that is an authoriser mark of
+     *      the same type — an adjacent enumerated authoriser slot; ELSE
+     *   3. a PRE-EXISTING (non-mirror) authoriser mark of the same type among the siblings —
+     *      the enumerated per-condition/per-row authoriser slot. Our own inserted mirrors
+     *      (tagged data-authoriser-mirror) are excluded from 2 and 3 so they only ever satisfy
+     *      the candidate mark they are LINKED to, never a different mark.
      */
     private function pairedAuthoriserMark(\DOMElement $mark, string $type, string $identity): ?\DOMElement
     {
+        // 1. Explicit anchor link — the mirror we inserted for THIS candidate mark, wherever
+        //    it now sits (its own relocated slot for signatures; the adjacent slot for initials).
+        $anchor = $mark->getAttribute('data-authoriser-anchor');
+        if ($anchor !== '') {
+            $doc = $mark->ownerDocument;
+            if ($doc instanceof \DOMDocument) {
+                $xp = new \DOMXPath($doc);
+                $q = $xp->query('//*[@data-authoriser-mirror-for="' . $anchor . '"][@data-marker-type="' . $this->xpathLiteralType($type) . '"]');
+                if ($q !== false) {
+                    foreach ($q as $m) {
+                        if ($m instanceof \DOMElement) {
+                            return $m;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Immediate next element NON-MIRROR sibling authoriser mark of the same type.
         $next = $this->nextElementSibling($mark);
         if ($next !== null
+            && $next->getAttribute('data-authoriser-mirror') !== 'true'
             && strtolower(trim($next->getAttribute('data-marker-type'))) === $type
             && $this->isAuthoriserMark($next, $identity)) {
             return $next;
         }
 
+        // 3. Pre-existing (non-mirror) authoriser sibling of the same type — enumerated slot.
         $parent = $mark->parentNode;
         if ($parent instanceof \DOMElement || $parent instanceof \DOMDocument) {
             foreach ($parent->childNodes as $sib) {
@@ -342,7 +372,7 @@ class CandidateAuthoriserSurfaceInjector
                     continue;
                 }
                 if ($sib->getAttribute('data-authoriser-mirror') === 'true') {
-                    continue; // our own mirror — belongs to whichever mark it trails, not this one
+                    continue; // our own mirror — belongs only to the mark it is linked to
                 }
                 if (strtolower(trim($sib->getAttribute('data-marker-type'))) === $type && $this->isAuthoriserMark($sib, $identity)) {
                     return $sib;
@@ -350,6 +380,12 @@ class CandidateAuthoriserSurfaceInjector
             }
         }
         return null;
+    }
+
+    /** Guard the marker-type before interpolating it into an XPath string literal. */
+    private function xpathLiteralType(string $type): string
+    {
+        return preg_replace('/[^a-z_]/', '', strtolower($type)) ?? '';
     }
 
     /** Next sibling that is an element, skipping whitespace/text nodes. */
@@ -426,9 +462,53 @@ class CandidateAuthoriserSurfaceInjector
         }
         $origIndex = $mark->getAttribute('data-marker-index');
         $mirror->setAttribute('data-marker-index', ($origIndex !== '' ? $origIndex : $type) . '-auth');
+        $this->linkMirror($mark, $mirror);
 
         // insertBefore(node, null) appends — correct when the mark is the last child.
         $mark->parentNode?->insertBefore($mirror, $mark->nextSibling);
+    }
+
+    /**
+     * Link a mirror to the specific candidate mark it belongs to, via a unique anchor stamped
+     * on the candidate mark (data-authoriser-anchor) and echoed on the mirror
+     * (data-authoriser-mirror-for). pairedAuthoriserMark() resolves the pair by this link, so
+     * the mirror can be RELOCATED (own-line signature slot) without breaking completeness.
+     */
+    private function linkMirror(\DOMElement $mark, \DOMElement $mirror): void
+    {
+        $anchor = $mark->getAttribute('data-authoriser-anchor');
+        if ($anchor === '') {
+            $anchor = 'auth-' . (++$this->authAnchorSeq) . '-' . $this->xpathLiteralType($mark->getAttribute('data-marker-type'));
+            $mark->setAttribute('data-authoriser-anchor', $anchor);
+        }
+        $mirror->removeAttribute('data-authoriser-anchor'); // a mirror is never itself an anchor
+        $mirror->setAttribute('data-authoriser-mirror-for', $anchor);
+    }
+
+    /**
+     * Nearest ancestor of the mark that represents a signature CELL/COLUMN (so the relocated
+     * authoriser slot can be appended AFTER the candidate's complete cell — keeping the
+     * candidate's own name label with the candidate). Stops at the row/party-block/segment
+     * boundary. Null when the mark has no cell wrapper (bare inline mark).
+     */
+    private function signatureCellAncestor(\DOMElement $mark): ?\DOMElement
+    {
+        $node = $mark->parentNode;
+        $depth = 0;
+        while ($node instanceof \DOMElement && $depth < 5) {
+            $classes = ' ' . preg_replace('/\s+/', ' ', trim($node->getAttribute('class'))) . ' ';
+            if (str_contains($classes, ' sig-cell ') || str_contains($classes, ' signature-col ')) {
+                return $node;
+            }
+            if (str_contains($classes, ' sig-party-block ')
+                || str_contains($classes, ' sig-row-adaptive ')
+                || str_contains($classes, ' corex-document-wrapper ')) {
+                return null;
+            }
+            $node = $node->parentNode;
+            $depth++;
+        }
+        return null;
     }
 
     /**
@@ -439,6 +519,11 @@ class CandidateAuthoriserSurfaceInjector
      */
     private function insertOwnLineSignatureMirror(\DOMElement $mark, string $identity, string $designation): void
     {
+        $doc = $mark->ownerDocument;
+        if (! $doc instanceof \DOMDocument) {
+            return;
+        }
+
         $mirror = $mark->cloneNode(true);
         if (! $mirror instanceof \DOMElement) {
             return;
@@ -451,27 +536,36 @@ class CandidateAuthoriserSurfaceInjector
         }
         $origIndex = $mark->getAttribute('data-marker-index');
         $mirror->setAttribute('data-marker-index', ($origIndex !== '' ? $origIndex : 'signature') . '-auth');
-        // Force onto its own line regardless of whether the cloned mark is inline (a span in
-        // a <p>) or block (a sig-cell div) — so it never sits ON the candidate's line.
         $style = trim($mirror->getAttribute('style'));
-        $mirror->setAttribute('style', ($style !== '' ? rtrim($style, ';') . ';' : '') . 'display:block;margin-top:6pt;');
+        $mirror->setAttribute('style', ($style !== '' ? rtrim($style, ';') . ';' : '') . 'display:block;');
+        $this->linkMirror($mark, $mirror);
 
         // Designation label (the "name attached" — the specific person binds at sign time via
         // the ink; the shared-queue authoriser has no name at compose).
-        $doc = $mark->ownerDocument;
-        $label = null;
-        if ($doc instanceof \DOMDocument) {
-            $label = $doc->createElement('span');
-            $label->setAttribute('class', 'authoriser-mirror-label');
-            $label->setAttribute('data-authoriser-label', 'true');
-            $label->setAttribute('style', 'display:block;font-size:9pt;color:#475569;margin-top:1pt;');
-            $label->appendChild($doc->createTextNode($designation));
-        }
+        $label = $doc->createElement('span');
+        $label->setAttribute('class', 'authoriser-mirror-label');
+        $label->setAttribute('data-authoriser-label', 'true');
+        $label->setAttribute('style', 'display:block;font-size:9pt;color:#475569;margin-top:1pt;');
+        $label->appendChild($doc->createTextNode($designation));
 
-        $parent = $mark->parentNode;
-        $parent?->insertBefore($mirror, $mark->nextSibling);
-        if ($label !== null) {
-            $parent?->insertBefore($label, $mirror->nextSibling);
+        // The authoriser's OWN clearly-separated signature slot: a cell wrapping the mirror
+        // line + its designation label. Placed AFTER the candidate's complete cell so the
+        // candidate's own name label stays with the candidate and is never mislabelled with
+        // the authoriser designation (Johan 2026-08-03 — "rec 1 space shows authoriser name").
+        $slot = $doc->createElement('div');
+        $slot->setAttribute('class', 'sig-cell authoriser-mirror-cell');
+        $slot->setAttribute('data-authoriser-mirror-slot', 'true');
+        $slot->setAttribute('style', 'text-align:center;margin-top:8pt;');
+        $slot->appendChild($mirror);
+        $slot->appendChild($label);
+
+        $cell = $this->signatureCellAncestor($mark);
+        if ($cell !== null && $cell->parentNode !== null) {
+            // After the candidate's complete cell — the authoriser gets its own slot below.
+            $cell->parentNode->insertBefore($slot, $cell->nextSibling);
+        } else {
+            // No cell wrapper (bare inline mark) — place the slot right after the mark.
+            $mark->parentNode?->insertBefore($slot, $mark->nextSibling);
         }
     }
 
@@ -483,6 +577,7 @@ class CandidateAuthoriserSurfaceInjector
         $el->setAttribute('data-authoriser-mirror', 'true');
         $el->removeAttribute('data-name');
         $el->removeAttribute('data-signed');
+        $el->removeAttribute('data-authoriser-anchor'); // a clone must never carry the candidate's anchor
     }
 
     // ── segment helpers (ceremony attestation) ─────────────────────────────────

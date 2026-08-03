@@ -730,6 +730,51 @@ final class EsignRegressionWalk extends Command
                 . ' failWhenEmpty=' . count($failWhenCoEmpty) . ' passWhenFilled=' . count($passWhenCoFilled)
                 . ' cosyRouted=' . ($cosyRouted ? 'Y' : 'n'),
         );
+
+        // (i) NO-BLOCK own-line mirror RELOCATION (Johan 2026-08-03 — "rec 1 space shows
+        // authoriser name"). On a component doc with NO designated block, the authoriser
+        // mirror + "Authorising Practitioner" label must render as its OWN separated slot
+        // AFTER the candidate's complete .sig-cell — the candidate's own name label stays in
+        // the candidate cell and is NEVER mislabelled with the authoriser designation. Pairing
+        // is by anchor link (not adjacency), so completeness still holds after relocation.
+        $iComp = view('docuperfect.web-templates.components.signature-block', [
+            'signing_parties'    => ['owner_party', 'agent'],
+            'document_context'   => 'sales',
+            'recipients_by_role' => ['seller' => [['name' => 'Anine Seller']], 'agent' => [['name' => 'Angelique Agent']]],
+        ])->render();
+        $oComp = $inj->inject('<div class="corex-document-wrapper">' . $iComp . '</div>');
+        $cdom = new \DOMDocument();
+        @$cdom->loadHTML('<?xml encoding="utf-8"?>' . $oComp, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING);
+        $cxp = new \DOMXPath($cdom);
+        $agentSig = null;
+        foreach ($cxp->query('//*[@data-marker-type="signature"][@data-marker-party="agent"]') as $n) { if ($n instanceof \DOMElement) { $agentSig = $n; break; } }
+        $agentCell = null;
+        if ($agentSig) { foreach ($cxp->query('ancestor::*[contains(concat(" ",normalize-space(@class)," ")," sig-cell ")][1]', $agentSig) as $c) { $agentCell = $c; break; } }
+        $candNameInCell = false; $authLabelInCandCell = true;
+        if ($agentCell) {
+            foreach ($cxp->query('.//*[contains(@class,"sig-cell-label")]', $agentCell) as $l) { if (str_contains($l->textContent, 'Angelique Agent')) $candNameInCell = true; }
+            $authLabelInCandCell = $cxp->query('.//*[@data-authoriser-label="true"]', $agentCell)->length > 0;
+        }
+        $slots = $cxp->query('//*[@data-authoriser-mirror-slot="true"]');
+        $slotOk = $slots->length === 1
+            && $cxp->query('.//*[@data-authoriser-mirror="true"][@data-marker-type="signature"]', $slots->item(0))->length === 1
+            && str_contains($slots->item(0)->textContent, 'Authorising Practitioner');
+        // completeness still pairs after relocation: fill the relocated mirror -> 0; remove it -> >=1
+        $filledComp = preg_replace('/data-authoriser-mirror="true"/', 'data-authoriser-mirror="true" data-signed="true"', $oComp);
+        $compPass = $Inj::unmirroredCandidateMarks($filledComp);
+        $sdom = new \DOMDocument();
+        @$sdom->loadHTML('<?xml encoding="utf-8"?>' . $filledComp, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING);
+        $sxp = new \DOMXPath($sdom);
+        foreach ($sxp->query('//*[@data-authoriser-mirror-for]') as $mm) { if ($mm instanceof \DOMElement) { $mm->parentNode?->removeChild($mm); break; } }
+        $compFail = $Inj::unmirroredCandidateMarks((string) $sdom->saveHTML());
+        $this->assert(
+            'AUTH-i) NO-BLOCK relocation: authoriser mirror is its OWN separated slot AFTER the candidate cell; candidate name stays in the candidate cell (never the authoriser designation); completeness still pairs by anchor (fill -> 0, remove -> FAIL)',
+            $candNameInCell && ! $authLabelInCandCell && $slotOk
+                && count($compPass) === 0 && count($compFail) >= 1,
+            'candName=' . ($candNameInCell ? 'Y' : 'n') . ' authLabelLeakedIntoCandCell=' . ($authLabelInCandCell ? 'Y' : 'n')
+                . ' ownSlotOk=' . ($slotOk ? 'Y' : 'n')
+                . ' completeWhenFilled=' . count($compPass) . ' failWhenRemoved=' . count($compFail),
+        );
     }
 
     /**
