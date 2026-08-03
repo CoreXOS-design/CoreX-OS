@@ -129,6 +129,32 @@ class ImageOrientationNormalizerTest extends TestCase
         @unlink($work);
     }
 
+    /**
+     * Same day, second device: a HONOR BRP-NX1 writes NO Orientation tag at
+     * all (not even an invalid one) while its pixels are equally sideways.
+     * HUAWEI and HONOR share pre-2020-split camera-stack lineage, so this is
+     * treated as the same verified defect class, not a coincidence.
+     */
+    public function test_it_applies_the_honor_missing_orientation_heuristic(): void
+    {
+        $work = tempnam(sys_get_temp_dir(), 'honor').'.jpg';
+        copy(base_path('tests/Fixtures/Images/honor-no-orientation-tag.jpg'), $work);
+
+        $exif = @exif_read_data($work);
+        $this->assertSame('HONOR', $exif['Make'] ?? null);
+        $this->assertArrayNotHasKey('Orientation', $exif ?: []);
+
+        $changed = (new ImageOrientationNormalizer)->normalizeInPlace($work);
+
+        $this->assertTrue($changed, 'The HONOR missing-orientation signature must be corrected, not skipped.');
+
+        [$w1, $h1] = getimagesize($work);
+        $this->assertSame(300, $w1);
+        $this->assertSame(200, $h1);
+
+        @unlink($work);
+    }
+
     public function test_it_leaves_an_unresolvable_orientation_untouched(): void
     {
         $work = tempnam(sys_get_temp_dir(), 'unknown').'.jpg';
