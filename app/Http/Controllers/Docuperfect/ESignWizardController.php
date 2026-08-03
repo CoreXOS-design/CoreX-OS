@@ -863,13 +863,29 @@ class ESignWizardController extends Controller
 
             if (!empty($data['fieldValues'])) {
                 foreach ($data['fieldValues'] as $fieldId => $value) {
+                    $matched = false;
                     foreach ($fields as &$field) {
                         if (($field['id'] ?? null) == $fieldId) {
                             $field['value'] = $value;
+                            $matched = true;
                             break;
                         }
                     }
                     unset($field);
+
+                    // AT-360b — per-recipient instance edits are keyed "{base}__r{n}"; the base field
+                    // holds no single value for them. Record each on the base field's instance map so
+                    // fields_json audit retains every recipient's typed value (additive; base 'value'
+                    // untouched for single-recipient fields).
+                    if (!$matched && preg_match('/^(.*)__r(\d+)$/', (string) $fieldId, $m)) {
+                        foreach ($fields as &$field) {
+                            if (($field['id'] ?? null) == $m[1]) {
+                                $field['instance_values'][(int) $m[2]] = $value;
+                                break;
+                            }
+                        }
+                        unset($field);
+                    }
                 }
             }
 
@@ -1003,13 +1019,29 @@ class ESignWizardController extends Controller
 
             if (!empty($data['fieldValues'])) {
                 foreach ($data['fieldValues'] as $fieldId => $value) {
+                    $matched = false;
                     foreach ($fields as &$field) {
                         if (($field['id'] ?? null) == $fieldId) {
                             $field['value'] = $value;
+                            $matched = true;
                             break;
                         }
                     }
                     unset($field);
+
+                    // AT-360b — per-recipient instance edits are keyed "{base}__r{n}"; the base field
+                    // holds no single value for them. Record each on the base field's instance map so
+                    // fields_json audit retains every recipient's typed value (additive; base 'value'
+                    // untouched for single-recipient fields).
+                    if (!$matched && preg_match('/^(.*)__r(\d+)$/', (string) $fieldId, $m)) {
+                        foreach ($fields as &$field) {
+                            if (($field['id'] ?? null) == $m[1]) {
+                                $field['instance_values'][(int) $m[2]] = $value;
+                                break;
+                            }
+                        }
+                        unset($field);
+                    }
                 }
             }
 
@@ -1376,18 +1408,16 @@ class ESignWizardController extends Controller
                 $viewData = app(WebTemplateDataService::class)
                     ->resolve($template->id, $stepData, $user);
 
-                // Overlay fill_review field values (field_id → field_name → blade variable)
-                $frValues = $stepData['fill_review']['fieldValues'] ?? [];
-                if (!empty($frValues)) {
-                    $fieldsJson = $stepData['fields'] ?? ($template->fields_json ?? []);
-                    foreach ($fieldsJson as $field) {
-                        $fieldId = $field['id'] ?? null;
-                        $fieldName = $field['field_name'] ?? null;
-                        if ($fieldId && $fieldName && isset($frValues[$fieldId]) && $frValues[$fieldId] !== '') {
-                            $viewData[$fieldName] = $frValues[$fieldId];
-                        }
-                    }
+                // AT-360b — overlay fill_review typed values via the SAME shared method the send
+                // path uses, so the wizard preview matches the signed document exactly. This also
+                // carries the sanitised-var keying (AT-359b) and the per-recipient "{base}__r{n}"
+                // instance handling — the previous inline loop keyed by the raw field_name and the
+                // base id only, so a composite name or a multi-recipient edit did not preview.
+                $stepForOverlay = $stepData;
+                if (empty($stepForOverlay['fields'])) {
+                    $stepForOverlay['fields'] = $template->fields_json ?? [];
                 }
+                $viewData = $this->overlayFillReviewValues($viewData, $stepForOverlay);
             }
 
             // Web templates render full HTML documents (DOCTYPE/html/head/body).
@@ -1564,9 +1594,9 @@ class ESignWizardController extends Controller
             if (!$fieldId || !$fieldName) {
                 continue;
             }
-            if (!isset($frValues[$fieldId]) || $frValues[$fieldId] === '') {
-                continue;
-            }
+            // NB: no early "has a value?" guard here — a role-bound field with 2+ recipients has
+            // NO base-id value (only "{base}__r{n}" instance values), so an early base-only check
+            // would wrongly skip it before the per-recipient loop below. The writes are conditional.
             if ($onlyPackTemplateId !== null) {
                 $fTplId = $field['_pack_template_id'] ?? null;
                 if ($fTplId !== null && (int) $fTplId !== $onlyPackTemplateId) {
@@ -1584,7 +1614,29 @@ class ESignWizardController extends Controller
                 continue;
             }
 
-            $data[$var] = $frValues[$fieldId];
+            // Single-recipient / non-expanded field — value keyed by the base id.
+            if (isset($frValues[$fieldId]) && $frValues[$fieldId] !== '') {
+                $data[$var] = $frValues[$fieldId];
+            }
+
+            // AT-360b — PER-RECIPIENT instances. A role-bound field with 2+ recipients is expanded
+            // in the wizard to one field per recipient, each keyed "{base_id}__r{n}" (1-based, see
+            // expandWizardFieldsPerRecipient). The signing surface renders each instance as
+            // "{var}__r{n}" (RoleBlockExpansionService). Without this, an edit to seller-2's field
+            // was stored under "{base}__r2" but the overlay only looked up "{base}", so the change
+            // never reached web_template_data. Map each instance edit to its own "{var}__r{n}".
+            $prefix = $fieldId . '__r';
+            foreach ($frValues as $frKey => $frVal) {
+                if ($frVal === '' || ! is_string($frKey)) {
+                    continue;
+                }
+                if (str_starts_with($frKey, $prefix)) {
+                    $suffix = substr($frKey, strlen($fieldId)); // "__r{n}"
+                    if (preg_match('/^__r\d+$/', $suffix)) {
+                        $data[$var . $suffix] = $frVal;
+                    }
+                }
+            }
         }
 
         return $data;

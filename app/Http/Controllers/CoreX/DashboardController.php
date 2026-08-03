@@ -50,40 +50,46 @@ class DashboardController extends Controller
         // only ever sees their own agency's candidates — mirrors getEligibleAuthorisers' scope.
         $candidateInProgressDocs = collect();
 
-        if ($candidateService->canAuthorise($user)) {
+        // TENANCY (#tenancy-fix): both candidate queries are AGENCY-SCOPED via the candidate
+        // (creator). SignatureTemplate has no agency global scope, so an unscoped query would let a
+        // canAuthorise user in agency A see agency B's candidate documents. Scoping to the viewer's
+        // agency mirrors getEligibleAuthorisers. A null agency (owner outside any agency context)
+        // resolves to no candidate documents rather than every agency's.
+        $agencyId = $user->effectiveAgencyId();
+        if ($candidateService->canAuthorise($user) && $agencyId) {
+            $inAgency = function ($q) use ($agencyId) {
+                $q->where('agency_id', $agencyId)
+                    ->orWhereHas('branch', fn ($b) => $b->where('agency_id', $agencyId));
+            };
+
             $candidateDocs = SignatureTemplate::with(['document', 'creator'])
                 ->where('is_candidate_flow', true)
                 ->whereIn('status', [
                     SignatureTemplate::STATUS_AWAITING_SUPERVISOR,
                     SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL,
                 ])
+                ->whereHas('creator', $inAgency)
                 ->orderBy('created_at', 'desc')
                 ->get();
 
-            $agencyId = $user->effectiveAgencyId();
-            if ($agencyId) {
-                $candidateInProgressDocs = SignatureTemplate::with(['document', 'creator'])
-                    ->where('is_candidate_flow', true)
-                    ->whereIn('status', [
-                        SignatureTemplate::STATUS_SIGNING,
-                        SignatureTemplate::STATUS_AWAITING_TENANT,
-                        SignatureTemplate::STATUS_AWAITING_LANDLORD,
-                        SignatureTemplate::STATUS_AWAITING_BUYER,
-                        SignatureTemplate::STATUS_AWAITING_SELLER,
-                        SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL,
-                        SignatureTemplate::STATUS_RETURNED_TO_CANDIDATE,
-                        SignatureTemplate::STATUS_AWAITING_DEFERRED,
-                        SignatureTemplate::STATUS_AMENDMENT_REVIEW,
-                        SignatureTemplate::STATUS_AMENDMENT_INITIALING,
-                        SignatureTemplate::STATUS_PARTIAL,
-                    ])
-                    ->whereHas('creator', function ($q) use ($agencyId) {
-                        $q->where('agency_id', $agencyId)
-                            ->orWhereHas('branch', fn ($b) => $b->where('agency_id', $agencyId));
-                    })
-                    ->orderBy('created_at', 'desc')
-                    ->get();
-            }
+            $candidateInProgressDocs = SignatureTemplate::with(['document', 'creator'])
+                ->where('is_candidate_flow', true)
+                ->whereIn('status', [
+                    SignatureTemplate::STATUS_SIGNING,
+                    SignatureTemplate::STATUS_AWAITING_TENANT,
+                    SignatureTemplate::STATUS_AWAITING_LANDLORD,
+                    SignatureTemplate::STATUS_AWAITING_BUYER,
+                    SignatureTemplate::STATUS_AWAITING_SELLER,
+                    SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL,
+                    SignatureTemplate::STATUS_RETURNED_TO_CANDIDATE,
+                    SignatureTemplate::STATUS_AWAITING_DEFERRED,
+                    SignatureTemplate::STATUS_AMENDMENT_REVIEW,
+                    SignatureTemplate::STATUS_AMENDMENT_INITIALING,
+                    SignatureTemplate::STATUS_PARTIAL,
+                ])
+                ->whereHas('creator', $inAgency)
+                ->orderBy('created_at', 'desc')
+                ->get();
         }
 
         return view('corex.dashboard', [

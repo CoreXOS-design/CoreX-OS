@@ -3471,6 +3471,13 @@ class SignatureService
             }
 
             // Email external signers only — attach client copies (no audit trail)
+            //
+            // #10b — DEDUP by email. One person can hold MORE THAN ONE completed request on the same
+            // ceremony (e.g. an authoriser who signs both `supervisor` and `supervisor_final`, or a
+            // party who is also an authoriser). Emailing per-request sent them the signed copy twice.
+            // Send once per distinct address; mark the duplicate request 'sent' (they received it)
+            // without a second delivery.
+            $emailedTo = [];
             foreach ($template->requests as $request) {
                 if ($request->status !== SignatureRequest::STATUS_COMPLETED) {
                     continue;
@@ -3478,6 +3485,15 @@ class SignatureService
                 // Skip agent — agents get in-app notification only
                 if ($request->party_role === 'agent') {
                     continue;
+                }
+
+                $emailKey = strtolower(trim((string) $request->signer_email));
+                if ($emailKey !== '' && isset($emailedTo[$emailKey])) {
+                    $request->update(['completion_send_status' => 'sent', 'completion_send_error' => null]);
+                    continue;
+                }
+                if ($emailKey !== '') {
+                    $emailedTo[$emailKey] = true;
                 }
 
                 $mail = (new SignedDocumentMail(

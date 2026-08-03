@@ -1447,6 +1447,25 @@ class SigningController extends Controller
     }
 
     /**
+     * AT-352c — the post-signing redirect target for a completing signer.
+     *
+     * A genuine EXTERNAL recipient lands on the public thank-you page. An INTERNAL authoriser
+     * (supervisor / supervisor_final) is routed onto the external signing surface by
+     * SignatureController::authoriseSigning() but is a logged-in CoreX user — returning them to the
+     * public thank-you dead-ends them. Send the authoriser to their e-sign documents list instead;
+     * everyone else keeps the public thank-you.
+     */
+    private function completionRedirect(?SignatureRequest $signingRequest, string $token): string
+    {
+        $role = (string) ($signingRequest?->party_role ?? '');
+        if (in_array($role, ['supervisor', 'supervisor_final'], true)) {
+            return route('docuperfect.esign.myDocuments');
+        }
+
+        return route('signatures.external.completed', $token);
+    }
+
+    /**
      * Complete web template signing (CDS/web documents with live HTML).
      * Handles field values, signatures, disclosure answers, and consent logging.
      */
@@ -1882,7 +1901,7 @@ class SigningController extends Controller
                         'amendment_detected' => true,
                         'amendment_id' => $amendment->id,
                         'message' => 'Your signature has been recorded. The document has been amended and previous signers will be notified for review.',
-                        'redirect' => route('signatures.external.completed', $token),
+                        'redirect' => $this->completionRedirect($signingRequest, $token),
                     ]);
                 }
             }
@@ -1935,7 +1954,7 @@ class SigningController extends Controller
             'ok' => true,
             'completed' => true,
             'fully_complete' => $fullyComplete,
-            'redirect' => route('signatures.external.completed', $token),
+            'redirect' => $this->completionRedirect($signingRequest, $token),
         ]);
     }
 
@@ -2092,7 +2111,7 @@ class SigningController extends Controller
                             'ok' => true, 'completed' => true, 'amendment_detected' => true,
                             'amendment_id' => $amendment->id,
                             'message' => 'Your signature has been recorded. The document has been amended and previous signers will be notified for review.',
-                            'redirect' => route('signatures.external.completed', $token),
+                            'redirect' => $this->completionRedirect($signingRequest, $token),
                         ]);
                     }
                 }
@@ -2146,7 +2165,7 @@ class SigningController extends Controller
                 'ok' => true,
                 'completed' => true,
                 'fully_complete' => $fullyComplete,
-                'redirect' => route('signatures.external.completed', $token),
+                'redirect' => $this->completionRedirect($signingRequest, $token),
             ]);
         }
 
