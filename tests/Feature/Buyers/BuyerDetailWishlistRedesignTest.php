@@ -16,7 +16,7 @@ use Tests\TestCase;
 /**
  * AT-363 — buyer-detail Wishlists tab condensed redesign (regression guard).
  *
- * Covers the three shipped display changes:
+ * Covers the shipped display changes:
  *   1. Each wishlist shows a match-count badge. The count is resolved via the
  *      same ClientMatchResolver call AT-360 already uses (never a duplicated
  *      matching query) — but a non-default (not-yet-expanded) wishlist's full
@@ -26,9 +26,20 @@ use Tests\TestCase;
  *      property list up front. (A true SQL-COUNT-only path would additionally
  *      require refactoring the shared, multi-lane MatchingService — flagged
  *      to Johan as a possible follow-up, not done here.)
- *   2. The lazy per-wishlist match endpoint renders the same match-card grid
- *      the accordion injects on expand.
- *   3. The old single "Top Matches for Primary Wishlist" block is gone.
+ *   2. The old single "Top Matches for Primary Wishlist" block is gone.
+ *   3. Expand shows ALL of a wishlist's matches in place, paginated 50 per
+ *      page — "Load more" appends the next page into the SAME grid element
+ *      (never replaces it, never navigates away). The old 6-cap and the
+ *      "Open full match results" navigate-away link are both gone entirely
+ *      — the agent never leaves the buyers pipeline to see matches.
+ *   4. The lazy per-wishlist matches endpoint (GET …/wishlists/{match}/matches)
+ *      always returns JSON — {html, hasMore, nextPage, total} — one response
+ *      shape serving both the first-expand fill and every "Load more" append.
+ *   5. Regression guard for a real, live-caught bug: the whole Alpine
+ *      component must live in a registered Alpine.data() component inside a
+ *      real <script> block, never inline in the x-data="..." HTML attribute
+ *      (its own HTML-string literals collided with x-data's own
+ *      double-quote delimiter and leaked as visible page text).
  */
 final class BuyerDetailWishlistRedesignTest extends TestCase
 {
@@ -181,6 +192,9 @@ final class BuyerDetailWishlistRedesignTest extends TestCase
 
     public function test_lazy_wishlist_matches_endpoint_returns_200_with_rendered_match_card_html(): void
     {
+        // The endpoint returns JSON (html + pagination metadata) so the SAME
+        // response shape serves both the first-expand fill and every
+        // "Load more" append — one code path for both.
         [$agencyId, $agent, $suburbId] = $this->fixture();
         $buyer = $this->buyer($agencyId, $agent->id);
         $wishlist = $this->match($agencyId, $buyer->id, [
@@ -192,14 +206,18 @@ final class BuyerDetailWishlistRedesignTest extends TestCase
             'price' => 1_800_000, 'title' => 'Lazy Loaded House',
         ]);
 
-        $resp = $this->actingAs($agent)->get(
+        $resp = $this->actingAs($agent)->getJson(
             route('command-center.buyers.wishlists.matches', [$buyer, $wishlist])
         );
 
         $resp->assertStatus(200);
-        $resp->assertSee('Lazy Loaded House');
-        // Keeps the AT-360 route as the "view everything" escape hatch.
-        $resp->assertSee(route('corex.contacts.matches.results', [$buyer, $wishlist]), false);
+        $resp->assertJsonPath('hasMore', false);
+        $resp->assertJsonPath('total', 1);
+        $this->assertStringContainsString('Lazy Loaded House', $resp->json('html'));
+        // Per Johan's follow-up review: expand shows ALL matches in place —
+        // the old navigate-away "Open full match results" escape hatch is
+        // gone entirely (see the pagination test below for the >50 proof).
+        $this->assertStringNotContainsString('Open full match results', $resp->json('html'));
     }
 
     public function test_lazy_wishlist_matches_endpoint_403s_when_wishlist_belongs_to_a_different_contact(): void
@@ -214,6 +232,111 @@ final class BuyerDetailWishlistRedesignTest extends TestCase
         );
 
         $resp->assertStatus(403);
+    }
+
+    public function test_expand_shows_every_match_inline_no_cap_no_navigate_away_link(): void
+    {
+        // Follow-up to the first cut: Johan wants "expand = see ALL the
+        // matches here, in place" — no 6-cap, no bounce to another screen.
+        // A plain substr_count of the property title is NOT reliable here —
+        // it double-counts, because the SAME property titles also legitimately
+        // appear inside the page's pre-existing Schedule Viewing picker JSON
+        // payload (embedded in x-data, unrelated to this accordion). Parse the
+        // real DOM instead and count the actual rendered card elements.
+        [$agencyId, $agent, $suburbId] = $this->fixture();
+        $buyer = $this->buyer($agencyId, $agent->id);
+        $wishlist = $this->match($agencyId, $buyer->id, [
+            'is_primary' => true, 'price_min' => 500_000, 'price_max' => 2_000_000,
+            'p24_suburb_ids' => [$suburbId],
+        ]);
+        $seeded = 14; // deliberately more than the old 6-cap
+        for ($i = 1; $i <= $seeded; $i++) {
+            $this->property($agencyId, $agent->id, $suburbId, [
+                'title' => "No-Cap House #{$i}", 'price' => 1_000_000,
+            ]);
+        }
+
+        $resp = $this->actingAs($agent)->get(route('command-center.buyers.show', $buyer) . '?tab=wishlists');
+        $resp->assertStatus(200);
+        $resp->assertDontSee('Open full match results');
+        $html = $resp->getContent();
+
+        libxml_use_internal_errors(true);
+        $dom = new \DOMDocument();
+        $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html);
+        $xpath = new \DOMXPath($dom);
+
+        // The match-card title span's exact class combo is unique to
+        // _wishlist-match-cards.blade.php — not the JSON config payload.
+        $cardTitles = $xpath->query(
+            "//span[contains(@class,'font-semibold') and contains(@class,'truncate')][contains(text(),'No-Cap House #')]"
+        );
+        $this->assertSame($seeded, $cardTitles->length, 'every seeded match must render, no 6-cap (under the 50/page cap)');
+
+        // And all of them live inside the capped-height scroll wrapper, not
+        // spilling into an unbounded page.
+        $scrollWrap = $xpath->query("//div[contains(@style,'max-height: 420px')]");
+        $this->assertSame(1, $scrollWrap->length, 'the accordion must render its scrollable wrapper');
+        $cardsInWrap = $xpath->query(
+            ".//span[contains(@class,'font-semibold') and contains(@class,'truncate')]",
+            $scrollWrap->item(0)
+        );
+        $this->assertSame($seeded, $cardsInWrap->length, 'all seeded matches must be inside the scroll wrapper');
+    }
+
+    public function test_wishlist_over_page_size_shows_first_50_and_load_more_appends_the_rest(): void
+    {
+        // Per Johan's pagination refinement: 50 per page, "Load more" appends
+        // the next page IN PLACE (never a navigate-away). Real DOM proof for
+        // page 1, then a direct call to the SAME endpoint's page=2 to prove
+        // the append path serves the remainder and correctly reports no more
+        // pages after that.
+        [$agencyId, $agent, $suburbId] = $this->fixture();
+        $buyer = $this->buyer($agencyId, $agent->id);
+        $wishlist = $this->match($agencyId, $buyer->id, [
+            'is_primary' => true, 'price_min' => 500_000, 'price_max' => 2_000_000,
+            'p24_suburb_ids' => [$suburbId],
+        ]);
+        $seeded = 63; // over the 50/page cap
+        for ($i = 1; $i <= $seeded; $i++) {
+            $this->property($agencyId, $agent->id, $suburbId, [
+                'title' => "Big List House #{$i}", 'price' => 1_000_000,
+            ]);
+        }
+
+        // Page 1 — server-rendered directly into the default-expanded wishlist.
+        $resp = $this->actingAs($agent)->get(route('command-center.buyers.show', $buyer) . '?tab=wishlists');
+        $resp->assertStatus(200);
+        $html = $resp->getContent();
+
+        libxml_use_internal_errors(true);
+        $dom = new \DOMDocument();
+        $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html);
+        $xpath = new \DOMXPath($dom);
+        $cardTitles = $xpath->query(
+            "//span[contains(@class,'font-semibold') and contains(@class,'truncate')][contains(text(),'Big List House #')]"
+        );
+        $this->assertSame(50, $cardTitles->length, 'page 1 must show exactly 50, not the full 63');
+
+        // The "Load more" control must be wired for this wishlist specifically.
+        $this->assertStringContainsString("loadMoreWishlistMatches({$wishlist->id})", $html);
+
+        // NEVER a navigate-away link — not the text, not the route URL.
+        $this->assertStringNotContainsString('Open full match results', $html);
+        $this->assertStringNotContainsString(
+            route('corex.contacts.matches.results', [$buyer, $wishlist]), $html
+        );
+
+        // "Load more" — fetch page 2 directly, the same request the button fires.
+        $page2 = $this->actingAs($agent)->getJson(
+            route('command-center.buyers.wishlists.matches', [$buyer, $wishlist]) . '?page=2'
+        );
+        $page2->assertStatus(200);
+        $page2->assertJsonPath('hasMore', false);
+        $page2->assertJsonPath('total', $seeded);
+        $remainingCount = substr_count($page2->json('html'), 'Big List House #');
+        $this->assertSame($seeded - 50, $remainingCount, 'page 2 must carry exactly the remaining 13');
+        $this->assertStringNotContainsString('Open full match results', $page2->json('html'));
     }
 
     // ── Helpers (mirrors the scenario-building pattern used across the
