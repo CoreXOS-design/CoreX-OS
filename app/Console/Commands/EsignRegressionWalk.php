@@ -90,6 +90,11 @@ final class EsignRegressionWalk extends Command
                 return self::FAILURE;
             }
             $flow = $seed->replicate();
+            // The replicated flow copies the SEED's user_id; prepareSigning scopes its flow
+            // lookup to the ACTING agent (Flow::where('user_id', $agent->id)->findOrFail), so
+            // the walk's flow MUST be owned by the agent it drives the walk as — otherwise
+            // prepareSigning 404s the flow and never mints a document_id (the pack-flow gap).
+            $flow->user_id = $agent->id;
             $sd = $seed->step_data;
             $sd['document_name'] = 'REGRESSION-WALK ' . now()->format('Y-m-d H:i:s');
             $sd['pack_name'] = $sd['document_name'];
