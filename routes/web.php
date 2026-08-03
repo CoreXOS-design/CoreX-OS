@@ -1753,6 +1753,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::put('/buyers/{contact}/wishlists/{match}', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'updateWishlist'])->name('command-center.buyers.wishlists.update');
         Route::post('/buyers/{contact}/wishlists/{match}/primary', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'setWishlistPrimary'])->name('command-center.buyers.wishlists.primary');
         Route::post('/buyers/{contact}/wishlists/{match}/archive', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'archiveWishlist'])->name('command-center.buyers.wishlists.archive');
+        // AT-363 — lazy per-wishlist match grid for the Wishlists tab's inline accordion.
+        Route::get('/buyers/{contact}/wishlists/{match}/matches', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'wishlistMatches'])->name('command-center.buyers.wishlists.matches');
 
         Route::post('/buyers/{contact}/playbook-action', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'markPlaybookAction'])->name('command-center.buyers.playbook-action');
         Route::post('/buyers/{contact}/mark-lost', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'markLost'])->name('command-center.buyers.mark-lost');
