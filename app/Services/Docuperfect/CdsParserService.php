@@ -283,6 +283,14 @@ class CdsParserService
 
         $sections = $this->identifyFieldsFromContext($sections);
 
+        // AT-359 (Johan, 2026-08-03) — assign the PARTY from an inline "(Lessor / Landlord)" /
+        // "(Lessee / tenant / Occupant)" / "(Seller)" / "(Purchaser / Buyer)" descriptor that a
+        // party line states AFTER the name blank. The importer otherwise only reads a party from a
+        // heading ABOVE a block, so a lease's inline-descriptor party fields (name/address/ID)
+        // collapsed to generic contact.* with no Lessor/Lessee discrimination. Runs after attribute
+        // identification (it refines the PARTY half only) and is strictly additive — see the method.
+        $sections = $this->assignPartyFromInlineDescriptor($sections);
+
         // AT-304 OTP-4 — link amount-pairs (R<numeric> (<in-words>)) and name the 5.6
         // agency-split fields (listing/selling agency name · share % · FFC).
         $sections = $this->refineAmountPairsAndAgencySplit($sections);
@@ -447,6 +455,127 @@ class CdsParserService
         }
         arsort($counts);
         return (string) array_key_first($counts);
+    }
+
+    /**
+     * AT-359 (Johan, 2026-08-03) — PARTY-FROM-INLINE-DESCRIPTOR.
+     *
+     * A party line in a lease/OTP states the role in parentheses right AFTER the name blank and
+     * then lists that party's address / ID on the following short lines, e.g.
+     *
+     *     1. @@@@ (Lessor / Landlord)
+     *     Of (address) @@@@
+     *     ID/Passport/Registration No: @@@@
+     *     AND
+     *     2. @@@@ (Lessee / tenant / Occupant)
+     *     ...
+     *
+     * The importer only ever inferred a party from a HEADING ABOVE a block, so these fields
+     * collapsed to generic contact.* (address/ID) or, worse, the name blank mis-bound to
+     * deal.amount_words — with NO Lessor/Lessee discrimination. This pass reads the inline
+     * descriptor and prefixes each field in the block to the party (lessor_/lessee_/seller_/buyer_),
+     * which the CdsBindingSuggester already maps to the right contact role (:201-204).
+     *
+     * STRICTLY ADDITIVE — it changes a binding ONLY when ALL of these hold, so documents that
+     * import correctly today are untouched:
+     *   1. A descriptor parenthetical appears as a SHORT, TRAILING label on a party line
+     *      (`... (Lessor / Landlord)$`, line text < 80 chars). This is what excludes a mid-sentence
+     *      role mention like the EATS mandate's "...of the owner/s (Seller) of the..." — that is
+     *      neither trailing nor short, so no party is ever assigned there.
+     *   2. Only the descriptor line and up to 3 following SHORT lines (the address/ID rows), bounded
+     *      by an "AND" separator or the next descriptor, are considered part of the block.
+     *   3. Only a party-LESS contact-identity field is rewritten (unbound, the deal.amount_words
+     *      misfire, or contact.{full_names,address,id_number,phone,email}). A field already bound to
+     *      a party, or to a property / deal / signing / agency source, is never touched.
+     */
+    private function assignPartyFromInlineDescriptor(array $sections): array
+    {
+        // Ordered longest-first so multi-word roles win; value = canonical lessor_/lessee_ prefix.
+        $descriptors = [
+            '/\([^)]*\b(?:lessor|landlord)\b[^)]*\)\s*$/i'          => 'lessor',
+            '/\([^)]*\b(?:lessee|tenant|occupant)\b[^)]*\)\s*$/i'   => 'lessee',
+            '/\([^)]*\bseller\b[^)]*\)\s*$/i'                       => 'seller',
+            '/\([^)]*\b(?:purchaser|buyer)\b[^)]*\)\s*$/i'          => 'buyer',
+        ];
+
+        $currentParty = null;   // active block's prefix, or null outside a block
+        $sinceDescriptor = 0;   // lines consumed since the descriptor (window guard)
+
+        foreach ($sections as &$section) {
+            if (empty($section['content']) || ! is_array($section['content'])) {
+                continue;
+            }
+
+            $text = trim($this->contentToPlainText($section['content']));
+
+            // Block boundary — a standalone "AND" separates one party from the next.
+            if (preg_match('/^and$/i', $text)) {
+                $currentParty = null;
+                continue;
+            }
+
+            // A descriptor line opens (or re-opens) a block. Guarded: trailing + short.
+            $matchedParty = null;
+            if (mb_strlen($text) < 80) {
+                foreach ($descriptors as $rx => $prefix) {
+                    if (preg_match($rx, $text)) {
+                        $matchedParty = $prefix;
+                        break;
+                    }
+                }
+            }
+            if ($matchedParty !== null) {
+                $currentParty = $matchedParty;
+                $sinceDescriptor = 0;
+            }
+
+            // Inside an active block, within a short window of the descriptor, and only on short
+            // party lines — assign the party prefix to any party-less contact-identity field.
+            if ($currentParty !== null && $sinceDescriptor <= 3 && mb_strlen($text) < 80) {
+                foreach ($section['content'] as &$item) {
+                    if (($item['type'] ?? '') !== 'field_placeholder') {
+                        continue;
+                    }
+                    $new = $this->partyBindingForField((string) ($item['field_name'] ?? ''), $currentParty);
+                    if ($new !== null) {
+                        $item['field_name'] = $new;
+                        $item['source'] = 'contact';
+                    }
+                }
+                unset($item);
+                $sinceDescriptor++;
+            }
+        }
+        unset($section);
+
+        return $sections;
+    }
+
+    /**
+     * AT-359 — map a party-LESS contact-identity binding to its party-prefixed form, or null to
+     * leave the field untouched. Only unbound / the deal.amount_words misfire / generic contact.*
+     * identity attributes are eligible; property / deal / signing / agency sources and already-
+     * party-prefixed keys return null (never rewritten).
+     */
+    private function partyBindingForField(string $current, string $prefix): ?string
+    {
+        $c = strtolower(trim($current));
+
+        // Name / identity — an unbound blank, or the deal.amount_words false positive, or a bare
+        // contact name attribute, is the party's NAME field.
+        if ($c === ''
+            || $c === 'deal.amount_words'
+            || in_array($c, ['contact.full_names', 'contact.full_name', 'contact.name', 'contact.names'], true)) {
+            return $prefix . '_name';
+        }
+
+        return match ($c) {
+            'contact.address'   => $prefix . '_address',
+            'contact.id_number' => $prefix . '_id_number',
+            'contact.phone'     => $prefix . '_phone',
+            'contact.email'     => $prefix . '_email',
+            default             => null,
+        };
     }
 
     /**
@@ -1431,7 +1560,21 @@ class CdsParserService
              'result' => ['label' => '% Commission', 'field_name' => 'deal.commission_percent', 'field_type' => 'number', 'source' => 'deal', 'confidence' => 'medium']],
 
             // FINANCIAL — Amount in words
+            //
+            // AT-359 (Johan, 2026-08-03) — GUARDED. A bare "(...)" after a field is NOT always the
+            // in-words counterpart of a currency amount. A party line states the role in parentheses
+            // right after the name blank — "@@@@ (Lessor / Landlord)", "@@@@ (Lessee / tenant /
+            // Occupant)" — which previously matched this pattern and mis-bound the NAME field to
+            // deal.amount_words. Two additive guards keep the genuine "R@@@@ (five hundred thousand
+            // rand)" idiom while rejecting the party-label false positive:
+            //   require_before — only fire in a genuine CURRENCY context (the words-blank follows an
+            //                    amount: text ends in R / names an amount/price/sum/rand/rental/deposit).
+            //   reject_after   — never fire when the parenthetical is a PARTY-ROLE descriptor.
+            // Both are optional keys honoured by the pattern loop below; every other pattern is
+            // untouched (no guard keys → identical behaviour).
             ['match' => '/^\s*\(/i', 'on' => 'after',
+             'require_before' => '/(?:\bR|\bamount|\bprice|\bsum|\brand|\brental|\bdeposit|\bpurchase)\b\s*[:.]?\s*$/i',
+             'reject_after'   => '/^\s*\([^)]*\b(?:lessor|lessee|landlord|tenant|seller|buyer|purchaser|occupant|agent|witness)\b/i',
              'result' => ['label' => 'Amount in Words', 'field_name' => 'deal.amount_words', 'field_type' => 'text', 'source' => 'deal', 'confidence' => 'medium']],
 
             // BANKING
@@ -1493,9 +1636,22 @@ class CdsParserService
                 default => $before,
             };
 
-            if (preg_match($p['match'], $target)) {
-                return $p['result'];
+            if (! preg_match($p['match'], $target)) {
+                continue;
             }
+
+            // AT-359 — optional additive guards (only the amount-words entry carries them).
+            // A pattern with `require_before` fires only when `before` also matches; one with
+            // `reject_after` is suppressed when `after` matches the rejection regex. Patterns
+            // without these keys behave exactly as before.
+            if (isset($p['require_before']) && ! preg_match($p['require_before'], $before)) {
+                continue;
+            }
+            if (isset($p['reject_after']) && preg_match($p['reject_after'], $after)) {
+                continue;
+            }
+
+            return $p['result'];
         }
 
         // AT-177 (Johan, 2026-07-17) — CONTEXT KEYWORD RESOLVER. The anchored patterns above are
