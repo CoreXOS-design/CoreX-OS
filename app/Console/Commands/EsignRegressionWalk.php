@@ -669,6 +669,67 @@ final class EsignRegressionWalk extends Command
             count($passWhenFilled) === 0 && $stripped && count($failWhenMissing) === 1,
             'violationsWhenComplete=' . count($passWhenFilled) . ' stripped=' . ($stripped ? 'y' : 'n') . ' violationsWhenOneMissing=' . count($failWhenMissing),
         );
+
+        // (h) DESIGNATED CO-SIGNATURE BLOCK ROUTING (Johan 2026-08-03 — bugs 5/6/4).
+        // A document that PROVIDES a full-status/co-signature block (party `co_signer`
+        // hand-authored, or `co_signatory` CDS-parser output) routes the authoriser SIGNATURE
+        // + its ceremony fields TO that block (re-keyed to the supervisor identity), does NOT
+        // stack a mirror on the candidate's Property-Practitioner line, and adds NO synthetic
+        // ceremony (the block carries its own "Signed at ___ on ___"). Mid-body INITIALS still
+        // mirror 1:1. Completeness passes when the co-signature is filled; FAILS when empty.
+        $mdf = '<div class="corex-document-wrapper">'
+            . '<p>Clause A</p><span class="init" data-marker-party="agent" data-marker-type="initial" data-marker-index="ia"></span>'
+            . '<div class="mdf-sig" data-marker-party="agent"><p>Signature of Property Practitioner: '
+            .   '<span class="mdf-sig-line" data-marker-party="agent" data-marker-type="signature" data-marker-index="agentsig"></span></p></div>'
+            . '<div class="mdf-sig" data-marker-party="co_signer"><p>Signed at '
+            .   '<span class="mdf-field" data-marker-party="co_signer" data-marker-type="location"></span></p>'
+            .   '<p>Signature: <span class="mdf-sig-line" data-marker-party="co_signer" data-marker-type="signature" data-marker-index="cosig"></span></p></div>'
+            . '</div>';
+        $oMdf = $inj->inject($mdf);
+
+        $mdom = new \DOMDocument();
+        @$mdom->loadHTML('<?xml encoding="utf-8"?>' . $oMdf, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING);
+        $mxp = new \DOMXPath($mdom);
+        $coSig = null;
+        foreach ($mxp->query('//*[@data-marker-party="co_signer"][@data-marker-type="signature"]') as $n) { if ($n instanceof \DOMElement) { $coSig = $n; break; } }
+        $coLoc = null;
+        foreach ($mxp->query('//*[@data-marker-party="co_signer"][@data-marker-type="location"]') as $n) { if ($n instanceof \DOMElement) { $coLoc = $n; break; } }
+        $routed = $coSig instanceof \DOMElement
+            && strtolower($coSig->getAttribute('data-recipient-identity')) === 'supervisor'
+            && $coSig->getAttribute('data-authoriser-mirror') === 'true';
+        $ceremonyRouted = $coLoc instanceof \DOMElement && strtolower($coLoc->getAttribute('data-recipient-identity')) === 'supervisor';
+        $noStack = ! (bool) preg_match('/data-marker-index="agentsig-auth"/', $oMdf);
+        $initMirror = preg_match_all('/data-marker-index="ia-auth"/', $oMdf);
+        $noSynthCeremony = ! str_contains($oMdf, 'data-authoriser-ceremony="true"');
+
+        // Completeness: unfilled co-signature => the candidate signature is a violation (bank-reject).
+        $failWhenCoEmpty = $Inj::unmirroredCandidateMarks($oMdf);
+        // Fill every authoriser mark (routed co-signature + the initial mirror) => 0 violations.
+        foreach ($mxp->query('//*[@data-authoriser-mirror="true"]') as $n) {
+            if ($n instanceof \DOMElement && in_array(strtolower($n->getAttribute('data-marker-type')), ['signature', 'initial'], true)) {
+                $n->setAttribute('data-signed', 'true');
+            }
+        }
+        $passWhenCoFilled = $Inj::unmirroredCandidateMarks((string) $mdom->saveHTML());
+
+        // co_signatory (CDS-parser token) is recognised the SAME way — routed, candidate not stacked.
+        $cosy = '<div class="corex-document-wrapper">'
+            . '<span data-marker-party="agent" data-marker-type="signature" data-marker-index="a"></span>'
+            . '<span data-marker-party="co_signatory" data-marker-type="signature" data-marker-index="c"></span></div>';
+        $oCosy = $inj->inject($cosy);
+        $cosyRouted = (bool) preg_match('/data-marker-party="co_signatory"[^>]*data-authoriser-mirror="true"/', $oCosy)
+            && ! (bool) preg_match('/data-marker-index="a-auth"/', $oCosy);
+
+        $this->assert(
+            'AUTH-h) DESIGNATED co-signature block (co_signer + co_signatory): authoriser signature+ceremony ROUTED there (identity-stamped), candidate line NOT stacked, no synthetic ceremony, mid-body initial still 1:1; completeness FAILS when the co-signature is empty and PASSES when filled',
+            $routed && $ceremonyRouted && $noStack && $initMirror === 1 && $noSynthCeremony
+                && count($failWhenCoEmpty) >= 1 && count($passWhenCoFilled) === 0 && $cosyRouted,
+            'routed=' . ($routed ? 'Y' : 'n') . ' ceremonyRouted=' . ($ceremonyRouted ? 'Y' : 'n')
+                . ' noStack=' . ($noStack ? 'Y' : 'n') . ' initMirror=' . $initMirror
+                . ' noSynthCeremony=' . ($noSynthCeremony ? 'Y' : 'n')
+                . ' failWhenEmpty=' . count($failWhenCoEmpty) . ' passWhenFilled=' . count($passWhenCoFilled)
+                . ' cosyRouted=' . ($cosyRouted ? 'Y' : 'n'),
+        );
     }
 
     /**

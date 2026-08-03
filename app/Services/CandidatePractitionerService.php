@@ -99,39 +99,42 @@ class CandidatePractitionerService
             );
         }
 
-        $authorisers = User::where('is_active', true)
+        // Robustness (Bug 2, 2026-08-03): the previous resolution keyed the pool on a
+        // fragile `designation LIKE '%Property Practitioner%'` set — an agency whose
+        // full-status authorisers were full-status by ROLE, or whose designation string
+        // did not contain that exact substring, resolved to an EMPTY pool → a swallowed
+        // throw → the authoriser was NEVER notified (invisible dead-end). Resolve the pool
+        // from the candidate's agency/branch and decide eligibility with the CANONICAL
+        // `canAuthorise()` (full-status designation, principal, admin/super_admin role, OR
+        // owner) — no duplicated LIKE — plus the candidate's explicitly-assigned supervisor
+        // (`supervised_by`) when set. Strictly a SUPERSET of the old query, so no
+        // full-status authoriser is ever dropped.
+        $pool = collect();
+
+        // Explicitly-assigned supervisor takes priority when eligible.
+        $assigned = $candidateUser->supervisor;
+        if ($assigned
+            && $assigned->is_active
+            && is_null($assigned->deleted_at)
+            && $assigned->id !== $candidateUser->id
+            && $this->canAuthorise($assigned)) {
+            $pool->push($assigned);
+        }
+
+        // All active, non-deleted users co-scoped to the candidate's agency/branch, filtered
+        // through the canonical eligibility gate.
+        $agencyUsers = User::where('is_active', true)
             ->whereNull('deleted_at')
             ->where('id', '!=', $candidateUser->id)
             ->where(function ($q) use ($agencyId) {
                 $q->where('agency_id', $agencyId)
                     ->orWhereHas('branch', fn ($b) => $b->where('agency_id', $agencyId));
-            })
-            ->where(function ($q) {
-                // Full status practitioners (not candidates)
-                $q->where(function ($q2) {
-                    $q2->where('designation', 'LIKE', '%Property Practitioner%')
-                        ->where('designation', 'NOT LIKE', '%Candidate%');
-                })
-                // Principals
-                ->orWhere('designation', 'LIKE', '%Principal%')
-                // Admins
-                ->orWhereIn('role', ['admin', 'super_admin']);
             })
             ->orderBy('name')
-            ->get();
-
-        // Also include owners (checked via role model flag)
-        $ownerUsers = User::where('is_active', true)
-            ->whereNull('deleted_at')
-            ->where('id', '!=', $candidateUser->id)
-            ->where(function ($q) use ($agencyId) {
-                $q->where('agency_id', $agencyId)
-                    ->orWhereHas('branch', fn ($b) => $b->where('agency_id', $agencyId));
-            })
             ->get()
-            ->filter(fn ($u) => $u->isOwnerRole() && !$authorisers->contains('id', $u->id));
+            ->filter(fn ($u) => $this->canAuthorise($u));
 
-        $allAuthorisers = $authorisers->merge($ownerUsers)->sortBy('name')->values();
+        $allAuthorisers = $pool->merge($agencyUsers)->unique('id')->sortBy('name')->values();
 
         if ($allAuthorisers->isEmpty()) {
             throw new \RuntimeException(

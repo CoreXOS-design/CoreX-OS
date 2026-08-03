@@ -168,17 +168,37 @@ class CanonicalDocumentRenderer
         }
         $webData  = $document->web_template_data ?? [];
         $existing = (string) ($webData['canonical_html'] ?? '');
-        if (trim($existing) !== '') {
+        $version  = (int) ($webData['canonical_version'] ?? 0);
+
+        // Ink baked (version >= 1) → the stored canonical is the accumulated source of
+        // truth (every prior party's signatures/initials/fills are composed into it);
+        // serve it verbatim so no baked ink is ever lost.
+        if (trim($existing) !== '' && $version >= 1) {
             return $existing;
         }
-        // Back-fill: compose once, persist, return. Non-fatal on failure.
+
+        // NOT yet inked (version 0, or never composed) → (RE-)COMPOSE fresh so the served
+        // structure always reflects the CURRENT pipeline — in particular the per-recipient
+        // identity stamps (data-name / data-recipient-identity on signature + ceremony
+        // marks) on EVERY pack `.corex-document-wrapper`. A stored v0 can be STALE: composed
+        // before a structural stamping fix landed (e.g. the AT-303 per-recipient stamps), and
+        // served verbatim it left wrappers 2..N un-stamped — so the pack progress counter
+        // ("N items remaining / go to next", which scans the whole merged container) saw
+        // ZERO "mine" items in documents 2..N and hit 0 after document 1, hiding the control
+        // (Bug 1, Johan 2026-08-03). Because nothing is inked into a v0 yet, re-composing
+        // loses nothing. This mirrors forDisplay() — the agent-review surface already
+        // re-composes stale v0 — closing the recipient-serve gap where only THIS resolver
+        // returned a stale v0 verbatim.
         $html = $this->compose($template);
         if ($html === '') {
-            return '';
+            // Never regress a template that cannot be composed; if a stale body exists,
+            // still return it rather than nothing.
+            return $existing;
         }
+        // Back-fill / refresh the stored v0 so the next surface reads the current artifact.
         try {
-            $webData['canonical_html'] = $html;
-            $webData['canonical_version'] ??= 0;
+            $webData['canonical_html']    = $html;
+            $webData['canonical_version'] = $version; // stays 0 (un-inked)
             $document->update(['web_template_data' => $webData]);
         } catch (\Throwable $e) {
             Log::warning('CanonicalDocumentRenderer::resolveOrCompose back-fill store failed (non-fatal)', [

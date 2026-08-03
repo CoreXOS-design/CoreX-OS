@@ -11,32 +11,41 @@ use Illuminate\Support\Facades\Log;
  *
  * A candidate practitioner's work must be authorised by a full-status practitioner
  * (the "authorising practitioner"), who is a FULL-PARITY signer: for EVERY signature or
- * initial the candidate makes — wherever it sits, in whatever markup — the authoriser
- * makes the SAME mark at the SAME place (Johan 2026-08). The candidate signs the
- * practitioner role (`agent`); the authoriser is the supervisor checkpoint identity.
+ * initial the candidate makes the authoriser makes the SAME mark (Johan 2026-08). The
+ * candidate signs the practitioner role (`agent`); the authoriser is the supervisor
+ * checkpoint identity.
  *
- * MARK-LEVEL, NOT STRUCTURE-LEVEL (rebuilt 2026-08-02).
- * The previous implementation provisioned ONE authoriser surface per *segment*, placed at
- * the segment tail, and skipped any segment that already held a supervisor marker. That is
- * structure-level: a document with N candidate signature blocks mid-body received ONE (or
- * zero) authoriser surfaces — the marks in the middle of the body were never mirrored
- * (the "3 mid-body signature blocks" defect). An incomplete document = bank/attorney
- * rejection.
+ * MARK-LEVEL, NOT STRUCTURE-LEVEL, and SIGNATURE-vs-INITIAL AWARE (rebuilt 2026-08-03).
+ * Johan's ruling after re-testing the real candidate→authoriser flow on a PACK:
  *
- * This pass is driven by the MARKS themselves, so it is structure-agnostic and holds for
- * ANY imported document regardless of how it was authored:
+ *   • INITIALS — both parties initial the SAME spots (mid-body per-condition / per-page).
+ *     Mirror 1:1 by LOCATION: for every candidate initial mark, clone a co-located
+ *     authoriser mark as its immediate sibling. Unchanged from the 2026-08-02 fix — the
+ *     mid-body-initials parity this delivered is preserved.
  *
- *   1. PER-MARK MIRROR — for every candidate `data-marker-type="signature|initial"` mark,
- *      a mirrored authoriser mark is cloned and inserted as its immediate SIBLING (same
- *      parent, same location). The existing mark-level bake (CanonicalInkComposer) then
- *      fills every mirrored marker automatically — the ink core is unchanged.
- *   2. SIBLING-IDEMPOTENT — a candidate mark whose parent ALREADY holds an authoriser
- *      mark of the same type is left alone. This makes re-runs a no-op AND correctly
- *      leaves the per-condition initial rows untouched (the enumerated authoriser slot is
- *      already a sibling of the candidate slot there), so initials are never doubled.
- *   3. CEREMONY ATTESTATION — one authoriser ceremony block (location/date/time marks, NO
- *      signature line so it can never double a per-mark signature mirror) is injected once
- *      per SIGNING segment, recording where/when the authoriser authorised. Idempotent.
+ *   • SIGNATURES — the candidate and the full-status practitioner each have their OWN
+ *     signature block. Two cases, decided PER SEGMENT, engine-side (never per-template):
+ *       (1) The document PROVIDES a designated full-status / co-signature block — a mark
+ *           whose party is `co_signer` (hand-authored, e.g. MDF template-123) or
+ *           `co_signatory` (CDS-parser output). ROUTE the authoriser's signature AND its
+ *           ceremony/detail fields (location/date/time) to that block by stamping its marks
+ *           with the authoriser identity (`data-recipient-identity="supervisor"` +
+ *           `data-authoriser-mirror`). The mark-level bake then fills the co-signature line
+ *           (no more "Awaiting co signer") and the signing UI makes its "Signed at ___ on
+ *           ___" fields editable by the authoriser. The candidate's signature line is left
+ *           ALONE — no mirror stacked on it — and NO synthetic ceremony block is added (the
+ *           designated block carries its own).
+ *       (2) The document has NO designated block — clone a co-located authoriser mirror for
+ *           each candidate signature, rendered on its OWN LINE (display:block) with the
+ *           authoriser DESIGNATION attached, immediately after the candidate's signature —
+ *           NOT stacked inline on the candidate's line (Johan: "where there's no specific
+ *           section it can just sit on the same line as the candidate but on its own line
+ *           and name attached"). One authoriser ceremony attestation is injected once per
+ *           signing segment (location/date/time, NO signature line so it can never double a
+ *           per-mark signature mirror).
+ *
+ *   The authoriser signs ONCE per document for SIGNATURES (the designated block, or the
+ *   single own-line mirror per candidate signature); INITIALS remain 1:1 by location.
  *
  * The authoriser is bound by ROLE-IDENTITY (`data-recipient-identity`), never a placeholder
  * name — the authoriser is the one signer whose person is unknown at document creation
@@ -53,13 +62,23 @@ class CandidateAuthoriserSurfaceInjector
     /** Party tokens the CANDIDATE practitioner signs under (the marks we mirror). */
     private const CANDIDATE_PARTIES = ['agent', 'property_practitioner'];
 
-    /** Ceremony field types for the once-per-segment authoriser attestation. */
+    /**
+     * Party tokens that denote a document's DESIGNATED full-status / co-signature block.
+     * Engine-general (Johan's J1 ruling): recognise BOTH the hand-authored `co_signer`
+     * (e.g. MDF template-123) and the CDS-parser's `co_signatory` — the same signal.
+     */
+    private const DESIGNATED_AUTHORISER_PARTIES = ['co_signer', 'co_signatory'];
+
+    /** Marker types re-keyed onto a designated block (signature + its ceremony fields). */
+    private const ROUTED_TYPES = ['signature', 'location', 'day', 'month', 'year', 'time'];
+
+    /** Ceremony field types for the once-per-segment authoriser attestation (no-block docs). */
     private const CEREMONY_TYPES = ['location', 'day', 'month', 'year', 'time'];
 
     /**
      * @param string $html        merged document body (one or more .corex-document-wrapper segments)
-     * @param string $identity    authoriser role-identity stamped on every mirrored mark (base checkpoint identity)
-     * @param string $designation neutral designation label until the claiming practitioner's binds at sign time
+     * @param string $identity    authoriser role-identity stamped on every mirrored/routed mark (base checkpoint identity)
+     * @param string $designation neutral designation label until the claiming practitioner binds at sign time
      */
     public function inject(string $html, string $identity = 'supervisor', string $designation = 'Authorising Practitioner'): string
     {
@@ -75,53 +94,56 @@ class CandidateAuthoriserSurfaceInjector
             );
             $xpath = new \DOMXPath($dom);
 
-            // ── 1. PER-MARK MIRROR ────────────────────────────────────────────────
-            // Snapshot the candidate marks BEFORE mutating (we insert siblings as we go).
-            $candidateMarks = [];
-            foreach ($xpath->query('//*[@data-marker-type][@data-marker-party]') as $el) {
-                if (! $el instanceof \DOMElement) {
-                    continue;
-                }
-                $type = strtolower(trim($el->getAttribute('data-marker-type')));
-                if (! in_array($type, self::MIRRORED_TYPES, true)) {
-                    continue;
-                }
-                if (! $this->isCandidateMark($el)) {
-                    continue;
-                }
-                $candidateMarks[] = $el;
-            }
-
-            $mirrored = 0;
-            foreach ($candidateMarks as $mark) {
-                $type = strtolower(trim($mark->getAttribute('data-marker-type')));
-                if ($this->pairedAuthoriserMark($mark, $type, $identity) !== null) {
-                    continue; // idempotent — this exact location already carries an authoriser mark
-                }
-                $this->insertMirror($mark, $type, $identity);
-                $mirrored++;
-            }
-
-            // ── 2. CEREMONY ATTESTATION (once per signing segment) ────────────────
             $segments = $this->segments($dom, $xpath);
+            $mirroredSig = 0;
+            $mirroredInit = 0;
+            $routedBlocks = 0;
             $ceremonySegments = 0;
+
             foreach ($segments as $seg) {
-                if (! $this->segmentHasCandidateSignature($xpath, $seg)) {
-                    continue; // authoriser attests only where the candidate signs
+                $hasDesignated = $this->segmentHasDesignatedAuthoriserBlock($xpath, $seg);
+
+                // ── INITIALS — always per-mark co-located mirror (mid-body parity) ──────
+                foreach ($this->candidateMarksInSegment($xpath, $seg, 'initial') as $mark) {
+                    if ($this->pairedAuthoriserMark($mark, 'initial', $identity) !== null) {
+                        continue; // idempotent — this location already carries an authoriser mark
+                    }
+                    $this->insertMirror($mark, 'initial', $identity);
+                    $mirroredInit++;
                 }
-                if ($this->segmentHasAuthoriserCeremony($xpath, $seg, $identity)) {
-                    continue; // idempotent — already carries an authoriser attestation
+
+                if ($hasDesignated) {
+                    // ── SIGNATURES — route to the document's designated co-signature block ──
+                    // Stamp the block's signature + ceremony marks with the authoriser
+                    // identity; leave the candidate's signature line untouched; no synthetic
+                    // ceremony (the designated block carries its own "Signed at ___ on ___").
+                    $routedBlocks += $this->routeSignatureToDesignatedBlock($xpath, $seg, $identity);
+                } else {
+                    // ── SIGNATURES — own-line co-located mirror (designation attached) ──────
+                    foreach ($this->candidateMarksInSegment($xpath, $seg, 'signature') as $mark) {
+                        if ($this->pairedAuthoriserMark($mark, 'signature', $identity) !== null) {
+                            continue; // idempotent
+                        }
+                        $this->insertOwnLineSignatureMirror($mark, $identity, $designation);
+                        $mirroredSig++;
+                    }
+
+                    // One authoriser ceremony attestation per signing segment.
+                    if ($this->segmentHasCandidateSignature($xpath, $seg)
+                        && ! $this->segmentHasAuthoriserCeremony($xpath, $seg, $identity)) {
+                        $seg->appendChild($this->buildCeremonyBlock($dom, $identity, $designation));
+                        $ceremonySegments++;
+                    }
                 }
-                $seg->appendChild($this->buildCeremonyBlock($dom, $identity, $designation));
-                $ceremonySegments++;
             }
 
             $out = $dom->saveHTML();
             $out = trim((string) preg_replace('/^<\?xml encoding="utf-8"\?>/', '', (string) $out));
 
             Log::info('AUTHORISER_MARKS_MIRRORED', [
-                'candidate_marks'   => count($candidateMarks),
-                'marks_mirrored'    => $mirrored,
+                'signature_mirrors' => $mirroredSig,
+                'initial_mirrors'   => $mirroredInit,
+                'routed_blocks'     => $routedBlocks,
                 'ceremony_segments' => $ceremonySegments,
             ]);
 
@@ -133,13 +155,21 @@ class CandidateAuthoriserSurfaceInjector
     }
 
     /**
-     * COMPLETENESS (1:1 by location) — every candidate signature/initial mark that lacks a
-     * FILLED authoriser mark at the SAME anchor (an immediate sibling). Returns a list of
-     * violation descriptors; an empty list means the document has full authoriser parity.
-     * A non-empty result = the document is incomplete and a bank/conveyancer rejects it.
+     * COMPLETENESS (per-segment, in LOCKSTEP with inject) — every candidate signature/initial
+     * mark that lacks a FILLED authoriser mark. Returns a list of violation descriptors; an
+     * empty list means the document has full authoriser parity. A non-empty result = the
+     * document is incomplete and a bank/conveyancer rejects it.
      *
-     * Pure/static so both the runtime finalisation guard and the regression harness call
-     * the SAME authority (no drift between "what we enforce" and "what we test").
+     * SIGNATURE completeness follows the same signature/designated split as inject():
+     *   • segment WITH a designated block → complete iff that block's authoriser signature is
+     *     FILLED (the authoriser signs once there for the whole segment);
+     *   • segment WITHOUT → each candidate signature needs a FILLED own-line mirror at its own
+     *     anchor.
+     * INITIAL completeness is unchanged: 1:1 by location (a filled co-located mirror per mark).
+     * A genuinely missing/unfilled authoriser mark still FAILS (true-negative preserved).
+     *
+     * Pure/static so both the runtime finalisation guard and the regression harness call the
+     * SAME authority (no drift between "what we enforce" and "what we test").
      *
      * @return array<int, array{type:string, party:string, index:string}>
      */
@@ -157,29 +187,54 @@ class CandidateAuthoriserSurfaceInjector
             $xpath = new \DOMXPath($dom);
             $inst = new self();
             $violations = [];
-            foreach ($xpath->query('//*[@data-marker-type][@data-marker-party]') as $el) {
-                if (! $el instanceof \DOMElement) {
-                    continue;
+
+            foreach ($inst->segments($dom, $xpath) as $seg) {
+                $hasDesignated = $inst->segmentHasDesignatedAuthoriserBlock($xpath, $seg);
+
+                // signatures
+                $candSigs = $inst->candidateMarksInSegment($xpath, $seg, 'signature');
+                if ($hasDesignated) {
+                    $authSig = $inst->designatedAuthoriserSignature($xpath, $seg);
+                    $filled = $authSig !== null && $inst->markIsFilled($authSig);
+                    if (! $filled) {
+                        foreach ($candSigs as $c) {
+                            $violations[] = $inst->violationOf($c);
+                        }
+                    }
+                } else {
+                    foreach ($candSigs as $c) {
+                        $auth = $inst->pairedAuthoriserMark($c, 'signature', $identity);
+                        if ($auth === null || ! $inst->markIsFilled($auth)) {
+                            $violations[] = $inst->violationOf($c);
+                        }
+                    }
                 }
-                $type = strtolower(trim($el->getAttribute('data-marker-type')));
-                if (! in_array($type, self::MIRRORED_TYPES, true) || ! $inst->isCandidateMark($el)) {
-                    continue;
-                }
-                $auth = $inst->pairedAuthoriserMark($el, $type, $identity);
-                if ($auth === null || ! $inst->markIsFilled($auth)) {
-                    $violations[] = [
-                        'type'  => $type,
-                        'party' => $el->getAttribute('data-marker-party'),
-                        'index' => $el->getAttribute('data-marker-index') ?: '(none)',
-                    ];
+
+                // initials — 1:1 by location
+                foreach ($inst->candidateMarksInSegment($xpath, $seg, 'initial') as $c) {
+                    $auth = $inst->pairedAuthoriserMark($c, 'initial', $identity);
+                    if ($auth === null || ! $inst->markIsFilled($auth)) {
+                        $violations[] = $inst->violationOf($c);
+                    }
                 }
             }
+
             return $violations;
         } catch (\Throwable $e) {
             // Fail-open on parse errors — never block completion on a DOM hiccup.
             Log::warning('AUTHORISER_COMPLETENESS_CHECK_FAILED', ['error' => $e->getMessage()]);
             return [];
         }
+    }
+
+    /** @return array{type:string, party:string, index:string} */
+    private function violationOf(\DOMElement $el): array
+    {
+        return [
+            'type'  => strtolower(trim($el->getAttribute('data-marker-type'))),
+            'party' => $el->getAttribute('data-marker-party'),
+            'index' => $el->getAttribute('data-marker-index') ?: '(none)',
+        ];
     }
 
     // ── mark helpers ──────────────────────────────────────────────────────────
@@ -199,7 +254,7 @@ class CandidateAuthoriserSurfaceInjector
         return in_array($this->baseParty($el), self::CANDIDATE_PARTIES, true);
     }
 
-    /** Does the mark denote the authoriser identity (mirror, or supervisor family)? */
+    /** Does the mark denote the authoriser identity (mirror, routed block, or supervisor family)? */
     private function isAuthoriserMark(\DOMElement $el, string $identity): bool
     {
         if ($el->getAttribute('data-authoriser-mirror') === 'true') {
@@ -214,19 +269,62 @@ class CandidateAuthoriserSurfaceInjector
     }
 
     /**
-     * The authoriser mark PAIRED to this specific candidate mark, or null.
+     * Snapshot (array) of the candidate marks of a given type within a segment. Snapshotting
+     * up front is essential: inject() inserts siblings as it goes, so a live NodeList would
+     * re-scan freshly-inserted mirrors.
      *
-     * Pairing must be exact per mark: several candidate marks can share one parent (three
-     * inline signature lines directly under the document wrapper), so "any authoriser mark
-     * among the siblings" would let the mirror of the FIRST mark satisfy the rest — the very
-     * under-mirroring this rebuild fixes. The paired mark is therefore:
+     * @return array<int, \DOMElement>
+     */
+    private function candidateMarksInSegment(\DOMXPath $xpath, \DOMElement $seg, string $type): array
+    {
+        $out = [];
+        foreach ($xpath->query('.//*[@data-marker-type][@data-marker-party]', $seg) as $el) {
+            if (! $el instanceof \DOMElement) {
+                continue;
+            }
+            if (strtolower(trim($el->getAttribute('data-marker-type'))) !== $type) {
+                continue;
+            }
+            if (! $this->isCandidateMark($el)) {
+                continue;
+            }
+            $out[] = $el;
+        }
+        return $out;
+    }
+
+    /** Does this segment contain a DESIGNATED full-status / co-signature block? */
+    private function segmentHasDesignatedAuthoriserBlock(\DOMXPath $xpath, \DOMElement $seg): bool
+    {
+        return $this->designatedAuthoriserSignature($xpath, $seg) !== null;
+    }
+
+    /** The designated block's SIGNATURE mark in this segment (co_signer / co_signatory), or null. */
+    private function designatedAuthoriserSignature(\DOMXPath $xpath, \DOMElement $seg): ?\DOMElement
+    {
+        foreach ($xpath->query('.//*[@data-marker-type="signature"][@data-marker-party]', $seg) as $el) {
+            if ($el instanceof \DOMElement
+                && in_array($this->baseParty($el), self::DESIGNATED_AUTHORISER_PARTIES, true)) {
+                return $el;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The authoriser mark PAIRED to this specific candidate mark, or null. Used for INITIALS
+     * (always) and for SIGNATURES in no-designated-block segments.
+     *
+     * Pairing must be exact per mark: several candidate marks can share one parent, so "any
+     * authoriser mark among the siblings" would let the mirror of the FIRST mark satisfy the
+     * rest. The paired mark is therefore:
      *   1. this mark's immediate next element sibling, when that is an authoriser mark of the
-     *      same type — this is where insertMirror() places our mirror (re-run idempotency)
-     *      AND where an adjacent enumerated authoriser slot sits; ELSE
+     *      same type — where insertMirror()/insertOwnLineSignatureMirror() place the mirror
+     *      (re-run idempotency) AND where an adjacent enumerated authoriser slot sits; ELSE
      *   2. a PRE-EXISTING (non-mirror) authoriser mark of the same type among the siblings —
-     *      the enumerated per-condition/per-row authoriser slot, which need not be adjacent
-     *      (agent → seller → … → supervisor). Our own freshly-inserted mirrors (tagged
-     *      data-authoriser-mirror) are excluded here so they never satisfy a DIFFERENT mark.
+     *      the enumerated per-condition/per-row authoriser slot. Our own freshly-inserted
+     *      mirrors (tagged data-authoriser-mirror) are excluded here so they never satisfy a
+     *      DIFFERENT mark.
      */
     private function pairedAuthoriserMark(\DOMElement $mark, string $type, string $identity): ?\DOMElement
     {
@@ -274,10 +372,45 @@ class CandidateAuthoriserSurfaceInjector
     }
 
     /**
-     * Clone a candidate mark into an authoriser mirror and insert it as the mark's
-     * immediate sibling. Cloning preserves the exact structure/classes so the mirror
-     * renders identically; we then re-key it to the authoriser identity and strip the
-     * candidate's person (bind by identity, never a placeholder name).
+     * Route the authoriser's SIGNATURE (and its ceremony fields) to the document's designated
+     * co-signature block: stamp the block's marks with the authoriser identity so the bake
+     * owns + fills them and the signing UI makes the "Signed at ___ on ___" fields editable.
+     * `data-marker-party` is DELIBERATELY preserved (the `co_signer`/`co_signatory` token is
+     * the block's detection signal on re-parse — completeness must still see it). Idempotent.
+     *
+     * @return int 1 if this segment carried a designated block that was stamped/present, else 0
+     */
+    private function routeSignatureToDesignatedBlock(\DOMXPath $xpath, \DOMElement $seg, string $identity): int
+    {
+        $found = 0;
+        foreach ($xpath->query('.//*[@data-marker-type][@data-marker-party]', $seg) as $el) {
+            if (! $el instanceof \DOMElement) {
+                continue;
+            }
+            if (! in_array($this->baseParty($el), self::DESIGNATED_AUTHORISER_PARTIES, true)) {
+                continue;
+            }
+            $type = strtolower(trim($el->getAttribute('data-marker-type')));
+            if (! in_array($type, self::ROUTED_TYPES, true)) {
+                continue;
+            }
+            $found = 1;
+            // Idempotent — already routed to this identity.
+            if (strtolower(trim($el->getAttribute('data-recipient-identity'))) === strtolower($identity)
+                && $el->getAttribute('data-authoriser-mirror') === 'true') {
+                continue;
+            }
+            $el->setAttribute('data-recipient-identity', $identity);
+            $el->setAttribute('data-authoriser-mirror', 'true');
+        }
+        return $found;
+    }
+
+    /**
+     * Clone a candidate initial mark into a co-located authoriser mirror inserted as the
+     * mark's immediate sibling (1:1 by location — mid-body initials parity). Cloning preserves
+     * the exact structure so the mirror renders identically; we then re-key it to the
+     * authoriser identity and strip the candidate's person (bind by identity, never a name).
      */
     private function insertMirror(\DOMElement $mark, string $type, string $identity): void
     {
@@ -298,7 +431,51 @@ class CandidateAuthoriserSurfaceInjector
         $mark->parentNode?->insertBefore($mirror, $mark->nextSibling);
     }
 
-    /** Re-stamp a mark element to the authoriser identity; drop the candidate's name. */
+    /**
+     * No-designated-block SIGNATURE mirror: clone a co-located authoriser signature and render
+     * it on its OWN LINE (display:block) with the authoriser DESIGNATION attached, immediately
+     * after the candidate's signature — never stacked inline on the candidate's line
+     * (Johan 2026-08-03). Identity-bound, no placeholder name.
+     */
+    private function insertOwnLineSignatureMirror(\DOMElement $mark, string $identity, string $designation): void
+    {
+        $mirror = $mark->cloneNode(true);
+        if (! $mirror instanceof \DOMElement) {
+            return;
+        }
+        $this->reKeyToAuthoriser($mirror, $identity);
+        foreach (iterator_to_array($mirror->getElementsByTagName('*')) as $child) {
+            if ($child instanceof \DOMElement && $child->hasAttribute('data-marker-party')) {
+                $this->reKeyToAuthoriser($child, $identity);
+            }
+        }
+        $origIndex = $mark->getAttribute('data-marker-index');
+        $mirror->setAttribute('data-marker-index', ($origIndex !== '' ? $origIndex : 'signature') . '-auth');
+        // Force onto its own line regardless of whether the cloned mark is inline (a span in
+        // a <p>) or block (a sig-cell div) — so it never sits ON the candidate's line.
+        $style = trim($mirror->getAttribute('style'));
+        $mirror->setAttribute('style', ($style !== '' ? rtrim($style, ';') . ';' : '') . 'display:block;margin-top:6pt;');
+
+        // Designation label (the "name attached" — the specific person binds at sign time via
+        // the ink; the shared-queue authoriser has no name at compose).
+        $doc = $mark->ownerDocument;
+        $label = null;
+        if ($doc instanceof \DOMDocument) {
+            $label = $doc->createElement('span');
+            $label->setAttribute('class', 'authoriser-mirror-label');
+            $label->setAttribute('data-authoriser-label', 'true');
+            $label->setAttribute('style', 'display:block;font-size:9pt;color:#475569;margin-top:1pt;');
+            $label->appendChild($doc->createTextNode($designation));
+        }
+
+        $parent = $mark->parentNode;
+        $parent?->insertBefore($mirror, $mark->nextSibling);
+        if ($label !== null) {
+            $parent?->insertBefore($label, $mirror->nextSibling);
+        }
+    }
+
+    /** Re-stamp a cloned mark element to the authoriser identity; drop the candidate's name. */
     private function reKeyToAuthoriser(\DOMElement $el, string $identity): void
     {
         $el->setAttribute('data-marker-party', 'supervisor');
@@ -348,9 +525,9 @@ class CandidateAuthoriserSurfaceInjector
 
     /**
      * The authoriser's ceremony attestation — location/date/time marks only, NO signature
-     * line (the authoriser's signatures are the per-mark mirrors). Identity-stamped,
-     * designation-labelled. Filled by SigningController::completeWeb via `supervisor_*`
-     * keys, exactly as the removed component block was.
+     * line (the authoriser's signatures are the per-mark own-line mirrors). Identity-stamped,
+     * designation-labelled. Filled by SigningController::completeWeb via `supervisor_*` keys.
+     * Injected ONLY into no-designated-block segments (a designated block carries its own).
      */
     private function buildCeremonyBlock(\DOMDocument $dom, string $identity, string $designation): \DOMElement
     {

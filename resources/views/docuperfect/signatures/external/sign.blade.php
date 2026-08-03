@@ -3040,7 +3040,10 @@ function externalSign() {
             // Checkpoint family: the authorising practitioner's two routing checkpoints
             // are one signer, so a supervisor_final signer matches a 'supervisor' block
             // (fallback path — identity binding via _foldIdentity is the primary key).
-            const authTerms = ['supervisor', 'supervisor_final'];
+            // co_signer / co_signatory are the document's DESIGNATED full-status block
+            // (MDF template-123 / CDS-parser output): the authoriser routes there, so a
+            // supervisor viewer owns it even on the un-stamped fallback path (Johan 2026-08-03).
+            const authTerms = ['supervisor', 'supervisor_final', 'co_signer', 'co_signatory'];
             if (ownerTerms.includes(myRoleBase) && ownerTerms.includes(roleBase)) return true;
             if (acquiringTerms.includes(myRoleBase) && acquiringTerms.includes(roleBase)) return true;
             if (agentTerms.includes(myRoleBase) && agentTerms.includes(roleBase)) return true;

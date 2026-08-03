@@ -1759,74 +1759,159 @@ class SignatureService
      */
     private function notifyEligibleAuthorisers(SignatureTemplate $template, string $type = 'initial_review'): void
     {
-        try {
-            $candidateUser = $template->creator;
-            if (!$candidateUser) {
-                return;
-            }
-
-            $candidateService = app(CandidatePractitionerService::class);
-            $authorisers = $candidateService->getEligibleAuthorisers($candidateUser);
-            $documentName = $template->document->name ?? 'Document';
-            $dashboardUrl = route('docuperfect.rental');
-
-            // ES-7 — dedicated SupervisorApprovalMail (replaces placeholder
-            // copy that previously rode on SigningRequestMail with a
-            // subject like "Please sign: [Candidate Authorisation] ...").
-            $document        = $template->document;
-            $documentType    = $document?->document_type ?? null;
-            $documentTypeLbl = $documentType
-                ? ucwords(str_replace('_', ' ', $documentType))
-                : null;
-
-            // Best-effort recipient + property surfacing for the email body
-            $firstRequest = $template->requests()
-                ->whereNotIn('party_role', ['agent', 'supervisor', 'supervisor_final', 'witness'])
-                ->orderBy('signing_order')
-                ->first();
-            $contactName     = $firstRequest?->signer_name;
-            $propertyAddress = $document?->property_address;
-
-            foreach ($authorisers as $authoriser) {
-                try {
-                    Mail::to($authoriser->email)->send(
-                        (new \App\Mail\Signatures\SupervisorApprovalMail(
-                            supervisorName:    $authoriser->name,
-                            candidateName:     $candidateUser->name,
-                            documentName:      $documentName,
-                            documentTypeLabel: $documentTypeLbl,
-                            contactName:       $contactName,
-                            propertyAddress:   $propertyAddress,
-                            candidatePhone:    $candidateUser->phone ?? $candidateUser->cell ?? null,
-                            reviewUrl:         $dashboardUrl,
-                            expiresAt:         now()->addDays(7),
-                            reviewType:        $type,
-                        ))->fromAgent($candidateUser)
-                    );
-                } catch (\Throwable $e) {
-                    Log::error('Failed to send authorisation notification', [
-                        'authoriser_id' => $authoriser->id,
-                        'template_id' => $template->id,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
-            }
-
-            SignatureAuditLog::log(
-                $template,
-                'authorisation_notifications_sent',
-                SignatureAuditLog::ACTOR_SYSTEM,
-                'System',
-                metadata: [
-                    'type' => $type,
-                    'notified_count' => $authorisers->count(),
-                    'notified_users' => $authorisers->pluck('name')->toArray(),
-                ],
+        // Bug 2 (2026-08-03): this used to wrap its ENTIRE body in a swallowing try/catch,
+        // so when the authoriser pool resolved empty (getEligibleAuthorisers throws) the
+        // failure vanished into a Log::error — no mail, no status, nothing the candidate
+        // could see, and the document sat in AWAITING_SUPERVISOR forever. The pool resolution
+        // is now OUTSIDE the send loop, and every "nobody was notified" outcome raises a LOUD,
+        // VISIBLE condition (invite_send_status='failed' on the supervisor request + a distinct
+        // audit action) instead of disappearing. Guarantee: >=1 authoriser is emailed, OR an
+        // unresolved-authoriser condition is surfaced.
+        $candidateUser = $template->creator;
+        if (!$candidateUser) {
+            $this->flagAuthoriserNotificationUnresolved(
+                $template, $type, 'candidate_user_missing',
+                'The candidate practitioner (document creator) could not be resolved.'
             );
+            return;
+        }
+
+        try {
+            $authorisers = app(CandidatePractitionerService::class)->getEligibleAuthorisers($candidateUser);
         } catch (\Throwable $e) {
-            Log::error('Failed to notify eligible authorisers', [
+            $this->flagAuthoriserNotificationUnresolved($template, $type, 'no_eligible_authoriser', $e->getMessage());
+            return;
+        }
+        if ($authorisers->isEmpty()) {
+            $this->flagAuthoriserNotificationUnresolved(
+                $template, $type, 'no_eligible_authoriser',
+                'The eligible-authoriser pool resolved empty for this agency/branch.'
+            );
+            return;
+        }
+
+        // ES-7 — dedicated SupervisorApprovalMail. Per-document deep link to the review
+        // gate (Bug 2 improvement — was a generic dashboard URL) so the authoriser lands
+        // on THIS document's accept/authorise screen.
+        $document        = $template->document;
+        $documentName    = $document->name ?? 'Document';
+        $documentType    = $document?->document_type ?? null;
+        $documentTypeLbl = $documentType ? ucwords(str_replace('_', ' ', $documentType)) : null;
+        $reviewUrl       = $document
+            ? route('docuperfect.signatures.review', $document)
+            : route('docuperfect.rental');
+
+        // Best-effort recipient + property surfacing for the email body
+        $firstRequest = $template->requests()
+            ->whereNotIn('party_role', ['agent', 'supervisor', 'supervisor_final', 'witness'])
+            ->orderBy('signing_order')
+            ->first();
+        $contactName     = $firstRequest?->signer_name;
+        $propertyAddress = $document?->property_address;
+
+        $sent = 0;
+        $failures = [];
+        foreach ($authorisers as $authoriser) {
+            try {
+                Mail::to($authoriser->email)->send(
+                    (new \App\Mail\Signatures\SupervisorApprovalMail(
+                        supervisorName:    $authoriser->name,
+                        candidateName:     $candidateUser->name,
+                        documentName:      $documentName,
+                        documentTypeLabel: $documentTypeLbl,
+                        contactName:       $contactName,
+                        propertyAddress:   $propertyAddress,
+                        candidatePhone:    $candidateUser->phone ?? $candidateUser->cell ?? null,
+                        reviewUrl:         $reviewUrl,
+                        expiresAt:         now()->addDays(7),
+                        reviewType:        $type,
+                    ))->fromAgent($candidateUser)
+                );
+                $sent++;
+            } catch (\Throwable $e) {
+                $failures[] = ($authoriser->email ?: 'user#' . $authoriser->id) . ': ' . $e->getMessage();
+                Log::error('Failed to send authorisation notification', [
+                    'authoriser_id' => $authoriser->id,
+                    'template_id'   => $template->id,
+                    'error'         => $e->getMessage(),
+                ]);
+            }
+        }
+
+        // The pool was non-empty but nothing actually went out — still a loud, visible failure.
+        if ($sent === 0) {
+            $this->flagAuthoriserNotificationUnresolved(
+                $template, $type, 'all_sends_failed',
+                'Resolved ' . $authorisers->count() . ' authoriser(s) but every send failed: ' . implode(' | ', $failures)
+            );
+            return;
+        }
+
+        $this->markSupervisorInviteStatus($template, 'sent', $failures === [] ? null : ('partial: ' . implode(' | ', $failures)));
+        SignatureAuditLog::log(
+            $template,
+            'authorisation_notifications_sent',
+            SignatureAuditLog::ACTOR_SYSTEM,
+            'System',
+            metadata: [
+                'type'             => $type,
+                'notified_count'   => $sent,
+                'eligible_count'   => $authorisers->count(),
+                'notified_users'   => $authorisers->pluck('name')->toArray(),
+                'partial_failures' => $failures,
+            ],
+        );
+    }
+
+    /**
+     * Bug 2 — surface a "nobody was notified" outcome LOUDLY instead of swallowing it:
+     * mark the supervisor request(s) invite_send_status='failed' (the AT-294 visible-status
+     * surface) and write a distinct, queryable audit action, plus an ACTION-REQUIRED error log.
+     */
+    private function flagAuthoriserNotificationUnresolved(
+        SignatureTemplate $template,
+        string $type,
+        string $reason,
+        string $detail
+    ): void {
+        $this->markSupervisorInviteStatus($template, 'failed', $reason . ': ' . $detail);
+
+        SignatureAuditLog::log(
+            $template,
+            'authorisation_notification_unresolved',
+            SignatureAuditLog::ACTOR_SYSTEM,
+            'System',
+            metadata: [
+                'type'   => $type,
+                'reason' => $reason,
+                'detail' => $detail,
+            ],
+        );
+
+        Log::error('AUTHORISER_NOTIFICATION_UNRESOLVED — no authorising practitioner was notified; the candidate document is stuck awaiting authorisation. ACTION REQUIRED.', [
+            'template_id' => $template->id,
+            'document_id' => $template->document_id,
+            'candidate'   => $template->creator?->name,
+            'reason'      => $reason,
+            'detail'      => $detail,
+        ]);
+    }
+
+    /** Stamp the AT-294 invite send-status onto the supervisor / supervisor_final request(s). */
+    private function markSupervisorInviteStatus(SignatureTemplate $template, string $status, ?string $error): void
+    {
+        try {
+            $template->requests()
+                ->whereIn('party_role', ['supervisor', 'supervisor_final'])
+                ->get()
+                ->each(fn ($r) => $r->update([
+                    'invite_send_status' => $status,
+                    'invite_send_error'  => $error,
+                ]));
+        } catch (\Throwable $e) {
+            Log::warning('Failed to stamp supervisor invite_send_status', [
                 'template_id' => $template->id,
-                'error' => $e->getMessage(),
+                'error'       => $e->getMessage(),
             ]);
         }
     }
