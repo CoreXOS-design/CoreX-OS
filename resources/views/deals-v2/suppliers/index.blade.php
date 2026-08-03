@@ -167,6 +167,48 @@
                         @if($p->is_active)
                         <tr style="background: var(--surface-2, #f8fafc);">
                             <td colspan="5" class="px-4 py-3">
+                                {{-- AT-364 — attorney capabilities (Transfer / Bond). A firm like BBB does BOTH,
+                                     so both may be ticked; the transfer-attorney and bond-attorney pickers each
+                                     surface the firms that carry the matching capability. Shown only for attorney
+                                     firms. Persist-on-toggle posts the FULL state of both toggles, so ticking one
+                                     can never wipe the other. Independent of the AT-319 service types below and of
+                                     the DR distribution math. --}}
+                                @php($isAttorney = in_array($p->specialty, ['transfer_attorney', 'bond_attorney'], true) || $p->is_transfer_attorney || $p->is_bond_attorney)
+                                @if($isAttorney)
+                                <div class="mb-4"
+                                     x-data="{
+                                        cap: { is_transfer_attorney: {{ $p->is_transfer_attorney ? 'true' : 'false' }}, is_bond_attorney: {{ $p->is_bond_attorney ? 'true' : 'false' }} },
+                                        saving:false, saved:false, err:false,
+                                        async persist(){
+                                            this.saving=true; this.saved=false; this.err=false;
+                                            try {
+                                                const r = await fetch('{{ route('deals-v2.suppliers.attorney-capabilities', $p) }}', {method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}'}, credentials:'same-origin', body: JSON.stringify(this.cap)});
+                                                const j = await r.json();
+                                                if(r.ok && j.ok){ this.saved=true; setTimeout(()=>{ this.saved=false; }, 1600); }
+                                                else { this.err=true; }
+                                            } catch(e){ this.err=true; }
+                                            this.saving=false;
+                                        }
+                                     }">
+                                    <div class="text-[11px] font-semibold uppercase tracking-wider mb-2 flex items-center gap-2" style="color: var(--text-muted);">
+                                        <span>Attorney role</span>
+                                        <span x-show="saving" x-cloak class="text-[10px] normal-case" style="color:#6b7280;">saving…</span>
+                                        <span x-show="saved" x-cloak x-transition class="text-[10px] normal-case" style="color:#059669;">✓ saved</span>
+                                        <span x-show="err" x-cloak class="text-[10px] normal-case" style="color:#b45309;">save failed — retry</span>
+                                    </div>
+                                    <div class="flex flex-wrap gap-x-4 gap-y-1 mb-1">
+                                        <label class="inline-flex items-center gap-1.5 text-xs" style="color: var(--text-secondary);">
+                                            <input type="checkbox" x-model="cap.is_transfer_attorney" @change="persist()" style="accent-color: var(--brand-button, #0ea5e9);">
+                                            Transfer attorney
+                                        </label>
+                                        <label class="inline-flex items-center gap-1.5 text-xs" style="color: var(--text-secondary);">
+                                            <input type="checkbox" x-model="cap.is_bond_attorney" @change="persist()" style="accent-color: var(--brand-button, #0ea5e9);">
+                                            Bond attorney
+                                        </label>
+                                    </div>
+                                    <div class="text-[11px]" style="color: var(--text-muted);">Tick both for a firm that handles bonds and transfers — it then appears in both attorney pickers.</div>
+                                </div>
+                                @endif
                                 {{-- AT-319 — edit this supplier's service types (the "edit" for types). Un-tick + Save
                                      soft-deletes; archived-but-still-tagged types stay checked so a Save never
                                      silently drops them (marked "archived"). --}}

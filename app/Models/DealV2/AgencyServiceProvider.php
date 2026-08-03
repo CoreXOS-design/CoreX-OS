@@ -26,6 +26,8 @@ class AgencyServiceProvider extends Model
         'contact_id',
         'name',
         'specialty',
+        'is_transfer_attorney',
+        'is_bond_attorney',
         'company',
         'email',
         'phone',
@@ -34,6 +36,17 @@ class AgencyServiceProvider extends Model
         'is_preferred',
         'is_active',
         'created_by_id',
+    ];
+
+    /**
+     * AT-364 — the FIXED attorney capabilities and the boolean column each maps to. A firm can
+     * hold BOTH (BBB does bonds and transfers). Distinct from the AT-319 agency-configurable
+     * service types: these two roles never rename/archive, so they are plain booleans, not pivot
+     * codes. The legacy single `specialty` enum stays the primary classifier and is untouched.
+     */
+    public const ATTORNEY_CAPABILITY_COLUMNS = [
+        'transfer_attorney' => 'is_transfer_attorney',
+        'bond_attorney'     => 'is_bond_attorney',
     ];
 
     /**
@@ -64,6 +77,8 @@ class AgencyServiceProvider extends Model
     protected $casts = [
         'is_preferred' => 'boolean',
         'is_active' => 'boolean',
+        'is_transfer_attorney' => 'boolean',
+        'is_bond_attorney' => 'boolean',
     ];
 
     public function contact(): BelongsTo
@@ -84,6 +99,36 @@ class AgencyServiceProvider extends Model
     public function scopeForSpecialty(Builder $q, string $specialty): Builder
     {
         return $q->where('specialty', $specialty);
+    }
+
+    /**
+     * AT-364 — the picker filter. For the two attorney specialties, surface any firm that
+     * either carries the capability flag OR still holds the legacy specialty (belt-and-braces
+     * so a not-yet-backfilled / edge row never vanishes). For every other specialty this is a
+     * plain equality, identical to forSpecialty(). One code path, no behaviour change for
+     * non-attorney pickers.
+     */
+    public function scopeCapableOf(Builder $q, string $specialty): Builder
+    {
+        $col = self::ATTORNEY_CAPABILITY_COLUMNS[$specialty] ?? null;
+        if (! $col) {
+            return $q->where('specialty', $specialty);
+        }
+
+        return $q->where(fn ($w) => $w->where($col, true)->orWhere('specialty', $specialty));
+    }
+
+    /**
+     * AT-364 — any firm that is (or can act as) an attorney: used for inline dedup so
+     * "add BBB as bond attorney" reuses the existing BBB transfer firm instead of duplicating.
+     */
+    public function scopeAnyAttorney(Builder $q): Builder
+    {
+        return $q->where(function ($w) {
+            $w->where('is_transfer_attorney', true)
+              ->orWhere('is_bond_attorney', true)
+              ->orWhereIn('specialty', array_keys(self::ATTORNEY_CAPABILITY_COLUMNS));
+        });
     }
 
     /** Preferred first, then alphabetical — the picker order. */

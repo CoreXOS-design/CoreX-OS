@@ -109,6 +109,38 @@ class SupplierDirectoryController extends Controller
         return back()->with('success', 'Provider updated.');
     }
 
+    /**
+     * AT-364 — persist a supplier's attorney capabilities (Transfer / Bond). A firm like BBB does
+     * BOTH bonds and transfers, so both may be ticked. Dedicated route (same idiom as syncTypes /
+     * preferred) so it never trips update()'s required-field rules. The row posts the FULL state of
+     * both toggles each time, so an absent checkbox can never silently wipe the other capability.
+     * Nothing here touches `specialty` or the DR distribution math.
+     */
+    public function syncAttorneyCapabilities(Request $request, AgencyServiceProvider $provider)
+    {
+        $this->authorizeAgency($request, $provider);
+
+        $data = $request->validate([
+            'is_transfer_attorney' => 'required|boolean',
+            'is_bond_attorney'     => 'required|boolean',
+        ]);
+
+        $provider->update([
+            'is_transfer_attorney' => (bool) $data['is_transfer_attorney'],
+            'is_bond_attorney'     => (bool) $data['is_bond_attorney'],
+        ]);
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'ok' => true,
+                'is_transfer_attorney' => (bool) $provider->is_transfer_attorney,
+                'is_bond_attorney'     => (bool) $provider->is_bond_attorney,
+            ]);
+        }
+
+        return back()->with('success', "Updated attorney capabilities for {$provider->name}.");
+    }
+
     public function markPreferred(Request $request, AgencyServiceProvider $provider)
     {
         $this->authorizeAgency($request, $provider);
@@ -285,6 +317,9 @@ class SupplierDirectoryController extends Controller
             'id' => $p->id, 'name' => $p->name, 'specialty' => $p->specialty,
             'company' => $p->company, 'email' => $p->email, 'phone' => $p->phone,
             'is_preferred' => (bool) $p->is_preferred, 'is_active' => (bool) $p->is_active,
+            // AT-364 — the fixed attorney capabilities (a firm can be both).
+            'is_transfer_attorney' => (bool) $p->is_transfer_attorney,
+            'is_bond_attorney' => (bool) $p->is_bond_attorney,
             // AT-319 — the AgencyServiceType codes this supplier handles (drives the picker filter).
             'types' => $p->typeCodes(),
         ];

@@ -1127,7 +1127,7 @@ class DealRegisterController extends Controller
 
         $firms = AgencyServiceProvider::query()
             ->where('is_active', true)
-            ->where('specialty', $specialty)
+            ->capableOf($specialty) // AT-364 — bond/transfer surface capability-flagged firms too (BBB does both)
             ->where(function ($w) use ($q) {
                 $w->where('name', 'like', "%{$q}%")
                   ->orWhereHas('serviceContacts', fn ($c) => $c->where('attorney_name', 'like', "%{$q}%")->orWhere('contact_person', 'like', "%{$q}%"));
@@ -1183,22 +1183,38 @@ class DealRegisterController extends Controller
         $specialty = in_array($request->input('specialty'), ['transfer_attorney', 'bond_originator', 'external_agency', 'bond_attorney'], true)
             ? $request->input('specialty') : 'transfer_attorney';
 
-        $firm = AgencyServiceProvider::query()
-            ->where('name', $data['firm'])
-            ->where('specialty', $specialty)
-            ->first();
+        // AT-364 — for an attorney specialty, reuse ANY same-named attorney firm (so adding BBB as a
+        // bond attorney reuses the existing BBB transfer firm instead of duplicating it) and set the
+        // requested capability. Non-attorney specialties (bond originator / external agency) keep the
+        // exact (name, specialty) find they always used.
+        $capCol = AgencyServiceProvider::ATTORNEY_CAPABILITY_COLUMNS[$specialty] ?? null;
+
+        $firm = $capCol
+            ? AgencyServiceProvider::query()->where('name', $data['firm'])->anyAttorney()->first()
+            : AgencyServiceProvider::query()->where('name', $data['firm'])->where('specialty', $specialty)->first();
 
         if (! $firm) {
             $firm = AgencyServiceProvider::create([
-                'agency_id'     => $agencyId,
-                'name'          => $data['firm'],
-                'specialty'     => $specialty,
-                'address'       => $data['address'] ?? null,
-                'is_active'     => true,
-                'created_by_id' => $userId,
+                'agency_id'            => $agencyId,
+                'name'                 => $data['firm'],
+                'specialty'            => $specialty,
+                'is_transfer_attorney' => $specialty === 'transfer_attorney',
+                'is_bond_attorney'     => $specialty === 'bond_attorney',
+                'address'              => $data['address'] ?? null,
+                'is_active'            => true,
+                'created_by_id'        => $userId,
             ]);
-        } elseif (! empty($data['address']) && empty($firm->address)) {
-            $firm->update(['address' => $data['address']]);
+        } else {
+            $updates = [];
+            if (! empty($data['address']) && empty($firm->address)) {
+                $updates['address'] = $data['address'];
+            }
+            if ($capCol && ! $firm->{$capCol}) {
+                $updates[$capCol] = true; // ensure the reused firm gains the requested attorney capability
+            }
+            if ($updates) {
+                $firm->update($updates);
+            }
         }
 
         $contact = AgencyServiceProviderContact::create([
