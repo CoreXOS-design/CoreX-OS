@@ -40,6 +40,12 @@ use Tests\TestCase;
  *      real <script> block, never inline in the x-data="..." HTML attribute
  *      (its own HTML-string literals collided with x-data's own
  *      double-quote delimiter and leaked as visible page text).
+ *   6. The wishlist accordion renders the SAME rich <x-match-card> component
+ *      (photo, beds/baths/m², agent, View Property in a new tab, Hide) that
+ *      Core Matches results uses — one shared component, not a hand-copied
+ *      look-alike — and "Convert to Deal" is gone from BOTH agent-facing
+ *      match surfaces entirely (it threw a SQL error; deal creation is
+ *      BM/admin-only per spec).
  */
 final class BuyerDetailWishlistRedesignTest extends TestCase
 {
@@ -356,6 +362,56 @@ final class BuyerDetailWishlistRedesignTest extends TestCase
             'href="' . route('corex.properties.show', $property) . '" target="_blank" rel="noopener noreferrer"',
             $resultsHtml
         );
+    }
+
+    public function test_wishlist_and_results_screen_render_the_one_shared_match_card_component(): void
+    {
+        // Formalises the "ONE shared component" claim as its own structural
+        // proof — the previous test shows both screens BEHAVE the same
+        // (photo/beds/agent/View-Property/no-Convert-to-Deal), which two
+        // independently hand-copied cards could also satisfy today and
+        // silently drift apart tomorrow. This asserts they render the exact
+        // SAME file: <x-match-card>'s own Alpine scope declaration is
+        // authored in exactly one place — resources/views/components/
+        // match-card.blade.php — so its verbatim appearance in BOTH rendered
+        // pages proves both are the identical component, not a look-alike.
+        [$agencyId, $agent, $suburbId] = $this->fixture();
+        $buyer = $this->buyer($agencyId, $agent->id);
+        $wishlist = $this->match($agencyId, $buyer->id, [
+            'is_primary' => true, 'price_min' => 500_000, 'price_max' => 2_000_000,
+            'p24_suburb_ids' => [$suburbId],
+        ]);
+        $this->property($agencyId, $agent->id, $suburbId, ['title' => 'Shared Card House', 'price' => 1_000_000]);
+
+        $sharedCardSignature = "x-data=\"{ noteOpen: false, hideModalOpen: false, hideReason: '' }\"";
+
+        $wishlistResp = $this->actingAs($agent)->get(route('command-center.buyers.show', $buyer) . '?tab=wishlists');
+        $wishlistResp->assertStatus(200);
+        $this->assertStringContainsString($sharedCardSignature, $wishlistResp->getContent(), 'wishlist accordion must render <x-match-card>');
+
+        $resultsResp = $this->actingAs($agent)->get(route('corex.contacts.matches.results', [$buyer, $wishlist]));
+        $resultsResp->assertStatus(200);
+        $this->assertStringContainsString($sharedCardSignature, $resultsResp->getContent(), 'Core Matches results must render <x-match-card>');
+
+        // Belt-and-braces at the SOURCE level: both host views literally
+        // invoke <x-match-card> — there is exactly one component file behind it.
+        $this->assertFileExists(resource_path('views/components/match-card.blade.php'));
+        $this->assertStringContainsString(
+            '<x-match-card', file_get_contents(resource_path('views/command-center/buyers/_wishlist-match-cards.blade.php'))
+        );
+        $this->assertStringContainsString(
+            '<x-match-card', file_get_contents(resource_path('views/corex/contacts/match-results.blade.php'))
+        );
+
+        // And the Convert-to-Deal FORM/route lives nowhere in the shared
+        // component itself — the removal is structural (in the one shared
+        // file), not a per-surface patch that could regress independently.
+        // Checked by the route/permission-gate markers, not the human label
+        // "Convert to Deal" — that phrase legitimately appears in this very
+        // file's own explanatory comment about WHY the button is gone.
+        $componentSource = file_get_contents(resource_path('views/components/match-card.blade.php'));
+        $this->assertStringNotContainsString('convertToDeal', $componentSource);
+        $this->assertStringNotContainsString('core_matches.convert_to_deal', $componentSource);
     }
 
     public function test_wishlist_over_page_size_shows_first_50_and_load_more_appends_the_rest(): void
