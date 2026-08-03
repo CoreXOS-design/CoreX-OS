@@ -319,7 +319,7 @@
                          data-beds="{{ (int) $property->beds }}">
                     {{-- agent=none: the client already has their own agent, so the
                          listing agent's identity/contact is hidden on this preview. --}}
-                    <a href="{{ route('corex.properties.preview', [$property, \Illuminate\Support\Str::slug($property->title)]) }}?agent=none"
+                    <a href="{{ route('corex.properties.preview', $property) }}?agent=none"
                        target="_blank"
                        data-record-view="{{ route('shared.match.view', [$token, $property->id]) }}"
                        class="property-card-link flex flex-col sm:flex-row gap-0 group"

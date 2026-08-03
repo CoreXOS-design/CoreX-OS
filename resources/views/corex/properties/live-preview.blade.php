@@ -101,7 +101,21 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ $property->title }} — {{ $agency->name ?? 'Home Finders Coastal' }}</title>
-    <meta name="description" content="{{ Str::limit($property->excerpt ?? $property->description ?? $property->title, 160) }}">
+    @php
+        $ogDescription = Str::limit($property->excerpt ?? $property->description ?? $property->title, 160);
+        $ogImageUrl = \App\Models\Property::publicImageUrl($allImages[0] ?? null)
+            ?: (($agency && $agency->logo_path) ? asset('storage/'.$agency->logo_path) : null);
+    @endphp
+    <meta name="description" content="{{ $ogDescription }}">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="{{ $property->title }} — {{ $agency->name ?? 'Home Finders Coastal' }}">
+    <meta property="og:description" content="{{ $ogDescription }}">
+    <meta property="og:url" content="{{ url()->current() }}">
+    @if($ogImageUrl)
+    <meta property="og:image" content="{{ $ogImageUrl }}">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="{{ $ogImageUrl }}">
+    @endif
 
     {{-- Inter (incl. 300 for the light headings) --}}
     <link rel="preconnect" href="https://fonts.bunny.net">
@@ -157,7 +171,7 @@
         </button>
 
         @if($agency && $agency->logo_path)
-            <img src="{{ asset('storage/'.$agency->logo_path) }}" alt="{{ $agency->name }}" class="h-8 max-w-[150px] object-contain">
+            <img src="{{ asset('storage/'.$agency->logo_path) }}" alt="{{ $agency->name }}" class="h-16 max-w-[300px] object-contain">
         @else
             <span class="text-navy text-lg font-light tracking-tight">{{ $agency->name ?? 'Home Finders Coastal' }}</span>
         @endif
@@ -462,7 +476,7 @@
                 {{-- Agency card --}}
                 <div class="rounded-sm border border-slate-200 bg-slate-50 p-6 text-center">
                     @if($agency && $agency->logo_path)
-                        <img src="{{ asset('storage/'.$agency->logo_path) }}" alt="{{ $agency->name }}" class="mx-auto h-8 max-w-[150px] object-contain">
+                        <img src="{{ asset('storage/'.$agency->logo_path) }}" alt="{{ $agency->name }}" class="mx-auto h-16 max-w-[300px] object-contain">
                     @else
                         <p class="text-navy text-lg font-light">{{ $agency->name ?? 'Home Finders Coastal' }}</p>
                     @endif
