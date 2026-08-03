@@ -287,22 +287,75 @@ final class BuyerDetailWishlistRedesignTest extends TestCase
         $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html);
         $xpath = new \DOMXPath($dom);
 
-        // The match-card title span's exact class combo is unique to
-        // _wishlist-match-cards.blade.php — not the JSON config payload.
+        // The rich match-card's title div (<x-match-card>, shared with the
+        // Core Matches results screen) is unique — not the JSON config payload.
         $cardTitles = $xpath->query(
-            "//span[contains(@class,'font-semibold') and contains(@class,'truncate')][contains(text(),'No-Cap House #')]"
+            "//div[contains(@class,'font-semibold') and contains(@class,'leading-snug')][contains(text(),'No-Cap House #')]"
         );
         $this->assertSame($seeded, $cardTitles->length, 'every seeded match must render, no 6-cap (under the 50/page cap)');
 
         // And all of them live inside the capped-height scroll wrapper, not
         // spilling into an unbounded page.
-        $scrollWrap = $xpath->query("//div[contains(@style,'max-height: 420px')]");
+        $scrollWrap = $xpath->query("//div[contains(@style,'max-height: 600px')]");
         $this->assertSame(1, $scrollWrap->length, 'the accordion must render its scrollable wrapper');
         $cardsInWrap = $xpath->query(
-            ".//span[contains(@class,'font-semibold') and contains(@class,'truncate')]",
+            ".//div[contains(@class,'font-semibold') and contains(@class,'leading-snug')]",
             $scrollWrap->item(0)
         );
         $this->assertSame($seeded, $cardsInWrap->length, 'all seeded matches must be inside the scroll wrapper');
+    }
+
+    public function test_wishlist_rich_card_matches_core_matches_and_has_no_convert_to_deal(): void
+    {
+        // Per Johan's second review: the wishlist accordion must render the
+        // SAME rich <x-match-card> the Core Matches results screen uses
+        // (photo, beds/baths/m², agent, View Property + Hide) — not the
+        // compact grid — and "Convert to Deal" must be gone from BOTH
+        // surfaces (it threw a SQL error and deal creation is BM/admin-only).
+        [$agencyId, $agent, $suburbId] = $this->fixture();
+        $buyer = $this->buyer($agencyId, $agent->id);
+        $wishlist = $this->match($agencyId, $buyer->id, [
+            'is_primary' => true, 'price_min' => 500_000, 'price_max' => 2_000_000,
+            'p24_suburb_ids' => [$suburbId],
+        ]);
+        $property = $this->property($agencyId, $agent->id, $suburbId, [
+            'title' => 'Rich Card Proof House', 'price' => 1_000_000,
+            'beds' => 3, 'baths' => 2, 'garages' => 1, 'size_m2' => 220,
+            'gallery_images_json' => ['https://example.test/rich-card-photo.jpg'],
+        ]);
+
+        $resp = $this->actingAs($agent)->get(route('command-center.buyers.show', $buyer) . '?tab=wishlists');
+        $resp->assertStatus(200);
+        $html = $resp->getContent();
+
+        // Rich-card markers — the OLD compact card had none of these.
+        $this->assertStringContainsString('rich-card-photo.jpg', $html, 'photo must render');
+        $this->assertStringContainsString('3 Beds', $html);
+        $this->assertStringContainsString('Baths', $html); // Property.baths is decimal:1 — renders "2.0 Baths"
+        $this->assertStringContainsString('220', $html); // size_m2
+        $this->assertStringContainsString('Agent: ' . $agent->name, $html);
+        $this->assertStringContainsString('View Property', $html);
+
+        // View Property still opens in a new tab (the AT-360 fix, carried
+        // through the shared component).
+        $this->assertStringContainsString(
+            'href="' . route('corex.properties.show', $property) . '" target="_blank" rel="noopener noreferrer"',
+            $html
+        );
+
+        // Convert to Deal is gone from this surface.
+        $this->assertStringNotContainsString('Convert to Deal', $html);
+
+        // Same proof on the Core Matches results screen for the same wishlist.
+        $resultsResp = $this->actingAs($agent)->get(route('corex.contacts.matches.results', [$buyer, $wishlist]));
+        $resultsResp->assertStatus(200);
+        $resultsHtml = $resultsResp->getContent();
+        $this->assertStringNotContainsString('Convert to Deal', $resultsHtml);
+        $this->assertStringContainsString('rich-card-photo.jpg', $resultsHtml);
+        $this->assertStringContainsString(
+            'href="' . route('corex.properties.show', $property) . '" target="_blank" rel="noopener noreferrer"',
+            $resultsHtml
+        );
     }
 
     public function test_wishlist_over_page_size_shows_first_50_and_load_more_appends_the_rest(): void
@@ -335,14 +388,17 @@ final class BuyerDetailWishlistRedesignTest extends TestCase
         $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html);
         $xpath = new \DOMXPath($dom);
         $cardTitles = $xpath->query(
-            "//span[contains(@class,'font-semibold') and contains(@class,'truncate')][contains(text(),'Big List House #')]"
+            "//div[contains(@class,'font-semibold') and contains(@class,'leading-snug')][contains(text(),'Big List House #')]"
         );
         $this->assertSame(50, $cardTitles->length, 'page 1 must show exactly 50, not the full 63');
 
         // The "Load more" control must be wired for this wishlist specifically.
         $this->assertStringContainsString("loadMoreWishlistMatches({$wishlist->id})", $html);
 
-        // NEVER a navigate-away link — not the text, not the route URL.
+        // NEVER a navigate-away link — not the text, not the route URL. The
+        // rich card's OWN Hide-reason modal repeats the property title in its
+        // own heading, so this is checked structurally, not by a plain
+        // substring scan that would conflate the two.
         $this->assertStringNotContainsString('Open full match results', $html);
         $this->assertStringNotContainsString(
             route('corex.contacts.matches.results', [$buyer, $wishlist]), $html
@@ -355,9 +411,19 @@ final class BuyerDetailWishlistRedesignTest extends TestCase
         $page2->assertStatus(200);
         $page2->assertJsonPath('hasMore', false);
         $page2->assertJsonPath('total', $seeded);
-        $remainingCount = substr_count($page2->json('html'), 'Big List House #');
-        $this->assertSame($seeded - 50, $remainingCount, 'page 2 must carry exactly the remaining 13');
+
+        // DOM-count, not substr_count — the returned card's own Hide-modal
+        // heading also repeats "Big List House #N", so a plain substring
+        // scan would double-count.
+        $dom2 = new \DOMDocument();
+        $dom2->loadHTML('<?xml encoding="utf-8" ?><div>' . $page2->json('html') . '</div>');
+        $xpath2 = new \DOMXPath($dom2);
+        $page2Titles = $xpath2->query(
+            "//div[contains(@class,'font-semibold') and contains(@class,'leading-snug')][contains(text(),'Big List House #')]"
+        );
+        $this->assertSame($seeded - 50, $page2Titles->length, 'page 2 must carry exactly the remaining 13');
         $this->assertStringNotContainsString('Open full match results', $page2->json('html'));
+        $this->assertStringNotContainsString('Convert to Deal', $page2->json('html'));
     }
 
     // ── Helpers (mirrors the scenario-building pattern used across the
