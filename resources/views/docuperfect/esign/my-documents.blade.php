@@ -201,6 +201,9 @@
                             <div class="text-xs mt-2" style="color: var(--ds-crimson);">
                                 A signing party flagged a clause &mdash; signing is paused until you review it and resolve or re-send the document.
                             </div>
+                            <div class="text-xs mt-1" style="color: var(--text-muted);">
+                                Flagged {{ ($tpl->updated_at ?? $tpl->created_at)?->format('d M Y H:i') }}
+                            </div>
                         </div>
                         <div class="flex flex-col gap-2">
                             {{-- AT-300 — link to the FLAG-RESOLVE view (AmendmentController::review);
