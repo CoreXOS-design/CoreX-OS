@@ -685,7 +685,9 @@
                          no auth), so its URL is worth copying, not just opening.
                          Each row owns its copy state so one tick doesn't light both. --}}
                     @php
-                        $synPreviewBase = route('corex.properties.preview', [$property, \Illuminate\Support\Str::slug($property->title)]);
+                        // No title slug — {slug?} is unread by the controller and only
+                        // bloats the copy-shareable URL.
+                        $synPreviewBase = route('corex.properties.preview', $property);
                         // Bake THIS agent's id into the "Show my info" link so the sharing
                         // agent's identity travels with the URL. `?agent=me` resolved only
                         // against the viewer's session, so a shared link opened by anyone

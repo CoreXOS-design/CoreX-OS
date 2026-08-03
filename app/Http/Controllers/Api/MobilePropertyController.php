@@ -845,8 +845,9 @@ class MobilePropertyController extends Controller
                       ?: ($owner->email ?: $owner->phone ?: 'Unnamed contact');
         }
 
-        // Live preview URL (always available even before publish).
-        $livePreviewUrl = route('corex.properties.preview', [$property, \Illuminate\Support\Str::slug($property->title ?: 'property')]);
+        // Live preview URL (always available even before publish). No title
+        // slug — {slug?} is unread by the controller and only bloats the URL.
+        $livePreviewUrl = route('corex.properties.preview', $property);
 
         // Canonical, extensible portal links (website + P24 + PP + any future
         // portal) from the single source of truth on the model.
