@@ -31,6 +31,25 @@ class BuyerDetailController extends Controller
             $contact->matches()->orderByDesc('is_primary')->orderByDesc('updated_at')->get()
         );
 
+        // AT-363 — per-wishlist match count badge + the default-expanded
+        // wishlist's (first in the primary-first ordering above) match grid.
+        // One resolve() per wishlist (bounded to this buyer's own handful of
+        // wishlists) reused for both the count AND, for the default-expanded
+        // one, the mapped list — never resolved twice. Every OTHER wishlist's
+        // full property set is intentionally NOT built here; it's fetched
+        // lazily via wishlistMatches() only if the agent expands it.
+        $resolver = app(\App\Services\Matching\ClientMatchResolver::class);
+        $defaultExpandedId = $contact->matches->first()?->id;
+        $wishlistMatchCounts = [];
+        $expandedWishlistMatches = collect();
+        foreach ($contact->matches as $wishlist) {
+            $resolved = $resolver->resolve($wishlist, false);
+            $wishlistMatchCounts[$wishlist->id] = $resolved->count();
+            if ($wishlist->id === $defaultExpandedId) {
+                $expandedWishlistMatches = $this->mapMatchedProperties($resolved);
+            }
+        }
+
         // The match-form partial needs these collections to render its dropdowns
         // and chip options. Same source as the contact-page Core Matches tab.
         $matchCategories = \App\Models\PropertySettingItem::group('category')->get();
@@ -38,18 +57,60 @@ class BuyerDetailController extends Controller
         $featureOptions  = \App\Http\Controllers\CoreX\ContactMatchController::FEATURE_OPTIONS;
 
         return view('command-center.buyers.detail', [
-            'buyer'            => $contact,
-            'tab'              => $tab,
-            'risk'             => $service->getLostRiskScore($contact->id),
-            'propertiesViewed' => $service->getPropertiesViewed($contact->id),
-            'matched'          => $service->getMatchedProperties($contact->id),
-            'preferences'      => $service->getPreferencePatterns($contact->id),
-            'timeline'         => $service->getActivityTimeline($contact->id),
-            'playbook'         => $service->getRetentionPlaybook($contact->id),
-            'matchCategories'  => $matchCategories,
-            'matchTypes'       => $matchTypes,
-            'featureOptions'   => $featureOptions,
+            'buyer'                   => $contact,
+            'tab'                     => $tab,
+            'risk'                    => $service->getLostRiskScore($contact->id),
+            'propertiesViewed'        => $service->getPropertiesViewed($contact->id),
+            'matched'                 => $service->getMatchedProperties($contact->id),
+            'preferences'             => $service->getPreferencePatterns($contact->id),
+            'timeline'                => $service->getActivityTimeline($contact->id),
+            'playbook'                => $service->getRetentionPlaybook($contact->id),
+            'matchCategories'         => $matchCategories,
+            'matchTypes'              => $matchTypes,
+            'featureOptions'          => $featureOptions,
+            'wishlistMatchCounts'     => $wishlistMatchCounts,
+            'defaultExpandedWishlistId' => $defaultExpandedId,
+            'expandedWishlistMatches' => $expandedWishlistMatches,
         ]);
+    }
+
+    /**
+     * AT-363 — lazy per-wishlist match grid for the Wishlists tab's inline
+     * accordion. Reuses the exact same resolver as the show() count above and
+     * the AT-360 "View Matches" route's underlying data (ClientMatchResolver)
+     * — display only, no matching-logic change.
+     */
+    public function wishlistMatches(Contact $contact, ContactMatch $match)
+    {
+        abort_if($match->contact_id !== $contact->id, 403);
+
+        $resolved = app(\App\Services\Matching\ClientMatchResolver::class)->resolve($match, false);
+
+        return view('command-center.buyers._wishlist-matches-grid', [
+            'matches' => $this->mapMatchedProperties($resolved),
+            'buyer'   => $contact,
+            'match'   => $match,
+        ]);
+    }
+
+    /**
+     * Same shape as BuyerIntelligenceService::getMatchedProperties() — kept
+     * in lockstep so the primary card grid partial renders identically
+     * whether fed from show() (default-expanded wishlist) or wishlistMatches()
+     * (lazy-loaded on accordion expand).
+     */
+    private function mapMatchedProperties(\Illuminate\Support\Collection $properties): \Illuminate\Support\Collection
+    {
+        return $properties
+            ->map(fn ($p) => [
+                'id'             => $p->id,
+                'address'        => $p->address ?: $p->title,
+                'price'          => $p->price,
+                'suburb'         => $p->suburb,
+                'match_score'    => (int) ($p->match_score ?? 0),
+                'days_on_market' => $p->published_at ? (int) $p->published_at->diffInDays(now()) : null,
+            ])
+            ->values();
     }
 
     /**
