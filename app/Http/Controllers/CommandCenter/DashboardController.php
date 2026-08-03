@@ -111,14 +111,54 @@ class DashboardController extends Controller
 
         // ── Candidate Documents (moved into Inbox as action cards) ──
         $candidateService = new CandidatePractitionerService();
-        $candidateDocs    = collect();
-        if ($candidateService->canAuthorise($user)) {
+        $candidateDocs           = collect();
+        $candidateInProgressDocs = collect();
+        // BRANCH-SCOPED authorisation surface (confirmed model, 2026-08-03): a viewer sees exactly the
+        // candidate documents they are eligible to authorise — agency admins agency-wide; Branch
+        // Managers / full-status practitioners their branch(es). Mirrors getEligibleAuthorisers so the
+        // dashboard never shows a branch agent another branch's candidate docs (the previous query was
+        // NOT scoped). $candidateInProgressDocs is the read-only "walk-the-party-through-it" surface —
+        // in-progress candidate docs BEFORE they reach the authorisation queue.
+        $agencyId = $user->effectiveAgencyId();
+        if ($candidateService->canAuthorise($user) && $agencyId) {
+            if ($candidateService->isAgencyAdmin($user)) {
+                $creatorScope = function ($q) use ($agencyId) {
+                    $q->where('agency_id', $agencyId)
+                        ->orWhereHas('branch', fn ($b) => $b->where('agency_id', $agencyId));
+                };
+            } else {
+                $branchIds = $candidateService->authorisingBranchIds($user) ?: [-1];
+                $creatorScope = function ($q) use ($branchIds) {
+                    $q->whereIn('branch_id', $branchIds);
+                };
+            }
+
             $candidateDocs = SignatureTemplate::with(['document', 'creator'])
                 ->where('is_candidate_flow', true)
                 ->whereIn('status', [
                     SignatureTemplate::STATUS_AWAITING_SUPERVISOR,
                     SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL,
                 ])
+                ->whereHas('creator', $creatorScope)
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            $candidateInProgressDocs = SignatureTemplate::with(['document', 'creator'])
+                ->where('is_candidate_flow', true)
+                ->whereIn('status', [
+                    SignatureTemplate::STATUS_SIGNING,
+                    SignatureTemplate::STATUS_AWAITING_TENANT,
+                    SignatureTemplate::STATUS_AWAITING_LANDLORD,
+                    SignatureTemplate::STATUS_AWAITING_BUYER,
+                    SignatureTemplate::STATUS_AWAITING_SELLER,
+                    SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL,
+                    SignatureTemplate::STATUS_RETURNED_TO_CANDIDATE,
+                    SignatureTemplate::STATUS_AWAITING_DEFERRED,
+                    SignatureTemplate::STATUS_AMENDMENT_REVIEW,
+                    SignatureTemplate::STATUS_AMENDMENT_INITIALING,
+                    SignatureTemplate::STATUS_PARTIAL,
+                ])
+                ->whereHas('creator', $creatorScope)
                 ->orderBy('created_at', 'desc')
                 ->get();
         }
@@ -197,6 +237,7 @@ class DashboardController extends Controller
             'mtdPoints'           => $mtdPoints,
             'monthlyTarget'       => $monthlyTarget,
             'candidateDocs'       => $candidateDocs,
+            'candidateInProgressDocs' => $candidateInProgressDocs,
             'todayEvents'         => $todayEvents,
             'tasksToday'          => $tasksToday,
             'overdueEvents'       => $overdueEvents,
@@ -257,13 +298,27 @@ class DashboardController extends Controller
         // Candidate docs (supervisors only)
         $candidateService = new CandidatePractitionerService();
         $candidateDocs    = collect();
-        if ($candidateService->canAuthorise($user)) {
+        // Branch-scoped (mirrors index()) — a viewer only sees candidate docs they may authorise.
+        $agencyId = $user->effectiveAgencyId();
+        if ($candidateService->canAuthorise($user) && $agencyId) {
+            if ($candidateService->isAgencyAdmin($user)) {
+                $creatorScope = function ($q) use ($agencyId) {
+                    $q->where('agency_id', $agencyId)
+                        ->orWhereHas('branch', fn ($b) => $b->where('agency_id', $agencyId));
+                };
+            } else {
+                $branchIds = $candidateService->authorisingBranchIds($user) ?: [-1];
+                $creatorScope = function ($q) use ($branchIds) {
+                    $q->whereIn('branch_id', $branchIds);
+                };
+            }
             $candidateDocs = SignatureTemplate::with(['document', 'creator'])
                 ->where('is_candidate_flow', true)
                 ->whereIn('status', [
                     SignatureTemplate::STATUS_AWAITING_SUPERVISOR,
                     SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL,
                 ])
+                ->whereHas('creator', $creatorScope)
                 ->orderBy('created_at', 'desc')
                 ->get();
         }

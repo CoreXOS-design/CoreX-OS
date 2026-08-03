@@ -359,6 +359,33 @@
                                 </div>
                             @endforeach
 
+                            {{-- Supervised candidates' IN-PROGRESS documents — read-only walk-through (AT-352b) --}}
+                            @foreach(($candidateInProgressDocs ?? collect()) as $doc)
+                                @php $viewLink = route('docuperfect.signatures.viewLive', $doc->document_id); @endphp
+                                <div class="rounded-md p-3 border-l-2 cursor-pointer hover:brightness-110 transition"
+                                     style="background:var(--surface-2); border-left-color:#0ea5e9;"
+                                     onclick="if(!event.target.closest('form,button,input,a')){window.location.href='{{ $viewLink }}'}">
+                                    <div class="flex items-start gap-2">
+                                        <div class="flex-shrink-0 mt-0.5">
+                                            <svg class="w-4 h-4" style="color:#0ea5e9;" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
+                                        </div>
+                                        <div class="flex-1 min-w-0">
+                                            <a href="{{ $viewLink }}" class="block text-sm font-medium truncate hover:underline" style="color:var(--text-primary);">{{ $doc->document->name ?? 'Untitled Document' }}</a>
+                                            <p class="text-xs mt-0.5" style="color:var(--text-muted);">
+                                                In progress · {{ ucwords(str_replace('_', ' ', $doc->status)) }} · {{ $doc->creator->name ?? 'Unknown' }}
+                                            </p>
+                                            <div class="mt-2">
+                                                <a href="{{ $viewLink }}"
+                                                   class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold text-white"
+                                                   style="background:#0ea5e9;">
+                                                    View (read-only)
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            @endforeach
+
                         </div>
                     @endif
                 </div>
