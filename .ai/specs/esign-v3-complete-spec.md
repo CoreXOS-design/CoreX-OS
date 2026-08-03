@@ -790,6 +790,40 @@ editable_by:
     requires_initial: false
 ```
 
+### 9.1.1 Field-value propagation contract: Fill & Review → web_template_data → signing (AT-360)
+
+This is the data-flow the agent signing view depends on. It was undocumented before AT-360;
+document it here so the shared model is correct.
+
+1. **Fill & Review persists** what the agent types into
+   `flow.step_data['fill_review']['fieldValues']`, keyed by the wizard field **id** (`tag-…`).
+   `step_data['fields']` carries the `id → field_name` map, where `field_name` **is the blade
+   variable name** the generated blade emits (e.g. `lessee_address`, `adults`, `price_in_words`).
+2. **`prepareSigning` builds `Document.web_template_data`** = `WebTemplateDataService::resolve()`
+   (which rebuilds values from the **Property / Contact / Deal pillars only**) **then overlays the
+   agent's typed values** via `ESignWizardController::overlayFillReviewValues()`. The overlay keys
+   each typed value by its sanitised `field_name` (a valid PHP identifier — see AT-359b), so a
+   pillar-less field the agent hand-typed (lessee alternate address, occupancy counts, escalation
+   month, fee/amount overrides) still reaches the document. Typed values override the pillar value
+   for the same field (agent input wins); an empty typed value never clobbers a resolved one. The
+   overlay runs in **both** the single-doc and pack prepareSigning paths (one shared method).
+3. **The signing view hydrates** from `Document.web_template_data` (the `merged_html` snapshot, or
+   `view(blade_view, web_template_data)`), NOT from `Document.fields_json`. Therefore any value that
+   does not reach `web_template_data` renders blank on the agent signing view.
+
+**Root-cause class (two shipped fixes):** the blade variable name and the value key MUST be derived
+identically on both sides, or values silently fail to hydrate:
+- **AT-359b** — `deriveBladeName()` is coerced to a valid PHP identifier at its single exit (both
+  the `TemplateController` and `WebTemplateDataService` copies), so a composite `source_column` like
+  property `address+suburb` yields the same `property_address_suburb` on both the blade and the data.
+- **AT-360** — the fill overlay was present in the wizard *preview* path but missing from the
+  *document-creation* (`prepareSigning`) path; typed values were written to `fields_json` but never
+  to `web_template_data`, so pillar-less fields rendered blank. The shared
+  `overlayFillReviewValues()` closes that preview↔persist asymmetry.
+
+Note: the fix applies at **send/document-creation time**. A document already sent before the fix
+keeps its stale `web_template_data`; re-sending (re-running the wizard) rebuilds it correctly.
+
 ### 9.2 Current state (per audit §16)
 
 Audit finding: Spec said §16 was "OBSOLETE." Verification needed. 7 templates have `editable_by` populated. Whether the end-to-end behavior actually works in the signing flow is untested.
