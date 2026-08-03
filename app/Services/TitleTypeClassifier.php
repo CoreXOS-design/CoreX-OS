@@ -38,6 +38,25 @@ final class TitleTypeClassifier
     public const TITLE_OTHER     = PropertySettingItem::TITLE_OTHER;
 
     /**
+     * Code-gate hardening (Uvonique bug, 2026-08) — the ONE keyword taxonomy.
+     * Before this, CompPoolBuilder::kind() and CompetitorStockMatchService::
+     * normalizeTypeKind() each kept their OWN copy of the "finer kind"
+     * keywords (apartment/townhouse buckets), and neither copy agreed with
+     * this class's coarser sectional/freehold keywords — Penthouse, Studio,
+     * Simplex, Cluster and Maisonette had no match here at all and silently
+     * fell through to the TITLE_FULL default (freehold), while the other two
+     * classifiers correctly bucketed them as apartment/townhouse-kind. A
+     * subject or comp with one of these property_type strings therefore
+     * disagreed with itself across the codebase. These constants are now the
+     * single source every classifier (this one, CompPoolBuilder::kind(),
+     * CompetitorStockMatchService::normalizeTypeKind()) reads from, so they
+     * can never drift apart again.
+     */
+    public const APARTMENT_KEYWORDS = ['sectional', 'apartment', 'flat', 'unit', 'penthouse', 'studio'];
+    public const TOWNHOUSE_KEYWORDS = ['townhouse', 'duplex', 'simplex', 'cluster', 'maisonette'];
+    public const VACANT_KEYWORDS    = ['vacant', 'plot', 'stand', 'erf'];
+
+    /**
      * Canonical heuristic — classify a free-text property_type string.
      *
      * Lifted verbatim from the duplicate bodies at
@@ -51,12 +70,17 @@ final class TitleTypeClassifier
         if ($t === '') {
             return null;
         }
-        if (str_contains($t, 'sectional') || str_contains($t, 'apartment') || str_contains($t, 'flat')
-            || str_contains($t, 'unit') || str_contains($t, 'townhouse') || str_contains($t, 'duplex')) {
-            return self::TITLE_SECTIONAL;
+        foreach (array_merge(self::APARTMENT_KEYWORDS, self::TOWNHOUSE_KEYWORDS) as $kw) {
+            if (str_contains($t, $kw)) {
+                return self::TITLE_SECTIONAL;
+            }
         }
-        if (str_contains($t, 'vacant') || str_contains($t, 'plot') || str_contains($t, 'stand')
-            || str_contains($t, 'erf') || $t === 'land') {
+        foreach (self::VACANT_KEYWORDS as $kw) {
+            if (str_contains($t, $kw)) {
+                return self::TITLE_VACANT;
+            }
+        }
+        if ($t === 'land') {
             // Bare "Land" — appeared in prospecting_listings as 2 rows that
             // were silently classified as full_title by the keyword default.
             // It's vacant land in every observed portal context. Equality
@@ -65,6 +89,25 @@ final class TitleTypeClassifier
             return self::TITLE_VACANT;
         }
         return self::TITLE_FULL;
+    }
+
+    /**
+     * Code-gate hardening — the SAME "signal overrides generic text"
+     * classification MicSnapshotHydrator::deriveCompTitleType() used to keep
+     * privately to itself, now shared so every comp-classifying caller
+     * (MicSnapshotHydrator, AnalysisDataService's render-layer hard filter,
+     * and any future one) agrees. A populated scheme name or section number
+     * is an unambiguous sectional-title signal (a unit in a sectional
+     * scheme) that overrides the generic source property_type, which for
+     * portal/CMA-import data is often just "Residence"/"Residential" and
+     * cannot itself distinguish freehold from sectional.
+     */
+    public function categoryForComp(?string $propertyType, ?string $schemeName = null, ?string $sectionNumber = null): ?string
+    {
+        if (trim((string) $schemeName) !== '' || trim((string) $sectionNumber) !== '') {
+            return self::TITLE_SECTIONAL;
+        }
+        return $this->fromPropertyType($propertyType);
     }
 
     /**
