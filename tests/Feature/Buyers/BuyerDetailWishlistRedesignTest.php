@@ -65,6 +65,54 @@ final class BuyerDetailWishlistRedesignTest extends TestCase
         $resp->assertDontSee('Top Matches for Primary Wishlist');
     }
 
+    public function test_wishlist_component_script_never_leaks_as_visible_page_text(): void
+    {
+        // Regression guard for a real, live-caught bug: the whole Alpine
+        // component used to live inline in the x-data="..." HTML attribute.
+        // Its own HTML-string literals (e.g. '<div class="…">Loading
+        // matches…</div>') carry double quotes that collide with x-data's
+        // own double-quote delimiter — the browser closes the attribute
+        // early and dumps the rest of the script as a visible text node on
+        // the page (Johan saw this live on a real buyer). A plain
+        // "200 + markers present" check is worthless against this class of
+        // bug — the leaked JS IS text containing those markers. This test
+        // asserts the DOM structure itself: the component's JS/HTML-string
+        // fragments may appear ONLY inside a real <script> block, never in
+        // the surrounding page markup.
+        [$agencyId, $agent, $suburbId] = $this->fixture();
+        $buyer = $this->buyer($agencyId, $agent->id);
+        $this->match($agencyId, $buyer->id, [
+            'is_primary' => true, 'price_min' => 1_500_000, 'price_max' => 2_000_000,
+            'p24_suburb_ids' => [$suburbId],
+        ]);
+
+        $resp = $this->actingAs($agent)->get(route('command-center.buyers.show', $buyer) . '?tab=wishlists');
+        $resp->assertStatus(200);
+        $html = $resp->getContent();
+
+        // The component must be registered in a real <script> block …
+        $resp->assertSee("Alpine.data('buyerWishlists'", false);
+        // … and the root element's x-data must be a single, well-formed
+        // call — data only, no inline object/function bodies.
+        $this->assertMatchesRegularExpression(
+            '/x-data="buyerWishlists\([^"]*\)"/',
+            $html,
+            'x-data must be a single well-formed buyerWishlists(...) call with no stray quotes breaking out of it'
+        );
+
+        // Structural proof: strip every <script>…</script> block and confirm
+        // none of the component's JS fragments leak into the remaining body
+        // markup as visible text — this is exactly what would have failed
+        // on the broken version (the leaked script WAS in this remainder).
+        $withoutScripts = preg_replace('#<script\b[^>]*>.*?</script>#is', '', $html);
+        foreach (['continueToSchedule', 'toggleWishlistMatches(id)', 'Loading matches', 'el.innerHTML'] as $leak) {
+            $this->assertStringNotContainsString(
+                $leak, $withoutScripts,
+                "\"{$leak}\" leaked outside <script> — the quote-collision bug is back"
+            );
+        }
+    }
+
     public function test_match_count_badge_is_accurate_but_non_default_wishlists_full_card_grid_is_not_pre_built(): void
     {
         // Asserted at the CONTROLLER/view-data level rather than raw HTML: the

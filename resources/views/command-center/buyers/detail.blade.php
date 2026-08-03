@@ -19,86 +19,32 @@
         'price'       => data_get($mp, 'price'),
         'match_score' => data_get($mp, 'match_score'),
     ])->filter(fn ($p) => $p['id'] !== null)->values();
+
+    // AT-363 hotfix — the whole component used to live inline in the x-data
+    // HTML attribute. The card-grid loading-state HTML strings inside it
+    // (e.g. '<div class="text-xs …">Loading matches…</div>') carry their OWN
+    // double quotes, which collide with x-data="..."'s own double-quote
+    // delimiter — the browser closes the attribute at the FIRST one of those
+    // and dumps the rest of the script as visible page text. Fix: the
+    // component now lives in a registered Alpine.data() component (a <script>
+    // block, where JS string quoting is unambiguous), and x-data here carries
+    // ONLY data — passed through @js(), which is the safe, purpose-built tool
+    // for embedding JSON inside an HTML attribute (unlike hand-interpolated
+    // strings). Build the matches URL server-side via route() (not url()) so
+    // it always carries the real corex/command-center/... prefix.
+    $wishlistsConfig = [
+        'initialTab'                => $tab,
+        'defaultExpandedWishlistId' => $defaultExpandedWishlistId,
+        'buyerId'                   => $buyer->id,
+        'buyerName'                 => trim(($buyer->first_name ?? '') . ' ' . ($buyer->last_name ?? '')) ?: ('Contact #' . $buyer->id),
+        'buyerPhone'                => $buyer->phone,
+        'buyerEmail'                => $buyer->email,
+        'matchesUrlTemplate'        => route('command-center.buyers.wishlists.matches', [$buyer->id, '__MATCH_ID__']),
+        'calendarBaseUrl'           => route('command-center.calendar'),
+        'pickerProperties'          => $viewingPickerProps,
+    ];
 @endphp
-<div class="w-full space-y-5"
-     x-data="{
-        activeTab: '{{ $tab }}',
-        wishlistDrawerOpen: false,
-        wishlistEditingId: null,
-        openAddDrawer() { this.wishlistEditingId = null; this.wishlistDrawerOpen = true; },
-        openEditDrawer(id) { this.wishlistEditingId = id; this.wishlistDrawerOpen = true; },
-        closeDrawer() { this.wishlistDrawerOpen = false; this.wishlistEditingId = null; },
-
-        // AT-363 — Wishlists tab inline accordion. The default-expanded
-        // wishlist's matches are already server-rendered (no fetch needed);
-        // every other wishlist's full list is fetched lazily on first expand.
-        wishlistOpen: { {{ $defaultExpandedWishlistId ?? 'null' }}: true },
-        wishlistLoaded: { {{ $defaultExpandedWishlistId ?? 'null' }}: true },
-        wishlistMenuOpen: null,
-        async toggleWishlistMatches(id) {
-            this.wishlistOpen[id] = !this.wishlistOpen[id];
-            if (this.wishlistOpen[id] && !this.wishlistLoaded[id]) {
-                const el = this.$refs['wlMatches' + id];
-                if (!el) return;
-                el.innerHTML = '<div class="text-xs py-4 text-center" style="color: var(--text-muted);">Loading matches…</div>';
-                try {
-                    // route() (not url()) so this carries whatever prefix/middleware
-                    // group the route actually lives under — a hand-built path here
-                    // silently drifted from the real corex/command-center/... prefix.
-                    const url = '{{ route('command-center.buyers.wishlists.matches', [$buyer->id, '__MATCH_ID__']) }}'.replace('__MATCH_ID__', id);
-                    const res = await fetch(url, {
-                        headers: { 'X-Requested-With': 'XMLHttpRequest' },
-                    });
-                    el.innerHTML = res.ok
-                        ? await res.text()
-                        : '<div class="text-xs py-4 text-center" style="color: var(--ds-crimson, #c41e3a);">Could not load matches.</div>';
-                    this.wishlistLoaded[id] = true;
-                } catch (e) {
-                    el.innerHTML = '<div class="text-xs py-4 text-center" style="color: var(--ds-crimson, #c41e3a);">Could not load matches.</div>';
-                }
-            }
-        },
-
-        showViewingPicker: false,
-        pickerProperties: @js($viewingPickerProps),
-        pickerSelected: @js($viewingPickerProps->pluck('id')->values()),
-        togglePickerProperty(id) {
-            const i = this.pickerSelected.indexOf(id);
-            if (i === -1) this.pickerSelected.push(id);
-            else this.pickerSelected.splice(i, 1);
-        },
-        pickerAllChecked() { return this.pickerProperties.length > 0 && this.pickerSelected.length === this.pickerProperties.length; },
-        pickerToggleAll() {
-            this.pickerSelected = this.pickerAllChecked() ? [] : this.pickerProperties.map(p => p.id);
-        },
-        continueToSchedule() {
-            // Derive chosen FROM the ticked ids (pickerSelected), not by
-            // filtering pickerProperties — so a selected id is ALWAYS carried
-            // into prefill_properties even if its address/label is missing.
-            const byId = new Map(this.pickerProperties.map(p => [p.id, p]));
-            const chosen = this.pickerSelected
-                .filter(id => id !== null && id !== undefined)
-                .map(id => { const p = byId.get(id); return { id: id, address: (p && p.address) ? p.address : '' }; });
-            // Pass the buyer as a prefill_attendees handoff so the calendar
-            // chips render immediately — no fetch, no name lookup roundtrip.
-            const attendees = [{
-                id: {{ $buyer->id }},
-                name: @js(trim(($buyer->first_name ?? '') . ' ' . ($buyer->last_name ?? '')) ?: ('Contact #' . $buyer->id)),
-                type: 'contact',
-                role: 'buyer_contact',
-                phone: @js($buyer->phone),
-                email: @js($buyer->email),
-            }];
-            const base = '{{ route('command-center.calendar') }}';
-            const params = new URLSearchParams();
-            params.set('view', 'day');
-            params.set('prefill_class', 'viewing');
-            params.set('prefill_contact_id', '{{ $buyer->id }}');
-            params.set('prefill_attendees', JSON.stringify(attendees));
-            if (chosen.length) params.set('prefill_properties', JSON.stringify(chosen));
-            window.location.href = base + '?' + params.toString();
-        },
-     }">
+<div class="w-full space-y-5" x-data="buyerWishlists(@js($wishlistsConfig))">
 
     {{-- Back to Buyer Pipeline --}}
     <div>
@@ -671,4 +617,83 @@
     </dialog>
     @endif
 </div>
+
+<script>
+document.addEventListener('alpine:init', () => {
+    Alpine.data('buyerWishlists', (cfg) => ({
+        activeTab: cfg.initialTab,
+        wishlistDrawerOpen: false,
+        wishlistEditingId: null,
+        openAddDrawer() { this.wishlistEditingId = null; this.wishlistDrawerOpen = true; },
+        openEditDrawer(id) { this.wishlistEditingId = id; this.wishlistDrawerOpen = true; },
+        closeDrawer() { this.wishlistDrawerOpen = false; this.wishlistEditingId = null; },
+
+        // AT-363 — Wishlists tab inline accordion. The default-expanded
+        // wishlist's matches are already server-rendered (no fetch needed);
+        // every other wishlist's full list is fetched lazily on first expand.
+        wishlistOpen: cfg.defaultExpandedWishlistId !== null ? { [cfg.defaultExpandedWishlistId]: true } : {},
+        wishlistLoaded: cfg.defaultExpandedWishlistId !== null ? { [cfg.defaultExpandedWishlistId]: true } : {},
+        wishlistMenuOpen: null,
+        async toggleWishlistMatches(id) {
+            this.wishlistOpen[id] = !this.wishlistOpen[id];
+            if (this.wishlistOpen[id] && !this.wishlistLoaded[id]) {
+                const el = this.$refs['wlMatches' + id];
+                if (!el) return;
+                el.innerHTML = '<div class="text-xs py-4 text-center" style="color: var(--text-muted);">Loading matches…</div>';
+                try {
+                    const url = cfg.matchesUrlTemplate.replace('__MATCH_ID__', id);
+                    const res = await fetch(url, {
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    });
+                    el.innerHTML = res.ok
+                        ? await res.text()
+                        : '<div class="text-xs py-4 text-center" style="color: var(--ds-crimson, #c41e3a);">Could not load matches.</div>';
+                    this.wishlistLoaded[id] = true;
+                } catch (e) {
+                    el.innerHTML = '<div class="text-xs py-4 text-center" style="color: var(--ds-crimson, #c41e3a);">Could not load matches.</div>';
+                }
+            }
+        },
+
+        showViewingPicker: false,
+        pickerProperties: cfg.pickerProperties,
+        pickerSelected: cfg.pickerProperties.map(p => p.id),
+        togglePickerProperty(id) {
+            const i = this.pickerSelected.indexOf(id);
+            if (i === -1) this.pickerSelected.push(id);
+            else this.pickerSelected.splice(i, 1);
+        },
+        pickerAllChecked() { return this.pickerProperties.length > 0 && this.pickerSelected.length === this.pickerProperties.length; },
+        pickerToggleAll() {
+            this.pickerSelected = this.pickerAllChecked() ? [] : this.pickerProperties.map(p => p.id);
+        },
+        continueToSchedule() {
+            // Derive chosen FROM the ticked ids (pickerSelected), not by
+            // filtering pickerProperties — so a selected id is ALWAYS carried
+            // into prefill_properties even if its address/label is missing.
+            const byId = new Map(this.pickerProperties.map(p => [p.id, p]));
+            const chosen = this.pickerSelected
+                .filter(id => id !== null && id !== undefined)
+                .map(id => { const p = byId.get(id); return { id: id, address: (p && p.address) ? p.address : '' }; });
+            // Pass the buyer as a prefill_attendees handoff so the calendar
+            // chips render immediately — no fetch, no name lookup roundtrip.
+            const attendees = [{
+                id: cfg.buyerId,
+                name: cfg.buyerName,
+                type: 'contact',
+                role: 'buyer_contact',
+                phone: cfg.buyerPhone,
+                email: cfg.buyerEmail,
+            }];
+            const params = new URLSearchParams();
+            params.set('view', 'day');
+            params.set('prefill_class', 'viewing');
+            params.set('prefill_contact_id', String(cfg.buyerId));
+            params.set('prefill_attendees', JSON.stringify(attendees));
+            if (chosen.length) params.set('prefill_properties', JSON.stringify(chosen));
+            window.location.href = cfg.calendarBaseUrl + '?' + params.toString();
+        },
+    }));
+});
+</script>
 @endsection
