@@ -329,9 +329,45 @@ class SignaturePdfService
             . 'if(document.fonts&&document.fonts.ready){document.fonts.ready.then(run).catch(run);}'
             . 'else if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",run);}else{run();}})();</script>';
 
-        return '<div id="pdfDocContent">' . $html . '</div>'
+        // MARK-RENDER CONTRACT (2026-08-03) — the signing/review SCREENS @include the whole
+        // a4-page-styles partial (its <style> + <script>); this PDF path previously lifted only
+        // the <script> (pagination JS), so the uniform MARK-render CSS (signature line + initial
+        // box sizing, ink-image sizing) never reached the PDF. corex-document.css carries only
+        // LEGACY mark classes (.corex-signature-line / .corex-initial-block) that do NOT match the
+        // real marks ([data-marker-type], .corex-ink--*, .sig-cell-line, .corex-page-initials), so
+        // in the PDF every mark fell back to its DIVERGENT origin styling (component .sig-cell-line
+        // vs MDF .mdf-sig-line vs baked inline 56/38px vs per-page 84x40 box) — signatures and
+        // initials rendered inconsistently mark-to-mark / page-to-page. Lift the mark CSS too so
+        // the PDF matches the screen ("print == screen", by construction). Only the mark region is
+        // lifted (the page-layout CSS above it conflicts with the PDF page shell).
+        $markCss = $this->esignMarkRenderCss();
+
+        return ($markCss !== '' ? '<style>' . $markCss . '</style>' : '')
+            . '<div id="pdfDocContent">' . $html . '</div>'
             . '<script>' . $js . '</script>'
             . $boot;
+    }
+
+    /**
+     * The uniform MARK-RENDER CSS, lifted verbatim from the ONE partial the ceremony and
+     * agent-review screens use (a4-page-styles.blade.php), between its PDF-MARK-CSS-START /
+     * PDF-MARK-CSS-END delimiters. Single source of truth — the PDF cannot drift from the screen.
+     * Only the mark-sizing region is lifted; the page-layout CSS (.corex-a4-page / @media print)
+     * above the delimiter is deliberately excluded (it conflicts with wrapHtmlForPdf's page shell).
+     */
+    private function esignMarkRenderCss(): string
+    {
+        static $cached = null;
+        if ($cached !== null) {
+            return $cached;
+        }
+        $path = resource_path('views/docuperfect/signatures/partials/a4-page-styles.blade.php');
+        $content = is_file($path) ? (string) file_get_contents($path) : '';
+        $cached = preg_match('/\/\*\s*PDF-MARK-CSS-START.*?\*\/(.*?)\/\*\s*PDF-MARK-CSS-END\s*\*\//is', $content, $m)
+            ? trim($m[1])
+            : '';
+
+        return $cached;
     }
 
     /**

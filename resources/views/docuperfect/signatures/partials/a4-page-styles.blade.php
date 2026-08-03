@@ -74,6 +74,12 @@
     }
 }
 
+/* PDF-MARK-CSS-START — everything from here to PDF-MARK-CSS-END is the UNIFORM MARK-RENDER
+   contract (signature line + initial box sizing, ink-image sizing). It is lifted VERBATIM into
+   the signed/filed PDF by SignaturePdfService::esignMarkRenderCss(), so a mark renders the SAME
+   in the PDF as on the signing/review screen (print == screen). Everything ABOVE this marker is
+   screen/page-layout only (.corex-a4-page etc.) and must NOT reach the PDF — it conflicts with
+   the PDF page shell (wrapHtmlForPdf @page / .corex-a4-page). Keep mark rules BELOW this line. */
 /* ═══ ESIGN-WETINK — FIT-TO-BLOCK ink render (Johan's locked spec) ═══
    NOT "force every img to 56px" (that overflows a small marker box and makes
    signatures collide). Instead: the MARKER BLOCK is the fixed, consistent container
@@ -196,6 +202,7 @@ img.corex-ink--initial {
     transform: none !important;
     box-sizing: content-box !important;
 }
+/* PDF-MARK-CSS-END */
 </style>
 <script>
 /**
