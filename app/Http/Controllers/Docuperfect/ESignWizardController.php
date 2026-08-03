@@ -1531,6 +1531,66 @@ class ESignWizardController extends Controller
     }
 
     /**
+     * AT-360 — overlay the agent's Fill & Review typed values onto a resolved web_template_data
+     * array, keyed by each field's blade variable name.
+     *
+     * WebTemplateDataService::resolve() rebuilds web_template_data from the Property / Contact / Deal
+     * pillars ONLY. A value the agent TYPED on Fill & Review for a field with no pillar source
+     * (lessee alternate address, occupancy counts, escalation month, fee overrides, …) was written to
+     * Document.fields_json but never reached web_template_data — so it rendered BLANK on the agent
+     * signing view. The wizard PREVIEW path already applied this overlay; the document-creation path
+     * (prepareSigning) did NOT. This is the one shared implementation both prepareSigning paths use so
+     * they cannot drift.
+     *
+     * The key is sanitised to a valid PHP identifier (AT-359b), so a composite field_name such as
+     * "property_address+suburb" lands under the same "property_address_suburb" the blade emits. Typed
+     * values override the pillar-resolved value for the same field (the agent's explicit input wins);
+     * an empty typed value is ignored so it can never clobber a resolved value.
+     *
+     * @param array    $data                resolved web_template_data
+     * @param array    $stepData            the wizard flow step_data
+     * @param int|null $onlyPackTemplateId  when set, only fields tagged for this pack template apply
+     */
+    private function overlayFillReviewValues(array $data, array $stepData, ?int $onlyPackTemplateId = null): array
+    {
+        $frValues = $stepData['fill_review']['fieldValues'] ?? [];
+        if (empty($frValues)) {
+            return $data;
+        }
+
+        foreach (($stepData['fields'] ?? []) as $field) {
+            $fieldId   = $field['id'] ?? null;
+            $fieldName = $field['field_name'] ?? null;
+            if (!$fieldId || !$fieldName) {
+                continue;
+            }
+            if (!isset($frValues[$fieldId]) || $frValues[$fieldId] === '') {
+                continue;
+            }
+            if ($onlyPackTemplateId !== null) {
+                $fTplId = $field['_pack_template_id'] ?? null;
+                if ($fTplId !== null && (int) $fTplId !== $onlyPackTemplateId) {
+                    continue;
+                }
+            }
+
+            // Match the blade variable EXACTLY: sanitise the field_name to a valid PHP identifier
+            // (same rule as TemplateController::deriveBladeName, AT-359b).
+            $var = preg_replace('/[^a-zA-Z0-9_]/', '_', $fieldName);
+            if ($var !== '' && is_numeric($var[0])) {
+                $var = 'f_' . $var;
+            }
+            if ($var === '') {
+                continue;
+            }
+
+            $data[$var] = $frValues[$fieldId];
+        }
+
+        return $data;
+    }
+
+    /**
      * Create Document + SignatureTemplate + SignatureRequests from the wizard flow,
      * then redirect to the existing agent signing interface.
      */
@@ -1672,6 +1732,9 @@ class ESignWizardController extends Controller
                 if (!$tpl || !$tpl->blade_view) continue;
 
                 $tplData = $webTemplateDataService->resolve($tplId, $stepData, $user);
+                // AT-360 — same Fill & Review typed-value overlay as the single-doc path, scoped to
+                // this pack template's fields so a value only lands on the document it was typed for.
+                $tplData = $this->overlayFillReviewValues($tplData, $stepData, (int) $tplId);
                 $segIsSales = false;
                 if (!empty($tpl->signing_parties)) {
                     $tplData['signing_parties'] = $tpl->signing_parties;
@@ -1845,6 +1908,10 @@ class ESignWizardController extends Controller
             ];
         } elseif ($template->render_type === 'web' && $template->blade_view) {
             $webTemplateData = $webTemplateDataService->resolve($template->id, $stepData, $user);
+
+            // AT-360 — overlay the agent's Fill & Review typed values (pillar-less fields the
+            // agent hand-typed) so they reach the signed document, not just Document.fields_json.
+            $webTemplateData = $this->overlayFillReviewValues($webTemplateData, $stepData);
 
             // Build parties list for initials/signature processing
             // Resolve generic roles (owner_party, acquiring_party) to concrete roles
