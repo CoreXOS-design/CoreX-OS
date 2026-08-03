@@ -1110,7 +1110,17 @@ unchanged.
 
 ## 15.1 "Remove background" — client-side cutout for a plain-backdrop photo
 
-> Status: LIVE · 2026-08-02
+> Status: SUPERSEDED 2026-08-03 by §15.2 (AI segmentation API) in the LIVE
+> render path — see §15.2 for why and exactly what changed. The algorithm,
+> tests and this write-up are kept below verbatim as the historical record of
+> six rounds of evidence-based iteration; nothing here was deleted. The
+> underlying functions (`_floodFillTransparent`, `_fillEnclosedHoles`,
+> `_featherAlpha`, `stripBackground`, `_processBackgroundRemoval`,
+> `configureBgRemoval`/`_bgRemovalConfig`) remain in
+> `public/js/corex-ad-render.js`, exported on `window.CoreXAd`, but are no
+> longer called from the live render path (`imgTag()` no longer adds the
+> `onload` hook that triggered them) — see §15.2's "Dead code" note for the
+> exact removal-candidate list for a later round.
 
 **What/why.** The request's own example: an agent's headshot on a **white studio
 backdrop** should lose that backdrop and show only the person, so the photo sits
@@ -1715,6 +1725,452 @@ instruction not to reach for another fix immediately.
       (synthetic pixel buffers — no real Canvas/Image needed), the
       onload-hook emission/omission, the enclosed-holes pass (filled vs. not
       filled vs. border-touching), and edge feathering.
+
+---
+
+## 15.2 "Remove background" — AI segmentation API, superseding the colour heuristic
+
+> Status: SUPERSEDED 2026-08-03, same day, by §15.3 (self-hosted rembg) as
+> the DEFAULT driver in the LIVE render path. Built and left fully wired —
+> `App\Services\Images\BackgroundRemoval\PhotoroomDriver`/`RemoveBgDriver`
+> are unchanged, still selectable via `BG_REMOVAL_DRIVER=photoroom|remove_bg`,
+> deliberately never deleted (see §15.3's "why the paid drivers stay"). NOT
+> on Staging or live in either form as of this writing.
+>
+> **Why the reversal, same day:** this section's own feasibility reasoning
+> ("a shared/disk-constrained production host, and an unverified ARM
+> inference cost — in favour of a paid segmentation API") was built on a
+> wrong model of the disk layout. `/corex`, `/corex-qa1`, `/corex-qa2` and
+> `/corex-staging` are bind-mounts off a 200GB Hetzner Cloud Volume
+> (`/mnt/HC_Volume_103099143`, 69GB free), not the 38GB root disk the
+> original report measured against. Once that was corrected and rembg was
+> actually installed and measured on the real volume — ~1.1s/photo on this
+> ARM box, ~750MB footprint, cutout quality visibly better than the flood
+> fill on the cases that mattered (earrings, hair strands) — self-hosting
+> won on its own merits, not despite them. See §15.3.
+
+**What/why (original reasoning, unchanged below — the API-vs-self-host call
+is what flipped, not this diagnosis).** §15.1's flood fill is a genuinely
+good "prevent" for the common case (a plain studio backdrop) but has an
+INHERENT, accepted limit stated in its own write-up: a garment truly
+colour-identical to the backdrop gives no signal any colour algorithm can
+use, and is knowingly swept in too. Six rounds of increasingly careful
+colour-space engineering (border-seed restriction, a drift cap, enclosed-hole
+fill with area/dimension caps, edge feathering — round 6 shipped and reverted
+the same day) is the ceiling of what a heuristic can do; the only way past it
+is a real segmentation model that understands "this is a person" rather than
+"this pixel is a colour." Photoroom vs remove.bg was left unresolved
+deliberately (see "Provider is a config choice" below) — moot now that
+neither is the active driver, but both remain correctly implemented and
+tested.
+
+**Architecture — provider is a config choice, not an architecture choice.**
+Both providers have an identical integration shape (multipart POST, an
+API-key header, PNG bytes back), so the whole feature is built against one
+interface:
+
+- `App\Contracts\Images\BackgroundRemovalDriver` — `name()` +
+  `removeBackground(string $absolutePath): BackgroundRemovalResult`.
+- `App\Services\Images\BackgroundRemoval\PhotoroomDriver` /
+  `RemoveBgDriver` — the two implementations. `BackgroundRemovalResult` is a
+  plain DTO (PNG bytes, driver name, optional `costCredits` string from
+  whichever cost/credit response header the provider returns).
+  `BackgroundRemovalException` carries the driver name + HTTP status for
+  logging.
+- `App\Services\Images\BackgroundRemoval\BackgroundRemovalManager::driver()`
+  resolves the active implementation from ONE config value,
+  `services.bg_removal.driver` (env `BG_REMOVAL_DRIVER=photoroom|remove_bg`,
+  default `photoroom`). **Swapping providers is a one-line .env change — no
+  code edit, no migration, no redeploy.**
+- Output resolution tier is also config, `services.bg_removal.resolution`
+  (env `BG_REMOVAL_RESOLUTION`, default `medium`) — our photos are
+  1200×1200 (1.44MP), so each driver's default "preview" tier (0.25MP)
+  would visibly soften the cutout; `medium` (1.5MP) is the floor that
+  actually covers our source resolution.
+- API keys are `.env`-only, never the database (STANDARDS.md "API Keys and
+  Credentials Live in .env Only"), consistent with `config/services.php`'s
+  general pattern (`anthropic`, `google`, `p24_imap`). Unlike P24/PP, which
+  support a per-agency DB-encrypted override precedent
+  (`agencies.p24_password`/`pp_password`), there is no per-agency key here —
+  every agency's photos go through ONE system-wide provider account.
+
+**One call per upload, never per render, never per property — proof.**
+`AgentProfilePhotoService::set()` (the single entry point all three upload
+paths — admin create, admin edit/role-tab, agent self-service portal — and
+the existing `agents:backfill-photo-cutouts` command all funnel through)
+dispatches `RemoveAgentPhotoBackgroundJob` exactly once, immediately after
+`AgentPhotoNormalizer` has written the normalised file. The ad-render kernel
+(`imageSrc()`) only ever READS the already-stored `agent_avatar_cutout` /
+`agent_2_avatar_cutout` URL that `Property::adData()` resolves from
+`User::profilePhotoCutoutUrl()` — rendering an ad, however many times, never
+triggers a new API call. The backfill command is the only OTHER caller of a
+driver's `removeBackground()`, and it is a manually-invoked, one-row-per-photo
+CLI tool, not something a render path can trigger.
+
+**Mechanism.**
+1. `AgentProfilePhotoService::set()` resets the new document row's
+   `bg_removal_*` fields to null (a fresh upload has no cutout yet — the
+   PREVIOUS photo's status/error must never show against the new file), then
+   calls `dispatchBackgroundRemoval()`, which checks the agency kill switch
+   (`agencies.ad_bg_removal_api_enabled`) before hashing the just-written
+   file's bytes (`md5()`) and queuing
+   `RemoveAgentPhotoBackgroundJob::dispatch($user->id, $path, $hash)` on its
+   own queue lane, `bg_removal` — the existing
+   `p24import`/`p24images`/`matching` lane-per-job-type pattern, no new
+   infrastructure (same Supervisor/systemd + `database` queue driver already
+   running). QA2's `corex-qa2-queue.service` `--queue=` list now includes
+   `bg_removal`.
+2. `RemoveAgentPhotoBackgroundJob::handle()` re-checks the agency toggle
+   (defence in depth against a mid-flight change), that
+   `$user->agent_photo_path` still equals the path captured at dispatch time
+   (catches a removed photo), AND that the CURRENT file at that path still
+   hashes to the value captured at dispatch time. The hash check is the one
+   that actually matters: `AgentPhotoNormalizer` always writes the SAME path
+   for a given user — `agents/{id}/photo.webp` — overwriting the previous
+   file's bytes in place rather than writing a new path, exactly the gotcha
+   the P24 round-4 investigation hit ("agents/{id}/photo.webp's underlying
+   bytes were overwritten in place... the user_documents row's file_path
+   never changed, only its content did"). A path-only comparison — the first
+   version built this round — can therefore NEVER detect a same-user
+   replacement (caught by a feature test that failed for exactly this
+   reason: two uploads for one user, then manually invoking the job for the
+   FIRST upload's captured path, unexpectedly called the API instead of
+   no-op'ing, because the path matched even though the bytes underneath it
+   had already changed). The hash check is the actual guard against a job
+   still in flight for an OLD photo attaching its cutout to a DIFFERENT
+   photo that has since overwritten the same path. Any of the three checks
+   failing is a silent no-op (logged `bg_removal.superseded`/
+   `.agency_disabled`), not a failure.
+3. On success, the PNG is stored at `agents/{id}/photo-cutout.png` —
+   ALONGSIDE `agents/{id}/photo.webp`, never overwriting or deleting it —
+   and `user_documents` (the `profile_photo` row) records
+   `bg_removal_status=done`, `bg_removal_cutout_path`, `bg_removal_driver`,
+   `bg_removal_processed_at`.
+4. On ANY failure (bad/missing key, timeout, quota, malformed response) the
+   job's own `$tries=3`/`$backoff=[30,120,300]` retry automatically; once
+   exhausted, `failed()` records `bg_removal_status=failed` +
+   `bg_removal_error` (never mid-retry, so an admin never sees a
+   false-terminal state for a retry still in flight) and logs
+   `bg_removal.terminally_failed`. **The original photo is never touched by
+   any failure path** — `User::profilePhotoCutoutUrl()` returns null
+   whenever `bg_removal_status !== 'done'`, and the kernel's `imageSrc()`
+   falls straight back to the plain photo whenever no cutout URL is present.
+   This can only ever ADD a cutout, never remove the original as a
+   fallback — an ad can never render blank because of this feature.
+5. Every call — driver, user/photo id, success/failure, the provider's
+   cost/credit response header when present (`X-Credits-Charged`) — is
+   logged (`bg_removal.api_call_succeeded` / `.api_call_failed` /
+   `.terminally_failed` / `.superseded` / `.agency_disabled`), so spend is
+   visible without logging into the provider's dashboard.
+
+**Ad-render kernel change (all three surfaces, one shared file).**
+`imageSrc()` in `public/js/corex-ad-render.js` now prefers
+`prop[field + '_cutout']` over `prop[field]` when the element's own
+`removeBackground` toggle is on AND a cutout URL is present — otherwise it
+returns the plain photo exactly as before. `imgTag()` no longer adds the
+`onload="window.CoreXAd.stripBackground(this)"` hook at all — there is
+nothing left for it to trigger client-side. Because all three ad surfaces
+(Ad Builder, the single-property generator, the bulk Ad Manager) share this
+one kernel file and read `prop` from `Property::adData()`, this is the
+ONLY file that needed changing for the new source to reach every surface —
+same "one place to put it" property the kernel was built to guarantee (§12).
+
+**Agency setting — `ad_bg_removal_api_enabled`, default ON.** A per-agency
+kill switch, business-relevant (unlike the §15.1 pixel-tuning thresholds,
+which stay an expert-knob carve-out), surfaced as a real toggle in Company
+Settings (Feature Settings → Properties tab), next to the existing Marketing
+toggle: `resources/views/corex/settings.blade.php`,
+`SettingsController::updateAdBgRemovalApiEnabled()`, route
+`corex.settings.ad-bg-removal-api`. **Deliberately NOT added to the Agency
+Onboarding Setup Wizard in this round** (non-negotiable #10a) — there is no
+live provider key yet (QA2-only, key not supplied), so there is nothing an
+agency could meaningfully be walked through turning on. Revisit once a real
+key is confirmed on Staging/live; this is Johan's call, recorded here rather
+than a silent omission.
+
+**Backfill — `agents:backfill-photo-cutouts`.** Idempotent (skips any
+`profile_photo` row already `bg_removal_status=done` unless `--force`),
+processes SYNCHRONOUSLY (not via the queue) so it can print a per-agent
+result table as it runs rather than requiring a poll of queue state
+afterward — appropriate at this volume. `--limit=N` and `--user=ID` exist
+specifically so the pipeline can be proven on a handful of photos against a
+provider's free tier without spending the full run's worth of calls before a
+paid key is supplied.
+
+**Dead code — not deleted this round.** `_floodFillTransparent()`,
+`_fillEnclosedHoles()`, `_featherAlpha()`, `stripBackground()`,
+`_processBackgroundRemoval()`, `_cornerColor()`, `_bgRemovalCache`,
+`backgroundRemovalsSettled()`, `configureBgRemoval()`/`_bgRemovalConfig`,
+and the three views' `CoreXAd.configureBgRemoval({...})` calls all remain in
+place, fully functional, but nothing in the live render path calls
+`stripBackground()` any more (the only trigger — `imgTag()`'s `onload`
+hook — is gone). `backgroundRemovalsSettled()` is still awaited by both
+capture paths (`ad.blade.php`'s `_capture()`, `ad-manager.blade.php`'s
+`downloadRow()`) — harmless, resolves instantly against an always-empty
+cache. Also now dead: the four `agencies.ad_bg_removal_hole_*`/
+`ad_bg_removal_flood_fill_drift_cap_px` threshold columns and their
+`Agency.php` casts (still readable/writable, just no longer read by
+anything in the live path). **Remove in a separate, later round, once the
+AI path is proven live** — not this one.
+
+**Verification performed this round (QA2, no real provider key).**
+- `Http::fake()` feature tests
+  (`tests/Feature/Agents/AgentPhotoBackgroundRemovalTest.php`) cover: a
+  successful call storing the cutout + driver + cost; a missing-key failure;
+  a simulated provider-down (503) failure; both failure paths leaving the
+  original photo the only resolvable photo
+  (`profilePhotoCutoutUrl()` null, `profilePhotoUrl()` still non-null); the
+  agency toggle blocking dispatch AND blocking a mid-flight job; the
+  superseded-photo race guard (a second upload before the first job runs
+  never gets its cutout attached to the wrong photo); the driver resolving
+  purely from config; and a fresh upload clearing the previous photo's
+  `bg_removal_*` state.
+- `tests/js/ad-render-kernel.mjs` covers `imageSrc()`'s cutout-vs-plain
+  resolution (cutout present + toggle on → cutout; toggle on + no cutout →
+  plain; toggle off → always plain, even with a cutout present; Agent 2;
+  scoped away from unrelated image fields) and that `imgTag()` no longer
+  emits any `onload` hook.
+- **Not yet proven with a REAL provider call** — no key is configured on
+  QA2. The one real HTTP round-trip made (a deliberately blank/invalid key
+  against the live endpoint) correctly produced a clean failure with the
+  original photo intact, proving the failure-fallback path for real without
+  spending a paid call. A genuine SUCCESSFUL segmentation (including
+  Elize's photo specifically — no collar loss, no earring discs, no hard
+  seam) and the full 23-photo backfill are BLOCKED on Johan supplying a real
+  `PHOTOROOM_API_KEY`/`REMOVE_BG_API_KEY` and are the first thing to run
+  once it lands.
+
+### Files
+
+- `app/Contracts/Images/BackgroundRemovalDriver.php` — the interface.
+- `app/Services/Images/BackgroundRemoval/BackgroundRemovalResult.php`,
+  `BackgroundRemovalException.php`, `PhotoroomDriver.php`,
+  `RemoveBgDriver.php`, `BackgroundRemovalManager.php`.
+- `app/Jobs/RemoveAgentPhotoBackgroundJob.php` — queued on `bg_removal`.
+- `app/Console/Commands/AgentsBackfillPhotoCutouts.php`.
+- `database/migrations/2026_08_20_000010_add_ad_bg_removal_api_settings_to_agencies.php` —
+  `agencies.ad_bg_removal_api_enabled` (boolean, default true).
+- `database/migrations/2026_08_20_000011_add_bg_removal_cutout_tracking_to_user_documents.php` —
+  `user_documents.bg_removal_{status,cutout_path,driver,processed_at,error}`.
+- `app/Models/Agency.php` — `ad_bg_removal_api_enabled` fillable + boolean cast.
+- `app/Models/UserDocument.php` — the five `bg_removal_*` fields fillable +
+  `bg_removal_processed_at` datetime cast.
+- `app/Models/User.php` — `profilePhotoCutoutUrl()`, mirroring
+  `profilePhotoUrl()`'s priority/existence-check shape.
+- `app/Models/Property.php` — `adData()` gains `agent_avatar_cutout`/
+  `agent_2_avatar_cutout`, both through `adSafeImageUrl()` exactly like the
+  existing `agent_avatar`/`agent_2_avatar` keys.
+- `app/Services/Images/AgentProfilePhotoService.php` — `set()` resets
+  `bg_removal_*` on every fresh upload and dispatches the job (agency-toggle
+  gated); `clear()` deletes the cutout file alongside the original.
+- `config/services.php` — new `bg_removal` block (`driver`, `resolution`,
+  `photoroom.*`, `remove_bg.*`).
+- `public/js/corex-ad-render.js` — `imageSrc()` prefers the cutout;
+  `imgTag()` no longer emits the onload hook.
+- `app/Http/Controllers/CoreX/SettingsController.php` —
+  `updateAdBgRemovalApiEnabled()`; `index()` resolves `$data['agency']`
+  earlier and derives `adBgRemovalApiEnabled`.
+- `resources/views/corex/settings.blade.php` — the toggle, next to Marketing.
+- `routes/web.php` — `corex.settings.ad-bg-removal-api` (PUT,
+  `manage_performance_settings`).
+- `.env` / `.env.example` — `BG_REMOVAL_DRIVER`, `BG_REMOVAL_RESOLUTION`,
+  `PHOTOROOM_API_KEY`, `REMOVE_BG_API_KEY` (blank on QA2 — Johan supplies
+  the real key after review).
+- `/etc/systemd/system/corex-qa2-queue.service` — `--queue=` gains
+  `bg_removal`.
+- `tests/Feature/Agents/AgentPhotoBackgroundRemovalTest.php` — new, see
+  "Verification" above.
+- `tests/Feature/Agents/AgentProfilePhotoServiceTest.php` — `Queue::fake()`
+  added (the job now dispatches on every `set()`), plus an assertion that
+  exactly one `RemoveAgentPhotoBackgroundJob` is pushed carrying the correct
+  path.
+- `tests/js/ad-render-kernel.mjs` — the cutout-resolution + no-onload
+  coverage described above, replacing the old onload-hook assertions.
+
+---
+
+## 15.3 "Remove background" — self-hosted rembg, superseding the paid API
+
+> Status: BUILD on QA2 · 2026-08-03, same day as §15.2. NOT on Staging or
+> live. Default driver (`BG_REMOVAL_DRIVER=rembg`); Photoroom/remove.bg stay
+> wired, unused, as a config-only fallback. Deployment order once approved:
+> QA2 → Johan's approval → Staging → live (live last).
+
+**What/why.** §15.2's feasibility call — paid API over self-hosting — was
+built on a wrong model of this box's disk layout: the original report
+measured `/corex` against the 38GB root disk's headroom, but `/corex`,
+`/corex-qa1`, `/corex-qa2` and `/corex-staging` are actually bind-mounts off
+`/mnt/HC_Volume_103099143`, a 200GB Hetzner Cloud Volume with 69GB free
+(confirmed via `/etc/fstab`). A follow-up spike, run entirely on that volume
+with zero application-code changes, corrected the picture: rembg
+(`u2net_human_seg`) installs in ~600MB, the model is another ~168MB, and
+measured CPU-only inference on this ARM Neoverse-N1 box is ~1.1s/photo
+(~0.7s one-time model load + ~0.4s/photo once warm) — nowhere near the
+~10s/image figure the original feasibility report cited from an unrelated
+x86 benchmark. Composited-on-magenta quality checks on Elize's, Retha's and
+Kym's real photos showed the model correctly handling earring gaps and hair
+strands natively — exactly the cases that took the flood-fill six rounds of
+hand-tuned pixel heuristics to partially address (§15.1), and still caps out
+on an accepted, inherent limit (a garment colour-identical to the backdrop).
+Self-hosting won on quality and cost, not just disk headroom — see the
+spike's own report for the full measured comparison.
+
+**Why the paid drivers stay.** `PhotoroomDriver`/`RemoveBgDriver` (§15.2)
+are NOT deleted — `BackgroundRemovalManager` keeps all three
+`BackgroundRemovalDriver` implementations wired, selectable by one `.env`
+line. A self-hosted model is infrastructure Johan now owns: a bad model
+update, an onnxruntime regression, or the service misbehaving in a way
+that's easier to diagnose with the pressure off is a `BG_REMOVAL_DRIVER=
+photoroom` away from being bypassed while it's investigated, without a
+rebuild. That safety net costs nothing to keep — the paid drivers are
+fully implemented, fully tested, and simply unused while `rembg` is the
+default.
+
+**Architecture — a persistent local service, not a process per photo.** The
+volume spike measured ~0.7s of a photo's ~1.1s cold-call cost as model
+load alone; running a fresh Python process per photo would re-pay that on
+EVERY call. Instead, following the existing `/opt/hf-ai` precedent
+(self-hosted FastAPI + uvicorn + systemd, already serving Ellie chat/
+Whisper/embeddings to every CoreX environment on this box) — but
+deliberately relocated OFF the root disk, onto the volume, per this round's
+explicit instruction:
+
+- **Source of truth**: `services/bgremoval/app.py` +
+  `services/bgremoval/requirements.txt`, committed to the repo — mirrors
+  `services/hf-ai/app.py`'s own hard-learned lesson (that runtime copy was
+  once found completely missing because it was never version-controlled;
+  see its docstring). Never let the runtime copy drift from this file.
+- **Runtime deployment**: `/mnt/HC_Volume_103099143/corex-bgremoval-svc/` —
+  isolated venv (`venv/`, ~616MB), the model cache (`models/`, ~168MB,
+  `U2NET_HOME` pointed here so it never touches `~/.u2net` on the root
+  disk), and a copy of `app.py`/`requirements.txt`. Installed with
+  `pip install --no-cache-dir` — the volume spike caught pip's DEFAULT
+  cache landing 153MB on the root disk despite the venv itself living on
+  the volume; `--no-cache-dir` makes that structurally impossible to
+  recur, rather than relying on remembering to purge it afterward.
+- **The model loads ONCE, at process startup** (FastAPI `@app.on_event
+  ("startup")`), not per request — `/health` reports `model_load_seconds`
+  so this is directly observable, not just asserted.
+- **systemd unit**: `/etc/systemd/system/corex-bgremoval.service` —
+  `Type=simple`, `Restart=always`, `RestartSec=2`,
+  `RequiresMountsFor=/mnt/HC_Volume_103099143` (so systemd orders startup
+  after the volume mount, not just after `network.target`), `WantedBy=
+  multi-user.target` + `systemctl enable` (starts at boot). Listens on
+  `127.0.0.1:3106` only — localhost, no auth needed, same posture as
+  `hf-ai.service` on :3100. One process serves every environment on this
+  box that opts in via `BGREMOVAL_SERVICE_URL`, exactly like hf-ai already
+  does for Ellie/Whisper across prod/staging/demo/QA — this round only
+  QA2's `.env` points at it.
+- **Endpoints**: `GET /health` (model status, load time, cumulative
+  requests served — used below to prove the exact-once-per-photo call
+  count) and `POST /remove-background` (multipart `image` field in, raw
+  PNG bytes back, `Content-Type: image/png` — the same response shape the
+  paid-API drivers already use, so `RembgDriver` reuses their exact
+  validation logic).
+- **Reboot survival**: NOT verified by an actual reboot — this box serves
+  live production (`corexos.co.za`) plus staging/QA1/QA2/demo/hf-ai, and a
+  real reboot to prove one new service is far more disruptive than what
+  this check is worth. What IS confirmed: `systemctl is-enabled
+  corex-bgremoval.service` reports `enabled`; the unit's
+  `RequiresMountsFor` correctly orders it after the volume mounts; and the
+  volume itself already backs `/corex`/`/corex-qa1`/`/corex-qa2`/
+  `/corex-staging` today, which only works because it already reliably
+  survives this box's reboots. Said plainly: mechanism-level confidence,
+  not an end-to-end reboot test.
+
+**`RembgDriver`** — `App\Services\Images\BackgroundRemoval\RembgDriver`,
+the same `BackgroundRemovalDriver` interface as the paid-API drivers:
+`Http::attach('image', $bytes, ...)->post("{$baseUrl}/remove-background")`,
+raising `BackgroundRemovalException` on a transport failure (service down —
+`systemctl stop`, a crash, a reboot mid-flight), a non-2xx response, or a
+non-image response — the exact same three failure shapes
+`RemoveAgentPhotoBackgroundJob` already knows how to retry/fail cleanly on
+from §15.2, unchanged. `costCredits` is always null (self-hosted — no
+per-call cost concept).
+
+**Everything else from §15.2 carries over unchanged** — the driver
+selection is the only thing that moved: `RemoveAgentPhotoBackgroundJob`
+(queue lane `bg_removal`, the content-hash superseded-photo guard,
+`$tries=3`/`$backoff`), `AgentProfilePhotoService::set()` dispatching
+exactly once per upload, the agency `ad_bg_removal_api_enabled` toggle, the
+Settings UI, and the ad-render kernel's cutout preference in `imageSrc()`
+all work identically regardless of which `BackgroundRemovalDriver` is
+active — that's the entire point of building against the interface in
+§15.2 rather than a single provider's SDK.
+
+**Verification performed this round (QA2, real service, real photos).**
+- Full backfill (`agents:backfill-photo-cutouts --force`) against every
+  existing agent photo: **22 succeeded, 0 failed, 1 skipped**. The skipped
+  row (agent 45, Ronel Botha) is a pre-existing stale `user_documents` row
+  whose `file_path` no longer matches the user's current
+  `agent_photo_path` — the same superseded-guard logic the queued job uses,
+  correctly refusing to process a row that isn't the agent's current photo.
+  Of the 23 `profile_photo` rows in the system, 22 are genuinely eligible;
+  this is a pre-existing data state, not a defect introduced here.
+- **Elize's photo (agent 23) specifically**, from the real backfill (not a
+  separate script): no collar loss, both hoop earrings show backdrop
+  cleanly through the loop, no hard seam along the hairline or collar —
+  visually confirmed by compositing the actual stored
+  `agents/23/photo-cutout.png` onto a contrasting background.
+- **Call-count discipline**: the service's `/health` request counter read
+  2 immediately before the backfill (from earlier manual verification
+  calls) and 24 immediately after — exactly the 22 photos processed, zero
+  extra calls. Confirms "one call per photo, never per render" isn't just
+  architectural intent; every `/remove-background` hit is accounted for.
+- **Root disk, before → after the full round** (service install + full
+  backfill): **7.3G free → 7.0G free**. The venv/model install itself was
+  proven to cost the root disk nothing (§ above, `--no-cache-dir`); the
+  remaining ~300MB drift across the round is not clearly attributable to
+  this work specifically versus other activity on this long-running shared
+  session — flagged rather than silently rounded away.
+- **Service killed deliberately**: `systemctl stop corex-bgremoval.service`,
+  then a real (uncaught by any test double) `RemoveAgentPhotoBackgroundJob`
+  run against a throwaway test upload — real `cURL error 7: Failed to
+  connect to 127.0.0.1 port 3106` surfaced, caught by `RembgDriver`,
+  recorded as `bg_removal_status=failed` with the connection error as
+  `bg_removal_error`. `User::profilePhotoUrl()` resolved the plain photo
+  throughout; `profilePhotoCutoutUrl()` correctly stayed null. The ad
+  renders with the plain photo — never blank, never broken. Service
+  restarted afterward, confirmed healthy again
+  (`model_load_seconds` ≈0.7s, matching the first boot). Throwaway test
+  data (agency/branch/user) deleted after the check.
+- **One known edge case, disclosed rather than silently left**: `failed()`
+  updates `bg_removal_status`/`bg_removal_error` but does NOT clear
+  `bg_removal_cutout_path`. For a FRESH upload (the normal path) this is
+  irrelevant — there is no prior cutout to lose. But a DELIBERATE re-run of
+  an already-successful photo (e.g. `--force` on the backfill command)
+  that then fails would flip `bg_removal_status` to `'failed'` even though
+  the previously-generated cutout file is still sitting on disk untouched
+  — `profilePhotoCutoutUrl()`'s `status === 'done'` gate would hide a
+  perfectly good, still-present cutout until the next successful run. The
+  core guarantee still holds (falls back to the plain photo, never blank/
+  broken), so this was not fixed reactively this round — but it is a real,
+  narrow gap (re-run-during-an-outage only) worth closing in a later round
+  rather than the kind of thing to discover by surprise.
+- Not verified this round: an actual host reboot (see "Reboot survival"
+  above for why, and what IS confirmed instead).
+
+### Files (in addition to §15.2's list, all still in place)
+
+- `services/bgremoval/app.py`, `services/bgremoval/requirements.txt` — new,
+  source of truth for the self-hosted service.
+- `/mnt/HC_Volume_103099143/corex-bgremoval-svc/` — runtime deployment
+  (venv, model cache, a deployed copy of app.py) — NOT in the repo, entirely
+  on the volume.
+- `/etc/systemd/system/corex-bgremoval.service` — new, enabled + running.
+- `app/Services/Images/BackgroundRemoval/RembgDriver.php` — new.
+- `app/Services/Images/BackgroundRemoval/BackgroundRemovalManager.php` —
+  `rembg` case added, now the default (was `photoroom`).
+- `config/services.php` — `bg_removal.rembg` block (`base_url`, `timeout`);
+  default driver changed to `rembg`; `photoroom`/`remove_bg` blocks
+  unchanged.
+- `.env` / `.env.example` — `BG_REMOVAL_DRIVER=rembg`,
+  `BGREMOVAL_SERVICE_URL=http://127.0.0.1:3106`; paid-API keys stay blank,
+  unused.
+- `tests/Feature/Agents/AgentPhotoBackgroundRemovalTest.php` — rembg
+  success/service-down coverage added; a `photoroom` success test kept to
+  prove the fallback still works; the driver-config test extended to assert
+  `rembg` is the default.
 
 ---
 

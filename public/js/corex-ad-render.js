@@ -568,6 +568,16 @@
      * The image an element displays. opts.overrides is the generator's per-element
      * "change photo" map, keyed by element id — it wins over the slot's default and
      * survives a re-render.
+     *
+     * §15.2 — an Agent Image element with `removeBackground` on now prefers the
+     * SERVER-STORED AI cutout (`prop.agent_avatar_cutout`/`agent_2_avatar_cutout`,
+     * populated by Property::adData() from User::profilePhotoCutoutUrl()) over the
+     * plain photo. Falls back to the plain photo whenever no cutout is recorded
+     * (never attempted, still processing, agency disabled, or the API call
+     * failed) — this can only ever ADD a cutout, never remove the original as a
+     * fallback, so an ad can never render blank. Supersedes the client-side
+     * flood-fill cutout (stripBackground()/_processBackgroundRemoval()) in the
+     * live render path — see imgTag().
      */
     function imageSrc(el, prop, opts) {
         prop = prop || {};
@@ -577,6 +587,9 @@
 
         if (f === 'custom_image' || f === 'custom_video') {
             return ov[el.id] || el.src || null;
+        }
+        if (isAgentAvatarField(f) && el.removeBackground && prop[f + '_cutout']) {
+            return prop[f + '_cutout'];
         }
         var base = (f === 'agency_logo') ? (prop.logo || null) : (prop[f] || null);
         if (/^image_[1-5]$/.test(f) && ov[el.id]) return ov[el.id];
@@ -619,12 +632,13 @@
         else if (/avatar$/.test(f))   attrs += ' class="js-ad-avatar"';
         else if (opts.tagPhotos)      attrs += ' data-el-id="' + esc(el.id) + '" data-orig-src="' + esc(baseSrc) + '"';
 
-        // Remove Background — an onload hook works identically whether this <img>
-        // was inserted via Alpine's x-html (Builder) or renderLayout()'s innerHTML
-        // (generator/bulk manager), so this is the ONLY per-surface change needed.
-        if (isAgentAvatarField(f) && el.removeBackground) {
-            attrs += ' onload="window.CoreXAd.stripBackground(this)"';
-        }
+        // §15.2 — background removal is now a SERVER-side AI cutout, resolved by
+        // imageSrc() before this function ever runs (it just decides WHICH src to
+        // put in the <img>, exactly like every other image field). No onload hook
+        // needed here any more — the client-side flood-fill pipeline this used to
+        // trigger (stripBackground()/_processBackgroundRemoval()/_floodFillTransparent()/
+        // _fillEnclosedHoles()/_featherAlpha()) is superseded and left in place,
+        // unused, pending removal in a later round once the AI path is proven live.
 
         return '<img src="' + esc(src) + '" ' + attrs + '>';
     }

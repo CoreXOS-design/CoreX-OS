@@ -2603,6 +2603,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::put('/settings/agency/split-branches', [CoreXSettingsController::class, 'updateSplitBranches'])
         ->middleware('permission:manage_performance_settings')->name('corex.settings.split-branches');
 
+    // AI background removal (agent photos) toggle (Feature Settings → Properties tab) — ad-manager.md §15.2
+    Route::put('/settings/agency/ad-bg-removal-api', [CoreXSettingsController::class, 'updateAdBgRemovalApiEnabled'])
+        ->middleware('permission:manage_performance_settings')->name('corex.settings.ad-bg-removal-api');
+
     // AT-267 — Assistants toggle (Agency Settings tab). This is the control the Assistants
     // admin page points at when the feature is off, and the one the Setup Wizard writes.
     Route::put('/settings/agency/assistants', [CoreXSettingsController::class, 'updateAssistants'])

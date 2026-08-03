@@ -369,6 +369,33 @@ class User extends Authenticatable
     }
 
     /**
+     * The AI-segmented, background-removed cutout of this agent's profile
+     * photo — a transparent PNG stored ALONGSIDE the original by
+     * RemoveAgentPhotoBackgroundJob (§15.2). Returns null whenever no
+     * cutout exists yet (never attempted, still processing, agency has the
+     * feature disabled, or the API call failed) — every caller must treat
+     * null as "fall back to profilePhotoUrl()'s plain photo", never as a
+     * broken/missing avatar.
+     */
+    public function profilePhotoCutoutUrl(): ?string
+    {
+        $doc = $this->documents()
+            ->where('document_type', 'profile_photo')
+            ->latest()
+            ->first();
+
+        if ($doc
+            && $doc->bg_removal_status === 'done'
+            && $doc->bg_removal_cutout_path
+            && Storage::disk('public')->exists($doc->bg_removal_cutout_path)
+        ) {
+            return asset('storage/' . $doc->bg_removal_cutout_path);
+        }
+
+        return null;
+    }
+
+    /**
      * Returns the user's initials (first + last name initial) for avatar placeholders.
      */
     public function initials(): string

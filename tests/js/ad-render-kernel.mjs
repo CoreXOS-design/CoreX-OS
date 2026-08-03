@@ -333,16 +333,29 @@ K.floodFillTransparent(identical, W, H2);
 ok('a garment truly colour-identical to the backdrop is NOT distinguishable — accepted limit, asserted explicitly rather than left as an undocumented surprise',
     alphaAt(identical, W, 20, 38) === 0);
 
-const photoProp = { agent_avatar: '/storage/agents/1.jpg', agent_2_avatar: '/storage/agents/2.jpg' };
-ok('removeBackground=true on an Agent Image emits the onload hook',
-    K.contentHtml(el({ field: 'agent_avatar', removeBackground: true }), photoProp, {})
-        .includes('onload="window.CoreXAd.stripBackground(this)"'));
-ok('removeBackground=false (the default) emits NO onload hook — a legacy avatar is untouched',
-    !K.contentHtml(el({ field: 'agent_avatar' }), photoProp, {}).includes('stripBackground'));
+// §15.2 — background removal is now a SERVER-side AI cutout: imageSrc() picks
+// between the plain photo and the stored cutout URL; imgTag() no longer emits
+// ANY onload hook (the client-side flood-fill pipeline below is superseded in
+// the live path, kept in the file unused pending a later removal round).
+const photoProp = {
+    agent_avatar: '/storage/agents/1.jpg',
+    agent_avatar_cutout: '/storage/agents/1-cutout.png',
+    agent_2_avatar: '/storage/agents/2.jpg',
+    agent_2_avatar_cutout: '/storage/agents/2-cutout.png',
+};
+ok('removeBackground=true on an Agent Image with a stored cutout prefers the cutout URL',
+    K.imageSrc(el({ field: 'agent_avatar', removeBackground: true }), photoProp, {}) === '/storage/agents/1-cutout.png');
+ok('removeBackground=true but NO stored cutout falls back to the plain photo (never blank)',
+    K.imageSrc(el({ field: 'agent_avatar', removeBackground: true }), { agent_avatar: '/storage/agents/1.jpg' }, {}) === '/storage/agents/1.jpg');
+ok('removeBackground=false (the default) always uses the plain photo, even if a cutout exists',
+    K.imageSrc(el({ field: 'agent_avatar' }), photoProp, {}) === '/storage/agents/1.jpg');
 ok('applies to Agent 2 as well as Agent 1',
-    K.contentHtml(el({ field: 'agent_2_avatar', removeBackground: true }), photoProp, {}).includes('stripBackground'));
-ok('an unrelated image field ignores removeBackground even if somehow set (scoped to Agent Image only)',
-    !K.contentHtml(el({ field: 'image_1', removeBackground: true }), { image_1: '/storage/p/1.jpg' }, {}).includes('stripBackground'));
+    K.imageSrc(el({ field: 'agent_2_avatar', removeBackground: true }), photoProp, {}) === '/storage/agents/2-cutout.png');
+ok('an unrelated image field ignores the _cutout convention (scoped to Agent Image only)',
+    K.imageSrc(el({ field: 'image_1' }), { image_1: '/storage/p/1.jpg', image_1_cutout: '/storage/p/1-cutout.png' }, {}) === '/storage/p/1.jpg');
+ok('imgTag never emits an onload hook any more, regardless of removeBackground (client-side pipeline superseded)',
+    !K.contentHtml(el({ field: 'agent_avatar', removeBackground: true }), photoProp, {}).includes('onload')
+    && !K.contentHtml(el({ field: 'agent_avatar', removeBackground: true }), photoProp, {}).includes('stripBackground'));
 
 // REGRESSION #3 (property 3080, agent Elize Reichel): two hard-edged white
 // discs at the ear/earring positions and a pale block near the collar were
