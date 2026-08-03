@@ -1289,8 +1289,30 @@ class WebTemplateDataService
      * Derive the blade variable name from named field source properties.
      * Maps {source_type, source_column, contact_type} to the standard variable
      * names used in blade templates (matching data-field attributes).
+     *
+     * AT-359b — the derived name is coerced to a valid PHP identifier here (the ONE exit), the
+     * mirror of TemplateController::deriveBladeName(), so the view-data key matches the blade
+     * variable the generator emits. Without this a composite source_column such as the property
+     * field 'address+suburb' leaks its '+' into the variable and the template render throws.
      */
     private function deriveBladeName(string $sourceType, string $sourceColumn, ?string $contactType): ?string
+    {
+        $name = $this->deriveBladeNameRaw($sourceType, $sourceColumn, $contactType);
+
+        if ($name === null || $name === '') {
+            return $name;
+        }
+
+        $name = preg_replace('/[^a-zA-Z0-9_]/', '_', $name);
+        if ($name !== '' && is_numeric($name[0])) {
+            $name = 'f_' . $name;
+        }
+
+        return $name;
+    }
+
+    /** Raw name derivation (pre-sanitisation). Callers must go through deriveBladeName(). */
+    private function deriveBladeNameRaw(string $sourceType, string $sourceColumn, ?string $contactType): ?string
     {
         if (empty($sourceColumn)) return null;
 

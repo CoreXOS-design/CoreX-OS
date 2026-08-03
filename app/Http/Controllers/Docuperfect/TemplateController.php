@@ -1202,8 +1202,32 @@ BLADE;
      * Map source_type + source_column + contact_type to a blade variable name.
      * Exact copy of WebTemplateDataService::deriveBladeName() to ensure
      * the blade file uses the same variable names the wizard resolves.
+     *
+     * AT-359b — the derived name is coerced to a valid PHP identifier here (the ONE exit),
+     * so every consumer (the blade emitter AND the view-data resolver) gets the SAME safe name
+     * and they stay in sync. Without this a composite source_column such as the property field
+     * 'address+suburb' leaks its '+' into the generated blade — {{ $property_address+suburb }} —
+     * where PHP reads the bare 'suburb' as an undefined constant and the whole template render
+     * throws, dropping the preview to the "formatted view could not be generated" fallback.
      */
     private function deriveBladeName(string $sourceType, string $sourceColumn, ?string $contactType): ?string
+    {
+        $name = $this->deriveBladeNameRaw($sourceType, $sourceColumn, $contactType);
+
+        if ($name === null || $name === '') {
+            return $name;
+        }
+
+        $name = preg_replace('/[^a-zA-Z0-9_]/', '_', $name);
+        if ($name !== '' && is_numeric($name[0])) {
+            $name = 'f_' . $name;
+        }
+
+        return $name;
+    }
+
+    /** Raw name derivation (pre-sanitisation). Callers must go through deriveBladeName(). */
+    private function deriveBladeNameRaw(string $sourceType, string $sourceColumn, ?string $contactType): ?string
     {
         if (empty($sourceColumn)) {
             return null;
