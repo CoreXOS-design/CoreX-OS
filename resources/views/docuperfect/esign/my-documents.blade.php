@@ -154,7 +154,7 @@
                                 <span class="ds-badge ds-badge-warning" title="{{ $candidateName }}">{{ \Illuminate\Support\Str::limit($candidateName, 18) }}</span>
                                 <span class="ds-badge ds-badge-warning">{{ $tpl->status === 'awaiting_supervisor' ? 'Initial Review' : 'Final Sign-off' }}</span>
                                 <span class="text-xs" style="color: var(--text-muted);">
-                                    Created {{ $tpl->created_at->format('d M Y') }}
+                                    Created {{ $tpl->created_at->format('d M Y H:i') }}
                                 </span>
                             </div>
                         </div>
@@ -378,7 +378,7 @@
                             @endif
                         </td>
                         <td class="px-4 py-3">
-                            <span class="text-xs" style="color: var(--text-muted);">{{ $tpl->created_at->format('d M Y') }}</span>
+                            <span class="text-xs" style="color: var(--text-muted);">{{ $tpl->created_at->format('d M Y H:i') }}</span>
                         </td>
                         <td class="px-4 py-3 text-right">
                             <div class="flex flex-col items-end gap-1">
@@ -441,7 +441,7 @@
                         <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $doc->name ?? 'Untitled' }}</td>
                         <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $doc->template->name ?? '—' }}</td>
                         <td class="px-4 py-3">
-                            <span class="text-xs" style="color: var(--text-muted);">{{ $tpl->created_at->format('d M Y') }}</span>
+                            <span class="text-xs" style="color: var(--text-muted);">{{ $tpl->created_at->format('d M Y H:i') }}</span>
                         </td>
                         <td class="px-4 py-3 text-right">
                             <div class="flex items-center justify-end gap-3">
@@ -504,7 +504,7 @@
                             @endif
                         </td>
                         <td class="px-4 py-3">
-                            <span class="text-xs" style="color: var(--text-muted);">{{ $tpl->created_at->format('d M Y') }}</span>
+                            <span class="text-xs" style="color: var(--text-muted);">{{ $tpl->created_at->format('d M Y H:i') }}</span>
                         </td>
                         <td class="px-4 py-3 text-right">
                             <div class="flex items-center justify-end gap-3">
@@ -551,12 +551,26 @@
                     </thead>
                     <tbody>
                     @foreach($groups['completed'] as $tpl)
-                        @php $doc = $tpl->document; @endphp
+                        @php
+                            $doc = $tpl->document;
+                            // Self-identifying row: property + who signed. Both come from relations
+                            // already eager-loaded on the query (document, requests) — no N+1.
+                            $completedSigners = $tpl->requests->where('status', 'completed')
+                                ->map(fn($r) => $r->signer_name)->filter()->values();
+                        @endphp
                         <tr class="transition-colors" style="border-top: 1px solid var(--border);">
-                            <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $doc->name ?? 'Untitled' }}</td>
+                            <td class="px-4 py-3">
+                                <div class="font-medium" style="color: var(--text-primary);">{{ $doc->name ?? 'Untitled' }}</div>
+                                @if($doc && $doc->property_address)
+                                    <div class="text-xs mt-0.5" style="color: var(--text-secondary);">{{ $doc->property_address }}</div>
+                                @endif
+                                @if($completedSigners->isNotEmpty())
+                                    <div class="text-xs mt-0.5" style="color: var(--text-muted);">Signed by: {{ $completedSigners->implode(', ') }}</div>
+                                @endif
+                            </td>
                             <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $doc->template->name ?? '—' }}</td>
                             <td class="px-4 py-3">
-                                <span class="text-xs" style="color: var(--text-muted);">{{ $tpl->completed_at?->format('d M Y') ?? $tpl->updated_at->format('d M Y') }}</span>
+                                <span class="text-xs" style="color: var(--text-muted);">{{ $tpl->completed_at?->format('d M Y H:i') ?? $tpl->updated_at->format('d M Y H:i') }}</span>
                             </td>
                             <td class="px-4 py-3 text-right">
                                 @if($doc)
