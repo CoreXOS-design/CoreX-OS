@@ -27,6 +27,8 @@ Thumbs.db
 NUL
 *.bak-*
 storage/framework/views/
+storage/framework/cache/
+__pycache__/
 database/database.sqlite
 database/*.sqlite
 database/*.sqlite.*
