@@ -112,6 +112,10 @@ class SettingsController extends Controller
         // Feature Settings tab: Properties — marketing toggle
         $data['marketingEnabled'] = (bool) PerformanceSetting::get('marketing_enabled', 1);
 
+        // Feature Settings tab: Properties — AI background removal for agent
+        // photos (ad-manager.md §15.2), agency-column-backed (not a
+        // PerformanceSetting — set below once $data['agency'] is resolved).
+
         // Feature Settings tab: Properties — syndication portal availability.
         // The legacy single-site "HFC Premium" (web) portal was retired with the
         // Agency Public API; agency websites are now per-key portals managed in
@@ -135,6 +139,9 @@ class SettingsController extends Controller
         // Agency Settings tab: Company details from Agency model
         $agencyId = $user?->effectiveAgencyId();
         $data['agency'] = $agencyId ? Agency::find($agencyId) : Agency::first();
+
+        // §15.2 — AI background removal for agent photos, per-agency toggle.
+        $data['adBgRemovalApiEnabled'] = (bool) ($data['agency']->ad_bg_removal_api_enabled ?? true);
 
         // Feature Settings tab: Properties — agency-wide list ordering.
         // The orderable list shows every configured status: saved priority order
@@ -897,6 +904,47 @@ class SettingsController extends Controller
         $state = $agency->split_branches_enabled ? 'ON' : 'OFF';
         return redirect()->route('corex.settings', ['tab' => 'agency'])
             ->with('success', "Split Branches turned {$state}.");
+    }
+
+    // ── AI background removal (agent photos) toggle — ad-manager.md §15.2 ──
+
+    /**
+     * Per-agency kill switch for the AI background-removal API. Default ON
+     * (migration column default); one toggle away from OFF without a
+     * deploy if a bad cutout result or a billing problem comes up. The API
+     * key itself is never per-agency and never touches the database
+     * (STANDARDS.md "API Keys and Credentials Live in .env Only") — every
+     * agency's photos are processed through ONE system-wide provider
+     * account, so this column only controls whether THIS agency's uploads
+     * are sent to it at all.
+     */
+    public function updateAdBgRemovalApiEnabled(Request $request)
+    {
+        abort_unless(auth()->user()?->hasPermission('manage_performance_settings'), 403);
+
+        $request->validate([
+            'ad_bg_removal_api_enabled' => ['nullable', 'boolean'],
+        ]);
+
+        $user     = auth()->user();
+        $agencyId = $user?->effectiveAgencyId();
+        $agency   = $agencyId ? Agency::find($agencyId) : Agency::first();
+
+        if (!$agency) {
+            return back()->with('error', 'No agency found.');
+        }
+
+        // Saver-precondition guard (spec §3.4 / parent §6.1) — absent means
+        // the caller never rendered the toggle — leave the column alone.
+        if ($request->has('ad_bg_removal_api_enabled')) {
+            $agency->update([
+                'ad_bg_removal_api_enabled' => $request->boolean('ad_bg_removal_api_enabled'),
+            ]);
+        }
+
+        $state = $agency->ad_bg_removal_api_enabled ? 'ON' : 'OFF';
+        return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'properties'])
+            ->with('success', "AI background removal for agent photos turned {$state}.");
     }
 
     /**

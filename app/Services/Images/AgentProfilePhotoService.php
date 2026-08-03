@@ -2,6 +2,8 @@
 
 namespace App\Services\Images;
 
+use App\Jobs\RemoveAgentPhotoBackgroundJob;
+use App\Models\Agency;
 use App\Models\User;
 use App\Models\UserDocument;
 use Illuminate\Http\UploadedFile;
@@ -28,6 +30,12 @@ class AgentProfilePhotoService
     /**
      * Normalise + store the uploaded photo and bring BOTH records into lockstep
      * with the file actually written. Returns the public-disk relative path.
+     *
+     * Also dispatches the AI background-removal job (§15.2) exactly ONCE per
+     * upload/replace — never per ad render, never per property. A fresh
+     * upload's bg_removal_* fields are reset to null/'processing' here (not
+     * left carrying the PREVIOUS photo's cutout state/error), since the
+     * queued job hasn't run yet for this new file.
      */
     public function set(User $user, UploadedFile $file): string
     {
@@ -42,6 +50,13 @@ class AgentProfilePhotoService
             'status'      => 'verified',
             'verified_at' => now(),
             'verified_by' => $user->id,
+            // A new photo file — any cutout/status/error recorded belongs to
+            // the PREVIOUS file and must not be shown against this one.
+            'bg_removal_status'       => null,
+            'bg_removal_cutout_path'  => null,
+            'bg_removal_driver'       => null,
+            'bg_removal_processed_at' => null,
+            'bg_removal_error'        => null,
         ];
 
         $doc = $user->documents()
@@ -64,7 +79,32 @@ class AgentProfilePhotoService
             $user->update(['agent_photo_path' => $path]);
         }
 
+        $this->dispatchBackgroundRemoval($user, $path);
+
         return $path;
+    }
+
+    /**
+     * Queue the AI background-removal job (§15.2), unless the agency has
+     * switched it off — checked here too (not just inside the job) so a
+     * disabled agency never even enqueues a wasted API call.
+     *
+     * The file's content hash is captured HERE, at upload time, and carried
+     * on the job — the stored path is always "agents/{id}/photo.webp" for a
+     * given user (AgentPhotoNormalizer overwrites the same path in place), so
+     * the path alone can never tell a still-in-flight job for an OLD photo
+     * apart from a photo that has since been replaced at that same path. See
+     * RemoveAgentPhotoBackgroundJob's docblock.
+     */
+    private function dispatchBackgroundRemoval(User $user, string $path): void
+    {
+        $agency = $user->agency_id ? Agency::withoutGlobalScopes()->find($user->agency_id) : null;
+        if ($agency && ! $agency->ad_bg_removal_api_enabled) {
+            return;
+        }
+
+        $hash = md5(Storage::disk('public')->get($path));
+        RemoveAgentPhotoBackgroundJob::dispatch($user->id, $path, $hash);
     }
 
     /**
@@ -76,6 +116,16 @@ class AgentProfilePhotoService
     {
         if ($user->agent_photo_path) {
             Storage::disk('public')->delete($user->agent_photo_path);
+        }
+
+        // §15.2 — the cutout is regenerated media, not a record; delete it
+        // alongside the original rather than leaving it orphaned on disk.
+        $cutoutPath = $user->documents()
+            ->where('document_type', UserDocument::DOCUMENT_TYPE_PROFILE_PHOTO)
+            ->latest()
+            ->value('bg_removal_cutout_path');
+        if ($cutoutPath) {
+            Storage::disk('public')->delete($cutoutPath);
         }
 
         $user->documents()

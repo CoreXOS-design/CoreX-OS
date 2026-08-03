@@ -2340,6 +2340,13 @@ class Property extends Model
             // User has no `avatar_url` column — the photo URL comes from
             // profilePhotoUrl() (user_documents → legacy agent_photo_path).
             'agent_avatar'      => self::adSafeImageUrl($agent?->profilePhotoUrl()),
+            // §15.2 — the AI-segmented cutout, when one exists. The ad-render
+            // kernel prefers this over agent_avatar ONLY when the element's
+            // own removeBackground toggle is on, falling back to the plain
+            // photo whenever no cutout is recorded (never attempted, still
+            // processing, or the API call failed) — see corex-ad-render.js
+            // imageSrc().
+            'agent_avatar_cutout' => self::adSafeImageUrl($agent?->profilePhotoCutoutUrl()),
 
             // Agent 2 — the co-listing agent (empty when the listing is single-agent).
             // Powers the dual-agent prebuilt layouts + the builder's Agent 2 fields.
@@ -2348,6 +2355,7 @@ class Property extends Model
             'agent_2_phone'       => $agent2 ? ($agent2->cell ?: $agent2->phone ?: '') : '',
             'agent_2_designation' => $agent2 ? ($agent2->designation ?: 'Property Practitioner') : '',
             'agent_2_avatar'      => self::adSafeImageUrl($agent2?->profilePhotoUrl()),
+            'agent_2_avatar_cutout' => self::adSafeImageUrl($agent2?->profilePhotoCutoutUrl()),
             'agent_2_initial'     => $agent2 ? strtoupper(mb_substr((string) $agent2->name, 0, 1)) : '',
 
             'agency_name'       => $agency?->name ?? '',

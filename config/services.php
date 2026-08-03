@@ -186,4 +186,48 @@ return [
         'user_agent' => env('NOMINATIM_UA', 'CoreXOS/1.0 (admin@corexos.co.za)'),
     ],
 
+    // AI background-removal for agent photos. `driver` is the ONLY thing
+    // that selects the implementation (App\Contracts\Images\BackgroundRemovalDriver)
+    // — swapping is a one-line .env change (BG_REMOVAL_DRIVER=rembg|photoroom|
+    // remove_bg), never a code edit.
+    //
+    // `rembg` (self-hosted u2net_human_seg, §15.3) is the default — no
+    // per-call cost, no external account, and measured cutout quality that
+    // beats the flood-fill on the cases that mattered (earrings, hair
+    // strands). `photoroom`/`remove_bg` (§15.2, the earlier paid-API build)
+    // stay fully wired and unused as a config-only fallback — never delete
+    // this pairing, it's what makes a bad model update or a misbehaving
+    // self-hosted service a one-line bypass instead of an emergency rebuild.
+    //
+    // Paid-API keys live ONLY here/.env — never the database (STANDARDS.md
+    // "API Keys and Credentials Live in .env Only"). rembg has no API key at
+    // all (self-hosted, localhost-only). The per-agency setting is
+    // agencies.ad_bg_removal_api_enabled — an on/off switch, not a credential,
+    // and applies to every driver equally.
+    'bg_removal' => [
+        'driver'     => env('BG_REMOVAL_DRIVER', 'rembg'),
+        // Output resolution tier — only meaningful for the paid-API drivers;
+        // our photos are 1200×1200 (1.44MP), so their default "preview" tier
+        // (0.25MP) is too low. rembg has no tiers — it always segments at the
+        // source resolution. See each driver's docblock.
+        'resolution' => env('BG_REMOVAL_RESOLUTION', 'medium'),
+        'rembg' => [
+            // Persistent local service — services/bgremoval/app.py, deployed to
+            // /mnt/HC_Volume_103099143/corex-bgremoval-svc, systemd unit
+            // corex-bgremoval.service. Localhost-only, no auth needed.
+            'base_url' => env('BGREMOVAL_SERVICE_URL', 'http://127.0.0.1:3106'),
+            'timeout'  => (int) env('BGREMOVAL_TIMEOUT', 30),
+        ],
+        'photoroom' => [
+            'api_key' => env('PHOTOROOM_API_KEY'),
+            'api_url' => env('PHOTOROOM_API_URL', 'https://sdk.photoroom.com/v1/segment'),
+            'timeout' => (int) env('PHOTOROOM_TIMEOUT', 30),
+        ],
+        'remove_bg' => [
+            'api_key' => env('REMOVE_BG_API_KEY'),
+            'api_url' => env('REMOVE_BG_API_URL', 'https://api.remove.bg/v1.0/removebg'),
+            'timeout' => (int) env('REMOVE_BG_TIMEOUT', 30),
+        ],
+    ],
+
 ];
