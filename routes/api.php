@@ -395,6 +395,10 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('/{property}/contacts',             [MobilePropertyController::class, 'contactsLink'])->name('v1.mobile.properties.contacts.link');
             Route::delete('/{property}/contacts/{contact}', [MobilePropertyController::class, 'contactsUnlink'])->name('v1.mobile.properties.contacts.unlink');
 
+            // Property Drive, read-only — .ai/specs/mobile-property-drive.md
+            Route::get('/{property}/documents',                        [MobilePropertyController::class, 'documentsIndex'])->name('v1.mobile.properties.documents.index');
+            Route::get('/{property}/documents/{document}/download',    [MobilePropertyController::class, 'documentsDownload'])->middleware('deny_assistant_download')->name('v1.mobile.properties.documents.download');
+
             Route::get('/{property}/gallery/tags',          [MobilePropertyController::class, 'galleryTags'])->name('v1.mobile.properties.gallery.tags.index');
             Route::post('/{property}/gallery/tags',         [MobilePropertyController::class, 'addCustomTag'])->name('v1.mobile.properties.gallery.tags.add');
             Route::delete('/{property}/gallery/tags',       [MobilePropertyController::class, 'removeCustomTag'])->name('v1.mobile.properties.gallery.tags.remove');
