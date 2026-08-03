@@ -40,6 +40,16 @@ class DashboardController extends Controller
         $candidateService = new CandidatePractitionerService();
         $candidateDocs = collect();
 
+        // Supervised candidates' IN-PROGRESS documents (read-only walk-through surface).
+        // AT-352b (greenlit): a full-status authoriser can open a supervised candidate's live
+        // document — read-only, via the view-live mirror — BEFORE it reaches their authorisation
+        // turn, so they can walk the party through it. Additive: separate from (and does NOT
+        // disturb) the "needs authorisation" queue above. Deliberately EXCLUDES the two
+        // AWAITING_SUPERVISOR(_FINAL) statuses (those already surface in $candidateDocs) and all
+        // terminal/pre-send statuses. Agency-scoped via the candidate (creator) so an authoriser
+        // only ever sees their own agency's candidates — mirrors getEligibleAuthorisers' scope.
+        $candidateInProgressDocs = collect();
+
         if ($candidateService->canAuthorise($user)) {
             $candidateDocs = SignatureTemplate::with(['document', 'creator'])
                 ->where('is_candidate_flow', true)
@@ -49,13 +59,39 @@ class DashboardController extends Controller
                 ])
                 ->orderBy('created_at', 'desc')
                 ->get();
+
+            $agencyId = $user->effectiveAgencyId();
+            if ($agencyId) {
+                $candidateInProgressDocs = SignatureTemplate::with(['document', 'creator'])
+                    ->where('is_candidate_flow', true)
+                    ->whereIn('status', [
+                        SignatureTemplate::STATUS_SIGNING,
+                        SignatureTemplate::STATUS_AWAITING_TENANT,
+                        SignatureTemplate::STATUS_AWAITING_LANDLORD,
+                        SignatureTemplate::STATUS_AWAITING_BUYER,
+                        SignatureTemplate::STATUS_AWAITING_SELLER,
+                        SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL,
+                        SignatureTemplate::STATUS_RETURNED_TO_CANDIDATE,
+                        SignatureTemplate::STATUS_AWAITING_DEFERRED,
+                        SignatureTemplate::STATUS_AMENDMENT_REVIEW,
+                        SignatureTemplate::STATUS_AMENDMENT_INITIALING,
+                        SignatureTemplate::STATUS_PARTIAL,
+                    ])
+                    ->whereHas('creator', function ($q) use ($agencyId) {
+                        $q->where('agency_id', $agencyId)
+                            ->orWhereHas('branch', fn ($b) => $b->where('agency_id', $agencyId));
+                    })
+                    ->orderBy('created_at', 'desc')
+                    ->get();
+            }
         }
 
         return view('corex.dashboard', [
-            'mtdPoints'     => $mtdPoints,
-            'monthlyTarget' => $monthlyTarget,
-            'period'        => $period,
-            'candidateDocs' => $candidateDocs,
+            'mtdPoints'                => $mtdPoints,
+            'monthlyTarget'            => $monthlyTarget,
+            'period'                   => $period,
+            'candidateDocs'            => $candidateDocs,
+            'candidateInProgressDocs'  => $candidateInProgressDocs,
         ]);
     }
 }

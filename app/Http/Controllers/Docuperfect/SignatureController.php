@@ -2569,10 +2569,25 @@ class SignatureController extends Controller
     public function viewLive(Request $request, Document $document)
     {
         $user = $request->user();
-        // Reuse the exact agent-on-deal scoping used by the approval review.
-        $this->authorizeDocument($user, $document);
 
         $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+
+        // AT-352b (greenlit) — a full-status authoriser may open a supervised candidate's in-flight
+        // document READ-ONLY (to walk a party through it), even before it reaches their authorisation
+        // turn. This is ADDITIVE: it only GRANTS access; everyone else still goes through the standard
+        // agent-on-deal / branch / all document scoping (authorizeDocument). Scoped to the same agency
+        // as the candidate (creator), mirroring getEligibleAuthorisers, so it never crosses agencies.
+        $agencyId = $user->effectiveAgencyId();
+        $isCandidateAuthoriser = $agencyId
+            && $template->is_candidate_flow
+            && app(\App\Services\CandidatePractitionerService::class)->canAuthorise($user)
+            && (int) ($template->creator?->effectiveAgencyId()) === (int) $agencyId;
+
+        if (! $isCandidateAuthoriser) {
+            // Reuse the exact agent-on-deal scoping used by the approval review.
+            $this->authorizeDocument($user, $document);
+        }
+
         $template->loadMissing(['requests', 'markers.signatures', 'signatures']);
 
         $webTemplateData = $document->web_template_data ?? [];
