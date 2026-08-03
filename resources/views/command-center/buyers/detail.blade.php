@@ -35,6 +35,7 @@
     $wishlistsConfig = [
         'initialTab'                => $tab,
         'defaultExpandedWishlistId' => $defaultExpandedWishlistId,
+        'defaultExpandedHasMore'    => $defaultExpandedHasMore,
         'buyerId'                   => $buyer->id,
         'buyerName'                 => trim(($buyer->first_name ?? '') . ' ' . ($buyer->last_name ?? '')) ?: ('Contact #' . $buyer->id),
         'buyerPhone'                => $buyer->phone,
@@ -374,14 +375,29 @@
                         </div>
                     </div>
 
-                    {{-- Inline accordion: this wishlist's matches. Default-expanded
-                         wishlist is server-rendered here already; every other
-                         wishlist's container is filled lazily by toggleWishlistMatches(). --}}
+                    {{-- Inline accordion: this wishlist's matches, ALL of them, in
+                         place — no cap, no navigate-away link (Johan's review). The
+                         grid is STATIC (never replaced, only appended into) so "Load
+                         more" can insertAdjacentHTML without disturbing what's already
+                         rendered. Default-expanded wishlist's page 1 is server-rendered
+                         directly; every other wishlist's page 1 (and every wishlist's
+                         page 2+) is fetched as JSON and appended by the component. --}}
                     <div x-show="wishlistOpen[{{ $wishlist->id }}]" x-cloak x-collapse style="border-top: 1px solid var(--border);">
-                        <div class="p-3" x-ref="wlMatches{{ $wishlist->id }}">
-                            @if($wishlist->id === $defaultExpandedWishlistId)
-                                @include('command-center.buyers._wishlist-matches-grid', ['matches' => $expandedWishlistMatches, 'buyer' => $buyer, 'match' => $wishlist])
-                            @endif
+                        <div class="p-3">
+                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5 overflow-y-auto"
+                                 style="max-height: 420px;" x-ref="wlMatches{{ $wishlist->id }}">
+                                @if($wishlist->id === $defaultExpandedWishlistId)
+                                    @include('command-center.buyers._wishlist-match-cards', ['matches' => $expandedWishlistMatches])
+                                @endif
+                            </div>
+                            <div class="text-center mt-2" x-show="wishlistHasMore[{{ $wishlist->id }}]" x-cloak>
+                                <button type="button" class="corex-btn-outline text-xs"
+                                        @click="loadMoreWishlistMatches({{ $wishlist->id }})"
+                                        :disabled="wishlistLoadingMore[{{ $wishlist->id }}]">
+                                    <span x-show="!wishlistLoadingMore[{{ $wishlist->id }}]">Load more matches</span>
+                                    <span x-show="wishlistLoadingMore[{{ $wishlist->id }}]">Loading…</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -628,30 +644,65 @@ document.addEventListener('alpine:init', () => {
         openEditDrawer(id) { this.wishlistEditingId = id; this.wishlistDrawerOpen = true; },
         closeDrawer() { this.wishlistDrawerOpen = false; this.wishlistEditingId = null; },
 
-        // AT-363 — Wishlists tab inline accordion. The default-expanded
-        // wishlist's matches are already server-rendered (no fetch needed);
-        // every other wishlist's full list is fetched lazily on first expand.
+        // AT-363 — Wishlists tab inline accordion. NEVER navigates away: the
+        // default-expanded wishlist's page 1 is already server-rendered (no
+        // fetch needed); every other wishlist's page 1 is fetched on first
+        // expand; every wishlist's page 2+ is fetched and APPENDED in place
+        // via "Load more" — the grid element itself is never replaced, only
+        // grown, so nothing already rendered is ever lost or re-flowed.
         wishlistOpen: cfg.defaultExpandedWishlistId !== null ? { [cfg.defaultExpandedWishlistId]: true } : {},
         wishlistLoaded: cfg.defaultExpandedWishlistId !== null ? { [cfg.defaultExpandedWishlistId]: true } : {},
+        wishlistHasMore: cfg.defaultExpandedWishlistId !== null ? { [cfg.defaultExpandedWishlistId]: cfg.defaultExpandedHasMore } : {},
+        wishlistNextPage: cfg.defaultExpandedWishlistId !== null ? { [cfg.defaultExpandedWishlistId]: 2 } : {},
+        wishlistLoadingMore: {},
         wishlistMenuOpen: null,
+        matchesUrlFor(id, page) {
+            return cfg.matchesUrlTemplate.replace('__MATCH_ID__', id) + '?page=' + page;
+        },
         async toggleWishlistMatches(id) {
             this.wishlistOpen[id] = !this.wishlistOpen[id];
             if (this.wishlistOpen[id] && !this.wishlistLoaded[id]) {
                 const el = this.$refs['wlMatches' + id];
                 if (!el) return;
-                el.innerHTML = '<div class="text-xs py-4 text-center" style="color: var(--text-muted);">Loading matches…</div>';
+                el.innerHTML = '<div class="col-span-full text-xs py-4 text-center" style="color: var(--text-muted);">Loading matches…</div>';
                 try {
-                    const url = cfg.matchesUrlTemplate.replace('__MATCH_ID__', id);
-                    const res = await fetch(url, {
-                        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    const res = await fetch(this.matchesUrlFor(id, 1), {
+                        headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
                     });
-                    el.innerHTML = res.ok
-                        ? await res.text()
-                        : '<div class="text-xs py-4 text-center" style="color: var(--ds-crimson, #c41e3a);">Could not load matches.</div>';
+                    const json = res.ok ? await res.json() : null;
+                    el.innerHTML = json
+                        ? json.html
+                        : '<div class="col-span-full text-xs py-4 text-center" style="color: var(--ds-crimson, #c41e3a);">Could not load matches.</div>';
+                    this.wishlistHasMore[id] = json ? json.hasMore : false;
+                    this.wishlistNextPage[id] = json ? json.nextPage : 2;
                     this.wishlistLoaded[id] = true;
                 } catch (e) {
-                    el.innerHTML = '<div class="text-xs py-4 text-center" style="color: var(--ds-crimson, #c41e3a);">Could not load matches.</div>';
+                    el.innerHTML = '<div class="col-span-full text-xs py-4 text-center" style="color: var(--ds-crimson, #c41e3a);">Could not load matches.</div>';
                 }
+            }
+        },
+        async loadMoreWishlistMatches(id) {
+            if (this.wishlistLoadingMore[id]) return;
+            const el = this.$refs['wlMatches' + id];
+            if (!el) return;
+            this.wishlistLoadingMore[id] = true;
+            try {
+                const res = await fetch(this.matchesUrlFor(id, this.wishlistNextPage[id] || 2), {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+                });
+                if (res.ok) {
+                    const json = await res.json();
+                    // Append — never replace — what's already rendered.
+                    el.insertAdjacentHTML('beforeend', json.html);
+                    this.wishlistHasMore[id] = json.hasMore;
+                    this.wishlistNextPage[id] = json.nextPage;
+                } else {
+                    this.wishlistHasMore[id] = false;
+                }
+            } catch (e) {
+                this.wishlistHasMore[id] = false;
+            } finally {
+                this.wishlistLoadingMore[id] = false;
             }
         },
 

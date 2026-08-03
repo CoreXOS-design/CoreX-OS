@@ -14,6 +14,13 @@ use Illuminate\Support\Facades\Validator;
 
 class BuyerDetailController extends Controller
 {
+    /**
+     * AT-363 — inline accordion page size. The agent sees the matches in
+     * place, capped per fetch with a "Load more" append rather than one
+     * unbounded render (some wishlists run 200+) or a navigate-away link.
+     */
+    private const MATCHES_PER_PAGE = 50;
+
     public function show(Request $request, Contact $contact)
     {
         if (!$contact->is_buyer) {
@@ -32,21 +39,25 @@ class BuyerDetailController extends Controller
         );
 
         // AT-363 — per-wishlist match count badge + the default-expanded
-        // wishlist's (first in the primary-first ordering above) match grid.
-        // One resolve() per wishlist (bounded to this buyer's own handful of
-        // wishlists) reused for both the count AND, for the default-expanded
-        // one, the mapped list — never resolved twice. Every OTHER wishlist's
-        // full property set is intentionally NOT built here; it's fetched
-        // lazily via wishlistMatches() only if the agent expands it.
+        // wishlist's (first in the primary-first ordering above) FIRST PAGE
+        // of matches. One resolve() per wishlist (bounded to this buyer's own
+        // handful of wishlists) reused for both the count AND, for the
+        // default-expanded one, the mapped list — never resolved twice.
+        // Every OTHER wishlist's full property set is intentionally NOT
+        // built here; it's fetched lazily via wishlistMatches() only if the
+        // agent expands it (page 1, then "Load more" appends further pages).
         $resolver = app(\App\Services\Matching\ClientMatchResolver::class);
         $defaultExpandedId = $contact->matches->first()?->id;
         $wishlistMatchCounts = [];
         $expandedWishlistMatches = collect();
+        $defaultExpandedHasMore = false;
         foreach ($contact->matches as $wishlist) {
             $resolved = $resolver->resolve($wishlist, false);
-            $wishlistMatchCounts[$wishlist->id] = $resolved->count();
+            $mapped = $this->mapMatchedProperties($resolved);
+            $wishlistMatchCounts[$wishlist->id] = $mapped->count();
             if ($wishlist->id === $defaultExpandedId) {
-                $expandedWishlistMatches = $this->mapMatchedProperties($resolved);
+                $expandedWishlistMatches = $mapped->forPage(1, self::MATCHES_PER_PAGE)->values();
+                $defaultExpandedHasMore = $mapped->count() > self::MATCHES_PER_PAGE;
             }
         }
 
@@ -71,25 +82,37 @@ class BuyerDetailController extends Controller
             'wishlistMatchCounts'     => $wishlistMatchCounts,
             'defaultExpandedWishlistId' => $defaultExpandedId,
             'expandedWishlistMatches' => $expandedWishlistMatches,
+            'defaultExpandedHasMore'  => $defaultExpandedHasMore,
         ]);
     }
 
     /**
-     * AT-363 — lazy per-wishlist match grid for the Wishlists tab's inline
-     * accordion. Reuses the exact same resolver as the show() count above and
-     * the AT-360 "View Matches" route's underlying data (ClientMatchResolver)
-     * — display only, no matching-logic change.
+     * AT-363 — paginated per-wishlist matches for the Wishlists tab's inline
+     * accordion (page 1 on first expand, further pages via "Load more" —
+     * appended in place client-side; the agent never leaves this page).
+     * Reuses the exact same resolver as the show() count above and the
+     * AT-360 "View Matches" route's underlying data (ClientMatchResolver)
+     * — display only, no matching-logic change. Always JSON: the cards HTML
+     * (rendered server-side) plus pagination metadata, so the client can
+     * either fill the (empty, static) grid on first expand or append to it
+     * on "Load more" — one response shape for both.
      */
-    public function wishlistMatches(Contact $contact, ContactMatch $match)
+    public function wishlistMatches(Request $request, Contact $contact, ContactMatch $match)
     {
         abort_if($match->contact_id !== $contact->id, 403);
 
-        $resolved = app(\App\Services\Matching\ClientMatchResolver::class)->resolve($match, false);
+        $page = max(1, (int) $request->query('page', 1));
+        $mapped = $this->mapMatchedProperties(
+            app(\App\Services\Matching\ClientMatchResolver::class)->resolve($match, false)
+        );
+        $total = $mapped->count();
+        $pageItems = $mapped->forPage($page, self::MATCHES_PER_PAGE)->values();
 
-        return view('command-center.buyers._wishlist-matches-grid', [
-            'matches' => $this->mapMatchedProperties($resolved),
-            'buyer'   => $contact,
-            'match'   => $match,
+        return response()->json([
+            'html'     => view('command-center.buyers._wishlist-match-cards', ['matches' => $pageItems])->render(),
+            'hasMore'  => ($page * self::MATCHES_PER_PAGE) < $total,
+            'nextPage' => $page + 1,
+            'total'    => $total,
         ]);
     }
 
