@@ -703,9 +703,13 @@
                             :class="{ 'pointer-events-none': reschedule.dragging }"
                             data-layer="{{ $evt->layer_key ?? 'appointments' }}"
                             {{-- Inline z-index (see week overlay note): the z-[3] class was not in
-                                 the compiled CSS, dropping the tile below the z-1 drag layers. --}}
+                                 the compiled CSS, dropping the tile below the z-1 drag layers.
+                                 Completed/dismissed tiles are full-width (AT-335) and appended last, so at
+                                 an equal z-index they painted OVER an active event sharing the slot (an old
+                                 completed viewing covering a newly-scheduled one). Drop done tiles one layer
+                                 (2) so active tiles (3) always paint on top; still above the z-1 drag layers. --}}
                             class="cal-layerable absolute text-left rounded overflow-hidden transition hover:opacity-90 {{ $isDone ? 'line-through opacity-70' : '' }}"
-                            style="z-index: 3; {{ $chipStyle }} {{ $isDraggable ? 'cursor:grab;' : '' }} top: {{ $topPct }}%; height: calc({{ $heightPct }}% - 2px); min-height: 18px; left: calc(56px + (100% - 56px) * {{ $lane }} / {{ $lanes }}); width: calc((100% - 56px) / {{ $lanes }} - 3px);"
+                            style="z-index: {{ $isDone ? 2 : 3 }}; {{ $chipStyle }} {{ $isDraggable ? 'cursor:grab;' : '' }} top: {{ $topPct }}%; height: calc({{ $heightPct }}% - 2px); min-height: 18px; left: calc(56px + (100% - 56px) * {{ $lane }} / {{ $lanes }}); width: calc((100% - 56px) / {{ $lanes }} - 3px);"
                             title="{{ $tr }} {{ $evt->title }}">
                         <div class="flex items-center gap-2 px-2 pt-1">
                             <span class="text-[11px] opacity-80">{{ $tr }}</span>
