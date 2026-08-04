@@ -2,7 +2,9 @@
 
 use App\Http\Controllers\Admin\AgencyApiKeyController;
 use App\Http\Controllers\Admin\CompanySettingsController;
+use App\Http\Controllers\Admin\DealPropertySyncSettingsController;
 use App\Http\Controllers\Commission\CommissionSettingsController;
+use App\Http\Controllers\Compliance\FicaOfficerAppointmentsController;
 use App\Http\Controllers\CoreX\FeatureSettingsController;
 use App\Http\Controllers\CoreX\SettingsController;
 
@@ -178,6 +180,13 @@ return [
             // colours never wipes the company fields). Takes (Request, Agency).
             ['controller' => CompanySettingsController::class, 'method' => 'update', 'pass_agency' => true],
         ],
+        'controls' => [
+            // AT-234 — lives only on CompanySettingsController@update's validated
+            // field set (not @updateAgency), so its home is here, not identity.
+            ['key' => 'ncc_registration_number', 'source' => 'agency', 'type' => 'text', 'label' => 'NCC registration number',
+             'explain' => 'Your National Credit Regulator (NCC) registration number, if your agency is registered as a credit provider or credit bureau.',
+             'affects' => 'Printed alongside your other registration numbers on documents and payslips that carry your compliance details. Leave blank if this doesn\'t apply to your agency.'],
+        ],
     ],
 
     'branches' => [
@@ -252,12 +261,36 @@ return [
         ],
         'savers' => [
             ['controller' => SettingsController::class, 'method' => 'updatePropertiesPerPage'],
+            // DR2 Wave 2 — Deal → Property → Portal status sync. All three fields
+            // render together on this step, so every save posts all three (the
+            // controller's boolean fields default an ABSENT field to false —
+            // safe only because they are never posted alone). Toggle controls
+            // always post a hidden "0" companion (wizard.blade.php), so this
+            // step can never partially-post and silently flip one off.
+            ['controller' => DealPropertySyncSettingsController::class, 'method' => 'update'],
         ],
         'controls' => [
             ['key' => 'properties_per_page', 'source' => 'perf', 'type' => 'number', 'default' => 24, 'min' => 1, 'max' => 200,
              'label' => 'Properties per page',
              'explain' => 'How many listings load at a time on the Properties page. A smaller number loads faster on a phone in the field; a larger number means less clicking at a desk.',
              'affects' => 'How many properties an agent scrolls through before paging to the next set.'],
+
+            ['key' => 'flag_property_under_offer_on_deal', 'source' => 'deal_sync', 'type' => 'toggle', 'default' => 0,
+             'heading' => 'Deal → property status sync',
+             'label' => 'Flag the property Under Offer when a deal is created',
+             'explain' => 'When an agent captures a deal on a linked property, CoreX can set that property to Under Offer immediately and push the change to your portals. The property\'s prior status is remembered so it can be restored automatically if the deal falls through.',
+             'affects' => 'Whether a syndicated listing flips to Under Offer the moment a deal is captured against it, or stays as-is until you change it manually.'],
+
+            ['key' => 'sold_milestone', 'source' => 'deal_sync', 'type' => 'select', 'default' => '',
+             'options' => ['' => 'Off — never auto-mark sold', 'granted' => 'Commission Granted', 'registered' => 'Registered'],
+             'label' => 'Which milestone marks the property Sold on portals',
+             'explain' => 'When a deal on a linked property reaches this stage, CoreX sets the property to Sold and syncs it to your portals. Leave it off to keep marking properties sold manually.',
+             'affects' => 'Whether — and at which deal milestone — a property is automatically switched to Sold and pushed to Property24/Private Property as sold.'],
+
+            ['key' => 'revert_property_on_deal_declined', 'source' => 'deal_sync', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Revert the property when a deal is declined or lapses',
+             'explain' => 'If a deal on an Under Offer property falls through, CoreX can automatically put the property back to the on-market status it held before — the safety companion to the toggle above.',
+             'affects' => 'Whether a property that was auto-flagged Under Offer returns to its previous status on its own when the deal dies, or stays stuck as Under Offer until someone fixes it manually.'],
         ],
     ],
 
@@ -390,6 +423,11 @@ return [
         'partial' => 'agency-setup.steps.compliance',
         'savers' => [
             ['controller' => SettingsController::class, 'method' => 'saveWhistleblowSettings'],
+            // AT-236 — flagged 2026-07-14 as a deliberate-omission candidate pending
+            // Johan's call; resolved 2026-08-04 to include it here rather than in
+            // spec §5.1. Guarded internally by the 'fica_referral_settings_present'
+            // hidden marker (§6.1) — the partial always renders it.
+            ['controller' => FicaOfficerAppointmentsController::class, 'method' => 'saveReferralSettings'],
         ],
     ],
 

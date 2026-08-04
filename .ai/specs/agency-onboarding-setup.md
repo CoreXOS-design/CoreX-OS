@@ -235,14 +235,14 @@ agency, so the visible count is ≤ 13.
 |---|-----|------|------------------|
 | 1 | `identity` | Welcome / Agency identity | `agencies` company-identity fields |
 | 2 | `capabilities` | **Feature switchboard** — turn features on/off | `performance_settings` (`marketing_enabled`, `matches_enabled`, `syndication_*`) + `agencies` (`split_branches_enabled`, `website_enabled`) |
-| 3 | `branding` | Logo & agency colours | `agencies` (`logo_path`, `sidebar_color`, `icon_color`, `default_color`, `button_color`) |
+| 3 | `branding` | Logo & agency colours | `agencies` (`logo_path`, `sidebar_color`, `icon_color`, `default_color`, `button_color`, `ncc_registration_number` — AT-234, added 2026-08-04) |
 | 4 | `branches` | Branches / offices | `branches` (the `split_branches_enabled` master moved to step 2) |
 | 5 | `commission` | Commission & revenue share | `commission_settings` |
-| 6 | `properties` | Properties & listings | `performance_settings` (per-page; marketing + syndication masters moved to step 2) |
+| 6 | `properties` | Properties & listings | `performance_settings` (per-page; marketing + syndication masters moved to step 2); `agency_deal_sync_settings` (`flag_property_under_offer_on_deal`, `sold_milestone`, `revert_property_on_deal_declined` — DR2 Wave 2, added 2026-08-04) |
 | 7 | `presentations` | Presentations / CMA | `agencies` (`presentations_*`,`comp_*`,`cma_*`) |
 | 8 | `matches` | Matches | `performance_settings` (`matches_show_on_properties`, `matches_visibility_scope`, `matches_wa_message`) — **gated on `matches_enabled`** (step 2); the `matches_enabled` master moved to step 2 |
 | 9 | `contacts` | Contacts | `performance_settings` (`contacts_per_page`), `contact_sources` |
-| 10 | `compliance` | Compliance | whistleblow columns on `agencies` |
+| 10 | `compliance` | Compliance | whistleblow columns on `agencies`; `agencies.fica_referral_enabled` / `fica_referral_recipient_user_id` (AT-236, added 2026-08-04 — was flagged 2026-07-14 as a deliberate-omission candidate pending Johan's call; resolved to include rather than exclude) |
 | 11 | `notifications` | Notifications & dashboard | `AgencyDashboardSetting`, `agencies.dashboard_settings_mode` |
 | 12 | `roles` | How roles & permissions work (explainer) | — (explainer only; no savers) |
 | 13 | `access` | Access & finish | `agencies.require_external_access_authorization`; review summary; mark complete |
