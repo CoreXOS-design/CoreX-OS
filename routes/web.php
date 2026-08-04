@@ -3707,6 +3707,8 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::post('/documents/{document}/signatures/return-to-candidate', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'returnToCandidate'])->name('docuperfect.signatures.returnToCandidate');
     // WET-INK explicit resubmit — candidate sends an edited returned doc back to the authoriser (no re-sign).
     Route::post('/documents/{document}/signatures/resubmit-to-authoriser', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'resubmitToAuthoriser'])->name('docuperfect.signatures.resubmitToAuthoriser');
+    // WET-INK clause edit — strike a clause on a returned doc (inline reword or route to Other Conditions).
+    Route::post('/documents/{document}/signatures/edit-clause', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'editClause'])->name('docuperfect.signatures.editClause');
 
     // Dashboard polling
     Route::get('/rental/status-check', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'statusCheck'])->name('docuperfect.rental.statusCheck');

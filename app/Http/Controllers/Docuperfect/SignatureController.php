@@ -2855,6 +2855,35 @@ class SignatureController extends Controller
     }
 
     /**
+     * WET-INK clause edit (esign-returned-doc-edit-flow.md §4.1) — the agent strikes a clause on a
+     * returned/amendment doc and either rewords it inline (small) or routes the full replacement to
+     * Other Conditions (big). Authors visible strike-out markup into merged_html + captures the change.
+     */
+    public function editClause(Request $request, Document $document)
+    {
+        $user = $request->user();
+        $this->authorizeDocument($user, $document);
+
+        $validated = $request->validate([
+            'clause_ref' => ['required', 'string', 'max:50'],
+            'mode'       => ['required', 'in:inline,reference'],
+            'new_text'   => ['required', 'string', 'max:8000'],
+        ]);
+
+        $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+        if (! $this->signatureService->isReEditState($template)) {
+            return response()->json(['ok' => false, 'error' => 'This document is not in an editable (returned/amendment) state.'], 422);
+        }
+
+        $svc = app(\App\Services\Docuperfect\ClauseEditService::class);
+        $result = $validated['mode'] === 'reference'
+            ? $svc->routeClauseToOtherConditions($template, $validated['clause_ref'], $validated['new_text'], $user)
+            : $svc->editClauseInline($template, $validated['clause_ref'], $validated['new_text'], $user);
+
+        return response()->json($result, empty($result['ok']) ? 422 : 200);
+    }
+
+    /**
      * Status check endpoint for dashboard polling.
      */
     public function statusCheck(Request $request)
