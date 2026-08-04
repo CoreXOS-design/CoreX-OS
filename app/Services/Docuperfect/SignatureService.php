@@ -1980,6 +1980,17 @@ class SignatureService
                 'status' => SignatureTemplate::STATUS_RETURNED_TO_CANDIDATE,
             ]);
 
+            // cc1 render contract (esign-returned-doc-change-highlight.md §-baseline): pin the field-diff
+            // baseline to the latest seal AT SEND-BACK, so cc1's FIELD highlight has a baseline even on the
+            // FIRST candidate round — before any authoriser seal exists. Null-safe: if no seal yet, cc1
+            // falls back to its own resolution. Clause strike-outs are self-contained content (no baseline).
+            $latestSeal = \App\Models\Docuperfect\DocumentSealedVersion::latestFor((int) $template->document_id);
+            if ($latestSeal && $template->document) {
+                $wtd = is_array($template->document->web_template_data) ? $template->document->web_template_data : [];
+                $wtd['change_baseline_seal_id'] = $latestSeal->id;
+                $template->document->update(['web_template_data' => $wtd]);
+            }
+
             // Running notes THREAD — every round preserved as audit evidence, never latest-only.
             $round = $this->appendReturnThread($template, 'sent_back', $supervisor, $notes);
 
