@@ -473,6 +473,8 @@
         </div>
     @endif
 
+    @include('docuperfect.signatures.partials._change-initial-affordance')
+
     {{-- ACTION BUTTONS --}}
     <div class="rounded-sm border border-slate-200 bg-white p-5" x-data="{ showReturnModal: false, showRejectModal: false }">
         <h4 class="font-semibold text-slate-800 mb-4">Review Actions</h4>

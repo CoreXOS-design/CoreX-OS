@@ -157,6 +157,46 @@ final class ClauseEditService
     }
 
     /**
+     * Stamp / refresh an "Initialed by {name}" pill inside the cc6-authored clause mark carrying
+     * data-change-id=$changeId (cc1 defers to those marks, so cc6 renders their pill). Idempotent.
+     * Uses cc1's `change-initialed` class so the pill styling is one visual language. Returns the html
+     * unchanged when the mark isn't present or on any parse error.
+     */
+    public function stampInitialPill(string $html, string $changeId, string $name): string
+    {
+        if (trim($html) === '' || ! str_contains($html, 'data-change-id="' . $changeId . '"')) {
+            return $html;
+        }
+        try {
+            $dom = new \DOMDocument();
+            @$dom->loadHTML(
+                '<?xml encoding="utf-8"?><div id="__root">' . $html . '</div>',
+                LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING,
+            );
+            $xpath = new \DOMXPath($dom);
+            $nodes = $xpath->query('//*[@data-strikethrough-applied="1" and @data-change-id=' . $this->xpathLiteral($changeId) . ']');
+            if ($nodes === false || $nodes->length === 0) {
+                return $html;
+            }
+            foreach ($nodes as $el) {
+                if (! $el instanceof \DOMElement) {
+                    continue;
+                }
+                foreach (iterator_to_array($xpath->query('.//*[contains(concat(" ", normalize-space(@class), " "), " change-initialed ")]', $el)) as $old) {
+                    $old->parentNode?->removeChild($old);
+                }
+                $pill = $dom->createElement('span');
+                $pill->setAttribute('class', 'change-initialed');
+                $pill->appendChild($dom->createTextNode(' Initialed by ' . $name));
+                $el->appendChild($pill);
+            }
+            return $this->innerHtml($dom, $xpath);
+        } catch (\Throwable $e) {
+            return $html;
+        }
+    }
+
+    /**
      * Author the wet-ink markup into $el, replacing its children:
      *   inline    → <del …>old</del> <ins …>new</ins>
      *   reference → <del … data-oc-ref=N>old</del> <span change-xref>See Other Conditions — clause N</span>

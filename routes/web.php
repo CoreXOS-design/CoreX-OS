@@ -3709,6 +3709,8 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::post('/documents/{document}/signatures/resubmit-to-authoriser', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'resubmitToAuthoriser'])->name('docuperfect.signatures.resubmitToAuthoriser');
     // WET-INK clause edit — strike a clause on a returned doc (inline reword or route to Other Conditions).
     Route::post('/documents/{document}/signatures/edit-clause', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'editClause'])->name('docuperfect.signatures.editClause');
+    // WET-INK per-change initial — the acting party initials one change (by data-change-id).
+    Route::post('/documents/{document}/signatures/initial-change', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'initialChange'])->name('docuperfect.signatures.initialChange');
 
     // Dashboard polling
     Route::get('/rental/status-check', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'statusCheck'])->name('docuperfect.rental.statusCheck');

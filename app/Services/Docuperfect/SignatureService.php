@@ -2118,6 +2118,50 @@ class SignatureService
         $document->update(['web_template_data' => $wtd]);
     }
 
+    /**
+     * WET-INK per-change INITIAL (cc1 contract, esign-returned-doc-change-highlight.md §14): the affected
+     * party initials ONE change. Writes the SHARED map
+     *   web_template_data['change_initials'][<data-change-id>] = ['name'=>…, 'at'=>…]
+     * exactly as cc1's render reads it to show "Initialed by {name}" on that change (field marks). For
+     * cc6-authored CLAUSE strike marks (which cc1 defers to via data-strikethrough-applied) we also stamp
+     * the pill straight into merged_html so those marks show it too — one shared map, each lane renders its
+     * own marks. Prior signatures are UNTOUCHED — a per-change consent, never a re-sign.
+     */
+    public function recordChangeInitial(SignatureTemplate $template, string $changeId, string $name): array
+    {
+        $document = $template->document;
+        if (! $document) {
+            return ['ok' => false, 'error' => 'Document not found.'];
+        }
+        $changeId = trim($changeId);
+        if ($changeId === '') {
+            return ['ok' => false, 'error' => 'Missing change id.'];
+        }
+
+        $wtd = is_array($document->web_template_data) ? $document->web_template_data : [];
+        $map = is_array($wtd['change_initials'] ?? null) ? $wtd['change_initials'] : [];
+        $at  = now()->toIso8601String();
+        $map[$changeId] = ['name' => $name, 'at' => $at];
+        $wtd['change_initials'] = $map;
+
+        // Stamp the pill into any cc6-authored clause mark carrying this data-change-id (cc1 skips those).
+        if (! empty($wtd['merged_html']) && str_contains((string) $wtd['merged_html'], 'data-change-id="' . $changeId . '"')) {
+            $wtd['merged_html'] = app(ClauseEditService::class)->stampInitialPill((string) $wtd['merged_html'], $changeId, $name);
+        }
+
+        $document->update(['web_template_data' => $wtd]);
+
+        SignatureAuditLog::log(
+            $template,
+            'change_initialed',
+            SignatureAuditLog::ACTOR_USER,
+            $name,
+            metadata: ['change_id' => $changeId, 'at' => $at],
+        );
+
+        return ['ok' => true, 'change_id' => $changeId, 'name' => $name, 'at' => $at];
+    }
+
     /** A doc the agent may re-edit under the wet-ink model — a returned or amendment-review state. */
     public function isReEditState(SignatureTemplate $template): bool
     {

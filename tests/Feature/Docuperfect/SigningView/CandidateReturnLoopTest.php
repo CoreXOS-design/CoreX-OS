@@ -59,7 +59,7 @@ final class CandidateReturnLoopTest extends TestCase
         $this->assertSame('Fix the purchase price on page 2.', $thread[0]['note']);
 
         // Audit + in-app notification to the junior.
-        $this->assertDatabaseHas('signature_audit_logs', [
+        $this->assertDatabaseHas('signature_audit_log', [
             'signature_template_id' => $template->id,
             'action' => 'supervisor_returned_to_candidate',
         ]);
@@ -91,7 +91,7 @@ final class CandidateReturnLoopTest extends TestCase
         $directions = array_column($thread, 'direction');
         $this->assertSame(['sent_back', 'resubmitted'], $directions);
 
-        $this->assertDatabaseHas('signature_audit_logs', [
+        $this->assertDatabaseHas('signature_audit_log', [
             'signature_template_id' => $template->id,
             'action' => 'candidate_resubmitted_to_authoriser',
         ]);
@@ -169,13 +169,13 @@ final class CandidateReturnLoopTest extends TestCase
         SignatureRequest::create([
             'signature_template_id' => $template->id, 'party_role' => 'agent', 'role_index' => 1,
             'signer_name' => 'Junior Candidate', 'signer_email' => 'jnr@x.test',
-            'token' => Str::random(48), 'status' => SignatureRequest::STATUS_COMPLETED,
+            'token' => Str::random(48), 'token_expires_at' => now()->addDays(30), 'status' => SignatureRequest::STATUS_COMPLETED,
             'completed_at' => now(), 'signing_order' => 1,
         ]);
         SignatureRequest::create([
             'signature_template_id' => $template->id, 'party_role' => 'supervisor', 'role_index' => 1,
             'signer_name' => 'Senior Principal', 'signer_email' => 'snr@x.test',
-            'token' => Str::random(48), 'status' => SignatureRequest::STATUS_PENDING,
+            'token' => Str::random(48), 'token_expires_at' => now()->addDays(30), 'status' => SignatureRequest::STATUS_PENDING,
             'signing_order' => 2,
         ]);
 

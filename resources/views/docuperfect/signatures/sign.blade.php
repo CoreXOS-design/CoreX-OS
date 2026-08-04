@@ -118,6 +118,7 @@
 {{-- Signature Pad library --}}
 <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
 @include('docuperfect.signatures.partials.a4-page-styles')
+@include('docuperfect.signatures.partials._change-initial-affordance')
 <style>
 @keyframes pulseHighlight {
     0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }

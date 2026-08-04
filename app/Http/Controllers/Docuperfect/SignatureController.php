@@ -2884,6 +2884,26 @@ class SignatureController extends Controller
     }
 
     /**
+     * WET-INK per-change INITIAL — the acting party (agent / authoriser) initials ONE change by its
+     * data-change-id. Writes the shared change_initials map (cc1 contract) so "Initialed by {name}" shows
+     * on that change. Prior signatures stay; a per-change consent, not a re-sign.
+     */
+    public function initialChange(Request $request, Document $document)
+    {
+        $user = $request->user();
+        $this->authorizeDocument($user, $document);
+
+        $validated = $request->validate([
+            'change_id' => ['required', 'string', 'max:64'],
+        ]);
+
+        $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+        $result = $this->signatureService->recordChangeInitial($template, $validated['change_id'], (string) $user->name);
+
+        return response()->json($result, empty($result['ok']) ? 422 : 200);
+    }
+
+    /**
      * Status check endpoint for dashboard polling.
      */
     public function statusCheck(Request $request)
