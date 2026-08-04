@@ -190,6 +190,9 @@
                                 'lastSubmitted'   => $property->pp_last_submitted_at ? $property->pp_last_submitted_at->format('d M Y H:i') : '',
                                 'lastError'       => $property->pp_last_error ?? '',
                                 'exclusiveDays'   => (int) ($property->pp_exclusive_days ?? 0),
+                                // AT-369 — agency ceiling on the agent's opt-in day picker (Company
+                                // Settings → Syndication Portals → Maximum PP exclusive days).
+                                'exclusiveDaysMax' => (int) \App\Models\PerformanceSetting::get('pp_exclusive_days_max', 92, $property->agency_id),
                                 'mandateType'     => $property->mandate_type ?? '',
                                 'activatedAt'     => $property->pp_activated_at ? $property->pp_activated_at->format('d M Y H:i') : '',
                                 'csrfToken'       => csrf_token(),
@@ -286,15 +289,6 @@
                                 </ul>
                             </div>
 
-                            {{-- Exclusive days auto-calculated from Listed Date → Expiry Date for sole mandates --}}
-                            @if(in_array(strtolower($property->mandate_type ?? ''), ['sole', 'sole mandate']) && ($property->listing_type ?? 'sale') === 'sale' && $property->listed_date && $property->expiry_date)
-                            <div x-show="enabled" x-cloak class="flex items-center gap-2">
-                                <span class="text-xs" style="color:var(--text-secondary);">Exclusive:</span>
-                                <span class="text-xs font-medium" style="color:var(--text-primary);">{{ $property->listed_date->diffInDays($property->expiry_date) }} days</span>
-                                <span class="text-[0.6875rem]" style="color:var(--text-muted);">({{ $property->listed_date->format('d M') }} – {{ $property->expiry_date->format('d M Y') }})</span>
-                            </div>
-                            @endif
-
                             {{-- Submit button — only shown before first successful submission --}}
                             @unless($synReadOnly)
                             <div x-show="enabled && !ppRef && status !== 'active' && status !== 'submitted'" x-cloak class="flex flex-wrap gap-2">
@@ -368,6 +362,76 @@
                             <div x-show="lastSubmitted" x-cloak class="text-[0.6875rem]" style="color:var(--text-muted);">
                                 Last submitted: <span x-text="lastSubmitted"></span>
                             </div>
+
+                            {{-- AT-369 — agent opt-in PP exclusivity, its own small section below
+                                 the rest of the PP card. Sole-mandate Sale only. Nothing is
+                                 exclusive unless the agent explicitly ticks this and confirms in
+                                 the info modal — no auto-calculation from dates, no
+                                 agency-mandated blanket mode. --}}
+                            @if(in_array(strtolower($property->mandate_type ?? ''), ['sole', 'sole mandate']) && ($property->listing_type ?? 'sale') === 'sale')
+                            <div x-show="enabled" x-cloak class="rounded-md px-3 py-2.5 space-y-1.5"
+                                 style="background:var(--surface-2); border:1px solid var(--border);">
+                                <p class="text-[0.6875rem] font-bold uppercase tracking-wider" style="color:var(--text-muted);">Private Property — Exclusivity</p>
+                                @unless($synReadOnly)
+                                <label class="flex items-center gap-2 cursor-pointer" @click.prevent="onExclusiveToggleClick()">
+                                    <span class="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200"
+                                          :style="exclusiveDays > 0 ? 'background:var(--brand-button)' : 'background:var(--border)'"
+                                          role="switch" :aria-checked="exclusiveDays > 0">
+                                        <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
+                                              style="background:#fff; margin-top:2px;"
+                                              :style="exclusiveDays > 0 ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
+                                    </span>
+                                    <span class="text-xs font-medium" style="color:var(--text-primary);">Make this listing exclusive to Private Property</span>
+                                </label>
+                                @endunless
+                                <div x-show="exclusiveDays > 0" x-cloak class="text-[0.6875rem] {{ $synReadOnly ? '' : 'pl-11' }}" style="color:var(--text-secondary);">
+                                    Exclusive for <strong x-text="exclusiveDays"></strong> day<span x-show="exclusiveDays !== 1">s</span> once submitted &mdash; Property24 and every other portal are blocked until it lapses.
+                                </div>
+                            </div>
+
+                            @unless($synReadOnly)
+                            {{-- Info modal — shown BEFORE the tick commits anything. Reuses the
+                                 shared <x-modal> component (resources/views/components/modal.blade.php);
+                                 no bespoke modal pattern. Nested inside the ppSyndication() x-data
+                                 tree above, so Alpine's ancestor-scope lookup resolves
+                                 exclusiveDays/pendingExclusiveDays/confirmExclusive/cancelExclusive
+                                 from the parent component without re-declaring them here. --}}
+                            <x-modal name="pp-exclusive-info-{{ $property->id }}" maxWidth="lg">
+                                <div class="p-6 space-y-4">
+                                    <h3 class="text-sm font-bold" style="color:var(--text-primary);">Make this listing exclusive to Private Property?</h3>
+                                    <ul class="space-y-2 m-0 pl-4 text-xs" style="color:var(--text-secondary); list-style:disc;">
+                                        <li>The listing will publish to Private Property only. Property24 and every other portal are blocked for the period you choose below.</li>
+                                        <li>Private Property features the listing and applies an "Only on Private Property" label.</li>
+                                        <li>Featured placement (top ranking + feature tile) lasts a maximum of <strong>7 days</strong> regardless of the period chosen; the "Only on Private Property" label lasts the <strong>full period</strong>.</li>
+                                        <li>The listing must be a <strong>newly signed sole mandate not already advertised elsewhere</strong>.</li>
+                                        <li>Once accepted, exclusivity <strong>cannot be cancelled within the first 24 hours</strong> — Private Property rejects the reduction.</li>
+                                    </ul>
+                                    <div class="pt-2" style="border-top:1px solid var(--border);">
+                                        <label for="pp-exclusive-days-{{ $property->id }}" class="block text-xs font-semibold mb-1.5" style="color:var(--text-primary);">Exclusive for how many days?</label>
+                                        <select id="pp-exclusive-days-{{ $property->id }}" x-model.number="pendingExclusiveDays"
+                                                class="w-full rounded-md px-3 py-2 text-sm"
+                                                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                            <template x-for="d in exclusiveDaysMax" :key="d">
+                                                <option :value="d" x-text="d + (d === 1 ? ' day' : ' days')"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div class="flex items-center justify-end gap-2 pt-2">
+                                        <button type="button" @click="cancelExclusive()"
+                                                class="px-3 py-1.5 rounded-md text-xs font-semibold"
+                                                style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
+                                            Cancel
+                                        </button>
+                                        <button type="button" @click="confirmExclusive()"
+                                                class="px-3 py-1.5 rounded-md text-xs font-semibold"
+                                                style="background:var(--brand-button); color:#fff;">
+                                            Confirm exclusivity
+                                        </button>
+                                    </div>
+                                </div>
+                            </x-modal>
+                            @endunless
+                            @endif
 
                             {{-- Toast message (success only) --}}
                             <div x-show="message && messageType === 'success'" x-cloak

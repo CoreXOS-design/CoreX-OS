@@ -119,6 +119,40 @@ final class PpLeadServiceTest extends TestCase
         Event::assertDispatched(NewPortalLeadReceived::class);
     }
 
+    public function test_whatsapp_lead_type_sets_is_whatsapp_flag(): void
+    {
+        Event::fake([NewPortalLeadReceived::class]);
+
+        $lead = $this->service()->processLead($this->rawLead(['LeadType' => 'WhatsAppLead']), $this->agency);
+
+        $this->assertNotNull($lead);
+        $this->assertSame('WhatsAppLead', $lead->lead_type);
+        $this->assertTrue($lead->is_whatsapp);
+    }
+
+    public function test_email_lead_type_does_not_set_is_whatsapp_flag(): void
+    {
+        Event::fake([NewPortalLeadReceived::class]);
+
+        $lead = $this->service()->processLead($this->rawLead(['LeadType' => 'EmailLead']), $this->agency);
+
+        $this->assertNotNull($lead);
+        $this->assertSame('EmailLead', $lead->lead_type);
+        $this->assertFalse($lead->is_whatsapp);
+    }
+
+    public function test_missing_lead_type_defaults_to_email_and_not_whatsapp(): void
+    {
+        Event::fake([NewPortalLeadReceived::class]);
+
+        // Pre-Rev-4.7 shape: no LeadType field on the wire at all.
+        $lead = $this->service()->processLead($this->rawLead(), $this->agency);
+
+        $this->assertNotNull($lead);
+        $this->assertSame('Email', $lead->lead_type);
+        $this->assertFalse($lead->is_whatsapp);
+    }
+
     public function test_strict_dedup_by_lead_id_creates_zero_duplicates_on_repull(): void
     {
         Event::fake([NewPortalLeadReceived::class]);

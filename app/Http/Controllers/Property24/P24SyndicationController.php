@@ -28,6 +28,17 @@ class P24SyndicationController extends Controller
     {
         $this->authorizeProperty($property);
         $nowEnabled = !((bool) $property->p24_syndication_enabled);
+
+        // AT-369 — turning P24 ON while Private Property holds this listing
+        // exclusive is refused outright. Turning OFF is never blocked — pulling
+        // a listing off a portal only reduces exposure.
+        if ($nowEnabled && $property->isPpExclusiveActive()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cannot enable Property24 — Private Property exclusivity is active until ' . $property->pp_delay_until->format('d M Y') . '.',
+            ], 422);
+        }
+
         if ($nowEnabled) { $this->enforceListingNotDraft($property, 'Property24'); $this->enforceMarketingReadiness($property); }
         $updateData = ['p24_syndication_enabled' => $nowEnabled];
 
@@ -61,6 +72,20 @@ class P24SyndicationController extends Controller
         $this->authorizeProperty($property);
         $this->enforceListingNotDraft($property, 'Property24');
         $this->enforceMarketingReadiness($property);
+
+        // AT-369 — fail fast, before ever queuing the job. The service-layer
+        // guard (Property24SyndicationService::submitListing) is the real
+        // backstop, but rejecting here means the agent sees the reason
+        // immediately instead of watching "submitting…" sit and then error out
+        // once the queued job reaches the same check.
+        if ($property->isPpExclusiveActive()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cannot submit — Private Property exclusivity is active until ' . $property->pp_delay_until->format('d M Y') . '.',
+                'p24_syndication_status' => $property->p24_syndication_status,
+                'p24_ref' => $property->p24_ref,
+            ], 422);
+        }
 
         $missing = $this->mapper->checkReadiness($property);
         if (!empty($missing)) {

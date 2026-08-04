@@ -58,3 +58,4 @@ bootstrap/cache/events.php
 /public/staging-imgs/
 staging-vs-main.txt
 .env.testing
+.claude/settings.local.json

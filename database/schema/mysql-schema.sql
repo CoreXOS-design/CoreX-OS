@@ -299,6 +299,7 @@ CREATE TABLE `agencies` (
   `ad_bg_removal_hole_max_px` int unsigned DEFAULT NULL,
   `ad_bg_removal_hole_max_dimension_px` int unsigned DEFAULT NULL,
   `ad_bg_removal_flood_fill_drift_cap_px` int unsigned DEFAULT NULL,
+  `ad_bg_removal_api_enabled` tinyint(1) NOT NULL DEFAULT '1',
   `assistant_fica_required_default` tinyint(1) NOT NULL DEFAULT '1',
   `properties_sort_mode` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'created',
   `properties_status_priority` json DEFAULT NULL,
@@ -6123,6 +6124,26 @@ CREATE TABLE `fica_status_history` (
   CONSTRAINT `fica_status_history_actor_user_id_foreign` FOREIGN KEY (`actor_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fica_status_history_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fica_status_history_fica_submission_id_foreign` FOREIGN KEY (`fica_submission_id`) REFERENCES `fica_submissions` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `fica_submission_documents`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `fica_submission_documents` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `fica_submission_id` bigint unsigned NOT NULL,
+  `document_id` bigint unsigned NOT NULL,
+  `document_type` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'supporting',
+  `linked_by` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `fica_sub_doc_unique` (`fica_submission_id`,`document_id`),
+  KEY `fica_submission_documents_linked_by_foreign` (`linked_by`),
+  KEY `fica_submission_documents_document_id_index` (`document_id`),
+  CONSTRAINT `fica_submission_documents_document_id_foreign` FOREIGN KEY (`document_id`) REFERENCES `documents` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fica_submission_documents_fica_submission_id_foreign` FOREIGN KEY (`fica_submission_id`) REFERENCES `fica_submissions` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fica_submission_documents_linked_by_foreign` FOREIGN KEY (`linked_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `fica_submissions`;
@@ -12486,6 +12507,11 @@ CREATE TABLE `user_documents` (
   `user_id` bigint unsigned NOT NULL,
   `document_type` enum('ffc_certificate','id_copy','pi_insurance','tax_clearance','profile_photo','qualification','proof_of_address','bank_confirmation','police_clearance','credit_check_report','reference_letter','other','payslip') COLLATE utf8mb4_unicode_ci NOT NULL,
   `file_path` varchar(500) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `bg_removal_status` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `bg_removal_cutout_path` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `bg_removal_driver` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `bg_removal_processed_at` timestamp NULL DEFAULT NULL,
+  `bg_removal_error` text COLLATE utf8mb4_unicode_ci,
   `file_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `file_size` int unsigned DEFAULT NULL,
   `mime_type` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -14119,4 +14145,9 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1049,'2026_08_20_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1050,'2026_08_20_000005_add_ad_generated_tracking_to_properties',199);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1051,'2026_08_20_000006_add_ad_bg_removal_hole_thresholds_to_agencies',200);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1052,'2026_08_20_000007_add_ad_bg_removal_drift_cap_to_agencies',201);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1053,'2026_08_20_000012_create_login_histories_table',202);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1053,'2026_08_20_000008_backfill_cutout_matte_color_for_removebg_avatars',202);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1054,'2026_08_20_000009_revert_cutout_matte_color_backfill',203);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1055,'2026_08_20_000010_add_ad_bg_removal_api_settings_to_agencies',204);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1056,'2026_08_20_000011_add_bg_removal_cutout_tracking_to_user_documents',204);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1057,'2026_08_03_120001_create_fica_submission_documents_table',205);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1058,'2026_08_20_000012_create_login_histories_table',206);

@@ -116,6 +116,17 @@ class AgentProfilePhotoService
     {
         if ($user->agent_photo_path) {
             Storage::disk('public')->delete($user->agent_photo_path);
+            Storage::disk('public')->delete($this->normalizer->photoJpegPath($user->id));
+        }
+
+        // §15.2 — the cutout is regenerated media, not a record; delete it
+        // alongside the original rather than leaving it orphaned on disk.
+        $cutoutPath = $user->documents()
+            ->where('document_type', UserDocument::DOCUMENT_TYPE_PROFILE_PHOTO)
+            ->latest()
+            ->value('bg_removal_cutout_path');
+        if ($cutoutPath) {
+            Storage::disk('public')->delete($cutoutPath);
         }
 
         // §15.2 — the cutout is regenerated media, not a record; delete it

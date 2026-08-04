@@ -122,6 +122,9 @@ class SettingsController extends Controller
         // Admin → Agencies → API Access. Spec: agency-public-api.md §6.5.
         $data['syndicationPpEnabled']      = (bool) PerformanceSetting::get('syndication_pp_enabled', 1);
         $data['syndicationP24Enabled']     = (bool) PerformanceSetting::get('syndication_p24_enabled', 1);
+        // AT-369 — agency cap on agent-opted-in PP sole-mandate exclusivity days.
+        // Default 92 = PP's own hard maximum (Rev 4.6 p20); agency-configurable downward.
+        $data['ppExclusiveDaysMax']        = (int) PerformanceSetting::get('pp_exclusive_days_max', 92);
 
         // Feature Settings tab: Matches
         $data['matchesEnabled']            = (bool) PerformanceSetting::get('matches_enabled', 1);
@@ -129,6 +132,9 @@ class SettingsController extends Controller
         $data['matchesVisibilityScope']    = (string) PerformanceSetting::get('matches_visibility_scope', \App\Services\Matching\MatchingService::SCOPE_AGENCY);
         $defaultWaMsg = "Hi {name}! 👋\n\nI've put together a personalised selection of properties that match your search criteria.\n\nView your property matches here:\n{link}\n\nFeel free to reach out if you'd like to arrange viewings or have any questions!";
         $data['matchesWaMessage'] = (string) PerformanceSetting::get('matches_wa_message', $defaultWaMsg);
+        $data['matchesEmailSubject'] = (string) PerformanceSetting::get('matches_email_subject', 'Your personalised property matches');
+        $defaultEmailMsg = "Hi {name},\n\nI've put together a personalised selection of properties that match your search criteria.\n\nView your property matches here:\n{link}\n\nFeel free to reach out if you'd like to arrange viewings or have any questions!";
+        $data['matchesEmailMessage'] = (string) PerformanceSetting::get('matches_email_message', $defaultEmailMsg);
 
         // Agency Settings tab: Agency record + Performance Settings
         if ($user?->hasPermission('manage_performance_settings')) {
@@ -445,6 +451,17 @@ class SettingsController extends Controller
 
     public function updateSyndicationPortals(Request $request)
     {
+        // AT-369 — agency cap on agent-opted-in PP sole-mandate exclusivity days.
+        // Hard bounds mirror PP's own limit (Rev 4.6 p20: SoleMandateExclusiveDays
+        // 1-92) and are enforced HERE, server-side — never trust the form's min/max
+        // alone. Validated before any field in this request saves, so an
+        // out-of-range value never partially saves alongside a valid toggle change.
+        if ($request->has('pp_exclusive_days_max')) {
+            $request->validate([
+                'pp_exclusive_days_max' => ['required', 'integer', 'min:1', 'max:92'],
+            ]);
+        }
+
         // Saver-precondition guard (spec §3.4 / parent §6.1) — see updateMarketingEnabled.
         foreach (['syndication_pp_enabled', 'syndication_p24_enabled'] as $key) {
             if ($request->has($key)) {
@@ -452,6 +469,11 @@ class SettingsController extends Controller
                 PerformanceSetting::set($key, $request->boolean($key) ? 1 : 0);
             }
         }
+
+        if ($request->has('pp_exclusive_days_max')) {
+            PerformanceSetting::set('pp_exclusive_days_max', (int) $request->input('pp_exclusive_days_max'));
+        }
+
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'properties'])->with('success', 'Syndication portals updated.');
     }
 
@@ -612,7 +634,8 @@ class SettingsController extends Controller
     public function updateMatchesShowOnProperties(Request $request)
     {
         $enabled = $request->boolean('matches_show_on_properties');
-        PerformanceSetting::updateOrCreate(['key' => 'matches_show_on_properties'], ['value' => $enabled ? 1 : 0]);
+        // Per-agency write (multi-tenancy #7) — set() stamps the current agency.
+        PerformanceSetting::set('matches_show_on_properties', $enabled ? 1 : 0);
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'matches'])->with('success', 'Setting updated.');
     }
 
@@ -621,7 +644,7 @@ class SettingsController extends Controller
         $perPage = $request->validate([
             'contacts_per_page' => 'required|integer|min:1|max:200',
         ])['contacts_per_page'];
-        PerformanceSetting::updateOrCreate(['key' => 'contacts_per_page'], ['value' => (int) $perPage]);
+        PerformanceSetting::set('contacts_per_page', (int) $perPage);
         return redirect()->route('corex.settings', ['s' => 'feature-contacts'])->with('success', 'Contacts per page updated.');
     }
 
@@ -630,7 +653,7 @@ class SettingsController extends Controller
         $perPage = $request->validate([
             'properties_per_page' => 'required|integer|min:1|max:200',
         ])['properties_per_page'];
-        PerformanceSetting::updateOrCreate(['key' => 'properties_per_page'], ['value' => (int) $perPage]);
+        PerformanceSetting::set('properties_per_page', (int) $perPage);
         return redirect()->route('corex.settings', ['s' => 'feature-properties'])->with('success', 'Properties per page updated.');
     }
 
@@ -639,7 +662,7 @@ class SettingsController extends Controller
         $perPage = $request->validate([
             'filing_register_page_size' => 'required|integer|min:10|max:200',
         ])['filing_register_page_size'];
-        PerformanceSetting::updateOrCreate(['key' => 'filing_register_page_size'], ['value' => (int) $perPage]);
+        PerformanceSetting::set('filing_register_page_size', (int) $perPage);
         return redirect()->route('corex.settings', ['s' => 'feature-filing'])->with('success', 'Filing register page size updated.');
     }
 
@@ -685,15 +708,24 @@ class SettingsController extends Controller
         $scope = $request->validate([
             'matches_visibility_scope' => 'required|in:agent,branch,agency',
         ])['matches_visibility_scope'];
-        PerformanceSetting::updateOrCreate(['key' => 'matches_visibility_scope'], ['value' => $scope]);
+        PerformanceSetting::set('matches_visibility_scope', $scope);
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'matches'])->with('success', 'Match visibility scope updated.');
     }
 
     public function updateMatchesWaMessage(Request $request)
     {
         $message = substr($request->input('matches_wa_message', ''), 0, 1000);
-        PerformanceSetting::updateOrCreate(['key' => 'matches_wa_message'], ['value' => $message]);
+        PerformanceSetting::set('matches_wa_message', $message);
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'matches'])->with('success', 'WhatsApp message template saved.');
+    }
+
+    public function updateMatchesEmailMessage(Request $request)
+    {
+        $subject = substr($request->input('matches_email_subject', ''), 0, 200);
+        $message = substr($request->input('matches_email_message', ''), 0, 2000);
+        PerformanceSetting::set('matches_email_subject', $subject);
+        PerformanceSetting::set('matches_email_message', $message);
+        return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'matches'])->with('success', 'Email message template saved.');
     }
 
     public function generateApiToken(Request $request)

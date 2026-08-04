@@ -151,6 +151,19 @@ class Property extends Model
     }
 
     /**
+     * AT-369 — is this listing currently inside an agent-opted-in Private
+     * Property exclusivity window? Single source of truth for every P24 gate:
+     * `pp_delay_until` is only ever populated from PP's own
+     * DelayListingOnOtherWebsitesUntil response (PrivatePropertySyndicationService),
+     * so a future timestamp here means PP itself is holding the listing exclusive
+     * — no other portal (P24 or otherwise) may receive it until it lapses.
+     */
+    public function isPpExclusiveActive(): bool
+    {
+        return $this->pp_delay_until !== null && $this->pp_delay_until->isFuture();
+    }
+
+    /**
      * AT-321 — the SANCTIONED way to make a "quiet" property write and still keep
      * the audit trail. It suppresses the observer (updateQuietly) — so no side
      * effects — but records a rich, attributed audit row itself, and de-dupes the
