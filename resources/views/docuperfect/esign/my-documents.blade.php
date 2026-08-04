@@ -82,6 +82,14 @@
             <div class="text-xs mt-1 font-semibold" style="color: var(--ds-amber);">Needs Authorisation</div>
         </a>
         @endif
+        @if(($counts['returned'] ?? 0) > 0)
+        <a href="#section-returned" onclick="event.preventDefault(); scrollToSection('section-returned')"
+           class="rounded-md p-4 text-center cursor-pointer block transition-all duration-300 hover:opacity-90"
+           style="border: 2px solid var(--ds-crimson); background: color-mix(in srgb, var(--ds-crimson) 10%, transparent);">
+            <div class="text-[1.625rem] font-semibold" style="color: var(--ds-crimson);">{{ number_format($counts['returned']) }}</div>
+            <div class="text-xs mt-1 font-semibold" style="color: var(--ds-crimson);">Returned — Needs Fixing</div>
+        </a>
+        @endif
         @if($counts['pending_approval'] > 0)
         <a href="#section-pending-approval" onclick="event.preventDefault(); scrollToSection('section-pending-approval')"
            class="rounded-md p-4 text-center cursor-pointer block transition-all duration-300 hover:opacity-90"
@@ -177,6 +185,58 @@
     @endif
 
     @if(!($showOnlyAuthorisation ?? false))
+    {{-- ===== RETURNED — NEEDS FIXING (BUG 2, Johan 2026-08-04) ===== --}}
+    {{-- A candidate-flow doc SENT BACK by the authoriser (STATUS_RETURNED_TO_CANDIDATE)
+         was in no group and vanished from the candidate's list — they could not find
+         their own document to fix. Surface it FIRST with the authoriser's note and a
+         deep link to the sign screen to fix + re-sign + resubmit. --}}
+    @if(($groups['returned'] ?? collect())->isNotEmpty())
+    <div id="section-returned" class="space-y-3 scroll-mt-4">
+        <h3 class="text-sm font-semibold uppercase tracking-wider flex items-center gap-2" style="color: var(--ds-crimson);">
+            <span class="inline-flex items-center justify-center w-5 h-5 text-white text-[0.6875rem] font-bold rounded-full" style="background: var(--ds-crimson);">{{ number_format($groups['returned']->count()) }}</span>
+            Returned &mdash; Needs Fixing
+        </h3>
+        <div class="space-y-3">
+            @foreach($groups['returned'] as $tpl)
+                @php
+                    $doc = $tpl->document;
+                    $thread = $doc->web_template_data['return_thread'] ?? [];
+                    $lastNote = collect($thread)->where('direction', 'sent_back')->last()['note'] ?? null;
+                @endphp
+                <div class="rounded-md p-4" style="border: 2px solid var(--ds-crimson); background: color-mix(in srgb, var(--ds-crimson) 8%, transparent);">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="flex-1 min-w-0">
+                            <div class="font-semibold" style="color: var(--text-primary);">
+                                {{ $doc->name ?? 'Untitled' }}
+                                <span class="ds-badge ml-2" style="background: var(--ds-crimson); color: #fff;">RETURNED</span>
+                            </div>
+                            <div class="text-xs mt-2" style="color: var(--ds-crimson);">
+                                The authoriser sent this back for changes. Open it to read the notes, fix the document, re-sign and resubmit.
+                            </div>
+                            @if($lastNote)
+                            <div class="text-xs mt-2 rounded px-2 py-1.5" style="background: color-mix(in srgb, var(--ds-crimson) 6%, #fff); color: var(--text-secondary);">
+                                <span class="font-semibold" style="color: var(--ds-crimson);">Latest note:</span> {{ $lastNote }}
+                            </div>
+                            @endif
+                            <div class="text-xs mt-1" style="color: var(--text-muted);">
+                                Returned {{ ($tpl->updated_at ?? $tpl->created_at)?->format('d M Y H:i') }}
+                            </div>
+                        </div>
+                        <div class="flex flex-col gap-2">
+                            @if($doc)
+                            <a href="{{ route('docuperfect.signatures.sign', $doc) }}"
+                               class="corex-btn-primary whitespace-nowrap text-center">
+                                Fix &amp; Re-sign
+                            </a>
+                            @endif
+                        </div>
+                    </div>
+                </div>
+            @endforeach
+        </div>
+    </div>
+    @endif
+
     {{-- ===== NEEDS YOUR APPROVAL ===== --}}
     {{-- AT-299 — a document frozen by a recipient's clause flag
          (STATUS_AMENDMENT_REVIEW) was previously in NO group and fell out of the

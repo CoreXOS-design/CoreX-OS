@@ -1488,7 +1488,10 @@ class CommandCentreService
             'items' => array_filter([
                 $pending > 0 ? ['label' => 'Awaiting your authorisation', 'value' => $pending, 'colour' => '#ef4444'] : null,
             ]),
-            'view_all_url' => '/corex/legacy-dashboard',
+            // BUG 1 (Johan 2026-08-04): was '/corex/legacy-dashboard' — a dead legacy surface.
+            // Point "View all" at the LIVE authorisation list, which renders the branch-scoped
+            // needs_authorisation queue (ESignWizardController::myDocuments, filter=authorisation).
+            'view_all_url' => '/esign/my-documents?filter=authorisation',
         ];
     }
 

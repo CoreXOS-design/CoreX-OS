@@ -5208,6 +5208,12 @@ class ESignWizardController extends Controller
                         ->latest('id')->value('id');
                 })
                 ->values(),
+            // BUG 2 (Johan 2026-08-04) — a candidate-flow doc SENT BACK by the authoriser
+            // (STATUS_RETURNED_TO_CANDIDATE) was in NO bucket, so it fell out of the list
+            // entirely and the candidate could not find their own returned document to fix.
+            // Same defect class as the AT-299 flagged-doc gap. Surface it FIRST as
+            // "Returned — needs fixing", deep-linking to the sign screen to fix + re-sign.
+            'returned'         => $allTemplates->where('status', SignatureTemplate::STATUS_RETURNED_TO_CANDIDATE)->values(),
             'pending_approval' => $allTemplates->where('status', SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL)->values(),
             'draft'            => $allTemplates->where('status', SignatureTemplate::STATUS_DRAFT)->values(),
             'ready_to_sign'    => $allTemplates->where('status', SignatureTemplate::STATUS_READY)->values(),
@@ -5235,6 +5241,7 @@ class ESignWizardController extends Controller
 
         $counts = [
             'flagged'             => $groups['flagged']->count(), // AT-299
+            'returned'            => $groups['returned']->count(), // BUG 2 — returned-to-candidate
             'needs_authorisation' => $groups['needs_authorisation']->count(),
             'pending_approval'    => $groups['pending_approval']->count(),
             'draft'               => $groups['draft']->count(),
