@@ -59,31 +59,34 @@ class PerformanceSettingsController extends Controller
             'listings_per_sale' => ['required','numeric','min:0.01','max:1000'],
         ]);
 
-        // Persist company text settings
+        // Persist company text settings. Per-agency write (multi-tenancy #7) —
+        // set() stamps the current agency; the old updateOrCreate(['key'=>...])
+        // form matched on key alone, so one agency's save could land on
+        // another agency's row (or a stray global one) instead of their own.
         $companyKeys = ['company_name','company_address','company_tel','company_ffc'];
         foreach ($companyKeys as $k) {
             if (array_key_exists($k, $data)) {
                 $v = $data[$k];
-                PerformanceSetting::updateOrCreate(['key' => $k], ['value' => ($v === null ? '' : (string)$v)]);
+                PerformanceSetting::set($k, $v === null ? '' : (string)$v);
             }
         }
 
         // Handle logo clear
         $clear = isset($data['clear_company_logo']) && (string)$data['clear_company_logo'] === '1';
         if ($clear) {
-            PerformanceSetting::updateOrCreate(['key' => 'company_logo_url'], ['value' => '']);
+            PerformanceSetting::set('company_logo_url', '');
         }
 
         // Handle logo upload (store on public disk)
         if ($request->hasFile('company_logo') && $request->file('company_logo')->isValid()) {
             $path = $request->file('company_logo')->store('company', 'public');
             $url = Storage::url($path); // e.g. /storage/company/xxxx.png
-            PerformanceSetting::updateOrCreate(['key' => 'company_logo_url'], ['value' => (string)$url]);
+            PerformanceSetting::set('company_logo_url', (string)$url);
         }
 
         // Performance settings
-        PerformanceSetting::updateOrCreate(['key' => 'vat_rate'], ['value' => (string)$data['vat_rate']]);
-        PerformanceSetting::updateOrCreate(['key' => 'listings_per_sale'], ['value' => (string)$data['listings_per_sale']]);
+        PerformanceSetting::set('vat_rate', (string)$data['vat_rate']);
+        PerformanceSetting::set('listings_per_sale', (string)$data['listings_per_sale']);
 
         return redirect()->back()->with('status', 'Performance settings updated.');
     }
