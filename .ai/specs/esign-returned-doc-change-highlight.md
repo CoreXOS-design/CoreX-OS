@@ -1,7 +1,18 @@
 # Spec — Returned-Document Change-Highlight Render (RENDER / VERSIONING half)
 
-**Status:** DRAFT — awaiting Johan's approval. **No code written.** Spec only.
+**Status:** APPROVED (Johan's decisions LOCKED 2026-08-04 — WET-INK model). **Building on QA1.**
 **Author:** Claude (ESIGN render/canonical lane) · **Date:** 2026-08-04
+
+> **LOCKED DECISIONS (Johan, wet-ink):**
+> 1. **Wet-ink — what is signed stays signed.** NO wholesale re-sign. Prior seals REMAIN. The diff
+>    baseline is the last-authorised/signed version; each change's mark **persists until THAT specific
+>    change is initialed** — a wholesale re-seal never clears marks.
+> 2. **Marks STAY on the final issued document** (like a marked-up wet-ink contract: strike-throughs +
+>    write-ins visible). Keep the appended change-history page too.
+> 3. **Change render model:** *small change* → strike-through the removed words + **inline** insertion of
+>    the new words. *big change* → strike-through the clause + a visible **cross-reference to an Other
+>    Conditions entry** where the replacement lives. Render BOTH modes.
+> 4. **Granularity:** word-level redline, deletions struck **inline**.
 **Owns:** the RENDER / change-highlight / versioning half. **cc6 owns:** the FLOW / edit-surface /
 control / status half (the return→re-edit→resubmit→re-authorise loop, `SignatureService::returnToCandidate`
 + resubmit, the return loop `df7afa82`). This spec cites cc6's half at every boundary; the two are disjoint.
@@ -81,31 +92,38 @@ unit-testable in isolation.
 
 ## 5. How the diff is computed + rendered
 
-### 5A — Field values (data-field diff)
+### 5A — Field values (data-field diff) — WET-INK strike+insert
 Both current and baseline are expanded canonicals carrying `data-field="{var}"` / `data-field="{var}__r{n}"`
 spans (the same keying `applyFillReviewAuthoritativeOverlay` already matches). Algorithm:
 1. Index the **baseline**'s `data-field` → text.
 2. Walk the **current**'s `data-field` spans; for each, if `current.text !== baseline.text` for the same
-   key → wrap the current value in a change-mark span: boxed highlight + `data-changed-from="<old>"` (for a
-   "was: …" tooltip / print footnote).
+   key → render **wet-ink**: `<del class="change-del">{old}</del> <ins class="change-ins" data-change-id="…">{new}</ins>`
+   — the old value struck through, the new value written in beside it, exactly like a pen correction.
 3. Per-recipient correctness is automatic because the match is by the exact `__r{n}` key (Seller 2's edit
    marks Seller 2's cell only). This is the same matching my overlay already proves out.
+4. Each mark carries a stable `data-change-id` (hash of key+old+new) so a per-change initial slot attaches
+   to it and its "initialed" state can be tracked (§6).
 
-### 5B — Clause / body text diff
+### 5B — Clause / body text diff — WET-INK, two modes (small inline / big cross-ref)
 Body text is structured (clause blocks, `data-block` / clause ids, paragraphs). Approach — **anchor then
-word-diff**, to keep it robust and library-free:
+word-diff**, library-free:
 1. **Align blocks** by stable anchors (clause id / `data-role-block` / `data-block-id` / heading text), so
-   we only diff *within* corresponding blocks — never a whole-document character diff (which would be noisy
-   and mis-align on re-flow).
-2. Within an aligned block whose text changed, run a **word-level LCS diff** (longest-common-subsequence)
-   between baseline words and current words. Wrap runs:
-   - inserted words → `<mark class="change-ins">…</mark>` (highlighted/underlined),
-   - deleted words → `<del class="change-del">…</del>` (struck-through, kept visible inline or in a margin
-     callout so the reader sees what was removed).
-3. **Whole-block add/remove** (a clause present in one side only) → box the block with a ribbon:
-   **"New clause"** / **"Removed"** / **"Amended"**.
-4. Skip fields already marked by 5A (a `data-field` span inside a clause is a value change, not body text —
-   mark it once, as a field).
+   we only diff *within* corresponding blocks — never a whole-document character diff.
+2. Within an aligned block whose text changed, run a **word-level LCS diff** between baseline words and
+   current words, and classify by change size:
+   - **SMALL change** (≤ N changed words, tunable — default 8) → render **inline**: deleted words
+     `<del class="change-del">…</del>` struck **in place**, inserted words `<ins class="change-ins">…</ins>`
+     written right beside them. The clause reads as a pen-marked line.
+   - **BIG change** (> N changed words, or a whole-clause replacement) → strike the **whole** affected
+     clause `<del class="change-del change-clause">…</del>` and append a visible **cross-reference**:
+     `<span class="change-xref">See Other Conditions — {ref}</span>` linking to the Other-Conditions entry
+     that carries the replacement text (that entry is created by cc6's flow / the existing §7.5
+     strikethrough→Other-Conditions route; the render half emits the strike + cross-ref and links to it).
+3. **Whole-block add/remove** (a clause present on one side only) → New clause → wrap in
+   `<ins class="change-ins change-clause">`; removed clause → keep it struck (`<del class="change-clause">`)
+   so the reader sees what was taken out (marks STAY — §6/§9).
+4. Skip fields already marked by 5A, and defer to existing `DocumentClauseStrikethrough` renders (§7.5) —
+   never double-mark (§7.5 interplay below).
 
 **Reuse the existing visual vocabulary** so the document reads consistently: `InsertableBlockRenderer`
 already renders amendment pills (`background:#fef3c7; color:#92400e` "Amendment pending agent review"),
@@ -120,20 +138,31 @@ The marks are plain HTML/CSS (mark/del/box), so they carry into the dompdf/Chrom
 
 ---
 
-## 6. How the highlight persists through authoriser review, then clears
+## 6. How the highlight persists — WET-INK (per-change, until initialed; STAYS on final)
 
 Because step 6 is a **render-time display overlay** (not baked), EVERY surface that renders through
-`compose()` / `forDisplay()` / `resolveOrCompose()` shows the marks for as long as:
-`amendment_render == true` AND a prior-authorised seal exists to diff against.
+`compose()` / `forDisplay()` / `resolveOrCompose()` shows the marks. Under the wet-ink model:
 
-- **Authoriser review:** the authoriser opens the doc → `forDisplay()` → `compose()` → step 6 runs → they
-  see every change vs what they last authorised. (Recipients who view before re-signing see the same.)
-- **On re-authorisation:** cc6's flow re-runs the authorisation gate. At that moment a **NEW seal** is taken
-  (`EVENT_AUTHORISER_COSIGNED`) capturing the current canonical as the new baseline, and cc6 **clears**
-  `amendment_render`. The next `compose()` diff is therefore empty → **marks clear automatically**. No extra
-  work: "the new authorised version becomes the baseline" is the natural clear.
-- Because seals are hash-chained and immutable, the full before/after history is preserved for audit even
-  after the marks clear.
+- **Baseline is fixed at the last-authorised/signed version and PRIOR SEALS REMAIN.** The diff is always
+  current-vs-that-baseline. A wholesale re-seal does NOT move the baseline or clear marks (that was the
+  old "new seal = new baseline" model — **removed**). The baseline advances only when the change itself is
+  accepted+initialed and a NEW authorised baseline is explicitly established (Johan's call on when that is —
+  cc6's status half owns the transition; the render half just reads whichever seal is flagged the baseline).
+- **Each mark persists until THAT change is initialed.** A mark carries `data-change-id`; when a party
+  initials that change (cc6's initialing flow records it, reusing `condition_initials`), the render shows
+  that mark as **initialed** (e.g. a small "✓ initialed by …" tag) — it is **not removed**. Un-initialed
+  changes still read as pending. Marks are cleared/settled per-change, never by a blanket re-seal.
+- **Marks STAY on the final issued document** (decision #2): the completed contract shows the
+  strike-throughs + write-ins like a wet-ink markup, plus the appended change-history page (§9 = PERSIST).
+- **Authoriser review + recipients** all render through `compose()` so all see the identical marks and their
+  per-change initialed state. Seals stay hash-chained/immutable for audit.
+
+**Contract with cc6:** the render half reads (a) `web_template_data['amendment_render']` to know a returned
+doc is in the marked state, (b) the last-authorised **baseline seal** (flagged via
+`web_template_data['change_baseline_seal_id']` if cc6 sets it, else the render half resolves the latest
+`authoriser_cosigned`/`candidate_final_approved` seal), and (c) per-change initial state from
+`condition_initials` keyed by `data-change-id`. cc6 owns setting the flag, creating the Other-Conditions
+entry for big changes, capturing initials, and the status transitions. The render half never writes these.
 
 ---
 
@@ -182,20 +211,15 @@ and "the current canonical / new body text is in `web_template_data` when compos
 
 ---
 
-## 9. Clears vs stays on final issue — **JOHAN'S CHOICE** (flagged, not decided)
+## 9. Final issue — **DECIDED: marks PERSIST** (decision #2)
 
-- **Option A — marks CLEAR on final issue.** On re-authorisation the new baseline makes the diff empty; the
-  final issued/served document is clean. Audit trail lives only in the sealed-version history. *(Cleanest
-  output; change record is "behind the scenes.")*
-- **Option B — a permanent "AMENDED" mark STAYS.** The final document keeps a visible "Amended after initial
-  authorisation on `<date>`" stamp (and/or an appended **change-log page** listing each field/clause change),
-  so every future reader sees it was amended. *(Maximum transparency; slightly busier document.)*
-- **Recommended hybrid (my suggestion, Johan decides):** inline redlines **clear** on final issue (clean body),
-  but a small permanent **"Amended — see change log"** note + an **appended change-history page** (generated
-  from the seal chain) **stays**. Best of both: clean contract face + a durable, unmissable audit record.
+The final issued document **keeps the wet-ink marks** — strike-throughs + inline write-ins + big-change
+cross-references stay visible on the completed contract, exactly like a hand-marked paper agreement. In
+addition, an **appended change-history page** (generated from the seal chain: each change, old→new, who
+initialed, when) is attached to the final document. No "clear-on-final" variant is built.
 
-This is a **rendering policy toggle** on my side once Johan picks — the mechanics (seal diff) are identical;
-only whether step 6 (or a final-issue variant) still emits marks/appendix after re-authorisation changes.
+Rationale (Johan): the marked-up face IS the record — a reader must be able to see the document was amended
+and exactly how, without opening an audit log.
 
 ---
 
@@ -233,10 +257,14 @@ only whether step 6 (or a final-issue variant) still emits marks/appendix after 
 5. Normal (never-returned) documents render byte-identically to today — step 6 is fully gated.
 6. No double-marking against §7.5 strikethrough/amendment renders.
 
-## 12. Open questions for Johan
+## 12. Decisions — LOCKED (2026-08-04)
 
-1. **§9 — clear vs stay** on final issue (Option A / B / recommended hybrid)?
-2. Redline granularity for body text — **word-level** (recommended) or whole-paragraph box?
-3. Show **deleted** text inline (struck) or only in a margin/footnote callout?
-4. Which seal event is the authorisation baseline — `authoriser_cosigned`, `candidate_final_approved`, or
-   both (whichever is latest)? (I'll default to "latest of either" unless told otherwise.)
+1. §9 clear-vs-stay → **PERSIST** (marks stay on final + change-history page). ✅
+2. Granularity → **word-level**, deletions struck **inline**. ✅
+3. Change model → **both**: small = inline strike+insert; big = strike + cross-ref to Other Conditions. ✅
+4. Wet-ink → prior seals REMAIN; baseline = last-authorised/signed; marks persist per-change until that
+   change is initialed; NOT cleared by wholesale re-seal. ✅
+5. Baseline seal event → **latest of `authoriser_cosigned` / `candidate_final_approved`** (unless cc6
+   explicitly flags `change_baseline_seal_id`). ✅
+
+Remaining tunable (safe default, adjustable later): the SMALL↔BIG word-count threshold `N` (default 8).

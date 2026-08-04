@@ -103,7 +103,47 @@ class CanonicalDocumentRenderer
             is_array($webData['_fill_review_overlay'] ?? null) ? $webData['_fill_review_overlay'] : [],
         );
 
+        // 6) Returned-doc CHANGE-HIGHLIGHT (wet-ink, AT-368). Marks every field/clause change against the
+        //    last-authorised sealed baseline — struck removals + inline write-ins that stay on the final
+        //    document. GATED: only when cc6's flow flags the doc as re-edited-after-authorisation
+        //    (`amendment_render`) AND a last-authorised seal exists to diff against. Display overlay only
+        //    (never baked); the highlighter is fail-safe (returns input unchanged on any error), so a
+        //    normal, never-returned document renders byte-identically to before.
+        if (! empty($webData['amendment_render'])) {
+            $baseline = $this->lastAuthorisedSealedHtml($document, $webData);
+            if ($baseline !== '') {
+                $html = app(DocumentChangeHighlighter::class)->highlight($html, $baseline);
+            }
+        }
+
         return $html;
+    }
+
+    /**
+     * The last-authorised/signed canonical to diff against for change-highlighting (AT-368). Prefers an
+     * explicit baseline seal id flagged by cc6's flow half (`change_baseline_seal_id`); otherwise the
+     * latest sealed version whose event is an authorisation gate. Wet-ink: prior seals REMAIN — this only
+     * READS the seal chain, never re-seals. Returns '' when there is no authorised baseline yet.
+     */
+    private function lastAuthorisedSealedHtml(\App\Models\Docuperfect\Document $document, array $webData): string
+    {
+        try {
+            $base = \App\Models\Docuperfect\DocumentSealedVersion::where('document_id', $document->id);
+            if (! empty($webData['change_baseline_seal_id'])) {
+                $row = (clone $base)->where('id', $webData['change_baseline_seal_id'])->first();
+                if ($row) {
+                    return (string) $row->sealed_html;
+                }
+            }
+            $row = $base->whereIn('event_type', [
+                DocumentSealService::EVENT_AUTHORISER_COSIGNED,
+                DocumentSealService::EVENT_CANDIDATE_FINAL_APPROVED,
+            ])->orderByDesc('version')->first();
+
+            return $row ? (string) $row->sealed_html : '';
+        } catch (\Throwable $e) {
+            return '';
+        }
     }
 
     /**
