@@ -4,19 +4,23 @@ namespace App\Services\PrivateProperty;
 
 use App\Models\Property;
 use App\Models\User;
+use App\Services\Images\AgentPhotoNormalizer;
 use Illuminate\Support\Facades\Log;
 
 class PrivatePropertySyndicationService
 {
     private PrivatePropertySoapClient $client;
     private PrivatePropertyListingMapper $mapper;
+    private AgentPhotoNormalizer $photoNormalizer;
 
     public function __construct(
         PrivatePropertySoapClient $client,
-        PrivatePropertyListingMapper $mapper
+        PrivatePropertyListingMapper $mapper,
+        AgentPhotoNormalizer $photoNormalizer
     ) {
         $this->client = $client;
         $this->mapper = $mapper;
+        $this->photoNormalizer = $photoNormalizer;
     }
 
     /**
@@ -516,6 +520,10 @@ class PrivatePropertySyndicationService
 
         $this->log('info', "Agent #{$user->id} ({$user->name}) " . ($active ? 'registered' : 'deactivated') . " on PP");
 
+        if ($active) {
+            $this->persistPpAgentIdentity($user);
+        }
+
         $message = $active ? 'Agent registered on PP' : 'Agent deactivated on PP';
         if ($remapNote) {
             $message .= ' (' . $remapNote . ')';
@@ -616,6 +624,33 @@ class PrivatePropertySyndicationService
             ];
         }
 
+        // A SOAP fault is only a transport-level failure — PP answers image
+        // rejections (wrong format, too large, unreachable URL) with a normal
+        // 200 response carrying the real verdict in UpdateAgentImageResult
+        // (e.g. "only jpg images are supported"). Trusting the absence of a
+        // SoapFault here is what let every rejected upload log as a success
+        // for months (agent #47/Shalan investigation, 2026-08-03) — every
+        // logged UpdateAgentImageResult was a rejection, none were ever
+        // checked.
+        //
+        // Unlike UpdateAgent/UpdateListing (whose ack is "Successful"),
+        // UpdateAgentImage's confirmed success string — verified live against
+        // the PP sandbox on 2026-08-03 for agent #47 once a real JPG was sent
+        // — is "image saved" (lowercase, no trailing punctuation). Matched
+        // case-insensitively since PP's casing has proven inconsistent
+        // across endpoints elsewhere in this integration.
+        $ack = $this->extractFromSoapResponse($result, 'UpdateAgentImage', ['UpdateAgentImageResult']);
+
+        if ($ack === null || strcasecmp($ack, 'image saved') !== 0) {
+            $message = $ack ?: 'Agent image upload was not confirmed by Private Property';
+            $this->log('warning', "Agent image upload NOT confirmed for #{$user->id}: {$message}", ['url' => $imageUrl, 'result' => $result]);
+
+            return [
+                'success' => false,
+                'message' => $message,
+            ];
+        }
+
         $this->log('info', "Agent image uploaded for #{$user->id}", ['url' => $imageUrl]);
 
         return [
@@ -656,7 +691,23 @@ class PrivatePropertySyndicationService
                 continue;
             }
 
-            $imageUrl = $baseUrl . '/storage/' . ltrim($user->agent_photo_path, '/');
+            // PP's UpdateAgentImage rejects every non-JPG upload ("only jpg
+            // images are supported") — CoreX stores agent photos as WebP, so
+            // we must push the JPEG rendition, not agent_photo_path itself.
+            // Legacy photo paths that are already .jpg use themselves.
+            if (preg_match('/\.jpe?g$/i', $user->agent_photo_path)) {
+                $photoPath = $user->agent_photo_path;
+            } else {
+                $photoPath = $this->photoNormalizer->ensureJpeg($user->id);
+            }
+
+            if ($photoPath === null) {
+                $skipped[] = ['user_id' => $user->id, 'name' => $user->name, 'reason' => 'Could not produce a JPG rendition of the agent photo (PP only accepts JPG) — re-upload the photo in CoreX'];
+                $this->log('warning', "Skipping agent image for #{$user->id} — JPEG rendition unavailable");
+                continue;
+            }
+
+            $imageUrl = $baseUrl . '/storage/' . ltrim($photoPath, '/');
 
             if (!str_starts_with($imageUrl, 'https://')) {
                 $skipped[] = ['user_id' => $user->id, 'name' => $user->name, 'reason' => "Image URL is not HTTPS: {$imageUrl}"];
@@ -668,7 +719,7 @@ class PrivatePropertySyndicationService
             // Note: PP also requires minimum 160x120px. We do not validate
             // dimensions server-side (would need GD/Imagick); ensure agent
             // photos uploaded through CoreX meet this minimum.
-            $localPath = storage_path('app/public/' . $user->agent_photo_path);
+            $localPath = storage_path('app/public/' . $photoPath);
             if (file_exists($localPath) && filesize($localPath) > 1048576) {
                 $skipped[] = ['user_id' => $user->id, 'name' => $user->name, 'reason' => 'Image exceeds 1MB limit'];
                 $this->log('warning', "Skipping agent image for #{$user->id} — exceeds 1MB");
@@ -846,7 +897,80 @@ class PrivatePropertySyndicationService
         }
 
         $this->log('info', "Agent #{$user->id} registered on PP", ['result' => $result]);
+        $this->persistPpAgentIdentity($user);
+
         return true;
+    }
+
+    /**
+     * After a successful UpdateAgent, learn PP's encrypted agent id for this
+     * agent so CoreX's own record shows the agent as synced — without this,
+     * an agent registered only via the auto-register-on-submit path (or the
+     * admin "Sync Agent to PP" button) keeps pp_unique_agent_id/pp_external_ref
+     * NULL forever, because UpdateAgent's own response never returns the
+     * encrypted id (only "Successful"). A later flow that needs it (e.g.
+     * AgentPpController::updateExternalRef, or the next
+     * ensureNoDuplicateBeforeUpdateAgent duplicate-check) then has no record
+     * that this agent already exists on PP — risking a duplicate profile.
+     * Mirrors AgentPpController::fetchEncryptedAgentIdFromPp's proven
+     * GetAgent lookup + candidate extraction. Guarded so the extra SOAP call
+     * fires once per agent, not on every submit.
+     */
+    private function persistPpAgentIdentity(User $user): void
+    {
+        $externalRef = (string) ($user->pp_external_ref ?: $user->id);
+
+        if (!empty($user->pp_unique_agent_id) && (string) $user->pp_external_ref === $externalRef) {
+            return;
+        }
+
+        try {
+            $resp = $this->client->getAgent($externalRef);
+        } catch (\Throwable $e) {
+            return;
+        }
+
+        if (isset($resp['error']) && $resp['error'] === true) {
+            return;
+        }
+
+        $encrypted = $this->extractEncryptedAgentId($resp);
+        if ($encrypted === '') {
+            return;
+        }
+
+        $user->update([
+            'pp_unique_agent_id' => $encrypted,
+            'pp_external_ref'    => $externalRef,
+        ]);
+
+        $this->log('info', "Captured PP identity for agent #{$user->id}", [
+            'pp_unique_agent_id' => $encrypted,
+            'pp_external_ref'    => $externalRef,
+        ]);
+    }
+
+    /**
+     * Same candidate shapes as AgentPpController::extractEncryptedId — PP's
+     * GetAgent response has been observed with the encrypted id at each of
+     * these three positions depending on SOAP envelope quirks.
+     */
+    private function extractEncryptedAgentId(array $resp): string
+    {
+        $candidates = [
+            $resp['PrivatePropertyAgentId'] ?? null,
+            $resp['GetAgentResult']['PrivatePropertyAgentId'] ?? null,
+            $resp['Agent']['PrivatePropertyAgentId'] ?? null,
+        ];
+
+        foreach ($candidates as $value) {
+            $value = trim((string) ($value ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return '';
     }
 
     /**

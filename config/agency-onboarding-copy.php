@@ -150,6 +150,11 @@ return [
              'label' => 'Publish to Private Property',
              'explain' => 'The same as Property24 above, for the Private Property portal.',
              'affects' => 'Whether a syndicating listing is sent to Private Property. Needs your PP credentials saved against the agency first.'],
+
+            ['key' => 'pp_exclusive_days_max', 'source' => 'perf', 'type' => 'number', 'default' => 92, 'min' => 1, 'max' => 92,
+             'label' => 'Maximum PP exclusive days',
+             'explain' => 'Private Property lets a sole mandate go exclusive to PP for a chosen number of days, during which no other portal may carry the listing. This is the ceiling an agent can choose from — nothing is ever exclusive unless an agent explicitly opts in on that listing. Private Property\'s own hard limit is 92 days.',
+             'affects' => 'The maximum number of days offered on the exclusivity opt-in when an agent ticks it on a sole mandate sale listing.'],
         ],
     ],
 
@@ -320,6 +325,7 @@ return [
             ['controller' => SettingsController::class, 'method' => 'updateMatchesShowOnProperties'],
             ['controller' => SettingsController::class, 'method' => 'updateMatchesVisibilityScope'],
             ['controller' => SettingsController::class, 'method' => 'updateMatchesWaMessage'],
+            ['controller' => SettingsController::class, 'method' => 'updateMatchesEmailMessage'],
         ],
         'controls' => [
             ['key' => 'matches_show_on_properties', 'source' => 'perf', 'type' => 'toggle', 'default' => 1,
@@ -335,6 +341,14 @@ return [
              'label' => 'WhatsApp message template',
              'explain' => 'The message that pre-fills when an agent taps WhatsApp on a match, so they are not writing the same opener forty times a week. Leave blank to let agents write their own each time.',
              'affects' => 'The text sitting in the WhatsApp box when an agent contacts a matched buyer. They can always edit it before sending.'],
+            ['key' => 'matches_email_subject', 'source' => 'perf', 'type' => 'text', 'default' => '',
+             'label' => 'Email subject line',
+             'explain' => 'The subject pre-filled when an agent emails a match to a buyer who doesn\'t use WhatsApp. Leave blank to let agents write their own each time.',
+             'affects' => 'The subject line sitting in the email composer when an agent emails a matched buyer.'],
+            ['key' => 'matches_email_message', 'source' => 'perf', 'type' => 'textarea', 'default' => '',
+             'label' => 'Email message template',
+             'explain' => 'The message that pre-fills when an agent emails a match, for the buyers who don\'t have WhatsApp. Leave blank to let agents write their own each time.',
+             'affects' => 'The text sitting in the email box when an agent contacts a matched buyer by email. They can always edit it before sending.'],
         ],
     ],
 

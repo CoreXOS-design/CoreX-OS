@@ -164,6 +164,12 @@ class PpLeadService
         $phone      = $this->firstNonEmpty($raw, ['FromContactNumber', 'fromContactNumber', 'ContactNumber', 'Phone']);
         $message    = $this->firstNonEmpty($raw, ['Message', 'message']);
         $receivedAt = $this->parseTimestamp($this->firstNonEmpty($raw, ['Date', 'LeadDate', 'date'])) ?? now();
+        // PP's `LeadType` values are EmailLead/WhatsAppLead (PP Agency Feed Service Rev
+        // 4.7). Match tolerantly on substring rather than an exact enum value — matches
+        // the tolerant-mapping posture used everywhere else in this integration and
+        // survives PP casing/spelling drift either side of the cutover.
+        $leadType   = (string) ($this->firstNonEmpty($raw, ['LeadType', 'leadType']) ?? 'Email');
+        $isWhatsApp = stripos($leadType, 'whatsapp') !== false;
 
         // STRICT dedup: PP LeadId is a stable, unique enquiry id. Re-pulls of an
         // overlapping window MUST create zero duplicates. When present, LeadId is
@@ -185,7 +191,7 @@ class PpLeadService
         $lead = new PortalLead([
             'agency_id'                 => $agencyId,
             'portal'                    => PortalLead::PORTAL_PP,
-            'lead_type'                 => (string) ($this->firstNonEmpty($raw, ['LeadType', 'leadType']) ?? 'Email'),
+            'lead_type'                 => $leadType,
             'listing_id'                => $listingId,
             'listing_portal_ref'        => $listingRef ? (string) $listingRef : null,
             'contact_id'                => $contact?->id,
@@ -195,7 +201,7 @@ class PpLeadService
             'email'                     => $email,
             'phone'                     => $phone,
             'message'                   => $message,
-            'is_whatsapp'               => false,
+            'is_whatsapp'               => $isWhatsApp,
             // __corex_lead_id is the dedup key — always present so a re-pull is
             // idempotent even when the composite fields repeat.
             'lead_source_raw'           => $raw + ['__corex_lead_id' => $leadId],

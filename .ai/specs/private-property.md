@@ -1,7 +1,7 @@
 # Private Property (PP) Syndication — Spec
 > Living reference for the Private Property integration. Reflects the
 > ACTUAL current implementation, not an idealised target.
-> Last updated: 2026-04-28
+> Last updated: 2026-08-03
 
 ---
 
@@ -134,9 +134,70 @@ Retry policy: `call()` retries once on timeout-style faults (`Error Fetching htt
 | `Attributes` | structural: `Bedrooms,Bathrooms,Garages,FloorArea,LandArea,HomeType\|BusinessType\|FarmType\|LandType,Rates,Levies` **+ feature attributes** (see §Feature Attributes) | category-specific type attribute; features from `features_json`/`spaces_json` |
 | `HideStreetName/No/ComplexName/UnitNumber` | bool, `pp_hide_*` columns | |
 | `RentalPriceType` | `mapRentalPriceType()` → `PerMonth\|PerWeek\|PerDay\|PerM2` | legacy "PerSquareMeter" mapped to `PerM2` |
-| `SoleMandateExclusiveDays` | derived from listed_date↔expiry_date for FullMandate Sale | 1-92 only; else 0 |
+| `SoleMandateExclusiveDays` | `$p->pp_exclusive_days` (agent opt-in ONLY, AT-369) | sent only when `pp_exclusive_days >= 1` AND `MandateType === FullMandate` AND `ListingType === Sale`; capped at 92; else omitted (field stays `0`, PP's own "not requested" value) |
 
 `validate($payload): array` enforces all of the above. `checkReadiness(Property $p): array` returns user-facing missing-field list before submission is even attempted.
+
+### 6a. Agent opt-in PP exclusivity (AT-369, 2026-08-04)
+
+**Design (Johan's ruling):** sole mandates syndicate normally to every selected portal by
+default. PP exclusivity is an **opt-in tick per listing** — never derived from dates,
+never assumed from mandate type alone, never an agency-mandated blanket mode. While a
+listing's exclusive window is open, it must **not** reach Property24 or any other portal.
+
+**History:** before this fix, `PrivatePropertyListingMapper::map()` auto-calculated
+`SoleMandateExclusiveDays` from `listed_date`↔`expiry_date` on every sole-mandate Sale
+submit — no agent ever chose it, and nothing gated Property24 on the result. See
+§6/§17 history and `PpRemediateLegacyExclusiveDays` below for the cleanup.
+
+**Flow:**
+1. Agent ticks "Make this listing exclusive to Private Property" on the syndication
+   panel (`resources/views/corex/properties/partials/syndication-panel.blade.php`,
+   visible only for sole-mandate Sale listings). Ticking opens an info modal
+   (the shared `<x-modal>` component — `resources/views/components/modal.blade.php`)
+   explaining: PP-only publish while other portals are blocked; the "Only on Private
+   Property" label runs the full period while featured placement caps at 7 days; the
+   listing must be a newly signed sole mandate not already advertised elsewhere; and
+   exclusivity cannot be cancelled within 24 hours of PP creation (PP rejects it).
+2. Agent picks 1..agency-max days in the modal and confirms — nothing is sent to the
+   server yet. Cancel leaves the tick off; nothing saved.
+3. The chosen day count travels to the server on the next Submit/Refresh
+   (`syndication-scripts.blade.php` `submitListing()`/`refreshListing()` — both POST
+   `pp_exclusive_days` to `/syndication/submit`).
+4. `SyndicationController::submit()` validates server-side (never trusts the client
+   alone): a value of `0` always clears it; a positive value must be an integer within
+   `1..pp_exclusive_days_max` (agency setting, below) AND the listing must be a sole
+   mandate Sale — anything else is rejected with a 422, never silently dropped.
+5. `PrivatePropertyListingMapper::map()` sends `SoleMandateExclusiveDays` from
+   `pp_exclusive_days` under the same FullMandate+Sale condition (§6 table above).
+6. PP's response `DelayListingOnOtherWebsitesUntil` is parsed and stored in
+   `pp_delay_until` exactly as before (`PrivatePropertySyndicationService.php:156-168` —
+   unchanged by AT-369).
+
+**Agency cap — `pp_exclusive_days_max` (PerformanceSetting, agency-scoped):**
+- Default 92 (PP's own hard maximum), agency-configurable downward, never below 1 or
+  above 92 — enforced server-side in `SettingsController::updateSyndicationPortals()`
+  regardless of what the form sends.
+- UI: Company Settings → Feature Settings → Properties → "Syndication Portals" card.
+- Onboarding wizard: `config/agency-onboarding-copy.php` `capabilities` step, alongside
+  `syndication_pp_enabled`.
+- **Not** registered in `AgencyFeatureService::SWITCHBOARD_STORES` — that map is
+  boolean-only (`enabled()` casts every entry through `(bool) PerformanceSetting::get(...)`),
+  and this is a numeric cap on an already-gated feature, not a feature to gate on/off.
+
+**The real P24 gate (server-side, not cosmetic):** `Property::isPpExclusiveActive()`
+(`pp_delay_until` set and in the future) is the single source of truth, enforced at
+every Property24 entry point. Full detail: `.ai/specs/p24-syndication.md` §"AT-369 — PP
+exclusivity gate".
+
+**Remediation:** `php artisan pp:remediate-legacy-exclusivity` (`--dry-run` default,
+`--live` to act) finds every property with `pp_delay_until` set (PP's own ground truth
+for "exclusivity was granted") and, for any still inside the window, clears
+`pp_exclusive_days` and resubmits so PP releases it. Skips anything activated on PP
+within the last 24 hours (PP rejects the reduction) and reports those separately.
+Transaction-per-listing, rolls back the local clear if the resubmit fails. No hard
+deletes — the only write is the ordinary `pp_exclusive_days` update + the standard
+`submitListing()` path "Refresh" already uses.
 
 ### Feature Attributes (added 2026-07-01 — property 6049 fix)
 
@@ -216,9 +277,25 @@ edit page. Sidebar → System Developer → **PP Agents** opens a three-tab page
 
 The old per-agent Private Property card on `admin/users/{user}/edit` was removed — that
 page is now a tabbed Profile / Role & Access / Finance / Compliance / Actions layout.
-5. Image upload — `submitAgentImages()` reads `User::agent_photo_path`, builds `PP_IMAGE_BASE_URL/storage/<path>`, enforces HTTPS + ≤1MB, calls `UpdateAgentImage` with field name **`imgurl`** (lowercase).
+5. Image upload — `submitAgentImages()` builds `PP_IMAGE_BASE_URL/storage/<path>` from the agent's **JPEG rendition** (see §7a — not `agent_photo_path`, which is WebP), enforces HTTPS + ≤1MB, calls `UpdateAgentImage` with field name **`imgurl`** (lowercase).
 
-PP image spec: minimum 160×120px, max 1MB. The 1MB check is enforced server-side; the dimension minimum is documented but not validated server-side (would require GD/Imagick) — agents must comply when uploading.
+PP image spec: minimum 160×120px, max 1MB, **JPG only**. The 1MB check is enforced server-side; the dimension minimum is documented but not validated server-side (would require GD/Imagick) — agents must comply when uploading. `UpdateAgentImage`'s response is a plain SOAP 200 even when PP rejects the image — the real verdict is the `UpdateAgentImageResult` string (`"Successful"` vs. e.g. `"only jpg images are supported"`); `uploadAgentImage()` inspects it explicitly rather than trusting the absence of a `SoapFault` (see §7a).
+
+### 7a. Agent photo format & the JPG-only fix (2026-08-03)
+
+**Root cause found investigating agent #47 (Shalan)**: CoreX normalises every agent photo to WebP (`App\Services\Images\AgentPhotoNormalizer`, `agents/{id}/photo.webp` — see `.ai/specs/agent-photo.md`). PP's `UpdateAgentImage` only accepts JPG and silently rejects everything else with `UpdateAgentImageResult: "only jpg images are supported"` — confirmed on **145/145** historical calls across every agent. `uploadAgentImage()` previously only checked the SOAP transport-level `error` flag (set on a `SoapFault`), never the response body, so every rejection was logged and returned as a success. Established agents still showed a photo only because PP had an old JPG on file from before this became an issue (Feb 2026 agent registrations); Shalan's PP profile was created fresh on 2026-08-03 with nothing to fall back on.
+
+**Fix:**
+- `AgentPhotoNormalizer::store()` now also writes a JPEG rendition at `agents/{id}/photo.jpg` (flattened onto white — JPEG has no alpha) alongside the canonical WebP, from the same 1200×1200 square canvas. `ensureJpeg(int $userId)` lazily regenerates it on demand for agents whose photo predates this change (absorb, not a one-off backfill migration) — called from `submitAgentImages()` before every push.
+- `submitAgentImages()` builds `imgurl` from the JPEG rendition, not `agent_photo_path`. A legacy `.jpg`/`.jpeg` `agent_photo_path` (pre-normalizer agents) is used as-is.
+- `uploadAgentImage()` now extracts `UpdateAgentImageResult` via `extractFromSoapResponse()` and only treats the literal string `"Successful"` as success — anything else (PP's real rejection reason) is returned as a failure with PP's own message.
+- `AgentProfilePhotoService::clear()` deletes the JPEG rendition alongside the WebP and its `user_documents` row.
+
+### 7b. Agent identity persistence after registration (2026-08-03)
+
+**Root cause**: neither `registerAgent()` (admin "Sync Agent to PP" button) nor the private `ensureAgentRegistered()` (auto-register on first listing submit — the path Shalan's registration actually took) ever persisted `pp_unique_agent_id`/`pp_external_ref` back onto the `users` row after a successful `UpdateAgent` — `UpdateAgent`'s own response never returns the encrypted id, only `"Successful"`. Only the admin "Update PP Agent ID" flow (`AgentPpController::updateExternalRef`) wrote these columns. An agent registered only via auto-register therefore looked permanently "never synced" to CoreX, risking a duplicate PP profile on the next `ensureNoDuplicateBeforeUpdateAgent` check or manual remap.
+
+**Fix:** both `registerAgent()` and `ensureAgentRegistered()` call a new private `persistPpAgentIdentity(User $user)` after a successful `UpdateAgent` — looks up the encrypted id via `GetAgent` (mirrors `AgentPpController::fetchEncryptedAgentIdFromPp`'s proven candidate extraction) and writes `pp_unique_agent_id`/`pp_external_ref`. Guarded to fire the extra SOAP call only once per agent (skipped once both columns are already correct), so this does not add a `GetAgent` call to every listing submit.
 
 ---
 
@@ -377,7 +454,7 @@ Plus `php artisan pp:smoke-test` → `GetBranchDetails`.
 - **Suburb hierarchy** — `Suburb` must be more specific than `Town` and the two strings must not be identical (case-insensitive). Province is a fixed enum.
 - **PhotoUrl must be HTTPS** — localhost / http:// URLs are rejected by PP. Override via `PP_IMAGE_BASE_URL`.
 - **Agent image** — field name in WSDL is `imgurl` lowercase. Min 160×120, max 1MB.
-- **`SoleMandateExclusiveDays`** — only valid for `FullMandate Sale`, range 1-92. Anything else must be 0.
+- **`SoleMandateExclusiveDays`** — only valid for `FullMandate Sale`, range 1-92. Anything else must be 0. **AT-369 (2026-08-04):** sent from agent opt-in (`pp_exclusive_days`) only — see §6a. Reducing it below 1 within 24 hours of the listing's PP creation is a PP error; `pp:remediate-legacy-exclusivity` skips candidates inside that window for manual handling.
 
 ---
 
@@ -402,4 +479,110 @@ The integration treats PP errors as opaque strings stored in `pp_last_error`. Co
 - **Elize duplicate** — AgentId=100, encrypted `lW2pKs8th84=`. Listings 16 and 34 currently assigned to it on PP. Cannot be deactivated until PP support reassigns. Track at `app/Services/PrivateProperty/PrivatePropertySyndicationService.php` agent-flow.
 - ~~**`pp_listing_feed_ref` for T2870133** — null. Video push blocked.~~ **RESOLVED 2026-05-18.** Was NOT blocked on PP — the Event Feed parser was broken (wrong envelope path, mis-spelled `LisitngEventFeedData` child, inverted `ListingFeedRef`/`OfficeFeedRef` roles). Fixed in `ProcessPrivatePropertyEventFeed`. PP has emitted multiple `Activated` events for property 16 (`ListingFeedRef="16"`); the corrected job populates `pp_listing_feed_ref="16"` on the next run for any Active listing.
 - **`PP_WEBHOOK_SECRET`** — must be obtained by registering `https://corex.hfcoastal.co.za/api/pp/webhook` in the PP Admin Portal.
-- **Sole-mandate exclusive listing test** — outstanding test case (FullMandate Sale, `pp_exclusive_days > 0`).
+- ~~**Sole-mandate exclusive listing test** — outstanding test case (FullMandate Sale, `pp_exclusive_days > 0`).~~ **RESOLVED 2026-08-04 (AT-369).** `pp_exclusive_days` is no longer a dormant column — it is read by the mapper, set via the syndication panel's opt-in + info modal, and validated server-side. See §6a. Live remediation of pre-fix listings (`pp:remediate-legacy-exclusivity --live`) is still outstanding — Johan gives a separate explicit order for that run; the dry-run was proven on QA1 only.
+
+---
+
+## 18. Undocumented subsystems (added 2026-08-01 — Rev 4.6→4.7 investigation)
+
+Two services and their scheduled jobs existed in the codebase but were missing from this
+spec until now:
+
+- **`App\Services\PrivateProperty\PpLeadService`** — buyer-enquiry lead ingestion via
+  `ListingLeadDetailsFeed`, mirrors `P24LeadService` one-for-one into `portal_leads`
+  (`portal='pp'`). Scheduled every 5 min via `App\Jobs\PrivateProperty\PullPpLeadsJob`
+  (`routes/console.php`, name `pp-leads-pull`). **Gated per-agency** by
+  `agencies.pp_lead_pull_enabled` (default OFF — AT-199). Cursor: `Cache` key
+  `pp.leads.cursor.agency.{id}`, 7-day default lookback on first run. Dedup: PP `LeadId`,
+  strict.
+- **`App\Services\PrivateProperty\PpStatsService`** — nightly per-listing engagement
+  snapshot via `ListingPerformanceStats` (Views, Messages, TelLeads, Alerts), upserted into
+  `property_portal_metrics` (`portal='pp'`) — the same table P24 writes to,
+  portal-discriminated. Scheduled daily 04:30 via
+  `App\Jobs\PrivateProperty\PullPpStatsJob` (name `pp-stats-pull`). **Gated per-agency** by
+  `agencies.pp_stats_pull_enabled` (default OFF, seeded ON for agency 1/HFC — AT-201). PP
+  gives no historical backfill; the series accumulates from switch-on. Read by
+  `PropertyIntelligenceService::getPortalPerformance()` /
+  `::getPortalEngagementSeries()`, surfaced via `SellerLinkController` (seller-facing link)
+  and `Api\V1\ClientSellerInsightsController` (mobile), and the property Intelligence tab
+  (`resources/views/corex/properties/intelligence/_portal-leads.blade.php`).
+
+Also present, unaffected by the changes below: `App\Console\Commands\SyncPpLocations`
+(`GetCountries/Provinces/Cities/Suburbs` → `pp_provinces`/`pp_cities`/`pp_suburbs`) and
+`App\Console\Commands\BulkSyndicatePP` (`pp:bulk-syndicate`, sequential bulk `UpdateListing`
+push, mirrors `p24:bulk-syndicate`).
+
+## 19. PP Agency Feed Service Rev 4.6 → 4.7 (SOAP shim reimplementation)
+
+Private Property is re-implementing the Agency Feed Service behind a shim (WSDL contract
+unchanged for core flows). Full investigation:
+`.ai/investigations/pp-rev47-shim-investigation-2026-08-01.md` (if not present, see chat
+history 2026-08-01 — file was not committed as part of the investigation-only pass).
+Sandbox not yet available as of this writing; production targeted August 2026.
+
+Full changelog and per-change risk assessment live in the investigation above. Two items
+were approved by Johan for immediate, PP-timeline-independent hardening (both are gaps in
+**our own** fault-tolerance, not reactions to PP's change, so they don't need to wait on
+the sandbox):
+
+### 19.1 `is_whatsapp` derived from `LeadType` (was hardcoded `false`)
+
+**Problem:** `PpLeadService::processLead()` stored PP's `LeadType` string verbatim into
+`portal_leads.lead_type` but always wrote `is_whatsapp = false`, unlike
+`P24LeadService::processLead()` which derives the flag from the payload. Under Rev 4.7,
+`LeadType` explicitly carries `EmailLead` / `WhatsAppLead` — once `pp_lead_pull_enabled`
+is on for an agency and PP starts sending `WhatsAppLead`, those leads would be permanently
+mis-flagged (missed by any `is_whatsapp=true` filter, missing the "/ WhatsApp" UI suffix in
+`resources/views/corex/portal-leads/index.blade.php`).
+
+**Fix:** derive `is_whatsapp` via a case-insensitive `str_contains` check on the resolved
+lead-type string (`stripos($leadType, 'whatsapp') !== false`) rather than an exact-match
+against `'WhatsAppLead'` — tolerant of PP's exact casing/spelling either side of the
+cutover, consistent with the tolerant-mapping posture used everywhere else in this
+integration (§C1 of the investigation).
+
+**Pillar:** Contact (no new column — reuses existing `portal_leads.is_whatsapp`, already
+present for the P24/website paths).
+
+**Files:** `app/Services/PrivateProperty/PpLeadService.php`,
+`tests/Feature/Leads/PpLeadServiceTest.php`.
+
+### 19.2 Event-feed consecutive-failure escalation
+
+**Problem:** `ProcessPrivatePropertyEventFeed::drainFeed()` treats any SOAP fault on
+`GetListingEventFeedByBranch` identically: log to the `private_property` channel and
+return. No retry within the run, no reset, no distinction between a transient blip and a
+persistent failure, and no escalation path — a stuck cursor (exactly what Rev 4.7's
+continuationKey invalidation will cause on every branch, once) fails the same way silently
+every 15 minutes forever. This job is the **authoritative** source for listing
+activations/deactivations/image-error detection (§10) — a silent multi-hour outage here is
+a real business impact (agents' listings stop activating on PP, nobody told).
+
+**Fix:** track a per-cursor-key consecutive-failure streak in the existing
+`pp_event_feed_settings` key/value store (`PpEventFeedSetting`) — `{cursorKey}:fail_streak`
+(count) and `{cursorKey}:fail_since` (ISO timestamp of the first failure in the current
+streak). Reset to zero on the next successful call. Once the streak reaches
+`FAIL_STREAK_ALERT_THRESHOLD = 3` (≈45 min at the 15-min schedule — long enough to absorb a
+transient network blip, short enough that an agent doesn't lose most of a working day
+before anyone is told), escalate via the default `Log::critical()` channel (unscoped, not
+`private_property` — mirrors `App\Console\Commands\QueueHealthcheck`'s established
+"loud detector, no fixer" pattern, so it reaches whatever log-based monitoring already
+watches for CRITICAL-level lines) in addition to the existing per-failure
+`private_property`-channel error log. This is deliberately the same lightweight
+detector shape already used for the queue-worker healthcheck, not the richer
+`NotificationDispatcher`/owner-alert pattern from `PermissionLockdownAlarm` (AT-265) — that
+richer pattern is scoped to platform-wide security lockdowns; a single-integration
+scheduled-job stall is proportionate to the simpler, already-established convention. A
+future enhancement to page an owner directly (AT-265-style) is a deliberate deferral, not
+an oversight — raise with Johan if the log-only signal proves insufficient in practice.
+
+**Does NOT attempt** to distinguish "stale continuationKey" from any other SOAP fault type
+— that requires knowing PP's actual fault text/code for an invalidated key post-Rev-4.7,
+which is one of the open questions sent to PP (see the investigation §F.1). This fix only
+ensures a persistent fault of *any* kind is no longer silent.
+
+**Pillar:** Property (no new column — reuses `pp_event_feed_settings`, already the
+integration's dedicated state store).
+
+**Files:** `app/Jobs/ProcessPrivatePropertyEventFeed.php`,
+`tests/Feature/Syndication/PrivatePropertyEventFeedTest.php`.

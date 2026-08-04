@@ -11,17 +11,47 @@
         $waPhone = '27' . substr($waPhone, 1);
     }
     $renderedWaMsg = str_replace(['{name}', '{link}'], [$contact->first_name, $match->sharedUrl()], $defaultWaMsg);
+
+    $defaultEmailSubject = \App\Models\PerformanceSetting::get('matches_email_subject', 'Your personalised property matches');
+    $defaultEmailMsg = \App\Models\PerformanceSetting::get('matches_email_message',
+        "Hi {name},\n\nI've put together a personalised selection of properties that match your search criteria.\n\nView your property matches here:\n{link}\n\nFeel free to reach out if you'd like to arrange viewings or have any questions!"
+    );
+    $renderedEmailSubject = str_replace(['{name}', '{link}'], [$contact->first_name, $match->sharedUrl()], $defaultEmailSubject);
+    $renderedEmailMsg = str_replace(['{name}', '{link}'], [$contact->first_name, $match->sharedUrl()], $defaultEmailMsg);
+
     $totalViews = array_sum($match->property_view_counts ?? []);
     $hiddenCount = count($match->hidden_property_ids ?? []);
 @endphp
 <div class="w-full space-y-6"
      x-data="{
          showWaModal: false,
+         showEmailModal: false,
          noteOpen: null,
          waMessage: {{ Js::from($renderedWaMsg) }},
          waPhone: '{{ $waPhone }}',
+         emailSubject: {{ Js::from($renderedEmailSubject) }},
+         emailBody: {{ Js::from($renderedEmailMsg) }},
+         contactEmail: {{ Js::from($contact->email ?? '') }},
          outreachAllowed: {{ ($outreachWindow['allowed'] ?? true) ? 'true' : 'false' }},
          outreachWindowMessage: {{ Js::from($outreachWindow['message'] ?? '') }},
+         // AT-59 — record the send against the contact's comms archive so
+         // `last_contacted_at` and the WhatsApp/Email counts on the Contact
+         // page move. Both wa.me and mailto: sends are client-side deep links
+         // the server never sees, so this call is what makes the send count.
+         incrementUrl: @js(route('corex.contacts.increment', $contact)),
+         incrementCsrf: @js(csrf_token()),
+         async recordSend(channel, payload = {}) {
+             try {
+                 await fetch(this.incrementUrl, {
+                     method: 'POST',
+                     headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.incrementCsrf, 'Accept': 'application/json' },
+                     body: JSON.stringify({ channel, subject: payload.subject ?? null, body: payload.body ?? null }),
+                 });
+             } catch (e) {
+                 // Network blip: the archive is the source of truth on next load;
+                 // the WhatsApp/email deep link has already fired regardless.
+             }
+         },
          sendWhatsApp() {
              if (!this.waPhone) return;
              // AT-117 §4a — send-window lock.
@@ -30,26 +60,34 @@
                  return;
              }
              window.open('https://wa.me/' + this.waPhone + '?text=' + encodeURIComponent(this.waMessage), '_blank');
+             this.recordSend('whatsapp', { body: this.waMessage });
              this.showWaModal = false;
+         },
+         sendEmail() {
+             if (!this.contactEmail) return;
+             window.location.href = 'mailto:' + encodeURIComponent(this.contactEmail) + '?subject=' + encodeURIComponent(this.emailSubject) + '&body=' + encodeURIComponent(this.emailBody);
+             this.recordSend('email', { subject: this.emailSubject, body: this.emailBody });
+             this.showEmailModal = false;
          },
          // AT-117 — add this composed message to the outreach queue (ready now).
          queueUrl: @js(route('corex.outreach-queue.enqueue')),
          queueContactId: {{ (int) $contact->id }},
          queueCsrf: @js(csrf_token()),
          queuing: false,
-         async addToQueue() {
+         async addToQueue(channel, body) {
              if (this.queuing) return;
              this.queuing = true;
              try {
                  const res = await fetch(this.queueUrl, {
                      method: 'POST',
                      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-TOKEN': this.queueCsrf, 'Accept': 'application/json' },
-                     body: new URLSearchParams({ contact_id: this.queueContactId, channel: 'whatsapp', source: 'mic', body: this.waMessage }),
+                     body: new URLSearchParams({ contact_id: this.queueContactId, channel: channel, source: 'mic', body: body }),
                  });
                  const data = await res.json();
                  if (!res.ok || !data.ok) { alert(data.message || 'Could not queue.'); return; }
                  alert(data.message || 'Added to your outreach queue.');
                  this.showWaModal = false;
+                 this.showEmailModal = false;
              } catch (e) { alert('Network error — try again.'); } finally { this.queuing = false; }
          },
          hideModal: { open: false, reason: '', title: '', form: null },
@@ -205,6 +243,13 @@
                             <path d="M12 0C5.373 0 0 5.373 0 12c0 2.117.554 4.103 1.523 5.824L0 24l6.335-1.509A11.945 11.945 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.854 0-3.6-.483-5.12-1.33l-.368-.214-3.76.896.952-3.656-.238-.384A10.01 10.01 0 0 1 2 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/>
                         </svg>
                         WhatsApp
+                    </button>
+                    @endif
+                    @if($contact->email)
+                    {{-- Email fallback — for buyers who don't use WhatsApp. --}}
+                    <button type="button" @click="showEmailModal = true" class="corex-btn-outline text-xs">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
+                        Email
                     </button>
                     @endif
                     <a href="{{ $match->sharedUrl() }}" target="_blank" class="corex-btn-outline text-xs whitespace-nowrap">
@@ -500,7 +545,7 @@
             {{-- AT-117 — add to the outreach queue (ready now). Available any time;
                  sending from the queue is gated by the send-window. --}}
             <div class="px-6 pb-4 mt-2 pt-3" style="border-top: 1px solid var(--border);">
-                <button type="button" @click="addToQueue()" :disabled="queuing"
+                <button type="button" @click="addToQueue('whatsapp', waMessage)" :disabled="queuing"
                         class="corex-btn-outline disabled:opacity-40 disabled:cursor-not-allowed">
                     <span x-show="!queuing">Add to queue</span>
                     <span x-show="queuing" x-cloak>Adding…</span>
@@ -519,6 +564,64 @@
                         <path d="M12 0C5.373 0 0 5.373 0 12c0 2.117.554 4.103 1.523 5.824L0 24l6.335-1.509A11.945 11.945 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.854 0-3.6-.483-5.12-1.33l-.368-.214-3.76.896.952-3.656-.238-.384A10.01 10.01 0 0 1 2 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/>
                     </svg>
                     Open in WhatsApp
+                </button>
+            </div>
+        </div>
+    </div>
+
+    {{-- Email Modal — for buyers who don't use WhatsApp. --}}
+    <div x-show="showEmailModal" x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center p-4"
+         style="background: rgba(0,0,0,0.5);"
+         @keydown.escape.window="showEmailModal = false">
+        <div class="w-full max-w-lg rounded-md overflow-hidden"
+             style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 10px 30px rgba(0,0,0,0.18);"
+             @click.stop>
+
+            {{-- Modal header --}}
+            <div class="flex items-center justify-between px-6 py-4" style="border-bottom: 1px solid var(--border);">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0"
+                         style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent);">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="var(--brand-icon)" style="width:18px;height:18px;"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
+                    </div>
+                    <div>
+                        <div class="text-lg font-semibold" style="color: var(--text-primary);">Send via Email</div>
+                        <div class="text-xs" style="color: var(--text-muted);">{{ $contact->full_name }}@if($contact->email) · {{ $contact->email }}@endif</div>
+                    </div>
+                </div>
+                <button type="button" @click="showEmailModal = false"
+                        class="w-8 h-8 flex items-center justify-center rounded-md text-sm font-bold"
+                        style="color: var(--text-muted); background: var(--surface-2); border: 1px solid var(--border);">✕</button>
+            </div>
+
+            {{-- Message editor --}}
+            <div class="px-6 py-5 space-y-3">
+                <label class="block text-xs font-medium" style="color: var(--text-secondary);">Subject</label>
+                <input type="text" x-model="emailSubject"
+                       class="w-full rounded-md px-3 py-2 text-sm"
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                <label class="block text-xs font-medium" style="color: var(--text-secondary);">Edit message before sending</label>
+                <textarea x-model="emailBody" rows="10"
+                          class="w-full rounded-md px-3 py-2 text-sm"
+                          style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); resize: vertical; line-height: 1.6;"></textarea>
+                <p class="text-xs" style="color: var(--text-muted);">The client's personalised link is already included in the message.</p>
+            </div>
+
+            <div class="px-6 pb-4 mt-2 pt-3" style="border-top: 1px solid var(--border);">
+                <button type="button" @click="addToQueue('email', emailBody)" :disabled="queuing"
+                        class="corex-btn-outline disabled:opacity-40 disabled:cursor-not-allowed">
+                    <span x-show="!queuing">Add to queue</span>
+                    <span x-show="queuing" x-cloak>Adding…</span>
+                </button>
+            </div>
+
+            {{-- Footer --}}
+            <div class="px-6 pb-5 flex items-center justify-end gap-3">
+                <button type="button" @click="showEmailModal = false" class="corex-btn-outline">Cancel</button>
+                <button type="button" @click="sendEmail()" class="corex-btn-primary">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
+                    Open in Email
                 </button>
             </div>
         </div>

@@ -2302,6 +2302,23 @@
                             </label>
                         </div>
                         @endforeach
+
+                        {{-- AT-369 — agency cap on agent-opted-in PP sole-mandate exclusivity
+                             days. This is a MAXIMUM only: nothing is exclusive unless an agent
+                             explicitly ticks it on that listing's syndication panel. --}}
+                        <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md flex-wrap" style="background:var(--surface); border:1px solid var(--border);">
+                            <div>
+                                <div class="text-sm font-medium" style="color:var(--text-primary);">Maximum PP exclusive days</div>
+                                <div class="text-xs" style="color:var(--text-muted);">Caps how many days an agent may request Private Property exclusivity for a sole mandate sale. Private Property's own hard limit is 92 days.</div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <input type="number" name="pp_exclusive_days_max" min="1" max="92" step="1" required
+                                       value="{{ old('pp_exclusive_days_max', $ppExclusiveDaysMax) }}"
+                                       class="w-20 rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Save</button>
+                            </div>
+                        </div>
                     </form>
                 </div>
 
@@ -3254,6 +3271,31 @@
                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); resize:vertical; line-height:1.6;">{{ old('matches_wa_message', $matchesWaMessage) }}</textarea>
                         <div class="flex items-center justify-between">
                             <span class="text-[10px]" style="color:var(--text-muted);">Max 1000 characters.</span>
+                            <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Save Template</button>
+                        </div>
+                    </form>
+                </div>
+
+                {{-- Email message template --}}
+                <div class="p-4 rounded-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div>
+                        <div class="text-sm font-semibold" style="color:var(--text-primary);">Email Message Template</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">
+                            This is the default subject and message pre-filled when sending matches via email — for clients who don't use WhatsApp. Use <code class="rounded font-mono text-[11px]" style="background:var(--surface); padding:1px 4px;">{name}</code> for the client's first name and <code class="rounded font-mono text-[11px]" style="background:var(--surface); padding:1px 4px;">{link}</code> for the matches page link.
+                        </div>
+                    </div>
+                    <form method="POST" action="{{ route('corex.settings.matches-email-message') }}" class="space-y-3">
+                        @csrf
+                        <input type="text" name="matches_email_subject" maxlength="200"
+                               value="{{ old('matches_email_subject', $matchesEmailSubject) }}"
+                               placeholder="Subject line"
+                               class="w-full rounded-md px-3 py-2 text-sm"
+                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        <textarea name="matches_email_message" rows="8" maxlength="2000"
+                                  class="w-full rounded-md px-3 py-2 text-sm font-mono"
+                                  style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); resize:vertical; line-height:1.6;">{{ old('matches_email_message', $matchesEmailMessage) }}</textarea>
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px]" style="color:var(--text-muted);">Subject max 200 characters, message max 2000 characters.</span>
                             <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Save Template</button>
                         </div>
                     </form>
