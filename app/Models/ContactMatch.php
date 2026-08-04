@@ -659,4 +659,32 @@ class ContactMatch extends Model
             ->all();
         $this->suburbs = array_values(array_filter(array_map('trim', $names)));
     }
+
+    /**
+     * The wishlist invariant: a feature belongs to at most ONE of the three buckets
+     * (must-have / nice-to-have / deal-breaker). Returns the tokens that violate it — i.e. appear
+     * in more than one bucket (empty array = disjoint / valid). Tokens are case/whitespace-normalised
+     * so the check matches however they were stored. Pure; throws nothing — callers decide.
+     *
+     * @param  array<int,string>|null  $must
+     * @param  array<int,string>|null  $nice
+     * @param  array<int,string>|null  $breaker
+     * @return array<int,string>
+     */
+    public static function conflictingFeatureTokens(?array $must, ?array $nice, ?array $breaker): array
+    {
+        $norm = fn (?array $a) => collect($a ?? [])
+            ->map(fn ($v) => strtolower(trim((string) $v)))
+            ->filter()->unique()->values()->all();
+
+        $must = $norm($must);
+        $nice = $norm($nice);
+        $breaker = $norm($breaker);
+
+        return collect(array_merge(
+            array_intersect($must, $nice),
+            array_intersect($must, $breaker),
+            array_intersect($nice, $breaker),
+        ))->unique()->values()->all();
+    }
 }

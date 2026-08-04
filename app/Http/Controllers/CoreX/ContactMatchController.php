@@ -369,6 +369,18 @@ class ContactMatchController extends Controller
             if ($bedsMin !== null && $bedsMax !== null && (int) $bedsMax < (int) $bedsMin) {
                 $v->errors()->add('bedrooms_max', 'Maximum bedrooms cannot be less than minimum bedrooms.');
             }
+
+            // A feature can be in only ONE bucket. The form enforces this (one selector per feature),
+            // so this is a backstop for any non-form/bypassed submission — reject rather than silently
+            // pick a bucket, keeping the three arrays disjoint (the matching engine relies on it).
+            $conflicts = \App\Models\ContactMatch::conflictingFeatureTokens(
+                $v->getData()['must_have_features'] ?? [],
+                $v->getData()['nice_to_have_features'] ?? [],
+                $v->getData()['deal_breakers'] ?? [],
+            );
+            if ($conflicts) {
+                $v->errors()->add('must_have_features', 'Each feature can be in only one category (Must-have, Nice, or Deal-breaker). In two: ' . implode(', ', $conflicts) . '.');
+            }
         });
 
         $data = $validator->validate();

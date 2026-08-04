@@ -208,6 +208,17 @@ class BuyerDetailController extends Controller
             if ($bedsMin !== null && $bedsMax !== null && (int) $bedsMax < (int) $bedsMin) {
                 $v->errors()->add('bedrooms_max', 'Maximum bedrooms cannot be less than minimum bedrooms.');
             }
+
+            // A feature can be in only ONE bucket (must/nice/deal-breaker). The form enforces this;
+            // this is a server backstop for any bypassed submission — keeps the three arrays disjoint.
+            $conflicts = \App\Models\ContactMatch::conflictingFeatureTokens(
+                $v->getData()['must_have_features'] ?? [],
+                $v->getData()['nice_to_have_features'] ?? [],
+                $v->getData()['deal_breakers'] ?? [],
+            );
+            if ($conflicts) {
+                $v->errors()->add('must_have_features', 'Each feature can be in only one category (Must-have, Nice, or Deal-breaker). In two: ' . implode(', ', $conflicts) . '.');
+            }
         });
 
         return $validator->validate();
