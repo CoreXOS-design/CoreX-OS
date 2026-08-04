@@ -147,7 +147,11 @@
                     :class="{ 'pointer-events-none': reschedule.dragging }"
                     data-layer="{{ $evt->layer_key ?? 'appointments' }}"
                     class="cal-layerable absolute text-left rounded overflow-hidden transition hover:opacity-90 {{ $isDone ? 'line-through opacity-70' : '' }}"
-                    style="z-index: 3; {{ $chipStyle }} {{ $isDraggable ? 'cursor:grab;' : '' }} top: {{ $topPct }}%; height: calc({{ $heightPct }}% - 2px); min-height: 14px; left: calc({{ $lane }} / {{ $lanes }} * 100% + 1px); width: calc(100% / {{ $lanes }} - 2px);"
+                    {{-- Completed/dismissed tiles are full-width (AT-335) and appended last, so at an
+                         equal z-index they painted OVER an active event sharing the slot (an old completed
+                         viewing covering a newly-scheduled one). Drop done tiles one layer (2) so active
+                         tiles (3) always paint on top; still above the z-1 drag layers. --}}
+                    style="z-index: {{ $isDone ? 2 : 3 }}; {{ $chipStyle }} {{ $isDraggable ? 'cursor:grab;' : '' }} top: {{ $topPct }}%; height: calc({{ $heightPct }}% - 2px); min-height: 14px; left: calc({{ $lane }} / {{ $lanes }} * 100% + 1px); width: calc(100% / {{ $lanes }} - 2px);"
                     title="{{ $tr }} {{ $evt->title }}">
                 <span class="block px-1 pt-0.5 text-[9px] opacity-80 leading-none">{{ $tr }}</span>
                 <span class="block px-1 text-[10px] font-medium leading-tight truncate">{{ \Illuminate\Support\Str::limit($evt->title, 16) }}</span>
