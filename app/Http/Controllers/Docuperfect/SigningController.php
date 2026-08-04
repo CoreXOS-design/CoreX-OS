@@ -539,18 +539,26 @@ class SigningController extends Controller
         // Recipients must initial each page individually for legal informed-
         // consent reasons (each initial = explicit affirm).
         //
-        // The gate is `signingRequest.party_role === 'agent'` ALONE. The
-        // viewing browser session's permissions are NOT consulted: a
-        // dispatching agent who opens a recipient's signing link in their
-        // own browser (testing, screen-share, supervision) must NOT inherit
-        // the apply-to-all bypass — that token belongs to the recipient,
-        // and the recipient's per-page consent surface is what renders.
+        // The gate is keyed on the token's `party_role` ALONE — the set of
+        // in-app AGENT signers: the dispatching agent ('agent') AND the
+        // candidate-flow AUTHORISER co-signing ('supervisor' / legacy
+        // 'supervisor_final'). The authoriser IS an agent (PPA §35) and signs
+        // in-app through the SAME shared capture modal with agent behaviour
+        // (name prefill + apply-to-all), exactly like the candidate — Johan
+        // 2026-08-04 (#5). The viewing browser session's permissions are still
+        // NOT consulted: a dispatching agent who opens a recipient's signing
+        // link in their own browser (testing, screen-share, supervision) must
+        // NOT inherit the apply-to-all bypass — that token belongs to the
+        // recipient, and the recipient's per-page consent surface is what
+        // renders.
         //
         // The previous OR-with-hasPermission predicate (pre-2026-05-27) is
         // the bug fixed by .ai/audits/esign-reset-investigation-2026-05-27.md
         // Q4 — it conflated viewer permissions with token identity and
-        // exposed a legal bypass.
-        $isAgent = ($signingRequest->party_role === 'agent');
+        // exposed a legal bypass. Extending to the authoriser roles keeps the
+        // token-identity basis (still the request's own party_role), so no
+        // recipient token gains agent behaviour.
+        $isAgent = in_array($signingRequest->party_role, ['agent', 'supervisor', 'supervisor_final'], true);
 
         // AT-303 Stage 1 — MDF disclosure-mark lock. The mandatory-disclosure
         // grid is shared, document-scoped state. Once an owner-party recipient

@@ -735,10 +735,13 @@ function signDocument() {
                     _conditionToken: d.token,
                 };
                 this.captureMode = 'draw';
-                // OTHER CONDITIONS block — start the Type tab EMPTY (no prepopulation);
-                // the signer enters their own mark. Matches the recipient surface
-                // (external/sign.blade.php) — Johan 2026-08-03. Input stays editable.
-                this.typedName = '';
+                // OTHER CONDITIONS block — this in-app surface is ALWAYS an AGENT signer
+                // (candidate / dispatching agent / authoriser), so PREFILL their initials,
+                // consistent with every other agent initial field on this view (matches the
+                // normal-initial seed at ~line 919 / 1546). The party-type-aware split lives
+                // on the recipient surface (external/sign.blade.php); here the signer is an
+                // agent by construction — Johan 2026-08-04 (#2). Input stays editable.
+                this.typedName = @json($userInitials ?? '');
                 this.showSignModal = true;
                 this.$nextTick(() => this.initCanvas());
             });

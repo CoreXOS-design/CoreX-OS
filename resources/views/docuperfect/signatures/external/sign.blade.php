@@ -1474,14 +1474,18 @@ function externalSign() {
                     _conditionToken: d.token,
                 };
                 this.captureMode = 'draw';
-                // OTHER CONDITIONS block — the recipient must enter their OWN mark, with
-                // NO prepopulation. Open on a BLANK draw canvas AND start the Type tab
-                // EMPTY (not seeded with the signer's name or initials). The prior seed
-                // (initials, replacing an even earlier full-name seed) still pre-filled the
-                // field, which read as an already-adopted / locked initial — Johan's
-                // requirement is that recipients type their own, from empty (2026-08-03).
-                // The input stays editable (x-model, no readonly); Draw remains the default.
-                this.typedName = '';
+                // OTHER CONDITIONS block — PARTY-TYPE-AWARE seed (Johan 2026-08-04, #2/#5).
+                // The behaviour must match the rest of THIS signer's signing:
+                //   • AGENT signer (dispatching agent OR candidate-flow authoriser; isAgent
+                //     true) → PREFILLED with their initials, exactly like every other agent
+                //     initial field (mirrors the normal-marker seed below at openMarker).
+                //   • RECIPIENT (isAgent false) → EMPTY: they type their own mark, no
+                //     pre-adopted glyph, which would read as an already-adopted / locked
+                //     initial (legal informed consent — Johan 2026-08-03).
+                // Draw stays the default; the input stays editable (x-model, no readonly).
+                this.typedName = this.isAgent
+                    ? this.signerName.split(' ').map(n => n.charAt(0).toUpperCase()).join('')
+                    : '';
                 this.showSignModal = true;
                 this.$nextTick(() => this.initCanvas());
             });
