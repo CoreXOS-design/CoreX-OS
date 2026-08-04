@@ -4,6 +4,27 @@ Johan offline ~2hrs, authorised autonomous work on the runway below. STAGING pro
 authorised; LIVE explicitly NOT authorised tonight. No destructive data ops. This doc is
 the single record of everything done/decided/found while unsupervised — read this first.
 
+## TL;DR
+
+1. **Staging has the matching-engine fix live** (property-type family gate, suburb gate,
+   structured-features-only) — verified with real Staging data. cc2's wishlist one-of-toggle
+   fix could **not** be cherry-picked cleanly (real conflict, not forced — needs cc2 or you).
+2. **Portal/website leads already seed the wishlist from the enquired property** — this
+   mostly isn't broken, it's the same engine gap #1 fixes. Found 3 small real gaps + a
+   1-file proposal, not built.
+3. **Live-promotion plan written** for the matching commit — one command, ~8% expected
+   match-removal (all correct, all traceable to the family gate), rollback = one revert.
+   Nothing executed against live.
+4. **Feature-warning follow-up spec written** — turns out ~90% already-built (reuses the
+   existing AI-photo-suggestion UI for a second, text-based source). One open decision
+   flagged for you.
+5. **4 new edge-case tests added + deployed to QA1 and Staging** (test-only, zero
+   production-code risk): mixed-family multi-select, farm-only, commercial-only, and an
+   explicit guardrail test for agency-custom property types that aren't in the family
+   classifier at all — proving those never get wrongly excluded.
+
+Everything below is the detail. Nothing touched `/corex` (live) at any point this session.
+
 ---
 
 ## 1. TASK 1 — Core-match promotion to STAGING
@@ -250,5 +271,46 @@ File touch-list: `PropertyAiSuggestionService.php` (new method + optional TOKEN_
 one-line visibility widen on `MatchingService::canonicalFeature()`, `PropertyController.php`
 (merge the two suggestion sources), `show.blade.php` (only if v1-full, add 2 category
 entries), one new test file. No migration, no new page, no new nav entry.
+
+---
+
+## 5. Matching edge-case tests + model summary
+
+Added 4 new tests to `tests/Feature/Matching/PropertyTypeFamilyAndStructuredFeaturesTest.php`
+(now 10 total in that file, all green — `php artisan test` run confirmed before every push):
+
+- **Mixed-family multi-select** — a buyer who selected House *and* Vacant Land sees both; a
+  Farm listing and an Office listing (families they never selected) stay excluded. Confirms
+  the gate is genuinely per-family-selected, not "first family wins."
+- **Farm-only wishlist** — sees farms, never sees a house or commercial stock.
+- **Commercial(+Industrial)-only wishlist** — sees both selected commercial families, never a
+  farm or an apartment.
+- **Unrecognised custom type guardrail** — a made-up `property_type` ("Houseboat", not in
+  `PROPERTY_TYPE_FAMILIES`) on both the wishlist and the listing must **never** be treated as
+  a mismatch. This is the explicit test for the false-negative promise made when this model
+  was proposed: an agency-specific type the classifier doesn't recognise is "unknown," not
+  "different" — it never silently hides a match.
+
+Test-only change (zero production-code risk) — cherry-picked to **both QA1 and Staging**
+this session (`3868078d` → `275bd422` on Staging), caches cleared, FPM reloaded on both.
+
+### Matching-model summary (for Johan)
+
+The engine now has three explicit hard gates plus soft scoring, applied uniformly everywhere
+(`MatchingService::score()`, called by Core Matches, the property page, MIC, and the buyer
+portal alike — one engine, not a fork per surface):
+
+| Gate | Type | Where |
+|---|---|---|
+| Availability (status) | Hard | Always was — `isMatchableStatus()` |
+| Listing type (sale/rental) | Hard | Always was |
+| **Suburb/area** | **Hard** (this session) | `applyHardFilters()` + `propertiesForMatch()`, both directions now |
+| **Property-type family** (built/land/farm/commercial) | **Hard** (this session) | `score()` — universal, covers MIC too |
+| Price, beds, baths, garages | Soft % | Unchanged, exactly as before |
+| Must-have / nice-to-have features | Hard / soft, **structured-only** (this session) | `propertyHasFeature()` — no more description text-scan |
+
+Net effect: a buyer's match list now reliably means "matches the area you asked for, the kind
+of property you asked for, and roughly the specs/budget you asked for" — the three things a
+buyer would consider table-stakes are now guaranteed, not just usually-true.
 
 ---
