@@ -233,34 +233,72 @@
                         </div>
                     </div>
 
-                    {{-- Feature buckets: must-have / nice-to-have / deal-breakers (spec D5) --}}
+                    {{-- Feature Preferences (spec D5) — ONE mutually-exclusive selector per feature.
+                         Was three independent lists (must-have / nice-to-have / deal-breaker) each showing
+                         EVERY feature, so a feature could sit in all three at once (Johan: garage marked
+                         must-have AND deal-breaker). Now each feature is exactly ONE of {must, nice, breaker,
+                         none}. Storage is UNCHANGED: on submit each feature emits into exactly one of
+                         must_have_features[] / nice_to_have_features[] / deal_breakers[], so the three arrays
+                         are DISJOINT by construction and the matching engine reads them exactly as before. --}}
                     @php
-                        $chipBuckets = [
-                            ['must_have_features',    'Must-Have Features',    'Property MUST have these. Missing any of these excludes the property from matches.', $selectedMustHaves,    'var(--ds-green, #10b981)'],
-                            ['nice_to_have_features', 'Nice-to-Have Features', 'Presence boosts the match score (not a hard filter).',                              $selectedNiceToHaves,  'var(--brand-button, #0ea5e9)'],
-                            ['deal_breakers',         'Deal-Breakers',         'Property MUST NOT have these. Presence of any excludes the property.',              $selectedDealBreakers, 'var(--ds-crimson, #e11d48)'],
+                        // Collapse any already-conflicted SAVED data to a single state for display, so an
+                        // existing record renders one-of. Precedence: must-have > deal-breaker > nice-to-have
+                        // (hard signals over the soft one). Editing + saving then persists the buckets
+                        // disjoint. Bulk resolution of untouched conflicted records is a SEPARATE data
+                        // migration (proposed in the report, not run here).
+                        $initialFeatureStates = [];
+                        foreach ($featureOptions as $token) {
+                            if (in_array($token, $selectedMustHaves, true))        $initialFeatureStates[$token] = 'must';
+                            elseif (in_array($token, $selectedDealBreakers, true)) $initialFeatureStates[$token] = 'breaker';
+                            elseif (in_array($token, $selectedNiceToHaves, true))  $initialFeatureStates[$token] = 'nice';
+                        }
+                        $featureSegments = [
+                            ['must',    'Must-have',    'Property MUST have it — missing it excludes the property.',     'var(--ds-green, #10b981)'],
+                            ['nice',    'Nice',         'Presence boosts the match score (not a hard filter).',         'var(--brand-button, #0ea5e9)'],
+                            ['breaker', 'Deal-breaker', 'Property must NOT have it — presence excludes the property.',   'var(--ds-crimson, #e11d48)'],
                         ];
                     @endphp
-                    @foreach($chipBuckets as [$fieldName, $bucketLabel, $bucketHelp, $bucketSelected, $bucketColor])
-                    <div x-data="{ selected: @js(array_values($bucketSelected)) }">
-                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">{{ $bucketLabel }}</label>
-                        <p class="text-[10px] mb-1.5" style="color:var(--text-muted);">{{ $bucketHelp }}</p>
-                        <div class="flex flex-wrap gap-1.5">
+                    <div x-data="{
+                            states: @js((object) $initialFeatureStates),
+                            set(token, val) {
+                                const next = { ...this.states };
+                                if (next[token] === val) { delete next[token]; } else { next[token] = val; }
+                                this.states = next;
+                            },
+                            tokens(val) { return Object.keys(this.states).filter(t => this.states[t] === val); }
+                         }">
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Feature Preferences</label>
+                        <p class="text-[10px] mb-2" style="color:var(--text-muted);">
+                            Each feature is exactly ONE of Must-have, Nice, Deal-breaker — or none. A feature can
+                            never be in two categories at once. Tap the active choice again to clear it.
+                        </p>
+                        <div class="space-y-1">
                             @foreach($featureOptions as $token)
-                            <button type="button"
-                                    @click="selected.includes('{{ $token }}') ? selected = selected.filter(v => v !== '{{ $token }}') : selected.push('{{ $token }}')"
-                                    :class="selected.includes('{{ $token }}') ? 'text-white' : ''"
-                                    :style="selected.includes('{{ $token }}') ? 'background:{{ $bucketColor }}; border-color:{{ $bucketColor }};' : 'background:var(--surface); border:1px solid var(--border); color:var(--text-secondary);'"
-                                    class="px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all duration-150">
-                                {{ $featureLabel($token) }}
-                            </button>
+                            <div class="flex items-center justify-between gap-2 rounded-md px-2 py-1"
+                                 style="background:var(--surface); border:1px solid var(--border);">
+                                <span class="text-[12px] font-medium" style="color:var(--text-primary);">{{ $featureLabel($token) }}</span>
+                                <div class="flex gap-1" role="group" aria-label="{{ $featureLabel($token) }} preference">
+                                    @foreach($featureSegments as [$segVal, $segLabel, $segHelp, $segColor])
+                                    <button type="button"
+                                            @click="set('{{ $token }}', '{{ $segVal }}')"
+                                            :aria-pressed="states['{{ $token }}'] === '{{ $segVal }}'"
+                                            title="{{ $segHelp }}"
+                                            :style="states['{{ $token }}'] === '{{ $segVal }}'
+                                                ? 'background:{{ $segColor }}; border:1px solid {{ $segColor }}; color:#fff;'
+                                                : 'background:transparent; border:1px solid var(--border); color:var(--text-secondary);'"
+                                            class="px-2 py-0.5 rounded text-[10px] font-semibold transition-all duration-150">
+                                        {{ $segLabel }}
+                                    </button>
+                                    @endforeach
+                                </div>
+                            </div>
                             @endforeach
                         </div>
-                        <template x-for="t in selected" :key="'{{ $fieldName }}-' + t">
-                            <input type="hidden" name="{{ $fieldName }}[]" :value="t">
-                        </template>
+                        {{-- Hidden inputs: each token lands in AT MOST ONE array (states is single-valued → disjoint). --}}
+                        <template x-for="t in tokens('must')"    :key="'mh-' + t"><input type="hidden" name="must_have_features[]"    :value="t"></template>
+                        <template x-for="t in tokens('nice')"    :key="'nh-' + t"><input type="hidden" name="nice_to_have_features[]" :value="t"></template>
+                        <template x-for="t in tokens('breaker')" :key="'db-' + t"><input type="hidden" name="deal_breakers[]"         :value="t"></template>
                     </div>
-                    @endforeach
 
                     {{-- Notes --}}
                     <div>
