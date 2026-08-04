@@ -223,6 +223,98 @@ final class PropertyTypeFamilyAndStructuredFeaturesTest extends TestCase
         $this->assertNotContains($outOfArea->id, $matches, 'a buyer who explicitly wants a DIFFERENT suburb must never appear here');
     }
 
+    public function test_mixed_family_multiselect_wishlist_shows_both_families(): void
+    {
+        // A buyer explicitly open to House OR Vacant Land — two DIFFERENT
+        // families in one wishlist. The gate must let BOTH through; it only
+        // excludes a family the buyer never selected at all.
+        [$agencyId, $agent] = $this->fixture();
+        $buyer = $this->buyer($agencyId, $agent->id);
+        $this->match($agencyId, $buyer->id, [
+            'price_min' => 900_000, 'price_max' => 1_100_000,
+            'property_types' => ['House', 'Vacant Land / Plot'],
+        ]);
+
+        $house = $this->listing($agencyId, $agent->id, ['price' => 1_020_000, 'bedrooms' => 3, 'property_type' => 'House']);
+        $land  = $this->listing($agencyId, $agent->id, ['price' => 1_020_000, 'bedrooms' => null, 'property_type' => 'Vacant Land / Plot']);
+        $farm  = $this->listing($agencyId, $agent->id, ['price' => 1_020_000, 'bedrooms' => null, 'property_type' => 'Farm']);
+        $office = $this->listing($agencyId, $agent->id, ['price' => 1_020_000, 'bedrooms' => null, 'property_type' => 'Office']);
+
+        app(PropertyMatchScoringService::class)->recomputeProspectingMatchesForBuyer($buyer->id);
+
+        $matchedIds = DB::table('prospecting_buyer_matches')->where('contact_id', $buyer->id)->pluck('prospecting_listing_id')->all();
+        $this->assertContains($house, $matchedIds, 'a family the buyer explicitly selected (Built) must show');
+        $this->assertContains($land, $matchedIds, 'a family the buyer explicitly selected (Land) must show');
+        $this->assertNotContains($farm, $matchedIds, 'a family NOT selected (Farm) must not show');
+        $this->assertNotContains($office, $matchedIds, 'a family NOT selected (Commercial) must not show');
+    }
+
+    public function test_farm_wishlist_excludes_commercial_and_built(): void
+    {
+        [$agencyId, $agent] = $this->fixture();
+        $buyer = $this->buyer($agencyId, $agent->id);
+        $this->match($agencyId, $buyer->id, [
+            'price_min' => 2_000_000, 'price_max' => 6_000_000,
+            'property_types' => ['Farm'],
+        ]);
+
+        $farm      = $this->listing($agencyId, $agent->id, ['price' => 4_000_000, 'bedrooms' => null, 'property_type' => 'Farm']);
+        $house     = $this->listing($agencyId, $agent->id, ['price' => 4_000_000, 'bedrooms' => 4, 'property_type' => 'House']);
+        $commercial = $this->listing($agencyId, $agent->id, ['price' => 4_000_000, 'bedrooms' => null, 'property_type' => 'Commercial Property']);
+
+        app(PropertyMatchScoringService::class)->recomputeProspectingMatchesForBuyer($buyer->id);
+
+        $matchedIds = DB::table('prospecting_buyer_matches')->where('contact_id', $buyer->id)->pluck('prospecting_listing_id')->all();
+        $this->assertContains($farm, $matchedIds, 'a Farm buyer must still see farms');
+        $this->assertNotContains($house, $matchedIds, 'a Farm-only buyer must never see a house');
+        $this->assertNotContains($commercial, $matchedIds, 'a Farm-only buyer must never see commercial stock');
+    }
+
+    public function test_commercial_wishlist_excludes_farm_and_built(): void
+    {
+        [$agencyId, $agent] = $this->fixture();
+        $buyer = $this->buyer($agencyId, $agent->id);
+        $this->match($agencyId, $buyer->id, [
+            'price_min' => 1_500_000, 'price_max' => 5_000_000,
+            'property_types' => ['Commercial Property', 'Industrial Property'],
+        ]);
+
+        $commercial = $this->listing($agencyId, $agent->id, ['price' => 3_000_000, 'bedrooms' => null, 'property_type' => 'Commercial Property']);
+        $industrial = $this->listing($agencyId, $agent->id, ['price' => 3_000_000, 'bedrooms' => null, 'property_type' => 'Industrial Property']);
+        $farm       = $this->listing($agencyId, $agent->id, ['price' => 3_000_000, 'bedrooms' => null, 'property_type' => 'Farm']);
+        $apartment  = $this->listing($agencyId, $agent->id, ['price' => 3_000_000, 'bedrooms' => 2, 'property_type' => 'Apartment / Flat']);
+
+        app(PropertyMatchScoringService::class)->recomputeProspectingMatchesForBuyer($buyer->id);
+
+        $matchedIds = DB::table('prospecting_buyer_matches')->where('contact_id', $buyer->id)->pluck('prospecting_listing_id')->all();
+        $this->assertContains($commercial, $matchedIds, 'a commercial buyer must see commercial stock');
+        $this->assertContains($industrial, $matchedIds, 'a commercial buyer who also selected Industrial must see it');
+        $this->assertNotContains($farm, $matchedIds, 'a commercial-only buyer must never see a farm');
+        $this->assertNotContains($apartment, $matchedIds, 'a commercial-only buyer must never see a residential apartment');
+    }
+
+    public function test_unrecognised_custom_type_never_hard_excludes(): void
+    {
+        // Guardrail: an agency-custom property_type this session's classifier
+        // doesn't recognise must NEVER silently exclude a buyer — unmapped
+        // families are treated as "unknown", not "different", on both sides.
+        [$agencyId, $agent] = $this->fixture();
+        $buyer = $this->buyer($agencyId, $agent->id);
+        $this->match($agencyId, $buyer->id, [
+            'price_min' => 900_000, 'price_max' => 1_100_000,
+            'property_types' => ['Houseboat'], // not in PROPERTY_TYPE_FAMILIES
+        ]);
+
+        $houseboat = $this->listing($agencyId, $agent->id, ['price' => 1_020_000, 'bedrooms' => 2, 'property_type' => 'Houseboat']);
+
+        app(PropertyMatchScoringService::class)->recomputeProspectingMatchesForBuyer($buyer->id);
+
+        $this->assertTrue(
+            DB::table('prospecting_buyer_matches')->where('contact_id', $buyer->id)->where('prospecting_listing_id', $houseboat)->exists(),
+            'an unrecognised type on BOTH sides must never be treated as a family mismatch'
+        );
+    }
+
     // ── Harness — mirrors MicCanonicalScoringTest ──────────────────────────
 
     private function fixture(): array
