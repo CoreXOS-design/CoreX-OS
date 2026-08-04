@@ -491,6 +491,16 @@ class ViewingPackController extends Controller
         $buyer = Contact::withoutGlobalScopes()->find($contactId);
         abort_unless($buyer && (int) $buyer->agency_id === $eventAgencyId, 422, 'The appointment\'s buyer contact could not be found.');
 
+        // AT-367 — the buyer may already have a viewing pack (built from the buyer pipeline, so it
+        // carries no calendar_event_id and the event-link check above missed it). OPEN that existing
+        // pack instead of creating a duplicate. Only when the buyer has none do we create a new one.
+        $buyerPack = ViewingPack::where('contact_id', $buyer->id)->orderByDesc('id')->first();
+        if ($buyerPack && $buyerPack->isVisibleTo($request->user())) {
+            return redirect()
+                ->route('corex.viewing-packs.show', $buyerPack)
+                ->with('info', 'Opened this buyer\'s existing viewing pack.');
+        }
+
         $pack = ViewingPack::create([
             'agency_id'         => $calendarEvent->agency_id ?? $buyer->agency_id,
             'branch_id'         => $calendarEvent->branch_id,   // else BelongsToBranch fills from actor
