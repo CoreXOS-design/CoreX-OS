@@ -816,9 +816,10 @@ class CalendarController extends Controller
             // event panel's "Open pack" + download buttons. When none exists, the
             // launch URL lets the panel start one from this event (reverse link).
             'linked_viewing_pack' => (function () use ($calendarEvent) {
-                $vp = \App\Models\ViewingPack::where('calendar_event_id', $calendarEvent->id)
-                    ->withCount('viewingPackProperties')
-                    ->first();
+                // AT-367 — resolve by event OR the appointment's buyer, so a buyer who already has a
+                // pack gets an "Open pack" link (view route) instead of a "create" action.
+                $vp = $this->resolveEventViewingPack($calendarEvent);
+                $vp?->loadCount('viewingPackProperties');
 
                 return $vp ? [
                     'id'              => $vp->id,
@@ -935,6 +936,89 @@ class CalendarController extends Controller
                 'respond_url' => route('command-center.calendar.invitations.respond', $userInvitation->id),
             ] : null,
         ]);
+    }
+
+    /**
+     * AT-111 — the event panel's viewing-pack block.
+     *
+     * Returns null when the caller can't use packs at all. Otherwise:
+     *   - linked pack present → its id/status + download URLs (buyer pack + agent
+     *     sheet) when it's prepared, and an open URL;
+     *   - no pack yet, and this is a viewing-class event the caller may create for
+     *     → a launch URL (schedule-now-prep-later).
+     * Respects AT-112 row visibility: a linked pack outside the caller's scope is
+     * reported as not-downloadable (they see the appointment, not the pack).
+     */
+    private function buildEventViewingPack(CalendarEvent $calendarEvent, \App\Models\User $user): ?array
+    {
+        if (! $user->hasPermission('access_viewing_packs')) {
+            return null;
+        }
+
+        $pack = $this->resolveEventViewingPack($calendarEvent);
+
+        if ($pack && $pack->isVisibleTo($user) && $user->hasPermission('viewing_packs.view')) {
+            $ready = $pack->status === \App\Models\ViewingPack::STATUS_READY
+                || $pack->viewingPackProperties()->exists();
+
+            return [
+                'linked'          => true,
+                'id'              => $pack->id,
+                'status'          => $pack->status,
+                'open_url'        => route('corex.viewing-packs.show', $pack),
+                'can_download'    => $ready,
+                'buyer_pack_url'  => $ready ? route('corex.viewing-packs.buyer-pack', $pack) : null,
+                'agent_sheet_url' => $ready ? route('corex.viewing-packs.agent-sheet', $pack) : null,
+            ];
+        }
+
+        // No (visible) pack. Offer launch only for a viewing event the caller may create.
+        $isViewing = in_array($calendarEvent->category, ['viewing', 'viewings'], true);
+        if (! $pack && $isViewing && $user->hasPermission('viewing_packs.create')) {
+            return [
+                'linked'     => false,
+                'launch_url' => route('command-center.calendar.viewing-pack.launch', $calendarEvent),
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * AT-367 — the viewing pack the calendar should OPEN for this appointment: the pack explicitly
+     * linked to the event if one exists, ELSE the appointment's buyer's most-recent pack. Most packs
+     * are built from the buyer pipeline and carry NO calendar_event_id, so keying only on the event
+     * made the calendar offer "create" for a buyer who already had a pack (creating duplicates).
+     * Resolving by buyer lets the calendar point at the existing pack's view/show route instead.
+     */
+    private function resolveEventViewingPack(CalendarEvent $calendarEvent): ?\App\Models\ViewingPack
+    {
+        $linked = $calendarEvent->viewingPack()->first();
+        if ($linked) {
+            return $linked;
+        }
+        $buyerId = $this->eventBuyerContactId($calendarEvent);
+        if (! $buyerId) {
+            return null;
+        }
+        return \App\Models\ViewingPack::where('contact_id', $buyerId)
+            ->orderByDesc('id')
+            ->first();
+    }
+
+    /** AT-367 — the appointment's buyer: the direct contact_id, else a buyer/attendee event link. */
+    private function eventBuyerContactId(CalendarEvent $calendarEvent): ?int
+    {
+        if ($calendarEvent->contact_id) {
+            return (int) $calendarEvent->contact_id;
+        }
+        $id = DB::table('calendar_event_links')
+            ->where('calendar_event_id', $calendarEvent->id)
+            ->where('linkable_type', Contact::class)
+            ->whereIn('role', ['buyer_contact', 'attendee'])
+            ->value('linkable_id');
+
+        return $id ? (int) $id : null;
     }
 
     public function showFeedback(Request $request, CalendarEvent $calendarEvent)
