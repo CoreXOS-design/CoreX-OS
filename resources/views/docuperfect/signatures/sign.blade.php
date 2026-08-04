@@ -37,15 +37,80 @@
                         </li>
                     @endforeach
                 </ol>
-                <form method="POST" action="{{ route('docuperfect.signatures.resubmitToAuthoriser', $document) }}" class="mt-3"
-                      onsubmit="return confirm('Resubmit this document to the authoriser for review? Your changes and initials will be sent back to them.');">
-                    @csrf
-                    <button type="submit"
-                            class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg text-white transition-colors"
-                            style="background:#0b2a4a;">
-                        Resubmit to authoriser &rarr;
+                {{-- WET-INK clause edit affordance (esign-returned-doc-edit-flow.md §4.1). Strike a
+                     clause and reword it inline (small) or route the full replacement to Other
+                     Conditions (big). The strike-out stays visible on the final contract. --}}
+                <div x-data="clauseStriker({ url: @js(route('docuperfect.signatures.editClause', $document)) })" class="mt-3 flex items-center gap-3">
+                    <button type="button" @click="open = true"
+                            class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg text-amber-800 border border-amber-300 hover:bg-amber-100 transition-colors">
+                        Strike / amend a clause
                     </button>
-                </form>
+                    <form method="POST" action="{{ route('docuperfect.signatures.resubmitToAuthoriser', $document) }}"
+                          onsubmit="return confirm('Resubmit this document to the authoriser for review? Your changes and initials will be sent back to them.');">
+                        @csrf
+                        <button type="submit"
+                                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg text-white transition-colors"
+                                style="background:#0b2a4a;">
+                            Resubmit to authoriser &rarr;
+                        </button>
+                    </form>
+
+                    <div x-show="open" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center" style="background:rgba(0,0,0,0.6);" @keydown.escape.window="open=false">
+                        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden" @click.stop>
+                            <div class="px-6 py-4 border-b border-slate-200" style="background:#0b2a4a;">
+                                <h3 class="text-white font-semibold text-lg">Strike &amp; amend a clause</h3>
+                            </div>
+                            <div class="p-6 space-y-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-600 mb-1">Clause number (as printed, e.g. 5.2)</label>
+                                    <input type="text" x-model="ref" placeholder="5.2" class="w-full rounded-lg border-slate-300 text-sm px-3 py-2">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-600 mb-1">Change type</label>
+                                    <div class="flex gap-4 text-sm">
+                                        <label class="inline-flex items-center gap-2"><input type="radio" value="inline" x-model="mode"> Small — strike &amp; reword inline</label>
+                                        <label class="inline-flex items-center gap-2"><input type="radio" value="reference" x-model="mode"> Big — strike &amp; move to Other Conditions</label>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-600 mb-1">Replacement text</label>
+                                    <textarea x-model="text" rows="4" class="w-full rounded-lg border-slate-300 text-sm px-3 py-2" placeholder="The new wording…"></textarea>
+                                </div>
+                                <p class="text-xs text-slate-500">The old clause text stays visible, struck through; your replacement is marked so the authoriser and every party can see exactly what changed.</p>
+                                <p x-show="err" x-text="err" class="text-xs text-red-600"></p>
+                                <div class="flex items-center justify-end gap-3 pt-2">
+                                    <button type="button" @click="open=false" class="px-4 py-2.5 text-sm text-slate-600 font-medium">Cancel</button>
+                                    <button type="button" @click="submit()" :disabled="busy" class="rounded-lg px-6 py-2.5 text-sm font-semibold text-white" style="background:#0b2a4a;">
+                                        <span x-show="!busy">Apply strike-out</span><span x-show="busy" x-cloak>Applying…</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <script>
+                    function clauseStriker(cfg) {
+                        return {
+                            open: false, ref: '', mode: 'inline', text: '', busy: false, err: '',
+                            async submit() {
+                                this.err = '';
+                                if (!this.ref.trim() || !this.text.trim()) { this.err = 'Enter the clause number and the replacement text.'; return; }
+                                this.busy = true;
+                                try {
+                                    const resp = await fetch(cfg.url, {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest',
+                                                   'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content || '{{ csrf_token() }}' },
+                                        body: JSON.stringify({ clause_ref: this.ref.trim(), mode: this.mode, new_text: this.text.trim() }),
+                                    });
+                                    const data = await resp.json().catch(() => ({}));
+                                    if (resp.ok && data.ok) { window.location.reload(); }
+                                    else { this.err = data.error || 'Could not apply the change.'; this.busy = false; }
+                                } catch (e) { this.err = 'Network error — please retry.'; this.busy = false; }
+                            },
+                        };
+                    }
+                </script>
             </div>
         </div>
     </div>
