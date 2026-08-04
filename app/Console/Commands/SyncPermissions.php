@@ -253,14 +253,14 @@ class SyncPermissions extends Command
             }
 
             // Diff: which expected keys does this (role, agency) NOT yet have?
-            $existingKeys = RolePermission::where('role', $roleName)
+            $scopedQuery = fn () => RolePermission::where('role', $roleName)
                 ->when(
                     $role->agency_id,
                     fn ($q) => $q->where('agency_id', $role->agency_id),
                     fn ($q) => $q->whereNull('agency_id')
-                )
-                ->pluck('permission_key')
-                ->all();
+                );
+
+            $existingKeys = $scopedQuery()->pluck('permission_key')->all();
 
             $missingKeys = array_diff($expectedKeys, $existingKeys);
 
@@ -269,10 +269,35 @@ class SyncPermissions extends Command
                 continue;
             }
 
+            // A "missing" key can mean two different things: never granted (needs
+            // a fresh INSERT), or previously granted-then-revoked and still
+            // sitting soft-deleted (needs a RESTORE). The unique index on
+            // (role, permission_key, agency_id) does not know about deleted_at,
+            // so blindly inserting the second case duplicate-key errors and kills
+            // the whole batch — that's what a stale/soft-deleted row did here.
+            // SyncPermissions::handle() already restores soft-deleted
+            // CoreXPermission rows the same way (see Step 1 above); this mirrors
+            // that for RolePermission.
+            $trashedByKey = $scopedQuery()->onlyTrashed()
+                ->whereIn('permission_key', $missingKeys)
+                ->get()
+                ->keyBy('permission_key');
+
+            $restored = 0;
+            $freshKeys = [];
+            foreach ($missingKeys as $key) {
+                if ($trashedByKey->has($key)) {
+                    $trashedByKey[$key]->restore();
+                    $restored++;
+                } else {
+                    $freshKeys[] = $key;
+                }
+            }
+
             $defaultScope = $scopeDefault[$roleName] ?? 'own';
             $rows         = [];
 
-            foreach ($missingKeys as $key) {
+            foreach ($freshKeys as $key) {
                 $scope = null;
                 if (in_array($key, $viewKeys, true)) {
                     $module = explode('.', $key)[0];
@@ -294,7 +319,10 @@ class SyncPermissions extends Command
             }
 
             $totalInserted += count($rows);
-            $perRoleSummary[$label] = '+' . count($rows) . ' permission(s)';
+            $summaryParts = [];
+            if (count($rows))  { $summaryParts[] = '+' . count($rows) . ' permission(s)'; }
+            if ($restored)     { $summaryParts[] = $restored . ' restored'; }
+            $perRoleSummary[$label] = implode(', ', $summaryParts);
         }
 
         $this->info("Merge complete — {$totalInserted} new row(s) inserted.");
