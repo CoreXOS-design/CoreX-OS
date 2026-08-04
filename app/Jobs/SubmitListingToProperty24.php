@@ -11,6 +11,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
 
 class SubmitListingToProperty24 implements ShouldQueue, ShouldBeUnique
 {
@@ -46,6 +47,14 @@ class SubmitListingToProperty24 implements ShouldQueue, ShouldBeUnique
 
     public function handle(Property24SyndicationService $service): void
     {
+        // AT-369 — Property24SyndicationService::submitListing() is the real
+        // backstop and will refuse this on its own; this early check just skips
+        // the queue-worker log noise (lock acquisition, cost-window timers) for
+        // a submission we already know is blocked.
+        if ($this->property->isPpExclusiveActive()) {
+            Log::channel('property24')->warning("SubmitListingToProperty24 job skipped for property #{$this->property->id} — PP exclusive until {$this->property->pp_delay_until->format('d M Y')}");
+        }
+
         $service->submitListing($this->property);
     }
 

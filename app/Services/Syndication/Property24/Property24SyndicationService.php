@@ -87,6 +87,15 @@ class Property24SyndicationService
 
     public function submitListing(Property $property): array
     {
+        // AT-369 — THE service-layer backstop. Every P24 submission path in the
+        // app (controller, queued job, console commands, bulk command, and any
+        // future caller) funnels through this method — so this single check is
+        // what actually closes the gate, not the cosmetic UI disable. Checked
+        // before the lock: a blocked attempt should never even contend for it.
+        if ($blocked = $this->blockIfPpExclusive($property)) {
+            return $blocked;
+        }
+
         // AT-P24 remediation (#4): serialise submits per property so the same
         // listing is never saved to P24 twice concurrently — P24 rejects that
         // with "Cannot call the method simultaneously". The queued job is also
@@ -104,6 +113,32 @@ class Property24SyndicationService
         } finally {
             optional($lock)->release();
         }
+    }
+
+    /**
+     * AT-369 — refuse to push a listing to P24 while Private Property holds it
+     * exclusive. Persists a clear status + reason on the property (never a
+     * silent skip — a caller that dispatched a queued job and returned
+     * "submitting" to the UI must not leave the property stuck there) and logs
+     * it. Returns null when the listing is clear to submit.
+     */
+    private function blockIfPpExclusive(Property $property): ?array
+    {
+        if (!$property->isPpExclusiveActive()) {
+            return null;
+        }
+
+        $until   = $property->pp_delay_until->format('d M Y');
+        $message = "Blocked — Private Property exclusivity is active until {$until}. Property24 (and every other portal) cannot receive this listing until the exclusive period lapses.";
+
+        $property->update([
+            'p24_syndication_status' => 'error',
+            'p24_last_error'         => $message,
+        ]);
+
+        $this->log('warning', "P24 submit blocked for property #{$property->id} — PP exclusive until {$until}");
+
+        return ['success' => false, 'message' => $message];
     }
 
     private function performSubmit(Property $property): array
@@ -544,6 +579,15 @@ class Property24SyndicationService
 
     public function reactivateListing(Property $property): array
     {
+        // AT-369 — found in audit: reactivateListing() calls setListingStatus()
+        // directly (BackOnMarket), never routing through submitListing(), so it
+        // was NOT covered by that method's blockIfPpExclusive() guard. A
+        // previously-deactivated P24 listing could be brought straight back
+        // onto the portal during a PP-exclusive window through this path alone.
+        if ($blocked = $this->blockIfPpExclusive($property)) {
+            return $blocked;
+        }
+
         if (empty($property->p24_ref)) {
             return ['success' => false, 'message' => 'No P24 reference — listing was never submitted'];
         }

@@ -1192,15 +1192,41 @@
                 ]);
                 $upcomingShowdays = $isNew ? collect() : $property->showdays()->where('active', true)->where('end_date', '>=', now())->orderBy('start_date')->take(3)->get();
             @endphp
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-x-6 gap-y-6">
+            {{-- x-data lives here (not on the Activity column alone) so the Listing
+                 Agent column below can also read activityExpanded — that's what lets
+                 it stay in the normal grid-row stretch (matching Activity's height)
+                 while collapsed, and opt OUT of stretch (self-start) only once
+                 Activity actually expands and gets tall. --}}
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-x-6 gap-y-6" x-data="{ activityExpanded: false }">
 
                 {{-- Row 1: Recent Activity (cols 1-2) | Listing Agent (col 3) --}}
                 @if(isset($activityTimeline) && $activityTimeline->count())
                     <div class="lg:col-span-2 flex flex-col">
-                        <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Recent Activity</h3>
-                        <div class="rounded-md overflow-hidden flex-1 flex flex-col justify-center" style="background:var(--surface-2); border:1px solid var(--border);">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">Recent Activity</h3>
+                            @if($activityTimeline->count() > 1)
+                            <button type="button" @click="activityExpanded = !activityExpanded"
+                                    class="flex items-center gap-1 text-[0.6875rem] font-semibold"
+                                    style="background:none; border:0; cursor:pointer; padding:0; color:var(--text-muted);">
+                                <span x-text="activityExpanded ? 'Show less' : 'Show all'"></span>
+                                <svg class="w-3.5 h-3.5 transition-transform duration-200" :class="activityExpanded ? 'rotate-180' : ''"
+                                     xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                                </svg>
+                            </button>
+                            @endif
+                        </div>
+                        {{-- No scroll/height clipping — only the first item is actually
+                             shown (rendered, not just visually clipped) until the toggle
+                             above expands the rest. flex-1 fills whatever height this
+                             wrapper ends up being — while collapsed, that's the grid row's
+                             natural stretch height (matching Listing Agent, since its
+                             wrapper only opts out of stretch via self-start once expanded —
+                             see below), so the two boxes line up without a guessed number. --}}
+                        <div class="rounded-md flex-1 flex flex-col justify-center" style="background:var(--surface-2); border:1px solid var(--border);">
                             @foreach($activityTimeline as $i => $event)
-                                <div class="flex items-start gap-3 px-4 py-2.5" style="{{ $i > 0 ? 'border-top:1px solid var(--border);' : '' }}">
+                                <div x-show="activityExpanded || {{ $i }} === 0" x-cloak
+                                     class="flex items-start gap-3 px-4 py-2.5" style="{{ $i > 0 ? 'border-top:1px solid var(--border);' : '' }}">
                                     <div class="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style="background:{{ $event['color'] }};"></div>
                                     <div class="flex-1 min-w-0">
                                         <div class="text-xs font-medium" style="color:var(--text-primary);">{{ $event['label'] }}</div>
@@ -1218,7 +1244,15 @@
                 @endif
 
                 @if($property->agent)
-                    <div class="lg:col-start-3 flex flex-col">
+                    {{-- self-start is applied ONLY once Recent Activity is actually
+                         expanded — that opts this wrapper OUT of the grid row's default
+                         stretch, which is what stops it growing to match Activity's now-
+                         tall content (the "agent block gets huge" symptom this whole
+                         change started from). While Activity is collapsed (the normal
+                         case), this wrapper stays in the default stretch so it lines up
+                         with Activity's own flex-1 card at whatever height the row
+                         naturally settles on — no guessed pixel value needed. --}}
+                    <div class="lg:col-start-3 flex flex-col" :class="activityExpanded ? 'self-start' : ''">
                         <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Listing Agent</h3>
                         <div class="rounded-md p-4 flex items-center gap-3 flex-1" style="background:var(--surface-2); border:1px solid var(--border);">
                             @if(!empty($property->agent->profile_photo_url))
