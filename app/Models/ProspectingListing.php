@@ -54,6 +54,7 @@ class ProspectingListing extends Model
         'matched_property_id',
         'matched_at',
         'tracked_property_id',
+        'mandate_type',
     ];
 
     protected $casts = [
@@ -115,6 +116,12 @@ class ProspectingListing extends Model
     public function claimedBy()
     {
         return $this->activeClaim?->user;
+    }
+
+    /** True when this listing is flagged as held sole/exclusive by another agency. */
+    public function isSoleOrExclusiveMandate(): bool
+    {
+        return in_array(strtolower((string) $this->mandate_type), ['sole', 'exclusive'], true);
     }
 
     /**

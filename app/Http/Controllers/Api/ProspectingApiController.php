@@ -40,6 +40,10 @@ class ProspectingApiController extends Controller
             'listings.*.agent_name'        => 'nullable|string',
             'listings.*.agency_name'       => 'nullable|string',
             'listings.*.thumbnail_url'     => 'nullable|string',
+            // BUG 3 — optional mandate signal. Only trustworthy once the
+            // extension reads it off the P24 listing page itself (see report);
+            // absent for every capture until that extension change ships.
+            'listings.*.mandate_type'      => 'nullable|string|in:sole,exclusive,open,joint',
         ]);
 
         // AT-253 (STANDARDS Rule 17) — prospecting_searches.agency_id is NOT NULL and this is a
@@ -137,6 +141,7 @@ class ProspectingApiController extends Controller
                 $existing->agent_name       = $data['agent_name'] ?? $existing->agent_name;
                 $existing->agency_name      = $data['agency_name'] ?? $existing->agency_name;
                 $existing->portal_url       = $data['portal_url'];
+                $existing->mandate_type     = $data['mandate_type'] ?? $existing->mandate_type;
 
                 $existing->save();
 
@@ -181,6 +186,7 @@ class ProspectingApiController extends Controller
                     'property_type'       => $data['property_type'] ?? null,
                     'agent_name'          => $data['agent_name'] ?? null,
                     'agency_name'         => $data['agency_name'] ?? null,
+                    'mandate_type'        => $data['mandate_type'] ?? null,
                     'first_seen_at'       => $now,
                     'last_seen_at'        => $now,
                     'is_active'           => true,
