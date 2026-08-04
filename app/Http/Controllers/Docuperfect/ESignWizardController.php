@@ -4079,6 +4079,26 @@ class ESignWizardController extends Controller
                 continue;
             }
 
+            // Per-recipient split is ONLY valid for CONTACT-sourced fields — those whose value
+            // genuinely differs per recipient (name, id, phone, email, address of that person).
+            // A document-level field (property / deal / computed / manual / static / agent source)
+            // carries ONE value shared by all recipients and renders as a single base occurrence;
+            // splitting it into "{id}__r{n}" instances strands any edit on an instance the document
+            // never renders (the commission-% bug: editableBy names owner_party, so a property-source
+            // rate was cloned per seller and the edited "__r2" value never reached the base var the
+            // blade prints). editableBy governs WHO may edit, not HOW MANY instances exist. Resolve
+            // the authoritative source_type (named-field catalogue first, coarse field 'source' as
+            // fallback) and skip expansion for anything that is not contact-sourced.
+            $sourceType = strtolower((string) ($field['source'] ?? ''));
+            $nfId = $field['named_field_id'] ?? null;
+            if ($nfId && isset($namedFieldMap[$nfId])) {
+                $sourceType = strtolower((string) $namedFieldMap[$nfId]->source_type);
+            }
+            if ($sourceType !== 'contact') {
+                $expanded[] = $field;
+                continue;
+            }
+
             // Pick the primary recipient-bearing role from editableBy.
             // Skip 'agent' — agent fields are single, never per-instance.
             $primaryRole = null;

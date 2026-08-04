@@ -3495,8 +3495,12 @@ class SignatureService
                 if ($request->status !== SignatureRequest::STATUS_COMPLETED) {
                     continue;
                 }
-                // Skip agent — agents get in-app notification only
-                if ($request->party_role === 'agent') {
+                // Skip agent (in-app notification only) and the AUTHORISER (supervisor /
+                // supervisor_final) — the authoriser is not a document recipient and must not
+                // receive the final completion copy (Bug #11). The real recipients are the
+                // seller/buyer/lessor/lessee parties; the candidate/creator is reached in-app
+                // via $template->creator below, never through this per-request loop.
+                if (in_array($request->party_role, ['agent', 'supervisor', 'supervisor_final'], true)) {
                     continue;
                 }
 

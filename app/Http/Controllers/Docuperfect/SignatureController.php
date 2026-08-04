@@ -2572,16 +2572,18 @@ class SignatureController extends Controller
 
         $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
 
-        // AT-352b (greenlit) — a full-status authoriser may open a supervised candidate's in-flight
+        // AT-352b (greenlit) — an eligible authoriser may open a supervised candidate's in-flight
         // document READ-ONLY (to walk a party through it), even before it reaches their authorisation
         // turn. This is ADDITIVE: it only GRANTS access; everyone else still goes through the standard
-        // agent-on-deal / branch / all document scoping (authorizeDocument). Scoped to the same agency
-        // as the candidate (creator), mirroring getEligibleAuthorisers, so it never crosses agencies.
-        $agencyId = $user->effectiveAgencyId();
-        $isCandidateAuthoriser = $agencyId
-            && $template->is_candidate_flow
-            && app(\App\Services\CandidatePractitionerService::class)->canAuthorise($user)
-            && (int) ($template->creator?->effectiveAgencyId()) === (int) $agencyId;
+        // agent-on-deal / branch / all document scoping (authorizeDocument). Eligibility is the
+        // canonical branch-scoped model (canAuthoriseFor = reciprocal of getEligibleAuthorisers):
+        // agency admins agency-wide, Branch Managers + full-status practitioners for the candidate's
+        // branch. It never crosses agencies. (Was canAuthorise()+agency-equality, which wrongly denied
+        // a plain Branch Manager of the candidate's branch — Bug #6.)
+        $isCandidateAuthoriser = $template->is_candidate_flow
+            && $template->creator
+            && app(\App\Services\CandidatePractitionerService::class)
+                ->canAuthoriseFor($user, $template->creator);
 
         if (! $isCandidateAuthoriser) {
             // Reuse the exact agent-on-deal scoping used by the approval review.
