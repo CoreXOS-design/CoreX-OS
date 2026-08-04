@@ -935,6 +935,11 @@ class CalendarController extends Controller
                 'inviter_name' => \App\Models\User::withoutGlobalScopes()->find($userInvitation->inviter_user_id)?->name ?? 'Unknown',
                 'respond_url' => route('command-center.calendar.invitations.respond', $userInvitation->id),
             ] : null,
+            // AT-111 — viewing-pack tie-in for the event panel: launch a pack from
+            // here (schedule-now-prep-later), and download the prepared pack's PDFs
+            // directly off the appointment. Only surfaced when the caller may use
+            // packs and (for launch) it's a viewing event.
+            'viewing_pack' => $this->buildEventViewingPack($calendarEvent, $user),
         ]);
     }
 
