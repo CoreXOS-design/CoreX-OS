@@ -284,6 +284,10 @@ Schedule::command('properties:generate-recommendations')->weeklyOn(1, '05:00')->
 Schedule::command('matches:recompute')->dailyAt('04:30')->onOneServer()->withoutOverlapping();
 
 // ── Prospecting Intelligence (M13) ──
+// BUG 2 (MIC) — flag listings not re-confirmed in 30+ days as inactive BEFORE
+// the daily recompute below, so the recompute's is_active=1 filter actually
+// excludes them and their stale cached scores get purged the same night.
+Schedule::command('prospecting:flag-stale-listings')->dailyAt('03:50')->onOneServer()->withoutOverlapping();
 Schedule::command('prospecting:recompute-matches')->dailyAt('04:00')->onOneServer()->withoutOverlapping();
 Schedule::command('corex:leave:send-reminders')->dailyAt('06:00')->onOneServer()->withoutOverlapping();
 

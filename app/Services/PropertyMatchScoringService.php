@@ -634,15 +634,14 @@ class PropertyMatchScoringService
             ->where('status', ContactMatch::STATUS_ACTIVE)
             ->with('contact')
             ->get();
-        if ($matches->isEmpty()) {
-            return 0;
-        }
 
-        $listings = ProspectingListing::withoutGlobalScopes()
-            ->where('agency_id', $contact->agency_id)
-            ->where('is_active', 1)
-            ->whereNull('deleted_at')
-            ->get();
+        $listings = $matches->isEmpty()
+            ? collect()
+            : ProspectingListing::withoutGlobalScopes()
+                ->where('agency_id', $contact->agency_id)
+                ->where('is_active', 1)
+                ->whereNull('deleted_at')
+                ->get();
 
         $bandPct = AgencyContactSettings::forAgency((int) $contact->agency_id)->micPriceBandFraction();
 
@@ -670,18 +669,32 @@ class PropertyMatchScoringService
             ];
         }
 
-        if (empty($rows)) {
-            return 0;
-        }
+        // BUG 2 fix — mirror recomputeForBuyer()'s stale-row eviction: this
+        // buyer's cache must exactly reflect the current qualifying set, so a
+        // listing that dropped out (suburb gate, went inactive, score decayed)
+        // doesn't keep its old cached score forever. Previously this method
+        // only ever upserted, so a stale row could outlive its listing.
+        DB::transaction(function () use ($contactId, $contact, $rows) {
+            $keepIds = array_column($rows, 'prospecting_listing_id');
+            $stale = DB::table('prospecting_buyer_matches')
+                ->where('contact_id', $contactId)
+                ->where('agency_id', $contact->agency_id);
+            if (!empty($keepIds)) {
+                $stale->whereNotIn('prospecting_listing_id', $keepIds);
+            }
+            $stale->delete();
 
-        // Raw DB::table upsert for consistency with property_buyer_matches write path.
-        // Reads still go through ProspectingBuyerMatch (BelongsToAgency scope applies).
-        $this->chunkedUpsert(
-            'prospecting_buyer_matches',
-            $rows,
-            ['prospecting_listing_id', 'contact_id'],
-            ['agency_id', 'score', 'tier', 'source', 'matched_features', 'missing_features', 'last_recompute_at', 'updated_at']
-        );
+            if (!empty($rows)) {
+                // Raw DB::table upsert for consistency with property_buyer_matches write path.
+                // Reads still go through ProspectingBuyerMatch (BelongsToAgency scope applies).
+                $this->chunkedUpsert(
+                    'prospecting_buyer_matches',
+                    $rows,
+                    ['prospecting_listing_id', 'contact_id'],
+                    ['agency_id', 'score', 'tier', 'source', 'matched_features', 'missing_features', 'last_recompute_at', 'updated_at']
+                );
+            }
+        });
 
         return count($rows);
     }
@@ -704,6 +717,13 @@ class PropertyMatchScoringService
      * configurable tolerance), never hard-excludes. Only genuine DEAL-BREAKERS
      * hard-exclude (bedrooms are scored soft, per Johan's rule b). This is what
      * makes the MIC % reconcile with the pipeline / Core Matches truth.
+     *
+     * AT-289 suburb gate, extended here: score()'s suburb component is soft
+     * (diluted by whatever other criteria are set), so a buyer with a tight
+     * area wishlist could still clear MIN_SCORE_TO_CACHE against a listing in
+     * a completely different area once price/beds carried the rest. This is
+     * the same hard suburbCompatible() gate AT-289 already applies to the
+     * per-property demand-count path — applied here so it also governs MIC.
      */
     private function canonicalBestAcross(iterable $matches, Property $target, float $bandPct): ?array
     {
@@ -714,6 +734,9 @@ class PropertyMatchScoringService
             }
             if ($this->violatesDealBreakers($m, $target)) {
                 continue; // only deal-breakers hard-exclude
+            }
+            if (!$this->matcher()->suburbCompatible($target, $m)) {
+                continue;
             }
             $score = $this->matcher()->score($target, $m, $bandPct);
             if ($best === null || $score > $best['score']) {

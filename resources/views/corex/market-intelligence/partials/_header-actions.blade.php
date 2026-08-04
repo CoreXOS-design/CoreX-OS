@@ -5,9 +5,25 @@
 @php
     $isManager = auth()->user()?->hasPermission('prospecting_setup.manage') ?? false;
     $includeInStockToggle = (bool) request()->boolean('include_in_stock');
+    $includeMandatedToggle = (bool) request()->boolean('include_mandated');
 @endphp
 {{-- Tour "?" launcher is now rendered by the x-mic-page-header component itself,
      so it appears on every MIC page (not just the ones passing these actions). --}}
+{{-- BUG 3 — every agent (not manager-gated): sole/exclusive-mandated listings
+     are excluded from the canvassing pool by default; this reveals them. --}}
+<label class="inline-flex items-center gap-2 text-xs cursor-pointer"
+       style="color: rgba(255,255,255,0.8);"
+       title="Sole/exclusive-mandated listings are excluded by default — another agency already holds the mandate. Check to include them anyway.">
+    <input type="checkbox"
+           {{ $includeMandatedToggle ? 'checked' : '' }}
+           onchange="(function(cb){
+               const url = new URL(window.location.href);
+               if (cb.checked) { url.searchParams.set('include_mandated','1'); }
+               else { url.searchParams.delete('include_mandated'); }
+               window.location.href = url.toString();
+           })(this)">
+    Show sole/exclusive mandates
+</label>
 @if($isManager)
     <label class="inline-flex items-center gap-2 text-xs cursor-pointer"
            style="color: rgba(255,255,255,0.8);"

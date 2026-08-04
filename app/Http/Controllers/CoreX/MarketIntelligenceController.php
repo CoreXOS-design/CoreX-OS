@@ -105,6 +105,17 @@ class MarketIntelligenceController extends Controller
             });
         }
 
+        // BUG 3 — a listing flagged sole/exclusive mandate is already spoken
+        // for by another agency; canvassing it is a professional courtesy
+        // issue, not an opportunity. Default-exclude, same shape as the
+        // in-stock/pitch-lock toggles above. ?include_mandated=1 reveals them.
+        if (! $request->boolean('include_mandated')) {
+            $query->where(function ($q) {
+                $q->whereNull('mandate_type')
+                    ->orWhereRaw('LOWER(mandate_type) NOT IN (?, ?)', ['sole', 'exclusive']);
+            });
+        }
+
         // Filters
         if ($request->filled('portal_source') && $request->portal_source !== 'all') {
             $query->where('portal_source', $request->portal_source);
@@ -135,8 +146,16 @@ class MarketIntelligenceController extends Controller
         if ($request->filled('agency_name')) {
             $query->where('agency_name', 'like', '%' . $request->agency_name . '%');
         }
-        if ($request->filled('is_active') && $request->is_active !== 'all') {
-            $query->where('is_active', $request->is_active === '1');
+        // BUG 2 fix — default the canvass pool to AVAILABLE listings only, same
+        // default-exclude/explicit-override shape as applyInStockFilter/pitch-lock
+        // above. ?is_active=all reveals everything; ?is_active=0/1 stays honoured
+        // for the explicit audit toggle.
+        if ($request->filled('is_active')) {
+            if ($request->is_active !== 'all') {
+                $query->where('is_active', $request->is_active === '1');
+            }
+        } else {
+            $query->where('is_active', true);
         }
         if ($request->filled('captured_by')) {
             $query->where('captured_by_user_id', $request->captured_by);
