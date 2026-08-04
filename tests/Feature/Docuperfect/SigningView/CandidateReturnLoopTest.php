@@ -112,6 +112,27 @@ final class CandidateReturnLoopTest extends TestCase
         $this->assertFalse($svc->resubmitToAuthoriser($template, $senior)['ok'] ?? true);
     }
 
+    public function test_amendment_render_flag_toggles_and_reedit_states(): void
+    {
+        [$template] = $this->seedCandidateAtSupervisorReview();
+        $svc = app(SignatureService::class);
+        $doc = $template->document;
+
+        // cc1 contract: the flag toggles on the document's web_template_data.
+        $svc->setAmendmentRender($doc, true);
+        $this->assertTrue((bool) ($doc->fresh()->web_template_data['amendment_render'] ?? false));
+        $svc->setAmendmentRender($doc, false);
+        $this->assertArrayNotHasKey('amendment_render', $doc->fresh()->web_template_data ?? []);
+
+        // re-edit states: returned_to_candidate + amendment_review are editable; awaiting_supervisor is not.
+        $template->status = SignatureTemplate::STATUS_RETURNED_TO_CANDIDATE;
+        $this->assertTrue($svc->isReEditState($template));
+        $template->status = SignatureTemplate::STATUS_AMENDMENT_REVIEW;
+        $this->assertTrue($svc->isReEditState($template));
+        $template->status = SignatureTemplate::STATUS_AWAITING_SUPERVISOR;
+        $this->assertFalse($svc->isReEditState($template));
+    }
+
     // ── Helpers ──
 
     /**

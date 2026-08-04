@@ -1176,6 +1176,13 @@ class SignatureController extends Controller
         $document->fields_json = $currentFields;
         $document->save();
 
+        // WET-INK: an agent field edit on a RETURNED / amendment-review doc turns on cc1's field-change
+        // highlight (compose step 6). Normal first-time signing does NOT flag (only re-edit states).
+        $tpl = SignatureTemplate::where('document_id', $document->id)->first();
+        if ($tpl && $this->signatureService->isReEditState($tpl)) {
+            $this->signatureService->setAmendmentRender($document, true);
+        }
+
         return response()->json(['ok' => true]);
     }
 

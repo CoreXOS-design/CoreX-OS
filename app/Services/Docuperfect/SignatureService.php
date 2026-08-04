@@ -1341,6 +1341,10 @@ class SignatureService
                         'authorised_by' => $request?->authorised_by,
                     ],
                 );
+                // WET-INK: the authoriser just co-signed → this baked canonical becomes the new
+                // last-authorised baseline (P1 seal), so clear the field-diff flag; cc1's highlight
+                // resolves empty until the NEXT edit. Clause strike-outs stay (they are content).
+                $this->setAmendmentRender($template->document, false);
                 $this->advanceToNextParty($template, $completedParty);
                 return;
             }
@@ -1744,7 +1748,7 @@ class SignatureService
             $this->notifyEligibleAuthorisers($template, $isResubmit ? 'resubmission' : 'initial_review');
 
             if ($isResubmit) {
-                $this->appendReturnThread($template, 'resubmitted', $template->creator, null);
+                $this->appendReturnThread($template, 'resubmitted', $template->creator, $this->summariseChanges($template));
                 SignatureAuditLog::log(
                     $template,
                     'candidate_resubmitted_to_authoriser',
@@ -2080,6 +2084,73 @@ class SignatureService
         $document->update(['web_template_data' => $wtd]);
 
         return $round;
+    }
+
+    /**
+     * WET-INK amendment-render flag — the cc1 render contract (esign-returned-doc-edit-flow.md §6).
+     * Set TRUE when the agent edits a RETURNED/amendment doc so cc1's DocumentChangeHighlighter
+     * (`compose()` step 6) marks the changed FIELD values against the last-authorised seal; cleared on
+     * re-authorisation so the diff goes empty. Clause strike-outs are document content (rendered by
+     * `applyStrikethroughs`) and STAY visible regardless of this flag. No-op without a document.
+     */
+    public function setAmendmentRender(?Document $document, bool $on): void
+    {
+        if (! $document) {
+            return;
+        }
+        $wtd = is_array($document->web_template_data) ? $document->web_template_data : [];
+        if ($on) {
+            $wtd['amendment_render'] = true;
+        } else {
+            unset($wtd['amendment_render']);
+        }
+        $document->update(['web_template_data' => $wtd]);
+    }
+
+    /** A doc the agent may re-edit under the wet-ink model — a returned or amendment-review state. */
+    public function isReEditState(SignatureTemplate $template): bool
+    {
+        return in_array($template->status, [
+            SignatureTemplate::STATUS_RETURNED_TO_CANDIDATE,
+            SignatureTemplate::STATUS_AMENDMENT_REVIEW,
+        ], true);
+    }
+
+    /**
+     * Human-legible summary of the changes the agent authored this cycle, for the return thread +
+     * notification. cc6-side facts only (struck clauses + agent-added conditions + whether field values
+     * were edited). The authoritative field diff is cc1's render; this is the running change log.
+     */
+    public function summariseChanges(SignatureTemplate $template): ?string
+    {
+        $parts = [];
+
+        $strikes = \App\Models\Docuperfect\DocumentClauseStrikethrough::query()
+            ->where('signature_template_id', $template->id)
+            ->whereIn('status', [
+                \App\Models\Docuperfect\DocumentClauseStrikethrough::STATUS_PROPOSED,
+                \App\Models\Docuperfect\DocumentClauseStrikethrough::STATUS_APPROVED,
+            ])
+            ->pluck('clause_ref')->filter()->unique()->values();
+        if ($strikes->isNotEmpty()) {
+            $parts[] = 'struck clause' . ($strikes->count() > 1 ? 's' : '') . ' ' . $strikes->implode(', ');
+        }
+
+        $conds = \App\Models\Docuperfect\DocumentCondition::query()
+            ->where('signature_template_id', $template->id)
+            ->whereNull('superseded_at')->whereNull('deleted_at')
+            ->whereIn('added_via', ['agent_preparation', 'agent_signing'])
+            ->count();
+        if ($conds > 0) {
+            $parts[] = $conds . ' condition' . ($conds > 1 ? 's' : '') . ' added/edited';
+        }
+
+        $wtd = $template->document?->web_template_data ?? [];
+        if (! empty($wtd['amendment_render'])) {
+            $parts[] = 'field values edited';
+        }
+
+        return $parts === [] ? null : implode('; ', $parts);
     }
 
     /**
