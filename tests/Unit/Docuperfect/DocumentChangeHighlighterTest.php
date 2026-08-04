@@ -125,4 +125,44 @@ final class DocumentChangeHighlighterTest extends TestCase
         // exactly one inline initialed tag (change 'a'); change 'b' stays pending
         $this->assertSame(1, substr_count($out, 'class="change-initialed"'));
     }
+
+    /**
+     * INTEGRATION — cc6's ClauseEditService bakes struck clauses into merged_html using OUR change-* classes
+     * + data-change-id. Even with an EMPTY baseline (re-authorised: amendment_render cleared) the highlighter
+     * must still inject the CSS, list the mark in the appendix, and stamp its initialed tag — so cc6's
+     * permanent clause strikes stay STYLED on the final document.
+     */
+    public function test_absorbs_and_styles_pre_authored_cc6_marks_with_empty_baseline(): void
+    {
+        $cid = 'abc123def456';
+        $cur = '<div class="doc"><div class="corex-clause" data-clause-ref="5.1" data-change-id="' . $cid . '" data-strikethrough-applied="1">'
+             . '<del class="change-del change-clause" data-change-id="' . $cid . '">old text</del> '
+             . '<ins class="change-ins" data-change-id="' . $cid . '">new text</ins></div></div>';
+
+        // empty baseline → no diff, absorb-only
+        $out = $this->h()->highlight($cur, '', [ $cid => ['name' => 'B. Manager'] ]);
+
+        $this->assertStringContainsString('<style>', $out);                 // CSS injected
+        $this->assertStringContainsString('.change-del{', $out);
+        $this->assertStringContainsString('Schedule of Amendments', $out);  // listed in appendix
+        $this->assertStringContainsString('Clause 5.1', $out);              // labelled by data-clause-ref
+        $this->assertStringContainsString('Initialed by B. Manager', $out); // initialed via change_initials
+    }
+
+    public function test_empty_baseline_with_no_marks_is_a_noop(): void
+    {
+        $plain = '<div class="doc"><p>Nothing to see here</p></div>';
+        $this->assertSame($plain, $this->h()->highlight($plain, ''));
+    }
+
+    /** The data-change-id convention MUST match cc6's ClauseEditService: sha1(key|old|new)[:12]. */
+    public function test_change_id_convention_matches_cc6(): void
+    {
+        $out = $this->h()->highlight(
+            '<div class="doc"><span data-field="commission_percent">10</span></div>',
+            '<div class="doc"><span data-field="commission_percent">7.5</span></div>'
+        );
+        $expected = substr(sha1('commission_percent|7.5|10'), 0, 12);
+        $this->assertStringContainsString('data-change-id="' . $expected . '"', $out);
+    }
 }

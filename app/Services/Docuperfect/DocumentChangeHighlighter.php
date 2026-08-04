@@ -50,22 +50,28 @@ class DocumentChangeHighlighter
      */
     public function highlight(string $currentHtml, string $baselineHtml, array $initials = []): string
     {
-        if (trim($currentHtml) === '' || trim($baselineHtml) === '') {
+        if (trim($currentHtml) === '') {
             return $currentHtml;
         }
 
         try {
             $detector = app(RoleBlockDetectionService::class);
             $curDom = $detector->loadFragment($currentHtml);
-            $baseDom = $detector->loadFragment($baselineHtml);
-            if ($curDom === null || $baseDom === null) {
+            if ($curDom === null) {
                 return $currentHtml;
             }
             $curX = new DOMXPath($curDom);
-            $baseX = new DOMXPath($baseDom);
 
             $changed = false;
             $changes = [];   // collected for the appended Schedule of Amendments (decision #2)
+
+            // Diff against the last-authorised baseline (field + clause) — ONLY when we have one. With an
+            // empty baseline (e.g. the doc is already re-authorised: cc6 cleared amendment_render but its
+            // baked clause strikes must STAY styled on the final document) we skip the diff and just absorb
+            // + style the pre-authored marks in the pass further down.
+            $baseDom = trim($baselineHtml) !== '' ? $detector->loadFragment($baselineHtml) : null;
+            if ($baseDom !== null) {
+            $baseX = new DOMXPath($baseDom);
 
             // ---- Class A: field-value changes (data-field / data-field-name) ----
             $baseFields = $this->indexFieldTexts($baseX);
@@ -117,6 +123,16 @@ class DocumentChangeHighlighter
                 if ($this->renderBlockChange($curDom, $el, $oldText, $newText, $changes, $initials)) {
                     $changed = true;
                 }
+            }
+            } // end if ($baseDom !== null)
+
+            // ---- Absorb cc6's PRE-AUTHORED marks (ClauseEditService bakes struck clauses + OC cross-refs
+            // straight into merged_html using OUR classes + data-change-id). They arrive already styled by
+            // our CSS but WITHOUT an initialed tag / appendix row — and if they are the ONLY changes, our
+            // own passes found nothing, so the style/appendix would not emit. Fold them into one render:
+            // one CSS injection, one Schedule of Amendments, one per-change initial pass, both sources. ----
+            if ($this->absorbPreAuthoredMarks($curX, $changes, $initials)) {
+                $changed = true;
             }
 
             if (! $changed) {
@@ -368,6 +384,59 @@ class DocumentChangeHighlighter
         }
         $x = new DOMXPath($el->ownerDocument);
         return $x->query('.//*[@data-strikethrough-applied] | .//*[@data-amendment-id]', $el)->length > 0;
+    }
+
+    /**
+     * Fold cc6's pre-authored change marks (baked into merged_html by ClauseEditService — struck clauses,
+     * inline write-ins, OC cross-refs; all carrying our `change-*` classes + `data-change-id`) into this
+     * render: add each to the Schedule of Amendments and stamp its "Initialed by" tag from the shared
+     * `change_initials` map. Skips any change-id our own passes already handled. Returns true if it folded
+     * in at least one mark (so the caller injects the CSS + appendix even when we made no edits ourselves).
+     */
+    private function absorbPreAuthoredMarks(DOMXPath $x, array &$changes, array $initials): bool
+    {
+        $seen = [];
+        foreach ($changes as $c) {
+            $seen[$c['id']] = true;
+        }
+        $folded = false;
+        // Container elements that carry a change-id (the clause the mark lives on) — not the del/ins leaves.
+        foreach ($x->query('//*[@data-change-id][.//del[contains(@class,"change-del")] or .//ins[contains(@class,"change-ins")] or .//span[contains(@class,"change-xref")]]') as $el) {
+            if (! $el instanceof DOMElement) {
+                continue;
+            }
+            $id = $el->getAttribute('data-change-id');
+            if ($id === '' || isset($seen[$id])) {
+                continue;
+            }
+            $seen[$id] = true;
+            $old = '';
+            $new = '';
+            $mode = 'clause-small';
+            foreach ($x->query('.//del[@data-change-id] | .//ins[@data-change-id] | .//span[@data-change-id]', $el) as $mark) {
+                if (! $mark instanceof DOMElement || $mark->getAttribute('data-change-id') !== $id) {
+                    continue;
+                }
+                $cls = $mark->getAttribute('class');
+                if (str_contains($cls, 'change-del')) {
+                    $old = trim($mark->textContent);
+                } elseif (str_contains($cls, 'change-xref')) {
+                    $new = 'Other Conditions' . ($el->getAttribute('data-oc-ref') !== '' ? ' — clause ' . $el->getAttribute('data-oc-ref') : '');
+                    $mode = 'clause-big';
+                } elseif (str_contains($cls, 'change-ins')) {
+                    $new = trim($mark->textContent);
+                }
+            }
+            $ref = $el->getAttribute('data-clause-ref');
+            $where = $ref !== '' ? 'Clause ' . $ref : $this->prettyBlockLabel($el, $new);
+            $changes[] = ['id' => $id, 'where' => $where, 'old' => $old, 'new' => $new, 'mode' => $mode, 'initialed' => $initials[$id] ?? null];
+            // Stamp the initialed tag when present and not already there.
+            if (isset($initials[$id]) && $x->query('.//*[contains(@class,"change-initialed")]', $el)->length === 0) {
+                $this->appendInitialedTag($el, $id, $initials);
+            }
+            $folded = true;
+        }
+        return $folded;
     }
 
     /** Human-friendly label for a field key: "seller_phone__r2" → "Seller phone (party 2)". */

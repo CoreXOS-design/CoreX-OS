@@ -288,6 +288,30 @@ Remaining tunable (safe default, adjustable later): the SMALL↔BIG word-count t
 - ✅ Gated by `amendment_render` → normal docs render byte-identically; `esign:regression-walk` 25/25.
 - ✅ Real dompdf render proof (all change types + appendix render correctly in PDF).
 
+## 14a. CONTRACT LOCKED + JOINT INTEGRATION VERIFIED (2026-08-04)
+
+The cc6↔cc1 contract is **locked and proven end-to-end on QA1** (single shared shape — no two variants):
+
+- **`data-change-id = substr(sha1(key|old|new), 0, 12)`** — cc6's `ClauseEditService` and cc1's
+  `DocumentChangeHighlighter` compute it identically (field key for cc1, `clause_ref` for cc6). ✅
+- **Shared CSS + classes** — cc6 bakes clause strikes into `merged_html` using cc1's `change-del` /
+  `change-ins` / `change-xref` classes + `data-strikethrough-applied="1"`; cc1 **defers** its own body-diff
+  to them (no double-mark) and **absorbs** them: injects the CSS, lists them in the Schedule of Amendments,
+  and stamps their initialed tag — even with an empty baseline (so cc6's permanent clause strikes stay
+  STYLED on the final document after re-authorisation). ✅
+- **ONE initials shape** — `web_template_data['change_initials'][<data-change-id>] = {name, at}`. cc6 writes
+  it (item 4), cc1 reads it → "Initialed by {name}". This is the single render-initials contract; there is
+  no `condition_initials`-vs-`change_initials` split in the render path (cc6 may still persist to
+  `condition_initials`/`DocumentClauseStrikethrough` for audit, but the RENDER reads only `change_initials`). ✅
+- **amendment_render lifecycle** — cc6 sets it on edit, **clears it on re-authorisation** (the newly-baked
+  canonical becomes the new authorised baseline, so the FIELD diff correctly goes empty). Clause strikes are
+  baked CONTENT and **stay** regardless (cc1 styles them via the absorb pass). This is the agreed wet-ink
+  model and is verified. ✅
+
+**Joint proof (11/11 green, real dompdf render):** cc6 `ClauseEditService` small-inline + big→Other-Conditions
+edits + cc1 field diff + `change_initials` → one styled wet-ink document (struck old text, written-in new,
+"See Other Conditions — clause N", "Initialed by {name}"), marks persisting after the flag clears.
+
 ## 14. cc6 ACTIVATION CHECKLIST (flow/status half — to light this up end-to-end)
 
 The render half is live and dormant until cc6 sets these signals (all on `web_template_data`, so no shared

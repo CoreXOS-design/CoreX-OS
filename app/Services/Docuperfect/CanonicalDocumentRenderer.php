@@ -123,17 +123,22 @@ class CanonicalDocumentRenderer
      */
     private function maybeHighlight(string $html, \App\Models\Docuperfect\Document $document, array $webData): string
     {
-        if (empty($webData['amendment_render']) || trim($html) === '') {
+        if (trim($html) === '') {
             return $html;
         }
-        $baseline = $this->lastAuthorisedSealedHtml($document, $webData);
-        if ($baseline === '') {
-            return $html;
+        $flagged  = ! empty($webData['amendment_render']);          // live field/clause diff wanted
+        $hasMarks = str_contains($html, 'data-change-id');          // cc6 already baked permanent clause marks
+        if (! $flagged && ! $hasMarks) {
+            return $html;   // a normal, never-amended document — untouched (byte-identical)
         }
         // Per-change initial state (AT-368 contract with cc6): cc6 records each initialed change under
         // web_template_data['change_initials'][data-change-id] = ['name' => …, 'at' => …]. The render only
-        // READS it to show "✓ initialed by X"; marks persist regardless.
+        // READS it to show "Initialed by X"; marks persist regardless.
         $initials = is_array($webData['change_initials'] ?? null) ? $webData['change_initials'] : [];
+        // Baseline drives the LIVE field/clause diff (only while amendment_render is set). Once the doc is
+        // re-authorised the flag is cleared but cc6's baked clause strikes remain — we pass an empty
+        // baseline so the highlighter just styles + schedules those pre-authored marks (they STAY on final).
+        $baseline = $flagged ? $this->lastAuthorisedSealedHtml($document, $webData) : '';
         return app(DocumentChangeHighlighter::class)->highlight($html, $baseline, $initials);
     }
 
