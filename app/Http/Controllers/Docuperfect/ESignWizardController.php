@@ -1588,6 +1588,16 @@ class ESignWizardController extends Controller
             return $data;
         }
 
+        // AT-360c — the AUTHORITATIVE fill-review overlay map. Every value written below is ALSO
+        // recorded here, keyed EXACTLY as the document's data-field attribute (base `{var}` and
+        // per-recipient `{var}__r{n}`). This map is persisted on web_template_data and re-applied
+        // as the LAST word by CanonicalDocumentRenderer::compose() AFTER role-block expansion — so a
+        // fill-review edit ALWAYS wins on the rendered document and can never be clobbered by the
+        // per-recipient contact re-resolution in RoleBlockExpansionService (which pulls from the
+        // Contact model and previously overwrote the agent's edit). Universal: property, details,
+        // single-recipient contact AND multi-recipient contact all flow through here.
+        $overlay = is_array($data['_fill_review_overlay'] ?? null) ? $data['_fill_review_overlay'] : [];
+
         foreach (($stepData['fields'] ?? []) as $field) {
             $fieldId   = $field['id'] ?? null;
             $fieldName = $field['field_name'] ?? null;
@@ -1617,6 +1627,7 @@ class ESignWizardController extends Controller
             // Single-recipient / non-expanded field — value keyed by the base id.
             if (isset($frValues[$fieldId]) && $frValues[$fieldId] !== '') {
                 $data[$var] = $frValues[$fieldId];
+                $overlay[$var] = $frValues[$fieldId];
             }
 
             // AT-360b — PER-RECIPIENT instances. A role-bound field with 2+ recipients is expanded
@@ -1634,10 +1645,13 @@ class ESignWizardController extends Controller
                     $suffix = substr($frKey, strlen($fieldId)); // "__r{n}"
                     if (preg_match('/^__r\d+$/', $suffix)) {
                         $data[$var . $suffix] = $frVal;
+                        $overlay[$var . $suffix] = $frVal;
                     }
                 }
             }
         }
+
+        $data['_fill_review_overlay'] = $overlay;
 
         return $data;
     }
@@ -1778,6 +1792,11 @@ class ESignWizardController extends Controller
             $templateIds = $stepData['template_ids'];
             $mergedHtml = '';
             $packTemplateData = [];
+            // AT-360c — accumulate every segment's authoritative fill-review overlay map so the pack
+            // Document (whose web_template_data is a fresh 4-key array below) still carries it, and
+            // compose() can re-assert fill-review edits on the expanded pack HTML. Keyed by data-field
+            // attribute (base + __r{n}); union across segments (per-template scoping already applied).
+            $packFillReviewOverlay = [];
 
             foreach ($templateIds as $idx => $tplId) {
                 $tpl = Template::find($tplId);
@@ -1787,6 +1806,7 @@ class ESignWizardController extends Controller
                 // AT-360 — same Fill & Review typed-value overlay as the single-doc path, scoped to
                 // this pack template's fields so a value only lands on the document it was typed for.
                 $tplData = $this->overlayFillReviewValues($tplData, $stepData, (int) $tplId);
+                $packFillReviewOverlay = array_merge($packFillReviewOverlay, $tplData['_fill_review_overlay'] ?? []);
                 $segIsSales = false;
                 if (!empty($tpl->signing_parties)) {
                     $tplData['signing_parties'] = $tpl->signing_parties;
@@ -1953,10 +1973,11 @@ class ESignWizardController extends Controller
             $mergedHtml = $this->scopePackOtherConditionsMarkers($mergedHtml);
 
             $webTemplateData = [
-                'merged_html'        => $mergedHtml,
-                'template_ids'       => $templateIds,
-                'pack_id'            => $stepData['pack_id'] ?? null,
-                'pack_template_data' => $packTemplateData,
+                'merged_html'         => $mergedHtml,
+                'template_ids'        => $templateIds,
+                'pack_id'             => $stepData['pack_id'] ?? null,
+                'pack_template_data'  => $packTemplateData,
+                '_fill_review_overlay' => $packFillReviewOverlay,
             ];
         } elseif ($template->render_type === 'web' && $template->blade_view) {
             $webTemplateData = $webTemplateDataService->resolve($template->id, $stepData, $user);

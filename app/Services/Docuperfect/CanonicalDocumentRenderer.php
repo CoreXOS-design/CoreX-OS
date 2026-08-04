@@ -90,7 +90,94 @@ class CanonicalDocumentRenderer
             $fieldMappings,
         );
 
+        // 5) AUTHORITATIVE fill-review overlay — the LAST word (AT-360c). Whatever the agent
+        //    typed/edited in Fill & Review MUST render on the document, for EVERY field category
+        //    (property / details / single-recipient contact / multi-recipient contact). Role-block
+        //    expansion (step 4) re-resolves per-recipient contact fields straight from the Contact
+        //    model, which silently overwrote the agent's edit with the DB value — the exact "the doc
+        //    renders the on-file value, not the edited one" bug. Re-applying the persisted overlay
+        //    map here, AFTER expansion, guarantees the fill-review value always wins and never falls
+        //    back to a pillar/DB value when an edit exists. No-op when there are no fill-review edits.
+        $html = $this->applyFillReviewAuthoritativeOverlay(
+            $html,
+            is_array($webData['_fill_review_overlay'] ?? null) ? $webData['_fill_review_overlay'] : [],
+        );
+
         return $html;
+    }
+
+    /**
+     * Re-assert the agent's Fill & Review edits onto the fully-expanded document as the final,
+     * authoritative pass. `$overlay` is keyed EXACTLY as the document's `data-field` attribute —
+     * base `{var}` and per-recipient `{var}__r{n}` — as recorded by
+     * ESignWizardController::overlayFillReviewValues. For each field element we prefer the exact
+     * `data-field` key; for a per-recipient element whose edit was captured single-recipient (base
+     * key), we fall back to the base var. The overlay map contains ONLY values the agent actually
+     * filled, so a plain fallback can never overwrite an untouched recipient's own value.
+     */
+    private function applyFillReviewAuthoritativeOverlay(string $html, array $overlay): string
+    {
+        if (empty($overlay) || trim($html) === '') {
+            return $html;
+        }
+
+        $detector = app(RoleBlockDetectionService::class);
+        $dom = $detector->loadFragment($html);
+        if ($dom === null) {
+            return $html;
+        }
+
+        $xpath = new \DOMXPath($dom);
+        $nodes = $xpath->query('//*[@data-field] | //*[@data-field-name]');
+        if ($nodes === false) {
+            return $html;
+        }
+
+        $changed = false;
+        foreach ($nodes as $node) {
+            if (! $node instanceof \DOMElement) {
+                continue;
+            }
+            $raw = $node->getAttribute('data-field');
+            if ($raw === '') {
+                $raw = $node->getAttribute('data-field-name');
+            }
+            if ($raw === '') {
+                continue;
+            }
+
+            // Candidate keys: the exact data-field first (covers base vars and explicit
+            // "{var}__r{n}" per-recipient instances), then the base var — for a single-recipient
+            // contact field that expansion stamped "{var}__r1" while the overlay holds "{var}".
+            $candidates = [$raw];
+            if (preg_match('/^(.*)__r\d+$/', $raw, $m) && $m[1] !== '') {
+                $candidates[] = $m[1];
+            }
+
+            $value = null;
+            foreach ($candidates as $key) {
+                if (array_key_exists($key, $overlay) && is_scalar($overlay[$key]) && (string) $overlay[$key] !== '') {
+                    $value = (string) $overlay[$key];
+                    break;
+                }
+            }
+            if ($value === null) {
+                continue;
+            }
+
+            while ($node->firstChild) {
+                $node->removeChild($node->firstChild);
+            }
+            $node->appendChild($dom->createTextNode($value));
+            $changed = true;
+        }
+
+        if (! $changed) {
+            return $html;
+        }
+
+        $out = $detector->serializeFragment($dom);
+        return $out !== '' ? $out : $html;
     }
 
     /**
