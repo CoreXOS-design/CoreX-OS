@@ -2147,6 +2147,7 @@ class SignatureService
         // Stamp the pill into any cc6-authored clause mark carrying this data-change-id (cc1 skips those).
         if (! empty($wtd['merged_html']) && str_contains((string) $wtd['merged_html'], 'data-change-id="' . $changeId . '"')) {
             $wtd['merged_html'] = app(ClauseEditService::class)->stampInitialPill((string) $wtd['merged_html'], $changeId, $name);
+            $wtd['canonical_version'] = 0; // recompose so the "Initialed by" pill shows on serve
         }
 
         $document->update(['web_template_data' => $wtd]);
