@@ -7072,6 +7072,21 @@ CREATE TABLE `listing_targets` (
   CONSTRAINT `listing_targets_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `login_histories`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `login_histories` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint unsigned NOT NULL,
+  `event` enum('login','logout') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `user_agent` text COLLATE utf8mb4_unicode_ci,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `login_histories_user_id_created_at_index` (`user_id`,`created_at`),
+  CONSTRAINT `login_histories_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `mailbox_credential_reveals`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -14104,3 +14119,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1049,'2026_08_20_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1050,'2026_08_20_000005_add_ad_generated_tracking_to_properties',199);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1051,'2026_08_20_000006_add_ad_bg_removal_hole_thresholds_to_agencies',200);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1052,'2026_08_20_000007_add_ad_bg_removal_drift_cap_to_agencies',201);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1053,'2026_08_20_000012_create_login_histories_table',202);

@@ -24,6 +24,7 @@ use App\Models\ContactMatch;
 use App\Models\Deal;
 use App\Models\DealMoneyLine;
 use App\Models\DealSettlement;
+use App\Models\LoginHistory;
 use App\Models\Presentation;
 use App\Models\Property;
 use App\Events\Contracts\DomainEvent;
@@ -718,6 +719,18 @@ class AppServiceProvider extends ServiceProvider
         // `active_agency_id` leaks into the next login and the global
         // AgencyScope filters the user out of their own record.
         Event::listen(Login::class, function (Login $event) {
+            // Login audit trail (.ai/specs/login-audit-trail.md) — permanent,
+            // never-pruned record of every successful login, unlike the
+            // `sessions` table which Laravel GCs after SESSION_LIFETIME.
+            if ($event->user) {
+                LoginHistory::create([
+                    'user_id'    => $event->user->id,
+                    'event'      => 'login',
+                    'ip_address' => request()->ip(),
+                    'user_agent' => request()->userAgent(),
+                ]);
+            }
+
             session()->forget('active_agency_id');
 
             // Admin Multi-Branch Manager — open CoreX already IN the user's
@@ -737,6 +750,15 @@ class AppServiceProvider extends ServiceProvider
             }
         });
         Event::listen(Logout::class, function (Logout $event) {
+            if ($event->user) {
+                LoginHistory::create([
+                    'user_id'    => $event->user->id,
+                    'event'      => 'logout',
+                    'ip_address' => request()->ip(),
+                    'user_agent' => request()->userAgent(),
+                ]);
+            }
+
             session()->forget('active_agency_id');
             session()->forget('view_as_branch_id');
             session()->forget('acting_branch_manager_id'); // legacy key cleanup

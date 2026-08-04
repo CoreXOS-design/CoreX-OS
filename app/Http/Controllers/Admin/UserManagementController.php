@@ -248,7 +248,14 @@ class UserManagementController extends Controller
             ->where('is_enabled', 1)->orderBy('sort_order')->orderBy('name')->get(['id','name']);
         $roles = Role::orderBy('sort_order')->get();
 
-        return view('admin.users.create-edit', compact('user', 'branches', 'designations', 'roles'));
+        $canViewLoginHistory = (bool) auth()->user()?->hasPermission('users.login_history.view');
+        $loginHistory = $canViewLoginHistory
+            ? \App\Models\LoginHistory::forUser($user->id)->latest('created_at')->limit(25)->get()
+            : collect();
+
+        return view('admin.users.create-edit', compact(
+            'user', 'branches', 'designations', 'roles', 'canViewLoginHistory', 'loginHistory'
+        ));
     }
 
     public function update(Request $request, User $user)

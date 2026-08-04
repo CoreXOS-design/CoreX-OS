@@ -222,6 +222,7 @@ return [
         ['key' => 'users.create',            'label' => 'Create',                          'section' => 'franchise-admin',  'type' => 'action',  'module' => 'users',            'sort_order' => 11],
         ['key' => 'users.edit',              'label' => 'Edit',                            'section' => 'franchise-admin',  'type' => 'action',  'module' => 'users',            'sort_order' => 12],
         ['key' => 'users.archive',           'label' => 'Archive',                         'section' => 'franchise-admin',  'type' => 'action',  'module' => 'users',            'sort_order' => 13],
+        ['key' => 'users.login_history.view', 'label' => 'View User Login History',        'section' => 'franchise-admin',  'type' => 'action',  'module' => 'users',            'sort_order' => 17],
 
         // ── DocuPerfect ──
         ['key' => 'access_docuperfect',          'label' => 'Access DocuPerfect',          'section' => 'docuperfect',      'type' => 'access',  'module' => 'docuperfect',      'sort_order' => 1],

@@ -764,6 +764,48 @@
             </div>
             @endif
 
+            {{-- Card: Login History (audit trail — .ai/specs/login-audit-trail.md) --}}
+            @if($canViewLoginHistory)
+            <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
+                <div class="flex items-center gap-2 mb-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color:var(--brand-icon, #0ea5e9);"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z" /></svg>
+                    <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">Login History</h3>
+                </div>
+                @if($loginHistory->isEmpty())
+                <p class="text-xs" style="color:var(--text-muted);">No login activity recorded for this account yet.</p>
+                @else
+                <div class="overflow-x-auto">
+                    <table class="w-full text-xs">
+                        <thead>
+                            <tr style="border-bottom:1px solid var(--border);">
+                                <th class="text-left py-2 pr-4 font-medium" style="color:var(--text-muted);">Event</th>
+                                <th class="text-left py-2 pr-4 font-medium" style="color:var(--text-muted);">IP Address</th>
+                                <th class="text-left py-2 pr-4 font-medium" style="color:var(--text-muted);">Device / Browser</th>
+                                <th class="text-left py-2 font-medium" style="color:var(--text-muted);">When</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach($loginHistory as $entry)
+                            <tr style="border-bottom:1px solid var(--border);">
+                                <td class="py-2 pr-4">
+                                    <span class="px-2 py-0.5 rounded-md font-medium"
+                                          style="{{ $entry->event === 'login' ? 'color:var(--ds-green, #059669); background:color-mix(in srgb, var(--ds-green, #059669) 12%, transparent);' : 'color:var(--text-muted); background:var(--surface-2);' }}">
+                                        {{ ucfirst($entry->event) }}
+                                    </span>
+                                </td>
+                                <td class="py-2 pr-4" style="color:var(--text-primary);">{{ $entry->ip_address ?? '—' }}</td>
+                                <td class="py-2 pr-4 truncate max-w-xs" style="color:var(--text-secondary);" title="{{ $entry->user_agent }}">{{ $entry->user_agent ?? '—' }}</td>
+                                <td class="py-2" style="color:var(--text-secondary);">{{ $entry->created_at->format('Y-m-d H:i:s') }}</td>
+                            </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+                <p class="text-[11px] mt-3" style="color:var(--text-muted);">Showing the {{ $loginHistory->count() }} most recent events.</p>
+                @endif
+            </div>
+            @endif
+
             {{-- Card: Danger Zone --}}
             <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
                 <div class="flex items-center gap-2 mb-4">
