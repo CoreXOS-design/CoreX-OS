@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
+use App\Models\Document;
 use App\Models\Property;
 use App\Models\PropertySellerLink;
 use App\Models\PropertySettingItem;
@@ -1043,6 +1044,83 @@ class MobilePropertyController extends Controller
             'snapshot_at'       => $property->compliance_snapshot_at?->toIso8601String(),
             'first_marketed_at' => $property->first_marketed_at?->toIso8601String(),
         ]);
+    }
+
+    // ── GET /api/mobile/properties/{id}/documents ───────────────────
+    // Property Drive, read-only. Mirrors the web Drive tab
+    // (PropertyController::show's $allDriveDocs + PropertyFileController) — every
+    // document filed against the property (upload / esign / pdf_splitter, any file
+    // type, not just PDF), newest first, plus server-computed folder counts so the
+    // app doesn't have to replicate the grouping logic. .ai/specs/mobile-property-drive.md
+    public function documentsIndex(Request $request, Property $property): JsonResponse
+    {
+        $user = $request->user();
+        $this->authorizeProperty($user, $property);
+
+        $documents = $property->documents()
+            ->with(['documentType', 'uploader'])
+            ->get();
+
+        $canDownload = $user->canDownloadDocuments();
+
+        $folders = $documents
+            ->groupBy(fn (Document $d) => $d->document_type_id)
+            ->map(function ($group, $typeId) {
+                $type = $group->first()->documentType;
+
+                return [
+                    'document_type_id' => $typeId ? (int) $typeId : null,
+                    'label'             => $type?->label ?? 'Unfiled',
+                    'slug'              => $type?->slug,
+                    'count'             => $group->count(),
+                ];
+            })
+            ->values();
+
+        return response()->json([
+            'property_id' => $property->id,
+            'folders'     => $folders,
+            'documents'   => $documents->map(fn (Document $d) => [
+                'id'            => $d->id,
+                'original_name' => $d->original_name,
+                'mime_type'     => $d->mime_type,
+                'size'          => $d->size,
+                'human_size'    => $d->human_size,
+                'document_type' => $d->documentType ? [
+                    'id'    => $d->documentType->id,
+                    'label' => $d->documentType->label,
+                    'slug'  => $d->documentType->slug,
+                ] : null,
+                'source_type'   => $d->source_type,
+                'uploaded_by'   => $d->uploader ? [
+                    'id'   => $d->uploader->id,
+                    'name' => $d->uploader->name,
+                ] : null,
+                'created_at'    => $d->created_at?->toIso8601String(),
+                'can_download'  => $canDownload,
+                'download_url'  => route('v1.mobile.properties.documents.download', [
+                    'property' => $property->id,
+                    'document' => $d->id,
+                ]),
+            ])->values(),
+        ]);
+    }
+
+    // ── GET /api/mobile/properties/{id}/documents/{document}/download ──
+    // Gated download of a property Drive file. Identical scoping/streaming to
+    // PropertyFileController::download — property VIEW scope + pivot-link check +
+    // whatever disk the file is on. The route additionally carries
+    // deny_assistant_download (routes/api.php), so an assistant whose agent has
+    // switched off downloads gets a 403 here exactly like on web.
+    public function documentsDownload(Request $request, Property $property, Document $document)
+    {
+        $this->authorizeProperty($request->user(), $property);
+        abort_unless($document->properties()->where('properties.id', $property->id)->exists(), 404);
+
+        $disk = $document->disk ?: 'local';
+        abort_unless(Storage::disk($disk)->exists($document->storage_path), 404);
+
+        return Storage::disk($disk)->download($document->storage_path, $document->original_name);
     }
 
     // ── GET /api/mobile/properties/{id}/contacts ───────────────────

@@ -90,4 +90,48 @@ class AgentPhotoNormalizerTest extends TestCase
             'normalized photo should stay within the ~500KB budget'
         );
     }
+
+    /**
+     * Private Property's UpdateAgentImage rejects every non-JPG upload
+     * ("only jpg images are supported" — 145/145 historical calls, agent #47
+     * / Shalan investigation, 2026-08-03). store() must also produce a JPEG
+     * rendition so PP has something it will actually accept.
+     * See .ai/specs/private-property.md §7a.
+     */
+    public function test_store_also_writes_a_jpeg_rendition_for_private_property(): void
+    {
+        Storage::fake('public');
+
+        app(AgentPhotoNormalizer::class)->store($this->jpegUpload(2000, 1000), 42);
+
+        $jpegPath = 'agents/42/photo.jpg';
+        Storage::disk('public')->assertExists($jpegPath);
+
+        $info = getimagesizefromstring(Storage::disk('public')->get($jpegPath));
+        $this->assertSame(1200, $info[0]);
+        $this->assertSame(1200, $info[1]);
+        $this->assertSame(IMAGETYPE_JPEG, $info[2]);
+    }
+
+    public function test_ensure_jpeg_lazily_regenerates_a_missing_rendition_from_the_stored_webp(): void
+    {
+        Storage::fake('public');
+
+        $normalizer = app(AgentPhotoNormalizer::class);
+        $normalizer->store($this->jpegUpload(1200, 1200), 55);
+        Storage::disk('public')->delete('agents/55/photo.jpg');
+        $this->assertFalse(Storage::disk('public')->exists('agents/55/photo.jpg'));
+
+        $result = $normalizer->ensureJpeg(55);
+
+        $this->assertSame('agents/55/photo.jpg', $result);
+        Storage::disk('public')->assertExists('agents/55/photo.jpg');
+    }
+
+    public function test_ensure_jpeg_returns_null_when_there_is_no_source_photo(): void
+    {
+        Storage::fake('public');
+
+        $this->assertNull(app(AgentPhotoNormalizer::class)->ensureJpeg(999999));
+    }
 }
