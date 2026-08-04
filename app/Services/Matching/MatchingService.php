@@ -44,6 +44,55 @@ class MatchingService
     public const SCOPE_AGENCY = 'agency';
 
     /**
+     * Property-type FAMILY hard gate (Johan's ruling, 2026-08-04). property_type
+     * itself is too granular and too messy for a hard filter (the same "vacant
+     * land" concept is stored as "Vacant Land / Plot", "VacantLand" and "Vacant
+     * Land" across live data) — family is the right grain: built residential
+     * stock must never match a land/farm/commercial wishlist and vice versa,
+     * while a House buyer still sees Townhouses (same family, still scored
+     * soft on the specifics). Tokens are normalised the same way
+     * canonicalFeature() normalises feature labels — lowercase, punctuation
+     * collapsed to underscores — so every raw spelling variant lands on one
+     * family. A raw value not found here returns null (unmapped, not
+     * penalised) rather than being force-classified — an agency-custom type
+     * must never silently hard-exclude a buyer (false-negative guardrail).
+     */
+    private const PROPERTY_TYPE_FAMILIES = [
+        'built' => [
+            'house', 'apartment', 'apartment_flat', 'flat', 'townhouse', 'sectional_title',
+            'cottage', 'dual_living', 'duet', 'duplex', 'garage', 'penthouse', 'room',
+            'studio_apartment', 'simplex', 'unit', 'villa',
+        ],
+        'land' => [
+            'vacant_land', 'vacant_land_plot', 'vacantland', 'plot', 'stand', 'development',
+        ],
+        'farm' => [
+            'farm', 'agricultural', 'agricultural_holding', 'smallholding',
+        ],
+        'commercial' => [
+            'office', 'business', 'commercial_property', 'industrial_property',
+            'commercial', 'industrial', 'retail', 'warehouse',
+        ],
+    ];
+
+    /**
+     * Classify a raw property_type label into a family, or null if unrecognised.
+     * Null is a deliberate "don't know, don't gate" — see PROPERTY_TYPE_FAMILIES.
+     */
+    public static function propertyTypeFamily(?string $rawType): ?string
+    {
+        $key = strtolower(trim((string) $rawType));
+        if ($key === '') return null;
+        $key = trim((string) preg_replace('/[^a-z0-9]+/', '_', $key), '_');
+        if ($key === '') return null;
+
+        foreach (self::PROPERTY_TYPE_FAMILIES as $family => $tokens) {
+            if (in_array($key, $tokens, true)) return $family;
+        }
+        return null;
+    }
+
+    /**
      * Classify a 0-100 score into a display tier.
      * Returns null when the score is below the display floor.
      */
@@ -367,7 +416,22 @@ class MatchingService
             });
         }
 
-        // Hidden / must-have / suburb filtering happens in PHP after fetch (JSON columns).
+        // AT-289 suburb gate, moved here (was previously bolted on per-caller —
+        // e.g. MIC, the demand-count accessor — leaving matchesForProperty()'s
+        // OWN callers, principally the property page's Core Matches tab,
+        // unprotected). propertiesForMatch() already hard-filters suburb this
+        // way in the opposite direction; this is the missing reverse half, so
+        // every consumer of applyHardFilters() gets it uniformly. Open wishlist
+        // (no suburb list) = compatible with anything, same rule as
+        // suburbCompatible().
+        if ($property->p24_suburb_id) {
+            $query->where(function (Builder $q) use ($property) {
+                $q->whereRaw('JSON_LENGTH(COALESCE(p24_suburb_ids, JSON_ARRAY())) = 0')
+                    ->orWhereRaw('JSON_CONTAINS(COALESCE(p24_suburb_ids, JSON_ARRAY()), ?)', [(string) (int) $property->p24_suburb_id]);
+            });
+        }
+
+        // Hidden / must-have filtering happens in PHP after fetch (JSON columns).
     }
 
     /**
@@ -376,10 +440,35 @@ class MatchingService
      * Only criteria the user actually specified contribute to the denominator.
      * If every specified criterion is fully satisfied, the score is 100.
      * Missing nice-to-haves (e.g. pool) drag the score down proportionally.
-     * Returns 0 if must-haves are missing or the property is hidden.
+     * Returns 0 if must-haves are missing, the property-type family mismatches,
+     * or the property is hidden.
      */
     public function score(Property $property, ContactMatch $match, float $priceBandPct = 0.0): int
     {
+        // Property-type FAMILY hard gate (Johan's ruling — a built-property
+        // buyer must never see vacant land, and vice versa). Placed here, in
+        // the one method every consumer of the engine calls (Core Matches,
+        // MIC's canonicalBestAcross, the property page) — same reasoning as
+        // the must-have gate below: one authoritative place, not a per-caller
+        // bolt-on. Reads propertyTypeList() (the full multi-select array), not
+        // the legacy singular property_type column — a buyer who selected
+        // House+Townhouse+Vacant Land is genuinely open to land. Empty
+        // selection or an unrecognised family on either side = don't gate
+        // (open / unknown, never a false negative).
+        $wantedFamilies = [];
+        foreach ($match->propertyTypeList() as $rawType) {
+            $family = self::propertyTypeFamily($rawType);
+            if ($family !== null) {
+                $wantedFamilies[$family] = true;
+            }
+        }
+        if (!empty($wantedFamilies)) {
+            $propertyFamily = self::propertyTypeFamily($property->property_type);
+            if ($propertyFamily !== null && !isset($wantedFamilies[$propertyFamily])) {
+                return 0;
+            }
+        }
+
         $mustHaves = $match->must_have_features ?? [];
         if (!empty($mustHaves)) {
             // A must-have is a HARD gate — but only against a listing that
@@ -575,15 +664,16 @@ class MatchingService
         $want = self::canonicalFeature($feature);
         if ($want === '') return true;
 
-        if (in_array($want, $this->propertyFeatureTokens($property), true)) {
-            return true;
-        }
-
-        // Fallback: scan prose for the feature, using the spaced form of the
-        // canonical token ("sea view") as well as the token itself ("sea_view").
-        $needle = str_replace('_', ' ', $want);
-        $hay = strtolower((string) ($property->description ?? '') . ' ' . ($property->headline ?? ''));
-        return $hay !== '' && (str_contains($hay, $needle) || str_contains($hay, $want));
+        // Johan's ruling (2026-08-04) — structured features_json ONLY. A
+        // description/headline text-scan fallback previously lived here; it
+        // was removed because it let a property "match" a must-have it was
+        // never actually tagged with (the Alomsee case: the listing's prose
+        // happened to mention the ocean, so it silently passed a "sea view"
+        // must-have it was never marked with in the structured data). The
+        // agent-facing fix for the underlying gap — "this feature is in your
+        // description but not marked, mark it" — is a separate, not-yet-built
+        // follow-up; matching itself must not paper over an unmarked feature.
+        return in_array($want, $this->propertyFeatureTokens($property), true);
     }
 
     /**
