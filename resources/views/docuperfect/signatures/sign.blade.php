@@ -19,7 +19,8 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
             </svg>
             <div class="flex-1 min-w-0">
-                <h3 class="font-semibold text-amber-900 text-sm mb-2">Sent back by the authoriser — fix the document and re-sign to resubmit</h3>
+                <h3 class="font-semibold text-amber-900 text-sm mb-2">Sent back by the authoriser — make your changes, then resubmit</h3>
+                <p class="text-xs text-amber-800 mb-2">Your existing signature stays in place. Edit the fields / conditions and initial each change — you do <strong>not</strong> re-sign the whole document. When done, resubmit to the authoriser.</p>
                 <ol class="space-y-2">
                     @foreach($returnThread as $entry)
                         @php $isBack = ($entry['direction'] ?? '') === 'sent_back'; @endphp
@@ -36,6 +37,15 @@
                         </li>
                     @endforeach
                 </ol>
+                <form method="POST" action="{{ route('docuperfect.signatures.resubmitToAuthoriser', $document) }}" class="mt-3"
+                      onsubmit="return confirm('Resubmit this document to the authoriser for review? Your changes and initials will be sent back to them.');">
+                    @csrf
+                    <button type="submit"
+                            class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg text-white transition-colors"
+                            style="background:#0b2a4a;">
+                        Resubmit to authoriser &rarr;
+                    </button>
+                </form>
             </div>
         </div>
     </div>

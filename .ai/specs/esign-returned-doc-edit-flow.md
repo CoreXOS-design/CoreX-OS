@@ -1,7 +1,18 @@
 # Spec — Returned-Document Edit Flow (FLOW / EDIT-SURFACE / CONTROL half)
 
-**Status:** DRAFT — awaiting Johan's approval. **No code written.** Spec only.
+**Status:** LOCKED (Johan 2026-08-04, wet-ink model) — BUILDING on QA1.
 **Author:** ESIGN lane (cc6) · **Date:** 2026-08-04
+
+> **⚡ WET-INK MODEL (Johan's LOCKED decisions, supersede the earlier reset model):**
+> 1. **Edit ALL** — field values, other-conditions, AND full clause/body text. No clause lock, no gate.
+> 2. **Signed stays signed.** Prior signatures/seals REMAIN valid — never reset/invalidated, never a
+>    whole-document re-sign. The ONLY new signing is **of the CHANGES**: the affected party initials/signs
+>    THAT change, exactly like wet ink.
+> 3. **Change-authoring = wet-ink markup that STAYS VISIBLE on the final contract.** *Small change:* strike
+>    the old clause text and write the new inline. *Big change:* strike the clause and insert a REFERENCE to
+>    an Other Conditions entry holding the full replacement. Both supported; strike-outs + write-ins are
+>    never cleared.
+> 4. **Recipient-side returns = fast-follow** after the candidate/authoriser path.
 **Owns:** the FLOW / edit-surface / control / status half — the return → re-edit → resubmit →
 re-authorise loop and what is editable by whom.
 **cc1 owns:** the RENDER / change-highlight / versioning half — see
@@ -80,58 +91,77 @@ session**:
 
 **T1 + T2 already have storage + capture.** T3 is the new capability Johan asked for.
 
-### 4.1 T3 clause/body capture (the new bit — "full but fully captured")
+### 4.1 T3 clause/body change — the WET-INK STRIKE-OUT primitive (Johan's change-authoring model)
 
-Fill & Review gains a **clause-edit mode**: each clause/paragraph block in the body (anchored by clause
-id / `data-block-id` / `data-role-block`, the same anchors cc1 aligns on) is made editable
-(contenteditable or a per-clause edit modal). On save:
-1. The edited body is written back to `web_template_data['merged_html']` (the single canonical source
-   every surface composes from) — so the change is real document content, not an overlay.
-2. **Fully captured** = for each changed block we ALSO persist a structured change record (block anchor,
-   old text, new text, editor, timestamp) into `web_template_data['pending_body_changes'][]`. This is the
-   audit capture Johan requires ("full per Johan but fully captured"): the edit is free-form, but the
-   *record* of what changed is structured and durable.
-3. **cc1 does NOT need `pending_body_changes` to render** — cc1 diffs current `merged_html` vs the
-   last-authorised seal (their §3/§5B). `pending_body_changes` is the **cc6-side audit + thread feed**
-   (§6) and a convenience index; the seal diff remains the authoritative visual. (Cited to cc1 §5B/§7.)
+Clause/body change is **NOT** a silent contenteditable rewrite. It is authored as a visible **wet-ink
+strike-out** that STAYS on the final contract (Johan #3). This is exactly the P2 primitive
+([`esign-wetink-p2-strikeout-insert-primitive.md`](esign-wetink-p2-strikeout-insert-primitive.md)),
+now the clause-change mechanism for returned docs. **No clause is locked** — any clause is strikeable
+(Johan #1).
 
-> **⚠️ OPEN QUESTION 2 (Johan):** T3 lock scope — may the agent edit **any** clause, or are certain
-> legally-fixed clauses (voetstoots, FICA, mandate-core) **locked** from free edit (matching the P2
-> `is_locked` concept)? This spec assumes **all editable** per your "FULL edits" direction; flag if
-> specific clauses must be locked.
+The agent picks a clause on the edit surface and chooses one of two paths:
+
+- **SMALL change — strike + inline replacement.** The old clause text renders **struck through** (kept
+  visible) with the new text written **inline** immediately after. One `DocumentClauseStrikethrough`
+  (`clause_ref`, `clause_original_text` snapshot, `replacement_text` inline).
+- **BIG change — strike + Other-Conditions reference.** The old clause renders struck through with an
+  inline annotation **"See Other Conditions #N"**, and the FULL replacement is written as a numbered
+  entry in the existing **Other Conditions** block. This reuses `storeStrikethrough`'s existing pairing
+  (`ConditionsController` auto-creates the paired `DocumentCondition` with `is_override=true`,
+  `overrides_clause_ref`) and `InsertableBlockRenderer::applyStrikethroughs` (renders the line-through +
+  `[See Other Conditions #N]`).
+
+**Both paths already have ~70%-built machinery** (`DocumentClauseStrikethrough`, the paired
+`DocumentCondition`, `applyStrikethroughs`, `condition_initials`) — see the P2 spec §3. The strike +
+write-in **persist and stay visible on every surface including the PDF** (`applyStrikethroughs` runs in
+`compose()` for all contexts) — the wet-ink marked-up contract Johan wants, never cleared.
+
+**Storage / capture:** `DocumentClauseStrikethrough` (the struck clause + replacement/OC-ref) is the
+durable structured record — who struck what, old text snapshot, replacement, timestamp, status. Field
+values (T1) and OC entries (T2) keep their existing stores. `web_template_data['merged_html']` carries
+the struck markup so `compose()` renders it everywhere.
 
 ---
 
-## 5. Control model — reset & re-route
+## 5. Control model — SIGNED STAYS SIGNED, initial-on-change (wet-ink)
 
-### 5.1 Signature reset (who loses their signature on edit)
-- **Editing invalidates prior consent.** The moment the agent saves an edit on a returned doc, the
-  document content differs from what anyone signed. So on entering/committing the edit session:
-  - **Creator (agent/candidate):** signature reset to re-signable — already done by the return loop
-    (`returnToCandidate` sets the agent request → `pending`, clears `completed_at`). For recipient-side
-    (amendment_review) the same reset applies to the agent.
-  - **Authoriser:** reset to `waiting` (return loop already does this) — they re-review the edited doc.
-  - **Recipients:** any recipient who had signed BEFORE the edit must re-consent. Per the wet-ink
-    doctrine this is the **initialing cascade** (`requeueAllPartiesForInitialing` /
-    `SectionAcceptance`) — they **initial only the changed regions** (cc1's marks show them exactly
-    what), NOT a full re-sign, unless the change is material enough that Johan wants a full re-sign.
-    (Cited to `ESIGN-WETINK` §9 Build 1 late-flag rule.)
+### 5.1 Prior signatures are PRESERVED — the ONLY new signing is of the changes
+Johan #2, wet-ink: **what is already signed STAYS signed.** Editing does **NOT** invalidate prior
+consent and there is **NO whole-document re-sign**.
 
-> **⚠️ OPEN QUESTION 3 (Johan):** after an agent edit, do already-signed recipients **initial only the
-> changed regions** (recommended, matches wet-ink) or **fully re-sign**? This spec assumes initial-only
-> of the highlighted changes.
+- **No signature reset.** The prior `returnToCandidate` reset (agent request → `pending`, clear
+  `completed_at`) is **REMOVED** — the creator's (and every party's) existing signatures + P1 seals
+  remain valid and stay on the document. *(This corrects the `df7afa82` return loop, which reset the
+  junior — see §11 Build.)*
+- **Each change carries its own initial.** When the agent authors a change (a struck clause, an edited
+  field value, a new OC entry), that specific change requires an **initial/sign of THAT change** from
+  the affected party — the same `ConditionInitial` (append-only, per-change) mechanism the OC/strike
+  flow already uses (`renderInitialSlotsForCondition`, `initialCondition`). The agent initials the
+  changes they author; any other party whose consent the change touches initials that change too.
+- **Already-signed recipients** who must consent to a later change **initial only that change** — the
+  existing initialing cascade (`requeueAllPartiesForInitialing` / `SectionAcceptance` /
+  `checkInitialingCascadeComplete`). They keep their original signature; they add one initial per change.
+  (Cited to `ESIGN-WETINK` §9 Build 1.)
 
-### 5.2 Re-routing (the loop)
+**No legal/audit conflict** (checked, as Johan asked): marginal initial-on-amendment with preserved
+signatures is standard wet-ink practice; P1's hash-chained seals immutably preserve every prior signed
+version, and each change adds a NEW seal + a NEW initial — the chain records exactly who signed what and
+who initialed each subsequent change. Nothing is overwritten.
+
+### 5.2 Re-routing (the loop) — no re-sign, explicit resubmit
 ```
-returned doc → agent opens Fill & Review (edit) → edits T1/T2/T3 → re-signs
-   ├─ candidate flow:   → awaiting_supervisor (resubmit, existing advanceToSupervisor)
-   │                    → authoriser re-reviews (sees cc1 highlights) → authorise OR return again
-   │                    → after authorise → recipients (fresh) → … → complete
-   └─ recipient-side:   → parties who must re-consent initial the changed regions (initialing cascade)
-                        → continue forward → complete
+returned doc → agent opens edit surface → authors changes (T1/T2/T3), initialling each →
+               clicks RESUBMIT (explicit — NOT a re-sign of the doc)
+   ├─ candidate flow:  → awaiting_supervisor (resubmit) → authoriser reviews the MARKED-UP doc
+   │                     (strike-outs + write-ins + change-initials visible) → INITIALS each change to
+   │                     authorise it (or returns again) → after authorising, forward to any recipients
+   │                     whose consent a change touches → they INITIAL that change → complete
+   └─ recipient-side:  → parties whose consent a change touches initial that change (initialing cascade)
+                         → continue forward → complete
 ```
-Re-routing **reuses the existing machinery** wholesale: `advanceToSupervisor` (candidate),
-`advanceToNextParty` / initialing cascade (recipients). No new routing engine.
+Because there is no re-sign, **RESUBMIT is an explicit action** (button), not the side-effect of a
+signature completion. Re-routing otherwise **reuses existing machinery**: `advanceToSupervisor`
+(candidate), the initialing cascade (recipients). No new routing engine.
 
 ---
 
@@ -139,21 +169,29 @@ Re-routing **reuses the existing machinery** wholesale: `advanceToSupervisor` (c
 
 - **Thread (existing, `df7afa82`):** `web_template_data['return_thread']` already records every send-back
   (with note) and resubmit hop. On a re-edit resubmit, the thread hop is **enriched with a change
-  summary** derived from §4.1 `pending_body_changes` + the overlay field diff: e.g. *"resubmitted —
-  changed: purchase price, clause 5.2, occupation date."* So the thread reads as a running,
-  human-legible change log across rounds; the immutable `SignatureAuditLog` + the sealed-version chain
-  are the legal record.
+  summary** derived from the authored changes (struck clauses + edited fields + new OC entries): e.g.
+  *"resubmitted — struck clause 5.2 (→ OC #3), changed purchase price, occupation date."* Running,
+  human-legible change log; the immutable `SignatureAuditLog` + the sealed-version chain are the legal
+  record.
+- **Two DISTINCT change-visibility mechanisms — reconciled with cc1 (Johan #3):**
+  - **Clause/body changes → cc6's WET-INK STRIKE-OUTS** (`applyStrikethroughs`). These are **real
+    document content** in `merged_html`, rendered by `compose()` on every surface **and they STAY on
+    the final contract — never cleared** (the wet-ink marked-up document Johan wants). They do NOT
+    depend on `amendment_render` and do NOT clear on re-authorisation.
+  - **Field-value changes (T1) → cc1's diff-highlight** (their gated `compose()` step 6). These have no
+    strike-out glyph, so cc1's "boxed highlight + was: `<old>`" is how a changed field JUMPS OUT. This
+    is the part gated by `amendment_render`, and cc1's §9 policy decides whether it clears or leaves a
+    stamp on final issue.
 - **The cc1 contract (I SET, cc1 READS — cited to their §8):**
-  1. On edit commit, cc6 sets **`web_template_data['amendment_render'] = true`** → cc1's gated
-     `compose()` step 6 turns on the change-highlight overlay.
-  2. cc6 guarantees the **current canonical/body is in `web_template_data`** (`merged_html` updated per
-     §4.1; overlay per T1) BEFORE any surface composes — so cc1 diffs the correct "current" against the
-     last-authorised seal.
-  3. On **re-authorisation**, cc6 **clears `amendment_render`** and lets the authoriser seal
-     (`EVENT_AUTHORISER_COSIGNED`) capture the new baseline → cc1's diff goes empty → marks clear
-     automatically (their §6). (For a permanent "Amended" stamp, that is cc1's §9 policy toggle — Johan's
-     call there, not here.)
-  4. cc6 also clears `pending_body_changes` at re-authorisation (folded into the new baseline).
+  1. On a field-value edit, cc6 sets **`web_template_data['amendment_render'] = true`** → cc1's step 6
+     highlights the changed fields vs the last-authorised seal. (Clause strike-outs need no flag — they
+     render as document content regardless.)
+  2. cc6 guarantees the **current canonical/body is in `web_template_data`** (`merged_html` carries the
+     struck markup; the T1 overlay carries new field values) BEFORE any surface composes.
+  3. On **re-authorisation**, cc6 clears **`amendment_render`** so cc1's *field* highlight resolves per
+     their §9 policy. **The strike-outs remain** (they are content, not a diff overlay) — the final
+     contract stays wet-ink marked up. A new authoriser seal captures this marked-up state as the
+     baseline, so the NEXT round's field-diff is clean while the accumulated strikes persist.
 
 ---
 
@@ -161,13 +199,13 @@ Re-routing **reuses the existing machinery** wholesale: `advanceToSupervisor` (c
 
 | State | Set by | Editable? | Next |
 |---|---|---|---|
-| `returned_to_candidate` | authoriser send-back (`df7afa82`) | **YES — agent, via Fill & Review edit** | re-sign → `awaiting_supervisor` |
-| `amendment_review` | recipient flag/strikeout (`:3791`) | **YES — agent, via Fill & Review edit** | edit → initialing cascade → continue |
-| `awaiting_supervisor` | resubmit | no (authoriser reviews) | authorise / return |
-| `amendment_initialing` | after agent edit approved | no (parties initial changes) | complete |
+| `returned_to_candidate` | authoriser send-back (`df7afa82`) | **YES — agent edits + initials changes; signatures stay** | **explicit RESUBMIT** → `awaiting_supervisor` |
+| `amendment_review` | recipient flag/strikeout (`:3791`) | **YES — agent edits + initials changes; signatures stay** | initialing cascade → continue |
+| `awaiting_supervisor` | resubmit | no (authoriser reviews marked-up doc, initials each change) | authorise / return |
+| `amendment_initialing` | after authoriser authorises a change | no (affected parties initial that change) | complete |
 
-`amendment_render` (web_template_data flag) is orthogonal to status — it is ON from the first edit until
-re-authorisation, driving cc1's marks across whatever states the doc passes through in between.
+Prior signatures + P1 seals are preserved across ALL these states (§5.1). `amendment_render` (field-diff
+flag) is ON from the first field edit until re-authorisation (§6); clause strike-outs need no flag.
 
 ---
 
@@ -175,8 +213,10 @@ re-authorisation, driving cc1's marks across whatever states the doc passes thro
 
 **cc6 (this spec) provides / owns:**
 - the relaunched Fill & Review **edit surface** (T1/T2/T3), seeded from the returned Document;
-- **T3 clause/body capture** → writes `merged_html` + `pending_body_changes`;
-- the **control model**: signature reset + re-route (reuse return loop + initialing cascade);
+- **T3 clause/body change** = the wet-ink strike-out primitive → `DocumentClauseStrikethrough` + struck
+  markup in `merged_html` (small=inline, big=OC reference); strikes STAY visible;
+- the **control model**: SIGNED-STAYS-SIGNED + initial-on-change (remove the `df7afa82` reset; explicit
+  resubmit; reuse the initialing cascade for change-initials);
 - the **thread** change-summary enrichment;
 - **sets/clears `amendment_render`** and guarantees current canonical/body in `web_template_data`;
 - re-seal trigger on re-authorisation (invokes the existing seal at the authoriser gate).
@@ -193,22 +233,30 @@ re-authorisation, driving cc1's marks across whatever states the doc passes thro
 
 ---
 
-## 9. Open questions for Johan (mine)
-1. **§3** — in-place edit seeded from the Document (assumed) vs a durable `documents.source_flow_id` Flow link?
-2. **§4.1** — T3: any clause editable (assumed), or lock legally-fixed clauses (voetstoots/FICA/mandate-core)?
-3. **§5.1** — already-signed recipients after an edit: **initial-only the changed regions** (assumed) or full re-sign?
-4. Recipient-side scope now, or candidate-flow first then recipient-side as a fast-follow? (Same surface either way.)
+## 9. Decisions LOCKED by Johan + remaining open question
+- **Edit scope (was OQ2):** LOCKED — **all editable, no clause lock.**
+- **Signed stays signed / initial-on-change (was OQ3):** LOCKED — **prior signatures preserved; only the
+  changes are initialed** (no full re-sign).
+- **Change-authoring:** LOCKED — small = strike + inline; big = strike + OC reference; strikes STAY visible.
+- **Recipient-side (was OQ4):** LOCKED — **fast-follow** after candidate/authoriser.
+- **Remaining OQ1 (§3):** in-place edit seeded from the Document (assumed for the build) vs a durable
+  `documents.source_flow_id` Flow link. Building with the in-place seed; will flag if a durable link
+  proves necessary.
 
-*(cc1's open questions — clear-vs-stay on final issue, redline granularity, deleted-text display, which
-seal is the baseline — are in their spec §9/§12 and are theirs to field.)*
+*(cc1's open questions live in their spec §9/§12.)*
 
 ---
 
-## 10. Build order (on approval — NOT now)
-1. Edit-session relaunch of Fill & Review seeded from a returned Document (T1 first — field values).
-2. T3 clause/body edit mode + capture (`merged_html` + `pending_body_changes`); set `amendment_render`.
-3. Control model: reset/route already exists for candidate; extend to recipient-side (initialing cascade).
-4. Thread change-summary; re-authorisation clear + re-seal.
-5. Coordinate with cc1's highlighter (their build) — the two meet only at the `amendment_render` flag.
+## 10. Build order (LOCKED — building on QA1)
+1. **Signed-stays-signed (§5.1)** — REMOVE the `returnToCandidate` signature reset; add an **explicit
+   resubmit** action (replaces the re-sign-triggered resubmit). *(Corrects `df7afa82`.)* ← foundational.
+2. **Returned-doc edit surface** — the agent opens the returned doc and edits field values + Other
+   Conditions (existing edit mechanisms), each change initialed; signatures intact.
+3. **Wet-ink clause strike-out primitive (§4.1)** — agent strikes a clause (small=inline / big=OC ref),
+   reusing `DocumentClauseStrikethrough` + `applyStrikethroughs` + `condition_initials`; strikes stay
+   visible incl. PDF.
+4. **Change-initial routing** — authoriser initials each change; affected recipients initial via the
+   cascade; thread change-summary; `amendment_render` for field diffs (cc1 contract).
+5. **Recipient-side (fast-follow)** — same surface for `amendment_review`.
 
-Regression-walk stays the moat. QA1 only.
+Regression-walk stays the moat. QA1 only, don't promote.

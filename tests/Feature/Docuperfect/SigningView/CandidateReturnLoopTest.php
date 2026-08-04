@@ -30,7 +30,7 @@ final class CandidateReturnLoopTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_send_back_unlocks_junior_threads_the_note_and_notifies(): void
+    public function test_send_back_keeps_signature_threads_the_note_and_notifies(): void
     {
         Notification::fake();
         [$template, $junior, $senior] = $this->seedCandidateAtSupervisorReview();
@@ -40,13 +40,14 @@ final class CandidateReturnLoopTest extends TestCase
         $template->refresh();
         $this->assertSame(SignatureTemplate::STATUS_RETURNED_TO_CANDIDATE, $template->status);
 
-        // Junior UNLOCKED — agent request re-signable (not completed).
+        // WET-INK: the junior's signature STAYS — the agent request remains COMPLETED (no reset).
         $agentReq = $template->requests()->where('party_role', 'agent')->first();
-        $this->assertNotSame(SignatureRequest::STATUS_COMPLETED, $agentReq->status, 'junior must be unlocked to re-sign');
-        $this->assertNull($agentReq->completed_at);
+        $this->assertSame(SignatureRequest::STATUS_COMPLETED, $agentReq->status, 'wet-ink: prior signature must NOT be reset');
+        $this->assertNotNull($agentReq->completed_at, 'wet-ink: completed_at must be preserved');
         $this->assertSame('Fix the purchase price on page 2.', $agentReq->returned_notes);
 
-        // Authoriser request reset to WAITING so the resubmit re-routes to the queue (not to recipients).
+        // Authoriser request reset to WAITING so the resubmit re-routes to the queue (routing only —
+        // the authoriser had not co-signed at review time, so no signature is invalidated).
         $supReq = $template->requests()->where('party_role', 'supervisor')->first();
         $this->assertSame(SignatureRequest::STATUS_WAITING, $supReq->status);
 
@@ -65,21 +66,26 @@ final class CandidateReturnLoopTest extends TestCase
         Notification::assertSentTo($junior, SignatureActivityNotification::class);
     }
 
-    public function test_resubmit_returns_to_supervisor_appends_thread_and_audits(): void
+    public function test_explicit_resubmit_returns_to_supervisor_keeps_signature_appends_thread_and_audits(): void
     {
         Notification::fake();
         [$template, $junior, $senior] = $this->seedCandidateAtSupervisorReview();
 
-        // Round 1: send back, then the junior re-signs (handlePartyCompletion drives the resubmit).
         $svc = app(SignatureService::class);
         $svc->returnToCandidate($template, 'Wrong occupation date.', $senior);
         $template->refresh();
 
-        $agentReq = $template->requests()->where('party_role', 'agent')->first();
-        $svc->handlePartyCompletion($template, 'agent', $agentReq);
+        // WET-INK: resubmit is an EXPLICIT action by the junior — NOT a re-sign of the document.
+        $result = $svc->resubmitToAuthoriser($template, $junior);
+        $this->assertTrue($result['ok'] ?? false);
 
         $template->refresh();
         $this->assertSame(SignatureTemplate::STATUS_AWAITING_SUPERVISOR, $template->status, 'resubmit must re-enter the authoriser queue, never skip to recipients');
+
+        // Signature STILL intact after resubmit (never re-signed).
+        $agentReq = $template->requests()->where('party_role', 'agent')->first();
+        $this->assertSame(SignatureRequest::STATUS_COMPLETED, $agentReq->status);
+        $this->assertNotNull($agentReq->completed_at);
 
         $thread = $template->document->fresh()->web_template_data['return_thread'] ?? [];
         $directions = array_column($thread, 'direction');
@@ -89,6 +95,21 @@ final class CandidateReturnLoopTest extends TestCase
             'signature_template_id' => $template->id,
             'action' => 'candidate_resubmitted_to_authoriser',
         ]);
+    }
+
+    public function test_resubmit_is_guarded_to_creator_on_a_returned_doc(): void
+    {
+        [$template, $junior, $senior] = $this->seedCandidateAtSupervisorReview();
+        $svc = app(SignatureService::class);
+
+        // Not returned yet → refused.
+        $this->assertFalse($svc->resubmitToAuthoriser($template, $junior)['ok'] ?? true);
+
+        $svc->returnToCandidate($template, 'x', $senior);
+        $template->refresh();
+
+        // A non-creator cannot resubmit.
+        $this->assertFalse($svc->resubmitToAuthoriser($template, $senior)['ok'] ?? true);
     }
 
     // ── Helpers ──

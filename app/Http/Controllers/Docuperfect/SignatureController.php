@@ -2826,6 +2826,28 @@ class SignatureController extends Controller
     }
 
     /**
+     * WET-INK explicit RESUBMIT (Johan 2026-08-04) — the candidate finished editing + initialling
+     * their CHANGES on a returned doc and sends it back to the authoriser. No whole-document re-sign
+     * (prior signatures stay). Only the creator, only while returned_to_candidate.
+     */
+    public function resubmitToAuthoriser(Request $request, Document $document)
+    {
+        $user = $request->user();
+        $this->authorizeDocument($user, $document);
+
+        $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+
+        $result = $this->signatureService->resubmitToAuthoriser($template, $user);
+
+        if (empty($result['ok'])) {
+            return back()->with('error', $result['error'] ?? 'Could not resubmit this document.');
+        }
+
+        return redirect()->route('docuperfect.esign.myDocuments')
+            ->with('status', 'Resubmitted to the authoriser for review.');
+    }
+
+    /**
      * Status check endpoint for dashboard polling.
      */
     public function statusCheck(Request $request)

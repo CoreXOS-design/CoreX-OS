@@ -1959,19 +1959,14 @@ class SignatureService
                 ]);
             }
 
-            // UNLOCK the junior for edit + RE-SIGN on the same screen. The junior signs via
-            // webSignComplete, which locates their request by `status != completed` and then marks
-            // it completed again on the re-sign; a still-COMPLETED agent request would block the
-            // re-sign entirely. Clear the completion + any prior authorisation so the doc is a live
-            // draft the junior owns again. The senior NEVER edits — the junior is the sole editor
-            // in this state (field-write gate unchanged; see esign-candidate-authoriser-return-loop.md §6).
+            // WET-INK (Johan 2026-08-04): SIGNED STAYS SIGNED. Do NOT reset the junior's signature —
+            // keep status/completed_at intact. The junior does NOT re-sign the whole document; they
+            // EDIT and INITIAL only the CHANGES, then RESUBMIT explicitly (resubmitToAuthoriser). The
+            // prior signature + P1 seals remain valid. We only record the note for the sign-screen
+            // banner. (This REPLACES the earlier reset — see esign-returned-doc-edit-flow.md §5.1/§10.)
             $candidateRequest = $template->requests()->where('party_role', 'agent')->first();
             if ($candidateRequest) {
                 $candidateRequest->update([
-                    'status'         => SignatureRequest::STATUS_PENDING,
-                    'completed_at'   => null,
-                    'authorised_by'  => null,
-                    'authorised_at'  => null,
                     'returned_notes' => $notes, // latest note — the sign-screen banner reads this
                 ]);
             }
@@ -2018,6 +2013,35 @@ class SignatureService
                 'notes' => $notes,
                 'round' => $round,
             ];
+        });
+    }
+
+    /**
+     * WET-INK explicit RESUBMIT (Johan 2026-08-04) — the junior finished editing + initialling their
+     * CHANGES on a returned doc and sends it back to the authoriser. There is NO re-sign of the whole
+     * document (prior signatures + P1 seals stay valid), so resubmit is an explicit action, not a
+     * signature side-effect. Routes back to the branch-scoped authorisation queue via
+     * advanceToSupervisor (which detects the resubmit via the returned status, re-notifies the pool,
+     * appends the thread hop + `candidate_resubmitted_to_authoriser` audit). Guarded to the creator.
+     */
+    public function resubmitToAuthoriser(SignatureTemplate $template, User $candidate): array
+    {
+        if (! $template->is_candidate_flow) {
+            return ['ok' => false, 'error' => 'Not a candidate-flow document.'];
+        }
+        if ($template->status !== SignatureTemplate::STATUS_RETURNED_TO_CANDIDATE) {
+            return ['ok' => false, 'error' => 'This document is not in a returned state.'];
+        }
+        if ((int) $template->created_by !== (int) $candidate->id) {
+            return ['ok' => false, 'error' => 'Only the document creator can resubmit it.'];
+        }
+
+        return DB::transaction(function () use ($template) {
+            // advanceToSupervisor sees status === returned_to_candidate → treats this as a RESUBMIT:
+            // awaiting_supervisor, notify pool ('resubmission'), thread hop + audit. Signatures untouched.
+            $this->advanceToSupervisor($template);
+            $template->refresh();
+            return ['ok' => true, 'status' => $template->status];
         });
     }
 

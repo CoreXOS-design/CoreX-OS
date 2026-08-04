@@ -211,7 +211,7 @@
                                 <span class="ds-badge ml-2" style="background: var(--ds-crimson); color: #fff;">RETURNED</span>
                             </div>
                             <div class="text-xs mt-2" style="color: var(--ds-crimson);">
-                                The authoriser sent this back for changes. Open it to read the notes, fix the document, re-sign and resubmit.
+                                The authoriser sent this back for changes. Your signature stays in place — open it, make the changes, initial each change, then resubmit. You do not re-sign the whole document.
                             </div>
                             @if($lastNote)
                             <div class="text-xs mt-2 rounded px-2 py-1.5" style="background: color-mix(in srgb, var(--ds-crimson) 6%, #fff); color: var(--text-secondary);">
@@ -226,7 +226,7 @@
                             @if($doc)
                             <a href="{{ route('docuperfect.signatures.sign', $doc) }}"
                                class="corex-btn-primary whitespace-nowrap text-center">
-                                Fix &amp; Re-sign
+                                Open to fix
                             </a>
                             @endif
                         </div>
