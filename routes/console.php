@@ -244,6 +244,21 @@ Schedule::command('deals:process-rag')->everyFifteenMinutes()->withoutOverlappin
 Schedule::command('deals:process-escalations')->hourly()->withoutOverlapping()->onOneServer();
 Schedule::command('deals:daily-digest')->dailyAt(config('deals.digest.time', '07:00'))->withoutOverlapping()->onOneServer();
 
+// ── Deal money-line recalc SAFETY-NET ──
+// The per-deal money-line recalc is now QUEUED (RebuildDealMoneyLinesJob, dispatched from
+// DealObserver/DealSettlementObserver) instead of synchronous, so a wedged queue worker would let
+// deal_money_lines drift stale. This nightly FULL rebuild reconciles every deal from source as a
+// backstop. Distinct from matches:recompute (that recomputes the buyer-demand matrix, NOT money
+// lines) — do not conflate. Cheap at scale (~148 deals / ~285 live lines). 04:45 SAST is off-peak
+// and after the 04:00–04:30 recompute cluster; onOneServer + withoutOverlapping so runs never
+// double up. NB: runs wherever `schedule:run` is cron'd (live/staging/demo) — NOT on QA1, which has
+// no scheduler cron (this entry is inert there until promoted).
+Schedule::command('deals:recalc-money-lines')
+    ->dailyAt('04:45')
+    ->timezone('Africa/Johannesburg')
+    ->onOneServer()
+    ->withoutOverlapping();
+
 // ── Leave Management ──
 Schedule::command('corex:leave:accrue-daily')->dailyAt('02:00')->onOneServer()->withoutOverlapping();
 Schedule::command('corex:leave:cycle-rollover')->dailyAt('02:30')->onOneServer()->withoutOverlapping();
