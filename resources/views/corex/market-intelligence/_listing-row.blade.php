@@ -134,6 +134,16 @@
             </a>
             @endif
 
+            {{-- BUG 3 — sole/exclusive mandate badge. Only visible when the
+                 agent has toggled "Show sole/exclusive mandates" on, since the
+                 pool excludes these by default. --}}
+            @if($listing->isSoleOrExclusiveMandate())
+            <span style="{{ $tagAmber }}"
+                  title="Flagged {{ strtolower($listing->mandate_type) }} mandate — another agency already holds this listing.">
+                {{ ucfirst(strtolower($listing->mandate_type)) }} mandate
+            </span>
+            @endif
+
             {{-- Pitched tag --}}
             @if($pitch)
                 @php
