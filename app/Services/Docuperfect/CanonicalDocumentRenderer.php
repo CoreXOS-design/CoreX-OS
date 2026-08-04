@@ -115,7 +115,7 @@ class CanonicalDocumentRenderer
      * key), we fall back to the base var. The overlay map contains ONLY values the agent actually
      * filled, so a plain fallback can never overwrite an untouched recipient's own value.
      */
-    private function applyFillReviewAuthoritativeOverlay(string $html, array $overlay): string
+    public function applyFillReviewAuthoritativeOverlay(string $html, array $overlay): string
     {
         if (empty($overlay) || trim($html) === '') {
             return $html;

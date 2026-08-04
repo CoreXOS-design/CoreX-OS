@@ -1499,6 +1499,18 @@ class ESignWizardController extends Controller
                 }
             }
 
+            // AT-360c — the Fill & Review preview is a SEPARATE render surface from compose(), but it
+            // has the SAME defect: expandWithLooping (above) re-resolves each recipient's contact fields
+            // straight from the Contact model, clobbering the agent's per-recipient "{var}__r{n}" edits
+            // (Seller 2's phone showed the DB value, not the edit). Re-assert the authoritative overlay
+            // as the LAST word — the identical pass compose() runs at signing — so the preview is
+            // what-you-see-equals-what-you-get with the signed document. No-op when nothing was edited.
+            $previewHtml = app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)
+                ->applyFillReviewAuthoritativeOverlay(
+                    $previewHtml,
+                    is_array($viewData['_fill_review_overlay'] ?? null) ? $viewData['_fill_review_overlay'] : [],
+                );
+
             return response()->json([
                 'render_type'   => 'web',
                 'blade_view'    => $template->blade_view,
