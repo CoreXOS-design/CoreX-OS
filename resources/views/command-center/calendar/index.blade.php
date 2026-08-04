@@ -1335,7 +1335,7 @@
                             <form :action="panelData.viewing_pack.launch_url" method="POST">
                                 @csrf
                                 <button type="submit" class="corex-btn-primary text-xs w-full justify-center">
-                                    Launch Viewing Pack for this appointment
+                                    Create viewing pack
                                 </button>
                                 <p class="text-[10px] mt-1" style="color: var(--text-muted);">Select the properties you can show, then Update Appointment.</p>
                             </form>
@@ -1346,7 +1346,7 @@
                             <div class="space-y-2">
                                 <a :href="panelData.viewing_pack.open_url"
                                    class="text-xs font-medium hover:underline inline-flex items-center gap-1" style="color: var(--brand-button);">
-                                    Open Viewing Pack
+                                    Download viewing pack
                                     <span class="text-[9px] px-1.5 py-0.5 rounded-full" style="background: var(--surface-2); color: var(--text-muted);" x-text="panelData.viewing_pack.status"></span>
                                 </a>
                                 <template x-if="panelData.viewing_pack.can_download">
@@ -2298,7 +2298,7 @@
                    class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
                    style="color: var(--text-primary); text-decoration:none;">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"/></svg>
-                    Open pack
+                    Download viewing pack
                 </a>
                 <template x-if="panelData.linked_viewing_pack.property_count > 0">
                     <span class="inline-flex items-center gap-4">
@@ -2325,7 +2325,7 @@
                         class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
                         style="color: var(--brand-button); background:none; border:none; cursor:pointer;">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-                    Prepare viewing pack
+                    Create viewing pack
                 </button>
             </form>
         </template>
