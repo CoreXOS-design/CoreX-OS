@@ -60,6 +60,7 @@ class DocumentChangeHighlighter
             $baseX = new DOMXPath($baseDom);
 
             $changed = false;
+            $changes = [];   // collected for the appended Schedule of Amendments (decision #2)
 
             // ---- Class A: field-value changes (data-field / data-field-name) ----
             $baseFields = $this->indexFieldTexts($baseX);
@@ -80,7 +81,8 @@ class DocumentChangeHighlighter
                 if (str_contains($node->getAttribute('class'), 'change-') ) {
                     continue;
                 }
-                $this->replaceChildrenWithWetInk($node, $old, $new);
+                $changeId = $this->replaceChildrenWithWetInk($node, $old, $new);
+                $changes[] = ['id' => $changeId, 'where' => $this->prettyFieldLabel($key), 'old' => $old, 'new' => $new, 'mode' => 'field'];
                 $changed = true;
             }
 
@@ -107,7 +109,7 @@ class DocumentChangeHighlighter
                 if ($this->norm($oldText) === $this->norm($newText)) {
                     continue;
                 }
-                if ($this->renderBlockChange($curDom, $el, $oldText, $newText)) {
+                if ($this->renderBlockChange($curDom, $el, $oldText, $newText, $changes)) {
                     $changed = true;
                 }
             }
@@ -117,7 +119,12 @@ class DocumentChangeHighlighter
             }
 
             $out = $detector->serializeFragment($curDom);
-            return $out !== '' ? $this->styleBlock() . $out : $currentHtml;
+            if ($out === '') {
+                return $currentHtml;
+            }
+            // Decision #2 — append the Schedule of Amendments so the change record persists on the final
+            // document alongside the inline marks.
+            return $this->styleBlock() . $out . $this->appendixHtml($changes);
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('DocumentChangeHighlighter failed (non-fatal, marks skipped)', [
                 'error' => $e->getMessage(),
@@ -166,8 +173,8 @@ class DocumentChangeHighlighter
         return $out;
     }
 
-    /** Replace a field span's children with wet-ink: struck old + inline new. */
-    private function replaceChildrenWithWetInk(DOMElement $node, string $old, string $new): void
+    /** Replace a field span's children with wet-ink: struck old + inline new. Returns the change id. */
+    private function replaceChildrenWithWetInk(DOMElement $node, string $old, string $new): string
     {
         while ($node->firstChild) {
             $node->removeChild($node->firstChild);
@@ -188,13 +195,14 @@ class DocumentChangeHighlighter
             $ins->appendChild($dom->createTextNode($new));
             $node->appendChild($ins);
         }
+        return $changeId;
     }
 
     /**
      * Render a clause/body text change. SMALL → inline word-level strike+insert; BIG → strike the whole
      * clause + a cross-reference to Other Conditions. Returns true when it marked the block.
      */
-    private function renderBlockChange(\DOMDocument $dom, DOMElement $el, string $oldText, string $newText): bool
+    private function renderBlockChange(\DOMDocument $dom, DOMElement $el, string $oldText, string $newText, array &$changes): bool
     {
         $oldWords = $this->words($oldText);
         $newWords = $this->words($newText);
@@ -229,6 +237,7 @@ class DocumentChangeHighlighter
             $ocRef = $el->getAttribute('data-oc-ref');
             $xref->appendChild($dom->createTextNode('See Other Conditions' . ($ocRef !== '' ? ' — clause ' . $ocRef : '')));
             $el->appendChild($xref);
+            $changes[] = ['id' => $changeId, 'where' => $this->prettyBlockLabel($el), 'old' => $oldText, 'new' => $newText, 'mode' => 'clause-big'];
             return true;
         }
 
@@ -259,6 +268,7 @@ class DocumentChangeHighlighter
                 $el->appendChild($dom->createTextNode(' '));
             }
         }
+        $changes[] = ['id' => $changeId, 'where' => $this->prettyBlockLabel($el), 'old' => $oldText, 'new' => $newText, 'mode' => 'clause-small'];
         return true;
     }
 
@@ -332,6 +342,61 @@ class DocumentChangeHighlighter
         }
         $x = new DOMXPath($el->ownerDocument);
         return $x->query('.//*[@data-strikethrough-applied] | .//*[@data-amendment-id]', $el)->length > 0;
+    }
+
+    /** Human-friendly label for a field key: "seller_phone__r2" → "Seller phone (party 2)". */
+    private function prettyFieldLabel(string $key): string
+    {
+        $party = '';
+        if (preg_match('/^(.*)__r(\d+)$/', $key, $m)) {
+            $key = $m[1];
+            $party = ' (party ' . $m[2] . ')';
+        }
+        return ucfirst(trim(str_replace('_', ' ', $key))) . $party;
+    }
+
+    /** Human-friendly label for a clause block: role token or a short text preview. */
+    private function prettyBlockLabel(DOMElement $el): string
+    {
+        $role = $el->getAttribute('data-role-block');
+        if ($role !== '') {
+            return ucfirst($role) . ' clause';
+        }
+        $preview = trim(preg_replace('/\s+/', ' ', $el->textContent));
+        $preview = preg_replace('/^(See Other Conditions.*)$/', '', $preview);
+        return 'Clause: "' . mb_strimwidth($preview, 0, 40, '…') . '"';
+    }
+
+    /** Decision #2 — the appended "Schedule of Amendments" listing each change (old → new). */
+    private function appendixHtml(array $changes): string
+    {
+        if (empty($changes)) {
+            return '';
+        }
+        $rows = '';
+        foreach ($changes as $i => $c) {
+            $modeLabel = $c['mode'] === 'clause-big' ? 'Clause replaced → Other Conditions'
+                : ($c['mode'] === 'clause-small' ? 'Clause amended' : 'Field amended');
+            $rows .= '<tr>'
+                . '<td style="padding:4px 8px;border:1px solid #cbd5e1;text-align:center;">' . ($i + 1) . '</td>'
+                . '<td style="padding:4px 8px;border:1px solid #cbd5e1;">' . e($c['where']) . '</td>'
+                . '<td style="padding:4px 8px;border:1px solid #cbd5e1;"><span style="text-decoration:line-through;color:#b91c1c;">' . e($c['old'] !== '' ? $c['old'] : '—') . '</span></td>'
+                . '<td style="padding:4px 8px;border:1px solid #cbd5e1;"><span style="background:#fef08a;">' . e($c['new'] !== '' ? $c['new'] : '—') . '</span></td>'
+                . '<td style="padding:4px 8px;border:1px solid #cbd5e1;color:#64748b;font-size:0.75rem;">' . e($modeLabel) . '</td>'
+                . '</tr>';
+        }
+        return '<div class="change-history-page" style="page-break-before:always;margin-top:24px;font-family:sans-serif;">'
+            . '<h3 style="border-bottom:2px solid #111827;padding-bottom:4px;">Schedule of Amendments</h3>'
+            . '<p style="font-size:0.8rem;color:#475569;">The following changes were made after the document was last authorised. '
+            . 'Each change is marked in the body of the document (struck-through removals and highlighted insertions) and remains on the final document.</p>'
+            . '<table style="border-collapse:collapse;width:100%;font-size:0.82rem;">'
+            . '<thead><tr style="background:#f1f5f9;">'
+            . '<th style="padding:4px 8px;border:1px solid #cbd5e1;">#</th>'
+            . '<th style="padding:4px 8px;border:1px solid #cbd5e1;text-align:left;">Where</th>'
+            . '<th style="padding:4px 8px;border:1px solid #cbd5e1;text-align:left;">Removed</th>'
+            . '<th style="padding:4px 8px;border:1px solid #cbd5e1;text-align:left;">Inserted</th>'
+            . '<th style="padding:4px 8px;border:1px solid #cbd5e1;text-align:left;">Type</th>'
+            . '</tr></thead><tbody>' . $rows . '</tbody></table></div>';
     }
 
     /** Wet-ink mark styles — inline so they travel into dompdf + browser identically. */

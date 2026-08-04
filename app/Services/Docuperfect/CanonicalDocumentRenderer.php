@@ -109,14 +109,28 @@ class CanonicalDocumentRenderer
         //    (`amendment_render`) AND a last-authorised seal exists to diff against. Display overlay only
         //    (never baked); the highlighter is fail-safe (returns input unchanged on any error), so a
         //    normal, never-returned document renders byte-identically to before.
-        if (! empty($webData['amendment_render'])) {
-            $baseline = $this->lastAuthorisedSealedHtml($document, $webData);
-            if ($baseline !== '') {
-                $html = app(DocumentChangeHighlighter::class)->highlight($html, $baseline);
-            }
-        }
+        $html = $this->maybeHighlight($html, $document, $webData);
 
         return $html;
+    }
+
+    /**
+     * Apply the returned-doc wet-ink change-highlight (AT-368) when the document is flagged as
+     * re-edited-after-authorisation AND a last-authorised sealed baseline exists. Used by compose() and
+     * by the baked-serve paths (forDisplay / resolveOrCompose) so the marks PERSIST on the final,
+     * ink-baked document (decision #2) — not just while it is re-composing. Display overlay only; the
+     * highlighter is fail-safe. No-op (returns $html unchanged) when the gate is off.
+     */
+    private function maybeHighlight(string $html, \App\Models\Docuperfect\Document $document, array $webData): string
+    {
+        if (empty($webData['amendment_render']) || trim($html) === '') {
+            return $html;
+        }
+        $baseline = $this->lastAuthorisedSealedHtml($document, $webData);
+        if ($baseline === '') {
+            return $html;
+        }
+        return app(DocumentChangeHighlighter::class)->highlight($html, $baseline);
     }
 
     /**
@@ -260,7 +274,11 @@ class CanonicalDocumentRenderer
         // it); return it verbatim so the agent-review and every later party see the
         // exact accumulated document.
         if (trim($stored) !== '' && $version >= 1) {
-            return $stored;
+            // AT-368 — persist the wet-ink change-marks on the ink-baked document too (they must stay on
+            // the final). The baked canonical carries the current field/clause text; diffing it against
+            // the last-authorised seal re-marks the changes. Ink elements aren't data-field/clause text,
+            // so they are never touched. No-op unless the doc is flagged amended.
+            return $this->maybeHighlight($stored, $document, $webData);
         }
 
         // NOT yet baked (version 0 / no ink, or never composed) → RE-COMPOSE fresh so
@@ -301,7 +319,8 @@ class CanonicalDocumentRenderer
         // truth (every prior party's signatures/initials/fills are composed into it);
         // serve it verbatim so no baked ink is ever lost.
         if (trim($existing) !== '' && $version >= 1) {
-            return $existing;
+            // AT-368 — same as forDisplay: keep the wet-ink change-marks on the ink-baked served doc.
+            return $this->maybeHighlight($existing, $document, $webData);
         }
 
         // NOT yet inked (version 0, or never composed) → (RE-)COMPOSE fresh so the served
