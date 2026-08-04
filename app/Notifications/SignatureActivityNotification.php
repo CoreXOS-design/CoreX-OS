@@ -61,6 +61,17 @@ class SignatureActivityNotification extends Notification
         );
     }
 
+    public static function documentReturnedToCandidate(string $authoriserName, string $documentName, int $documentId, string $fixUrl, string $notes): self
+    {
+        return new self(
+            type: 'document_returned_to_candidate',
+            message: "{$authoriserName} sent back {$documentName} for changes — fix and re-sign",
+            url: $fixUrl,
+            documentId: $documentId,
+            metadata: ['notes' => $notes],
+        );
+    }
+
     public static function wetInkUploaded(string $signerName, string $documentName, int $documentId, string $inspectUrl): self
     {
         return new self(

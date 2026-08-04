@@ -6,6 +6,40 @@
 @endphp
 
 @section('corex-content')
+{{-- Candidate return loop — when the senior sent this back, show the running notes thread
+     at the top of the junior's edit/re-sign screen so they see exactly what to fix (Johan 2026-08-04). --}}
+@php
+    $returnThread = $document->web_template_data['return_thread'] ?? [];
+    $isReturnedToCandidate = $template->status === \App\Models\Docuperfect\SignatureTemplate::STATUS_RETURNED_TO_CANDIDATE;
+@endphp
+@if($isReturnedToCandidate && !empty($returnThread))
+    <div class="rounded-lg border border-amber-300 bg-amber-50 p-4 mb-5">
+        <div class="flex items-start gap-3">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+            </svg>
+            <div class="flex-1 min-w-0">
+                <h3 class="font-semibold text-amber-900 text-sm mb-2">Sent back by the authoriser — fix the document and re-sign to resubmit</h3>
+                <ol class="space-y-2">
+                    @foreach($returnThread as $entry)
+                        @php $isBack = ($entry['direction'] ?? '') === 'sent_back'; @endphp
+                        <li class="text-sm flex flex-col rounded-md border {{ $isBack ? 'border-amber-200 bg-white' : 'border-sky-200 bg-sky-50' }} px-3 py-2">
+                            <span class="text-xs font-medium {{ $isBack ? 'text-amber-700' : 'text-sky-700' }}">
+                                {{ $isBack ? 'Sent back' : 'Resubmitted' }}
+                                @if(!empty($entry['round'])) &middot; round {{ $entry['round'] }} @endif
+                                @if(!empty($entry['actor_name'])) &middot; {{ $entry['actor_name'] }} @endif
+                                @if(!empty($entry['at'])) &middot; {{ \Illuminate\Support\Carbon::parse($entry['at'])->format('d M Y H:i') }} @endif
+                            </span>
+                            @if(!empty($entry['note']))
+                                <span class="text-slate-700 mt-1">{{ $entry['note'] }}</span>
+                            @endif
+                        </li>
+                    @endforeach
+                </ol>
+            </div>
+        </div>
+    </div>
+@endif
 {{-- Signature Pad library --}}
 <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
 @include('docuperfect.signatures.partials.a4-page-styles')

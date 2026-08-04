@@ -448,6 +448,31 @@
         @endif
     @endif
 
+    {{-- Candidate return loop — running notes THREAD across all send-back / resubmit rounds
+         (audit evidence, never latest-only). Johan 2026-08-04. --}}
+    @php $returnThread = $document->web_template_data['return_thread'] ?? []; @endphp
+    @if(!empty($isCandidateFlow) && !empty($returnThread))
+        <div class="rounded-sm border border-amber-200 bg-amber-50 p-5">
+            <h4 class="font-semibold text-amber-900 mb-3">Return history — {{ $candidateName ?: 'candidate' }} &harr; authoriser</h4>
+            <ol class="space-y-2">
+                @foreach($returnThread as $entry)
+                    @php $isBack = ($entry['direction'] ?? '') === 'sent_back'; @endphp
+                    <li class="text-sm flex flex-col rounded-md border {{ $isBack ? 'border-amber-200 bg-white' : 'border-sky-200 bg-sky-50' }} px-3 py-2">
+                        <span class="text-xs font-medium {{ $isBack ? 'text-amber-700' : 'text-sky-700' }}">
+                            {{ $isBack ? 'Sent back to junior' : 'Resubmitted by junior' }}
+                            @if(!empty($entry['round'])) &middot; round {{ $entry['round'] }} @endif
+                            @if(!empty($entry['actor_name'])) &middot; {{ $entry['actor_name'] }} @endif
+                            @if(!empty($entry['at'])) &middot; {{ \Illuminate\Support\Carbon::parse($entry['at'])->format('d M Y H:i') }} @endif
+                        </span>
+                        @if(!empty($entry['note']))
+                            <span class="text-slate-700 mt-1">{{ $entry['note'] }}</span>
+                        @endif
+                    </li>
+                @endforeach
+            </ol>
+        </div>
+    @endif
+
     {{-- ACTION BUTTONS --}}
     <div class="rounded-sm border border-slate-200 bg-white p-5" x-data="{ showReturnModal: false, showRejectModal: false }">
         <h4 class="font-semibold text-slate-800 mb-4">Review Actions</h4>

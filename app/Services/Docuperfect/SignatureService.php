@@ -1717,6 +1717,11 @@ class SignatureService
      */
     private function advanceToSupervisor(SignatureTemplate $template): void
     {
+        // A RESUBMIT is a junior re-sign while the doc sits in returned_to_candidate. Detect it
+        // BEFORE flipping the status, so the audit / notification / thread reflect the loop hop
+        // (resubmission) rather than a first submission (Johan 2026-08-04).
+        $isResubmit = $template->status === SignatureTemplate::STATUS_RETURNED_TO_CANDIDATE;
+
         $supervisorRequest = $template->requests()
             ->where('party_role', 'supervisor')
             ->where('status', SignatureRequest::STATUS_WAITING)
@@ -1734,19 +1739,36 @@ class SignatureService
                 'sent_at' => now(),
             ]);
 
-            // Notify ALL eligible authorisers in the branch
-            $this->notifyEligibleAuthorisers($template, 'initial_review');
+            // Notify ALL eligible authorisers in the branch. reviewType distinguishes a
+            // resubmission from the first submission in the authoriser's notification bell.
+            $this->notifyEligibleAuthorisers($template, $isResubmit ? 'resubmission' : 'initial_review');
 
-            SignatureAuditLog::log(
-                $template,
-                'candidate_routed_to_authorisation_queue',
-                SignatureAuditLog::ACTOR_SYSTEM,
-                'System',
-                metadata: [
-                    'candidate_name' => $template->creator?->name,
-                    'notification' => 'all_eligible_authorisers',
-                ],
-            );
+            if ($isResubmit) {
+                $this->appendReturnThread($template, 'resubmitted', $template->creator, null);
+                SignatureAuditLog::log(
+                    $template,
+                    'candidate_resubmitted_to_authoriser',
+                    SignatureAuditLog::ACTOR_USER,
+                    $template->creator?->name ?? 'Candidate',
+                    $template->creator?->email,
+                    $template->creator?->id,
+                    metadata: [
+                        'candidate_name' => $template->creator?->name,
+                        'notification'   => 'all_eligible_authorisers',
+                    ],
+                );
+            } else {
+                SignatureAuditLog::log(
+                    $template,
+                    'candidate_routed_to_authorisation_queue',
+                    SignatureAuditLog::ACTOR_SYSTEM,
+                    'System',
+                    metadata: [
+                        'candidate_name' => $template->creator?->name,
+                        'notification' => 'all_eligible_authorisers',
+                    ],
+                );
+            }
         } else {
             // Supervisor already completed — advance to external parties
             $this->advanceToNextParty($template, 'supervisor');
@@ -1923,35 +1945,44 @@ class SignatureService
             $candidateUser = $template->creator;
             $candidateName = $candidateUser?->name ?? 'Candidate';
 
-            // Set the supervisor's request back to waiting
-            $supervisorRequest = $template->requests()
-                ->where('party_role', 'supervisor')
-                ->where('status', SignatureRequest::STATUS_COMPLETED)
-                ->first();
-
-            if ($supervisorRequest) {
-                $supervisorRequest->update([
-                    'status' => SignatureRequest::STATUS_WAITING,
-                    'completed_at' => null,
+            // REOPEN the authoriser (supervisor) request → WAITING, whatever state it is in
+            // (PENDING after the candidate routed it to the queue, or COMPLETED on a legacy
+            // supervisor_final). advanceToSupervisor re-routes back to the authorisation queue
+            // ONLY when it finds a WAITING supervisor request; a request left PENDING would send
+            // the junior's resubmit straight past the senior to the recipients — the exact chain
+            // break Johan called out. So force it back to WAITING here (Johan 2026-08-04).
+            foreach ($template->requests()->whereIn('party_role', ['supervisor', 'supervisor_final'])->get() as $supReq) {
+                $supReq->update([
+                    'status'         => SignatureRequest::STATUS_WAITING,
+                    'completed_at'   => null,
                     'returned_notes' => $notes,
                 ]);
             }
 
-            // Set the candidate's (agent) request to a returned state
-            $candidateRequest = $template->requests()
-                ->where('party_role', 'agent')
-                ->first();
-
+            // UNLOCK the junior for edit + RE-SIGN on the same screen. The junior signs via
+            // webSignComplete, which locates their request by `status != completed` and then marks
+            // it completed again on the re-sign; a still-COMPLETED agent request would block the
+            // re-sign entirely. Clear the completion + any prior authorisation so the doc is a live
+            // draft the junior owns again. The senior NEVER edits — the junior is the sole editor
+            // in this state (field-write gate unchanged; see esign-candidate-authoriser-return-loop.md §6).
+            $candidateRequest = $template->requests()->where('party_role', 'agent')->first();
             if ($candidateRequest) {
                 $candidateRequest->update([
-                    'returned_notes' => $notes,
+                    'status'         => SignatureRequest::STATUS_PENDING,
+                    'completed_at'   => null,
+                    'authorised_by'  => null,
+                    'authorised_at'  => null,
+                    'returned_notes' => $notes, // latest note — the sign-screen banner reads this
                 ]);
             }
 
-            // Update template status
+            // Back to the editable/draft state.
             $template->update([
                 'status' => SignatureTemplate::STATUS_RETURNED_TO_CANDIDATE,
             ]);
+
+            // Running notes THREAD — every round preserved as audit evidence, never latest-only.
+            $round = $this->appendReturnThread($template, 'sent_back', $supervisor, $notes);
 
             SignatureAuditLog::log(
                 $template,
@@ -1963,17 +1994,68 @@ class SignatureService
                 metadata: [
                     'notes' => $notes,
                     'candidate_name' => $candidateName,
+                    'round' => $round,
                 ],
             );
 
-            // TODO: Send email notification to candidate about the return
-            // Mail::to($candidateUser->email)->send(new SupervisorReturnedDocumentMail(...));
+            // Notify the junior IN-APP (replaces the dead // TODO email; matches the §11.2
+            // in-app-only candidate channel). The link lands them on their sign screen to fix + re-sign.
+            if ($candidateUser) {
+                $fixUrl = $template->document
+                    ? route('docuperfect.signatures.sign', $template->document)
+                    : route('docuperfect.rental');
+                $candidateUser->notify(\App\Notifications\SignatureActivityNotification::documentReturnedToCandidate(
+                    $supervisor->name,
+                    $template->document?->name ?? 'Document',
+                    (int) $template->document_id,
+                    $fixUrl,
+                    $notes,
+                ));
+            }
 
             return [
                 'candidate_name' => $candidateName,
                 'notes' => $notes,
+                'round' => $round,
             ];
         });
+    }
+
+    /**
+     * Append one hop to the running authoriser-return THREAD, stored on the document
+     * (`web_template_data['return_thread']`). Every send-back and every resubmit is
+     * preserved in order — audit evidence for the junior↔senior loop, never latest-only.
+     * The immutable SignatureAuditLog carries the same hops; this ordered thread is the
+     * human-readable record the review + sign screens render. Returns the current round
+     * (count of send-backs so far).
+     */
+    private function appendReturnThread(SignatureTemplate $template, string $direction, ?User $actor, ?string $note): int
+    {
+        $document = $template->document;
+        if (! $document) {
+            return 0;
+        }
+        $wtd    = is_array($document->web_template_data) ? $document->web_template_data : [];
+        $thread = $wtd['return_thread'] ?? [];
+        if (! is_array($thread)) {
+            $thread = [];
+        }
+        $round = collect($thread)->where('direction', 'sent_back')->count();
+        if ($direction === 'sent_back') {
+            $round++;
+        }
+        $thread[] = [
+            'round'      => $round,
+            'direction'  => $direction, // 'sent_back' (senior→junior) | 'resubmitted' (junior→senior)
+            'actor_id'   => $actor?->id,
+            'actor_name' => $actor?->name,
+            'note'       => $note,
+            'at'         => now()->toIso8601String(),
+        ];
+        $wtd['return_thread'] = $thread;
+        $document->update(['web_template_data' => $wtd]);
+
+        return $round;
     }
 
     /**
