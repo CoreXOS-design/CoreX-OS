@@ -634,7 +634,8 @@ class SettingsController extends Controller
     public function updateMatchesShowOnProperties(Request $request)
     {
         $enabled = $request->boolean('matches_show_on_properties');
-        PerformanceSetting::updateOrCreate(['key' => 'matches_show_on_properties'], ['value' => $enabled ? 1 : 0]);
+        // Per-agency write (multi-tenancy #7) — set() stamps the current agency.
+        PerformanceSetting::set('matches_show_on_properties', $enabled ? 1 : 0);
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'matches'])->with('success', 'Setting updated.');
     }
 
@@ -643,7 +644,7 @@ class SettingsController extends Controller
         $perPage = $request->validate([
             'contacts_per_page' => 'required|integer|min:1|max:200',
         ])['contacts_per_page'];
-        PerformanceSetting::updateOrCreate(['key' => 'contacts_per_page'], ['value' => (int) $perPage]);
+        PerformanceSetting::set('contacts_per_page', (int) $perPage);
         return redirect()->route('corex.settings', ['s' => 'feature-contacts'])->with('success', 'Contacts per page updated.');
     }
 
@@ -652,7 +653,7 @@ class SettingsController extends Controller
         $perPage = $request->validate([
             'properties_per_page' => 'required|integer|min:1|max:200',
         ])['properties_per_page'];
-        PerformanceSetting::updateOrCreate(['key' => 'properties_per_page'], ['value' => (int) $perPage]);
+        PerformanceSetting::set('properties_per_page', (int) $perPage);
         return redirect()->route('corex.settings', ['s' => 'feature-properties'])->with('success', 'Properties per page updated.');
     }
 
@@ -661,7 +662,7 @@ class SettingsController extends Controller
         $perPage = $request->validate([
             'filing_register_page_size' => 'required|integer|min:10|max:200',
         ])['filing_register_page_size'];
-        PerformanceSetting::updateOrCreate(['key' => 'filing_register_page_size'], ['value' => (int) $perPage]);
+        PerformanceSetting::set('filing_register_page_size', (int) $perPage);
         return redirect()->route('corex.settings', ['s' => 'feature-filing'])->with('success', 'Filing register page size updated.');
     }
 
@@ -707,14 +708,14 @@ class SettingsController extends Controller
         $scope = $request->validate([
             'matches_visibility_scope' => 'required|in:agent,branch,agency',
         ])['matches_visibility_scope'];
-        PerformanceSetting::updateOrCreate(['key' => 'matches_visibility_scope'], ['value' => $scope]);
+        PerformanceSetting::set('matches_visibility_scope', $scope);
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'matches'])->with('success', 'Match visibility scope updated.');
     }
 
     public function updateMatchesWaMessage(Request $request)
     {
         $message = substr($request->input('matches_wa_message', ''), 0, 1000);
-        PerformanceSetting::updateOrCreate(['key' => 'matches_wa_message'], ['value' => $message]);
+        PerformanceSetting::set('matches_wa_message', $message);
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'matches'])->with('success', 'WhatsApp message template saved.');
     }
 
@@ -722,8 +723,8 @@ class SettingsController extends Controller
     {
         $subject = substr($request->input('matches_email_subject', ''), 0, 200);
         $message = substr($request->input('matches_email_message', ''), 0, 2000);
-        PerformanceSetting::updateOrCreate(['key' => 'matches_email_subject'], ['value' => $subject]);
-        PerformanceSetting::updateOrCreate(['key' => 'matches_email_message'], ['value' => $message]);
+        PerformanceSetting::set('matches_email_subject', $subject);
+        PerformanceSetting::set('matches_email_message', $message);
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'matches'])->with('success', 'Email message template saved.');
     }
 
