@@ -1491,7 +1491,9 @@ class CommandCentreService
             // BUG 1 (Johan 2026-08-04): was '/corex/legacy-dashboard' — a dead legacy surface.
             // Point "View all" at the LIVE authorisation list, which renders the branch-scoped
             // needs_authorisation queue (ESignWizardController::myDocuments, filter=authorisation).
-            'view_all_url' => '/esign/my-documents?filter=authorisation',
+            // The route sits under the '/docuperfect' prefix — omitting it 404s (the regression
+            // Johan hit). Match the sibling cards at :474/:505 which use the full prefixed path.
+            'view_all_url' => '/docuperfect/esign/my-documents?filter=authorisation',
         ];
     }
 
