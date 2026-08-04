@@ -1,9 +1,13 @@
 {{-- Compliance reporting — inline wizard step.
-     Posts through the wizard form to saveWhistleblowSettings.
-     $whistleblow = ['officer_email'=>?, 'approver_ids'=>[]]; $agencyMembers = users. --}}
+     Posts through the wizard form to saveWhistleblowSettings AND
+     FicaOfficerAppointmentsController@saveReferralSettings (AT-236).
+     $whistleblow = ['officer_email'=>?, 'approver_ids'=>[]]; $agencyMembers = users;
+     $agency = the current Agency (top-level wizard view var). --}}
 @php
     $officerEmail = old('whistleblow_compliance_officer_email', $whistleblow['officer_email'] ?? '');
     $approverIds  = (array) old('whistleblow_approver_user_ids', $whistleblow['approver_ids'] ?? []);
+    $referralEnabled = (bool) old('fica_referral_enabled', $agency->fica_referral_enabled ?? true);
+    $referralRecipientId = old('fica_referral_recipient_user_id', $agency->fica_referral_recipient_user_id ?? '');
 @endphp
 <div class="space-y-5">
     <div>
@@ -46,6 +50,27 @@
                 </div>
             @endforeach
         </div>
+    </div>
+
+    <div>
+        <h3 class="text-xs font-semibold uppercase tracking-wider mb-2" style="color:var(--text-muted);">Refer to Compliance Officer</h3>
+        <p class="text-xs mb-2" style="color:var(--text-muted);">Lets a FICA reviewer refer a pack to your Compliance Officer as a third action (alongside approve/decline), with a mandatory reason.</p>
+        <input type="hidden" name="fica_referral_settings_present" value="1">
+        <label class="flex items-center gap-2 text-sm cursor-pointer mb-3" style="color:var(--text-primary);">
+            <input type="checkbox" name="fica_referral_enabled" value="1" @checked($referralEnabled)
+                   style="accent-color: var(--brand-button, #0ea5e9);">
+            <span>Allow reviewers to refer a FICA to the Compliance Officer</span>
+        </label>
+        <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Referrals go to</label>
+        <select name="fica_referral_recipient_user_id"
+                class="w-full max-w-md rounded-md px-3 py-2 text-sm mb-1"
+                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+            <option value="">Primary Compliance Officer (default)</option>
+            @foreach ($agencyMembers as $m)
+                <option value="{{ $m->id }}" @selected((string) $referralRecipientId === (string) $m->id)>{{ $m->name }}</option>
+            @endforeach
+        </select>
+        <p class="text-xs" style="color:var(--text-muted);">The recipient must be an active compliance officer; otherwise referrals fall back to the primary CO.</p>
     </div>
 
     <p class="text-[11px] italic" style="color:var(--text-muted);">Formal FICA / Information Officer appointments (with the acceptance workflow) are completed in the Compliance module — this step sets where reports are routed.</p>

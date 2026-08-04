@@ -362,8 +362,11 @@ class AgencySetupWizardController extends Controller
         foreach (($config['controls'] ?? []) as $control) {
             $key = $control['key'];
             $values[$key] = match ($control['source'] ?? 'agency') {
-                'perf'  => PerformanceSetting::get($key, $control['default'] ?? null),
-                default => $agency->{$key} ?? ($control['default'] ?? null),
+                'perf'      => PerformanceSetting::get($key, $control['default'] ?? null),
+                // DR2 Wave 2 — Deal → Property → Portal sync settings live on their
+                // own singleton row (agency_deal_sync_settings), not on Agency.
+                'deal_sync' => \App\Models\AgencyDealSyncSettings::forAgency($agency->id)->{$key} ?? ($control['default'] ?? null),
+                default     => $agency->{$key} ?? ($control['default'] ?? null),
             };
         }
         return $values;
