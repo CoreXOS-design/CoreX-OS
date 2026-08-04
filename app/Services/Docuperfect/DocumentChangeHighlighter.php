@@ -43,7 +43,12 @@ class DocumentChangeHighlighter
      * Overlay wet-ink change-marks onto $currentHtml, diffing against the last-authorised $baselineHtml.
      * Returns $currentHtml unchanged when there is nothing to diff or on any failure.
      */
-    public function highlight(string $currentHtml, string $baselineHtml): string
+    /**
+     * @param  array<string,array{name?:string,at?:string}> $initials  per-change initial state keyed by
+     *         data-change-id — the cc6 contract (`web_template_data['change_initials']`). When a change's
+     *         id is present, the mark shows "✓ initialed by {name}". Absent ids read as still-pending.
+     */
+    public function highlight(string $currentHtml, string $baselineHtml, array $initials = []): string
     {
         if (trim($currentHtml) === '' || trim($baselineHtml) === '') {
             return $currentHtml;
@@ -81,8 +86,8 @@ class DocumentChangeHighlighter
                 if (str_contains($node->getAttribute('class'), 'change-') ) {
                     continue;
                 }
-                $changeId = $this->replaceChildrenWithWetInk($node, $old, $new);
-                $changes[] = ['id' => $changeId, 'where' => $this->prettyFieldLabel($key), 'old' => $old, 'new' => $new, 'mode' => 'field'];
+                $changeId = $this->replaceChildrenWithWetInk($node, $old, $new, $initials);
+                $changes[] = ['id' => $changeId, 'where' => $this->prettyFieldLabel($key), 'old' => $old, 'new' => $new, 'mode' => 'field', 'initialed' => $initials[$changeId] ?? null];
                 $changed = true;
             }
 
@@ -109,7 +114,7 @@ class DocumentChangeHighlighter
                 if ($this->norm($oldText) === $this->norm($newText)) {
                     continue;
                 }
-                if ($this->renderBlockChange($curDom, $el, $oldText, $newText, $changes)) {
+                if ($this->renderBlockChange($curDom, $el, $oldText, $newText, $changes, $initials)) {
                     $changed = true;
                 }
             }
@@ -174,7 +179,7 @@ class DocumentChangeHighlighter
     }
 
     /** Replace a field span's children with wet-ink: struck old + inline new. Returns the change id. */
-    private function replaceChildrenWithWetInk(DOMElement $node, string $old, string $new): string
+    private function replaceChildrenWithWetInk(DOMElement $node, string $old, string $new, array $initials = []): string
     {
         while ($node->firstChild) {
             $node->removeChild($node->firstChild);
@@ -195,14 +200,33 @@ class DocumentChangeHighlighter
             $ins->appendChild($dom->createTextNode($new));
             $node->appendChild($ins);
         }
+        $this->appendInitialedTag($node, $changeId, $initials);
         return $changeId;
+    }
+
+    /** Append a "✓ initialed by {name}" tag to a change mark when cc6 has recorded its initial. */
+    private function appendInitialedTag(DOMElement $node, string $changeId, array $initials): void
+    {
+        $info = $initials[$changeId] ?? null;
+        if (! is_array($info)) {
+            return;
+        }
+        $dom = $node->ownerDocument;
+        $node->appendChild($dom->createTextNode(' '));
+        $tag = $dom->createElement('span');
+        $tag->setAttribute('class', 'change-initialed');
+        $tag->setAttribute('data-change-id', $changeId);
+        $name = trim((string) ($info['name'] ?? ''));
+        // Plain text (no ✓ glyph — dompdf's base font renders it as "?"); the green pill conveys "done".
+        $tag->appendChild($dom->createTextNode('Initialed' . ($name !== '' ? ' by ' . $name : '')));
+        $node->appendChild($tag);
     }
 
     /**
      * Render a clause/body text change. SMALL → inline word-level strike+insert; BIG → strike the whole
      * clause + a cross-reference to Other Conditions. Returns true when it marked the block.
      */
-    private function renderBlockChange(\DOMDocument $dom, DOMElement $el, string $oldText, string $newText, array &$changes): bool
+    private function renderBlockChange(\DOMDocument $dom, DOMElement $el, string $oldText, string $newText, array &$changes, array $initials = []): bool
     {
         $oldWords = $this->words($oldText);
         $newWords = $this->words($newText);
@@ -237,7 +261,8 @@ class DocumentChangeHighlighter
             $ocRef = $el->getAttribute('data-oc-ref');
             $xref->appendChild($dom->createTextNode('See Other Conditions' . ($ocRef !== '' ? ' — clause ' . $ocRef : '')));
             $el->appendChild($xref);
-            $changes[] = ['id' => $changeId, 'where' => $this->prettyBlockLabel($el), 'old' => $oldText, 'new' => $newText, 'mode' => 'clause-big'];
+            $this->appendInitialedTag($el, $changeId, $initials);
+            $changes[] = ['id' => $changeId, 'where' => $this->prettyBlockLabel($el, $newText), 'old' => $oldText, 'new' => $newText, 'mode' => 'clause-big', 'initialed' => $initials[$changeId] ?? null];
             return true;
         }
 
@@ -268,7 +293,8 @@ class DocumentChangeHighlighter
                 $el->appendChild($dom->createTextNode(' '));
             }
         }
-        $changes[] = ['id' => $changeId, 'where' => $this->prettyBlockLabel($el), 'old' => $oldText, 'new' => $newText, 'mode' => 'clause-small'];
+        $this->appendInitialedTag($el, $changeId, $initials);
+        $changes[] = ['id' => $changeId, 'where' => $this->prettyBlockLabel($el, $newText), 'old' => $oldText, 'new' => $newText, 'mode' => 'clause-small', 'initialed' => $initials[$changeId] ?? null];
         return true;
     }
 
@@ -355,15 +381,14 @@ class DocumentChangeHighlighter
         return ucfirst(trim(str_replace('_', ' ', $key))) . $party;
     }
 
-    /** Human-friendly label for a clause block: role token or a short text preview. */
-    private function prettyBlockLabel(DOMElement $el): string
+    /** Human-friendly label for a clause block: role token or a short text preview (of the NEW text). */
+    private function prettyBlockLabel(DOMElement $el, string $preview = ''): string
     {
         $role = $el->getAttribute('data-role-block');
         if ($role !== '') {
             return ucfirst($role) . ' clause';
         }
-        $preview = trim(preg_replace('/\s+/', ' ', $el->textContent));
-        $preview = preg_replace('/^(See Other Conditions.*)$/', '', $preview);
+        $preview = trim(preg_replace('/\s+/', ' ', $preview !== '' ? $preview : $el->textContent));
         return 'Clause: "' . mb_strimwidth($preview, 0, 40, '…') . '"';
     }
 
@@ -377,12 +402,16 @@ class DocumentChangeHighlighter
         foreach ($changes as $i => $c) {
             $modeLabel = $c['mode'] === 'clause-big' ? 'Clause replaced → Other Conditions'
                 : ($c['mode'] === 'clause-small' ? 'Clause amended' : 'Field amended');
+            $init = is_array($c['initialed'] ?? null)
+                ? ('<span style="color:#166534;font-weight:600;">Initialed by ' . e(trim((string) ($c['initialed']['name'] ?? ''))) . '</span>')
+                : '<span style="color:#b45309;">pending</span>';
             $rows .= '<tr>'
                 . '<td style="padding:4px 8px;border:1px solid #cbd5e1;text-align:center;">' . ($i + 1) . '</td>'
                 . '<td style="padding:4px 8px;border:1px solid #cbd5e1;">' . e($c['where']) . '</td>'
                 . '<td style="padding:4px 8px;border:1px solid #cbd5e1;"><span style="text-decoration:line-through;color:#b91c1c;">' . e($c['old'] !== '' ? $c['old'] : '—') . '</span></td>'
                 . '<td style="padding:4px 8px;border:1px solid #cbd5e1;"><span style="background:#fef08a;">' . e($c['new'] !== '' ? $c['new'] : '—') . '</span></td>'
                 . '<td style="padding:4px 8px;border:1px solid #cbd5e1;color:#64748b;font-size:0.75rem;">' . e($modeLabel) . '</td>'
+                . '<td style="padding:4px 8px;border:1px solid #cbd5e1;font-size:0.75rem;">' . $init . '</td>'
                 . '</tr>';
         }
         return '<div class="change-history-page" style="page-break-before:always;margin-top:24px;font-family:sans-serif;">'
@@ -396,6 +425,7 @@ class DocumentChangeHighlighter
             . '<th style="padding:4px 8px;border:1px solid #cbd5e1;text-align:left;">Removed</th>'
             . '<th style="padding:4px 8px;border:1px solid #cbd5e1;text-align:left;">Inserted</th>'
             . '<th style="padding:4px 8px;border:1px solid #cbd5e1;text-align:left;">Type</th>'
+            . '<th style="padding:4px 8px;border:1px solid #cbd5e1;text-align:left;">Initialed</th>'
             . '</tr></thead><tbody>' . $rows . '</tbody></table></div>';
     }
 
@@ -408,6 +438,8 @@ class DocumentChangeHighlighter
             . '.change-clause{display:inline;}'
             . '.change-xref{margin-left:4px;padding:0 5px;background:#dbeafe;color:#1e40af;border-radius:3px;'
             . 'font-size:0.72rem;font-weight:600;white-space:nowrap;}'
+            . '.change-initialed{margin-left:4px;padding:0 5px;background:#dcfce7;color:#166534;border-radius:3px;'
+            . 'font-size:0.68rem;font-weight:600;white-space:nowrap;}'
             . '@media print{.change-del,.change-ins,.change-xref{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}'
             . '</style>';
     }

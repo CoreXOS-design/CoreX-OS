@@ -130,7 +130,11 @@ class CanonicalDocumentRenderer
         if ($baseline === '') {
             return $html;
         }
-        return app(DocumentChangeHighlighter::class)->highlight($html, $baseline);
+        // Per-change initial state (AT-368 contract with cc6): cc6 records each initialed change under
+        // web_template_data['change_initials'][data-change-id] = ['name' => …, 'at' => …]. The render only
+        // READS it to show "✓ initialed by X"; marks persist regardless.
+        $initials = is_array($webData['change_initials'] ?? null) ? $webData['change_initials'] : [];
+        return app(DocumentChangeHighlighter::class)->highlight($html, $baseline, $initials);
     }
 
     /**

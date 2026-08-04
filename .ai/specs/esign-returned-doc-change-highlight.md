@@ -268,3 +268,58 @@ and exactly how, without opening an audit log.
    explicitly flags `change_baseline_seal_id`). ✅
 
 Remaining tunable (safe default, adjustable later): the SMALL↔BIG word-count threshold `N` (default 8).
+
+---
+
+## 13. BUILD STATUS (RENDER half — DONE on QA1)
+
+**Built + verified** (`app/Services/Docuperfect/DocumentChangeHighlighter.php` + `CanonicalDocumentRenderer.php`,
++ `tests/Unit/Docuperfect/DocumentChangeHighlighterTest.php`):
+
+- ✅ Field-value change → `<del>old</del> <ins>new</ins>` (per-recipient `__r{n}` safe).
+- ✅ Field delete-only (struck, no insert) / add-only (insert, no strike).
+- ✅ Clause SMALL → inline word-level strike+insert; clause BIG → strike + "See Other Conditions" cross-ref.
+- ✅ Clause delete-only / add-only (inline).
+- ✅ Multi-change in one document; unchanged clauses stay clean; no-diff/empty fail-safe.
+- ✅ Fill-review overlay (step 5) + change-highlight (step 6) compose together per-recipient.
+- ✅ Marks + "Schedule of Amendments" appendix PERSIST on the baked/final serve paths (`forDisplay` /
+  `resolveOrCompose` at `canonical_version >= 1`), not just while re-composing.
+- ✅ Per-change "Initialed by {name}" tag keyed by `data-change-id` (green pill; reads cc6's map).
+- ✅ Gated by `amendment_render` → normal docs render byte-identically; `esign:regression-walk` 25/25.
+- ✅ Real dompdf render proof (all change types + appendix render correctly in PDF).
+
+## 14. cc6 ACTIVATION CHECKLIST (flow/status half — to light this up end-to-end)
+
+The render half is live and dormant until cc6 sets these signals (all on `web_template_data`, so no shared
+table / migration and no file overlap with the render half):
+
+1. **`web_template_data['amendment_render'] = true`** when a returned doc is re-edited. Keep it set for the
+   life of the amended document (marks must STAY on the final — decision #2). The render half no-ops without it.
+2. **Baseline**: nothing needed if the last `authoriser_cosigned` / `candidate_final_approved` seal IS the
+   right baseline (render half auto-resolves it). Otherwise set `web_template_data['change_baseline_seal_id']`.
+3. **Big-change → Other Conditions**: create the OC entry for the replacement text (existing §7.5 route) and
+   stamp `data-oc-ref="{clause number}"` on the struck clause element so the render shows "See Other
+   Conditions — clause N". Without it the render still shows a generic "See Other Conditions".
+4. **Per-change initials**: when a party initials a change, write
+   `web_template_data['change_initials'][<data-change-id>] = ['name' => '<who>', 'at' => '<iso ts>']`.
+   The `data-change-id` is emitted by the render on every `<ins>`/xref (deterministic
+   `substr(sha1(key|old|new),0,12)`). The render then shows "Initialed by {who}" on that change + in the
+   appendix; un-initialed changes read "pending".
+
+## 15. AUTONOMOUS SUB-DECISIONS (made while Johan offline — CONFIRM tonight)
+
+1. **SMALL↔BIG threshold = 8 changed words** (`DocumentChangeHighlighter::BIG_CHANGE_WORDS`). Reasonable
+   default; trivially tunable. Confirm the number.
+2. **Marks persist on EVERY serve incl. baked/final** while `amendment_render` is set (assumes cc6 keeps the
+   flag set for the amended doc's life). This delivers decision #2 (marks stay on final). Confirm cc6 keeps
+   the flag rather than clearing it.
+3. **Per-change initials contract = `web_template_data['change_initials']`** (map keyed by `data-change-id`),
+   chosen over a new `condition_initials.change_id` column to keep the two lanes disjoint and migration-free.
+   Confirm cc6 is happy to write that map (else we add a column — a bigger, shared change).
+4. **`data-change-id = substr(sha1(field/clause-key | old | new), 0, 12)`** — deterministic + stable across
+   renders so an initial keyed to it survives re-render. Confirm acceptable (a change reverted then re-made
+   reuses the same id, which is the desired wet-ink behaviour).
+5. **Initialed marker text = "Initialed by {name}"** (dropped the ✓ glyph — dompdf's base font renders it as
+   "?"). Green pill conveys done.
+6. **BIG change strikes the WHOLE clause** and routes to Other Conditions (vs a partial inline redline) —
+   matches Johan's "big change → strike + cross-reference" wording.
