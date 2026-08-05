@@ -472,6 +472,33 @@
                                             style="color:var(--text-muted); border:1px solid var(--border);">
                                         Pick Date
                                     </button>
+                                    {{-- AT-372 — mark contacted AND write a note in one step. Own
+                                         nested scope so the big send component's x-data is untouched. --}}
+                                    <div x-data="{ cnOpen: false }" class="contents">
+                                        <button type="button" @click="cnOpen = true"
+                                                class="text-[10px] font-semibold px-2.5 py-1 rounded-md"
+                                                style="color:var(--ds-green,#16a34a); border:1px solid color-mix(in srgb, var(--ds-green,#16a34a) 40%, transparent);">
+                                            + Contacted &amp; note
+                                        </button>
+                                        <div x-show="cnOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center px-4" style="background:rgba(0,0,0,0.45);">
+                                            <div class="w-full max-w-sm rounded-lg p-5" style="background:var(--surface,#fff); border:1px solid var(--border,#e5e7eb);">
+                                                <div class="text-base font-semibold mb-1" style="color:var(--text-primary,#111827);">Mark as contacted</div>
+                                                <p class="text-xs mb-3" style="color:var(--text-muted,#6b7280);">Sets Last Contacted to now and saves your note — in one step.</p>
+                                                <form method="POST" action="{{ route('corex.contacts.notes.store', $contact) }}">
+                                                    @csrf
+                                                    <input type="hidden" name="mark_contacted" value="1">
+                                                    <input type="hidden" name="redirect_to" value="info">
+                                                    <textarea name="body" rows="3" required placeholder="What happened? e.g. Called — wants a viewing Saturday"
+                                                              class="w-full rounded-md px-3 py-2 text-sm resize-none"
+                                                              style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"></textarea>
+                                                    <div class="flex gap-2 mt-3">
+                                                        <button type="submit" class="corex-btn-primary text-sm flex-1">Mark contacted + save note</button>
+                                                        <button type="button" @click="cnOpen = false" class="text-sm" style="color:var(--text-muted);">Cancel</button>
+                                                    </div>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </template>
                             <template x-if="editing">
@@ -1220,7 +1247,12 @@
                               placeholder="Write a note…"
                               class="w-full rounded-md px-3 py-2 text-sm resize-none"
                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"></textarea>
-                    <div class="flex justify-end">
+                    {{-- AT-372 — two submit buttons: plain add, or add AND mark contacted (writes the
+                         same explicit contacted signal the Last Contacted tile uses; tile updates). --}}
+                    <div class="flex justify-end gap-2 flex-wrap">
+                        <button type="submit" name="mark_contacted" value="1"
+                                class="text-sm font-semibold px-3 py-2 rounded-md"
+                                style="background:var(--ds-green,#16a34a); color:#fff;">Add note &amp; mark contacted</button>
                         <button type="submit" class="corex-btn-primary text-sm">Add Note</button>
                     </div>
                 </form>
