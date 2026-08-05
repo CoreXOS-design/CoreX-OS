@@ -218,9 +218,14 @@
                         if (!target) { alert('This contact has no phone number.'); return; }
                         window.location.href = 'whatsapp://send?phone=' + target.deeplink + '&text=' + encodeURIComponent(this.waMessage);
                         this.showWa = false;
-                        // AT-323 — record the send, then ask the agent if it actually went through.
+                        // AT-323 — record the send. If CoreX positively knows WhatsApp is not
+                        // connected, the server already recorded this as NOT sent (not_delivered) —
+                        // warn the agent and skip the did-it-send modal (no point asking). Otherwise
+                        // ask whether it actually went through.
                         const data = await this.increment('whatsapp', { body: this.waMessage, contactPhoneId: target.id });
-                        if (data && data.communication_id) {
+                        if (data && data.not_connected) {
+                            alert('WhatsApp is not connected in CoreX, so this message was recorded as NOT sent. Link WhatsApp under Settings, or if you sent it from your phone use Revert on the send in Recent Sends.');
+                        } else if (data && data.communication_id) {
                             this.sentConfirm = { open: true, communicationId: data.communication_id };
                         }
                     },
