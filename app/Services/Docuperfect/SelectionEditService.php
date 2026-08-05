@@ -57,7 +57,10 @@ final class SelectionEditService
         }
 
         $wtd  = is_array($document->web_template_data) ? $document->web_template_data : [];
-        $html = (string) ($wtd['merged_html'] ?? '');
+        // WET-INK: overlay the strike onto the SIGNED canonical when ink is baked (so every signature + the
+        // execution/location block carry through byte-intact) — never onto the un-inked merged_html source.
+        $canvas = CanonicalDocumentRenderer::amendSource($wtd);
+        $html   = $canvas['html'];
         if (trim($html) === '') {
             return ['ok' => false, 'error' => 'Document has no editable body.'];
         }
@@ -82,7 +85,8 @@ final class SelectionEditService
 
         $changeId = substr(sha1($this->norm($prefix) . '|' . $selected . '|' . $replacement), 0, 12);
 
-        $result = DB::transaction(function () use ($template, $document, $dom, $node, $offset, $selected, $replacement, $changeId, $actor, $wtd, $mode) {
+        $baked = $canvas['baked'];
+        $result = DB::transaction(function () use ($template, $document, $dom, $node, $offset, $selected, $replacement, $changeId, $actor, $wtd, $mode, $baked) {
             $ocNumber = null;
             $condition = null;
             if ($mode === 'reference') {
@@ -122,7 +126,7 @@ final class SelectionEditService
                 'status'                   => DocumentClauseStrikethrough::STATUS_PROPOSED,
             ]);
 
-            $wtd['merged_html'] = $this->innerHtml($dom, $xpath = new \DOMXPath($dom));
+            $newHtml = $this->innerHtml($dom, $xpath = new \DOMXPath($dom));
             $changes = $wtd['pending_body_changes'] ?? [];
             $changes[] = [
                 'change_id' => $changeId,
@@ -136,7 +140,8 @@ final class SelectionEditService
             ];
             $wtd['pending_body_changes'] = $changes;
             $wtd['amendment_render']     = true;
-            $wtd['canonical_version']    = 0; // recompose so the strike shows on serve
+            // Overlay onto the signed canonical when baked (ink + location preserved); else merged_html + recompose.
+            $wtd = CanonicalDocumentRenderer::writeAmend($wtd, $newHtml, $baked);
             $document->update(['web_template_data' => $wtd]);
 
             return ['ok' => true, 'change_id' => $changeId, 'old' => $selected, 'mode' => $mode, 'oc_ref' => $ocNumber];

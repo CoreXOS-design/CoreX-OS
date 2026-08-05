@@ -33,6 +33,43 @@ use Illuminate\Support\Facades\Log;
 class CanonicalDocumentRenderer
 {
     /**
+     * WET-INK AMEND CANVAS (Johan 2026-08-05) — the surface a wet-ink amendment (strike / reword / initial)
+     * must be authored onto. When ink is baked (canonical_version >= 1) the SIGNED canonical is the source of
+     * truth: it carries every party's signature image AND the execution/"THUS DONE AND SIGNED at ___" block.
+     * An amend must OVERLAY onto that exact document — never regenerate from merged_html (the un-inked source),
+     * which is what dropped Angelique's signatures + location on send-back. Pre-ink (version 0) there is nothing
+     * baked to lose, so amendments edit merged_html and re-compose as before.
+     *
+     * @return array{html: string, baked: bool}
+     */
+    public static function amendSource(array $webData): array
+    {
+        $version   = (int) ($webData['canonical_version'] ?? 0);
+        $canonical = (string) ($webData['canonical_html'] ?? '');
+        if ($version >= 1 && trim($canonical) !== '') {
+            return ['html' => $canonical, 'baked' => true];
+        }
+        return ['html' => (string) ($webData['merged_html'] ?? ''), 'baked' => false];
+    }
+
+    /**
+     * Write an amended body back to the RIGHT artifact. Baked → into canonical_html, version UNTOUCHED (stays
+     * >= 1) so forDisplay serves it verbatim with every signature + the location intact plus the new marks.
+     * Pre-ink → into merged_html at version 0 so compose() re-renders the marks (no ink to lose).
+     */
+    public static function writeAmend(array $webData, string $html, bool $baked): array
+    {
+        if ($baked) {
+            $webData['canonical_html'] = $html;
+            // canonical_version intentionally left as-is (>= 1) — the signed doc stays the served source of truth.
+        } else {
+            $webData['merged_html']      = $html;
+            $webData['canonical_version'] = 0; // recompose from merged_html so the marks show; nothing baked yet
+        }
+        return $webData;
+    }
+
+    /**
      * Compose the canonical, fully-expanded, viewer-agnostic document HTML.
      * Returns '' when the template has no web body to compose.
      */

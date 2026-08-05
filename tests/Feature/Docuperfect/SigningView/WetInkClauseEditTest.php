@@ -253,6 +253,69 @@ final class WetInkClauseEditTest extends TestCase
         $this->assertSame(SignatureTemplate::STATUS_COMPLETED, $tpl->fresh()->status);
     }
 
+    public function test_amend_overlays_onto_signed_canonical_preserving_every_signature_and_the_location(): void
+    {
+        $uid = (int) DB::table('users')->insertGetId([
+            'name' => 'Angelique Venter', 'email' => 'ink-' . Str::random(6) . '@x.test',
+            'password' => bcrypt('p'), 'role' => 'agent', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $actor = User::findOrFail($uid);
+
+        // A fully SIGNED canonical (baked, v2): the candidate's signature IMAGE + the execution / "THUS DONE
+        // AND SIGNED at ___" location block. merged_html is the UN-INKED source (no signature, no location) —
+        // exactly the shape that used to be regenerated on edit, dropping the ink.
+        $signedCanonical = '<div class="corex-document">'
+            . '<p data-clause-ref="5.2" class="corex-clause">Commission shall be seven percent (7%) of the purchase price.</p>'
+            . '<div class="execution-block">THUS DONE AND SIGNED at <span class="signed-loc">Margate</span> on 5 August 2026.</div>'
+            . '<div class="sig-line"><img class="baked-ink" src="data:image/png;base64,AAAASIG" alt="Signature of Angelique Venter"></div>'
+            . '</div>';
+        $mergedSource = '<div class="corex-document"><p data-clause-ref="5.2" class="corex-clause">Commission shall be seven percent (7%) of the purchase price.</p></div>';
+
+        $docTmpl = DocuperfectTemplate::create([
+            'name' => 'Signed tmpl', 'render_type' => 'web', 'template_type' => 'cds', 'category' => 'sales',
+            'signing_parties' => ['agent'], 'field_mappings' => [], 'owner_id' => $uid,
+        ]);
+        $doc = Document::create([
+            'name' => 'Signed Doc', 'document_type' => 'mandate', 'owner_id' => $uid, 'template_id' => $docTmpl->id,
+            'web_template_data' => ['merged_html' => $mergedSource, 'canonical_html' => $signedCanonical, 'canonical_version' => 2],
+        ]);
+        $tpl = SignatureTemplate::create([
+            'document_id' => $doc->id, 'document_hash' => Str::random(64),
+            'status' => SignatureTemplate::STATUS_RETURNED_TO_CANDIDATE, 'created_by' => $uid, 'is_candidate_flow' => true,
+        ]);
+        \App\Models\Docuperfect\SignatureRequest::create([
+            'signature_template_id' => $tpl->id, 'party_role' => 'agent', 'role_index' => 1,
+            'signer_name' => 'Angelique Venter', 'signer_email' => 'a@x.test', 'token' => Str::random(48),
+            'token_expires_at' => now()->addDays(30), 'status' => 'completed', 'completed_at' => now(), 'signing_order' => 1,
+        ]);
+
+        // Amend one clause on the signed document.
+        $r = app(\App\Services\Docuperfect\SelectionEditService::class)
+            ->strikeSelection($tpl, 'seven percent (7%)', 'shall be ', ' of', 'five percent (5%)', $actor);
+        $this->assertTrue($r['ok']);
+
+        $wtd = $doc->fresh()->web_template_data;
+        // The amend OVERLAID onto the signed canonical — every signature + the location carry through byte-intact.
+        $this->assertStringContainsString('baked-ink', $wtd['canonical_html'], 'signature image preserved on the signed doc');
+        $this->assertStringContainsString('THUS DONE AND SIGNED at', $wtd['canonical_html'], 'execution block preserved');
+        $this->assertStringContainsString('signed-loc', $wtd['canonical_html'], 'signed-at LOCATION preserved');
+        $this->assertStringContainsString('Margate', $wtd['canonical_html']);
+        // …and ONLY the struck region changed.
+        $this->assertStringContainsString('change-del', $wtd['canonical_html'], 'the strike mark was added');
+        $this->assertStringContainsString('five percent (5%)', $wtd['canonical_html'], 'the replacement was inserted');
+        $this->assertStringContainsString('change-initial-row', $wtd['canonical_html'], 'the initial row is on the signed doc');
+        // The doc STAYS baked (served verbatim) — never reset to 0 (which would recompose + drop the ink).
+        $this->assertGreaterThanOrEqual(1, (int) $wtd['canonical_version'], 'doc stays baked; no recompose');
+
+        // Initialing the change ALSO overlays onto the signed canonical — ink + location still intact.
+        app(SignatureService::class)->recordChangeInitial($tpl->fresh(), $r['change_id'], 'Angelique Venter', 'agent', 'data:image/png;base64,BBBBINIT');
+        $wtd2 = $doc->fresh()->web_template_data;
+        $this->assertStringContainsString('baked-ink', $wtd2['canonical_html'], 'signature still present after initialing');
+        $this->assertStringContainsString('THUS DONE AND SIGNED at', $wtd2['canonical_html'], 'location still present after initialing');
+        $this->assertStringContainsString('cir-filled', $wtd2['canonical_html'], 'the initial was applied on the signed doc');
+        $this->assertGreaterThanOrEqual(1, (int) $wtd2['canonical_version']);
+    }
+
     // ── Helper ──
 
     /** @return array{0: SignatureTemplate, 1: Document, 2: User} */

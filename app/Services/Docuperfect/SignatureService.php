@@ -2145,18 +2145,21 @@ class SignatureService
         $map[$changeId] = ['name' => $name, 'at' => $at];
         $wtd['change_initials'] = $map;
 
-        $html = (string) ($wtd['merged_html'] ?? '');
+        // WET-INK: fill the initial into the SAME artifact the strike was authored onto — the signed canonical
+        // when ink is baked (so every signature + the location carry through) — never the un-inked merged_html.
+        $canvas = CanonicalDocumentRenderer::amendSource($wtd);
+        $html   = $canvas['html'];
         if ($html !== '' && str_contains($html, 'data-change-id="' . $changeId . '"')) {
             $selSvc = app(SelectionEditService::class);
             if ($partyKey !== null && $partyKey !== '' && $selSvc->hasRowSlot($html, $changeId, $partyKey)) {
                 // WET-INK per-party ROW slot: this party applies their OWN REAL initial in their own slot,
                 // independently of the others. The captured initial image is the same ink the rest of the doc uses.
-                $wtd['merged_html'] = $selSvc->fillRowSlot($html, $changeId, $partyKey, $name, $imageDataUrl);
+                $newHtml = $selSvc->fillRowSlot($html, $changeId, $partyKey, $name, $imageDataUrl);
             } else {
                 // Legacy clause mark (no margin slots): the shared "Initialed by {name}" pill.
-                $wtd['merged_html'] = app(ClauseEditService::class)->stampInitialPill($html, $changeId, $name);
+                $newHtml = app(ClauseEditService::class)->stampInitialPill($html, $changeId, $name);
             }
-            $wtd['canonical_version'] = 0; // recompose so the filled slot / pill shows on serve
+            $wtd = CanonicalDocumentRenderer::writeAmend($wtd, $newHtml, $canvas['baked']);
         }
 
         $document->update(['web_template_data' => $wtd]);
@@ -2186,7 +2189,8 @@ class SignatureService
     {
         $document = $template->document;
         $wtd = is_array($document?->web_template_data) ? $document->web_template_data : [];
-        $html = (string) ($wtd['merged_html'] ?? '');
+        // Read the SERVED artifact (signed canonical when baked, else merged_html) — that's where the rows live.
+        $html = CanonicalDocumentRenderer::amendSource($wtd)['html'];
         $changes = is_array($wtd['pending_body_changes'] ?? null) ? $wtd['pending_body_changes'] : [];
         $result = ['count' => 0, 'by_party' => [], 'names' => []];
         if ($html === '' || $changes === []) {

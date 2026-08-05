@@ -58,7 +58,9 @@ final class ClauseEditService
             return ['ok' => false, 'error' => 'Document not found.'];
         }
         $wtd  = is_array($document->web_template_data) ? $document->web_template_data : [];
-        $html = (string) ($wtd['merged_html'] ?? '');
+        // WET-INK: overlay the clause strike onto the SIGNED canonical when baked (preserve ink + location).
+        $canvas = CanonicalDocumentRenderer::amendSource($wtd);
+        $html   = $canvas['html'];
         if (trim($html) === '') {
             return ['ok' => false, 'error' => 'Document has no editable body.'];
         }
@@ -90,7 +92,8 @@ final class ClauseEditService
 
         [$condition, $ocNumber] = [null, null];
 
-        $result = DB::transaction(function () use ($template, $document, $dom, $el, $clauseRef, $oldText, $newText, $mode, $changeId, $actor, &$condition, &$ocNumber, $wtd, $xpath) {
+        $baked = $canvas['baked'];
+        $result = DB::transaction(function () use ($template, $document, $dom, $el, $clauseRef, $oldText, $newText, $mode, $changeId, $actor, &$condition, &$ocNumber, $wtd, $xpath, $baked) {
             if ($mode === 'reference') {
                 // Create the Other-Conditions entry holding the full replacement.
                 $next = (int) DocumentCondition::query()
@@ -129,8 +132,7 @@ final class ClauseEditService
                 'status'                   => DocumentClauseStrikethrough::STATUS_PROPOSED,
             ]);
 
-            // Persist the mutated merged_html.
-            $wtd['merged_html'] = $this->innerHtml($dom, $xpath);
+            $newHtml = $this->innerHtml($dom, $xpath);
 
             // Structured change capture (old→new) — Johan's audit requirement.
             $changes   = $wtd['pending_body_changes'] ?? [];
@@ -147,9 +149,9 @@ final class ClauseEditService
             ];
             $wtd['pending_body_changes'] = $changes;
             $wtd['amendment_render']     = true;    // cc1 field-diff flag (clause marks are content already)
-            // Force forDisplay() to RE-COMPOSE from the edited merged_html so the strike-out actually shows
-            // on every surface — a stored canonical (version >= 1) would otherwise serve the pre-edit body.
-            $wtd['canonical_version']    = 0;
+            // WET-INK: overlay onto the SIGNED canonical when baked (every signature + the execution/location
+            // block carry through byte-intact, only the struck clause changes); else edit merged_html + recompose.
+            $wtd = CanonicalDocumentRenderer::writeAmend($wtd, $newHtml, $baked);
 
             $document->update(['web_template_data' => $wtd]);
 
