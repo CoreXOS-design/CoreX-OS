@@ -21,8 +21,9 @@
             this.sentConfirm.open = false;
             this.answered = true;
             this.result = didSend ? 'sent' : 'not_sent';
-            // AT-323 — "Yes" promotes the mirrored comm to sent (the ONLY path a pitch counts);
-            // "No" records the honest not_sent. Either way the send never counts before this answer.
+            // AT-323 — Yes promotes the mirrored comm to sent (the ONLY path a pitch counts);
+            // No records the honest not_sent. Either way the send never counts before this answer.
+            // NOTE: keep literal double-quotes out of this x-data — a stray one closes the attribute.
             const url = didSend
                 ? @js(route('seller-outreach.composer.mark-sent', ['contact' => $contact->id, 'send' => $send->id]))
                 : @js(route('seller-outreach.composer.not-sent', ['contact' => $contact->id, 'send' => $send->id]));

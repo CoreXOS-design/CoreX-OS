@@ -155,8 +155,10 @@
                     async increment(channel, payload = {}) {
                         // AT-323 — do NOT optimistically bump the WhatsApp counter: a WhatsApp
                         // send is born not_delivered (uncounted) and only counts once the agent
-                        // answers "Yes" in the modal. Email is system-sent (no modal), so it keeps
-                        // the optimistic bump. Either way the server's derived count is authoritative.
+                        // answers Yes in the modal. Email is system-sent (no modal), so it keeps
+                        // the optimistic bump. Either way the server derived count is authoritative.
+                        // NOTE: no literal double-quotes in comments here — this x-data sits inside
+                        // a double-quoted attribute and a stray one closes it, leaking JS as text.
                         if (channel === 'email') this.emailCount++;
                         try {
                             const res = await fetch('{{ route('corex.contacts.increment', $contact) }}', {
@@ -192,8 +194,8 @@
                         const commId = this.sentConfirm.communicationId;
                         this.sentConfirm.open = false;
                         if (!commId) return;
-                        if (!didSend) return; // "No" — the row was born not_delivered; nothing counts, nothing to do.
-                        // "Yes, I sent it" — the ONLY path a WhatsApp send reaches sent (+1 the counter).
+                        if (!didSend) return; // No — the row was born not_delivered; nothing counts, nothing to do.
+                        // Yes, I sent it — the ONLY path a WhatsApp send reaches sent (+1 the counter).
                         try {
                             const res = await fetch('{{ url('corex/contacts/'.$contact->id.'/communications') }}/' + commId + '/mark-sent', {
                                 method: 'POST',
