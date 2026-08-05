@@ -101,7 +101,10 @@
                 <tbody>
                     @forelse($report['agents'] as $agent)
                         <tr style="border-top:1px solid var(--border);">
-                            <td class="px-3 py-2" style="color:var(--text-primary);">{{ $agent['name'] }}</td>
+                            <td class="px-3 py-2">
+                                <a href="{{ route('performance.agency-report.agent', ['user' => $agent['user_id'], 'period' => $preset]) }}"
+                                   class="no-underline" style="color:var(--brand, #3b82f6);">{{ $agent['name'] }}</a>
+                            </td>
                             <td class="px-3 py-2" style="color:var(--text-muted);">{{ $agent['branch_label'] }}</td>
                             @foreach($report['metrics'] as $m)
                                 <td class="text-right px-3 py-2" style="color:var(--text-primary);">{{ $agent['metrics'][$m['key']] ?? 0 }}</td>

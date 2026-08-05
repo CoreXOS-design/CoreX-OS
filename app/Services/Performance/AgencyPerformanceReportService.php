@@ -81,4 +81,48 @@ class AgencyPerformanceReportService
             'agents'   => $agentRows,
         ];
     }
+
+    /**
+     * AT-366-C — one agent's journey for the period, each metric paired with its
+     * value in the equal-length preceding period (delta = trend). Returns
+     * ['agent' => null] when the user is not an in-scope agency member (owners
+     * excluded), so the caller can 404.
+     */
+    public function agentJourney(int $agencyId, int $userId, Period $period): array
+    {
+        $scope    = new PerformanceScope($agencyId, null, $userId);
+        $current  = $this->build($scope, $period);
+        $previous = $this->build($scope, $period->previous());
+
+        $curAgent  = $current['agents'][0] ?? null;
+        $prevAgent = $previous['agents'][0] ?? null;
+
+        if ($curAgent === null) {
+            return ['agent' => null];
+        }
+
+        $metrics = [];
+        foreach ($current['metrics'] as $m) {
+            $cur  = $curAgent['metrics'][$m['key']] ?? 0;
+            $prev = $prevAgent['metrics'][$m['key']] ?? 0;
+            $metrics[] = [
+                'key'      => $m['key'],
+                'label'    => $m['label'],
+                'value'    => $cur,
+                'previous' => $prev,
+                'delta'    => $cur - $prev,
+            ];
+        }
+
+        return [
+            'agent' => [
+                'user_id'      => $curAgent['user_id'],
+                'name'         => $curAgent['name'],
+                'branch_label' => $curAgent['branch_label'],
+            ],
+            'period'          => $current['period'],
+            'previous_period' => $previous['period'],
+            'metrics'         => $metrics,
+        ];
+    }
 }
