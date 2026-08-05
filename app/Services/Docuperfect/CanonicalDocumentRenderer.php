@@ -176,6 +176,15 @@ class CanonicalDocumentRenderer
         if (trim($html) === '') {
             return $html;
         }
+        // LEGACY-EDGE FALLBACK (belt-and-suspenders) — a document whose selection strike was authored BEFORE
+        // the baked-canonical fix carries the strike ONLY in merged_html; its served canonical (this $html on
+        // the baked path) never received the mark. Re-author each recorded strike whose baked mark is ABSENT
+        // from the served body, using the SAME universal engine the author path uses. Idempotent by design:
+        // the per-change gate skips any change whose data-change-id is already present (a properly-baked body,
+        // the overwhelming common case, does zero work here), and applyStrikeToHtml's insideChangeMark guard is
+        // a second backstop so a span already inside a change mark is never double-struck.
+        $html = $this->reapplyMissingBodyStrikes($html, $document, $webData);
+
         $flagged     = ! empty($webData['amendment_render']);       // live field diff wanted
         $hasMarks    = str_contains($html, 'data-change-id');       // pre-authored marks already in the html
         $bodyChanges = is_array($webData['body_changes'] ?? null) ? $webData['body_changes'] : [];
@@ -201,6 +210,69 @@ class CanonicalDocumentRenderer
         // (body_changes) are re-applied every compose from persisted data — no baseline needed for them.
         $baseline = $flagged ? $this->lastAuthorisedSealedHtml($document, $webData) : '';
         return app(DocumentChangeHighlighter::class)->highlight($html, $baseline, $initials, $bodyChanges, $parties);
+    }
+
+    /**
+     * LEGACY-EDGE re-apply (Johan 2026-08-05, belt-and-suspenders). For each recorded selection strike whose
+     * baked `data-change-id` mark is MISSING from the served body, re-author it via the SAME universal engine
+     * (SelectionEditService::applyStrikeToHtml) so a document amended before the baked-canonical fix (strike in
+     * merged_html only, un-baked canonical) still shows the strike + the per-party initial row on every surface.
+     *
+     * GATED + IDEMPOTENT: a change whose mark is already present is skipped (no re-author, no DB work) — a
+     * properly-baked body therefore does nothing but cheap str_contains checks. When a strike IS re-authored,
+     * applyStrikeToHtml refuses to strike text already inside an existing change mark (insideChangeMark), so it
+     * can never double-strike. The party set is resolved exactly as the author path resolves it
+     * (SelectionEditService::partiesFor) so a re-authored row carries the identical per-party gating keys.
+     */
+    private function reapplyMissingBodyStrikes(string $html, \App\Models\Docuperfect\Document $document, array $webData): string
+    {
+        $pending = is_array($webData['pending_body_changes'] ?? null) ? $webData['pending_body_changes'] : [];
+        if ($pending === [] || trim($html) === '') {
+            return $html;
+        }
+        // Cheap pre-gate — only the changes whose baked mark is ABSENT need any work. When every recorded mark
+        // is already present (the common, correctly-baked case) we return immediately without touching the DB.
+        $missing = array_values(array_filter($pending, function ($c) use ($html) {
+            if (! is_array($c) || trim((string) ($c['old'] ?? '')) === '') {
+                return false;
+            }
+            $cid = (string) ($c['change_id'] ?? '');
+            return $cid === '' || ! str_contains($html, 'data-change-id="' . $cid . '"');
+        }));
+        if ($missing === []) {
+            return $html;
+        }
+        try {
+            $template = SignatureTemplate::where('document_id', $document->id)->orderByDesc('id')->first();
+            if (! $template) {
+                return $html;
+            }
+            $selSvc  = app(SelectionEditService::class);
+            $parties = $selSvc->partiesFor($template);
+            foreach ($missing as $c) {
+                // No prefix/suffix context is persisted with a body change, so locate falls back to the first
+                // un-struck match — correct for the legacy edge (the strike was recorded exactly once).
+                $mode = ($c['mode'] ?? '') === 'strike' ? 'strike' : 'inline';
+                $out  = $selSvc->applyStrikeToHtml(
+                    $html,
+                    (string) ($c['old'] ?? ''),
+                    '',
+                    '',
+                    (string) ($c['new'] ?? ''),
+                    $mode,
+                    $parties,
+                );
+                if ($out !== null) {
+                    $html = $out['html'];
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('CanonicalDocumentRenderer::reapplyMissingBodyStrikes failed (non-fatal)', [
+                'document_id' => $document->id,
+                'error'       => $e->getMessage(),
+            ]);
+        }
+        return $html;
     }
 
     /**

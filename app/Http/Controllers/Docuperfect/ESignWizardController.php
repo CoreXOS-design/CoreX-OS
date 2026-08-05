@@ -1395,6 +1395,15 @@ class ESignWizardController extends Controller
                     $mergedHtml .= $styles . "\n" . $bodyHtml . $pageBreak;
                 }
 
+                // Fill & Review strike-outs — replay the agent's creation-time strikes onto the live pack
+                // preview via the SAME universal engine as the single-doc preview (:replayBodyStrikes below),
+                // so what the agent sees in the pack preview is byte-identical to what the signed pack carries.
+                $mergedHtml = $this->replayBodyStrikes(
+                    $mergedHtml,
+                    $stepData,
+                    $this->buildFillReviewSigningParties($stepData, $template, $user),
+                );
+
                 return response()->json([
                     'render_type' => 'web',
                     'html'        => $mergedHtml,
@@ -2100,6 +2109,17 @@ class ESignWizardController extends Controller
             // marker to its wrapper docKey so a condition added to one pack document
             // never bleeds into another (independent frames + initials per segment).
             $mergedHtml = $this->scopePackOtherConditionsMarkers($mergedHtml);
+
+            // Fill & Review strike-outs — bake the agent's creation-time strikes into the FINAL pack body via
+            // the SAME universal engine the single-doc path uses (:replayBodyStrikes at the single-doc merge
+            // below), so a strike authored on a pack renders identically on the signed pack document — struck
+            // <del> + optional <ins> + the full-width per-party initial row. Runs on the fully-assembled merge
+            // (after marker scoping / docKeys / authoriser injection) so a strike can land in ANY segment.
+            $mergedHtml = $this->replayBodyStrikes(
+                $mergedHtml,
+                $stepData,
+                $this->buildFillReviewSigningParties($stepData, $template, $user),
+            );
 
             $webTemplateData = [
                 'merged_html'         => $mergedHtml,
