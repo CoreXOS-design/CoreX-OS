@@ -637,11 +637,7 @@ class PropertyMatchScoringService
 
         $listings = $matches->isEmpty()
             ? collect()
-            : ProspectingListing::withoutGlobalScopes()
-                ->where('agency_id', $contact->agency_id)
-                ->where('is_active', 1)
-                ->whereNull('deleted_at')
-                ->get();
+            : $this->activeListingsForAgency((int) $contact->agency_id);
 
         $bandPct = AgencyContactSettings::forAgency((int) $contact->agency_id)->micPriceBandFraction();
 
@@ -756,6 +752,25 @@ class PropertyMatchScoringService
     private function matcher(): MatchingService
     {
         return $this->matcher ??= app(MatchingService::class);
+    }
+
+    /**
+     * AT-108 perf fix — RegenerateBuyerMatchesJob calls recomputeProspectingMatchesForBuyer()
+     * once per contact on a SINGLE service instance; every call previously re-ran an
+     * identical agency-scoped listings query. Memoized per instance (one job run =
+     * one instance = no staleness risk within the run) so an agency-wide recompute
+     * fetches its active listings once instead of once per buyer.
+     *
+     * @var array<int, Collection>
+     */
+    private array $activeListingsByAgency = [];
+    private function activeListingsForAgency(int $agencyId): Collection
+    {
+        return $this->activeListingsByAgency[$agencyId] ??= ProspectingListing::withoutGlobalScopes()
+            ->where('agency_id', $agencyId)
+            ->where('is_active', 1)
+            ->whereNull('deleted_at')
+            ->get();
     }
 
     /** AT-75 — per-request lowercased p24 suburb-name → id map (one query). */

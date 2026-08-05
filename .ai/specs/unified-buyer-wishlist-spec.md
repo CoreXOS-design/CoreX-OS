@@ -483,16 +483,42 @@ Implemented in **Build Prompt 09**.
 
 ### 9.1 `RegenerateBuyerMatchesJob`
 
-- Queued job (default queue), dispatched once at the end of Build Prompt 08's data migration AND available as a manual command (`php artisan wishlist:regenerate-matches`).
+- Queued job, dispatched at the end of Build Prompt 08's data migration, on every property save (agency-scoped, `PropertyObserver::queueBuyerMatchRecompute()`, 60s coalescing delay via `ShouldBeUnique`), and available as a manual command (`php artisan wishlist:regenerate-matches`).
+- **Queue: `buyer-matching` (dedicated worker, since 2026-08-05 — see incident note).** MUST NOT share a lane with latency-sensitive jobs (webhook delivery, mail) — see `.ai/specs/agency-public-api.md` §6.3.
 - Steps:
   1. Write audit log entry: `RegenerateBuyerMatchesJob::started` with timestamp + dispatcher.
-  2. TRUNCATE `prospecting_buyer_matches` and `property_buyer_matches`.
+  2. TRUNCATE `prospecting_buyer_matches` and `property_buyer_matches` (full rebuild path only; the per-property-save path is `truncate:false` and self-corrects per buyer).
   3. Loop all `ContactMatch::primary()->active()` rows:
      - Call `PropertyMatchScoringService::recomputeForBuyer($match->contact_id)` (writes property_buyer_matches).
      - Call `PropertyMatchScoringService::recomputeProspectingMatchesForBuyer($match->contact_id)` (writes prospecting_buyer_matches).
   4. Write audit log entry: `RegenerateBuyerMatchesJob::finished` with timestamp, row counts written, duration.
 - **Idempotent.** Running twice in succession produces the same final state.
 - **Estimated duration** based on audit data: 31 buyers × 983 prospecting listings = ~30k score computations, target ≤2 minutes on dev hardware. Production estimate documented during Prompt 09 implementation.
+
+> **2026-08-05 incident — perf + queue isolation.** In production this job was
+> observed running 10–15 minutes per invocation and timing out at its 600s
+> limit, re-firing every few minutes during active listing edits (each
+> property save re-dispatches an agency-scoped, coalesced run). Root cause:
+> `recomputeForBuyer()` and `recomputeProspectingMatchesForBuyer()` each run a
+> **full agency-wide** property/listing query + PHP scoring pass **per
+> contact** in the outer loop — O(contacts × stock), not O(stock). This job
+> shared the `default` queue (2 workers) with `DeliverAgencyWebhook`, and
+> monopolized both workers back-to-back, delaying website webhook delivery by
+> up to ~20 minutes (`.ai/specs/agency-public-api.md` §6.3 incident note).
+> Fixes landed 2026-08-05:
+> 1. Moved this job to its own `buyer-matching` queue/worker so it can no
+>    longer starve unrelated queues.
+> 2. `PropertyMatchScoringService::activeListingsForAgency()` memoizes the
+>    per-agency active-prospecting-listings fetch for the lifetime of one
+>    service instance (= one job run), removing the N redundant identical
+>    queries `recomputeProspectingMatchesForBuyer()` was issuing (one per
+>    contact) down to one per job run.
+> 3. **Not yet fixed — follow-up needed:** the underlying O(contacts × stock)
+>    shape (both `propertiesForMatch()` and the listings scan re-score the
+>    full candidate set per contact) is unchanged. This is an engine-level
+>    change touching `MatchingService`, used by Core Matches / MIC / seller
+>    demand panels — needs its own spec + profiling against production-scale
+>    data before being touched, not a blind rewrite bundled into this fix.
 
 ### 9.2 Empty-state UI during regeneration (per D7)
 
