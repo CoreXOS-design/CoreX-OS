@@ -1033,6 +1033,7 @@
                 <div class="corex-nav-sublabel">Admin</div>
                 @permission('view_performance')
                 <a href="{{ route('admin.performance') }}" class="corex-nav-subitem {{ request()->routeIs('admin.performance') ? 'active' : '' }}">Performance</a>
+                <a href="{{ route('performance.agency-report') }}" class="corex-nav-subitem {{ request()->routeIs('performance.agency-report') ? 'active' : '' }}">Performance &amp; ROI Report</a>
                 @endpermission
                 @permission('view_listings')
                 @if(\Illuminate\Support\Facades\Route::has('admin.listings.stock'))
