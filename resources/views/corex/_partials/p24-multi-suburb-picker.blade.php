@@ -7,7 +7,7 @@
     hidden input per chip: `p24_suburb_ids[]`.
 
     Usage:
-      @include('corex._partials.p24-multi-suburb-picker', [
+      include('corex._partials.p24-multi-suburb-picker', [
           'fieldName'       => 'p24_suburb_ids',
           'initialSuburbs'  => $initialSuburbs, // array of ['id'=>..,'name'=>..,'city_id'=>..,'province_id'=>..]
       ])

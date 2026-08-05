@@ -18,7 +18,7 @@
      (resources/views/corex/map/index.blade.php) was deemed risky in
      the Phase A audit, so only the SVG shape generators we need are
      duplicated. Single source of palette: data-bucket attributes +
-     the shared @push('head') block above. --}}
+     the shared push('head') block above. --}}
 @extends('layouts.corex-app')
 
 @push('head')

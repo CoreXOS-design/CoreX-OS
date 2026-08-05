@@ -3,7 +3,7 @@
 
      SYSTEM UPDATES — the "what's new in CoreX" pop-up.
 
-     Self-contained: the ONLY central wiring is a single @include of this partial
+     Self-contained: the ONLY central wiring is a single include of this partial
      in the two app layouts (layouts/corex.blade.php and layouts/corex-app.blade.php),
      exactly like the tour engine. No per-page wiring anywhere.
 

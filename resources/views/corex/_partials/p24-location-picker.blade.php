@@ -2,7 +2,7 @@
     Reusable Property24 cascading Province → City → Suburb combobox.
 
     Usage:
-      @include('corex._partials.p24-location-picker', [
+      include('corex._partials.p24-location-picker', [
           'fieldPrefix'        => 'p24',   // input name prefix (e.g. 'p24_province_id')
           'initialProvinceId'  => $p->p24_province_id ?? 0,
           'initialCityId'      => $p->p24_city_id ?? 0,
