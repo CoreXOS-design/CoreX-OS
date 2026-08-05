@@ -46,39 +46,38 @@ production data-safety. **Needs Johan** to either provision a real Storage Box a
 `/etc/hfc-deploy.env`, or make an explicit, informed call to accept local-only backup for
 tonight.
 
-**AT-357 — deploy.sh queue-worker restart targets the wrong environment.** Confirmed via
-real `supervisorctl status`: one shared supervisord manages `corex-worker-live` (×2),
-`corex-worker-live-mail`, `corex-worker-live-matching`, AND `corex-worker-staging` — all
-visible from both `/corex` and `/corex-staging`. Both copies of `deploy.sh` (line 474) use
-the same over-broad match:
+**AT-357 — FIXED and committed, both environments.** Confirmed via real `supervisorctl
+status`: one shared supervisord manages `corex-worker-live` (×2), `corex-worker-live-mail`,
+`corex-worker-live-matching`, AND `corex-worker-staging` — all visible from both `/corex`
+and `/corex-staging`. Both copies of `deploy.sh` used the same over-broad match:
 ```
 awk '/^(hfc-queue|corex-worker)/ {print $1}' | cut -d: -f1 | sort -u | head -1
 ```
-Two real consequences: (1) every live deploy only ever restarts `corex-worker-live` — the
-mail and matching pools silently keep running old code; (2) a **staging** deploy running
+Two real consequences: (1) every live deploy only ever restarted `corex-worker-live` — the
+mail and matching pools silently kept running old code; (2) a **staging** deploy running
 this same script would restart `corex-worker-live` instead of `corex-worker-staging`,
 disrupting live's background jobs from a staging action.
 
-**Proposed fix, ready for a one-line sign-off — NOT applied, this is deploy-script/prod-config territory:**
+Applied and committed (per Johan's explicit go-ahead — no sign-off needed, "just fix
+these"):
+- `/corex/scripts/deploy.sh` (live) — commit `11ccea05` on `main`, pushed.
+- `/corex-staging/scripts/deploy.sh` (staging) — commit `97132e49` on `Staging`, pushed.
 
-`/corex/scripts/deploy.sh` (and mirror the equivalent for `/corex-staging/scripts/deploy.sh`,
-swapping `-live` for `-staging`):
-```bash
-# Match ONLY this environment's pool(s) — never another environment's — and
-# restart every matching pool, not just the alphabetically-first one.
-SUPER_PROGS=$(sudo supervisorctl status 2>/dev/null \
-    | awk '/^corex-worker-live($|-)/ {print $1}' \
-    | cut -d: -f1 | sort -u)
-if [[ -n "$SUPER_PROGS" ]]; then
-    while IFS= read -r prog; do
-        sudo supervisorctl restart "${prog}:*" | tee -a "$LOG_FILE"
-    done <<< "$SUPER_PROGS"
-    WORKER_MECHANISM="supervisord programs: $(echo "$SUPER_PROGS" | tr '\n' ' ')"
-fi
-```
-(`/corex-staging/scripts/deploy.sh` — same, with `^corex-worker-staging($|-)` and no loop
-needed today since staging only has one pool, but the loop form is harmless there too and
-keeps both scripts structurally identical.)
+Both now match only their own environment's pool(s) and loop over every match instead of
+`head -1`. First implementation attempt used `awk '/^corex-worker-live($|-)/'`, which
+dry-run testing against real `supervisorctl status` output caught as wrong — the character
+immediately after the pool name in that output is `:` (the `program:process_name`
+separator), not `-` or end-of-line, so the bare `corex-worker-live` program was silently
+excluded and the staging pattern matched nothing at all. Corrected to
+`awk '/^corex-worker-live[:-]/'` (and `[:-]` staging-side), re-verified by dry-run (no
+restart executed) to match exactly:
+- live: `corex-worker-live`, `corex-worker-live-mail`, `corex-worker-live-matching`
+- staging: `corex-worker-staging`
+- zero cross-environment overlap either direction
+
+This unblocks cc2's live deploy — the worker-restart step will now correctly cycle all
+three live pools on a live deploy, and will never again touch a live pool from a staging
+run.
 
 ## Note on this document's existence
 
