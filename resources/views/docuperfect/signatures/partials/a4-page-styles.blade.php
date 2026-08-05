@@ -760,3 +760,5 @@ function splitDocumentIntoPages(container) {
     paginateDocument(container, []);
 }
 </script>
+
+@include('docuperfect.signatures.partials._change-margin-positioner')
