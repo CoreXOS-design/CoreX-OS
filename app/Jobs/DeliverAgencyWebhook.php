@@ -35,6 +35,12 @@ class DeliverAgencyWebhook implements ShouldQueue
 
     public function __construct(public readonly int $deliveryId)
     {
+        // 2026-08-05 incident — this job must NEVER share a lane with
+        // long-running background work (RegenerateBuyerMatchesJob et al
+        // monopolized the shared `default` queue and delayed website webhook
+        // delivery by ~20 minutes). Dedicated low-latency lane.
+        // See .ai/specs/agency-public-api.md §6.3.
+        $this->onQueue('webhooks');
     }
 
     public function handle(): void
