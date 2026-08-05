@@ -905,6 +905,13 @@
                         </span>
                     </label>
 
+                    {{-- WET-INK gate — the viewer must apply their own initial to every amendment before submitting. --}}
+                    <div x-show="changeInitialsRemaining > 0" x-cloak
+                         class="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
+                        <span class="font-semibold" x-text="changeInitialsRemaining"></span>
+                        amendment initial<span x-show="changeInitialsRemaining !== 1">s</span> outstanding —
+                        initial each amended clause (the highlighted slot with your name) before you can submit.
+                    </div>
                     <div class="flex items-center justify-end gap-3">
                         <button @click="signingMethod = null"
                                 class="text-sm text-slate-500 hover:text-slate-700 font-medium">
@@ -1416,6 +1423,7 @@ function externalSign() {
         webInitialElements: [],
         webInitialSigData: null,
         webIncompleteCount: 0,
+        changeInitialsRemaining: 0,
         showInitialApplyAll: false,
         pendingInitialSigData: null,
         pendingInitialBlockId: null,
@@ -2001,8 +2009,13 @@ function externalSign() {
         updateIncompleteCount() {
             if (this.isWebTemplate) {
                 const { total, incomplete } = this._computeWebCounts();
-                this.webIncompleteCount = incomplete;
-                this.totalRequired = total;
+                // WET-INK completion gate (UI half of the server-side gate) — the viewer's OWN un-applied
+                // amendment initials count as outstanding items, so the Complete button greys (canSubmitWeb)
+                // and the "N remaining" banner shows until every change they must initial is initialed.
+                const myInitials = document.querySelectorAll('.cir-slot.cir-mine:not(.cir-filled)').length;
+                this.changeInitialsRemaining = myInitials;
+                this.webIncompleteCount = incomplete + myInitials;
+                this.totalRequired = total + myInitials;
                 this.signedCount = total - incomplete;
             }
         },

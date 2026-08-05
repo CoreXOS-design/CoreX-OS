@@ -206,6 +206,53 @@ final class WetInkClauseEditTest extends TestCase
         $this->assertArrayHasKey('change_initials', $doc->fresh()->web_template_data);
     }
 
+    public function test_completion_gate_blocks_finalise_until_every_required_party_initials(): void
+    {
+        [$tpl, $doc, $actor] = $this->seedReturnedDocWithClauses();
+        // Two parties who have BOTH reached their turn (completed) — both are required to initial each change.
+        \App\Models\Docuperfect\SignatureRequest::create([
+            'signature_template_id' => $tpl->id, 'party_role' => 'agent', 'role_index' => 1,
+            'signer_name' => 'Rialette Bloem', 'signer_email' => 'a@x.test', 'token' => Str::random(48),
+            'token_expires_at' => now()->addDays(30), 'status' => 'completed', 'completed_at' => now(), 'signing_order' => 1,
+        ]);
+        \App\Models\Docuperfect\SignatureRequest::create([
+            'signature_template_id' => $tpl->id, 'party_role' => 'supervisor', 'role_index' => 1,
+            'signer_name' => 'Sipho Dlamini', 'signer_email' => 's@x.test', 'token' => Str::random(48),
+            'token_expires_at' => now()->addDays(30), 'status' => 'completed', 'completed_at' => now(), 'signing_order' => 2,
+        ]);
+        // A party still WAITING for a future turn — must NOT be counted (that would deadlock the flow).
+        \App\Models\Docuperfect\SignatureRequest::create([
+            'signature_template_id' => $tpl->id, 'party_role' => 'seller', 'role_index' => 1,
+            'signer_name' => 'Petro Nel', 'signer_email' => 'p@x.test', 'token' => Str::random(48),
+            'token_expires_at' => now()->addDays(30), 'status' => 'waiting', 'signing_order' => 3,
+        ]);
+
+        $sel = app(\App\Services\Docuperfect\SelectionEditService::class);
+        $svc = app(SignatureService::class);
+        $cid = $sel->strikeSelection($tpl, 'seven percent (7%)', 'shall be ', '.', 'five percent (5%)', $actor)['change_id'];
+
+        // One change × two required parties (seller is WAITING → excluded) = 2 initials outstanding.
+        $this->assertSame(2, $svc->outstandingChangeInitials($tpl->fresh())['count']);
+        try {
+            $svc->completeDocument($tpl->fresh());
+            $this->fail('completeDocument should refuse while amendment initials are outstanding.');
+        } catch (\App\Exceptions\Docuperfect\ChangeInitialsOutstandingException $e) {
+            $this->assertSame(2, $e->outstanding);
+        }
+        $this->assertNotSame(SignatureTemplate::STATUS_COMPLETED, $tpl->fresh()->status);
+
+        // Agent initials — still one outstanding (supervisor), still blocked.
+        $svc->recordChangeInitial($tpl->fresh(), $cid, 'Rialette Bloem', 'agent');
+        $this->assertSame(1, $svc->outstandingChangeInitials($tpl->fresh())['count']);
+        $this->assertThrows(fn () => $svc->completeDocument($tpl->fresh()), \App\Exceptions\Docuperfect\ChangeInitialsOutstandingException::class);
+
+        // Supervisor initials — now every required party has initialed the change → gate clears, doc completes.
+        $svc->recordChangeInitial($tpl->fresh(), $cid, 'Sipho Dlamini', 'supervisor');
+        $this->assertSame(0, $svc->outstandingChangeInitials($tpl->fresh())['count']);
+        $svc->completeDocument($tpl->fresh());
+        $this->assertSame(SignatureTemplate::STATUS_COMPLETED, $tpl->fresh()->status);
+    }
+
     // ── Helper ──
 
     /** @return array{0: SignatureTemplate, 1: Document, 2: User} */

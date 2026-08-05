@@ -398,6 +398,44 @@ final class SelectionEditService
             && preg_match('/data-party-key="' . preg_quote($partyKey, '/') . '"/', $html) === 1;
     }
 
+    /** True when THIS party has already applied their initial to THIS change's row slot (cir-filled). */
+    public function rowSlotFilled(string $html, string $changeId, string $partyKey): bool
+    {
+        if (! $this->hasRowSlot($html, $changeId, $partyKey)) {
+            return false;
+        }
+        try {
+            $dom = new \DOMDocument();
+            @$dom->loadHTML(
+                '<?xml encoding="utf-8"?><div id="__root">' . $html . '</div>',
+                LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING,
+            );
+            $xpath = new \DOMXPath($dom);
+            $slots = $xpath->query(
+                '//*[contains(concat(" ", normalize-space(@class), " "), " change-initial-row ") and @data-change-id=' . $this->xpathLiteral($changeId) . ']'
+                . '//*[contains(concat(" ", normalize-space(@class), " "), " cir-slot ") and @data-party-key=' . $this->xpathLiteral($partyKey) . ']'
+            );
+            if ($slots === false || $slots->length === 0) {
+                return false;
+            }
+            foreach ($slots as $slot) {
+                if ($slot instanceof \DOMElement
+                    && str_contains(' ' . $slot->getAttribute('class') . ' ', ' cir-filled ')) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /** Public accessor for the ordered signing-party set (key + name) — the universal party list a change's row is built from. */
+    public function partiesFor(SignatureTemplate $template): array
+    {
+        return $this->parties($template);
+    }
+
     private function initials(string $name): string
     {
         $parts = preg_split('/\s+/', trim($name)) ?: [];

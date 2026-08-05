@@ -50,15 +50,25 @@
                         Highlight any word, phrase, or clause in the document below, then amend it.
                     </span>
                     @if($isReturnedToCandidate)
-                    <form method="POST" action="{{ route('docuperfect.signatures.resubmitToAuthoriser', $document) }}"
-                          onsubmit="return confirm('Resubmit this document to the authoriser for review? Your changes and initials will be sent back to them.');">
-                        @csrf
-                        <button type="submit"
-                                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg text-white transition-colors"
-                                style="background:#0b2a4a;">
-                            Resubmit to authoriser &rarr;
-                        </button>
-                    </form>
+                    {{-- WET-INK gate (UI half) — the composer must initial every change they made before they can
+                         resubmit; the server refuses otherwise. Recompute after the affordance wires (~800ms) and
+                         after any row change. The page reloads on each applied initial, so init-time is accurate. --}}
+                    <div x-data="{ remaining: 0, recount() { this.remaining = document.querySelectorAll('.cir-slot.cir-mine:not(.cir-filled)').length; }, init() { this.recount(); setTimeout(() => this.recount(), 1000); new MutationObserver(() => this.recount()).observe(document.body, { childList: true, subtree: true }); } }"
+                         class="flex flex-wrap items-center gap-2">
+                        <span x-show="remaining > 0" x-cloak class="text-xs font-medium text-amber-800">
+                            <span x-text="remaining"></span> of your amendment initial<span x-show="remaining !== 1">s</span> still outstanding — initial each change first.
+                        </span>
+                        <form method="POST" action="{{ route('docuperfect.signatures.resubmitToAuthoriser', $document) }}"
+                              onsubmit="return confirm('Resubmit this document to the authoriser for review? Your changes and initials will be sent back to them.');">
+                            @csrf
+                            <button type="submit" :disabled="remaining > 0"
+                                    class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg text-white transition-colors"
+                                    :class="remaining > 0 ? 'opacity-50 cursor-not-allowed' : ''"
+                                    :style="remaining > 0 ? 'background:#94a3b8;' : 'background:#0b2a4a;'">
+                                Resubmit to authoriser &rarr;
+                            </button>
+                        </form>
+                    </div>
                     @endif
 
                     {{-- All three fixed-position UI pieces are TELEPORTED to <body> so `position:fixed`

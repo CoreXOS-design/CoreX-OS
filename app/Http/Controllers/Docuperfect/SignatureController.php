@@ -2791,6 +2791,18 @@ class SignatureController extends Controller
                 ->with('error', 'This document is not pending approval.');
         }
 
+        // WET-INK HARD GATE — the authoriser/agent cannot approve-and-advance (or finalise) while any required
+        // party still owes an amendment initial. Refuse cleanly before any state change; the message names the
+        // acting user's own outstanding count when they are the blocker.
+        $actingReq = $template->requests()->where('signer_email', $user->email)->first();
+        $actingKey = $actingReq
+            ? (method_exists($actingReq, 'canonicalPartyKey') ? $actingReq->canonicalPartyKey() : (string) $actingReq->party_role)
+            : null;
+        $amendOutstanding = $this->signatureService->outstandingChangeInitials($template);
+        if ($amendOutstanding['count'] > 0) {
+            return back()->with('error', $this->signatureService->outstandingChangeInitialsMessage($template, $actingKey));
+        }
+
         $result = $this->signatureService->approveAndAdvance($template);
 
         $templateType = $document->template?->template_type ?? 'rentals';
@@ -2843,6 +2855,15 @@ class SignatureController extends Controller
         $this->authorizeDocument($user, $document);
 
         $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+
+        // WET-INK GATE — the composer must initial every change they made before handing the doc back to the
+        // authoriser (otherwise their own slots would stay empty and deadlock the authoriser's completion, which
+        // requires every reached-turn party's slots filled). At this point the composer is the only required
+        // party, so the outstanding count is exactly their own un-applied initials.
+        $amendOutstanding = $this->signatureService->outstandingChangeInitials($template);
+        if ($amendOutstanding['count'] > 0) {
+            return back()->with('error', $this->signatureService->outstandingChangeInitialsMessage($template));
+        }
 
         $result = $this->signatureService->resubmitToAuthoriser($template, $user);
 

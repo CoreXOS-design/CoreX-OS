@@ -2172,6 +2172,87 @@ class SignatureService
         return ['ok' => true, 'change_id' => $changeId, 'name' => $name, 'at' => $at];
     }
 
+    /**
+     * WET-INK COMPLETION GATE (Johan 2026-08-05) — a document with amendments cannot be finalised while any
+     * required party still owes an initial on any change. "Required" = a party who has REACHED their signing
+     * turn (status not waiting/deferred/declined/expired); a party still queued for a future turn is not yet
+     * expected to have initialed, so gating on them would deadlock the flow. By the time the LAST party
+     * completes, every party is required and every change-slot must be filled — no finalising unsigned
+     * amendments. Universal: candidate→authoriser AND recipient-initiated amendments run through one row.
+     *
+     * @return array{count:int, by_party:array<string,int>, names:array<string,string>}
+     */
+    public function outstandingChangeInitials(SignatureTemplate $template): array
+    {
+        $document = $template->document;
+        $wtd = is_array($document?->web_template_data) ? $document->web_template_data : [];
+        $html = (string) ($wtd['merged_html'] ?? '');
+        $changes = is_array($wtd['pending_body_changes'] ?? null) ? $wtd['pending_body_changes'] : [];
+        $result = ['count' => 0, 'by_party' => [], 'names' => []];
+        if ($html === '' || $changes === []) {
+            return $result;
+        }
+
+        // Parties who have reached their turn — everyone the amendment is currently binding on.
+        $notYet = [
+            SignatureRequest::STATUS_WAITING,
+            SignatureRequest::STATUS_DEFERRED,
+            SignatureRequest::STATUS_DECLINED,
+            SignatureRequest::STATUS_EXPIRED,
+        ];
+        $requiredKeys = [];
+        foreach ($template->requests()->get() as $r) {
+            if (in_array($r->status, $notYet, true)) {
+                continue;
+            }
+            $key = method_exists($r, 'canonicalPartyKey') ? $r->canonicalPartyKey() : (string) $r->party_role;
+            $requiredKeys[$key] = (string) ($r->signer_name ?: ucfirst((string) $r->party_role));
+        }
+        if ($requiredKeys === []) {
+            return $result;
+        }
+
+        $sel = app(SelectionEditService::class);
+        $seen = [];
+        foreach ($changes as $c) {
+            $cid = is_array($c) ? ($c['change_id'] ?? null) : null;
+            if (! $cid || isset($seen[$cid])) {
+                continue;
+            }
+            $seen[$cid] = true;
+            foreach ($requiredKeys as $key => $name) {
+                if (! $sel->hasRowSlot($html, $cid, $key)) {
+                    continue; // this change carries no slot for this party (legacy pill change) — nothing owed
+                }
+                if (! $sel->rowSlotFilled($html, $cid, $key)) {
+                    $result['count']++;
+                    $result['by_party'][$key] = ($result['by_party'][$key] ?? 0) + 1;
+                    $result['names'][$key] = $name;
+                }
+            }
+        }
+        return $result;
+    }
+
+    /** Human message for an outstanding-initials count (empty string when nothing is owed). */
+    public function outstandingChangeInitialsMessage(SignatureTemplate $template, ?string $actingPartyKey = null): string
+    {
+        $o = $this->outstandingChangeInitials($template);
+        if ($o['count'] === 0) {
+            return '';
+        }
+        if ($actingPartyKey !== null && ! empty($o['by_party'][$actingPartyKey])) {
+            $mine = $o['by_party'][$actingPartyKey];
+            return "You still have {$mine} amendment initial" . ($mine === 1 ? '' : 's')
+                . " outstanding — initial each change before completing.";
+        }
+        $n = $o['count'];
+        $parties = implode(', ', array_values($o['names']));
+        return "{$n} amendment initial" . ($n === 1 ? '' : 's') . " still outstanding"
+            . ($parties !== '' ? " ({$parties})" : '')
+            . " — every change must be initialed by all parties before this document can be finalised.";
+    }
+
     /** A doc the agent may re-edit under the wet-ink model — a returned or amendment-review state. */
     public function isReEditState(SignatureTemplate $template): bool
     {
@@ -2266,6 +2347,19 @@ class SignatureService
      */
     public function completeDocument(SignatureTemplate $template): void
     {
+        // WET-INK HARD GATE (backstop) — a document with amendments may NOT reach the terminal completed
+        // state while any required party still owes an initial. The completion/authorise endpoints pre-check
+        // and refuse cleanly; this throw guarantees no path (agent approve, external ceremony, crafted POST)
+        // can finalise unsigned amendments even if a pre-check is ever missed. At this point every party is
+        // required, so a non-zero count means a genuinely un-initialed change.
+        $outstanding = $this->outstandingChangeInitials($template);
+        if ($outstanding['count'] > 0) {
+            throw new \App\Exceptions\Docuperfect\ChangeInitialsOutstandingException(
+                $this->outstandingChangeInitialsMessage($template),
+                $outstanding['count'],
+            );
+        }
+
         // Authoriser-parity completeness guard (candidate flows) — the bank-reject rule.
         // Every candidate signature/initial mark must carry a FILLED authoriser mark at its
         // OWN anchor. CandidateAuthoriserSurfaceInjector guarantees those surfaces at compose

@@ -1507,6 +1507,17 @@ class SigningController extends Controller
             ], 423);
         }
 
+        // WET-INK HARD GATE — a party cannot complete their signing turn while any required party still owes
+        // an initial on an amendment. Server-side and non-bypassable: no finalising a document with unsigned
+        // changes. The message names the acting party's own outstanding count when they are the blocker.
+        $amendOutstanding = $this->signatureService->outstandingChangeInitials($signingRequest->template);
+        if ($amendOutstanding['count'] > 0) {
+            return response()->json([
+                'ok'    => false,
+                'error' => $this->signatureService->outstandingChangeInitialsMessage($signingRequest->template, $signingRequest->canonicalPartyKey()),
+            ], 422);
+        }
+
         // Validate consent
         if (!$request->input('consented')) {
             return response()->json(['message' => 'Consent is required to sign electronically.'], 422);
@@ -2082,6 +2093,15 @@ class SigningController extends Controller
                 'ok'    => false,
                 'error' => 'This document is paused while the agent reviews a flagged clause. You\'ll get an email when it\'s resolved — return to your signing link then to complete.',
             ], 423);
+        }
+
+        // WET-INK HARD GATE (mirrors completeWeb) — no completing while an amendment initial is outstanding.
+        $amendOutstanding = $this->signatureService->outstandingChangeInitials($signingRequest->template);
+        if ($amendOutstanding['count'] > 0) {
+            return response()->json([
+                'ok'    => false,
+                'error' => $this->signatureService->outstandingChangeInitialsMessage($signingRequest->template, $signingRequest->canonicalPartyKey()),
+            ], 422);
         }
 
         $template = $signingRequest->template;
