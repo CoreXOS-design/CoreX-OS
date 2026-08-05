@@ -41,10 +41,10 @@
                      clause and reword it inline (small) or route the full replacement to Other
                      Conditions (big). The strike-out stays visible on the final contract. --}}
                 <div x-data="clauseStriker({ url: @js(route('docuperfect.signatures.editClause', $document)) })" class="mt-3 flex items-center gap-3">
-                    <button type="button" @click="open = true"
-                            class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg text-amber-800 border border-amber-300 hover:bg-amber-100 transition-colors">
-                        Strike / amend a clause
-                    </button>
+                    <span class="text-xs text-amber-800 inline-flex items-center gap-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4"><path d="M8 3a1 1 0 0 1 1 1v1h2V4a1 1 0 1 1 2 0v1h.5A1.5 1.5 0 0 1 17 6.5v9A1.5 1.5 0 0 1 15.5 17h-11A1.5 1.5 0 0 1 3 15.5v-9A1.5 1.5 0 0 1 4.5 5H5V4a1 1 0 0 1 1-1h2Z"/></svg>
+                        Click a numbered clause in the document to strike &amp; amend it
+                    </span>
                     <form method="POST" action="{{ route('docuperfect.signatures.resubmitToAuthoriser', $document) }}"
                           onsubmit="return confirm('Resubmit this document to the authoriser for review? Your changes and initials will be sent back to them.');">
                         @csrf
@@ -62,8 +62,8 @@
                             </div>
                             <div class="p-6 space-y-4">
                                 <div>
-                                    <label class="block text-xs font-medium text-slate-600 mb-1">Clause number (as printed, e.g. 5.2)</label>
-                                    <input type="text" x-model="ref" placeholder="5.2" class="w-full rounded-lg border-slate-300 text-sm px-3 py-2">
+                                    <label class="block text-xs font-medium text-slate-600 mb-1">Selected clause <span class="text-slate-400" x-text="ref ? ('(clause ' + ref + ')') : ''"></span></label>
+                                    <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700" x-text="oldText || 'Click a numbered clause in the document to select it.'"></div>
                                 </div>
                                 <div>
                                     <label class="block text-xs font-medium text-slate-600 mb-1">Change type</label>
@@ -91,10 +91,20 @@
                 <script>
                     function clauseStriker(cfg) {
                         return {
-                            open: false, ref: '', mode: 'inline', text: '', busy: false, err: '',
+                            open: false, ref: '', oldText: '', mode: 'inline', text: '', busy: false, err: '',
+                            init() {
+                                // Click-to-select: a clause clicked in the document dispatches clause:amend.
+                                window.addEventListener('clause:amend', (e) => {
+                                    this.ref = (e.detail && e.detail.ref) || '';
+                                    this.oldText = (e.detail && e.detail.old) || '';
+                                    this.text = ''; this.mode = 'inline'; this.err = '';
+                                    this.open = true;
+                                });
+                            },
                             async submit() {
                                 this.err = '';
-                                if (!this.ref.trim() || !this.text.trim()) { this.err = 'Enter the clause number and the replacement text.'; return; }
+                                if (!this.ref.trim()) { this.err = 'Click a clause in the document first.'; return; }
+                                if (!this.text.trim()) { this.err = 'Enter the replacement text.'; return; }
                                 this.busy = true;
                                 try {
                                     const resp = await fetch(cfg.url, {
@@ -110,7 +120,34 @@
                             },
                         };
                     }
+                    // Clause picker: make every un-struck numbered clause ([data-clause-ref]) selectable in the
+                    // document — hover highlight + click opens the amend modal pre-filled with that clause.
+                    (function () {
+                        function wireClausePicker() {
+                            document.querySelectorAll('[data-clause-ref]').forEach(function (el) {
+                                if (el.dataset.clausePickerWired === '1') return;
+                                if (el.getAttribute('data-strikethrough-applied') === '1') return; // already amended
+                                el.dataset.clausePickerWired = '1';
+                                el.classList.add('clause-pickable');
+                                el.setAttribute('title', 'Click to strike & amend this clause');
+                                el.addEventListener('click', function (ev) {
+                                    if (ev.target.closest('.wetink-initial-btn')) return; // don't hijack the initial button
+                                    ev.stopPropagation();
+                                    window.dispatchEvent(new CustomEvent('clause:amend', { detail: {
+                                        ref: el.getAttribute('data-clause-ref'),
+                                        old: (el.textContent || '').replace(/\s+/g, ' ').trim(),
+                                    }}));
+                                });
+                            });
+                        }
+                        if (document.readyState !== 'loading') setTimeout(wireClausePicker, 800);
+                        else document.addEventListener('DOMContentLoaded', function () { setTimeout(wireClausePicker, 800); });
+                    })();
                 </script>
+                <style>
+                    .clause-pickable { cursor: pointer; border-radius: 4px; transition: background .12s, box-shadow .12s; }
+                    .clause-pickable:hover { background: #fef3c7; box-shadow: 0 0 0 2px #fcd34d inset; }
+                </style>
             </div>
         </div>
     </div>
