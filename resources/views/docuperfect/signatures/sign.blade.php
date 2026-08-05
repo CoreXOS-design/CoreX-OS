@@ -11,17 +11,21 @@
 @php
     $returnThread = $document->web_template_data['return_thread'] ?? [];
     $isReturnedToCandidate = $template->status === \App\Models\Docuperfect\SignatureTemplate::STATUS_RETURNED_TO_CANDIDATE;
+    $isAmendmentReview     = $template->status === \App\Models\Docuperfect\SignatureTemplate::STATUS_AMENDMENT_REVIEW;
+    $isReEditState         = $isReturnedToCandidate || $isAmendmentReview;
 @endphp
-@if($isReturnedToCandidate && !empty($returnThread))
+@if($isReEditState)
     <div class="rounded-lg border border-amber-300 bg-amber-50 p-4 mb-5">
         <div class="flex items-start gap-3">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
             </svg>
             <div class="flex-1 min-w-0">
-                <h3 class="font-semibold text-amber-900 text-sm mb-2">Sent back by the authoriser — make your changes, then resubmit</h3>
-                <p class="text-xs text-amber-800 mb-2">Your existing signature stays in place. Edit the fields / conditions and initial each change — you do <strong>not</strong> re-sign the whole document. When done, resubmit to the authoriser.</p>
-                <ol class="space-y-2">
+                <h3 class="font-semibold text-amber-900 text-sm mb-2">
+                    {{ $isAmendmentReview ? 'A signing party flagged a change — amend the document, then continue' : 'Sent back by the authoriser — make your changes, then resubmit' }}
+                </h3>
+                <p class="text-xs text-amber-800 mb-2">Existing signatures stay in place. Amend the fields / clauses and initial each change — nobody re-signs the whole document.{{ $isReturnedToCandidate ? ' When done, resubmit to the authoriser.' : '' }}</p>
+                <ol class="space-y-2" @if(empty($returnThread)) style="display:none" @endif>
                     @foreach($returnThread as $entry)
                         @php $isBack = ($entry['direction'] ?? '') === 'sent_back'; @endphp
                         <li class="text-sm flex flex-col rounded-md border {{ $isBack ? 'border-amber-200 bg-white' : 'border-sky-200 bg-sky-50' }} px-3 py-2">
@@ -45,6 +49,7 @@
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4"><path d="M8 3a1 1 0 0 1 1 1v1h2V4a1 1 0 1 1 2 0v1h.5A1.5 1.5 0 0 1 17 6.5v9A1.5 1.5 0 0 1 15.5 17h-11A1.5 1.5 0 0 1 3 15.5v-9A1.5 1.5 0 0 1 4.5 5H5V4a1 1 0 0 1 1-1h2Z"/></svg>
                         Click a numbered clause in the document to strike &amp; amend it
                     </span>
+                    @if($isReturnedToCandidate)
                     <form method="POST" action="{{ route('docuperfect.signatures.resubmitToAuthoriser', $document) }}"
                           onsubmit="return confirm('Resubmit this document to the authoriser for review? Your changes and initials will be sent back to them.');">
                         @csrf
@@ -54,6 +59,7 @@
                             Resubmit to authoriser &rarr;
                         </button>
                     </form>
+                    @endif
 
                     <div x-show="open" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center" style="background:rgba(0,0,0,0.6);" @keydown.escape.window="open=false">
                         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden" @click.stop>

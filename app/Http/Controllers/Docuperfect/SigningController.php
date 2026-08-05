@@ -3838,6 +3838,30 @@ CSS;
     }
 
     /**
+     * POST /sign/{token}/initial-change — WET-INK per-change initial from a RECIPIENT (external).
+     * Recipient-side of item 4: a recipient initials one change by its data-change-id → the shared
+     * change_initials map records their name (recorded via the token's signer identity). Prior
+     * signatures stay; a per-change consent, not a re-sign.
+     */
+    public function initialChange(Request $request, string $token): \Illuminate\Http\JsonResponse
+    {
+        $signingRequest = SignatureRequest::where('token', $token)
+            ->with('template')
+            ->firstOrFail();
+
+        if (! $this->signerCanAct($signingRequest)) {
+            return response()->json(['ok' => false, 'error' => 'Not authorised at this stage.'], 403);
+        }
+
+        $validated = $request->validate(['change_id' => ['required', 'string', 'max:64']]);
+        $template = $signingRequest->template;
+        $result = app(\App\Services\Docuperfect\SignatureService::class)
+            ->recordChangeInitial($template, $validated['change_id'], (string) $signingRequest->signer_name);
+
+        return response()->json($result, empty($result['ok']) ? 422 : 200);
+    }
+
+    /**
      * POST /docuperfect/api/sign/{token}/conditions
      * Recipient adds a condition to one of the document's insertable blocks.
      */

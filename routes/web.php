@@ -3880,6 +3880,8 @@ Route::prefix('sign')->group(function () {
 
     // Phase 1B.5 — recipient Other Conditions / focused initialing
     Route::post('/{token}/conditions',          [\App\Http\Controllers\Docuperfect\SigningController::class, 'addCondition'])->name('signatures.external.addCondition');
+    // WET-INK recipient per-change initial (item 4, recipient-side).
+    Route::post('/{token}/initial-change',       [\App\Http\Controllers\Docuperfect\SigningController::class, 'initialChange'])->name('signatures.external.initialChange');
     Route::post('/{token}/initial-amendments', [\App\Http\Controllers\Docuperfect\SigningController::class, 'initialAmendments'])->name('signatures.external.initialAmendments');
     // Phase 1B.7 — inline per-condition initialing (distinct from bulk
     // amendment cascade above).

@@ -3962,6 +3962,8 @@ function uploadForm() {
     @php $token = $request->token; @endphp
     @include('docuperfect.signatures._partials.add-condition-modal', ['token' => $token, 'numberedClauses' => $numberedClauses ?? []])
     @include('docuperfect.signatures._partials.flag-clause-modal', ['token' => $token])
+    {{-- WET-INK recipient-side per-change initialing (item 4): a recipient initials changes the agent made. --}}
+    @include('docuperfect.signatures.partials._change-initial-affordance', ['initialChangeUrl' => route('signatures.external.initialChange', $token)])
 @endisset
 
 </body>

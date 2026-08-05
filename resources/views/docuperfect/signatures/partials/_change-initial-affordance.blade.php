@@ -3,7 +3,7 @@
      for each not-yet-initialed change, offers the current party an "Initial this change" button. On click
      it POSTs the change_id → cc6 writes web_template_data['change_initials'][id]={name,at} (cc1 contract)
      → the page reloads showing "Initialed by {name}" on that change. Prior signatures are untouched. --}}
-@php $__initialChangeUrl = isset($document) ? route('docuperfect.signatures.initialChange', $document) : null; @endphp
+@php $__initialChangeUrl = $initialChangeUrl ?? (isset($document) ? route('docuperfect.signatures.initialChange', $document) : null); @endphp
 @if($__initialChangeUrl)
 <style>
     .change-initialed { display:inline-block; margin-left:.4rem; padding:1px 8px; border-radius:9999px;
