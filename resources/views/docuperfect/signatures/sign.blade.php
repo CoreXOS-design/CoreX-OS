@@ -61,22 +61,30 @@
                     </form>
                     @endif
 
+                    {{-- All three fixed-position UI pieces are TELEPORTED to <body> so `position:fixed`
+                         resolves to the VIEWPORT, not the layout's transformed wrapper (which was making the
+                         modal float mid-page over the header). --}}
                     {{-- Floating edit button — positioned by JS right at the current selection. --}}
-                    <button type="button" x-ref="floatBtn" @click="openFromSelection()"
-                            class="items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg text-white shadow-lg"
-                            style="display:none; position:fixed; z-index:70; background:#b45309;">✎ Amend this</button>
+                    <template x-teleport="body">
+                        <button type="button" x-ref="floatBtn" @click="openFromSelection()"
+                                class="items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg text-white shadow-lg"
+                                style="display:none; position:fixed; z-index:9500; background:#b45309;">✎ Amend this</button>
+                    </template>
 
                     {{-- STICKY toolbar — always reachable while the user scrolls the document. --}}
-                    <div class="sel-sticky-bar" role="toolbar">
-                        <span class="text-xs text-slate-300">Highlighted:</span>
-                        <span class="text-xs text-white font-medium truncate" style="max-width:340px;" x-text="selected ? ('“' + selected.slice(0,60) + (selected.length>60?'…':'') + '”') : 'nothing yet — drag to highlight text in the document'"></span>
-                        <button type="button" @click="openFromSelection()" :disabled="!selected"
-                                class="ml-auto px-4 py-1.5 text-xs font-semibold rounded-lg text-white"
-                                :style="selected ? 'background:#b45309' : 'background:#475569;opacity:.6;cursor:not-allowed'">✎ Amend highlighted text</button>
-                    </div>
+                    <template x-teleport="body">
+                        <div class="sel-sticky-bar" role="toolbar">
+                            <span class="text-xs text-slate-300">Highlighted:</span>
+                            <span class="text-xs text-white font-medium truncate" style="max-width:340px;" x-text="selected ? ('“' + selected.slice(0,60) + (selected.length>60?'…':'') + '”') : 'nothing yet — drag to highlight text in the document'"></span>
+                            <button type="button" @click="openFromSelection()" :disabled="!selected"
+                                    class="ml-auto px-4 py-1.5 text-xs font-semibold rounded-lg text-white"
+                                    :style="selected ? 'background:#b45309' : 'background:#475569;opacity:.6;cursor:not-allowed'">✎ Amend highlighted text</button>
+                        </div>
+                    </template>
 
-                    {{-- Modal — pre-filled with the highlighted text; user types the replacement only. --}}
-                    <div x-show="open" x-cloak class="fixed inset-0 z-[80] flex items-center justify-center" style="background:rgba(0,0,0,0.6);" @keydown.escape.window="open=false">
+                    {{-- Modal — a proper CENTERED overlay with backdrop, teleported to body, above the top nav. --}}
+                    <template x-teleport="body">
+                    <div x-show="open" x-cloak class="sel-modal-overlay" @keydown.escape.window="open=false" @click="open=false">
                         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden" @click.stop>
                             <div class="px-6 py-4 border-b border-slate-200" style="background:#0b2a4a;">
                                 <h3 class="text-white font-semibold text-lg">Amend the highlighted text</h3>
@@ -101,6 +109,7 @@
                             </div>
                         </div>
                     </div>
+                    </template>
                 </div>
                 <script>
                     function selectionEditor(cfg) {
@@ -171,7 +180,9 @@
                     }
                 </script>
                 <style>
-                    .sel-sticky-bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; z-index: 65;
+                    .sel-modal-overlay { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center;
+                        justify-content: center; padding: 1rem; background: rgba(0,0,0,.6); }
+                    .sel-sticky-bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; z-index: 9000;
                         display: flex; align-items: center; gap: .6rem; width: min(720px, 94vw);
                         background: #0b2a4a; color: #fff; padding: .55rem .9rem; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
                     .change-margin { float: right; clear: right; margin: .1rem 0 .35rem 1rem; padding: .2rem .55rem;
