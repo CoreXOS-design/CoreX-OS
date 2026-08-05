@@ -262,14 +262,16 @@ final class DocumentChangeHighlighterTest extends TestCase
             $cid => ['seller_1' => ['name' => 'Alice Brown'], 'agent_1' => ['name' => 'Bob Carter']],
         ], [['select' => 'deposit', 'nth' => 1, 'insert' => 'down payment']], self::PARTIES);
 
-        // one margin block, three party slots
-        $this->assertStringContainsString('class="change-margin-initials"', $out);
-        $this->assertStringContainsString('data-party="seller_1"', $out);
-        $this->assertStringContainsString('data-party="seller_2"', $out);
-        $this->assertStringContainsString('data-party="agent_1"', $out);
+        // one full-width initial ROW (Johan 2026-08-05 redesign — replaces the squashed
+        // right-margin block; relocateChangeRows converts .change-margin-initials into a
+        // .change-initial-row table below the clause), three party slots
+        $this->assertStringContainsString('class="change-initial-row"', $out);
+        $this->assertStringContainsString('data-party-key="seller_1"', $out);
+        $this->assertStringContainsString('data-party-key="seller_2"', $out);
+        $this->assertStringContainsString('data-party-key="agent_1"', $out);
         // per-party initials filled where initialed, blank where not
-        $this->assertStringContainsString('cis-ink cis-done">AB<', $out);   // seller_1
-        $this->assertStringContainsString('cis-ink cis-done">BC<', $out);   // agent_1
-        $this->assertMatchesRegularExpression('/data-party="seller_2"[^>]*>.*?<span class="cis-ink">____<\/span>/s', $out);
+        $this->assertStringContainsString('class="cir-ink">AB<', $out);   // seller_1
+        $this->assertStringContainsString('class="cir-ink">BC<', $out);   // agent_1
+        $this->assertMatchesRegularExpression('/data-party-key="seller_2"[^>]*>.*?<span class="cir-ink cir-blank">[^<]*<\/span>/s', $out);
     }
 }
