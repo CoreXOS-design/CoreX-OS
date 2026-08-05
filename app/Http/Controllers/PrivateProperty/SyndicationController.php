@@ -245,6 +245,30 @@ class SyndicationController extends Controller
         $requested = (int) $request->input('pp_exclusive_days');
 
         if ($requested > 0) {
+            // Agency master kill switch (follow-up to AT-369) — checked first,
+            // ahead of every other exclusivity rule below. Never trust the
+            // client's tick alone: the panel hides the whole section when this
+            // is off, but the toggle is agency-scoped and can flip between
+            // page load and submit.
+            if (!(bool) PerformanceSetting::get('pp_exclusivity_enabled', 1, $property->agency_id)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Private Property exclusivity is turned off for your agency.',
+                ], 422);
+            }
+
+            // Mirror image of the P24 gate above: PP exclusivity means PP-only —
+            // never trust the client's tick alone. Property24 must be switched
+            // off on this listing BEFORE exclusivity can be requested, not just
+            // warned about client-side (the old cosmetic-only pattern AT-369
+            // already fixed in the other direction).
+            if ((bool) $property->p24_syndication_enabled) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Turn off Property24 syndication for this listing before making it exclusive to Private Property.',
+                ], 422);
+            }
+
             $isSoleMandateSale = in_array(strtolower($property->mandate_type ?? ''), ['sole', 'sole mandate'], true)
                 && ($property->listing_type ?? 'sale') === 'sale';
 
@@ -400,6 +424,21 @@ class SyndicationController extends Controller
         $result = $this->syndicationService->uploadAgentImage($user, $request->image_url);
 
         return response()->json($result, $result['success'] ? 200 : 422);
+    }
+
+    /**
+     * AT-369 follow-up — mark the current agent as having read the one-time
+     * PP-exclusivity explainer (enforced client-side with a 10s minimum read
+     * before "I understand" unlocks; see onExclusiveToggleClick() /
+     * acknowledgeExplainer() in syndication-scripts.blade.php). Self-scoped —
+     * a user can only ever mark their OWN acknowledgement, so no further
+     * permission gate is needed (mirrors TourProgressController).
+     */
+    public function acknowledgeExclusivityExplainer(Request $request): JsonResponse
+    {
+        auth()->user()->update(['pp_exclusivity_explainer_seen_at' => now()]);
+
+        return response()->json(['success' => true]);
     }
 
     /**

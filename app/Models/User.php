@@ -106,6 +106,7 @@ class User extends Authenticatable
         // Private Property integration
         'pp_unique_agent_id',
         'pp_external_ref',
+        'pp_exclusivity_explainer_seen_at',
 
         // Property24 importer
         'p24_agent_id',
@@ -175,6 +176,7 @@ class User extends Authenticatable
     protected $casts = [
         'email_verified_at' => 'datetime',
         'invited_at' => 'datetime',
+        'pp_exclusivity_explainer_seen_at' => 'datetime',
         'password' => 'hashed',
         'is_active' => 'boolean',
         'is_assistant' => 'boolean',

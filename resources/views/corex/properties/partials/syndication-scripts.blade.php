@@ -116,6 +116,11 @@ function ppSyndication(config) {
         // in-modal selection, only committed to exclusiveDays on Confirm.
         exclusiveDaysMax: config.exclusiveDaysMax || 92,
         pendingExclusiveDays: 1,
+        // AT-369 follow-up — mirror-image P24 gate + one-time forced-read explainer.
+        p24Enabled: config.p24Enabled || false,
+        explainerSeen: config.explainerSeen || false,
+        explainerSecondsLeft: 10,
+        explainerTimer: null,
         mandateType: config.mandateType || '',
         activatedAt: config.activatedAt || '',
         csrfToken: config.csrfToken,
@@ -214,7 +219,54 @@ function ppSyndication(config) {
                 this.exclusiveDays = 0;
                 return;
             }
+            // Mirror-image of the P24 panel's isPpExclusiveLocked() gate: PP
+            // exclusivity is PP-only, so refuse the tick outright while P24 is
+            // switched on for this listing, rather than letting the agent pick
+            // days first and only fail server-side on submit. The real gate is
+            // still server-side (SyndicationController::validateAndSaveExclusiveDays).
+            if (this.p24Enabled) {
+                window.dispatchEvent(new CustomEvent('open-modal', { detail: 'pp-exclusive-p24-blocked-' + this.propertyId }));
+                return;
+            }
             this.pendingExclusiveDays = 1;
+            // First time this agent has ever ticked this — force a 10s minimum
+            // read of the explainer before they can proceed to the day picker.
+            if (!this.explainerSeen) {
+                this.startExplainerCountdown();
+                window.dispatchEvent(new CustomEvent('open-modal', { detail: 'pp-exclusive-explainer-' + this.propertyId }));
+                return;
+            }
+            window.dispatchEvent(new CustomEvent('open-modal', { detail: 'pp-exclusive-info-' + this.propertyId }));
+        },
+
+        startExplainerCountdown() {
+            this.explainerSecondsLeft = 10;
+            clearInterval(this.explainerTimer);
+            this.explainerTimer = setInterval(() => {
+                this.explainerSecondsLeft--;
+                if (this.explainerSecondsLeft <= 0) {
+                    clearInterval(this.explainerTimer);
+                }
+            }, 1000);
+        },
+
+        // Only reachable once explainerSecondsLeft has hit 0 — the button
+        // itself is disabled until then, and this double-checks server-side
+        // trust boundaries don't matter here (nothing is committed by
+        // acknowledging, just persisted so the explainer never shows again).
+        async acknowledgeExplainer() {
+            if (this.explainerSecondsLeft > 0) return;
+            clearInterval(this.explainerTimer);
+            this.explainerSeen = true;
+            window.dispatchEvent(new CustomEvent('close-modal', { detail: 'pp-exclusive-explainer-' + this.propertyId }));
+            try {
+                await fetch(`/corex/properties/syndication/exclusivity-explainer/ack`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
+                });
+            } catch (e) { /* best-effort; explainerSeen is already true for this session */ }
+            // Hand straight on to the normal day-picker modal, which still has
+            // its own Cancel — acknowledging the explainer commits nothing.
             window.dispatchEvent(new CustomEvent('open-modal', { detail: 'pp-exclusive-info-' + this.propertyId }));
         },
 

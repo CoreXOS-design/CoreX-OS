@@ -153,6 +153,11 @@ return [
              'explain' => 'The same as Property24 above, for the Private Property portal.',
              'affects' => 'Whether a syndicating listing is sent to Private Property. Needs your PP credentials saved against the agency first.'],
 
+            ['key' => 'pp_exclusivity_enabled', 'source' => 'perf', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Private Property exclusivity',
+             'explain' => 'Private Property lets a newly signed sole mandate sale go exclusive to PP for a chosen number of days, with no other portal carrying it in that window. This switch lets agents opt a listing into that at all.',
+             'affects' => 'Whether the "Make this listing exclusive to Private Property" tick appears on a sole mandate sale listing\'s syndication panel. Off removes the option entirely; it does not touch a listing already exclusive.'],
+
             ['key' => 'pp_exclusive_days_max', 'source' => 'perf', 'type' => 'number', 'default' => 92, 'min' => 1, 'max' => 92,
              'label' => 'Maximum PP exclusive days',
              'explain' => 'Private Property lets a sole mandate go exclusive to PP for a chosen number of days, during which no other portal may carry the listing. This is the ceiling an agent can choose from — nothing is ever exclusive unless an agent explicitly opts in on that listing. Private Property\'s own hard limit is 92 days.',

@@ -174,6 +174,27 @@ submit — no agent ever chose it, and nothing gated Property24 on the result. S
    `pp_delay_until` exactly as before (`PrivatePropertySyndicationService.php:156-168` —
    unchanged by AT-369).
 
+**Agency master switch — `pp_exclusivity_enabled` (PerformanceSetting, agency-scoped,
+follow-up 2026-08-05):**
+- Default enabled (`1`) — existing agencies already using AT-369 (shipped 2026-08-04) see
+  no behaviour change; an agency switches this off to remove the "Make this listing
+  exclusive to Private Property" tick from every sole-mandate Sale listing's syndication
+  panel entirely (the whole section — tick, day-picker modal, P24-blocked-warning modal and
+  one-time explainer modal — is gated on it in `syndication-panel.blade.php`).
+- **Real gate is server-side**, checked FIRST in `SyndicationController::
+  validateAndSaveExclusiveDays()` — ahead of the P24-must-be-off precheck (§6a-i) and the
+  sole-mandate-Sale check — because the panel-hiding is not the enforcement, same
+  never-trust-the-client doctrine as everywhere else in this feature.
+- Turning it off is **not a delist**: a listing already exclusive on PP
+  (`pp_delay_until` in the future) keeps gating Property24 exactly as before until the
+  window lapses naturally — the switch only stops NEW opt-ins.
+- UI: Company Settings → Feature Settings → Properties → "Syndication Portals" card
+  (same card as `pp_exclusive_days_max`, same saver — `updateSyndicationPortals()`).
+- Onboarding wizard: `config/agency-onboarding-copy.php` `capabilities` step, between
+  `syndication_pp_enabled` and `pp_exclusive_days_max` (non-negotiable #10a — this one IS a
+  feature on/off switch, unlike the numeric cap below it).
+- `tests/Feature/Syndication/PpExclusivityMasterSwitchTest.php`.
+
 **Agency cap — `pp_exclusive_days_max` (PerformanceSetting, agency-scoped):**
 - Default 92 (PP's own hard maximum), agency-configurable downward, never below 1 or
   above 92 — enforced server-side in `SettingsController::updateSyndicationPortals()`
@@ -189,6 +210,56 @@ submit — no agent ever chose it, and nothing gated Property24 on the result. S
 (`pp_delay_until` set and in the future) is the single source of truth, enforced at
 every Property24 entry point. Full detail: `.ai/specs/p24-syndication.md` §"AT-369 — PP
 exclusivity gate".
+
+### 6a-i. P24-must-be-off precheck + one-time forced-read explainer (2026-08-05)
+
+**Problem:** agents were ticking "Make this listing exclusive to Private Property" without
+reading the existing info modal's bullet list, then discovering only on submit (a PP
+rejection, or the existing P24-side `isPpExclusiveLocked()` lock) that Property24 was still
+on. The info modal's explanation was easy to click past.
+
+**Fix — two additions, both client-side UX backed by a server-side gate:**
+
+1. **P24-must-be-off precheck.** `onExclusiveToggleClick()` (`syndication-scripts.blade.php`)
+   now checks `p24Enabled` (seeded from `$property->p24_syndication_enabled`) BEFORE opening
+   any exclusivity modal. If Property24 is switched on for this listing, it opens a dedicated
+   warning modal (`pp-exclusive-p24-blocked-{id}`) instead — "Property24 is still switched
+   on... turn it off first" — and the tick never proceeds to the day picker. **Real gate is
+   server-side**, mirroring the existing P24→PP direction: `SyndicationController::
+   validateAndSaveExclusiveDays()` rejects any `pp_exclusive_days > 0` with a 422 when
+   `$property->p24_syndication_enabled` is true, checked before the sole-mandate-Sale check.
+   Client state is seeded once at page load (not live cross-component reactive) — a stale
+   client can still request it, but the server rejects the same way the sole-mandate-Sale and
+   agency-max checks already did; this is not a new class of trust boundary.
+2. **One-time forced-read explainer.** The first time an agent EVER ticks the exclusivity
+   switch (tracked per-user via `users.pp_exclusivity_explainer_seen_at`, never shown again
+   once set), a non-dismissible modal (`pp-exclusive-explainer-{id}`, `<x-modal :dismissible="false">`
+   — no backdrop-click or Escape close) opens with the same core rules, gated by a **10-second
+   minimum read** before "I understand" unlocks (`explainerSecondsLeft` countdown in
+   `ppSyndication()`). Clicking it POSTs to `POST /corex/properties/syndication/
+   exclusivity-explainer/ack` (self-scoped, mirrors `TourProgressController`'s pattern — a
+   user can only ever mark their own acknowledgement) and hands straight on to the normal
+   day-picker modal, which still has its own Cancel — acknowledging the explainer commits
+   nothing by itself.
+
+**Deliberately NOT the `TourRegistry`/`UserTourProgress` system** (`app/Support/Tours/`):
+investigated first per the INVESTIGATE → COPY → ADAPT rule, but that catalogue requires a
+`route`+`steps` spotlight-tour shape and is auto-listed on the Guided Tours directory
+(`GuidedToursController::index`) — a route-less, steps-less entry would render there as a
+broken "0 steps" card with a dead link. A dedicated `users` column + a single-purpose ack
+endpoint on the existing `PrivateProperty\SyndicationController` was the correctly-scoped
+fit, not a forced reuse of an unrelated subsystem.
+
+**`<x-modal>` change:** added an optional `dismissible` prop (default `true`, so every one of
+the shared component's ~40 other usages is unaffected) — `false` disables backdrop-click and
+Escape-key close, leaving `close-modal` (the explicit programmatic event) as the only way out.
+
+**Files:** `database/migrations/2026_08_05_090000_add_pp_exclusivity_explainer_seen_at_to_users_table.php`,
+`app/Models/User.php`, `app/Http/Controllers/PrivateProperty/SyndicationController.php`,
+`routes/web.php`, `resources/views/components/modal.blade.php`,
+`resources/views/corex/properties/partials/syndication-panel.blade.php`,
+`resources/views/corex/properties/partials/syndication-scripts.blade.php`,
+`tests/Feature/Syndication/PpExclusivityBlocksOnP24Test.php`.
 
 **Remediation:** `php artisan pp:remediate-legacy-exclusivity` (`--dry-run` default,
 `--live` to act) finds every property with `pp_delay_until` set (PP's own ground truth
