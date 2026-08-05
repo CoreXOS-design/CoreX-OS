@@ -105,10 +105,6 @@
                                     <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm" style="text-decoration:line-through; color:#6b7280;" x-text="selected || 'Highlight text in the document first.'"></div>
                                 </div>
                                 <div>
-                                    <label class="block text-xs font-medium text-slate-600 mb-1">Replacement text</label>
-                                    <textarea x-model="replacement" rows="4" class="w-full rounded-lg border-slate-300 text-sm px-3 py-2" placeholder="The new wording…"></textarea>
-                                </div>
-                                <div>
                                     <label class="block text-xs font-medium text-slate-600 mb-1">How should this change appear?</label>
                                     <div class="flex gap-2">
                                         <button type="button" @click="mode='inline'"
@@ -123,10 +119,21 @@
                                             Move to Other Conditions
                                             <span class="block font-normal text-[11px] text-slate-500">Big change — strike here, full replacement added as a numbered Other Condition.</span>
                                         </button>
+                                        <button type="button" @click="mode='strike'"
+                                                class="flex-1 rounded-lg border px-3 py-2 text-left text-xs"
+                                                :class="mode==='strike' ? 'border-[#b91c1c] bg-[#fef2f2] font-semibold text-[#b91c1c]' : 'border-slate-200 text-slate-600'">
+                                            Strike out (remove)
+                                            <span class="block font-normal text-[11px] text-slate-500">No replacement — strike the text out, e.g. an unwanted alternative clause.</span>
+                                        </button>
                                     </div>
+                                </div>
+                                <div x-show="mode!=='strike'">
+                                    <label class="block text-xs font-medium text-slate-600 mb-1">Replacement text</label>
+                                    <textarea x-model="replacement" rows="4" class="w-full rounded-lg border-slate-300 text-sm px-3 py-2" placeholder="The new wording…"></textarea>
                                 </div>
                                 <p class="text-xs text-slate-500" x-show="mode==='inline'">The highlighted text stays visible, struck through, with your replacement inserted right there. A full-width initial row for every party is dropped in under that clause.</p>
                                 <p class="text-xs text-slate-500" x-show="mode==='reference'" x-cloak>The highlighted text stays visible, struck through, with a "See Other Conditions — clause N" cross-reference. The full replacement is added as a numbered Other Condition. A full-width initial row for every party is dropped in under that clause.</p>
+                                <p class="text-xs text-slate-500" x-show="mode==='strike'" x-cloak>The highlighted text is struck through and removed, with no replacement. A full-width initial row for every party is dropped in under that clause — everyone initials the removal.</p>
                                 <p x-show="err" x-text="err" class="text-xs text-red-600"></p>
                                 <div class="flex items-center justify-end gap-3 pt-2">
                                     <button type="button" @click="open=false" class="px-4 py-2.5 text-sm text-slate-600 font-medium">Cancel</button>
@@ -190,7 +197,7 @@
                             async submit() {
                                 this.err = '';
                                 if (!this.selected.trim()) { this.err = 'Highlight the text you want to change first.'; return; }
-                                if (!this.replacement.trim()) { this.err = 'Enter the replacement text.'; return; }
+                                if (this.mode !== 'strike' && !this.replacement.trim()) { this.err = 'Enter the replacement text.'; return; }
                                 this.busy = true;
                                 try {
                                     const resp = await fetch(cfg.url, {

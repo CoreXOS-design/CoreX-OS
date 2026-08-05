@@ -2916,10 +2916,11 @@ class SignatureController extends Controller
 
         $validated = $request->validate([
             'selected'    => ['required', 'string', 'max:8000'],
-            'replacement' => ['required', 'string', 'max:8000'],
+            // replacement is required for inline/reference; a pure strike-out ('strike') has none.
+            'replacement' => ['nullable', 'string', 'max:8000', 'required_unless:mode,strike'],
             'prefix'      => ['nullable', 'string', 'max:200'],
             'suffix'      => ['nullable', 'string', 'max:200'],
-            'mode'        => ['nullable', 'in:inline,reference'],  // small=inline reword, big=route to Other Conditions
+            'mode'        => ['nullable', 'in:inline,reference,strike'],  // inline reword | route to Other Conditions | pure strike-out
         ]);
 
         $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
@@ -2932,7 +2933,7 @@ class SignatureController extends Controller
             $validated['selected'],
             $validated['prefix'] ?? '',
             $validated['suffix'] ?? '',
-            $validated['replacement'],
+            $validated['replacement'] ?? '',
             $user,
             $validated['mode'] ?? 'inline',
         );

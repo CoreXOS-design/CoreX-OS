@@ -41,9 +41,10 @@ final class SelectionEditService
         ?User $actor,
         string $mode = 'inline'
     ): array {
-        // small change = reword inline; big change = strike + route the full replacement to Other Conditions
-        // with a cross-reference (esign-returned-doc-edit-flow.md §3). Anything unexpected falls back to inline.
-        $mode = $mode === 'reference' ? 'reference' : 'inline';
+        // Three modes (esign-returned-doc-edit-flow.md §3): 'inline' = strike + reword in place; 'reference' =
+        // strike + route the full replacement to a numbered Other Condition; 'strike' = pure strike-out with NO
+        // replacement (delete an unwanted alternative / clause). Anything unexpected falls back to inline.
+        $mode = in_array($mode, ['reference', 'strike'], true) ? $mode : 'inline';
         $document = $template->document;
         if (! $document) {
             return ['ok' => false, 'error' => 'Document not found.'];
@@ -52,8 +53,12 @@ final class SelectionEditService
         if ($selected === '') {
             return ['ok' => false, 'error' => 'Highlight the text you want to change first.'];
         }
-        if (trim($replacement) === '') {
+        // A pure strike-out has no replacement; the other two modes require one.
+        if ($mode !== 'strike' && trim($replacement) === '') {
             return ['ok' => false, 'error' => 'Enter the replacement text.'];
+        }
+        if ($mode === 'strike') {
+            $replacement = '';
         }
 
         $wtd  = is_array($document->web_template_data) ? $document->web_template_data : [];
@@ -130,7 +135,7 @@ final class SelectionEditService
             $changes = $wtd['pending_body_changes'] ?? [];
             $changes[] = [
                 'change_id' => $changeId,
-                'mode'      => $mode === 'reference' ? 'reference' : 'selection',
+                'mode'      => $mode === 'reference' ? 'reference' : ($mode === 'strike' ? 'strike' : 'selection'),
                 'old'       => $selected,
                 'new'       => $replacement,
                 'oc_ref'    => $ocNumber,
@@ -233,9 +238,11 @@ final class SelectionEditService
         }
         $del->appendChild($dom->createTextNode($selected));
         $wrap->appendChild($del);
-        $wrap->appendChild($dom->createTextNode(' '));
-        if ($mode === 'reference' && $ocNumber !== null) {
+        if ($mode === 'strike') {
+            // Pure strike-out — the deleted text stands struck through with NO replacement and NO cross-reference.
+        } elseif ($mode === 'reference' && $ocNumber !== null) {
             // BIG change → cross-reference the Other-Conditions entry instead of inlining the replacement.
+            $wrap->appendChild($dom->createTextNode(' '));
             $xref = $dom->createElement('span');
             $xref->setAttribute('class', 'change-xref');
             $xref->setAttribute('data-change-id', $changeId);
@@ -243,6 +250,7 @@ final class SelectionEditService
             $xref->appendChild($dom->createTextNode('See Other Conditions — clause ' . $ocNumber));
             $wrap->appendChild($xref);
         } else {
+            $wrap->appendChild($dom->createTextNode(' '));
             $ins = $dom->createElement('ins');
             $ins->setAttribute('class', 'change-ins');
             $ins->setAttribute('data-change-id', $changeId);

@@ -253,6 +253,34 @@ final class WetInkClauseEditTest extends TestCase
         $this->assertSame(SignatureTemplate::STATUS_COMPLETED, $tpl->fresh()->status);
     }
 
+    public function test_pure_strike_out_removes_text_with_no_replacement_but_keeps_the_initial_row(): void
+    {
+        [$tpl, $doc, $actor] = $this->seedReturnedDocWithClauses();
+        \App\Models\Docuperfect\SignatureRequest::create([
+            'signature_template_id' => $tpl->id, 'party_role' => 'agent', 'role_index' => 1,
+            'signer_name' => 'Rialette Bloem', 'signer_email' => 'a@x.test', 'token' => Str::random(48),
+            'token_expires_at' => now()->addDays(30), 'status' => 'completed', 'completed_at' => now(), 'signing_order' => 1,
+        ]);
+
+        // Strike out with NO replacement (mode 'strike').
+        $r = app(\App\Services\Docuperfect\SelectionEditService::class)
+            ->strikeSelection($tpl, 'seven percent (7%)', 'shall be ', '.', '', $actor, 'strike');
+        $this->assertTrue($r['ok']);
+        $this->assertSame('strike', $r['mode']);
+
+        $html = $doc->fresh()->web_template_data['merged_html'];
+        $this->assertStringContainsString('change-del', $html, 'the text is struck through');
+        $this->assertStringContainsString('seven percent (7%)', $html, 'struck text stays visible');
+        $this->assertStringNotContainsString('change-ins', $html, 'no replacement inserted');
+        $this->assertStringNotContainsString('change-xref', $html, 'no Other-Conditions cross-reference');
+        $this->assertStringContainsString('change-initial-row', $html, 'the initial row still applies to a pure strike');
+
+        // The change is captured as a strike with an empty replacement.
+        $pbc = collect($doc->fresh()->web_template_data['pending_body_changes'])->firstWhere('change_id', $r['change_id']);
+        $this->assertSame('strike', $pbc['mode']);
+        $this->assertSame('', (string) $pbc['new']);
+    }
+
     public function test_amend_overlays_onto_signed_canonical_preserving_every_signature_and_the_location(): void
     {
         $uid = (int) DB::table('users')->insertGetId([
