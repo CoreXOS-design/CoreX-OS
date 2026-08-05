@@ -4585,9 +4585,17 @@
                 @endphp
                 <div class="flex items-center justify-between mb-2">
                     <h3 class="text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Property Audit Trail</h3>
-                    <a href="{{ route('corex.properties.show', $property->id) }}?tab=history&export=csv"
-                       class="text-[10px] font-medium px-2 py-1 rounded no-underline"
-                       style="background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border);">Export CSV</a>
+                    <div class="flex items-center gap-3">
+                        {{-- AT-321 — include the db-trigger backstop (system) rows; default OFF = user changes only. --}}
+                        <label class="flex items-center gap-1 text-[10px] cursor-pointer" style="color:var(--text-muted);">
+                            <input type="checkbox" @checked($includeSystem ?? false)
+                                onchange="window.location='{{ route('corex.properties.show', $property->id) }}?tab=history' + (this.checked ? '&include_system=1' : '')">
+                            Include system trail
+                        </label>
+                        <a href="{{ route('corex.properties.show', $property->id) }}?tab=history&export=csv"
+                           class="text-[10px] font-medium px-2 py-1 rounded no-underline"
+                           style="background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border);">Export CSV</a>
+                    </div>
                 </div>
                 @forelse($fullAuditLog as $entry)
                     <div class="flex items-start gap-3 px-4 py-2.5 rounded" style="background:var(--surface-2); border:1px solid var(--border);" x-data="{ showDetail: false }">
