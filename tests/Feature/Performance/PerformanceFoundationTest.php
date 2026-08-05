@@ -114,6 +114,31 @@ class PerformanceFoundationTest extends TestCase
         $this->assertNotContains($owner->name, array_column($report['agents'], 'name'));
     }
 
+    public function test_agent_journey_pairs_current_with_prior_period_delta(): void
+    {
+        $agency = Agency::create(['name' => 'A', 'slug' => 'a']);
+        $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'B']);
+        $agent  = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent']);
+        $this->actingAs($agent);
+
+        // 3 contacts this month, 1 in the prior (equal-length) period.
+        $this->makeContact($agency, $branch, $agent, '2026-08-10');
+        $this->makeContact($agency, $branch, $agent, '2026-08-12');
+        $this->makeContact($agency, $branch, $agent, '2026-08-14');
+        $this->makeContact($agency, $branch, $agent, '2026-07-05');
+
+        $period = (new PeriodResolver())->resolve('this_month', null, null, CarbonImmutable::parse('2026-08-15'));
+        $journey = app(AgencyPerformanceReportService::class)->agentJourney($agency->id, $agent->id, $period);
+
+        $this->assertNotNull($journey['agent']);
+        $this->assertSame($agent->id, $journey['agent']['user_id']);
+
+        $cc = collect($journey['metrics'])->firstWhere('key', 'contacts_created');
+        $this->assertSame(3, $cc['value'], 'current period contacts_created');
+        $this->assertSame(1, $cc['previous'], 'prior period contacts_created');
+        $this->assertSame(2, $cc['delta'], 'delta = current - prior');
+    }
+
     private function makeContact(Agency $agency, Branch $branch, User $creator, string $date): void
     {
         $c = new Contact();

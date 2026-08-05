@@ -1177,6 +1177,9 @@ Route::middleware(['auth'])->group(function () {
     // AT-366 — Agency Performance & ROI report (per-agent → branch → company, any period).
     Route::get('/corex/performance/agency-report', [\App\Http\Controllers\Performance\AgencyPerformanceReportController::class, 'index'])
         ->middleware('permission:view_performance')->name('performance.agency-report');
+    // AT-366-C — single-agent journey drill-down (metrics + prior-period trend).
+    Route::get('/corex/performance/agency-report/agent/{user}', [\App\Http\Controllers\Performance\AgencyPerformanceReportController::class, 'agent'])
+        ->middleware('permission:view_performance')->name('performance.agency-report.agent');
           Route::get('/bm/worksheet-market', [\App\Http\Controllers\BM\WorksheetMarketController::class, 'index'])
           ->middleware('permission:access_worksheet_market')->name('bm.worksheet.market');
       Route::post('/bm/worksheet-market', [\App\Http\Controllers\BM\WorksheetMarketController::class, 'save'])
