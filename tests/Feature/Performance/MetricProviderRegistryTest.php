@@ -17,7 +17,7 @@ class MetricProviderRegistryTest extends TestCase
     {
         $providers = app(MetricProviderRegistry::class)->all();
 
-        $this->assertCount(11, $providers);
+        $this->assertCount(12, $providers);
 
         $keys = array_map(fn ($p) => $p->key(), $providers);
         $this->assertSame($keys, array_values(array_unique($keys)), 'Provider keys must be unique.');

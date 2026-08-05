@@ -32,30 +32,30 @@ class CustomProvidersTest extends TestCase
         );
     }
 
-    public function test_deals_registered_counts_distinct_deals_per_agent_by_registration_date(): void
+    public function test_deals_registered_attributes_via_direct_columns_and_pivot(): void
     {
         $agency = Agency::create(['name' => 'A', 'slug' => 'a']);
         $b = Branch::create(['agency_id' => $agency->id, 'name' => 'B']);
         $a1 = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $b->id]);
         $a2 = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $b->id]);
+        $a3 = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $b->id]);
+        $other = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $b->id]);
 
-        // Registered in period, co-agented (listing + selling).
-        $d1 = $this->makeDeal($agency, $b, $a1, '2026-08-10');
-        DB::table('deal_v2_agents')->insert([
-            ['deal_id' => $d1, 'user_id' => $a1->id, 'side' => 'listing'],
-            ['deal_id' => $d1, 'user_id' => $a2->id, 'side' => 'selling'],
-        ]);
-        // Second deal, a1 only, in period.
-        $d2 = $this->makeDeal($agency, $b, $a1, '2026-08-20');
-        DB::table('deal_v2_agents')->insert([['deal_id' => $d2, 'user_id' => $a1->id, 'side' => 'listing']]);
-        // Out of period → excluded.
-        $d3 = $this->makeDeal($agency, $b, $a1, '2026-07-01');
-        DB::table('deal_v2_agents')->insert([['deal_id' => $d3, 'user_id' => $a1->id, 'side' => 'listing']]);
+        // Deal 1 — DIRECT columns: listing a1, selling a2 (no pivot). In period.
+        $this->makeDeal($agency, $b, $a1, '2026-08-10', $a2->id);
+        // Deal 2 — DIRECT: a1 only, in period.
+        $this->makeDeal($agency, $b, $a1, '2026-08-20');
+        // Deal 3 — PIVOT co-agent a3, direct listing is someone outside the cohort of interest.
+        $d3 = $this->makeDeal($agency, $b, $other, '2026-08-15');
+        DB::table('deal_v2_agents')->insert([['deal_id' => $d3, 'user_id' => $a3->id, 'side' => 'selling']]);
+        // Deal 4 — DIRECT a1 but OUT of period → excluded.
+        $this->makeDeal($agency, $b, $a1, '2026-07-01');
 
-        $res = app(DealsRegisteredProvider::class)->forUsers([$a1->id, $a2->id], $this->period());
+        $res = app(DealsRegisteredProvider::class)->forUsers([$a1->id, $a2->id, $a3->id], $this->period());
 
-        $this->assertSame(2, $res[$a1->id], 'a1: d1 + d2 (d3 out of period).');
-        $this->assertSame(1, $res[$a2->id], 'a2: d1 only.');
+        $this->assertSame(2, $res[$a1->id], 'a1: d1 + d2 via direct column (d4 out of period).');
+        $this->assertSame(1, $res[$a2->id], 'a2: d1 via direct selling column.');
+        $this->assertSame(1, $res[$a3->id], 'a3: d3 via the pivot.');
     }
 
     public function test_portal_views_sum_attributes_via_listing_agent(): void
@@ -98,12 +98,13 @@ class CustomProvidersTest extends TestCase
         $this->assertSame(2, $res[$a1->id], 'Two in-period viewings; the meeting and the July viewing are excluded.');
     }
 
-    private function makeDeal(Agency $agency, Branch $branch, User $agent, string $reg): int
+    private function makeDeal(Agency $agency, Branch $branch, User $agent, string $reg, ?int $sellingAgentId = null): int
     {
         return DB::table('deals_v2')->insertGetId([
             'reference'         => 'D' . uniqid(),
             'deal_type'         => 'cash',
             'listing_agent_id'  => $agent->id,
+            'selling_agent_id'  => $sellingAgentId,
             'purchase_price'    => 1000000,
             'commission_amount' => 50000,
             'commission_vat'    => 7500,
