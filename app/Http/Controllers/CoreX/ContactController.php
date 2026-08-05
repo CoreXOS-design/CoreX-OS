@@ -1240,7 +1240,7 @@ class ContactController extends Controller
      * mailbox/WA ingestion reconciles in place (no double count). The returned
      * count is DERIVED from the archive, so the tile always reflects real sends.
      */
-    public function incrementChannel(Request $request, Contact $contact, \App\Services\Communications\OutboundProvisionalLogger $logger, \App\Services\Outreach\OutreachWindowService $window, \App\Services\Communications\WahaSessionClient $waha, \App\Services\Communications\CommunicationSendStatusService $sendStatus)
+    public function incrementChannel(Request $request, Contact $contact, \App\Services\Communications\OutboundProvisionalLogger $logger, \App\Services\Outreach\OutreachWindowService $window)
     {
         $data = $request->validate([
             'channel'          => 'required|in:whatsapp,email',
@@ -1285,28 +1285,21 @@ class ContactController extends Controller
             recipientValue: $recipientValue,
         );
 
-        // AT-323 — a WhatsApp "send" is click-to-chat: CoreX never transmits, so the row
-        // was just born send_status='sent' OPTIMISTICALLY. If the agent has no LIVE
-        // (WORKING) WhatsApp session, the click-to-chat could not have gone out — record
-        // the TRUTH (not_delivered) instead of a false 'sent'. Only downgrade when we can
-        // POSITIVELY tell there is no working session; if WAHA is unreachable we cannot
-        // tell, so we keep 'sent' (never mass-flag on a WAHA outage). The Recent Sends
-        // panel surfaces the row as "Not Delivered" with Revert/Resend, so a genuine
-        // phone-send with capture off can be corrected by the agent.
-        $waNotConnected = false;
-        if ($data['channel'] === \App\Models\Communications\Communication::CHANNEL_WHATSAPP
-            && $this->agentWhatsAppConnected((int) auth()->id(), $waha) === false) {
-            $sendStatus->markNotDelivered($communication, $contact, (int) auth()->id(), 'wa_not_connected');
-            $waNotConnected = true;
-        }
+        // AT-323 (option 2) — a WhatsApp "send" is client-side click-to-chat: CoreX opens
+        // WhatsApp but never transmits, so it has NO delivery signal of its own. The row is
+        // born send_status='sent' optimistically; the ALWAYS-SHOWN post-send "Did it send?"
+        // confirmation in the UI is the ONLY truthful signal and decides the final status —
+        // a "No" answer flags THIS row not_delivered via markCommunicationNotDelivered().
+        // We deliberately do NOT infer not_delivered from the agent's WhatsApp-Web/WAHA
+        // session here: that conflates "integration connected" with "this message sent" and
+        // mislabels a genuine phone-send. Automatic delivery truth is option 1 (server-side
+        // WAHA send + ack), a separate project folded into cc3's delivery-tracking.
 
         // Part 4 — make the comms-tile quick-send visible on the Outreach &
         // Canvassing board (it writes only a provisional `communications` row and
         // previously fired no event). Source-tagged as `comms_tile` by the feed.
-        // AT-323 — a not-connected WhatsApp send did NOT go out, so it is not a "sent"
-        // event: skip the board signal (it is recorded as not_delivered instead).
         $agencyId = (int) ($contact->agency_id ?? auth()->user()?->effectiveAgencyId() ?? 0);
-        if ($agencyId > 0 && ! $waNotConnected) {
+        if ($agencyId > 0) {
             event(new \App\Events\Contact\CommsTileMessageSent(
                 contact: $contact,
                 channel: $data['channel'],
@@ -1316,8 +1309,7 @@ class ContactController extends Controller
             ));
         }
 
-        // markNotDelivered() recomputes last_contacted_at (a not_delivered send does not
-        // count as contact); otherwise the logger advanced it on this same instance.
+        // The logger advanced last_contacted_at on this same instance; reload for the response.
         $contact->refresh();
         $last = $contact->last_contacted_at;
 
@@ -1325,44 +1317,12 @@ class ContactController extends Controller
             'count'                   => $contact->outboundCommCount($data['channel']),
             'last_contacted'          => $last?->format('d M Y H:i'),
             'last_contacted_relative' => $last?->diffForHumans(),
-            // AT-323 — the provisional row's id, so the post-send "Did it send? Yes/No"
-            // confirmation can flag THIS send not-delivered (never a false "sent") on "No".
+            // AT-323 (option 2) — the provisional row's id, so the ALWAYS-SHOWN post-send
+            // "Did it send? Yes/No" confirmation can flag THIS send not_delivered on "No"
+            // (never a false "sent"). The row stays 'sent' optimistically until the agent answers.
             'communication_id'        => $communication->id ?? null,
-            // AT-323 — when true, CoreX positively knows WhatsApp is not connected and has
-            // already recorded this send as not_delivered; the UI warns instead of "sent".
-            'not_connected'           => $waNotConnected,
             'send_status'             => $communication->refresh()->send_status,
         ]);
-    }
-
-    /**
-     * AT-323 — does the sending agent have a LIVE (WORKING) WhatsApp session?
-     * Returns true (signed in / WORKING), false (no linked session, or a non-WORKING
-     * state → not signed in), or null when WAHA is unreachable so we CANNOT tell
-     * (indeterminate — callers keep the optimistic 'sent' rather than mass-flag on a
-     * WAHA outage). A false result is CoreX's only reliable "click-to-chat could not
-     * have sent" signal, since CoreX never transmits the message itself.
-     */
-    private function agentWhatsAppConnected(int $userId, \App\Services\Communications\WahaSessionClient $waha): ?bool
-    {
-        if ($userId <= 0) {
-            return null;
-        }
-        $session = \App\Models\Communications\CommunicationWaDevice::query()
-            ->where('user_id', $userId)
-            ->where('active', true)
-            ->whereNotNull('waha_session')
-            ->orderByDesc('last_seen_at')
-            ->value('waha_session');
-        if (! $session) {
-            return false; // no linked WhatsApp session at all → not signed in
-        }
-        try {
-            $state = $waha->status((string) $session);
-        } catch (\Throwable $e) {
-            return null; // WAHA unreachable — cannot determine; do not downgrade
-        }
-        return strtoupper((string) ($state['status'] ?? '')) === 'WORKING';
     }
 
     /**
