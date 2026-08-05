@@ -290,11 +290,13 @@ class DocumentChangeHighlighter
             }
             $nth      = max(1, (int) ($bc['nth'] ?? 1));
             $insert   = (string) ($bc['insert'] ?? '');
+            $mode     = ($bc['mode'] ?? '') === 'reference' ? 'reference' : 'selection';
+            $ocRef    = $bc['oc_ref'] ?? null;
             $changeId = (string) ($bc['change_id'] ?? '');
             if ($changeId === '') {
                 $changeId = substr(sha1($select . '|' . $nth . '|' . $insert), 0, 12);
             }
-            if ($this->strikeSelection($dom, $x, $select, $nth, $insert, $changeId, $initials, $parties)) {
+            if ($this->strikeSelection($dom, $x, $select, $nth, $insert, $changeId, $initials, $parties, $mode, $ocRef)) {
                 $changes[] = [
                     'id'    => $changeId,
                     'where' => '“' . mb_strimwidth($select, 0, 40, '…') . '”',
@@ -310,7 +312,7 @@ class DocumentChangeHighlighter
     }
 
     /** Locate the Nth plain-text occurrence of $select (outside existing marks) and strike+replace it. */
-    private function strikeSelection(\DOMDocument $dom, DOMXPath $x, string $select, int $nth, string $insert, string $changeId, array $initials, array $parties): bool
+    private function strikeSelection(\DOMDocument $dom, DOMXPath $x, string $select, int $nth, string $insert, string $changeId, array $initials, array $parties, string $mode = 'selection', $ocRef = null): bool
     {
         $nodes = $x->query('//text()[not(ancestor::del) and not(ancestor::ins) and not(ancestor::style) and not(ancestor::script) and not(ancestor::*[contains(concat(" ",@class," ")," change-margin-initials ")])]');
         if ($nodes === false) {
@@ -343,7 +345,19 @@ class DocumentChangeHighlighter
                     $del->appendChild($dom->createTextNode($select));
                     $anchor->appendChild($del);
 
-                    if ($insert !== '') {
+                    if ($mode === 'reference') {
+                        // BIG change → the full replacement lives in Other Conditions; the struck span carries
+                        // a cross-reference instead of an inline write-in (mirrors cc6's baked reference path).
+                        $anchor->appendChild($dom->createTextNode(' '));
+                        $xref = $dom->createElement('span');
+                        $xref->setAttribute('class', 'change-xref');
+                        $xref->setAttribute('data-change-id', $changeId);
+                        $label = $ocRef !== null && $ocRef !== ''
+                            ? 'See Other Conditions — clause ' . (string) $ocRef
+                            : 'See Other Conditions';
+                        $xref->appendChild($dom->createTextNode($label));
+                        $anchor->appendChild($xref);
+                    } elseif ($insert !== '') {
                         $anchor->appendChild($dom->createTextNode(' '));
                         $ins = $dom->createElement('ins');
                         $ins->setAttribute('class', 'change-ins');

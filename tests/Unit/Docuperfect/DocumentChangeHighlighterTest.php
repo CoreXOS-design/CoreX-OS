@@ -219,6 +219,41 @@ final class DocumentChangeHighlighterTest extends TestCase
         $this->assertStringNotContainsString('change-del', $out);
     }
 
+    /**
+     * WET-INK PRESERVATION (AT-368): a big/reference selection edit strikes the span and cross-references
+     * Other Conditions inline (the replacement is routed to OC, NOT written in), mirroring cc6's baked
+     * reference path. This is what the SERVE path overlays onto a preserved SIGNED canonical when the amend
+     * was recorded under web_template_data['pending_body_changes'] with mode='reference'.
+     */
+    public function test_selection_reference_mode_cross_references_other_conditions(): void
+    {
+        $out = $this->h()->highlight(
+            '<div class="doc"><p>Pay a deposit of ten percent within seven days.</p></div>',
+            '', [], [['select' => 'ten percent', 'insert' => 'as per addendum', 'mode' => 'reference', 'oc_ref' => 3]], self::PARTIES
+        );
+        $this->assertStringContainsString('<del class="change-del"', $out);            // struck
+        $this->assertStringContainsString('change-xref', $out);                        // cross-ref rendered
+        $this->assertStringContainsString('See Other Conditions — clause 3', $out);    // to OC entry #3
+        $this->assertStringNotContainsString('<ins class="change-ins"', $out);         // replacement NOT inlined
+    }
+
+    /**
+     * The selection overlay is IDEMPOTENT: on a body where the strike is ALREADY baked (the selected text sits
+     * inside an existing <del>), re-applying the same change must NOT double-strike. This is what lets the
+     * serve path re-run pending_body_changes over cc6's baked canonical without producing duplicate marks.
+     */
+    public function test_selection_overlay_is_idempotent_against_already_baked_strike(): void
+    {
+        $baked = '<div class="doc"><p>deposit of <span class="change-anchor" data-change-id="x1">'
+            . '<del class="change-del" data-change-id="x1">ten percent</del> '
+            . '<ins class="change-ins" data-change-id="x1">twelve percent</ins></span> within seven days.</p></div>';
+        $out = $this->h()->highlight($baked, '', [], [
+            ['change_id' => 'x1', 'select' => 'ten percent', 'insert' => 'twelve percent', 'mode' => 'selection'],
+        ], self::PARTIES);
+
+        $this->assertSame(1, substr_count($out, '<del class="change-del"'));   // exactly one strike — no double
+    }
+
     public function test_margin_initials_one_slot_per_party_with_per_party_state(): void
     {
         $cid = substr(sha1('deposit|1|down payment'), 0, 12);
