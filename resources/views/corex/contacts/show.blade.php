@@ -406,7 +406,9 @@
                         // AT-323 (option 2) — WhatsApp is client-side click-to-chat: CoreX opens
                         // the app but cannot know whether the message actually sent, so ALWAYS ask.
                         // The confirm modal is the only truthful signal — the agent must answer it
-                        // (it is not dismissable-as-sent); "No" flags this send not_delivered.
+                        // (it is not dismissable-as-sent); a No answer flags this send not_delivered.
+                        // NOTE: keep this comment free of literal double-quotes — it lives inside the
+                        // double-quoted x-data attribute and a stray one closes it, leaking JS as text.
                         const data = await this.increment('whatsapp', { body: this.waMessage, contactPhoneId: target.id });
                         if (data && data.communication_id) {
                             this.sentConfirm = { open: true, communicationId: data.communication_id };
