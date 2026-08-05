@@ -469,18 +469,6 @@
                     View Property
                 </a>
 
-                @permission('core_matches.convert_to_deal')
-                <form method="POST" action="{{ route('corex.contacts.matches.convertToDeal', [$contact, $match, $property]) }}"
-                      onsubmit="return confirm('Create a draft Deal from this match?');">
-                    @csrf
-                    <input type="hidden" name="mark_fulfilled" value="0">
-                    <button type="submit" class="corex-btn-primary w-full">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-                        Convert to Deal
-                    </button>
-                </form>
-                @endpermission
-
                 <form method="POST" action="{{ route('corex.contacts.matches.toggleHide', [$contact, $match, $property]) }}">
                     @csrf
                     @unless($isHidden)
