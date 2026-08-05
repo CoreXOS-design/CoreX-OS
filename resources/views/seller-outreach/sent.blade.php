@@ -21,11 +21,15 @@
             this.sentConfirm.open = false;
             this.answered = true;
             this.result = didSend ? 'sent' : 'not_sent';
-            if (didSend) { return; }
+            // AT-323 — "Yes" promotes the mirrored comm to sent (the ONLY path a pitch counts);
+            // "No" records the honest not_sent. Either way the send never counts before this answer.
+            const url = didSend
+                ? @js(route('seller-outreach.composer.mark-sent', ['contact' => $contact->id, 'send' => $send->id]))
+                : @js(route('seller-outreach.composer.not-sent', ['contact' => $contact->id, 'send' => $send->id]));
             try {
-                await fetch(@js(route('seller-outreach.composer.not-sent', ['contact' => $contact->id, 'send' => $send->id])), {
+                await fetch(url, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': @js(csrf_token()), 'X-Requested-With': 'XMLHttpRequest' },
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': @js(csrf_token()), 'X-Requested-With': 'XMLHttpRequest' },
                     body: '{}'
                 });
             } catch (e) { /* keep local state; server is source of truth on next load */ }

@@ -6,6 +6,7 @@ namespace App\Services\SellerOutreach;
 
 use App\Events\SellerOutreach\PitchSent;
 use App\Mail\SellerOutreach\OutreachEmail;
+use App\Models\Communications\Communication;
 use App\Models\SellerOutreach\SellerOutreachSend;
 use App\Services\Communications\OutboundProvisionalLogger;
 use App\Support\SellerOutreach\OutreachContext;
@@ -140,10 +141,23 @@ final class SellerOutreachSenderService
                 $context->agent->id,
             );
 
-            // AT-323 — link the mirrored provisional Communication to this send, so the
-            // sent-page "No, I didn't send it" answer can flip BOTH this row's outcome
-            // (-> not_sent) AND the comm's send_status (-> not_delivered) truthfully.
+            // AT-323 — link the mirrored provisional Communication to this send.
             $send->forceFill(['communication_id' => $mirroredComm->id])->save();
+
+            // AT-323 (counter invariant) — a WhatsApp pitch is client-side click-to-chat:
+            // CoreX opens WhatsApp but cannot confirm delivery. The mirrored Communication
+            // (which feeds the contact "WhatsApp messages sent" counter) is therefore born
+            // NOT counted (not_delivered) and only becomes sent when the agent answers "Yes"
+            // on the sent page — the ONE truthful signal. So a pitch never counts as a sent
+            // message before it is confirmed. Email is system-sent (Mail::send below), so it
+            // keeps the born-sent default and counts immediately.
+            // NOTE: SellerOutreachSend.outcome is deliberately NOT changed here — it stays the
+            // prospecting/pitched signal (MIC claim/report read it); only the comm counter moves.
+            if ($context->channel === Communication::CHANNEL_WHATSAPP) {
+                $mirroredComm->forceFill([
+                    'send_status' => Communication::SEND_STATUS_NOT_DELIVERED,
+                ])->save();
+            }
 
             // AT-81 — a consent-request send moves an INITIAL contact to PENDING
             // and starts the no-response clock. markOutreachPending() is a no-op

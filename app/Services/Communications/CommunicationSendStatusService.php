@@ -59,12 +59,14 @@ class CommunicationSendStatusService
     }
 
     /**
-     * Undo a not_delivered flag — the agent flagged it by mistake, or later
-     * confirmed the contact DID receive it. Puts the row back to sent and
-     * recomputes last_contacted_at (which may re-advance to include this send
-     * again, exactly as if it had never been flagged).
+     * AT-323 — mark a send as SENT. This is the ONLY path that sets send_status=sent,
+     * and it runs exclusively from the "Yes, I sent it" modal answer. A click-to-chat
+     * send is born not_delivered (uncounted); the agent confirming in the modal is the
+     * one truthful signal that promotes it to sent (+1 the "messages sent" counter).
+     * There is deliberately no "Revert to sent" control — nothing reaches sent without
+     * the modal. Recomputes last_contacted_at so this send now counts as a contact.
      */
-    public function revertToSent(Communication $communication, Contact $contact, ?int $actorUserId): Communication
+    public function markSent(Communication $communication, Contact $contact, ?int $actorUserId): Communication
     {
         DB::transaction(function () use ($communication, $contact, $actorUserId) {
             $communication->forceFill([

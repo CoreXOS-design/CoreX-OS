@@ -153,18 +153,20 @@
                     ])->values()),
                     selectedEmailId: {{ $contact->primaryEmail?->id ?? 'null' }},
                     async increment(channel, payload = {}) {
-                        // Optimistic bump for instant feedback; reconciled by the
-                        // server's derived count below (AT-59).
-                        if (channel === 'whatsapp') this.waCount++;
-                        else this.emailCount++;
+                        // AT-323 — do NOT optimistically bump the WhatsApp counter: a WhatsApp
+                        // send is born not_delivered (uncounted) and only counts once the agent
+                        // answers "Yes" in the modal. Email is system-sent (no modal), so it keeps
+                        // the optimistic bump. Either way the server's derived count is authoritative.
+                        if (channel === 'email') this.emailCount++;
                         try {
                             const res = await fetch('{{ route('corex.contacts.increment', $contact) }}', {
                                 method: 'POST',
-                                headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'X-Requested-With': 'XMLHttpRequest' },
+                                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'X-Requested-With': 'XMLHttpRequest' },
                                 body: JSON.stringify({
                                     channel, subject: payload.subject ?? null, body: payload.body ?? null,
                                     contact_phone_id: payload.contactPhoneId ?? null,
                                     contact_email_id: payload.contactEmailId ?? null,
+                                    resent_from_communication_id: payload.resentFrom ?? null,
                                 })
                             });
                             const data = await res.json();
@@ -189,20 +191,30 @@
                     async confirmSent(didSend) {
                         const commId = this.sentConfirm.communicationId;
                         this.sentConfirm.open = false;
-                        if (didSend || !commId) return; // Yes (or no id) → leave it recorded as sent
+                        if (!commId) return;
+                        if (!didSend) return; // "No" — the row was born not_delivered; nothing counts, nothing to do.
+                        // "Yes, I sent it" — the ONLY path a WhatsApp send reaches sent (+1 the counter).
                         try {
-                            const res = await fetch('{{ url('corex/contacts/'.$contact->id.'/communications') }}/' + commId + '/not-delivered', {
+                            const res = await fetch('{{ url('corex/contacts/'.$contact->id.'/communications') }}/' + commId + '/mark-sent', {
                                 method: 'POST',
-                                headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'X-Requested-With': 'XMLHttpRequest' },
-                                body: JSON.stringify({ reason: 'Agent reported WhatsApp did not send (not signed in / failed).' })
+                                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'X-Requested-With': 'XMLHttpRequest' },
+                                body: '{}'
                             });
                             const d = await res.json();
                             if (d && typeof d.count === 'number') this.waCount = d.count;
                         } catch (e) {
-                            // keep the optimistic state; the archive reconciles on next load
+                            // network blip — the archive reconciles the count on next load
                         }
                     },
-                    async sendWa() {
+                    // AT-323 — Resend from the Recent Sends list re-runs the FULL flow (open
+                    // WhatsApp + modal), never a silent record. Dispatched as a window event so
+                    // the Recent Sends partial (a separate component) can trigger it.
+                    resendWa(detail) {
+                        if (detail && detail.phoneId) this.selectedPhoneId = detail.phoneId;
+                        this.showWa = false;
+                        this.sendWa(detail && detail.resendFrom ? detail.resendFrom : null);
+                    },
+                    async sendWa(resentFrom = null) {
                         // Contact-details Phase 1 fix — this used to strip digits and
                         // blindly replace a leading '0' with South Africa's '27', so a
                         // USA (or any non-ZA) number could never resolve on WhatsApp: a
@@ -226,7 +238,7 @@
                         // double-quoted x-data attribute and a stray one closes it, leaking JS as text.
                         window.open('https://wa.me/' + target.deeplink + '?text=' + encodeURIComponent(this.waMessage), '_blank', 'noopener');
                         this.showWa = false;
-                        const data = await this.increment('whatsapp', { body: this.waMessage, contactPhoneId: target.id });
+                        const data = await this.increment('whatsapp', { body: this.waMessage, contactPhoneId: target.id, resentFrom });
                         if (data && data.communication_id) {
                             this.sentConfirm = { open: true, communicationId: data.communication_id };
                         }
@@ -238,7 +250,7 @@
                         this.increment('email', { subject: this.emailSubject, body: this.emailBody, contactEmailId: target.id });
                         this.showEmail = false;
                     }
-                 }" class="space-y-3">
+                 }" @at323-resend.window="resendWa($event.detail)" class="space-y-3">
 
                 {{-- AT-323 — SHARED post-send confirmation modal (same component used by the
                      outreach pitch-send). Driven by this component's sentConfirm / confirmSent. --}}

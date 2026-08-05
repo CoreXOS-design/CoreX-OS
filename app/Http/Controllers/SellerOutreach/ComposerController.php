@@ -450,6 +450,40 @@ final class ComposerController extends Controller
             : back()->with('success', 'Recorded as not sent — this pitch is not counted as sent.');
     }
 
+    /**
+     * AT-323 — "Yes, I sent it" on the pitch sent page. Promotes the mirrored
+     * Communication (the "WhatsApp messages sent" counter) to sent — the ONLY path a
+     * pitch counts as a sent message. The SellerOutreachSend.outcome (the prospecting /
+     * pitched signal read by MIC) is deliberately left untouched here.
+     */
+    public function markSent(
+        Request $request,
+        Contact $contact,
+        int $send,
+        \App\Services\Communications\CommunicationSendStatusService $sendStatus
+    ) {
+        $agencyId = $this->ensureAgencyContext($request, $contact);
+
+        $sendModel = SellerOutreachSend::withoutGlobalScopes()
+            ->where('id', $send)
+            ->where('agency_id', $agencyId)
+            ->where('contact_id', $contact->id)
+            ->whereNull('deleted_at')
+            ->firstOrFail();
+
+        if ($sendModel->communication_id) {
+            $comm = \App\Models\Communications\Communication::withoutGlobalScopes()
+                ->find($sendModel->communication_id);
+            if ($comm && $comm->send_status !== \App\Models\Communications\Communication::SEND_STATUS_SENT) {
+                $sendStatus->markSent($comm, $contact, (int) $request->user()->id);
+            }
+        }
+
+        return $request->wantsJson()
+            ? response()->json(['ok' => true, 'message' => 'Recorded as sent.'])
+            : back()->with('success', 'Recorded as sent.');
+    }
+
     private function ensureAgencyContext(Request $request, Contact $contact): int
     {
         $user = $request->user();
