@@ -157,14 +157,14 @@ class CanonicalDocumentRenderer
      * by the baked-serve paths (forDisplay / resolveOrCompose) so the marks PERSIST on the final,
      * ink-baked document (decision #2) — not just while it is re-composing. Display overlay only; the
      * highlighter is fail-safe. No-op (returns $html unchanged) when the gate is off.
-     */
     /**
      * True when the stored canonical carries baked signing ink — i.e. it is a SIGNED document, not an
      * agent-prepared v0. `CanonicalInkComposer::bakeInk` stamps every baked signature/initial element with
      * `data-signed="true"` and the `corex-ink` class; neither appears on an un-inked canonical or on a
-     * letterhead logo. Used so a returned-doc amend (which resets canonical_version to 0 to surface the
-     * strike) still serves the intact signed canonical — preserving every signature + the execution/location
-     * block — instead of recomposing from the pre-ink merged_html and dropping them (AT-368 wet-ink).
+     * letterhead logo. SAFETY NET for the unified wet-ink model: an amend now overlays onto canonical_html and
+     * keeps the version >= 1 (writeAmend), so forDisplay's `version >= 1` branch already serves it. This guard
+     * additionally serves a signed-but-version-0 canonical (a legacy/edge write) verbatim rather than recomposing
+     * from the pre-ink merged_html — which would drop every signature + the execution/location block.
      */
     private function storedCanonicalIsSigned(string $canonical): bool
     {
@@ -179,30 +179,15 @@ class CanonicalDocumentRenderer
         $flagged     = ! empty($webData['amendment_render']);       // live field diff wanted
         $hasMarks    = str_contains($html, 'data-change-id');       // pre-authored marks already in the html
         $bodyChanges = is_array($webData['body_changes'] ?? null) ? $webData['body_changes'] : [];
-        // WET-INK PRESERVATION (AT-368): cc6's selection edits persist under `pending_body_changes`
-        // ({old,new,mode,oc_ref,change_id}). On a SIGNED doc the amend serves the PRESERVED signed canonical
-        // (baked ink + "signed at" location intact) — which carries NO baked strike (cc6 bakes that into
-        // merged_html, a path the signed-serve bypasses). Re-applying the selection here overlays the strike
-        // onto the preserved canonical. It is idempotent: strikeSelection only matches PLAIN text outside
-        // existing <del>/<ins>, so on a recomposed body where cc6 already baked the strike it finds nothing
-        // and skips (no double-strike).
-        foreach (($webData['pending_body_changes'] ?? []) as $pbc) {
-            if (! is_array($pbc)) {
-                continue;
-            }
-            $old = trim((string) ($pbc['old'] ?? ''));
-            if ($old === '') {
-                continue;
-            }
-            $bodyChanges[] = [
-                'change_id' => (string) ($pbc['change_id'] ?? ''),
-                'select'    => $old,
-                'insert'    => (string) ($pbc['new'] ?? ''),
-                'nth'       => 1,
-                'mode'      => ($pbc['mode'] ?? '') === 'reference' ? 'reference' : 'selection',
-                'oc_ref'    => $pbc['oc_ref'] ?? null,
-            ];
-        }
+        // UNIFIED WET-INK MODEL (Johan 2026-08-05) — ONE mechanism for clause amendments: the AUTHOR side bakes
+        // the strike + the full-width per-party initial row + each applied initial straight into the served
+        // artifact (SelectionEditService / ClauseEditService / recordChangeInitial → CanonicalDocumentRenderer::
+        // writeAmend: canonical_html when signed, else merged_html). So this render pass NO LONGER re-applies
+        // clause strikes from `pending_body_changes` — that was the second, overlapping variant that could drift.
+        // It now does only what the author side does NOT: (a) diff data-fields vs the last-authorised baseline
+        // (field edits are not baked), and (b) absorb + style the baked marks (Schedule of Amendments + the
+        // per-change initial pass) via absorbPreAuthoredMarks() below. `pending_body_changes` remains the audit
+        // record of what changed; it is no longer a render source.
         if (! $flagged && ! $hasMarks && empty($bodyChanges)) {
             return $html;   // a normal, never-amended document — untouched (byte-identical)
         }
@@ -398,15 +383,13 @@ class CanonicalDocumentRenderer
         // it); return it verbatim so the agent-review and every later party see the
         // exact accumulated document.
         if (trim($stored) !== '' && ($version >= 1 || $this->storedCanonicalIsSigned($stored))) {
-            // AT-368 — persist the wet-ink change-marks on the ink-baked document too (they must stay on
-            // the final). The baked canonical carries the current field/clause text; diffing it against
-            // the last-authorised seal re-marks the changes. Ink elements aren't data-field/clause text,
-            // so they are never touched. No-op unless the doc is flagged amended.
-            // WET-INK PRESERVATION: a returned-doc amend (SelectionEditService) resets canonical_version to 0
-            // to force the strike to show — but it does NOT touch canonical_html, so the SIGNED canonical
-            // (baked signatures + the "signed at" execution block) is still intact here. Serving it (rather
-            // than recomposing from the pre-ink merged_html) is what keeps every signature + the location on
-            // an amended signed document; maybeHighlight then overlays the strike from pending_body_changes.
+            // UNIFIED WET-INK MODEL — a signed document's canonical is served VERBATIM so every signature +
+            // the "signed at" execution block stay intact. An amend on a signed doc OVERLAYS its strike + the
+            // per-party initial row straight INTO this canonical (writeAmend) and keeps it baked (version >= 1),
+            // so what is served already carries the marks. `storedCanonicalIsSigned` is the safety net for the
+            // rare signed-but-version-0 canonical (a legacy/edge write): serve it rather than recompose from the
+            // pre-ink merged_html, which would drop the signatures + location. maybeHighlight() then adds only
+            // the field-diff vs baseline + the Schedule of Amendments — it does NOT re-strike (author side owns that).
             return $this->maybeHighlight($stored, $document, $webData);
         }
 
@@ -448,10 +431,10 @@ class CanonicalDocumentRenderer
         // truth (every prior party's signatures/initials/fills are composed into it);
         // serve it verbatim so no baked ink is ever lost.
         if (trim($existing) !== '' && ($version >= 1 || $this->storedCanonicalIsSigned($existing))) {
-            // AT-368 — same as forDisplay: keep the wet-ink change-marks on the ink-baked served doc.
-            // WET-INK PRESERVATION: an amend (SelectionEditService) resets canonical_version to 0 without
-            // touching canonical_html — so a signed doc's baked signatures + "signed at" location survive
-            // ONLY if we serve the intact stored canonical here instead of recomposing from merged_html.
+            // UNIFIED WET-INK MODEL — same as forDisplay: serve the signed canonical verbatim (the amend has
+            // already OVERLAID its strike + initial row into it via writeAmend, keeping it baked). The
+            // storedCanonicalIsSigned branch is the safety net for a signed-but-version-0 canonical — serve it
+            // rather than recompose from the pre-ink merged_html, which would drop the signatures + location.
             return $this->maybeHighlight($existing, $document, $webData);
         }
 
