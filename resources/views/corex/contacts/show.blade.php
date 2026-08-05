@@ -218,14 +218,12 @@
                         if (!target) { alert('This contact has no phone number.'); return; }
                         window.location.href = 'whatsapp://send?phone=' + target.deeplink + '&text=' + encodeURIComponent(this.waMessage);
                         this.showWa = false;
-                        // AT-323 — record the send. If CoreX positively knows WhatsApp is not
-                        // connected, the server already recorded this as NOT sent (not_delivered) —
-                        // warn the agent and skip the did-it-send modal (no point asking). Otherwise
-                        // ask whether it actually went through.
+                        // AT-323 (option 2) — WhatsApp is client-side click-to-chat: CoreX opens
+                        // the app but cannot know whether the message actually sent, so ALWAYS ask.
+                        // The confirm modal is the only truthful signal — the agent must answer it
+                        // (it is not dismissable-as-sent); "No" flags this send not_delivered.
                         const data = await this.increment('whatsapp', { body: this.waMessage, contactPhoneId: target.id });
-                        if (data && data.not_connected) {
-                            alert('WhatsApp is not connected in CoreX, so this message was recorded as NOT sent. Link WhatsApp under Settings, or if you sent it from your phone use Revert on the send in Recent Sends.');
-                        } else if (data && data.communication_id) {
+                        if (data && data.communication_id) {
                             this.sentConfirm = { open: true, communicationId: data.communication_id };
                         }
                     },
@@ -238,19 +236,21 @@
                     }
                  }" class="space-y-3">
 
-                {{-- AT-323 — post-send "Did it send?" confirmation. WhatsApp opens the agent's app;
-                     CoreX can't confirm delivery. "No, it didn't" flags the send not_delivered so a
-                     failed/not-signed-in send is never recorded as a false "sent". --}}
-                <div x-show="sentConfirm.open" x-cloak @keydown.escape.window="confirmSent(true)"
+                {{-- AT-323 (option 2) — ALWAYS-SHOWN post-send confirmation. WhatsApp is
+                     client-side click-to-chat; CoreX opens the app but cannot confirm delivery.
+                     The agent MUST answer (no escape / click-outside dismiss — so a closed-without-
+                     sending message is never left as a false "sent"). "No, not sent" flags the
+                     send not_delivered; "Yes" keeps it sent. --}}
+                <div x-show="sentConfirm.open" x-cloak
                      class="fixed inset-0 z-50 flex items-center justify-center px-4" style="background:rgba(0,0,0,0.45);">
-                    <div class="w-full max-w-sm rounded-lg p-5" style="background:var(--surface,#fff); border:1px solid var(--border,#e5e7eb);" @click.outside="confirmSent(true)">
-                        <div class="text-base font-semibold mb-1" style="color:var(--text-primary,#111827);">Did WhatsApp actually send?</div>
-                        <p class="text-xs mb-4" style="color:var(--text-muted,#6b7280);">CoreX opened WhatsApp on your device but can't confirm it went. If you weren't signed into WhatsApp&nbsp;Web (or it didn't send), tell us so this isn't recorded as sent.</p>
+                    <div class="w-full max-w-sm rounded-lg p-5" style="background:var(--surface,#fff); border:1px solid var(--border,#e5e7eb);">
+                        <div class="text-base font-semibold mb-1" style="color:var(--text-primary,#111827);">Did you send the WhatsApp?</div>
+                        <p class="text-xs mb-4" style="color:var(--text-muted,#6b7280);">CoreX opened WhatsApp on your device but cannot confirm delivery. If you closed WhatsApp without sending (or it did not go through), choose "No, not sent" so this is not recorded as sent.</p>
                         <div class="flex gap-2">
                             <button type="button" @click="confirmSent(true)"
-                                    class="flex-1 text-sm font-semibold px-3 py-2 rounded" style="background:var(--brand-default,#0b2a4a); color:#fff;">Yes, it sent</button>
+                                    class="flex-1 text-sm font-semibold px-3 py-2 rounded" style="background:var(--brand-default,#0b2a4a); color:#fff;">Yes, I sent it</button>
                             <button type="button" @click="confirmSent(false)"
-                                    class="flex-1 text-sm font-semibold px-3 py-2 rounded" style="background:transparent; color:#ef4444; border:1px solid rgba(239,68,68,0.4);">No, it didn't</button>
+                                    class="flex-1 text-sm font-semibold px-3 py-2 rounded" style="background:transparent; color:#ef4444; border:1px solid rgba(239,68,68,0.4);">No, not sent</button>
                         </div>
                     </div>
                 </div>
