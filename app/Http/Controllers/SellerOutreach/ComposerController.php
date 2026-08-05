@@ -398,6 +398,58 @@ final class ComposerController extends Controller
         ]);
     }
 
+    /**
+     * AT-323 — the agent confirms on the sent page that WhatsApp did NOT actually go
+     * out. Records the honest terminal state: this pitch's outcome becomes not_sent,
+     * and the SAME truth is mirrored to the linked provisional Communication
+     * (send_status -> not_delivered) so the contact comms tiles stop counting it as a
+     * reached send. "Yes, I sent it" needs no server call — the row is already sent.
+     */
+    public function markNotSent(
+        Request $request,
+        Contact $contact,
+        int $send,
+        \App\Services\Communications\CommunicationSendStatusService $sendStatus
+    ) {
+        $agencyId = $this->ensureAgencyContext($request, $contact);
+
+        $sendModel = SellerOutreachSend::withoutGlobalScopes()
+            ->where('id', $send)
+            ->where('agency_id', $agencyId)
+            ->where('contact_id', $contact->id)
+            ->whereNull('deleted_at')
+            ->firstOrFail();
+
+        $sendModel->forceFill([
+            'outcome'                => SellerOutreachSend::OUTCOME_NOT_SENT,
+            'outcome_note'           => 'Agent confirmed on the sent page: WhatsApp did not send.',
+            'outcome_set_by_user_id' => (int) $request->user()->id,
+            'outcome_set_at'         => now(),
+        ])->save();
+
+        // Mirror the SAME truth to the linked comms-archive row via the canonical
+        // not-delivered path (fires CommunicationMarkedNotDelivered; excludes it from
+        // the tile counts + last-contacted). Idempotent — skip if already flagged.
+        if ($sendModel->communication_id) {
+            $comm = \App\Models\Communications\Communication::withoutGlobalScopes()
+                ->find($sendModel->communication_id);
+            if ($comm && $comm->send_status !== \App\Models\Communications\Communication::SEND_STATUS_NOT_DELIVERED) {
+                $sendStatus->markNotDelivered(
+                    $comm, $contact, (int) $request->user()->id,
+                    'Outreach pitch — agent confirmed WhatsApp did not send (AT-323).'
+                );
+            }
+        }
+
+        return $request->wantsJson()
+            ? response()->json([
+                'ok'      => true,
+                'outcome' => $sendModel->outcome,
+                'message' => 'Recorded as not sent — this pitch is not counted as sent.',
+            ])
+            : back()->with('success', 'Recorded as not sent — this pitch is not counted as sent.');
+    }
+
     private function ensureAgencyContext(Request $request, Contact $contact): int
     {
         $user = $request->user();

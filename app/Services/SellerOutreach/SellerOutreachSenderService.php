@@ -132,13 +132,18 @@ final class SellerOutreachSenderService
             // (the logger's own DB::transaction nests as a savepoint). One compose
             // → many recipients calls send() once per recipient, so this fires
             // exactly once per recipient with that recipient's own contact + body.
-            $this->provisionalLogger->log(
+            $mirroredComm = $this->provisionalLogger->log(
                 $context->contact,
                 $context->channel,
                 $finalSubject,
                 $finalBody,
                 $context->agent->id,
             );
+
+            // AT-323 — link the mirrored provisional Communication to this send, so the
+            // sent-page "No, I didn't send it" answer can flip BOTH this row's outcome
+            // (-> not_sent) AND the comm's send_status (-> not_delivered) truthfully.
+            $send->forceFill(['communication_id' => $mirroredComm->id])->save();
 
             // AT-81 — a consent-request send moves an INITIAL contact to PENDING
             // and starts the no-response clock. markOutreachPending() is a no-op

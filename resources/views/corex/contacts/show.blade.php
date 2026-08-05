@@ -401,14 +401,16 @@
                         // changeable per send via the Send-to dropdown below.
                         const target = this.waNumbers.find(p => p.id === this.selectedPhoneId) ?? this.waNumbers[0];
                         if (!target) { alert('This contact has no phone number.'); return; }
-                        window.location.href = 'whatsapp://send?phone=' + target.deeplink + '&text=' + encodeURIComponent(this.waMessage);
-                        this.showWa = false;
-                        // AT-323 (option 2) — WhatsApp is client-side click-to-chat: CoreX opens
-                        // the app but cannot know whether the message actually sent, so ALWAYS ask.
-                        // The confirm modal is the only truthful signal — the agent must answer it
-                        // (it is not dismissable-as-sent); a No answer flags this send not_delivered.
+                        // AT-323 — ORDER MATTERS: open WhatsApp FIRST, in a NEW TAB, so the agent
+                        // can actually send. This runs inside the click gesture, so the new tab is
+                        // not popup-blocked; wa.me opens WhatsApp Web on desktop / the app on mobile
+                        // (universal), so it opens regardless of platform. CoreX stays in this tab
+                        // and THEN asks did-you-send below (a modal that replaced the open would be
+                        // the never-opens bug).
                         // NOTE: keep this comment free of literal double-quotes — it lives inside the
                         // double-quoted x-data attribute and a stray one closes it, leaking JS as text.
+                        window.open('https://wa.me/' + target.deeplink + '?text=' + encodeURIComponent(this.waMessage), '_blank', 'noopener');
+                        this.showWa = false;
                         const data = await this.increment('whatsapp', { body: this.waMessage, contactPhoneId: target.id });
                         if (data && data.communication_id) {
                             this.sentConfirm = { open: true, communicationId: data.communication_id };
@@ -423,24 +425,9 @@
                     }
                  }" class="space-y-3">
 
-                {{-- AT-323 (option 2) — ALWAYS-SHOWN post-send confirmation. WhatsApp is
-                     client-side click-to-chat; CoreX opens the app but cannot confirm delivery.
-                     The agent MUST answer (no escape / click-outside dismiss — so a closed-without-
-                     sending message is never left as a false "sent"). "No, not sent" flags the
-                     send not_delivered; "Yes" keeps it sent. --}}
-                <div x-show="sentConfirm.open" x-cloak
-                     class="fixed inset-0 z-50 flex items-center justify-center px-4" style="background:rgba(0,0,0,0.45);">
-                    <div class="w-full max-w-sm rounded-lg p-5" style="background:var(--surface,#fff); border:1px solid var(--border,#e5e7eb);">
-                        <div class="text-base font-semibold mb-1" style="color:var(--text-primary,#111827);">Did you send the WhatsApp?</div>
-                        <p class="text-xs mb-4" style="color:var(--text-muted,#6b7280);">CoreX opened WhatsApp on your device but cannot confirm delivery. If you closed WhatsApp without sending (or it did not go through), choose "No, not sent" so this is not recorded as sent.</p>
-                        <div class="flex gap-2">
-                            <button type="button" @click="confirmSent(true)"
-                                    class="flex-1 text-sm font-semibold px-3 py-2 rounded" style="background:var(--brand-default,#0b2a4a); color:#fff;">Yes, I sent it</button>
-                            <button type="button" @click="confirmSent(false)"
-                                    class="flex-1 text-sm font-semibold px-3 py-2 rounded" style="background:transparent; color:#ef4444; border:1px solid rgba(239,68,68,0.4);">No, not sent</button>
-                        </div>
-                    </div>
-                </div>
+                {{-- AT-323 — SHARED post-send confirmation modal (same component used by the
+                     outreach pitch-send). Driven by this component's sentConfirm / confirmSent. --}}
+                @include('partials.whatsapp-send-confirm-modal')
 
                 {{-- 3 boxes in a row --}}
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">

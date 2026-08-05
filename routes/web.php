@@ -2506,6 +2506,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             // AT-117 §4 — add the prepared pitch to the deferred outreach queue (due-time, in-window).
             Route::post('/queue',      [\App\Http\Controllers\SellerOutreach\ComposerController::class, 'queue'])->name('queue');
             Route::get('/sent/{send}', [\App\Http\Controllers\SellerOutreach\ComposerController::class, 'sent'])->name('sent');
+            // AT-323 — on the sent page the agent confirms whether WhatsApp actually went out.
+            // "No" records the honest not_sent outcome (+ mirrors not_delivered to the linked comm).
+            Route::post('/sent/{send}/not-sent', [\App\Http\Controllers\SellerOutreach\ComposerController::class, 'markNotSent'])->name('not-sent');
 
             // Timeline (Prompt 07) — agent-side view of every send + click + opt-out
             Route::get('/timeline',                       [\App\Http\Controllers\SellerOutreach\ContactTimelineController::class, 'index'])->name('timeline');
