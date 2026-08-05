@@ -137,6 +137,49 @@ final class WetInkClauseEditTest extends TestCase
         $this->assertFalse($bad['ok']);
     }
 
+    public function test_each_party_fills_their_own_margin_slot_independently(): void
+    {
+        [$tpl, $doc, $actor] = $this->seedReturnedDocWithClauses();
+        \App\Models\Docuperfect\SignatureRequest::create([
+            'signature_template_id' => $tpl->id, 'party_role' => 'agent', 'role_index' => 1,
+            'signer_name' => 'Rialette Bloem', 'signer_email' => 'a@x.test', 'token' => Str::random(48),
+            'token_expires_at' => now()->addDays(30), 'status' => 'completed', 'completed_at' => now(), 'signing_order' => 1,
+        ]);
+        \App\Models\Docuperfect\SignatureRequest::create([
+            'signature_template_id' => $tpl->id, 'party_role' => 'seller', 'role_index' => 1,
+            'signer_name' => 'Petro Nel', 'signer_email' => 's@x.test', 'token' => Str::random(48),
+            'token_expires_at' => now()->addDays(30), 'status' => 'pending', 'signing_order' => 2,
+        ]);
+
+        $sel = app(\App\Services\Docuperfect\SelectionEditService::class);
+        $svc = app(SignatureService::class);
+        $cid = $sel->strikeSelection($tpl, 'seven percent (7%)', 'shall be ', '.', 'five percent (5%)', $actor)['change_id'];
+
+        $filled = fn ($html, $key) => (bool) preg_match(
+            '#<span class="[^"]*cm-slot[^"]*cm-filled[^"]*"[^>]*data-party-key="' . preg_quote($key, '#') . '"#', $html,
+        ) || (bool) preg_match(
+            '#data-party-key="' . preg_quote($key, '#') . '"[^>]*class="[^"]*cm-filled#', $html,
+        );
+
+        // Agent initials → only the agent slot fills.
+        $svc->recordChangeInitial($tpl->fresh(), $cid, 'Rialette Bloem', 'agent');
+        $h1 = $doc->fresh()->web_template_data['merged_html'];
+        $this->assertStringContainsString('cm-filled', $h1);
+        $this->assertStringContainsString('RB', $h1, 'agent initials rendered as their ink');
+        // seller slot still pending (no cm-filled on the seller slot — its ink is still the empty box)
+        $this->assertStringContainsString('▢', $h1, 'the un-initialed party slot stays empty');
+
+        // Seller initials → their own slot fills too, independently.
+        $svc->recordChangeInitial($tpl->fresh(), $cid, 'Petro Nel', 'seller');
+        $h2 = $doc->fresh()->web_template_data['merged_html'];
+        $this->assertStringContainsString('RB', $h2);
+        $this->assertStringContainsString('PN', $h2, 'seller initials rendered independently');
+        $this->assertSame(2, substr_count($h2, 'cm-filled'), 'both party slots now filled');
+
+        // The locked cc1 contract is preserved.
+        $this->assertArrayHasKey('change_initials', $doc->fresh()->web_template_data);
+    }
+
     // ── Helper ──
 
     /** @return array{0: SignatureTemplate, 1: Document, 2: User} */
