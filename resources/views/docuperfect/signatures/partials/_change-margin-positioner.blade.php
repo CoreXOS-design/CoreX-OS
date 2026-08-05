@@ -56,10 +56,34 @@
         } catch (e) { /* never break the page over a cosmetic reflow */ }
     }
     window.positionChangeMargins = positionChangeMargins;
-    // Run after layout settles + after pagination, and on resize.
-    if (document.readyState !== 'loading') setTimeout(positionChangeMargins, 60);
+    var debounced = function () { clearTimeout(window.__cmpT); window.__cmpT = setTimeout(positionChangeMargins, 120); };
+
+    // Pagination can run asynchronously (after an XHR) and RE-PARENTS the document into .corex-a4-page
+    // pages — which is exactly what defeats the inline float. Re-position whenever pages are (re)built, so
+    // the blocks land in the gutter no matter when pagination finishes. Ignore our own mutations.
+    try {
+        var mo = new MutationObserver(function (muts) {
+            for (var i = 0; i < muts.length; i++) {
+                var m = muts[i];
+                if (m.type === 'childList') {
+                    var touched = [].concat([].slice.call(m.addedNodes), [].slice.call(m.removedNodes));
+                    for (var j = 0; j < touched.length; j++) {
+                        var n = touched[j];
+                        if (n.nodeType === 1 && (n.classList && (n.classList.contains('corex-a4-page') || n.querySelector && n.querySelector('.corex-a4-page, .change-margin, .change-margin-initials')))) {
+                            debounced();
+                            return;
+                        }
+                    }
+                }
+            }
+        });
+        mo.observe(document.body, { childList: true, subtree: true });
+    } catch (e) { /* MutationObserver unsupported → the timers below still cover the common case */ }
+
+    // Belt-and-braces timers (initial load + a couple of retries covering late pagination) + resize.
+    if (document.readyState !== 'loading') { setTimeout(positionChangeMargins, 60); }
     document.addEventListener('DOMContentLoaded', function () { setTimeout(positionChangeMargins, 60); });
-    window.addEventListener('load', function () { setTimeout(positionChangeMargins, 120); });
-    window.addEventListener('resize', function () { clearTimeout(window.__cmpT); window.__cmpT = setTimeout(positionChangeMargins, 150); });
+    window.addEventListener('load', function () { setTimeout(positionChangeMargins, 150); setTimeout(positionChangeMargins, 600); setTimeout(positionChangeMargins, 1500); });
+    window.addEventListener('resize', debounced);
 })();
 </script>
