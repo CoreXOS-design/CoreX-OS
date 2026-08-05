@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Performance;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\Performance\AgencyPerformanceReportService;
+use App\Services\Performance\BuyerActivityService;
 use App\Services\Performance\Period;
 use App\Services\Performance\PeriodResolver;
 use App\Services\Performance\PerformanceScope;
@@ -17,7 +18,7 @@ use Illuminate\Http\Request;
  */
 class AgencyPerformanceReportController extends Controller
 {
-    public function index(Request $request, PeriodResolver $periods, AgencyPerformanceReportService $service)
+    public function index(Request $request, PeriodResolver $periods, AgencyPerformanceReportService $service, BuyerActivityService $buyers)
     {
         $user     = $request->user();
         $agencyId = $user?->effectiveAgencyId();
@@ -31,9 +32,48 @@ class AgencyPerformanceReportController extends Controller
         $scope  = new PerformanceScope((int) $agencyId, $branchId, $userId);
         $report = $service->build($scope, $period);
 
+        // AT-366-E — company-level buyer-activity summary (period-scoped).
+        $buyerActivity = $buyers->rollup($scope, $period);
+
         return view('performance.agency-report.index', [
             'report' => $report,
+            'buyer'  => [
+                'metrics'   => $buyerActivity['metrics'],
+                'aggregate' => $buyerActivity['company'],
+            ],
             'preset' => $preset,
+            'presets' => PeriodResolver::PRESETS,
+        ]);
+    }
+
+    /**
+     * AT-366-D — one branch's drill-down: the branch's rolled-up metrics with
+     * prior-period trend + the agents attributed to it (point-in-time). The
+     * {branch} segment is a numeric branch id or the 'unassigned' sentinel.
+     */
+    public function branch(Request $request, string $branch, PeriodResolver $periods, AgencyPerformanceReportService $service, BuyerActivityService $buyers)
+    {
+        $actor    = $request->user();
+        $agencyId = $actor?->effectiveAgencyId();
+        abort_if(!$agencyId, 403, 'No agency context for the performance report.');
+        abort_unless($branch === 'unassigned' || ctype_digit($branch), 404);
+
+        [$period, $preset] = $this->resolvePeriod($request, $periods);
+
+        $report = $service->branchJourney((int) $agencyId, $branch, $period);
+        abort_if($report['branch'] === null, 404);
+
+        // AT-366-E — this branch's buyer-activity summary, pulled from the same
+        // company rollup so it reconciles with the company total.
+        $buyerActivity = $buyers->rollup(new PerformanceScope((int) $agencyId), $period);
+
+        return view('performance.agency-report.branch', [
+            'report'  => $report,
+            'buyer'   => [
+                'metrics'   => $buyerActivity['metrics'],
+                'aggregate' => $buyerActivity['branches'][$branch]['metrics'] ?? null,
+            ],
+            'preset'  => $preset,
             'presets' => PeriodResolver::PRESETS,
         ]);
     }
@@ -42,7 +82,7 @@ class AgencyPerformanceReportController extends Controller
      * AT-366-C — one agent's journey: every metric for the period paired with its
      * prior-period value (trend). Agency-scoped; owners / out-of-agency 404.
      */
-    public function agent(Request $request, User $user, PeriodResolver $periods, AgencyPerformanceReportService $service)
+    public function agent(Request $request, User $user, PeriodResolver $periods, AgencyPerformanceReportService $service, BuyerActivityService $buyers)
     {
         $actor    = $request->user();
         $agencyId = $actor?->effectiveAgencyId();
@@ -54,8 +94,12 @@ class AgencyPerformanceReportController extends Controller
         $journey = $service->agentJourney((int) $agencyId, (int) $user->id, $period);
         abort_if($journey['agent'] === null, 404);
 
+        // AT-366-E — the agent's full period-scoped buyer-activity picture (Q7).
+        $buyerActivity = $buyers->agentDetail((int) $agencyId, (int) $user->id, $period);
+
         return view('performance.agency-report.agent', [
             'journey' => $journey,
+            'buyer'   => $buyerActivity,
             'preset'  => $preset,
             'presets' => PeriodResolver::PRESETS,
         ]);
