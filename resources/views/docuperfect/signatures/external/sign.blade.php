@@ -1490,6 +1490,21 @@ function externalSign() {
                 this.$nextTick(() => this.initCanvas());
             });
 
+            // WET-INK per-change initial (recipient / authoriser) — clicking YOUR OWN slot in a change's
+            // initial row opens the SAME capture modal; applySignature applies your REAL initial to that slot.
+            document.addEventListener('corex-open-change-initial', (e) => {
+                e.preventDefault();
+                const d = e.detail || {};
+                this.activeMarker = {
+                    type: 'initial', assigned_party: this.signerRole || 'signer', label: 'Initial this change',
+                    page_number: '', _isChangeInitial: true, _changeId: d.changeId, _partyKey: d.partyKey,
+                };
+                this.captureMode = 'draw';
+                this.typedName = this.signerName ? this.signerName.split(' ').map(n => n.charAt(0).toUpperCase()).join('') : '';
+                this.showSignModal = true;
+                this.$nextTick(() => this.initCanvas());
+            });
+
             // For web templates: split into A4 pages, convert editable field spans to inputs, make sig elements interactive
             // Only init if the document container is already visible (signingMethod already set)
             if (this.isWebTemplate && this.signingMethod === 'electronic') {
@@ -2642,6 +2657,19 @@ function externalSign() {
                 this.showSignModal = false;
                 this.applying = false;
                 if (ok) this.updateIncompleteCount();
+                return;
+            }
+
+            // WET-INK per-change initial — apply this recipient's REAL captured initial to their row slot.
+            if (this.activeMarker._isChangeInitial) {
+                const ok = await window.__corexApplyChangeInitial(
+                    this.activeMarker._changeId,
+                    this.activeMarker._partyKey,
+                    signatureData,
+                );
+                this.showSignModal = false;
+                this.applying = false;
+                if (ok) window.location.reload();
                 return;
             }
 
