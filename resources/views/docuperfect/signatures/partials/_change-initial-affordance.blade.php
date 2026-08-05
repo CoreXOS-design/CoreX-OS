@@ -59,8 +59,19 @@
             });
         });
     }
+    // Expose for surfaces that render the document body LATE (e.g. the external ceremony only paints the
+    // doc — and therefore the change-initial rows — AFTER the recipient picks "Sign Electronically").
+    window.__corexWireChangeInitials = wire;
     if (document.readyState !== 'loading') setTimeout(wire, 800);
     else document.addEventListener('DOMContentLoaded', function () { setTimeout(wire, 800); });
+    // Re-wire whenever new .cir-slot rows appear (post-method-choice pagination, re-render). wire() is
+    // idempotent (data-cirWired guard), so a debounced sweep is safe and keeps the initial row actionable
+    // on every surface — the universal contract, not a per-screen bootstrap.
+    try {
+        var _cirT;
+        new MutationObserver(function () { clearTimeout(_cirT); _cirT = setTimeout(wire, 200); })
+            .observe(document.body, { childList: true, subtree: true });
+    } catch (e) {}
 })();
 </script>
 @endif
