@@ -102,6 +102,41 @@ final class WetInkClauseEditTest extends TestCase
         $this->assertFalse($bad['ok']);
     }
 
+    public function test_selection_edit_strikes_exact_highlighted_text_with_margin_initials(): void
+    {
+        [$tpl, $doc, $actor] = $this->seedReturnedDocWithClauses();
+        // add a second party so the margin block has >1 slot
+        \App\Models\Docuperfect\SignatureRequest::create([
+            'signature_template_id' => $tpl->id, 'party_role' => 'seller', 'role_index' => 1,
+            'signer_name' => 'Petro Nel', 'signer_email' => 's@x.test', 'token' => Str::random(48),
+            'token_expires_at' => now()->addDays(30), 'status' => 'pending', 'signing_order' => 2,
+        ]);
+        \App\Models\Docuperfect\SignatureRequest::create([
+            'signature_template_id' => $tpl->id, 'party_role' => 'agent', 'role_index' => 1,
+            'signer_name' => 'Rialette Bloem', 'signer_email' => 'a@x.test', 'token' => Str::random(48),
+            'token_expires_at' => now()->addDays(30), 'status' => 'completed', 'completed_at' => now(), 'signing_order' => 1,
+        ]);
+
+        // Highlight a mid-clause phrase — no clause number.
+        $r = app(\App\Services\Docuperfect\SelectionEditService::class)
+            ->strikeSelection($tpl, 'seven percent (7%)', 'shall be ', '.', 'five percent (5%)', $actor);
+        $this->assertTrue($r['ok']);
+
+        $html = $doc->fresh()->web_template_data['merged_html'];
+        $this->assertStringContainsString('change-del', $html);
+        $this->assertStringContainsString('seven percent (7%)', $html, 'struck old text stays visible');
+        $this->assertStringContainsString('five percent (5%)', $html, 'replacement inserted inline');
+        $this->assertStringContainsString('change-margin', $html, 'margin initial block dropped');
+        $this->assertStringContainsString('Petro Nel', $html, 'margin has a slot for every party');
+        $this->assertStringContainsString('Rialette Bloem', $html);
+        $this->assertStringContainsString('data-strikethrough-applied="1"', $html, 'cc1 defers to this mark');
+
+        // Missing highlighted text is refused (not silently mis-placed).
+        $bad = app(\App\Services\Docuperfect\SelectionEditService::class)
+            ->strikeSelection($tpl->fresh(), 'text that is not in the document', '', '', 'x', $actor);
+        $this->assertFalse($bad['ok']);
+    }
+
     // ── Helper ──
 
     /** @return array{0: SignatureTemplate, 1: Document, 2: User} */
