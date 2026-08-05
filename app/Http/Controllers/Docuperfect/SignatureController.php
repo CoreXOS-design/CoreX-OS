@@ -2884,6 +2884,40 @@ class SignatureController extends Controller
     }
 
     /**
+     * WET-INK SELECTION edit (Johan 2026-08-05, correct UX) — the agent HIGHLIGHTS the exact word / phrase
+     * / clause in the rendered document and provides the replacement. No clause number: the selection IS
+     * the target. Strikes the highlighted span inline + inserts the replacement + margin initial block.
+     */
+    public function editSelection(Request $request, Document $document)
+    {
+        $user = $request->user();
+        $this->authorizeDocument($user, $document);
+
+        $validated = $request->validate([
+            'selected'    => ['required', 'string', 'max:8000'],
+            'replacement' => ['required', 'string', 'max:8000'],
+            'prefix'      => ['nullable', 'string', 'max:200'],
+            'suffix'      => ['nullable', 'string', 'max:200'],
+        ]);
+
+        $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+        if (! $this->signatureService->isReEditState($template)) {
+            return response()->json(['ok' => false, 'error' => 'This document is not in an editable state.'], 422);
+        }
+
+        $result = app(\App\Services\Docuperfect\SelectionEditService::class)->strikeSelection(
+            $template,
+            $validated['selected'],
+            $validated['prefix'] ?? '',
+            $validated['suffix'] ?? '',
+            $validated['replacement'],
+            $user,
+        );
+
+        return response()->json($result, empty($result['ok']) ? 422 : 200);
+    }
+
+    /**
      * WET-INK per-change INITIAL — the acting party (agent / authoriser) initials ONE change by its
      * data-change-id. Writes the shared change_initials map (cc1 contract) so "Initialed by {name}" shows
      * on that change. Prior signatures stay; a per-change consent, not a re-sign.
