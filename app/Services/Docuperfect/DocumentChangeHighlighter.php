@@ -143,6 +143,15 @@ class DocumentChangeHighlighter
             }
             } // end if ($baseDom !== null)
 
+            // ---- FULL-WIDTH INITIAL ROW (Johan redesign 2026-08-05): the squashed right-margin block is
+            // dropped. Convert every inline margin block (cc6 `.change-margin` + cc1 `.change-margin-initials`)
+            // into a clean full-content-width TABLE row placed BELOW the changed clause — one labelled slot
+            // per party, evenly laid out, never squashed/overflowing (table-layout:fixed works in dompdf AND
+            // the browser, no float/flex/JS). Struck text + insertion stay inline. ----
+            if ($this->relocateChangeRows($curDom, $curX, $initials, $parties)) {
+                $changed = true;
+            }
+
             // ---- Absorb cc6's PRE-AUTHORED marks (ClauseEditService bakes struck clauses + OC cross-refs
             // straight into merged_html using OUR classes + data-change-id). They arrive already styled by
             // our CSS but WITHOUT an initialed tag / appendix row — and if they are the ONLY changes, our
@@ -671,6 +680,156 @@ class DocumentChangeHighlighter
         return $folded;
     }
 
+    /**
+     * Convert every inline margin block into a FULL-WIDTH initial ROW placed after the change's clause.
+     * Handles cc6's `.change-margin` (baked by SelectionEditService) AND cc1's `.change-margin-initials`.
+     * The row is a `table-layout:fixed` table → columns spread evenly across the full content width, never
+     * squash or overflow, and it renders identically in dompdf and the browser (no float/flex/JS).
+     */
+    private function relocateChangeRows(\DOMDocument $dom, DOMXPath $x, array $initials, array $parties): bool
+    {
+        $q = $x->query('//*[contains(concat(" ",normalize-space(@class)," ")," change-margin ") or contains(concat(" ",normalize-space(@class)," ")," change-margin-initials ")]');
+        if ($q === false || $q->length === 0) {
+            return false;
+        }
+        $blocks = [];
+        foreach ($q as $b) {
+            if ($b instanceof DOMElement) {
+                $blocks[] = $b;
+            }
+        }
+        $moved = false;
+        foreach ($blocks as $block) {
+            $changeId = $block->getAttribute('data-change-id');
+            // Gather the party slots (both cc6 `.cm-slot` and cc1 `.change-initial-slot` shapes).
+            $slots = [];
+            foreach ($x->query('.//*[contains(concat(" ",normalize-space(@class)," ")," cm-slot ") or contains(concat(" ",normalize-space(@class)," ")," change-initial-slot ")]', $block) as $slot) {
+                if (! $slot instanceof DOMElement) {
+                    continue;
+                }
+                $key  = $slot->getAttribute('data-party-key') ?: $slot->getAttribute('data-party');
+                $name = $slot->getAttribute('data-party-name');
+                if ($name === '') {
+                    foreach ($x->query('.//*[contains(@class,"cm-name")]', $slot) as $nm) {
+                        $name = trim($nm->textContent);
+                        break;
+                    }
+                }
+                // any initial cc6 already baked into the ink (fillMarginSlot), stripped of placeholders
+                $ink = '';
+                foreach ($x->query('.//*[contains(@class,"cm-ink") or contains(@class,"cis-ink")]', $slot) as $ik) {
+                    $t = trim(str_replace(['▢', '____', '—'], '', $ik->textContent));
+                    if ($t !== '') {
+                        $ink = $t;
+                    }
+                    break;
+                }
+                if ($key !== '') {
+                    $slots[] = ['key' => $key, 'name' => $name, 'ink' => $ink];
+                }
+            }
+            if (empty($slots) && ! empty($parties)) {
+                $slots = array_map(fn ($p) => ['key' => $p['key'] ?? '', 'name' => $p['name'] ?? '', 'ink' => ''], $parties);
+            }
+            if (empty($slots)) {
+                continue;
+            }
+            $row = $this->buildInitialRow($dom, $changeId, $slots, $initials);
+            // Find the change anchor (struck span) → its nearest block ancestor is the clause.
+            $anchor = null;
+            foreach ($x->query('//*[@data-change-id=' . $this->xpathLit($changeId) . ' and (contains(@class,"change-inline") or contains(@class,"change-anchor"))]') as $a) {
+                if ($a instanceof DOMElement) {
+                    $anchor = $a;
+                    break;
+                }
+            }
+            $blockAnc = $this->nearestBlock($anchor ?? $block);
+            if ($block->parentNode) {
+                $block->parentNode->removeChild($block);   // drop the old inline margin block
+            }
+            if ($blockAnc instanceof DOMElement && $blockAnc->parentNode) {
+                $blockAnc->parentNode->insertBefore($row, $blockAnc->nextSibling);
+                $moved = true;
+            }
+        }
+        return $moved;
+    }
+
+    /** Build the full-width initial-row table: one labelled slot per party (RoleLabel · Name + ink line). */
+    private function buildInitialRow(\DOMDocument $dom, string $changeId, array $slots, array $initials): DOMElement
+    {
+        $table = $dom->createElement('table');
+        $table->setAttribute('class', 'change-initial-row');
+        $table->setAttribute('data-change-id', $changeId);
+        $tr = $dom->createElement('tr');
+        $table->appendChild($tr);
+        foreach ($slots as $s) {
+            $key  = (string) $s['key'];
+            $name = trim((string) $s['name']);
+            $td = $dom->createElement('td');
+            $td->setAttribute('class', 'cir-slot');
+            $td->setAttribute('data-party-key', $key);
+
+            $lbl = $dom->createElement('span');
+            $lbl->setAttribute('class', 'cir-label');
+            $label = $this->roleLabel($key) . ($name !== '' ? ': ' . $name : '');
+            $lbl->appendChild($dom->createTextNode($label));
+            $td->appendChild($lbl);
+
+            // Applied initial: authoritative change_initials[id][key] wins; else any ink cc6 already baked.
+            $info = $this->initialFor($initials, $changeId, $key);
+            $ink = $info !== null ? $this->initialsOf((string) ($info['name'] ?? '')) : (string) $s['ink'];
+            $inkSpan = $dom->createElement('span');
+            $inkSpan->setAttribute('class', 'cir-ink' . ($ink === '' ? ' cir-blank' : ''));
+            $inkSpan->appendChild($dom->createTextNode($ink !== '' ? $ink : "\u{00A0}"));
+            $td->appendChild($inkSpan);
+
+            $tr->appendChild($td);
+        }
+        return $table;
+    }
+
+    /** Role label from a party key: seller_1 → Seller, agent → Agent, supervisor → Authoriser. */
+    private function roleLabel(string $key): string
+    {
+        $role = preg_replace('/_\d+$/', '', strtolower($key));
+        return match ($role) {
+            'agent'                        => 'Agent',
+            'supervisor', 'supervisor_final' => 'Authoriser',
+            'seller'                       => 'Seller',
+            'buyer'                        => 'Buyer',
+            'lessor', 'landlord'           => 'Lessor',
+            'lessee', 'tenant'             => 'Lessee',
+            'witness'                      => 'Witness',
+            default                        => ucwords(str_replace('_', ' ', $role)),
+        };
+    }
+
+    /** Nearest block-level ancestor (the clause/paragraph) of a node. */
+    private function nearestBlock(\DOMNode $node): ?DOMElement
+    {
+        $anc = $node->parentNode;
+        while ($anc instanceof DOMElement) {
+            if (in_array(strtolower($anc->nodeName), ['p', 'div', 'li', 'td', 'section', 'blockquote'], true)) {
+                return $anc;
+            }
+            $anc = $anc->parentNode;
+        }
+        return $node instanceof DOMElement ? $node : null;
+    }
+
+    /** XPath string literal safe for quotes. */
+    private function xpathLit(string $v): string
+    {
+        if (! str_contains($v, "'")) {
+            return "'{$v}'";
+        }
+        if (! str_contains($v, '"')) {
+            return "\"{$v}\"";
+        }
+        return "concat('" . str_replace("'", "',\"'\",'", $v) . "')";
+    }
+
     /** Human-friendly label for a field key: "seller_phone__r2" → "Seller phone (party 2)". */
     private function prettyFieldLabel(string $key): string
     {
@@ -742,14 +901,18 @@ class DocumentChangeHighlighter
             . '.change-initialed{margin-left:4px;padding:0 5px;background:#dcfce7;color:#166534;border-radius:3px;'
             . 'font-size:0.68rem;font-weight:600;white-space:nowrap;}'
             . '.change-anchor{position:relative;}'
-            // Right-margin initial block per change (wet-ink): floats to the right edge so it sits in the margin.
-            . '.change-margin-initials{float:right;clear:right;margin:0 0 3px 10px;padding:2px 4px;border:1px solid #94a3b8;'
-            . 'border-radius:4px;background:#f8fafc;white-space:nowrap;line-height:1.1;}'
-            . '.change-initial-slot{display:inline-block;margin:0 3px;text-align:center;vertical-align:top;}'
-            . '.cis-label{display:block;font-size:0.5rem;color:#64748b;text-transform:uppercase;letter-spacing:.02em;}'
-            . '.cis-ink{display:block;min-width:26px;font-weight:700;font-size:0.72rem;color:#334155;border-bottom:1px solid #94a3b8;}'
-            . '.cis-ink.cis-done{color:#166534;border-bottom-color:#166534;}'
-            . '@media print{.change-del,.change-ins,.change-xref,.change-initialed,.change-margin-initials,.cis-ink{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}'
+            // FULL-WIDTH INITIAL ROW (Johan redesign): a fixed-layout table so slots spread evenly across the
+            // full content width — never squashed, never off-page — in dompdf AND the browser.
+            . '.change-initial-row{width:100%;max-width:100%;border-collapse:collapse;table-layout:fixed;'
+            . 'margin:6px 0 16px 0;border:1px solid #cbd5e1;background:#f8fafc;page-break-inside:avoid;}'
+            . '.change-initial-row td.cir-slot{text-align:center;padding:6px 8px;vertical-align:bottom;'
+            . 'border-right:1px solid #e2e8f0;overflow:hidden;}'
+            . '.change-initial-row td.cir-slot:last-child{border-right:0;}'
+            . '.cir-label{display:block;font-size:0.6rem;color:#475569;white-space:nowrap;overflow:hidden;'
+            . 'text-overflow:ellipsis;margin-bottom:6px;}'
+            . '.cir-ink{display:block;min-height:18px;font-weight:700;font-size:0.82rem;color:#166534;'
+            . 'border-bottom:1.5px solid #94a3b8;padding-bottom:1px;}'
+            . '@media print{.change-del,.change-ins,.change-xref,.change-initialed,.change-initial-row,.cir-ink{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}'
             . '</style>';
     }
 }
