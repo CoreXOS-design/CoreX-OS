@@ -799,11 +799,16 @@ class ContactController extends Controller
 
         // AT-321-C — FULL contact audit trail for the History tab, paginated (no
         // cap). CSV export above is the unlimited one-shot. Page links keep tab=history.
+        // AT-321-C — History tab "Include system trail" toggle. Default OFF shows
+        // user changes only; the db-trigger backstop rows (source='db-trigger')
+        // are hidden unless the toggle is ticked.
+        $includeSystem = request()->boolean('include_system');
         $fullAuditLog = \App\Models\ContactAuditLog::where('contact_id', $contact->id)
             ->with('user')
+            ->when(!$includeSystem, fn ($q) => $q->where(fn ($w) => $w->whereNull('source')->orWhere('source', '<>', 'db-trigger')))
             ->orderByDesc('created_at')
             ->paginate(50, ['*'], 'history')
-            ->appends(['tab' => 'history']);
+            ->appends(array_filter(['tab' => 'history', 'include_system' => $includeSystem ? 1 : null]));
 
         // AT-267 — may the current user EDIT this contact? An assistant may VIEW a colleague's
         // contact but only EDIT the agent's own — OR an unowned contact (no linked agent). The view
@@ -813,8 +818,9 @@ class ContactController extends Controller
         // MERGE NOTE (QA2 -> Staging, 2026-07-26): both sides added a view variable here —
         // AT-321-C's $fullAuditLog and AT-267's $canEdit. They are independent; both are kept.
         // Contact-details Phase 2 adds $contactIdentifierLabels; Phase 4 adds the
-        // Recent-Sends panel vars ($recentSends, $sendAuditLog, $sendAuditActors).
-        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactIdentifierLabels', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent', 'fullAuditLog', 'recentSends', 'sendAuditLog', 'sendAuditActors', 'canEdit'));
+        // Recent-Sends panel vars ($recentSends, $sendAuditLog, $sendAuditActors);
+        // AT-321 audit adds $includeSystem (History-tab system-trail toggle).
+        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactIdentifierLabels', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent', 'fullAuditLog', 'includeSystem', 'recentSends', 'sendAuditLog', 'sendAuditActors', 'canEdit'));
     }
 
     public function checkDuplicate(Request $request)
