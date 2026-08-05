@@ -464,24 +464,30 @@ step 9 "signal + restart queue workers"
 php artisan queue:restart
 ok "Laravel queue:restart signal sent"
 
-# 9b. Host-level worker manager — auto-detect. The repo references two
-# candidate supervisord program names (hfc-queue, corex-worker-live) and no
-# systemd unit files. We try supervisord first, then systemd, then fall
-# back to queue:restart only (with a warning).
+# 9b. Host-level worker manager — auto-detect. AT-357: the box's supervisord
+# is SHARED across environments (corex-worker-live x2, corex-worker-live-mail,
+# corex-worker-live-matching, corex-worker-staging all show up in one
+# `supervisorctl status`), so the old broad "corex-worker" prefix match could
+# pick ANY of them via `sort -u | head -1` — a staging deploy restarting
+# live's worker, and even on live, only the alphabetically-first pool ever
+# got restarted (mail/matching silently kept running old code). Match ONLY
+# this environment's own pool name(s), and restart every match, not just one.
 WORKER_MECHANISM=""
 if command -v supervisorctl >/dev/null 2>&1; then
-    SUPER_PROG=$(sudo supervisorctl status 2>/dev/null \
-        | awk '/^(hfc-queue|corex-worker)/ {print $1}' \
-        | cut -d: -f1 | sort -u | head -1 || true)
-    if [[ -n "$SUPER_PROG" ]]; then
-        sudo supervisorctl restart "${SUPER_PROG}:*" | tee -a "$LOG_FILE"
-        WORKER_MECHANISM="supervisord program ${SUPER_PROG}"
+    SUPER_PROGS=$(sudo supervisorctl status 2>/dev/null \
+        | awk '/^corex-worker-live[:-]/ {print $1}' \
+        | cut -d: -f1 | sort -u || true)
+    if [[ -n "$SUPER_PROGS" ]]; then
+        while IFS= read -r prog; do
+            sudo supervisorctl restart "${prog}:*" | tee -a "$LOG_FILE"
+        done <<< "$SUPER_PROGS"
+        WORKER_MECHANISM="supervisord programs: $(echo "$SUPER_PROGS" | tr '\n' ' ')"
     fi
 fi
 if [[ -z "$WORKER_MECHANISM" ]] && command -v systemctl >/dev/null 2>&1; then
     SYSTEMD_UNIT=$(sudo systemctl list-units --type=service --no-pager --plain 2>/dev/null \
         | awk '{print $1}' \
-        | grep -E '^(hfc-queue|corex-worker)[a-z0-9.-]*\.service$' \
+        | grep -E '^corex-worker-live[a-z0-9.-]*\.service$' \
         | head -1 || true)
     if [[ -n "$SYSTEMD_UNIT" ]]; then
         sudo systemctl restart "$SYSTEMD_UNIT"
