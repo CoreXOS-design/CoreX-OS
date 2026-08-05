@@ -114,7 +114,9 @@
                             },
                             inOwnUi(node) {
                                 const el = node && (node.nodeType === 1 ? node : node.parentElement);
-                                return !!(el && el.closest('[data-strikethrough-applied="1"], .change-margin, .wetink-initial-btn, .sel-sticky-bar, [x-data], input, textarea, button'));
+                                // Only reject selections inside our OWN wet-ink UI or an already-struck mark —
+                                // NOT the whole page (the signing screen is itself an Alpine [x-data] root).
+                                return !!(el && el.closest('[data-strikethrough-applied="1"], .change-margin, .wetink-initial-btn, .sel-sticky-bar, input, textarea'));
                             },
                             capture() {
                                 const sel = window.getSelection();
