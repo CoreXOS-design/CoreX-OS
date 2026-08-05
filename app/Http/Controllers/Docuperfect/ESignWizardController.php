@@ -1511,6 +1511,16 @@ class ESignWizardController extends Controller
                     is_array($viewData['_fill_review_overlay'] ?? null) ? $viewData['_fill_review_overlay'] : [],
                 );
 
+            // Fill & Review strike-outs — replay the agent's creation-time strikes onto the live preview so
+            // what they see is what the signed document carries (same universal engine as the sign screen).
+            if ($flow) {
+                $previewHtml = $this->replayBodyStrikes(
+                    $previewHtml,
+                    $stepData,
+                    $this->buildFillReviewSigningParties($stepData, $template, $user),
+                );
+            }
+
             return response()->json([
                 'render_type'   => 'web',
                 'blade_view'    => $template->blade_view,
@@ -1570,6 +1580,113 @@ class ESignWizardController extends Controller
         $flow->save();
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * FILL & REVIEW strike-out (Johan 2026-08-05) — the agent striking out an unwanted section AT CREATION
+     * time. Stores the strike (highlighted text + context + mode) on the flow's step_data so it is replayed,
+     * via the SAME universal engine (SelectionEditService::applyStrikeToHtml), onto every compose — the live
+     * preview AND the final signed document. 'inline' = strike + reword; 'strike' = pure removal. The
+     * full-width per-party initial row is authored with the strike (all parties initial the change).
+     */
+    public function bodyStrike(Request $request, $flowId)
+    {
+        $user = $request->user();
+        $flow = Flow::where('user_id', $user->id)->findOrFail($flowId);
+
+        $v = $request->validate([
+            'selected'    => ['required', 'string', 'max:8000'],
+            'prefix'      => ['nullable', 'string', 'max:200'],
+            'suffix'      => ['nullable', 'string', 'max:200'],
+            'replacement' => ['nullable', 'string', 'max:8000', 'required_unless:mode,strike'],
+            'mode'        => ['nullable', 'in:inline,strike'],
+        ]);
+        $mode = ($v['mode'] ?? 'inline') === 'strike' ? 'strike' : 'inline';
+
+        $stepData = $flow->step_data ?? [];
+        $stepData['fill_review'] = $stepData['fill_review'] ?? [];
+        $strikes = $stepData['fill_review']['body_strikes'] ?? [];
+        $strikes[] = [
+            'selected'    => trim($v['selected']),
+            'prefix'      => $v['prefix'] ?? '',
+            'suffix'      => $v['suffix'] ?? '',
+            'replacement' => $mode === 'strike' ? '' : ($v['replacement'] ?? ''),
+            'mode'        => $mode,
+            'at'          => now()->toIso8601String(),
+        ];
+        $stepData['fill_review']['body_strikes'] = $strikes;
+        $flow->step_data = $stepData;
+        $flow->save();
+
+        return response()->json(['ok' => true, 'count' => count($strikes)]);
+    }
+
+    /**
+     * Replay the flow's stored Fill & Review strike-outs onto a composed HTML body. Reuses the sign-screen
+     * amend engine verbatim, so a creation-time strike renders identically to a returned-doc strike (struck
+     * <del> + optional <ins> + the per-party initial row). Idempotent: applyStrikeToHtml skips text already
+     * inside a change mark, so re-composing never double-strikes. Non-fatal — a strike that no longer locates
+     * (the underlying text changed) is simply skipped.
+     */
+    private function replayBodyStrikes(string $html, array $stepData, array $partiesForSigning): string
+    {
+        $strikes = $stepData['fill_review']['body_strikes'] ?? [];
+        if (empty($strikes) || ! is_array($strikes) || trim($html) === '') {
+            return $html;
+        }
+        $parties = $this->fillReviewInitialParties($partiesForSigning);
+        $svc = app(\App\Services\Docuperfect\SelectionEditService::class);
+        foreach ($strikes as $s) {
+            if (! is_array($s)) {
+                continue;
+            }
+            $out = $svc->applyStrikeToHtml(
+                $html,
+                (string) ($s['selected'] ?? ''),
+                (string) ($s['prefix'] ?? ''),
+                (string) ($s['suffix'] ?? ''),
+                (string) ($s['replacement'] ?? ''),
+                (string) ($s['mode'] ?? 'inline'),
+                $parties,
+            );
+            if ($out !== null) {
+                $html = $out['html'];
+            }
+        }
+        return $html;
+    }
+
+    /** Map the send-path party list [{role, name, display}] → the initial-row party set [{key, name}] (role_N for duplicates). */
+    private function fillReviewInitialParties(array $partiesForSigning): array
+    {
+        $counts = [];
+        $out = [];
+        foreach ($partiesForSigning as $p) {
+            $role = (string) ($p['role'] ?? 'party');
+            $counts[$role] = ($counts[$role] ?? 0) + 1;
+            $key = $counts[$role] > 1 ? $role . '_' . $counts[$role] : $role;
+            $out[] = ['key' => $key, 'name' => (string) ($p['display'] ?? $p['name'] ?? ucfirst($role))];
+        }
+        return $out;
+    }
+
+    /** The signing-party set for a flow at Fill & Review: the agent + each recipient with its concrete role. */
+    private function buildFillReviewSigningParties(array $stepData, Template $template, $user): array
+    {
+        $propSource = $stepData['property']['_property_source'] ?? null;
+        $isSalesContext = ($propSource === 'properties')
+            || (! $propSource && str_contains(strtolower($template->name ?? ''), 'sell'));
+        $parties = [['role' => 'agent', 'name' => $user->name, 'display' => $user->name]];
+        foreach ($stepData['recipients']['recipients'] ?? [] as $r) {
+            $role = $r['role'] ?? 'party';
+            if ($role === 'owner_party') {
+                $role = $isSalesContext ? 'seller' : 'landlord';
+            } elseif ($role === 'acquiring_party') {
+                $role = $isSalesContext ? 'buyer' : 'tenant';
+            }
+            $parties[] = ['role' => $role, 'name' => $r['name'] ?? ucfirst($role), 'display' => $r['name'] ?? ucfirst($role)];
+        }
+        return $parties;
     }
 
     /**
@@ -2166,6 +2283,14 @@ class ESignWizardController extends Controller
 
             // Store as merged_html so SignatureController uses it directly
             $webTemplateData['merged_html'] = $styles . $bodyHtml;
+
+            // Fill & Review strike-outs — bake the agent's creation-time strikes into the FINAL document body
+            // so they persist onto the signed document (identical engine to the preview + the sign-screen amend).
+            $webTemplateData['merged_html'] = $this->replayBodyStrikes(
+                $webTemplateData['merged_html'],
+                $stepData,
+                $partiesForSigning,
+            );
 
             // Store field_mappings with editable_by so the signing view knows
             // which fields each party role can edit (CDS templates only)

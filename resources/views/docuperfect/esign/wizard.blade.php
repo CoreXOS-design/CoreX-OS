@@ -1087,7 +1087,63 @@
              @mousedown.prevent="startResize($event)"></div>
 
         {{-- RIGHT PANEL: Document Preview --}}
-        <div class="flex-1 overflow-y-auto p-6 min-w-0" style="background: var(--bg);">
+        <div class="flex-1 overflow-y-auto p-6 min-w-0" style="background: var(--bg);"
+             @mouseup="onPreviewStrikeSelect()">
+            {{-- Fill & Review strike-out hint (Step 5, web templates) --}}
+            <template x-if="currentStep === 5 && previewRenderType === 'web'">
+                <div class="mb-3 rounded-lg border px-3 py-2 text-xs flex items-center gap-2"
+                     style="border-color: var(--border); background: var(--surface-2); color: var(--text-muted);">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4"><path d="M2.695 14.762l-1.262 3.155a.5.5 0 00.65.65l3.155-1.262a4 4 0 001.343-.885L17.5 5.501a2.121 2.121 0 00-3-3L3.58 13.419a4 4 0 00-.885 1.343z"/></svg>
+                    Highlight any section in the document to strike it out or reword it — every party initials the change.
+                </div>
+            </template>
+
+            {{-- Strike-out modal (same inline/strike engine as the sign screen), teleported to body --}}
+            <template x-teleport="body">
+            <div x-show="strikeSel.open" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+                 style="background: rgba(0,0,0,.6);" @keydown.escape.window="strikeSel.open=false" @click="strikeSel.open=false">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden" @click.stop>
+                    <div class="px-6 py-4 border-b border-slate-200" style="background:#0b2a4a;">
+                        <h3 class="text-white font-semibold text-lg">Strike out / amend the highlighted text</h3>
+                    </div>
+                    <div class="p-6 space-y-4">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-600 mb-1">Highlighted text — will be struck through</label>
+                            <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm" style="text-decoration:line-through; color:#6b7280;" x-text="strikeSel.selected || 'Highlight text in the document first.'"></div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-600 mb-1">How should this change appear?</label>
+                            <div class="flex gap-2">
+                                <button type="button" @click="strikeSel.mode='inline'"
+                                        class="flex-1 rounded-lg border px-3 py-2 text-left text-xs"
+                                        :class="strikeSel.mode==='inline' ? 'border-[#0b2a4a] bg-[#eef4fb] font-semibold text-[#0b2a4a]' : 'border-slate-200 text-slate-600'">
+                                    Reword inline
+                                    <span class="block font-normal text-[11px] text-slate-500">Strike the text and insert new wording in its place.</span>
+                                </button>
+                                <button type="button" @click="strikeSel.mode='strike'"
+                                        class="flex-1 rounded-lg border px-3 py-2 text-left text-xs"
+                                        :class="strikeSel.mode==='strike' ? 'border-[#b91c1c] bg-[#fef2f2] font-semibold text-[#b91c1c]' : 'border-slate-200 text-slate-600'">
+                                    Strike out (remove)
+                                    <span class="block font-normal text-[11px] text-slate-500">No replacement — e.g. remove an unwanted alternative clause.</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div x-show="strikeSel.mode!=='strike'">
+                            <label class="block text-xs font-medium text-slate-600 mb-1">Replacement text</label>
+                            <textarea x-model="strikeSel.replacement" rows="3" class="w-full rounded-lg border-slate-300 text-sm px-3 py-2" placeholder="The new wording…"></textarea>
+                        </div>
+                        <p class="text-xs text-slate-500">A full-width initial row for every party is dropped in under that clause — all parties initial the change on the signed document.</p>
+                        <p x-show="strikeSel.err" x-text="strikeSel.err" class="text-xs text-red-600"></p>
+                        <div class="flex items-center justify-end gap-3 pt-2">
+                            <button type="button" @click="strikeSel.open=false" class="px-4 py-2.5 text-sm text-slate-600 font-medium">Cancel</button>
+                            <button type="button" @click="submitPreviewStrike()" :disabled="strikeSel.busy" class="rounded-lg px-6 py-2.5 text-sm font-semibold text-white" style="background:#0b2a4a;">
+                                <span x-show="!strikeSel.busy">Apply strike-out</span><span x-show="strikeSel.busy" x-cloak>Applying…</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            </template>
 
             {{-- Web template preview (wrapped in CoreX document CSS).
                  Shared visual contract — Step 4 / Step 5 / signing view
@@ -1511,6 +1567,8 @@ function esignWizard() {
         categoryFilter: 'all',
         selectedTemplateId: serverTemplate?.id || null,
         templateName: serverTemplate?.name || '',
+        // Fill & Review strike-out (creation-time amend, same engine as the sign screen)
+        strikeSel: { open: false, selected: '', prefix: '', suffix: '', mode: 'inline', replacement: '', busy: false, err: '' },
         documentName: serverStepData?.document_name || '',
         allWebPacks: serverWebPacks,
         allPdfPacks: serverPdfPacks,
@@ -2267,6 +2325,45 @@ function esignWizard() {
             } catch (e) {
                 console.error('Failed to load template preview:', e);
             }
+        },
+
+        // ── Fill & Review strike-out — highlight a section in the preview and strike it (same engine as the sign screen) ──
+        onPreviewStrikeSelect() {
+            if (this.currentStep !== 5 || this.previewRenderType !== 'web') return;
+            const sel = window.getSelection();
+            if (!sel || sel.isCollapsed || !sel.rangeCount) { return; }
+            const text = sel.toString().replace(/\s+/g, ' ').trim();
+            if (!text) return;
+            const node = sel.anchorNode;
+            const host = node && (node.nodeType === 1 ? node : node.parentElement);
+            // Only accept selections INSIDE the document preview, and not inside an already-struck mark.
+            if (!host || !host.closest('.web-template-preview') || host.closest('[data-strikethrough-applied="1"]')) return;
+            const range = sel.getRangeAt(0);
+            let prefix = '', suffix = '';
+            try {
+                prefix = (range.startContainer.textContent || '').slice(Math.max(0, range.startOffset - 40), range.startOffset);
+                suffix = (range.endContainer.textContent || '').slice(range.endOffset, range.endOffset + 40);
+            } catch (e) {}
+            this.strikeSel = { open: true, selected: text, prefix, suffix, mode: 'inline', replacement: '', busy: false, err: '' };
+        },
+        async submitPreviewStrike() {
+            const s = this.strikeSel;
+            if (!s.selected.trim()) { s.err = 'Highlight the text to strike first.'; return; }
+            if (s.mode !== 'strike' && !s.replacement.trim()) { s.err = 'Enter the replacement text (or choose Strike out).'; return; }
+            if (!this.flowId) { s.err = 'Save the draft first, then strike.'; return; }
+            s.busy = true;
+            try {
+                const resp = await fetch('/docuperfect/esign/' + this.flowId + '/body-strike', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content },
+                    body: JSON.stringify({ selected: s.selected, prefix: s.prefix, suffix: s.suffix, mode: s.mode, replacement: s.mode === 'strike' ? '' : s.replacement.trim() }),
+                });
+                const data = await resp.json().catch(() => ({}));
+                if (resp.ok && data.ok) {
+                    this.strikeSel.open = false;
+                    await this.loadTemplatePreview(this.selectedTemplateId); // replay renders the strike onto the preview
+                } else { s.err = data.error || 'Could not apply the strike.'; s.busy = false; }
+            } catch (e) { s.err = 'Network error — please retry.'; s.busy = false; }
         },
 
         reapplyPreviewFields() {

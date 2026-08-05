@@ -118,7 +118,7 @@ final class SelectionEditService
                 ]);
             }
 
-            $this->authorStrike($dom, $node, $offset, $selected, $replacement, $changeId, $template, $mode, $ocNumber);
+            $this->authorStrike($dom, $node, $offset, $selected, $replacement, $changeId, $this->parties($template), $mode, $ocNumber);
 
             DocumentClauseStrikethrough::create([
                 'signature_template_id'    => $template->id,
@@ -153,6 +153,50 @@ final class SelectionEditService
         });
 
         return $result;
+    }
+
+    /**
+     * UNIVERSAL ENGINE (Johan 2026-08-05) — author a wet-ink strike onto an ARBITRARY composed HTML string,
+     * with the full-width per-party initial row, and return the new HTML. This is the SAME authoring the
+     * sign-screen amend uses (locate → authorStrike → row), decoupled from a persisted Document so the
+     * Fill & Review wizard can strike an unwanted clause AT CREATION time and replay the strikes at every
+     * compose. Modes: 'inline' (reword) and 'strike' (pure removal). 'reference' (Other Conditions) needs a
+     * persisted template and is not offered pre-send. Returns null when the selection can't be located (idempotent
+     * on an already-struck body — locate skips text inside an existing change mark).
+     *
+     * @param array<int, array{key:string, name:string}> $parties
+     * @return array{html:string, change_id:string, mode:string}|null
+     */
+    public function applyStrikeToHtml(string $html, string $selected, string $prefix, string $suffix, string $replacement, string $mode, array $parties): ?array
+    {
+        $mode = $mode === 'strike' ? 'strike' : 'inline';   // creation-time supports inline + pure strike
+        $selected = trim($selected);
+        if ($selected === '' || trim($html) === '') {
+            return null;
+        }
+        if ($mode !== 'strike' && trim($replacement) === '') {
+            return null;
+        }
+        if ($mode === 'strike') {
+            $replacement = '';
+        }
+
+        $dom = new \DOMDocument();
+        if (! @$dom->loadHTML(
+            '<?xml encoding="utf-8"?><div id="__root">' . $html . '</div>',
+            LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING,
+        )) {
+            return null;
+        }
+        $hit = $this->locate($dom, $selected, $prefix, $suffix);
+        if ($hit === null) {
+            return null; // not found (or already struck) — caller keeps the html unchanged
+        }
+        [$node, $offset] = $hit;
+        $changeId = substr(sha1($this->norm($prefix) . '|' . $selected . '|' . $replacement), 0, 12);
+        $this->authorStrike($dom, $node, $offset, $selected, $replacement, $changeId, $parties, $mode, null);
+
+        return ['html' => $this->innerHtml($dom, new \DOMXPath($dom)), 'change_id' => $changeId, 'mode' => $mode];
     }
 
     /** @return array{0: \DOMText, 1: int}|null */
@@ -209,7 +253,7 @@ final class SelectionEditService
     }
 
     /** Split $node at the selected span and author the inline strike + margin initial block in place. */
-    private function authorStrike(\DOMDocument $dom, \DOMText $node, int $offset, string $selected, string $replacement, string $changeId, SignatureTemplate $template, string $mode = 'inline', ?int $ocNumber = null): void
+    private function authorStrike(\DOMDocument $dom, \DOMText $node, int $offset, string $selected, string $replacement, string $changeId, array $parties, string $mode = 'inline', ?int $ocNumber = null): void
     {
         $full   = $node->nodeValue ?? '';
         $before = mb_substr($full, 0, $offset);
@@ -270,7 +314,7 @@ final class SelectionEditService
         // FULL-WIDTH INITIAL ROW — inserted as a block right after the clause/paragraph the change sits in.
         // One labeled slot per signing party; each party APPLIES THEIR REAL INITIAL in their own slot (the
         // slot opens the same capture modal the rest of the document uses). Replaces the squashed margin block.
-        $row = $this->buildInitialRow($dom, $changeId, $template);
+        $row = $this->buildInitialRow($dom, $changeId, $parties);
         $block = $this->closestBlock($wrap);
         if ($block instanceof \DOMElement && $block->parentNode) {
             if ($block->nextSibling) {
@@ -283,8 +327,12 @@ final class SelectionEditService
         }
     }
 
-    /** Build the full-width per-party initial row for a change. cc1 styling class family: change-initial-row. */
-    private function buildInitialRow(\DOMDocument $dom, string $changeId, SignatureTemplate $template): \DOMElement
+    /**
+     * Build the full-width per-party initial row for a change. cc1 styling class family: change-initial-row.
+     * @param array<int, array{key:string, name:string}> $parties the universal signing-party set (from a
+     *        template's requests on the sign screen, or the flow's recipients at Fill & Review).
+     */
+    private function buildInitialRow(\DOMDocument $dom, string $changeId, array $parties): \DOMElement
     {
         $row = $dom->createElement('div');
         $row->setAttribute('class', 'change-initial-row');
@@ -294,7 +342,7 @@ final class SelectionEditService
         $label->setAttribute('class', 'cir-label');
         $label->appendChild($dom->createTextNode('Initial this change:'));
         $row->appendChild($label);
-        foreach ($this->parties($template) as $party) {
+        foreach ($parties as $party) {
             $slot = $dom->createElement('span');
             $slot->setAttribute('class', 'cir-slot');
             $slot->setAttribute('data-change-id', $changeId);

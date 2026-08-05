@@ -344,6 +344,33 @@ final class WetInkClauseEditTest extends TestCase
         $this->assertGreaterThanOrEqual(1, (int) $wtd2['canonical_version']);
     }
 
+    public function test_apply_strike_to_html_authors_strike_plus_row_for_fill_and_review(): void
+    {
+        $svc = app(\App\Services\Docuperfect\SelectionEditService::class);
+        $html = '<div class="corex-document"><p>Commission is seven percent (7%) here.</p></div>';
+        $parties = [['key' => 'agent', 'name' => 'Angelique Venter'], ['key' => 'seller', 'name' => 'Petro Nel']];
+
+        // Inline reword — no Document needed (creation-time / wizard compose).
+        $r = $svc->applyStrikeToHtml($html, 'seven percent (7%)', 'is ', ' here', 'five percent (5%)', 'inline', $parties);
+        $this->assertNotNull($r);
+        $this->assertStringContainsString('change-del', $r['html']);
+        $this->assertStringContainsString('change-ins', $r['html']);
+        $this->assertStringContainsString('change-initial-row', $r['html']);
+        $this->assertStringContainsString('data-party-key="agent"', $r['html']);
+        $this->assertStringContainsString('data-party-key="seller"', $r['html']);
+        $this->assertStringContainsString('Petro Nel', $r['html']);
+
+        // Pure strike — no replacement, no <ins>.
+        $s = $svc->applyStrikeToHtml($html, 'seven percent (7%)', 'is ', ' here', '', 'strike', $parties);
+        $this->assertNotNull($s);
+        $this->assertStringContainsString('change-del', $s['html']);
+        $this->assertStringNotContainsString('change-ins', $s['html']);
+        $this->assertStringContainsString('change-initial-row', $s['html']);
+
+        // Not located → null (caller leaves html untouched).
+        $this->assertNull($svc->applyStrikeToHtml($html, 'text not in the document', '', '', 'x', 'inline', $parties));
+    }
+
     // ── Helper ──
 
     /** @return array{0: SignatureTemplate, 1: Document, 2: User} */
