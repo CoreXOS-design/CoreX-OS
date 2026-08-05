@@ -13,10 +13,9 @@
 #
 # Prerequisites — see DEPLOY.md §"One-time server setup":
 #   - mysql-client installed (for mysqldump)
-#   - rsync installed
+#   - rsync, jq installed
 #   - /etc/hfc-deploy.env exists (mode 0600). Required keys:
 #       BACKUP_MODE="offsite"   # or "local" for staging-only.
-#                               # "local" is HARD-REFUSED for production.
 #     Required IF BACKUP_MODE=offsite:
 #       BACKUP_STORAGEBOX_USER=u123456
 #       BACKUP_STORAGEBOX_HOST=u123456.your-storagebox.de
@@ -26,6 +25,13 @@
 #       MYSQL_BACKUP_PASSWORD=<strong pw>
 #   - SSH key registered with the Storage Box (~/.ssh/storagebox_ed25519)
 #     [skip if BACKUP_MODE=local]
+#   - AT-359: production deploys ALSO require a recent successful run of the
+#     independent AT-163 off-box restic job (/etc/cron.d/corex-offbox-backup,
+#     nightly 03:30) — checked via /var/lib/corex-backup/status.json
+#     (last_success_epoch within 30h). This is a SEPARATE mechanism from
+#     BACKUP_MODE/BACKUP_STORAGEBOX_* above (which is this script's own,
+#     currently-unprovisioned direct-SFTP path) and is the one that actually
+#     gates production — see STEP 1f below.
 #   - Passwordless sudo for the deploy user on:
 #       /bin/systemctl reload php8.2-fpm
 #       /bin/systemctl reload nginx
@@ -204,10 +210,30 @@ case "$BACKUP_MODE" in
     *) fail "Invalid BACKUP_MODE='$BACKUP_MODE' (expected 'offsite' or 'local')" ;;
 esac
 
-# HARD GUARD: production with local-only backup is forbidden. A deploy
-# that loses the backup if the host dies is not a safe deploy.
-if [[ "$ENV_NAME" == "production" && "$BACKUP_MODE" == "local" ]]; then
-    fail "BACKUP_MODE='local' is forbidden for production. Production deploys MUST have an off-server backup. Set BACKUP_MODE=offsite in $DEPLOY_ENV_FILE and provision the Storage Box credentials before retrying."
+# HARD GUARD (AT-359): production deploys require a RECENT, successful
+# off-box backup. This no longer keys off BACKUP_MODE/BACKUP_STORAGEBOX_* —
+# that direct-SFTP path was never provisioned (vars left blank) and every
+# production deploy needed a manual bypass. The REAL off-box backup is the
+# independent nightly restic job (AT-163, /usr/local/bin/corex-offbox-backup.sh,
+# cron 03:30) — it takes its own fresh mysqldump of nexus_os each run and
+# ships it to the Hetzner Storage Box. Gate on ITS proven freshness instead.
+if [[ "$ENV_NAME" == "production" ]]; then
+    OFFBOX_STATUS_FILE="/var/lib/corex-backup/status.json"
+    OFFBOX_MAX_AGE_S=$((30 * 3600))  # 30h — covers the nightly 03:30 run plus slack
+
+    [[ -r "$OFFBOX_STATUS_FILE" ]] \
+        || fail "Off-box backup status file missing/unreadable: $OFFBOX_STATUS_FILE (is the AT-163 corex-offbox-backup cron installed?). Production deploys require a recent off-box backup."
+
+    OFFBOX_STATE=$(jq -r '.state // empty' "$OFFBOX_STATUS_FILE" 2>/dev/null)
+    OFFBOX_LAST_SUCCESS=$(jq -r '.last_success_epoch // empty' "$OFFBOX_STATUS_FILE" 2>/dev/null)
+    [[ "$OFFBOX_LAST_SUCCESS" =~ ^[0-9]+$ ]] \
+        || fail "Off-box backup status has no valid last_success_epoch — cannot confirm a successful run ($OFFBOX_STATUS_FILE)."
+
+    OFFBOX_AGE_S=$(( $(date +%s) - OFFBOX_LAST_SUCCESS ))
+    if (( OFFBOX_AGE_S > OFFBOX_MAX_AGE_S )); then
+        fail "Off-box backup is stale: last success $((OFFBOX_AGE_S / 3600))h ago (state=${OFFBOX_STATE:-unknown}, max $((OFFBOX_MAX_AGE_S / 3600))h). Check corex-offbox-backup (cron 03:30, AT-163) — see /var/log/corex-offbox-backup.log — before retrying."
+    fi
+    ok "Off-box backup fresh: last success $((OFFBOX_AGE_S / 3600))h ago (state=${OFFBOX_STATE:-unknown})"
 fi
 
 # Off-server mode: require all four Storage Box vars up-front.
