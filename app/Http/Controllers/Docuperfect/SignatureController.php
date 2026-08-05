@@ -2928,19 +2928,21 @@ class SignatureController extends Controller
         $this->authorizeDocument($user, $document);
 
         $validated = $request->validate([
-            'change_id' => ['required', 'string', 'max:64'],
+            'change_id'     => ['required', 'string', 'max:64'],
+            'initial_image' => ['required', 'string'],   // the party's REAL captured initial (data URL)
         ]);
 
         $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
-        // Resolve which PARTY this internal actor is (so they fill their OWN margin slot). The creator/agent
-        // is the 'agent' party; an authoriser is 'supervisor'. Default to the agent request's key.
-        $partyKey = 'agent';
-        $mine = $template->requests()->whereIn('party_role', ['agent', 'supervisor', 'supervisor_final'])
-            ->orderByRaw("FIELD(party_role,'agent','supervisor','supervisor_final')")->first();
-        if ($mine) {
-            $partyKey = method_exists($mine, 'canonicalPartyKey') ? $mine->canonicalPartyKey() : (string) $mine->party_role;
-        }
-        $result = $this->signatureService->recordChangeInitial($template, $validated['change_id'], (string) $user->name, $partyKey);
+        // GATING: resolve which PARTY this internal actor is server-side (they can only fill their OWN slot).
+        // The document CREATOR is the composer ('agent'); anyone else acting internally is the authoriser
+        // ('supervisor'). Never trusted from the client.
+        $role = ((int) $template->created_by === (int) $user->id) ? 'agent' : 'supervisor';
+        $mine = $template->requests()->where('party_role', $role)->first()
+            ?? $template->requests()->where('party_role', 'agent')->first();
+        $partyKey = $mine
+            ? (method_exists($mine, 'canonicalPartyKey') ? $mine->canonicalPartyKey() : (string) $mine->party_role)
+            : $role;
+        $result = $this->signatureService->recordChangeInitial($template, $validated['change_id'], (string) $user->name, $partyKey, $validated['initial_image']);
 
         return response()->json($result, empty($result['ok']) ? 422 : 200);
     }

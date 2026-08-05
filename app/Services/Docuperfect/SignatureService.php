@@ -2127,7 +2127,7 @@ class SignatureService
      * the pill straight into merged_html so those marks show it too — one shared map, each lane renders its
      * own marks. Prior signatures are UNTOUCHED — a per-change consent, never a re-sign.
      */
-    public function recordChangeInitial(SignatureTemplate $template, string $changeId, string $name, ?string $partyKey = null): array
+    public function recordChangeInitial(SignatureTemplate $template, string $changeId, string $name, ?string $partyKey = null, ?string $imageDataUrl = null): array
     {
         $document = $template->document;
         if (! $document) {
@@ -2148,9 +2148,10 @@ class SignatureService
         $html = (string) ($wtd['merged_html'] ?? '');
         if ($html !== '' && str_contains($html, 'data-change-id="' . $changeId . '"')) {
             $selSvc = app(SelectionEditService::class);
-            if ($partyKey !== null && $partyKey !== '' && $selSvc->hasMarginSlot($html, $changeId, $partyKey)) {
-                // WET-INK per-party MARGIN slot: this party fills their OWN slot, independently of the others.
-                $wtd['merged_html'] = $selSvc->fillMarginSlot($html, $changeId, $partyKey, $name);
+            if ($partyKey !== null && $partyKey !== '' && $selSvc->hasRowSlot($html, $changeId, $partyKey)) {
+                // WET-INK per-party ROW slot: this party applies their OWN REAL initial in their own slot,
+                // independently of the others. The captured initial image is the same ink the rest of the doc uses.
+                $wtd['merged_html'] = $selSvc->fillRowSlot($html, $changeId, $partyKey, $name, $imageDataUrl);
             } else {
                 // Legacy clause mark (no margin slots): the shared "Initialed by {name}" pill.
                 $wtd['merged_html'] = app(ClauseEditService::class)->stampInitialPill($html, $changeId, $name);

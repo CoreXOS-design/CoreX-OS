@@ -202,7 +202,7 @@
 {{-- Signature Pad library --}}
 <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
 @include('docuperfect.signatures.partials.a4-page-styles')
-@include('docuperfect.signatures.partials._change-initial-affordance')
+@include('docuperfect.signatures.partials._change-initial-affordance', ['viewerPartyKey' => 'agent'])
 <style>
 @keyframes pulseHighlight {
     0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
@@ -935,6 +935,21 @@ function signDocument() {
                 // normal-initial seed at ~line 919 / 1546). The party-type-aware split lives
                 // on the recipient surface (external/sign.blade.php); here the signer is an
                 // agent by construction — Johan 2026-08-04 (#2). Input stays editable.
+                this.typedName = @json($userInitials ?? '');
+                this.showSignModal = true;
+                this.$nextTick(() => this.initCanvas());
+            });
+
+            // WET-INK per-change initial — clicking YOUR OWN slot in a change's initial row opens the SAME
+            // capture modal; applySignature detects _isChangeInitial and applies your REAL initial to that slot.
+            document.addEventListener('corex-open-change-initial', (e) => {
+                e.preventDefault();
+                const d = e.detail || {};
+                this.activeMarker = {
+                    type: 'initial', assigned_party: 'agent', label: 'Initial this change', page_number: '',
+                    _isChangeInitial: true, _changeId: d.changeId, _partyKey: d.partyKey,
+                };
+                this.captureMode = 'draw';
                 this.typedName = @json($userInitials ?? '');
                 this.showSignModal = true;
                 this.$nextTick(() => this.initCanvas());
@@ -1883,6 +1898,19 @@ function signDocument() {
                 this.showSignModal = false;
                 this.applying = false;
                 if (ok) this._updateIncompleteCount();
+                return;
+            }
+
+            // WET-INK per-change initial — apply the party's REAL captured initial to their row slot.
+            if (this.activeMarker._isChangeInitial) {
+                const ok = await window.__corexApplyChangeInitial(
+                    this.activeMarker._changeId,
+                    this.activeMarker._partyKey,
+                    signatureData,
+                );
+                this.showSignModal = false;
+                this.applying = false;
+                if (ok) window.location.reload();
                 return;
             }
 

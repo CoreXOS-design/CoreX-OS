@@ -198,41 +198,75 @@ final class SelectionEditService
         $ins->appendChild($dom->createTextNode($replacement));
         $wrap->appendChild($ins);
 
-        // Right-margin INITIAL BLOCK — one slot per signing party (wet-ink margin initials).
-        $margin = $dom->createElement('span');
-        $margin->setAttribute('class', 'change-margin');
-        $margin->setAttribute('data-change-id', $changeId);
-        $margin->setAttribute('contenteditable', 'false');
-        $label = $dom->createElement('span');
-        $label->setAttribute('class', 'change-margin-label');
-        $label->appendChild($dom->createTextNode('Initials'));
-        $margin->appendChild($label);
-        foreach ($this->parties($template) as $party) {
-            $slot = $dom->createElement('span');
-            $slot->setAttribute('class', 'cm-slot');
-            $slot->setAttribute('data-party-key', (string) ($party['key'] ?? ''));
-            $slot->setAttribute('data-party-name', (string) ($party['name'] ?? ''));
-            $nameSpan = $dom->createElement('span');
-            $nameSpan->setAttribute('class', 'cm-name');
-            $nameSpan->appendChild($dom->createTextNode((string) ($party['name'] ?? 'Party')));
-            $slot->appendChild($nameSpan);
-            $ink = $dom->createElement('span');
-            $ink->setAttribute('class', 'cm-ink');
-            $ink->appendChild($dom->createTextNode(' ▢'));   // empty slot — fills when THIS party initials
-            $slot->appendChild($ink);
-            $margin->appendChild($slot);
-        }
-        $wrap->appendChild($margin);
-
         $frag[] = $wrap;
         if ($after !== '') {
             $frag[] = $dom->createTextNode($after);
         }
-
         foreach ($frag as $n) {
             $parent->insertBefore($n, $node);
         }
         $parent->removeChild($node);
+
+        // FULL-WIDTH INITIAL ROW — inserted as a block right after the clause/paragraph the change sits in.
+        // One labeled slot per signing party; each party APPLIES THEIR REAL INITIAL in their own slot (the
+        // slot opens the same capture modal the rest of the document uses). Replaces the squashed margin block.
+        $row = $this->buildInitialRow($dom, $changeId, $template);
+        $block = $this->closestBlock($wrap);
+        if ($block instanceof \DOMElement && $block->parentNode) {
+            if ($block->nextSibling) {
+                $block->parentNode->insertBefore($row, $block->nextSibling);
+            } else {
+                $block->parentNode->appendChild($row);
+            }
+        } else {
+            $wrap->appendChild($row); // fallback — keep the row attached to the change
+        }
+    }
+
+    /** Build the full-width per-party initial row for a change. cc1 styling class family: change-initial-row. */
+    private function buildInitialRow(\DOMDocument $dom, string $changeId, SignatureTemplate $template): \DOMElement
+    {
+        $row = $dom->createElement('div');
+        $row->setAttribute('class', 'change-initial-row');
+        $row->setAttribute('data-change-id', $changeId);
+        $row->setAttribute('contenteditable', 'false');
+        $label = $dom->createElement('span');
+        $label->setAttribute('class', 'cir-label');
+        $label->appendChild($dom->createTextNode('Initial this change:'));
+        $row->appendChild($label);
+        foreach ($this->parties($template) as $party) {
+            $slot = $dom->createElement('span');
+            $slot->setAttribute('class', 'cir-slot');
+            $slot->setAttribute('data-change-id', $changeId);
+            $slot->setAttribute('data-party-key', (string) ($party['key'] ?? ''));
+            $slot->setAttribute('data-party-name', (string) ($party['name'] ?? ''));
+            $nameSpan = $dom->createElement('span');
+            $nameSpan->setAttribute('class', 'cir-name');
+            $nameSpan->appendChild($dom->createTextNode((string) ($party['name'] ?? 'Party')));
+            $slot->appendChild($nameSpan);
+            $ink = $dom->createElement('span');
+            $ink->setAttribute('class', 'cir-ink');
+            $ink->setAttribute('data-empty', '1');
+            $ink->appendChild($dom->createTextNode('—'));
+            $slot->appendChild($ink);
+            $row->appendChild($slot);
+        }
+        return $row;
+    }
+
+    /** Closest block-level ancestor of $node (so the row sits under the clause/paragraph, full width). */
+    private function closestBlock(\DOMNode $node): ?\DOMElement
+    {
+        $blocks = ['p', 'div', 'li', 'td', 'section', 'article', 'h1', 'h2', 'h3', 'h4', 'blockquote'];
+        for ($p = $node->parentNode; $p !== null; $p = $p->parentNode) {
+            if ($p instanceof \DOMElement
+                && in_array(strtolower($p->nodeName), $blocks, true)
+                && $p->getAttribute('id') !== '__root'
+                && ! str_contains($p->getAttribute('class'), 'change-inline')) {
+                return $p;
+            }
+        }
+        return $node instanceof \DOMElement ? $node : null;
     }
 
     /** @return array<int, array{key:string, name:string}> */
@@ -253,7 +287,7 @@ final class SelectionEditService
      * Marks the cm-slot[data-party-key] under the change's margin as filled + writes the party's initials as
      * their ink. Idempotent. Returns the html unchanged when the slot isn't present.
      */
-    public function fillMarginSlot(string $html, string $changeId, string $partyKey, string $name): string
+    public function fillRowSlot(string $html, string $changeId, string $partyKey, string $name, ?string $imageDataUrl = null): string
     {
         if (trim($html) === '' || ! str_contains($html, 'data-change-id="' . $changeId . '"')) {
             return $html;
@@ -266,25 +300,39 @@ final class SelectionEditService
             );
             $xpath = new \DOMXPath($dom);
             $slots = $xpath->query(
-                '//*[contains(concat(" ", normalize-space(@class), " "), " change-margin ") and @data-change-id=' . $this->xpathLiteral($changeId) . ']'
-                . '//*[contains(concat(" ", normalize-space(@class), " "), " cm-slot ") and @data-party-key=' . $this->xpathLiteral($partyKey) . ']'
+                '//*[contains(concat(" ", normalize-space(@class), " "), " change-initial-row ") and @data-change-id=' . $this->xpathLiteral($changeId) . ']'
+                . '//*[contains(concat(" ", normalize-space(@class), " "), " cir-slot ") and @data-party-key=' . $this->xpathLiteral($partyKey) . ']'
             );
             if ($slots === false || $slots->length === 0) {
                 return $html;
             }
+            $isImg = is_string($imageDataUrl) && str_starts_with(trim($imageDataUrl), 'data:image');
             foreach ($slots as $slot) {
                 if (! $slot instanceof \DOMElement) {
                     continue;
                 }
                 $cls = $slot->getAttribute('class');
-                if (! str_contains(' ' . $cls . ' ', ' cm-filled ')) {
-                    $slot->setAttribute('class', trim($cls . ' cm-filled'));
+                if (! str_contains(' ' . $cls . ' ', ' cir-filled ')) {
+                    $slot->setAttribute('class', trim($cls . ' cir-filled'));
                 }
-                foreach (iterator_to_array($xpath->query('.//*[contains(concat(" ", normalize-space(@class), " "), " cm-ink ")]', $slot)) as $ink) {
+                foreach (iterator_to_array($xpath->query('.//*[contains(concat(" ", normalize-space(@class), " "), " cir-ink ")]', $slot)) as $ink) {
+                    if (! $ink instanceof \DOMElement) {
+                        continue;
+                    }
+                    $ink->removeAttribute('data-empty');
                     while ($ink->firstChild) {
                         $ink->removeChild($ink->firstChild);
                     }
-                    $ink->appendChild($dom->createTextNode(' ' . $this->initials($name)));
+                    if ($isImg) {
+                        // Render the party's REAL captured initial image (same ink the rest of the doc uses).
+                        $img = $dom->createElement('img');
+                        $img->setAttribute('src', (string) $imageDataUrl);
+                        $img->setAttribute('class', 'cir-ink-img');
+                        $img->setAttribute('alt', 'Initial of ' . $name);
+                        $ink->appendChild($img);
+                    } else {
+                        $ink->appendChild($dom->createTextNode($this->initials($name)));
+                    }
                 }
             }
             return $this->innerHtml($dom, $xpath);
@@ -293,14 +341,14 @@ final class SelectionEditService
         }
     }
 
-    /** True when the change's margin has a slot for this party (a selection mark). */
-    public function hasMarginSlot(string $html, string $changeId, string $partyKey): bool
+    /** True when the change has a full-width row slot for this party. */
+    public function hasRowSlot(string $html, string $changeId, string $partyKey): bool
     {
         if (trim($html) === '' || ! str_contains($html, 'data-change-id="' . $changeId . '"')) {
             return false;
         }
-        return preg_match('/data-party-key="' . preg_quote($partyKey, '/') . '"/', $html) === 1
-            && str_contains($html, 'change-margin');
+        return str_contains($html, 'change-initial-row')
+            && preg_match('/data-party-key="' . preg_quote($partyKey, '/') . '"/', $html) === 1;
     }
 
     private function initials(string $name): string

@@ -3853,14 +3853,17 @@ CSS;
             return response()->json(['ok' => false, 'error' => 'Not authorised at this stage.'], 403);
         }
 
-        $validated = $request->validate(['change_id' => ['required', 'string', 'max:64']]);
+        $validated = $request->validate([
+            'change_id'     => ['required', 'string', 'max:64'],
+            'initial_image' => ['required', 'string'],   // the recipient's REAL captured initial (data URL)
+        ]);
         $template = $signingRequest->template;
-        // WET-INK: this recipient fills their OWN margin slot (their canonical party key).
+        // GATING: this recipient can only fill THEIR OWN row slot (their canonical party key, from the token).
         $partyKey = method_exists($signingRequest, 'canonicalPartyKey')
             ? $signingRequest->canonicalPartyKey()
             : (string) $signingRequest->party_role;
         $result = app(\App\Services\Docuperfect\SignatureService::class)
-            ->recordChangeInitial($template, $validated['change_id'], (string) $signingRequest->signer_name, $partyKey);
+            ->recordChangeInitial($template, $validated['change_id'], (string) $signingRequest->signer_name, $partyKey, $validated['initial_image']);
 
         return response()->json($result, empty($result['ok']) ? 422 : 200);
     }
