@@ -43,6 +43,7 @@ class SignatureRequest extends Model
         'wet_ink_rejection_note',
         'reviewed_by',
         'reviewed_at',
+        'returned_notes',
         'team_alerted_at',
         'authorised_by',
         'authorised_at',
