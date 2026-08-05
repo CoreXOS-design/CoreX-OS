@@ -48,7 +48,17 @@ class DocumentChangeHighlighter
      *         data-change-id — the cc6 contract (`web_template_data['change_initials']`). When a change's
      *         id is present, the mark shows "✓ initialed by {name}". Absent ids read as still-pending.
      */
-    public function highlight(string $currentHtml, string $baselineHtml, array $initials = []): string
+    /**
+     * @param array<int,array{change_id?:string,select:string,nth?:int,insert?:string}> $bodyChanges
+     *        SELECTION-driven edits (cc6 captures an arbitrary text selection anywhere in the rendered
+     *        doc): `select` = the exact text struck, `nth` = 1-based occurrence (disambiguates duplicates),
+     *        `insert` = the replacement written in after it (empty = deletion-only). Persisted in
+     *        web_template_data['body_changes']; re-applied every compose (NOT baked) so marks survive
+     *        re-render and persist to final.
+     * @param array<int,array{key:string,label:string}> $parties  signing parties for the right-margin
+     *        initial blocks (one slot per party per change).
+     */
+    public function highlight(string $currentHtml, string $baselineHtml, array $initials = [], array $bodyChanges = [], array $parties = []): string
     {
         if (trim($currentHtml) === '') {
             return $currentHtml;
@@ -64,6 +74,13 @@ class DocumentChangeHighlighter
 
             $changed = false;
             $changes = [];   // collected for the appended Schedule of Amendments (decision #2)
+
+            // ---- SELECTION-driven body changes (the primary edit path): strike an arbitrary selected
+            // span in place + write the replacement after it, with right-margin initial blocks for all
+            // parties. Runs first so the field/clause passes below see + skip the marks. ----
+            if ($this->applyBodyChanges($curDom, $curX, $bodyChanges, $changes, $initials, $parties)) {
+                $changed = true;
+            }
 
             // Diff against the last-authorised baseline (field + clause) — ONLY when we have one. With an
             // empty baseline (e.g. the doc is already re-authorised: cc6 cleared amendment_render but its
@@ -92,8 +109,8 @@ class DocumentChangeHighlighter
                 if (str_contains($node->getAttribute('class'), 'change-') ) {
                     continue;
                 }
-                $changeId = $this->replaceChildrenWithWetInk($node, $old, $new, $initials);
-                $changes[] = ['id' => $changeId, 'where' => $this->prettyFieldLabel($key), 'old' => $old, 'new' => $new, 'mode' => 'field', 'initialed' => $initials[$changeId] ?? null];
+                $changeId = $this->replaceChildrenWithWetInk($node, $old, $new, $initials, $parties);
+                $changes[] = ['id' => $changeId, 'where' => $this->prettyFieldLabel($key), 'old' => $old, 'new' => $new, 'mode' => 'field', 'initialed' => $this->anyInitial($initials, $changeId)];
                 $changed = true;
             }
 
@@ -195,7 +212,7 @@ class DocumentChangeHighlighter
     }
 
     /** Replace a field span's children with wet-ink: struck old + inline new. Returns the change id. */
-    private function replaceChildrenWithWetInk(DOMElement $node, string $old, string $new, array $initials = []): string
+    private function replaceChildrenWithWetInk(DOMElement $node, string $old, string $new, array $initials = [], array $parties = []): string
     {
         while ($node->firstChild) {
             $node->removeChild($node->firstChild);
@@ -216,15 +233,230 @@ class DocumentChangeHighlighter
             $ins->appendChild($dom->createTextNode($new));
             $node->appendChild($ins);
         }
-        $this->appendInitialedTag($node, $changeId, $initials);
+        $margin = $this->buildMarginInitials($node->ownerDocument, $changeId, $parties, $initials);
+        if ($margin !== null) {
+            $this->attachMarginToBlock($margin, $node);   // per-party wet-ink margin block, in the right margin
+        } else {
+            $this->appendInitialedTag($node, $changeId, $initials);   // legacy inline tag (no parties)
+        }
         return $changeId;
+    }
+
+    /** Place the margin initial block at the right margin: as the first child of the change's nearest
+     *  block-level ancestor, so float:right lands it at the page/column right edge, level with the change. */
+    private function attachMarginToBlock(DOMElement $margin, \DOMNode $at): void
+    {
+        $anc = $at->parentNode;
+        while ($anc instanceof DOMElement) {
+            if (in_array(strtolower($anc->nodeName), ['p', 'div', 'li', 'td', 'section', 'blockquote'], true)) {
+                $anc->insertBefore($margin, $anc->firstChild);
+                return;
+            }
+            $anc = $anc->parentNode;
+        }
+        // Fallback: right after the change.
+        $at->parentNode?->insertBefore($margin, $at->nextSibling);
+    }
+
+    /**
+     * SELECTION-driven span striking (the primary edit path). For each cc6-captured change, locate the
+     * Nth occurrence of the selected text anywhere in the body and replace it in place with
+     * `<del>selected</del> <ins>replacement</ins>` + a right-margin initial block for all parties. Marks
+     * are a render overlay from persisted data (web_template_data['body_changes']) — never baked — so they
+     * survive re-render and stay on the final. Fail-safe: an occurrence that can't be located is skipped.
+     */
+    private function applyBodyChanges(\DOMDocument $dom, DOMXPath $x, array $bodyChanges, array &$changes, array $initials, array $parties): bool
+    {
+        if (empty($bodyChanges)) {
+            return false;
+        }
+        $any = false;
+        foreach ($bodyChanges as $bc) {
+            if (! is_array($bc)) {
+                continue;
+            }
+            $select = trim((string) ($bc['select'] ?? ''));
+            if ($select === '') {
+                continue;
+            }
+            $nth      = max(1, (int) ($bc['nth'] ?? 1));
+            $insert   = (string) ($bc['insert'] ?? '');
+            $changeId = (string) ($bc['change_id'] ?? '');
+            if ($changeId === '') {
+                $changeId = substr(sha1($select . '|' . $nth . '|' . $insert), 0, 12);
+            }
+            if ($this->strikeSelection($dom, $x, $select, $nth, $insert, $changeId, $initials, $parties)) {
+                $changes[] = [
+                    'id'    => $changeId,
+                    'where' => '“' . mb_strimwidth($select, 0, 40, '…') . '”',
+                    'old'   => $select,
+                    'new'   => $insert !== '' ? $insert : '(removed)',
+                    'mode'  => $insert !== '' ? 'selection' : 'selection-del',
+                    'initialed' => $this->anyInitial($initials, $changeId),
+                ];
+                $any = true;
+            }
+        }
+        return $any;
+    }
+
+    /** Locate the Nth plain-text occurrence of $select (outside existing marks) and strike+replace it. */
+    private function strikeSelection(\DOMDocument $dom, DOMXPath $x, string $select, int $nth, string $insert, string $changeId, array $initials, array $parties): bool
+    {
+        $nodes = $x->query('//text()[not(ancestor::del) and not(ancestor::ins) and not(ancestor::style) and not(ancestor::script) and not(ancestor::*[contains(concat(" ",@class," ")," change-margin-initials ")])]');
+        if ($nodes === false) {
+            return false;
+        }
+        $count = 0;
+        foreach ($nodes as $tn) {
+            $val = (string) $tn->nodeValue;
+            $from = 0;
+            while (($pos = mb_strpos($val, $select, $from)) !== false) {
+                $count++;
+                if ($count === $nth) {
+                    $parent = $tn->parentNode;
+                    if (! $parent instanceof \DOMNode) {
+                        return false;
+                    }
+                    $before = mb_substr($val, 0, $pos);
+                    $after  = mb_substr($val, $pos + mb_strlen($select));
+                    $frag = $dom->createDocumentFragment();
+                    if ($before !== '') {
+                        $frag->appendChild($dom->createTextNode($before));
+                    }
+                    $anchor = $dom->createElement('span');
+                    $anchor->setAttribute('class', 'change-anchor');
+                    $anchor->setAttribute('data-change-id', $changeId);
+
+                    $del = $dom->createElement('del');
+                    $del->setAttribute('class', 'change-del');
+                    $del->setAttribute('data-change-id', $changeId);
+                    $del->appendChild($dom->createTextNode($select));
+                    $anchor->appendChild($del);
+
+                    if ($insert !== '') {
+                        $anchor->appendChild($dom->createTextNode(' '));
+                        $ins = $dom->createElement('ins');
+                        $ins->setAttribute('class', 'change-ins');
+                        $ins->setAttribute('data-change-id', $changeId);
+                        $ins->appendChild($dom->createTextNode($insert));
+                        $anchor->appendChild($ins);
+                    }
+                    $margin = $this->buildMarginInitials($dom, $changeId, $parties, $initials);
+                    if ($margin === null) {
+                        $this->appendInitialedTag($anchor, $changeId, $initials);
+                    }
+                    $frag->appendChild($anchor);
+                    if ($after !== '') {
+                        $frag->appendChild($dom->createTextNode($after));
+                    }
+                    $parent->replaceChild($frag, $tn);
+                    // Float the margin block to the right edge of the change's paragraph (page right margin).
+                    if ($margin !== null) {
+                        $this->attachMarginToBlock($margin, $anchor);
+                    }
+                    return true;
+                }
+                $from = $pos + mb_strlen($select);
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Right-hand margin initial block for a change — one slot per signing party (wet-ink). Each slot shows
+     * the party label + its initials when that party has initialed the change
+     * (change_initials[change_id][partyKey] = {name, at}), else a blank rule. Returns null when no party
+     * list was supplied (e.g. a preview with no signing parties yet).
+     */
+    private function buildMarginInitials(\DOMDocument $dom, string $changeId, array $parties, array $initials): ?DOMElement
+    {
+        if (empty($parties)) {
+            return null;
+        }
+        $box = $dom->createElement('span');
+        $box->setAttribute('class', 'change-margin-initials');
+        $box->setAttribute('data-change-id', $changeId);
+        foreach ($parties as $p) {
+            $key   = is_array($p) ? (string) ($p['key'] ?? '') : (string) $p;
+            $label = is_array($p) ? (string) ($p['label'] ?? $key) : (string) $p;
+            if ($key === '') {
+                continue;
+            }
+            $info = $this->initialFor($initials, $changeId, $key);
+            $slot = $dom->createElement('span');
+            $slot->setAttribute('class', 'change-initial-slot');
+            $slot->setAttribute('data-change-id', $changeId);
+            $slot->setAttribute('data-party', $key);
+
+            $lbl = $dom->createElement('span');
+            $lbl->setAttribute('class', 'cis-label');
+            $lbl->appendChild($dom->createTextNode($label));
+            $slot->appendChild($lbl);
+
+            $ink = $dom->createElement('span');
+            $ink->setAttribute('class', 'cis-ink' . ($info !== null ? ' cis-done' : ''));
+            $ink->appendChild($dom->createTextNode($info !== null ? $this->initialsOf((string) ($info['name'] ?? '')) : '____'));
+            $slot->appendChild($ink);
+
+            $box->appendChild($slot);
+        }
+        return $box;
+    }
+
+    /** Per-party initial for a change: change_initials[change_id][partyKey] = {name, at}. */
+    private function initialFor(array $initials, string $changeId, string $partyKey): ?array
+    {
+        $entry = $initials[$changeId] ?? null;
+        if (! is_array($entry)) {
+            return null;
+        }
+        // Per-party shape { partyKey: {name, at} }.
+        if (isset($entry[$partyKey]) && is_array($entry[$partyKey])) {
+            return $entry[$partyKey];
+        }
+        return null;
+    }
+
+    /** Whether ANY party has initialed a change (for the legacy inline tag + appendix column). */
+    private function anyInitial(array $initials, string $changeId): ?array
+    {
+        $entry = $initials[$changeId] ?? null;
+        if (! is_array($entry)) {
+            return null;
+        }
+        // Legacy single shape { name, at }.
+        if (isset($entry['name'])) {
+            return $entry;
+        }
+        // Per-party shape → summarise as "{n} of parties".
+        $done = array_filter($entry, fn ($v) => is_array($v) && ! empty($v['name']));
+        if ($done === []) {
+            return null;
+        }
+        $names = array_map(fn ($v) => $v['name'], $done);
+        return ['name' => implode(', ', $names)];
+    }
+
+    /** "Alice Brown" → "AB"; a short value (e.g. "AB") passes through. */
+    private function initialsOf(string $name): string
+    {
+        $name = trim($name);
+        if ($name === '') {
+            return '—';
+        }
+        $parts = preg_split('/\s+/', $name) ?: [];
+        if (count($parts) === 1) {
+            return mb_strtoupper(mb_substr($parts[0], 0, 2));
+        }
+        return mb_strtoupper(mb_substr($parts[0], 0, 1) . mb_substr(end($parts), 0, 1));
     }
 
     /** Append a "✓ initialed by {name}" tag to a change mark when cc6 has recorded its initial. */
     private function appendInitialedTag(DOMElement $node, string $changeId, array $initials): void
     {
-        $info = $initials[$changeId] ?? null;
-        if (! is_array($info)) {
+        $info = $this->anyInitial($initials, $changeId);
+        if ($info === null) {
             return;
         }
         $dom = $node->ownerDocument;
@@ -509,7 +741,15 @@ class DocumentChangeHighlighter
             . 'font-size:0.72rem;font-weight:600;white-space:nowrap;}'
             . '.change-initialed{margin-left:4px;padding:0 5px;background:#dcfce7;color:#166534;border-radius:3px;'
             . 'font-size:0.68rem;font-weight:600;white-space:nowrap;}'
-            . '@media print{.change-del,.change-ins,.change-xref{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}'
+            . '.change-anchor{position:relative;}'
+            // Right-margin initial block per change (wet-ink): floats to the right edge so it sits in the margin.
+            . '.change-margin-initials{float:right;clear:right;margin:0 0 3px 10px;padding:2px 4px;border:1px solid #94a3b8;'
+            . 'border-radius:4px;background:#f8fafc;white-space:nowrap;line-height:1.1;}'
+            . '.change-initial-slot{display:inline-block;margin:0 3px;text-align:center;vertical-align:top;}'
+            . '.cis-label{display:block;font-size:0.5rem;color:#64748b;text-transform:uppercase;letter-spacing:.02em;}'
+            . '.cis-ink{display:block;min-width:26px;font-weight:700;font-size:0.72rem;color:#334155;border-bottom:1px solid #94a3b8;}'
+            . '.cis-ink.cis-done{color:#166534;border-bottom-color:#166534;}'
+            . '@media print{.change-del,.change-ins,.change-xref,.change-initialed,.change-margin-initials,.cis-ink{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}'
             . '</style>';
     }
 }

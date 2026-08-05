@@ -126,20 +126,61 @@ class CanonicalDocumentRenderer
         if (trim($html) === '') {
             return $html;
         }
-        $flagged  = ! empty($webData['amendment_render']);          // live field/clause diff wanted
-        $hasMarks = str_contains($html, 'data-change-id');          // cc6 already baked permanent clause marks
-        if (! $flagged && ! $hasMarks) {
+        $flagged     = ! empty($webData['amendment_render']);       // live field diff wanted
+        $hasMarks    = str_contains($html, 'data-change-id');       // pre-authored marks already in the html
+        $bodyChanges = is_array($webData['body_changes'] ?? null) ? $webData['body_changes'] : [];
+        if (! $flagged && ! $hasMarks && empty($bodyChanges)) {
             return $html;   // a normal, never-amended document — untouched (byte-identical)
         }
         // Per-change initial state (AT-368 contract with cc6): cc6 records each initialed change under
-        // web_template_data['change_initials'][data-change-id] = ['name' => …, 'at' => …]. The render only
-        // READS it to show "Initialed by X"; marks persist regardless.
+        // web_template_data['change_initials'][data-change-id][partyKey] = ['name' => …, 'at' => …]. The
+        // render only READS it to fill the right-margin initial blocks / "Initialed by" tag.
         $initials = is_array($webData['change_initials'] ?? null) ? $webData['change_initials'] : [];
-        // Baseline drives the LIVE field/clause diff (only while amendment_render is set). Once the doc is
-        // re-authorised the flag is cleared but cc6's baked clause strikes remain — we pass an empty
-        // baseline so the highlighter just styles + schedules those pre-authored marks (they STAY on final).
+        // Signing parties → one right-margin initial slot per party at each change (wet-ink).
+        $parties = $this->resolveMarginParties($document);
+        // Baseline drives the LIVE field diff (only while amendment_render is set). Selection edits
+        // (body_changes) are re-applied every compose from persisted data — no baseline needed for them.
         $baseline = $flagged ? $this->lastAuthorisedSealedHtml($document, $webData) : '';
-        return app(DocumentChangeHighlighter::class)->highlight($html, $baseline, $initials);
+        return app(DocumentChangeHighlighter::class)->highlight($html, $baseline, $initials, $bodyChanges, $parties);
+    }
+
+    /**
+     * The signing parties for the per-change right-margin initial blocks (AT-368 selection model). One slot
+     * per distinct party (role + index, matching the data-recipient-identity convention). Returns [] when
+     * the document has no signing parties yet (e.g. a preview) — the highlighter then renders no margin.
+     */
+    private function resolveMarginParties(\App\Models\Docuperfect\Document $document): array
+    {
+        try {
+            $templateIds = \App\Models\Docuperfect\SignatureTemplate::where('document_id', $document->id)->pluck('id');
+            if ($templateIds->isEmpty()) {
+                return [];
+            }
+            $rows = \App\Models\Docuperfect\SignatureRequest::whereIn('signature_template_id', $templateIds)
+                ->get(['party_role', 'role_index']);
+            $byRole = [];
+            foreach ($rows as $r) {
+                $role = strtolower(trim((string) $r->party_role));
+                if ($role === '' || $role === 'supervisor_final') {
+                    continue;   // checkpoint pseudo-role folds onto 'supervisor'
+                }
+                $idx = (int) ($r->role_index ?: 1);
+                $byRole[$role][$idx] = true;
+            }
+            $parties = [];
+            foreach ($byRole as $role => $indices) {
+                $multi = count($indices) > 1;
+                foreach (array_keys($indices) as $idx) {
+                    $parties[] = [
+                        'key'   => $role . '_' . $idx,
+                        'label' => ucfirst($role) . ($multi ? ' ' . $idx : ''),
+                    ];
+                }
+            }
+            return $parties;
+        } catch (\Throwable $e) {
+            return [];
+        }
     }
 
     /**

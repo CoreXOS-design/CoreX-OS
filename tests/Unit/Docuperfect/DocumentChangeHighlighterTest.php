@@ -165,4 +165,76 @@ final class DocumentChangeHighlighterTest extends TestCase
         $expected = substr(sha1('commission_percent|7.5|10'), 0, 12);
         $this->assertStringContainsString('data-change-id="' . $expected . '"', $out);
     }
+
+    // ---------- SELECTION model (arbitrary span strike + margin initials) ----------
+
+    private const PARTIES = [
+        ['key' => 'seller_1', 'label' => 'Seller 1'],
+        ['key' => 'seller_2', 'label' => 'Seller 2'],
+        ['key' => 'agent_1',  'label' => 'Agent'],
+    ];
+
+    public function test_selection_strikes_arbitrary_span_and_writes_in_replacement(): void
+    {
+        $body = '<div class="doc"><p>Pay a deposit of ten percent within seven days.</p></div>';
+        $out = $this->h()->highlight($body, '', [], [
+            ['select' => 'ten percent', 'nth' => 1, 'insert' => 'twelve percent'],
+        ], self::PARTIES);
+
+        $this->assertMatchesRegularExpression(
+            '/<del class="change-del"[^>]*>ten percent<\/del>\s*<ins class="change-ins"[^>]*>twelve percent<\/ins>/',
+            $out
+        );
+    }
+
+    public function test_selection_hits_only_the_nth_occurrence(): void
+    {
+        $body = '<div class="doc"><p>ten percent deposit and ten percent balance</p></div>';
+        $out = $this->h()->highlight($body, '', [], [
+            ['select' => 'ten percent', 'nth' => 2, 'insert' => 'twelve percent'],
+        ], self::PARTIES);
+
+        // exactly one strike; the FIRST "ten percent" stays as plain text
+        $this->assertSame(1, substr_count($out, '<del class="change-del"'));
+        $this->assertStringContainsString('>ten percent deposit', $out);
+    }
+
+    public function test_selection_deletion_only_has_no_insert(): void
+    {
+        $out = $this->h()->highlight(
+            '<div class="doc"><p>given on the date of transfer here</p></div>',
+            '', [], [['select' => 'on the date of transfer', 'nth' => 1, 'insert' => '']], self::PARTIES
+        );
+        $this->assertStringContainsString('<del class="change-del"', $out);
+        $this->assertStringNotContainsString('<ins class="change-ins"', $out);
+    }
+
+    public function test_selection_unlocatable_span_is_skipped_safely(): void
+    {
+        $body = '<div class="doc"><p>nothing matching here</p></div>';
+        // no marks produced, no parties margin, no crash
+        $out = $this->h()->highlight($body, '', [], [
+            ['select' => 'this text is absent', 'nth' => 1, 'insert' => 'x'],
+        ], self::PARTIES);
+        $this->assertStringNotContainsString('change-del', $out);
+    }
+
+    public function test_margin_initials_one_slot_per_party_with_per_party_state(): void
+    {
+        $cid = substr(sha1('deposit|1|down payment'), 0, 12);
+        $body = '<div class="doc"><p>A deposit is payable.</p></div>';
+        $out = $this->h()->highlight($body, '', [
+            $cid => ['seller_1' => ['name' => 'Alice Brown'], 'agent_1' => ['name' => 'Bob Carter']],
+        ], [['select' => 'deposit', 'nth' => 1, 'insert' => 'down payment']], self::PARTIES);
+
+        // one margin block, three party slots
+        $this->assertStringContainsString('class="change-margin-initials"', $out);
+        $this->assertStringContainsString('data-party="seller_1"', $out);
+        $this->assertStringContainsString('data-party="seller_2"', $out);
+        $this->assertStringContainsString('data-party="agent_1"', $out);
+        // per-party initials filled where initialed, blank where not
+        $this->assertStringContainsString('cis-ink cis-done">AB<', $out);   // seller_1
+        $this->assertStringContainsString('cis-ink cis-done">BC<', $out);   // agent_1
+        $this->assertMatchesRegularExpression('/data-party="seller_2"[^>]*>.*?<span class="cis-ink">____<\/span>/s', $out);
+    }
 }

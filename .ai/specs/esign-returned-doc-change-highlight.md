@@ -288,6 +288,45 @@ Remaining tunable (safe default, adjustable later): the SMALL↔BIG word-count t
 - ✅ Gated by `amendment_render` → normal docs render byte-identically; `esign:regression-walk` 25/25.
 - ✅ Real dompdf render proof (all change types + appendix render correctly in PDF).
 
+## 14b. SELECTION-DRIVEN MODEL (Johan 2026-08-05 — clause-number approach RETIRED)
+
+The clause-number approach is out (unusable). Edits are now **selection-driven**: the user selects an
+arbitrary word / phrase / section ANYWHERE in the rendered document; the render strikes exactly that span
+in place and writes the replacement after it, with a **right-hand-margin initial block for ALL parties**
+at each change (wet-ink). Locked contract:
+
+**cc6 captures the selection → persists to `web_template_data['body_changes']` (ordered list):**
+```
+{ "change_id": "<sha1(select|nth|insert)[:12]>",   // optional; render computes it if omitted
+  "select":    "<exact selected text>",             // the span struck (verbatim, as it appears in the body)
+  "nth":       1,                                    // 1-based occurrence of `select` in the body text (dupes)
+  "insert":    "<replacement text>" }                // written in after the strike; "" = deletion-only
+```
+- The render (`DocumentChangeHighlighter::applyBodyChanges`) locates the Nth plain-text occurrence of
+  `select` (outside existing marks), replaces it with `<del class="change-del">select</del>
+  <ins class="change-ins">insert</ins>` wrapped in a `.change-anchor[data-change-id]`, and attaches the
+  margin block to the change's block-level ancestor. **Marks are a render overlay from persisted data —
+  NOT baked** — so they survive every re-compose and stay on the final document.
+- **Anchoring choice (autonomous, confirm):** `select` text + `nth` occurrence. It is re-render-stable
+  (the merged_html body is unchanged between composes), disambiguates duplicates, and needs no fragile
+  character offsets or client-persisted HTML. If `select` can't be located (text changed) the change is
+  skipped fail-safe. cc6 sends the selection's exact text + which occurrence; it need not send offsets.
+
+**Right-margin initial blocks — per-party contract (extends change_initials):**
+```
+web_template_data['change_initials'][<change_id>] = { "<partyKey>": {name, at}, ... }
+```
+- `partyKey` = `role_index` form matching data-recipient-identity, e.g. `seller_1`, `seller_2`, `agent_1`.
+  The render resolves the party list from the document's `SignatureRequest`s (one margin slot per party),
+  and fills each slot with that party's initials (`initialsOf(name)`, green when done) or a blank rule.
+- Backward-compatible: a legacy `change_initials[id] = {name, at}` (no party split) still fills the inline
+  "Initialed by" tag when there is no party list (preview). Per-party is the wet-ink shape.
+
+**Verified (real dompdf render):** an arbitrary mid-document phrase struck + replaced with a right-margin
+block [Seller 1 · Seller 2 · Agent], per-party initials filled/blank, deletion-only supported, Nth-only,
+appendix listing all — through `compose()` with parties resolved from `SignatureRequest`. Selection tests
+added to `DocumentChangeHighlighterTest`.
+
 ## 14a. CONTRACT LOCKED + JOINT INTEGRATION VERIFIED (2026-08-04)
 
 The cc6↔cc1 contract is **locked and proven end-to-end on QA1** (single shared shape — no two variants):
