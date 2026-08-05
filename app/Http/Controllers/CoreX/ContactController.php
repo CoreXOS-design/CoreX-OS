@@ -1478,7 +1478,10 @@ class ContactController extends Controller
             'last_contacted_at' => 'required|date',
         ]);
 
-        $contact->update(['last_contacted_at' => $data['last_contacted_at']]);
+        // AT-372 — "Mark as Now" / "Pick Date" are EXPLICIT contacted actions: record
+        // them as the first-class contacted signal (markContacted) so they persist and
+        // are never wiped by a later send's recompute, then re-derive last_contacted_at.
+        $contact->markContacted($data['last_contacted_at']);
 
         return redirect()->route('corex.contacts.show', $contact)->with('success', 'Last contacted date updated.');
     }

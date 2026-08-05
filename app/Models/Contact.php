@@ -41,7 +41,7 @@ class Contact extends Model
         'unit_number', 'floor_number', 'unit_section_block', 'complex_name',
         'street_number', 'street_name', 'suburb', 'city', 'province',
         'p24_province_id', 'p24_city_id', 'p24_suburb_id',
-        'loaded_at', 'modified_at', 'last_contacted_at',
+        'loaded_at', 'modified_at', 'last_contacted_at', 'contacted_marked_at',
         'whatsapp_count', 'email_count',
         'bank_name', 'bank_account_name', 'bank_account_number',
         'bank_branch_name', 'bank_branch_code', 'bank_account_type',
@@ -64,6 +64,7 @@ class Contact extends Model
         'loaded_at'             => 'datetime',
         'modified_at'       => 'datetime',
         'last_contacted_at' => 'datetime',
+        'contacted_marked_at' => 'datetime', // AT-372 — explicit "contacted" signal
         'is_buyer'          => 'boolean',
         'last_activity_at'  => 'datetime',
         'buyer_pipeline_entered_at' => 'datetime',
@@ -1268,18 +1269,31 @@ class Contact extends Model
     }
 
     /**
-     * Contact-details Phase 4 — re-derive last_contacted_at from the comms
-     * that ACTUALLY count as reaching the contact (send_status=sent), rather
-     * than just bumping it forward. touchLastContacted() alone can't undo a
-     * false "communicated" fact: it only ever moves the marker forward, so
-     * flagging a send not_delivered AFTER it already advanced the marker
-     * needs this — recompute the true MAX(occurred_at) across every
-     * still-counting outbound send and set (or null) it exactly.
+     * AT-372 — mark the contact as CONTACTED by an explicit agent action (Mark as
+     * Now / Pick Date / Mark contacted + note). This is a first-class signal, stored
+     * separately from the comms so it is never wiped by a send's recompute. Then
+     * re-derive last_contacted_at (which is the max of this and the sent comms).
+     */
+    public function markContacted($at = null): void
+    {
+        $at = $at ? \Illuminate\Support\Carbon::parse($at) : now();
+        $this->forceFill(['contacted_marked_at' => $at])->save();
+        $this->recomputeLastContacted();
+    }
+
+    /**
+     * Contact-details Phase 4 + AT-372 — re-derive last_contacted_at as the LATER of
+     * the two truthful "contacted" signals:
+     *   (a) the latest still-counting outbound SENT comm (send_status=sent), and
+     *   (b) the explicit agent "contacted" mark (contacted_marked_at, AT-372).
+     * Taking the max means neither signal wipes the other: a not-sent send (which is
+     * send_status != sent, AT-323) never contributes, an explicit mark survives the
+     * next send's recompute, and flagging a send not_delivered correctly rewinds the
+     * comms half without touching the explicit mark.
      *
-     * Called whenever a communication's send_status changes (flag as
-     * not_delivered, revert back to sent, or a resend lands) — never at
-     * normal send time, where touchLastContacted()'s forward-only bump is
-     * correct and cheaper (no recompute needed for the 99% case).
+     * Called whenever a communication's send_status changes (flag not_delivered,
+     * mark sent, resend) and by markContacted(). touchLastContacted()'s forward-only
+     * bump is still used at raw log time; recompute is the authority that reconciles.
      */
     public function recomputeLastContacted(): void
     {
@@ -1289,7 +1303,17 @@ class Contact extends Model
             ->whereNull('communications.purged_at')
             ->max('communications.occurred_at');
 
-        $new = $max ? \Illuminate\Support\Carbon::parse($max) : null;
+        $sent = $max ? \Illuminate\Support\Carbon::parse($max) : null;
+        $explicit = $this->contacted_marked_at; // AT-372 — cast to Carbon
+
+        // last_contacted_at = the later of the two signals (null only if both null).
+        $new = null;
+        foreach ([$sent, $explicit] as $candidate) {
+            if ($candidate !== null && ($new === null || $candidate->gt($new))) {
+                $new = $candidate;
+            }
+        }
+
         $unchanged = ($this->last_contacted_at === null && $new === null)
             || ($this->last_contacted_at !== null && $new !== null && $this->last_contacted_at->eq($new));
 
