@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace App\Services\Docuperfect;
 
 use App\Models\Docuperfect\DocumentClauseStrikethrough;
+use App\Models\Docuperfect\DocumentCondition;
 use App\Models\Docuperfect\SignatureTemplate;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 /**
  * WET-INK SELECTION edit (Johan 2026-08-05, correct UX) — the agent HIGHLIGHTS the exact word / phrase /
@@ -36,8 +38,12 @@ final class SelectionEditService
         string $prefix,
         string $suffix,
         string $replacement,
-        ?User $actor
+        ?User $actor,
+        string $mode = 'inline'
     ): array {
+        // small change = reword inline; big change = strike + route the full replacement to Other Conditions
+        // with a cross-reference (esign-returned-doc-edit-flow.md §3). Anything unexpected falls back to inline.
+        $mode = $mode === 'reference' ? 'reference' : 'inline';
         $document = $template->document;
         if (! $document) {
             return ['ok' => false, 'error' => 'Document not found.'];
@@ -76,26 +82,54 @@ final class SelectionEditService
 
         $changeId = substr(sha1($this->norm($prefix) . '|' . $selected . '|' . $replacement), 0, 12);
 
-        $result = DB::transaction(function () use ($template, $document, $dom, $node, $offset, $selected, $replacement, $changeId, $actor, $wtd) {
-            $this->authorInlineStrike($dom, $node, $offset, $selected, $replacement, $changeId, $template);
+        $result = DB::transaction(function () use ($template, $document, $dom, $node, $offset, $selected, $replacement, $changeId, $actor, $wtd, $mode) {
+            $ocNumber = null;
+            $condition = null;
+            if ($mode === 'reference') {
+                // BIG change → hold the full replacement as an Other-Conditions entry (#N); the struck span
+                // then carries a "See Other Conditions — clause N" cross-reference instead of an inline insert.
+                $next = (int) DocumentCondition::query()
+                    ->where('signature_template_id', $template->id)
+                    ->where('block_id', 'other_conditions')
+                    ->whereNull('superseded_at')
+                    ->max('condition_number');
+                $ocNumber  = $next + 1;
+                $condition = DocumentCondition::create([
+                    'signature_template_id' => $template->id,
+                    'agency_id'             => $actor?->effectiveAgencyId(),
+                    'block_id'              => 'other_conditions',
+                    'block_purpose'         => 'other_conditions',
+                    'condition_number'      => $ocNumber,
+                    'content'               => sprintf('Amendment to "%s": %s', Str::limit($selected, 60), $replacement),
+                    'is_override'           => true,
+                    'overrides_clause_ref'  => null,
+                    'added_by_user_id'      => $actor?->id,
+                    'added_via'             => 'agent_signing',
+                    'source'                => 'custom',
+                ]);
+            }
+
+            $this->authorStrike($dom, $node, $offset, $selected, $replacement, $changeId, $template, $mode, $ocNumber);
 
             DocumentClauseStrikethrough::create([
-                'signature_template_id' => $template->id,
-                'agency_id'             => $actor?->effectiveAgencyId(),
-                'clause_ref'            => 'selection',           // selection-based; no printed clause ref
-                'clause_original_text'  => $selected,
-                'proposed_by_user_id'   => $actor?->id,
-                'amendment_id'          => 0,
-                'status'                => DocumentClauseStrikethrough::STATUS_PROPOSED,
+                'signature_template_id'    => $template->id,
+                'agency_id'                => $actor?->effectiveAgencyId(),
+                'clause_ref'               => 'selection',           // selection-based; no printed clause ref
+                'clause_original_text'     => $selected,
+                'replacement_condition_id' => $condition?->id,
+                'proposed_by_user_id'      => $actor?->id,
+                'amendment_id'             => 0,
+                'status'                   => DocumentClauseStrikethrough::STATUS_PROPOSED,
             ]);
 
             $wtd['merged_html'] = $this->innerHtml($dom, $xpath = new \DOMXPath($dom));
             $changes = $wtd['pending_body_changes'] ?? [];
             $changes[] = [
                 'change_id' => $changeId,
-                'mode'      => 'selection',
+                'mode'      => $mode === 'reference' ? 'reference' : 'selection',
                 'old'       => $selected,
                 'new'       => $replacement,
+                'oc_ref'    => $ocNumber,
                 'actor_id'  => $actor?->id,
                 'actor_name'=> $actor?->name,
                 'at'        => now()->toIso8601String(),
@@ -105,7 +139,7 @@ final class SelectionEditService
             $wtd['canonical_version']    = 0; // recompose so the strike shows on serve
             $document->update(['web_template_data' => $wtd]);
 
-            return ['ok' => true, 'change_id' => $changeId, 'old' => $selected];
+            return ['ok' => true, 'change_id' => $changeId, 'old' => $selected, 'mode' => $mode, 'oc_ref' => $ocNumber];
         });
 
         return $result;
@@ -165,7 +199,7 @@ final class SelectionEditService
     }
 
     /** Split $node at the selected span and author the inline strike + margin initial block in place. */
-    private function authorInlineStrike(\DOMDocument $dom, \DOMText $node, int $offset, string $selected, string $replacement, string $changeId, SignatureTemplate $template): void
+    private function authorStrike(\DOMDocument $dom, \DOMText $node, int $offset, string $selected, string $replacement, string $changeId, SignatureTemplate $template, string $mode = 'inline', ?int $ocNumber = null): void
     {
         $full   = $node->nodeValue ?? '';
         $before = mb_substr($full, 0, $offset);
@@ -189,14 +223,27 @@ final class SelectionEditService
         $del = $dom->createElement('del');
         $del->setAttribute('class', 'change-del');
         $del->setAttribute('data-change-id', $changeId);
+        if ($mode === 'reference' && $ocNumber !== null) {
+            $del->setAttribute('data-oc-ref', (string) $ocNumber);
+        }
         $del->appendChild($dom->createTextNode($selected));
         $wrap->appendChild($del);
         $wrap->appendChild($dom->createTextNode(' '));
-        $ins = $dom->createElement('ins');
-        $ins->setAttribute('class', 'change-ins');
-        $ins->setAttribute('data-change-id', $changeId);
-        $ins->appendChild($dom->createTextNode($replacement));
-        $wrap->appendChild($ins);
+        if ($mode === 'reference' && $ocNumber !== null) {
+            // BIG change → cross-reference the Other-Conditions entry instead of inlining the replacement.
+            $xref = $dom->createElement('span');
+            $xref->setAttribute('class', 'change-xref');
+            $xref->setAttribute('data-change-id', $changeId);
+            $xref->setAttribute('data-oc-ref', (string) $ocNumber);
+            $xref->appendChild($dom->createTextNode('See Other Conditions — clause ' . $ocNumber));
+            $wrap->appendChild($xref);
+        } else {
+            $ins = $dom->createElement('ins');
+            $ins->setAttribute('class', 'change-ins');
+            $ins->setAttribute('data-change-id', $changeId);
+            $ins->appendChild($dom->createTextNode($replacement));
+            $wrap->appendChild($ins);
+        }
 
         $frag[] = $wrap;
         if ($after !== '') {
