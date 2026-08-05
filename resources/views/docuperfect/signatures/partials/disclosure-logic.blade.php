@@ -1,6 +1,6 @@
 {{--
     Shared disclosure logic (§19 Part A — APPROVED).
-    @include'd INSIDE the Alpine object literal of BOTH signing views:
+    include'd INSIDE the Alpine object literal of BOTH signing views:
       - external/sign.blade.php  (externalSign())   — seller / external signer
       - sign.blade.php           (signDocument())   — agent
     SINGLE SOURCE. Do not copy-paste these methods into either view.

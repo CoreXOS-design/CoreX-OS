@@ -397,7 +397,7 @@
 function assistantMatrix() {
     return {
         matrix: @json(collect($sections)->flatten(1)->mapWithKeys(fn ($r) => [$r['key'] => $r['granted'] && !$r['is_locked']])),
-        {{-- @json must stay on ONE line: Blade's directive parser mishandles a multi-line
+        {{-- json must stay on ONE line: Blade's directive parser mishandles a multi-line
              array literal and drops the closing ']', producing invalid PHP (unclosed '['). --}}
         scopes: @json(collect($sections)->flatten(1)->filter(fn ($r) => $r['is_view'] && !$r['is_locked'])->mapWithKeys(fn ($r) => [$r['key'] => ($r['granted'] ? $r['scope'] : 'none')])),
         settings: @json($assistantSettings),
