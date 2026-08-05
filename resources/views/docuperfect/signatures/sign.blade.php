@@ -98,7 +98,25 @@
                                     <label class="block text-xs font-medium text-slate-600 mb-1">Replacement text</label>
                                     <textarea x-model="replacement" rows="4" class="w-full rounded-lg border-slate-300 text-sm px-3 py-2" placeholder="The new wording…"></textarea>
                                 </div>
-                                <p class="text-xs text-slate-500">The highlighted text stays visible, struck through, with your replacement inserted right there. An initial block for every party is dropped in the margin at that spot.</p>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-600 mb-1">How should this change appear?</label>
+                                    <div class="flex gap-2">
+                                        <button type="button" @click="mode='inline'"
+                                                class="flex-1 rounded-lg border px-3 py-2 text-left text-xs"
+                                                :class="mode==='inline' ? 'border-[#0b2a4a] bg-[#eef4fb] font-semibold text-[#0b2a4a]' : 'border-slate-200 text-slate-600'">
+                                            Reword inline
+                                            <span class="block font-normal text-[11px] text-slate-500">Small change — new wording sits right where the old text was.</span>
+                                        </button>
+                                        <button type="button" @click="mode='reference'"
+                                                class="flex-1 rounded-lg border px-3 py-2 text-left text-xs"
+                                                :class="mode==='reference' ? 'border-[#0b2a4a] bg-[#eef4fb] font-semibold text-[#0b2a4a]' : 'border-slate-200 text-slate-600'">
+                                            Move to Other Conditions
+                                            <span class="block font-normal text-[11px] text-slate-500">Big change — strike here, full replacement added as a numbered Other Condition.</span>
+                                        </button>
+                                    </div>
+                                </div>
+                                <p class="text-xs text-slate-500" x-show="mode==='inline'">The highlighted text stays visible, struck through, with your replacement inserted right there. A full-width initial row for every party is dropped in under that clause.</p>
+                                <p class="text-xs text-slate-500" x-show="mode==='reference'" x-cloak>The highlighted text stays visible, struck through, with a "See Other Conditions — clause N" cross-reference. The full replacement is added as a numbered Other Condition. A full-width initial row for every party is dropped in under that clause.</p>
                                 <p x-show="err" x-text="err" class="text-xs text-red-600"></p>
                                 <div class="flex items-center justify-end gap-3 pt-2">
                                     <button type="button" @click="open=false" class="px-4 py-2.5 text-sm text-slate-600 font-medium">Cancel</button>
@@ -114,7 +132,7 @@
                 <script>
                     function selectionEditor(cfg) {
                         return {
-                            open: false, selected: '', prefix: '', suffix: '', replacement: '', busy: false, err: '', _cap: null,
+                            open: false, selected: '', prefix: '', suffix: '', replacement: '', mode: 'inline', busy: false, err: '', _cap: null,
                             init() {
                                 const handler = () => setTimeout(() => this.onSelect(), 10);
                                 document.addEventListener('mouseup', handler);
@@ -156,7 +174,7 @@
                             openFromSelection() {
                                 const cap = this._cap || this.capture();
                                 if (cap) { this.selected = cap.text; this.prefix = cap.prefix; this.suffix = cap.suffix; }
-                                this.replacement = ''; this.err = ''; this.open = true;
+                                this.replacement = ''; this.mode = 'inline'; this.err = ''; this.open = true;
                                 const btn = this.$refs.floatBtn; if (btn) btn.style.display = 'none';
                             },
                             async submit() {
@@ -169,7 +187,7 @@
                                         method: 'POST',
                                         headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest',
                                                    'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content || '{{ csrf_token() }}' },
-                                        body: JSON.stringify({ selected: this.selected, prefix: this.prefix, suffix: this.suffix, replacement: this.replacement.trim() }),
+                                        body: JSON.stringify({ selected: this.selected, prefix: this.prefix, suffix: this.suffix, replacement: this.replacement.trim(), mode: this.mode }),
                                     });
                                     const data = await resp.json().catch(() => ({}));
                                     if (resp.ok && data.ok) { window.location.reload(); }

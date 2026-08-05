@@ -2898,6 +2898,7 @@ class SignatureController extends Controller
             'replacement' => ['required', 'string', 'max:8000'],
             'prefix'      => ['nullable', 'string', 'max:200'],
             'suffix'      => ['nullable', 'string', 'max:200'],
+            'mode'        => ['nullable', 'in:inline,reference'],  // small=inline reword, big=route to Other Conditions
         ]);
 
         $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
@@ -2912,6 +2913,7 @@ class SignatureController extends Controller
             $validated['suffix'] ?? '',
             $validated['replacement'],
             $user,
+            $validated['mode'] ?? 'inline',
         );
 
         return response()->json($result, empty($result['ok']) ? 422 : 200);

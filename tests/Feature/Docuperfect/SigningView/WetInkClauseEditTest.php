@@ -126,8 +126,9 @@ final class WetInkClauseEditTest extends TestCase
         $this->assertStringContainsString('change-del', $html);
         $this->assertStringContainsString('seven percent (7%)', $html, 'struck old text stays visible');
         $this->assertStringContainsString('five percent (5%)', $html, 'replacement inserted inline');
-        $this->assertStringContainsString('change-margin', $html, 'margin initial block dropped');
-        $this->assertStringContainsString('Petro Nel', $html, 'margin has a slot for every party');
+        $this->assertStringContainsString('change-initial-row', $html, 'full-width initial row dropped under the clause');
+        $this->assertStringContainsString('cir-slot', $html, 'row has a slot per party');
+        $this->assertStringContainsString('Petro Nel', $html, 'row has a slot for every party');
         $this->assertStringContainsString('Rialette Bloem', $html);
         $this->assertStringContainsString('data-strikethrough-applied="1"', $html, 'cc1 defers to this mark');
 
@@ -135,6 +136,36 @@ final class WetInkClauseEditTest extends TestCase
         $bad = app(\App\Services\Docuperfect\SelectionEditService::class)
             ->strikeSelection($tpl->fresh(), 'text that is not in the document', '', '', 'x', $actor);
         $this->assertFalse($bad['ok']);
+    }
+
+    public function test_big_selection_edit_routes_the_replacement_to_other_conditions(): void
+    {
+        [$tpl, $doc, $actor] = $this->seedReturnedDocWithClauses();
+        \App\Models\Docuperfect\SignatureRequest::create([
+            'signature_template_id' => $tpl->id, 'party_role' => 'agent', 'role_index' => 1,
+            'signer_name' => 'Rialette Bloem', 'signer_email' => 'a@x.test', 'token' => Str::random(48),
+            'token_expires_at' => now()->addDays(30), 'status' => 'completed', 'completed_at' => now(), 'signing_order' => 1,
+        ]);
+
+        // BIG change → reference mode: strike here, full replacement moves to Other Conditions.
+        $r = app(\App\Services\Docuperfect\SelectionEditService::class)
+            ->strikeSelection($tpl, 'seven percent (7%)', 'shall be ', '.', 'a sliding scale agreed in writing between the parties from time to time', $actor, 'reference');
+        $this->assertTrue($r['ok']);
+        $this->assertSame('reference', $r['mode']);
+        $this->assertNotNull($r['oc_ref'], 'an Other-Conditions number was allocated');
+
+        $html = $doc->fresh()->web_template_data['merged_html'];
+        $this->assertStringContainsString('seven percent (7%)', $html, 'struck old text stays visible');
+        $this->assertStringContainsString('change-xref', $html, 'cross-reference rendered instead of an inline insert');
+        $this->assertStringContainsString('data-oc-ref="' . $r['oc_ref'] . '"', $html, 'del + xref carry the OC number');
+        $this->assertStringNotContainsString('change-ins', $html, 'no inline replacement in reference mode');
+        $this->assertStringContainsString('change-initial-row', $html, 'full-width initial row still dropped');
+
+        // The Other-Conditions entry holds the full replacement.
+        $oc = \App\Models\Docuperfect\DocumentCondition::where('signature_template_id', $tpl->id)
+            ->where('block_id', 'other_conditions')->where('condition_number', $r['oc_ref'])->first();
+        $this->assertNotNull($oc);
+        $this->assertStringContainsString('a sliding scale agreed in writing', $oc->content);
     }
 
     public function test_each_party_fills_their_own_margin_slot_independently(): void
@@ -155,26 +186,21 @@ final class WetInkClauseEditTest extends TestCase
         $svc = app(SignatureService::class);
         $cid = $sel->strikeSelection($tpl, 'seven percent (7%)', 'shall be ', '.', 'five percent (5%)', $actor)['change_id'];
 
-        $filled = fn ($html, $key) => (bool) preg_match(
-            '#<span class="[^"]*cm-slot[^"]*cm-filled[^"]*"[^>]*data-party-key="' . preg_quote($key, '#') . '"#', $html,
-        ) || (bool) preg_match(
-            '#data-party-key="' . preg_quote($key, '#') . '"[^>]*class="[^"]*cm-filled#', $html,
-        );
-
         // Agent initials → only the agent slot fills.
         $svc->recordChangeInitial($tpl->fresh(), $cid, 'Rialette Bloem', 'agent');
         $h1 = $doc->fresh()->web_template_data['merged_html'];
-        $this->assertStringContainsString('cm-filled', $h1);
+        $this->assertStringContainsString('cir-filled', $h1);
         $this->assertStringContainsString('RB', $h1, 'agent initials rendered as their ink');
-        // seller slot still pending (no cm-filled on the seller slot — its ink is still the empty box)
-        $this->assertStringContainsString('▢', $h1, 'the un-initialed party slot stays empty');
+        // seller slot still pending — its ink is still the empty placeholder.
+        $this->assertStringContainsString('data-empty="1"', $h1, 'the un-initialed party slot stays empty');
+        $this->assertSame(1, substr_count($h1, 'cir-filled'), 'only the agent slot filled so far');
 
         // Seller initials → their own slot fills too, independently.
         $svc->recordChangeInitial($tpl->fresh(), $cid, 'Petro Nel', 'seller');
         $h2 = $doc->fresh()->web_template_data['merged_html'];
         $this->assertStringContainsString('RB', $h2);
         $this->assertStringContainsString('PN', $h2, 'seller initials rendered independently');
-        $this->assertSame(2, substr_count($h2, 'cm-filled'), 'both party slots now filled');
+        $this->assertSame(2, substr_count($h2, 'cir-filled'), 'both party slots now filled');
 
         // The locked cc1 contract is preserved.
         $this->assertArrayHasKey('change_initials', $doc->fresh()->web_template_data);
