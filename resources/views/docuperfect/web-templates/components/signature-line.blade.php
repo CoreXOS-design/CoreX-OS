@@ -4,8 +4,8 @@
     signature block at the end of the document).
 
     Usage:
-        @include('docuperfect.web-templates.components.signature-line')
-        @include('docuperfect.web-templates.components.signature-line', ['party' => 'seller'])
+        include('docuperfect.web-templates.components.signature-line')
+        include('docuperfect.web-templates.components.signature-line', ['party' => 'seller'])
 
     When $recipients_by_role is available (from e-sign wizard), renders one
     signature line per recipient of the given party role (e.g. 2 sellers = 2 lines).

@@ -1,7 +1,7 @@
 {{-- ════════════════════════════════════════════════════════════════════════
      COREX TOUR ENGINE — interactive, spotlight help tours (driver.js).
 
-     Self-contained: the ONLY central wiring is a single @include of this
+     Self-contained: the ONLY central wiring is a single include of this
      partial in the app layouts. It loads its own vendored driver.js assets
      (public/vendor/driverjs/*), renders a "?" launcher for the current page's
      tour, auto-runs the tour once per user, and persists progress via
@@ -37,8 +37,8 @@
     {{-- Vendored assets — loaded once per page regardless of include count. --}}
     @once
         {{-- Assets are emitted inline here (body-level): this partial is included
-             AFTER the layout's <head> @stack('head') has already rendered, so a
-             @push('head') would arrive too late. Inline <link>/<style>/<script>
+             AFTER the layout's <head> stack('head') has already rendered, so a
+             push('head') would arrive too late. Inline <link>/<style>/<script>
              in the body are valid and load deterministically. --}}
         <link rel="stylesheet" href="{{ asset('vendor/driverjs/driver.css') }}">
         <style>

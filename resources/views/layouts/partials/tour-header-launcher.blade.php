@@ -2,7 +2,7 @@
      COREX TOUR — shared page-header launcher slot (AT-41).
 
      Johan + Andre's decision: the "?" tour launcher lives in each page's
-     HEADER. This is the single shared partial that page headers @include.
+     HEADER. This is the single shared partial that page headers include.
 
      It renders the launcher slot ONLY when TourRegistry resolves a tour for
      the current route — so a tour-less page never shows a dead "?" button, and
@@ -13,7 +13,7 @@
      floating button.
 
      Usage — drop inside a page header's action group:
-       @include('layouts.partials.tour-header-launcher')
+       include('layouts.partials.tour-header-launcher')
      ════════════════════════════════════════════════════════════════════════ --}}
 @auth
 @php
@@ -27,7 +27,7 @@
 @endphp
 @if($__hdrTour && \App\Support\Tours\TourRegistry::visibleTo($__hdrTour, auth()->user()))
     {{-- Empty slot; the tour engine appends the "?" button here on init().
-         Wrapped in @once so that even if this partial is included more than once
+         Wrapped in once so that even if this partial is included more than once
          on a page (e.g. via a shared header component AND a bespoke header) the
          slot renders EXACTLY once — the id `tour-launcher-slot` stays unique and
          the engine always finds the single right target. --}}

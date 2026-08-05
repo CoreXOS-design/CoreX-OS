@@ -2,7 +2,7 @@
     Phase 3g V2 Part C — reusable embedded map partial.
 
     Usage:
-        @include('corex.map.partials._embed-map', [
+        include('corex.map.partials._embed-map', [
             'containerId'  => 'prop-map-' . $property->id,   // unique ID
             'centerLat'    => $property->latitude,
             'centerLng'    => $property->longitude,
@@ -21,8 +21,8 @@
         /presentations/{id}/spatial-pins (presentation mode)
       - "Open full map" link in the top-right corner
 
-    Leaflet libs are expected on the host page (use the shared @stack('head')
-    push from the standalone map view, or @include this partial from a page
+    Leaflet libs are expected on the host page (use the shared stack('head')
+    push from the standalone map view, or include this partial from a page
     that already pushes them — see _embed-map-head.blade.php helper below).
 --}}
 
