@@ -2507,7 +2507,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/queue',      [\App\Http\Controllers\SellerOutreach\ComposerController::class, 'queue'])->name('queue');
             Route::get('/sent/{send}', [\App\Http\Controllers\SellerOutreach\ComposerController::class, 'sent'])->name('sent');
             // AT-323 — on the sent page the agent confirms whether WhatsApp actually went out.
+            // "Yes" promotes the mirrored comm to sent (the ONLY path a pitch counts as sent);
             // "No" records the honest not_sent outcome (+ mirrors not_delivered to the linked comm).
+            Route::post('/sent/{send}/mark-sent', [\App\Http\Controllers\SellerOutreach\ComposerController::class, 'markSent'])->name('mark-sent');
             Route::post('/sent/{send}/not-sent', [\App\Http\Controllers\SellerOutreach\ComposerController::class, 'markNotSent'])->name('not-sent');
 
             // Timeline (Prompt 07) — agent-side view of every send + click + opt-out
@@ -3116,8 +3118,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
         // Contact-details Phase 4 — outreach could-not-send flow
         Route::post('/{contact}/communications/{communication}/not-delivered', [\App\Http\Controllers\CoreX\ContactController::class, 'markCommunicationNotDelivered'])->name('communications.not-delivered');
-        Route::post('/{contact}/communications/{communication}/revert',        [\App\Http\Controllers\CoreX\ContactController::class, 'revertCommunicationSendStatus'])->name('communications.revert');
-        Route::post('/{contact}/communications/{communication}/resend',       [\App\Http\Controllers\CoreX\ContactController::class, 'resendCommunication'])->name('communications.resend');
+        // AT-323 — "Yes, I sent it" modal confirmation: the ONLY path a send reaches sent.
+        Route::post('/{contact}/communications/{communication}/mark-sent',     [\App\Http\Controllers\CoreX\ContactController::class, 'markCommunicationSent'])->name('communications.mark-sent');
 
         // Notes
         Route::post('/{contact}/notes',          [\App\Http\Controllers\CoreX\ContactNoteController::class, 'store'])->name('notes.store');

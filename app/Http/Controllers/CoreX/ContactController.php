@@ -1252,6 +1252,9 @@ class ContactController extends Controller
             // actually used, not always the primary/WhatsApp designation.
             'contact_phone_id' => 'nullable|integer',
             'contact_email_id' => 'nullable|integer',
+            // AT-323 — set when this send is a Resend of an earlier not_delivered row,
+            // so the new attempt is lineage-linked and audited as a resend.
+            'resent_from_communication_id' => 'nullable|integer',
         ]);
 
         // AT-117 §4a — send-window lock (server-side; the UI also disables the
@@ -1275,25 +1278,47 @@ class ContactController extends Controller
             $recipientValue = $contact->emails()->find($data['contact_email_id'])?->email;
         }
 
+        $resentFrom = !empty($data['resent_from_communication_id']) ? (int) $data['resent_from_communication_id'] : null;
+
         $communication = $logger->log(
             $contact,
             $data['channel'],
             $data['subject'] ?? null,
             $data['body'] ?? null,
             auth()->id(),
-            resentFromCommunicationId: null,
+            resentFromCommunicationId: $resentFrom,
             recipientValue: $recipientValue,
         );
 
-        // AT-323 (option 2) — a WhatsApp "send" is client-side click-to-chat: CoreX opens
-        // WhatsApp but never transmits, so it has NO delivery signal of its own. The row is
-        // born send_status='sent' optimistically; the ALWAYS-SHOWN post-send "Did it send?"
-        // confirmation in the UI is the ONLY truthful signal and decides the final status —
-        // a "No" answer flags THIS row not_delivered via markCommunicationNotDelivered().
-        // We deliberately do NOT infer not_delivered from the agent's WhatsApp-Web/WAHA
-        // session here: that conflates "integration connected" with "this message sent" and
-        // mislabels a genuine phone-send. Automatic delivery truth is option 1 (server-side
-        // WAHA send + ack), a separate project folded into cc3's delivery-tracking.
+        // AT-323 — a WhatsApp "send" is client-side click-to-chat: CoreX opens WhatsApp but
+        // never transmits, so it has NO delivery signal of its own. The WhatsApp row is
+        // therefore born NOT counted (send_status=not_delivered) and stays uncounted until the
+        // agent answers the ALWAYS-SHOWN "Did you send it?" modal with "Yes"
+        // (markCommunicationSent → sent). That is the ONLY way a WhatsApp send reaches sent, so
+        // the "messages sent" counter can never run ahead of what the agent actually confirmed
+        // (INVARIANTS 2 & 3). A born-'sent' default counted the message before it was confirmed
+        // — the bug this fixes. Email is exempt: it is system-sent (mailto) with no modal, so it
+        // keeps the born-'sent' default and its own count.
+        if ($data['channel'] === \App\Models\Communications\Communication::CHANNEL_WHATSAPP) {
+            $communication->forceFill([
+                'send_status' => \App\Models\Communications\Communication::SEND_STATUS_NOT_DELIVERED,
+            ])->save();
+            // last_contacted was optimistically touched by the logger; pull it back to the last
+            // ACTUALLY-sent row so an unconfirmed send never advances "last contacted".
+            $contact->recomputeLastContacted();
+        }
+
+        // AT-323 — a Resend re-runs the whole flow; audit it as a resend of the original.
+        if ($resentFrom) {
+            event(new \App\Events\Communication\CommunicationResent(
+                contact: $contact,
+                originalCommunicationId: $resentFrom,
+                newCommunicationId: (int) $communication->id,
+                channel: $communication->channel,
+                actorUserId: auth()->id(),
+                agencyId: (int) $communication->agency_id,
+            ));
+        }
 
         // Part 4 — make the comms-tile quick-send visible on the Outreach &
         // Canvassing board (it writes only a provisional `communications` row and
@@ -1356,51 +1381,27 @@ class ContactController extends Controller
         return back()->with('success', 'Marked as could not send. The contact is no longer counted as reached by this send.');
     }
 
-    /** Contact-details Phase 4 — undo a not_delivered flag (flagged by mistake, or the contact confirmed they DID get it). */
-    public function revertCommunicationSendStatus(
-        Contact $contact,
-        \App\Models\Communications\Communication $communication,
-        \App\Services\Communications\CommunicationSendStatusService $service
-    ) {
-        abort_unless($this->communicationBelongsToContact($communication, $contact), 404);
-
-        $service->revertToSent($communication, $contact, auth()->id());
-
-        return back()->with('success', 'Reverted — this send counts again.');
-    }
-
     /**
-     * Contact-details Phase 4 — reselect a different phone/email (owned by
-     * THIS contact — never an arbitrary posted string) and resend. Creates a
-     * NEW communications row; the original flagged row is never modified.
+     * AT-323 — "Yes, I sent it" from the post-send modal. The ONLY path that marks a
+     * click-to-chat send as sent (+1 the counter). No other control reaches sent — the
+     * old "Revert to sent" (which flipped a not_delivered row to sent with NO modal, a
+     * false-sent path) has been removed. Returns the recomputed count so the tile updates
+     * live without a reload.
      */
-    public function resendCommunication(
+    public function markCommunicationSent(
         Request $request,
         Contact $contact,
         \App\Models\Communications\Communication $communication,
         \App\Services\Communications\CommunicationSendStatusService $service
     ) {
         abort_unless($this->communicationBelongsToContact($communication, $contact), 404);
-        abort_unless($communication->isNotDelivered(), 400, 'Only a not-delivered send can be resent.');
 
-        if ($communication->channel === \App\Models\Communications\Communication::CHANNEL_WHATSAPP) {
-            $data = $request->validate(['contact_phone_id' => 'required|integer']);
-            $recipient = $contact->phones()->findOrFail($data['contact_phone_id'])->phone;
-        } else {
-            $data = $request->validate(['contact_email_id' => 'required|integer']);
-            $recipient = $contact->emails()->findOrFail($data['contact_email_id'])->email;
-        }
+        $service->markSent($communication, $contact, auth()->id());
 
-        $service->resend(
-            $communication,
-            $contact,
-            $recipient,
-            $communication->subject,
-            $communication->body_text,
-            auth()->id()
-        );
-
-        return back()->with('success', 'Resent to the reselected ' . ($communication->channel === 'email' ? 'email address' : 'number') . '.');
+        return response()->json([
+            'ok'    => true,
+            'count' => $contact->outboundCommCount($communication->channel),
+        ]);
     }
 
     /** Contact-details Phase 4 — a communication must actually belong to this contact (agency-scoped via the relation) before any status action touches it. */
