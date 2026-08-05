@@ -177,8 +177,12 @@
                     .change-margin { float: right; clear: right; margin: .1rem 0 .35rem 1rem; padding: .2rem .55rem;
                         border-left: 3px solid #d97706; background: #fffbeb; border-radius: 0 6px 6px 0; font-size: .62rem; color: #92400e; max-width: 40%; }
                     .change-margin-label { display: block; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; opacity: .7; margin-bottom: 2px; }
-                    .cm-slot { display: block; padding: 2px 0; border-bottom: 1px dotted #f59e0b; }
+                    .cm-slot { display: block; padding: 2px 0; border-bottom: 1px dotted #f59e0b; color: #92400e; }
                     .cm-slot:last-child { border-bottom: 0; }
+                    .cm-slot .cm-name { opacity: .85; }
+                    .cm-slot .cm-ink { font-weight: 700; font-family: 'Segoe Script','Comic Sans MS',cursive; }
+                    .cm-slot.cm-filled { color: #166534; border-bottom-color: #22c55e; }
+                    .cm-slot.cm-filled .cm-ink { color: #166534; }
                 </style>
             </div>
         </div>

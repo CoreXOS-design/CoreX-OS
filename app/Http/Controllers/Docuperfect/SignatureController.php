@@ -2932,7 +2932,15 @@ class SignatureController extends Controller
         ]);
 
         $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
-        $result = $this->signatureService->recordChangeInitial($template, $validated['change_id'], (string) $user->name);
+        // Resolve which PARTY this internal actor is (so they fill their OWN margin slot). The creator/agent
+        // is the 'agent' party; an authoriser is 'supervisor'. Default to the agent request's key.
+        $partyKey = 'agent';
+        $mine = $template->requests()->whereIn('party_role', ['agent', 'supervisor', 'supervisor_final'])
+            ->orderByRaw("FIELD(party_role,'agent','supervisor','supervisor_final')")->first();
+        if ($mine) {
+            $partyKey = method_exists($mine, 'canonicalPartyKey') ? $mine->canonicalPartyKey() : (string) $mine->party_role;
+        }
+        $result = $this->signatureService->recordChangeInitial($template, $validated['change_id'], (string) $user->name, $partyKey);
 
         return response()->json($result, empty($result['ok']) ? 422 : 200);
     }

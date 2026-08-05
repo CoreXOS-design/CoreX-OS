@@ -2127,7 +2127,7 @@ class SignatureService
      * the pill straight into merged_html so those marks show it too — one shared map, each lane renders its
      * own marks. Prior signatures are UNTOUCHED — a per-change consent, never a re-sign.
      */
-    public function recordChangeInitial(SignatureTemplate $template, string $changeId, string $name): array
+    public function recordChangeInitial(SignatureTemplate $template, string $changeId, string $name, ?string $partyKey = null): array
     {
         $document = $template->document;
         if (! $document) {
@@ -2139,15 +2139,23 @@ class SignatureService
         }
 
         $wtd = is_array($document->web_template_data) ? $document->web_template_data : [];
+        // Keep the LOCKED cc1 contract (change_initials[id] = {name, at}) — cc1 reads this for its field marks.
         $map = is_array($wtd['change_initials'] ?? null) ? $wtd['change_initials'] : [];
         $at  = now()->toIso8601String();
         $map[$changeId] = ['name' => $name, 'at' => $at];
         $wtd['change_initials'] = $map;
 
-        // Stamp the pill into any cc6-authored clause mark carrying this data-change-id (cc1 skips those).
-        if (! empty($wtd['merged_html']) && str_contains((string) $wtd['merged_html'], 'data-change-id="' . $changeId . '"')) {
-            $wtd['merged_html'] = app(ClauseEditService::class)->stampInitialPill((string) $wtd['merged_html'], $changeId, $name);
-            $wtd['canonical_version'] = 0; // recompose so the "Initialed by" pill shows on serve
+        $html = (string) ($wtd['merged_html'] ?? '');
+        if ($html !== '' && str_contains($html, 'data-change-id="' . $changeId . '"')) {
+            $selSvc = app(SelectionEditService::class);
+            if ($partyKey !== null && $partyKey !== '' && $selSvc->hasMarginSlot($html, $changeId, $partyKey)) {
+                // WET-INK per-party MARGIN slot: this party fills their OWN slot, independently of the others.
+                $wtd['merged_html'] = $selSvc->fillMarginSlot($html, $changeId, $partyKey, $name);
+            } else {
+                // Legacy clause mark (no margin slots): the shared "Initialed by {name}" pill.
+                $wtd['merged_html'] = app(ClauseEditService::class)->stampInitialPill($html, $changeId, $name);
+            }
+            $wtd['canonical_version'] = 0; // recompose so the filled slot / pill shows on serve
         }
 
         $document->update(['web_template_data' => $wtd]);

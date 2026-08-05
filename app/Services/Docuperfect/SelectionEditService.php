@@ -212,7 +212,14 @@ final class SelectionEditService
             $slot->setAttribute('class', 'cm-slot');
             $slot->setAttribute('data-party-key', (string) ($party['key'] ?? ''));
             $slot->setAttribute('data-party-name', (string) ($party['name'] ?? ''));
-            $slot->appendChild($dom->createTextNode((string) ($party['name'] ?? 'Party')));
+            $nameSpan = $dom->createElement('span');
+            $nameSpan->setAttribute('class', 'cm-name');
+            $nameSpan->appendChild($dom->createTextNode((string) ($party['name'] ?? 'Party')));
+            $slot->appendChild($nameSpan);
+            $ink = $dom->createElement('span');
+            $ink->setAttribute('class', 'cm-ink');
+            $ink->appendChild($dom->createTextNode(' ▢'));   // empty slot — fills when THIS party initials
+            $slot->appendChild($ink);
             $margin->appendChild($slot);
         }
         $wrap->appendChild($margin);
@@ -239,6 +246,84 @@ final class SelectionEditService
             ];
         }
         return $out;
+    }
+
+    /**
+     * Fill ONE party's margin slot for a change (wet-ink: each party initials their OWN slot, independently).
+     * Marks the cm-slot[data-party-key] under the change's margin as filled + writes the party's initials as
+     * their ink. Idempotent. Returns the html unchanged when the slot isn't present.
+     */
+    public function fillMarginSlot(string $html, string $changeId, string $partyKey, string $name): string
+    {
+        if (trim($html) === '' || ! str_contains($html, 'data-change-id="' . $changeId . '"')) {
+            return $html;
+        }
+        try {
+            $dom = new \DOMDocument();
+            @$dom->loadHTML(
+                '<?xml encoding="utf-8"?><div id="__root">' . $html . '</div>',
+                LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING,
+            );
+            $xpath = new \DOMXPath($dom);
+            $slots = $xpath->query(
+                '//*[contains(concat(" ", normalize-space(@class), " "), " change-margin ") and @data-change-id=' . $this->xpathLiteral($changeId) . ']'
+                . '//*[contains(concat(" ", normalize-space(@class), " "), " cm-slot ") and @data-party-key=' . $this->xpathLiteral($partyKey) . ']'
+            );
+            if ($slots === false || $slots->length === 0) {
+                return $html;
+            }
+            foreach ($slots as $slot) {
+                if (! $slot instanceof \DOMElement) {
+                    continue;
+                }
+                $cls = $slot->getAttribute('class');
+                if (! str_contains(' ' . $cls . ' ', ' cm-filled ')) {
+                    $slot->setAttribute('class', trim($cls . ' cm-filled'));
+                }
+                foreach (iterator_to_array($xpath->query('.//*[contains(concat(" ", normalize-space(@class), " "), " cm-ink ")]', $slot)) as $ink) {
+                    while ($ink->firstChild) {
+                        $ink->removeChild($ink->firstChild);
+                    }
+                    $ink->appendChild($dom->createTextNode(' ' . $this->initials($name)));
+                }
+            }
+            return $this->innerHtml($dom, $xpath);
+        } catch (\Throwable $e) {
+            return $html;
+        }
+    }
+
+    /** True when the change's margin has a slot for this party (a selection mark). */
+    public function hasMarginSlot(string $html, string $changeId, string $partyKey): bool
+    {
+        if (trim($html) === '' || ! str_contains($html, 'data-change-id="' . $changeId . '"')) {
+            return false;
+        }
+        return preg_match('/data-party-key="' . preg_quote($partyKey, '/') . '"/', $html) === 1
+            && str_contains($html, 'change-margin');
+    }
+
+    private function initials(string $name): string
+    {
+        $parts = preg_split('/\s+/', trim($name)) ?: [];
+        $out = '';
+        foreach ($parts as $p) {
+            if ($p === '') continue;
+            $out .= mb_strtoupper(mb_substr($p, 0, 1));
+            if (mb_strlen($out) >= 3) break;
+        }
+        return $out !== '' ? $out : '✓';
+    }
+
+    private function xpathLiteral(string $value): string
+    {
+        if (! str_contains($value, "'")) {
+            return "'{$value}'";
+        }
+        if (! str_contains($value, '"')) {
+            return "\"{$value}\"";
+        }
+        return "concat('" . str_replace("'", "',\"'\",'", $value) . "')";
     }
 
     private function innerHtml(\DOMDocument $dom, \DOMXPath $xpath): string

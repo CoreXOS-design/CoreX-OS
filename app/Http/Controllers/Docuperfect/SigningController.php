@@ -3855,8 +3855,12 @@ CSS;
 
         $validated = $request->validate(['change_id' => ['required', 'string', 'max:64']]);
         $template = $signingRequest->template;
+        // WET-INK: this recipient fills their OWN margin slot (their canonical party key).
+        $partyKey = method_exists($signingRequest, 'canonicalPartyKey')
+            ? $signingRequest->canonicalPartyKey()
+            : (string) $signingRequest->party_role;
         $result = app(\App\Services\Docuperfect\SignatureService::class)
-            ->recordChangeInitial($template, $validated['change_id'], (string) $signingRequest->signer_name);
+            ->recordChangeInitial($template, $validated['change_id'], (string) $signingRequest->signer_name, $partyKey);
 
         return response()->json($result, empty($result['ok']) ? 422 : 200);
     }
