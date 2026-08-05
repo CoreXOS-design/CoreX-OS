@@ -21,6 +21,10 @@
 @php
     $synPpEnabled  = $synPpEnabled  ?? (bool) \App\Models\PerformanceSetting::get('syndication_pp_enabled', 1);
     $synP24Enabled = $synP24Enabled ?? (bool) \App\Models\PerformanceSetting::get('syndication_p24_enabled', 1);
+    // AT-369 follow-up — agency master kill switch for the PP-exclusivity
+    // sub-feature. Off removes the tick (and its two modals) from every
+    // sole-mandate Sale listing's panel, regardless of mandate/listing type.
+    $ppExclusivityEnabled = $ppExclusivityEnabled ?? (bool) \App\Models\PerformanceSetting::get('pp_exclusivity_enabled', 1, $property->agency_id);
 
     $websiteKeys = $websiteKeys ?? \App\Models\AgencyApiKey::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
         ->where('agency_id', $property->agency_id)
@@ -207,6 +211,14 @@
                                 'ppDelayUntilRaw' => $property->pp_delay_until ? $property->pp_delay_until->toIso8601String() : '',
                                 // A.2.1 — single source of truth for the public URL lives on Property.
                                 'publicUrl'       => $property->publicListingUrls()['pp'] ?? '',
+                                // AT-369 follow-up — mirror-image P24 gate: PP exclusivity is
+                                // PP-only, so the tick must refuse while P24 is switched on for
+                                // this listing (real gate is server-side, see
+                                // SyndicationController::validateAndSaveExclusiveDays()).
+                                'p24Enabled'      => (bool) $property->p24_syndication_enabled,
+                                // One-time-per-agent forced-read explainer — never shown again
+                                // once acknowledged, tracked on the user, not the listing.
+                                'explainerSeen'   => (bool) auth()->user()?->pp_exclusivity_explainer_seen_at,
                             ];
                         @endphp
                         <div x-data="ppSyndication({{ Js::from($ppConfig) }})" @click.stop class="space-y-2 mt-2"
@@ -367,8 +379,11 @@
                                  the rest of the PP card. Sole-mandate Sale only. Nothing is
                                  exclusive unless the agent explicitly ticks this and confirms in
                                  the info modal — no auto-calculation from dates, no
-                                 agency-mandated blanket mode. --}}
-                            @if(in_array(strtolower($property->mandate_type ?? ''), ['sole', 'sole mandate']) && ($property->listing_type ?? 'sale') === 'sale')
+                                 agency-mandated blanket mode. Agency master switch (follow-up,
+                                 pp_exclusivity_enabled — Company Settings → Feature Settings →
+                                 Properties → Syndication Portals) removes this whole section,
+                                 tick and both modals, when off. --}}
+                            @if($ppExclusivityEnabled && in_array(strtolower($property->mandate_type ?? ''), ['sole', 'sole mandate']) && ($property->listing_type ?? 'sale') === 'sale')
                             <div x-show="enabled" x-cloak class="rounded-md px-3 py-2.5 space-y-1.5"
                                  style="background:var(--surface-2); border:1px solid var(--border);">
                                 <p class="text-[0.6875rem] font-bold uppercase tracking-wider" style="color:var(--text-muted);">Private Property — Exclusivity</p>
@@ -426,6 +441,63 @@
                                                 class="px-3 py-1.5 rounded-md text-xs font-semibold"
                                                 style="background:var(--brand-button); color:#fff;">
                                             Confirm exclusivity
+                                        </button>
+                                    </div>
+                                </div>
+                            </x-modal>
+
+                            {{-- P24-active warning — the reverse of the isPpExclusiveLocked()
+                                 gate on the P24 panel below. Fires INSTEAD of the info modal
+                                 when the agent ticks the exclusivity switch while Property24 is
+                                 still on for this listing; nothing opens after it except back
+                                 to the tick itself. Server-side gate is the real enforcement
+                                 (SyndicationController::validateAndSaveExclusiveDays()) — this
+                                 is the friendly, immediate front-end mirror. --}}
+                            <x-modal name="pp-exclusive-p24-blocked-{{ $property->id }}" maxWidth="md">
+                                <div class="p-6 space-y-4">
+                                    <h3 class="text-sm font-bold" style="color:var(--text-primary);">Property24 is still switched on</h3>
+                                    <p class="text-xs" style="color:var(--text-secondary);">
+                                        Private Property exclusivity publishes to Private Property only — every other
+                                        portal, including Property24, must be off for this listing first. Turn off the
+                                        Property24 toggle below, then try again.
+                                    </p>
+                                    <div class="flex items-center justify-end pt-2">
+                                        <button type="button"
+                                                @click="window.dispatchEvent(new CustomEvent('close-modal', { detail: 'pp-exclusive-p24-blocked-' + propertyId }))"
+                                                class="px-3 py-1.5 rounded-md text-xs font-semibold"
+                                                style="background:var(--brand-button); color:#fff;">
+                                            Got it
+                                        </button>
+                                    </div>
+                                </div>
+                            </x-modal>
+
+                            {{-- One-time forced-read explainer — shown ONLY the first time this
+                                 agent ever ticks the exclusivity switch (explainerSeen, sourced
+                                 from users.pp_exclusivity_explainer_seen_at). Non-dismissible
+                                 (no backdrop/Escape close — see <x-modal dismissible="false">)
+                                 and gated by a 10-second minimum read before "I understand"
+                                 unlocks, because agents were skipping straight past the existing
+                                 info modal without reading it. Acknowledging does NOT commit
+                                 exclusivity by itself — it hands straight on to the normal
+                                 day-picker modal above, which still has its own Cancel. --}}
+                            <x-modal name="pp-exclusive-explainer-{{ $property->id }}" maxWidth="lg" :dismissible="false">
+                                <div class="p-6 space-y-4">
+                                    <h3 class="text-sm font-bold" style="color:var(--text-primary);">Before you make a listing exclusive to Private Property</h3>
+                                    <p class="text-xs font-medium" style="color:var(--ds-amber);">This only shows once — please read it properly.</p>
+                                    <ul class="space-y-2 m-0 pl-4 text-xs" style="color:var(--text-secondary); list-style:disc;">
+                                        <li>The listing publishes to <strong>Private Property only</strong> — Property24 and every other portal are blocked for the whole period you choose.</li>
+                                        <li><strong>Property24 must already be off</strong> for this listing before you can turn exclusivity on.</li>
+                                        <li>The listing must be a <strong>newly signed sole mandate</strong> not already advertised anywhere else.</li>
+                                        <li>Once confirmed, exclusivity <strong>cannot be cancelled within the first 24 hours</strong> — Private Property rejects the reduction.</li>
+                                    </ul>
+                                    <div class="flex items-center justify-end pt-2">
+                                        <button type="button"
+                                                :disabled="explainerSecondsLeft > 0"
+                                                @click="acknowledgeExplainer()"
+                                                class="px-3 py-1.5 rounded-md text-xs font-semibold transition-opacity"
+                                                :style="explainerSecondsLeft > 0 ? 'background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border); cursor:not-allowed;' : 'background:var(--brand-button); color:#fff;'">
+                                            <span x-text="explainerSecondsLeft > 0 ? ('Please read (' + explainerSecondsLeft + 's)') : 'I understand'"></span>
                                         </button>
                                     </div>
                                 </div>

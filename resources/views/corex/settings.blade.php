@@ -2278,11 +2278,13 @@
                           x-data="{
                             pp:  {{ $syndicationPpEnabled      ? 'true' : 'false' }},
                             p24: {{ $syndicationP24Enabled     ? 'true' : 'false' }},
+                            ppExcl: {{ $ppExclusivityEnabled   ? 'true' : 'false' }},
                             submit() { this.$refs.frm.submit(); }
                           }" x-ref="frm">
                         @csrf
                         <input type="hidden" name="syndication_pp_enabled"      :value="pp  ? 1 : 0">
                         <input type="hidden" name="syndication_p24_enabled"     :value="p24 ? 1 : 0">
+                        <input type="hidden" name="pp_exclusivity_enabled"      :value="ppExcl ? 1 : 0">
 
                         @foreach([
                             ['key' => 'pp',  'label' => 'Private Property', 'desc' => 'Submit listings to Private Property'],
@@ -2302,6 +2304,25 @@
                             </label>
                         </div>
                         @endforeach
+
+                        {{-- AT-369 follow-up — master kill switch for the agent opt-in
+                             PP-exclusivity sub-feature. Off removes the tick from every
+                             sole-mandate Sale listing's syndication panel entirely; it does
+                             not touch listings already exclusive on PP (pp_delay_until keeps
+                             gating P24 until it lapses — turning this off is not a delist). --}}
+                        <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md" style="background:var(--surface); border:1px solid var(--border);">
+                            <div>
+                                <div class="text-sm font-medium" style="color:var(--text-primary);">Private Property exclusivity</div>
+                                <div class="text-xs" style="color:var(--text-muted);">Let agents opt a sole mandate sale into Private Property exclusivity. Off hides the option entirely — existing exclusive listings are unaffected until their window lapses.</div>
+                            </div>
+                            <label class="relative cursor-pointer flex-shrink-0" style="width:44px; height:24px; display:block;">
+                                <input type="checkbox" class="sr-only" x-model="ppExcl" @change="submit()">
+                                <span class="block w-full h-full rounded-full transition-colors duration-200"
+                                      :style="ppExcl ? 'background:var(--brand-button, #0ea5e9)' : 'background:var(--border-hover)'"></span>
+                                <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-all duration-200"
+                                      :style="ppExcl ? 'transform:translateX(20px)' : 'transform:translateX(0)'"></span>
+                            </label>
+                        </div>
 
                         {{-- AT-369 — agency cap on agent-opted-in PP sole-mandate exclusivity
                              days. This is a MAXIMUM only: nothing is exclusive unless an agent

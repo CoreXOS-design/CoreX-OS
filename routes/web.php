@@ -3115,6 +3115,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/syndication/agent/register',        [\App\Http\Controllers\PrivateProperty\SyndicationController::class, 'registerAgent'])->name('syndication.agent.register');
         Route::post('/syndication/agent/deactivate',      [\App\Http\Controllers\PrivateProperty\SyndicationController::class, 'deactivateAgent'])->name('syndication.agent.deactivate');
         Route::post('/syndication/agent/image',           [\App\Http\Controllers\PrivateProperty\SyndicationController::class, 'uploadAgentImage'])->name('syndication.agent.image');
+        // AT-369 follow-up — one-time, self-scoped "seen the exclusivity explainer" ack
+        Route::post('/syndication/exclusivity-explainer/ack', [\App\Http\Controllers\PrivateProperty\SyndicationController::class, 'acknowledgeExclusivityExplainer'])->name('syndication.exclusivity-explainer.ack');
         // PP Video/Matterport & Listing Ownership
         Route::post('/{property}/syndication/video',     [\App\Http\Controllers\PrivateProperty\PropertyPpController::class, 'video'])->name('syndication.video');
         Route::post('/{property}/syndication/update-id',  [\App\Http\Controllers\PrivateProperty\PropertyPpController::class, 'updateId'])->name('syndication.update-id');
