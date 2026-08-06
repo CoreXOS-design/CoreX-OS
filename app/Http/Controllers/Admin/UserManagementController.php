@@ -6,6 +6,7 @@ use App\Exceptions\SeatReinstatementLockedException;
 use App\Http\Controllers\Controller;
 use App\Jobs\SyncAgentToP24Job;
 use App\Mail\UserInviteMail;
+use App\Models\Agency;
 use App\Models\Billing\AgentSeatRelease;
 use App\Models\Role;
 use App\Models\User;
@@ -82,8 +83,13 @@ class UserManagementController extends Controller
             ->get()
             ->keyBy('user_id');
 
+        // AT-278 — a CoreX System Owner can lift a hold from here too, not only
+        // from Archived Agents; a deactivated-but-not-deleted agent never shows
+        // up on that page at all.
+        $canOverride = (bool) auth()->user()?->isOwnerRole();
+
         return view('admin.users.index', compact(
-            'users','branches','designations','p24AgentMap','ppraDueCount','archivedCount','seatHolds'
+            'users','branches','designations','p24AgentMap','ppraDueCount','archivedCount','seatHolds','canOverride'
         ));
     }
 
@@ -196,9 +202,9 @@ class UserManagementController extends Controller
             if ($until = $seatLock->lockedUntil($trashed)) {
                 return back()->withInput()->withErrors([
                     'email' => sprintf(
-                        '%s was archived on %s and cannot occupy a seat again until %s. '
+                        '%s was archived on %s and cannot be added back until %s. '
                         . 'Creating a new account for them is not a way around that hold. '
-                        . 'If this was a mistake, contact CoreX support — a System Owner can lift it immediately.',
+                        . 'If this was a mistake, contact CoreX support — CoreX Dev can lift it immediately.',
                         $trashed->name,
                         optional($trashed->deleted_at)->format('j F Y') ?? 'an earlier date',
                         $until->format('j F Y'),
@@ -718,12 +724,20 @@ class UserManagementController extends Controller
         // tweak their role, and they are live again with no gate crossed.
         // Now a deactivated agent is only lifted when their hold has cleared, and
         // the admin is told plainly when it has not.
+        //
+        // reinstate() closes the agent_seat_releases hold in its own DB write, so
+        // it must run AFTER $user->save() has actually persisted is_active = 1 —
+        // never before. Calling it first (as an earlier version of this did) would
+        // mark the hold closed even if save() then failed for an unrelated reason,
+        // silently defeating the lock: a later reactivation would find no open
+        // hold at all. toggle() and restore() already get this order right.
         $seatLockNote = '';
+        $reinstating  = false;
         if (! $user->is_active) {
             try {
                 app(AgentSeatLockService::class)->assertCanReinstate($user, auth()->user());
                 $user->is_active = 1;
-                app(AgentSeatLockService::class)->reinstate($user, auth()->user());
+                $reinstating = true;
             } catch (SeatReinstatementLockedException $e) {
                 $seatLockNote = ' They remain deactivated — '.$e->getMessage();
             }
@@ -732,6 +746,10 @@ class UserManagementController extends Controller
         if (!$user->email_verified_at) $user->email_verified_at = now();
 
         AgentSeatLockService::bypass(fn () => $user->save());
+
+        if ($reinstating) {
+            app(AgentSeatLockService::class)->reinstate($user, auth()->user());
+        }
 
         // ── Domain events (spec corex-domain-events-spec.md) ─────────────────
         $freshUR = $user->fresh() ?? $user;
@@ -853,7 +871,7 @@ class UserManagementController extends Controller
         return back()->with('status', "Syncing {$user->name} to Property24 — the agent ID will appear here shortly. Refresh in a moment.");
     }
 
-    public function toggle(User $user, AgentSeatLockService $seatLock)
+    public function toggle(Request $request, User $user, AgentSeatLockService $seatLock)
     {
         abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
 
@@ -866,9 +884,17 @@ class UserManagementController extends Controller
         // AT-278 — deactivating frees a billable seat exactly as archiving does
         // (billing spec §3 D1), so reactivating must clear the same 30-day hold.
         // Spec: .ai/specs/agent-seat-release-lock.md §5.1 (points 2 and 3).
+        //
+        // A CoreX System Owner can lift the hold here too, not only from the
+        // Archived Agents page — a deactivated-but-not-deleted agent never shows
+        // up there at all, so without this the override had no way to reach them.
+        $overrideReason = $request->filled('override_reason')
+            ? trim((string) $request->input('override_reason'))
+            : null;
+
         if ($reactivating) {
             try {
-                $seatLock->assertCanReinstate($user, auth()->user());
+                $seatLock->assertCanReinstate($user, auth()->user(), $overrideReason);
             } catch (SeatReinstatementLockedException $e) {
                 return back()->withErrors($e->getMessage());
             }
@@ -881,7 +907,7 @@ class UserManagementController extends Controller
         ]));
 
         if ($reactivating) {
-            $seatLock->reinstate($user, auth()->user());
+            $seatLock->reinstate($user, auth()->user(), $overrideReason);
         } else {
             $seatLock->release($user, AgentSeatRelease::REASON_DEACTIVATED, (int) auth()->id());
             $this->revokeAccess($user);
@@ -902,7 +928,9 @@ class UserManagementController extends Controller
         // discover it when they try to undo the click (STANDARDS: no silent locks).
         $holdNote = '';
         if (! $fresh->is_active && ($until = $seatLock->lockedUntil($fresh))) {
-            $holdNote = " Their seat is no longer billed. They cannot be reactivated until {$until->format('j F Y')}.";
+            $holdNote = " They are no longer billed. They cannot be reactivated until {$until->format('j F Y')}.";
+        } elseif ($reactivating && $overrideReason) {
+            $holdNote = ' The hold was lifted early and the reason recorded.';
         }
 
         return back()->with('status', "{$user->name} {$state}.{$holdNote}{$p24Note}");
@@ -1089,7 +1117,7 @@ class UserManagementController extends Controller
         $this->revokeAccess($user);
 
         $holdNote = $release
-            ? " Their seat is no longer billed. They cannot be reinstated until {$release->reinstatable_at->format('j F Y')}."
+            ? " They are no longer billed. They cannot be reinstated until {$release->reinstatable_at->format('j F Y')}."
             : '';
 
         return redirect()->route('admin.users')
@@ -1146,6 +1174,14 @@ class UserManagementController extends Controller
             ->orderByDesc('deleted_at')
             ->get();
 
+        // A System Owner not viewing-as a specific agency sees archived agents
+        // across EVERY agency in one table. Without a name on each row there is
+        // no way to tell which agency an "Override & restore" or "recorded
+        // permanently against the agency" action is actually being taken against.
+        $agencyNames = $agencyId
+            ? collect()
+            : Agency::query()->whereIn('id', $users->pluck('agency_id')->unique())->pluck('name', 'id');
+
         // One query for every hold rather than one per row.
         $releases = AgentSeatRelease::query()
             ->whereIn('user_id', $users->pluck('id'))
@@ -1154,10 +1190,15 @@ class UserManagementController extends Controller
             ->keyBy('user_id');
 
         return view('admin.users.archived', [
-            'users'     => $users,
-            'releases'  => $releases,
-            'lockDays'  => $seatLock->lockDays(),
-            'canOverride' => (bool) auth()->user()?->isOwnerRole(),
+            'users'          => $users,
+            'releases'       => $releases,
+            'lockDays'       => $seatLock->lockDays(),
+            'canOverride'    => (bool) auth()->user()?->isOwnerRole(),
+            'agencyNames'    => $agencyNames,
+            // Independent of whether $agencyNames happens to be non-empty — that
+            // collection is built FROM $users, so it is empty whenever the list is,
+            // which is exactly when the "no archived agents" copy needs this flag.
+            'spansAgencies'  => ! $agencyId,
         ]);
     }
 
@@ -1192,7 +1233,14 @@ class UserManagementController extends Controller
         // Gate cleared — suspend the observer backstop for the authorised write.
         AgentSeatLockService::bypass(function () use ($user) {
             $user->restore();
-            $user->update(['is_active' => true]);
+            $user->update([
+                'is_active' => true,
+                // They are back as themselves — resolveByQrSlug() already skips a
+                // reroute pointer once is_active/deleted_at say "here", but a
+                // restored agent still carrying their old forwarding target is
+                // stale data waiting to confuse the next person who reads it.
+                'qr_reroute_user_id' => null,
+            ]);
         });
 
         $seatLock->reinstate($user, auth()->user(), $overrideReason);
@@ -1200,6 +1248,6 @@ class UserManagementController extends Controller
         $note = $overrideReason ? ' The hold was lifted early and the reason recorded.' : '';
 
         return redirect()->route('admin.users')
-            ->with('status', "{$user->name} has been restored and now occupies a billable seat again.{$note}");
+            ->with('status', "{$user->name} has been restored and is active again.{$note}");
     }
 }

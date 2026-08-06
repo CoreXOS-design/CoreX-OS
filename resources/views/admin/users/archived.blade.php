@@ -22,7 +22,7 @@
                 <h1 class="text-xl font-bold text-white leading-tight">Archived Agents</h1>
                 <p class="text-sm text-white/60">
                     {{ number_format($users->count()) }} archived —
-                    restore an agent to give them back their login and their billable seat.
+                    restore an agent to give them back their login and reactivate them.
                 </p>
             </div>
             <a href="{{ route('admin.users') }}"
@@ -46,30 +46,32 @@
         </div>
     @endif
 
-    {{-- Why the hold exists — stated once, plainly, so the rule is never a mystery --}}
+    {{-- The rule — stated once, plainly, so it is never a mystery --}}
     <div class="rounded-md px-4 py-3 text-sm"
          style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-secondary);">
-        An archived agent stops being billed straight away. To keep the monthly bill honest, that
-        person cannot occupy a seat again for <strong>{{ $lockDays }} days</strong> — so agents
-        cannot be removed to lower a bill and added back afterwards. If an agent was archived by
-        mistake, contact CoreX support: a System Owner can lift the hold immediately.
+        An archived agent stops being billed straight away. That person cannot be added back
+        for <strong>{{ $lockDays }} days</strong>. If an agent was archived by mistake, contact
+        CoreX support: CoreX Dev can lift the hold immediately.
     </div>
 
     @if($users->isEmpty())
         <div class="rounded-md px-6 py-10 text-center text-sm"
-             style="background: var(--surface-1); border:1px solid var(--border); color: var(--text-secondary);">
-            No archived agents. Everyone on this agency is active.
+             style="background: var(--surface); border:1px solid var(--border); color: var(--text-secondary);">
+            No archived agents. Everyone {{ ($spansAgencies ?? false) ? 'across every agency' : 'on this agency' }} is active.
         </div>
     @else
-    <div class="rounded-md overflow-hidden" style="background: var(--surface-1); border:1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border:1px solid var(--border);">
         <div class="overflow-x-auto">
             <table class="w-full text-sm">
                 <thead>
                     <tr style="background: var(--surface-2); color: var(--text-secondary);">
                         <th class="text-left font-semibold px-4 py-3">Agent</th>
+                        @if($spansAgencies ?? false)
+                            <th class="text-left font-semibold px-4 py-3">Agency</th>
+                        @endif
                         <th class="text-left font-semibold px-4 py-3">Role</th>
                         <th class="text-left font-semibold px-4 py-3">Archived</th>
-                        <th class="text-left font-semibold px-4 py-3">Seat hold</th>
+                        <th class="text-left font-semibold px-4 py-3">Hold</th>
                         <th class="text-right font-semibold px-4 py-3">Action</th>
                     </tr>
                 </thead>
@@ -84,6 +86,11 @@
                             <div class="font-semibold" style="color: var(--text-primary);">{{ $u->name }}</div>
                             <div class="text-xs" style="color: var(--text-secondary);">{{ $u->email }}</div>
                         </td>
+                        @if($spansAgencies ?? false)
+                            <td class="px-4 py-3" style="color: var(--text-secondary);">
+                                {{ $agencyNames[$u->agency_id] ?? '—' }}
+                            </td>
+                        @endif
                         <td class="px-4 py-3" style="color: var(--text-secondary);">
                             {{ ucwords(str_replace('_', ' ', $u->role ?? '—')) }}
                         </td>
@@ -94,7 +101,7 @@
                             @if($blocking)
                                 <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-semibold"
                                       style="background: color-mix(in srgb, var(--ds-amber) 12%, transparent); color: var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);"
-                                      title="A released seat is held for {{ $lockDays }} days before that person can occupy a seat again.">
+                                      title="A released agent is locked for {{ $lockDays }} days before they can be added back.">
                                     Held until {{ $release->reinstatable_at->format('j M Y') }}
                                     ({{ $release->remainingDays() }} {{ \Illuminate\Support\Str::plural('day', $release->remainingDays()) }})
                                 </span>
@@ -107,11 +114,40 @@
                         </td>
                         <td class="px-4 py-3 text-right">
                             @if(! $blocking)
-                                <form method="POST" action="{{ route('admin.users.restore', $u->id) }}" class="inline"
-                                      onsubmit="return confirm('Restore {{ addslashes($u->name) }}? They will regain their login and occupy a billable seat again.');">
-                                    @csrf
-                                    <button type="submit" class="corex-btn-primary text-xs">Restore</button>
-                                </form>
+                                {{-- Custom CoreX confirm — a native browser confirm() reads as
+                                     a stray Chrome/OS dialog, not part of the product. --}}
+                                <div x-data="{ open: false }" class="inline-block">
+                                    <button type="button" @click="open = true" class="corex-btn-primary text-xs">
+                                        Restore
+                                    </button>
+
+                                    <div x-show="open" x-cloak
+                                         class="fixed inset-0 z-50 flex items-center justify-center px-4"
+                                         style="background: rgba(0,0,0,0.6);"
+                                         @keydown.escape.window="open = false">
+                                        <div class="w-full max-w-md rounded-md p-5 text-left"
+                                             style="background: var(--surface); border:1px solid var(--border);"
+                                             @click.outside="open = false">
+                                            <h3 class="text-base font-bold mb-2" style="color: var(--text-primary);">
+                                                Restore {{ $u->name }}?
+                                            </h3>
+                                            <p class="text-sm mb-4" style="color: var(--text-secondary);">
+                                                They will regain their login and be reactivated.
+                                            </p>
+                                            <div class="flex items-center justify-end gap-2">
+                                                <button type="button" @click="open = false"
+                                                        class="px-3 py-1.5 rounded-md text-xs font-semibold"
+                                                        style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
+                                                    Cancel
+                                                </button>
+                                                <form method="POST" action="{{ route('admin.users.restore', $u->id) }}">
+                                                    @csrf
+                                                    <button type="submit" class="corex-btn-primary text-xs">Restore</button>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             @elseif($canOverride)
                                 {{-- System Owner only. The button is absent for everyone
                                      else — a dead button is worse than no button — and the
@@ -126,10 +162,10 @@
                                          style="background: rgba(0,0,0,0.6);"
                                          @keydown.escape.window="open = false">
                                         <div class="w-full max-w-lg rounded-md p-5 text-left"
-                                             style="background: var(--surface-1); border:1px solid var(--border);"
+                                             style="background: var(--surface); border:1px solid var(--border);"
                                              @click.outside="open = false">
                                             <h3 class="text-base font-bold mb-2" style="color: var(--text-primary);">
-                                                Lift the seat hold on {{ $u->name }}
+                                                Lift the hold on {{ $u->name }}
                                             </h3>
                                             <p class="text-sm mb-3" style="color: var(--text-secondary);">
                                                 This hold runs until
@@ -164,7 +200,7 @@
                                 {{-- Locked, and this admin cannot lift it. Say why and say
                                      what to do — never a silent refusal. --}}
                                 <span class="text-xs" style="color: var(--text-secondary);"
-                                      title="Only a CoreX System Owner can lift a seat hold early.">
+                                      title="Only CoreX Dev can lift a hold early.">
                                     Restore available {{ $release->reinstatable_at->format('j M Y') }} —
                                     contact CoreX support if archived in error
                                 </span>

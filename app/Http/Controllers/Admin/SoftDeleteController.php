@@ -2,7 +2,10 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Exceptions\SeatReinstatementLockedException;
 use App\Http\Controllers\Controller;
+use App\Models\Billing\AgentSeatRelease;
+use App\Models\User;
 use App\Services\Admin\SoftDeleteRegistryService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -39,11 +42,29 @@ class SoftDeleteController extends Controller
         $class = $this->registry->resolve($key, $user);
         abort_if($class === null, 404);
 
+        $records = $this->registry->trashedRecords($class);
+        $isUserModel = $class === User::class;
+
+        // AT-278 — a User carries the 30-day seat reinstatement hold. Show it
+        // here, before the click, same as Archived Agents (STANDARDS: No Silent
+        // Locks) — rather than letting the admin find out only after a refused
+        // restore attempt on this generic page.
+        $seatReleases = $isUserModel
+            ? AgentSeatRelease::query()
+                ->whereIn('user_id', $records->pluck('id'))
+                ->open()
+                ->get()
+                ->keyBy('user_id')
+            : collect();
+
         return view('admin.soft-deletes.show', [
-            'key'      => $key,
-            'label'    => \Illuminate\Support\Str::plural(\Illuminate\Support\Str::headline(class_basename($class))),
-            'records'  => $this->registry->trashedRecords($class),
-            'registry' => $this->registry,
+            'key'          => $key,
+            'label'        => \Illuminate\Support\Str::plural(\Illuminate\Support\Str::headline(class_basename($class))),
+            'records'      => $records,
+            'registry'     => $this->registry,
+            'isUserModel'  => $isUserModel,
+            'seatReleases' => $seatReleases,
+            'canOverride'  => (bool) $user?->isOwnerRole(),
         ]);
     }
 
@@ -54,7 +75,19 @@ class SoftDeleteController extends Controller
         $class = $this->registry->resolve($key, $user);
         abort_if($class === null, 404);
 
-        $ok = $this->registry->restore($class, $id, $user);
+        // AT-278 — a User under the 30-day seat reinstatement hold refuses here
+        // exactly as it does on Archived Agents: UserObserver::restoring() is a
+        // structural, class-level backstop, so THIS generic restore path hits the
+        // same gate rather than routing around it. Without this catch, the block
+        // was correct but surfaced as an unhandled 500 instead of the same plain
+        // CoreX message the Archived Agents page already shows.
+        try {
+            $ok = $this->registry->restore($class, $id, $user);
+        } catch (SeatReinstatementLockedException $e) {
+            return redirect()
+                ->route('admin.soft-deletes.show', $key)
+                ->with('error', $e->getMessage());
+        }
 
         return redirect()
             ->route('admin.soft-deletes.show', $key)

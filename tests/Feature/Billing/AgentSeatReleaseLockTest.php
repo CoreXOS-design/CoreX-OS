@@ -193,6 +193,40 @@ class AgentSeatReleaseLockTest extends TestCase
         User::onlyTrashed()->findOrFail($agent->id)->restore();
     }
 
+    /**
+     * Real regression: the generic Admin → Soft Deletes register calls
+     * $record->restore() directly with no way to pass an actor or override
+     * reason down to UserObserver::restoring() — exactly the "future
+     * controller" the previous test anticipates. The backstop correctly
+     * refuses (spec §5.1 point 7); the bug was that SeatReinstatementLockedException
+     * went uncaught there and surfaced as a raw 500 instead of the same plain
+     * CoreX message shown everywhere else.
+     */
+    public function test_the_generic_soft_deletes_restore_path_surfaces_the_hold_instead_of_crashing(): void
+    {
+        Carbon::setTestNow('2026-08-06 09:00:00');
+        $agency = $this->makeAgency();
+        $leaver = $this->agent($agency, 'Barbara Jackson');
+
+        AgentSeatLockService::bypass(fn () => $leaver->delete());
+        $this->lock->release($leaver, AgentSeatRelease::REASON_DELETED);
+
+        $owner = $this->systemOwner();
+
+        // RequireAgencyContext (agency.required) needs an active agency for a
+        // System Owner (agency_id is NULL) — unrelated to the lock itself.
+        $response = $this->withSession(['active_agency_id' => $agency->id])
+            ->actingAs($owner)
+            ->post(route('admin.soft-deletes.restore', ['User', $leaver->id]));
+
+        $response->assertRedirect();
+        $response->assertSessionHas('error');
+        $this->assertStringContainsString('cannot be reinstated', session('error'));
+        $this->assertSoftDeleted('users', ['id' => $leaver->id]);
+
+        Carbon::setTestNow();
+    }
+
     public function test_the_observer_backstop_blocks_a_raw_is_active_reactivation(): void
     {
         $agent = $this->agent($this->makeAgency());
@@ -246,7 +280,7 @@ class AgentSeatReleaseLockTest extends TestCase
         $admin = $this->agent($agency, 'Agency Admin', ['role' => 'admin', 'is_admin' => 1]);
 
         $this->expectException(SeatReinstatementLockedException::class);
-        $this->expectExceptionMessageMatches('/Only a CoreX System Owner/');
+        $this->expectExceptionMessageMatches('/Only CoreX Dev/');
         $this->lock->assertCanReinstate($agent, $admin, 'A perfectly long-sounding reason here.');
     }
 
@@ -281,6 +315,109 @@ class AgentSeatReleaseLockTest extends TestCase
         \App\Services\PermissionService::clearCache();
 
         return $this->agent($agency, 'Nomsa Zulu', ['role' => 'admin', 'is_admin' => 1]);
+    }
+
+    /**
+     * Regression for the reinstate()-before-save() ordering bug: updateRole()
+     * used to close the agent_seat_releases hold BEFORE $user->save() had
+     * actually persisted is_active = 1. If save() then failed for any unrelated
+     * reason, the hold was left marked closed while the user stayed deactivated
+     * in the DB — silently defeating the lock for good, since a later
+     * reactivation would find no open hold at all. reinstate() must only run
+     * once save() has actually succeeded, exactly as toggle() and restore()
+     * already do it.
+     */
+    public function test_updateRole_reinstate_only_fires_after_a_successful_save(): void
+    {
+        Carbon::setTestNow('2026-08-06 09:00:00');
+        $agency = $this->makeAgency();
+        $admin  = $this->adminFor($agency);
+        $this->ensureRole('admin');
+
+        $target = $this->agent($agency, 'Precious Mthembu', ['is_active' => 0]);
+        $this->lock->release($target, AgentSeatRelease::REASON_DEACTIVATED, $admin->id);
+
+        Carbon::setTestNow('2026-09-10 09:00:00');   // 35 days later — the hold has elapsed
+        $this->assertFalse($this->lock->isLocked($target->fresh()));
+
+        User::saving(function (User $u) use ($target) {
+            if ($u->id === $target->id) {
+                throw new \RuntimeException('Simulated save failure for AT-278 regression test');
+            }
+        });
+
+        $this->withoutExceptionHandling();
+        try {
+            $this->actingAs($admin)->post(route('admin.users.role.update', $target), [
+                'cell' => '083 555 0123',
+                'role' => 'admin',
+            ]);
+            $this->fail('Expected the simulated save failure to propagate.');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('Simulated save failure for AT-278 regression test', $e->getMessage());
+        }
+
+        $row = AgentSeatRelease::where('user_id', $target->id)->first();
+        $this->assertNull(
+            $row->reinstated_at,
+            'A failed save must not close the hold — reinstate() must run AFTER save() succeeds, not before.'
+        );
+        $this->assertFalse((bool) $target->fresh()->is_active, 'is_active must not have persisted since save() failed.');
+
+        Carbon::setTestNow();
+    }
+
+    /**
+     * The main /admin/users Activate toggle is the ONLY path back for an agent
+     * who was merely deactivated (is_active = 0) and never soft-deleted —
+     * Archived Agents only lists onlyTrashed() rows, so a locked-but-not-deleted
+     * agent never appears there, and the override must work here too or a
+     * System Owner has no way back in for this class of agent at all.
+     */
+    public function test_toggle_owner_can_override_a_locked_deactivation_with_a_reason(): void
+    {
+        Carbon::setTestNow('2026-08-06 09:00:00');
+        $agency = $this->makeAgency();
+        $agent  = $this->agent($agency, 'Zodwa Khumalo', ['is_active' => 0]);
+        $this->lock->release($agent, AgentSeatRelease::REASON_DEACTIVATED);
+
+        Carbon::setTestNow('2026-08-08 09:00:00');   // still well inside the 30-day hold
+        $owner  = $this->systemOwner();
+        $reason = 'Deactivated in error — confirmed with the principal by phone.';
+
+        $this->actingAs($owner)
+            ->post(route('admin.users.toggle', $agent), ['override_reason' => $reason])
+            ->assertSessionDoesntHaveErrors();
+
+        $agent->refresh();
+        $this->assertTrue((bool) $agent->is_active);
+        $this->assertFalse($this->lock->isLocked($agent));
+
+        $row = AgentSeatRelease::where('user_id', $agent->id)->first();
+        $this->assertSame(AgentSeatRelease::VIA_OWNER_OVERRIDE, $row->reinstated_via);
+        $this->assertSame($reason, $row->override_reason);
+
+        Carbon::setTestNow();
+    }
+
+    /** Same control, no reason supplied — even a System Owner is refused. */
+    public function test_toggle_owner_without_a_reason_is_still_refused(): void
+    {
+        Carbon::setTestNow('2026-08-06 09:00:00');
+        $agency = $this->makeAgency();
+        $agent  = $this->agent($agency, 'Zodwa Khumalo', ['is_active' => 0]);
+        $this->lock->release($agent, AgentSeatRelease::REASON_DEACTIVATED);
+
+        Carbon::setTestNow('2026-08-08 09:00:00');
+        $owner = $this->systemOwner();
+
+        $this->actingAs($owner)
+            ->post(route('admin.users.toggle', $agent))
+            ->assertSessionHasErrors();
+
+        $this->assertFalse((bool) $agent->fresh()->is_active);
+
+        Carbon::setTestNow();
     }
 
     public function test_the_archived_page_renders_and_shows_the_hold_with_its_unlock_date(): void

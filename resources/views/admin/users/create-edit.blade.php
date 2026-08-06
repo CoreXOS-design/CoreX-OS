@@ -813,14 +813,60 @@
                     <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">Danger Zone</h3>
                 </div>
                 <div class="flex flex-wrap gap-3">
-                    <form method="POST" action="{{ route('admin.users.toggle', $user) }}" class="inline">
-                        @csrf
-                        <button type="submit"
-                                class="px-4 py-2 rounded-md text-sm font-medium transition-colors w-full sm:w-auto"
-                                style="{{ $user->is_active ? 'background:color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent); color:var(--ds-amber, #f59e0b); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent);' : 'background:color-mix(in srgb, var(--ds-green, #059669) 10%, transparent); color:var(--ds-green, #059669); border:1px solid color-mix(in srgb, var(--ds-green, #059669) 25%, transparent);' }}">
-                            {{ $user->is_active ? 'Deactivate User' : 'Activate User' }}
-                        </button>
-                    </form>
+                    @if($user->is_active)
+                        {{-- Custom CoreX confirm — a native browser confirm() reads as a
+                             stray Chrome/OS dialog, not part of the product. --}}
+                        <div x-data="{ open: false }" class="inline-block">
+                            <button type="button" @click="open = true"
+                                    class="px-4 py-2 rounded-md text-sm font-medium transition-colors w-full sm:w-auto"
+                                    style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent); color:var(--ds-amber, #f59e0b); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent);">
+                                Deactivate User
+                            </button>
+
+                            <div x-show="open" x-cloak
+                                 class="fixed inset-0 z-50 flex items-center justify-center px-4"
+                                 style="background: rgba(0,0,0,0.6);"
+                                 @keydown.escape.window="open = false">
+                                <div class="w-full max-w-md rounded-md p-5 text-left"
+                                     style="background: var(--surface); border:1px solid var(--border);"
+                                     @click.outside="open = false">
+                                    <h3 class="text-base font-bold mb-2" style="color: var(--text-primary);">
+                                        Deactivate {{ $user->name }}?
+                                    </h3>
+                                    <p class="text-sm mb-4" style="color: var(--text-secondary);">
+                                        This stops billing for them immediately, but they cannot be
+                                        reactivated for
+                                        <strong>{{ config('corex-billing.seat_release.lock_days', 30) }} days</strong>
+                                        — only CoreX Dev can lift that early. They keep all their data,
+                                        but cannot sign in or do anything on CoreX while deactivated.
+                                    </p>
+                                    <div class="flex items-center justify-end gap-2">
+                                        <button type="button" @click="open = false"
+                                                class="px-3 py-1.5 rounded-md text-xs font-semibold"
+                                                style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
+                                            Cancel
+                                        </button>
+                                        <form method="POST" action="{{ route('admin.users.toggle', $user) }}">
+                                            @csrf
+                                            <button type="submit" class="corex-btn-primary text-xs"
+                                                    style="background: var(--ds-crimson); border-color: var(--ds-crimson);">
+                                                Deactivate
+                                            </button>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    @else
+                        <form method="POST" action="{{ route('admin.users.toggle', $user) }}" class="inline">
+                            @csrf
+                            <button type="submit"
+                                    class="px-4 py-2 rounded-md text-sm font-medium transition-colors w-full sm:w-auto"
+                                    style="background:color-mix(in srgb, var(--ds-green, #059669) 10%, transparent); color:var(--ds-green, #059669); border:1px solid color-mix(in srgb, var(--ds-green, #059669) 25%, transparent);">
+                                Activate User
+                            </button>
+                        </form>
+                    @endif
                     <button type="button"
                             data-agent-delete
                             data-user-id="{{ $user->id }}"
