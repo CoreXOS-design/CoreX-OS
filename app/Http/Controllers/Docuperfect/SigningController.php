@@ -1511,7 +1511,15 @@ class SigningController extends Controller
         // an initial on an amendment. Server-side and non-bypassable: no finalising a document with unsigned
         // changes. The message names the acting party's own outstanding count when they are the blocker.
         $amendOutstanding = $this->signatureService->outstandingChangeInitials($signingRequest->template);
-        if ($amendOutstanding['count'] > 0) {
+        $amendBlocked = $amendOutstanding['count'] > 0;
+        // AT-373 — during an in-flight amendment cycle/cascade (or when THIS party is raising a
+        // fresh edit), gate ONLY on the acting party's own outstanding slots. The earlier
+        // already-signed recipients initial as the sequential cascade re-engages them; the global
+        // invariant stays enforced by completeDocument()'s hard throw at finalisation.
+        if ($amendBlocked && $this->signatureService->isAmendmentTurnGateRelaxed($signingRequest->template)) {
+            $amendBlocked = ($amendOutstanding['by_party'][$signingRequest->canonicalPartyKey()] ?? 0) > 0;
+        }
+        if ($amendBlocked) {
             return response()->json([
                 'ok'    => false,
                 'error' => $this->signatureService->outstandingChangeInitialsMessage($signingRequest->template, $signingRequest->canonicalPartyKey()),
@@ -2096,8 +2104,13 @@ class SigningController extends Controller
         }
 
         // WET-INK HARD GATE (mirrors completeWeb) — no completing while an amendment initial is outstanding.
+        // AT-373 — relaxed to PER-PARTY during an in-flight amendment cycle/cascade (see completeWeb).
         $amendOutstanding = $this->signatureService->outstandingChangeInitials($signingRequest->template);
-        if ($amendOutstanding['count'] > 0) {
+        $amendBlocked = $amendOutstanding['count'] > 0;
+        if ($amendBlocked && $this->signatureService->isAmendmentTurnGateRelaxed($signingRequest->template)) {
+            $amendBlocked = ($amendOutstanding['by_party'][$signingRequest->canonicalPartyKey()] ?? 0) > 0;
+        }
+        if ($amendBlocked) {
             return response()->json([
                 'ok'    => false,
                 'error' => $this->signatureService->outstandingChangeInitialsMessage($signingRequest->template, $signingRequest->canonicalPartyKey()),

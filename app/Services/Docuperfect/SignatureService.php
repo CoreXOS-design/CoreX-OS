@@ -1327,6 +1327,21 @@ class SignatureService
                     return;
                 }
 
+                // AT-373 (inc3) — the TWO-STAGE edit-approval gate. Did this party author a
+                // wet-ink edit AT THEIR TURN that has not yet been approved by the chain? If so
+                // the edit does NOT flow straight to the next recipient — it re-enters the loop
+                // at the TOP of the approval chain (A1) for approval, generic over chain length,
+                // BEFORE any already-signed recipient re-initials it. The editor's own change
+                // initial was captured at edit time (inc2); the chain approves, then the
+                // SEQUENTIAL cascade (inc4) re-initials the earlier signers, one at a time.
+                if ($request) {
+                    $unreviewed = $this->unreviewedWetInkChangeIds($template);
+                    if ($unreviewed !== []) {
+                        $this->openAmendmentCycle($template, $request, $unreviewed);
+                        return;
+                    }
+                }
+
                 // ESIGN-WETINK Ruling #1 (Elize flow optimisation) — a CLEAN accept
                 // (the party signed with NO flag and NO strikeout/amendment) flows
                 // STRAIGHT to the next recipient. The agent is NOT a checkpoint on
@@ -2131,6 +2146,421 @@ class SignatureService
             $template->refresh();
             return ['ok' => true, 'status' => $template->status];
         });
+    }
+
+    // ───────────────────────────────────────────────────────────────────────────
+    // AT-373 — recipient wet-ink amend → GENERIC edit-re-enters-the-loop engine.
+    //
+    // The wet-ink change spine (SelectionEditService::strikeSelection) authors an
+    // edit into document.web_template_data['pending_body_changes'][] with a
+    // change_id + a full-width per-party initial row. When the party who authored
+    // the edit completes their turn, that edit must be APPROVED by walking the
+    // ordered approval chain (A1..Am) BEFORE any already-signed recipient re-initials
+    // it (inc3: the two-stage gate). Each chain node approves by placing its OWN
+    // initial via the standard modal (decision i — approval IS an initial). The
+    // engine is generic over the chain length: full loop [candidate, full-status],
+    // no-candidate [full-status] (m=1), legacy [agent] (m=1). Reject → revert the
+    // change (inc6, SelectionEditService::revertChange) and route the editor to
+    // re-acceptance (inc5). Built on the wet-ink spine, never the legacy flag path.
+    // ───────────────────────────────────────────────────────────────────────────
+
+    /** Read the document's web_template_data as an array (never null). */
+    private function docWtd(SignatureTemplate $template): array
+    {
+        $wtd = $template->document?->web_template_data;
+        return is_array($wtd) ? $wtd : [];
+    }
+
+    /** Persist a web_template_data array back onto the document. */
+    private function writeDocWtd(SignatureTemplate $template, array $wtd): void
+    {
+        $template->document?->update(['web_template_data' => $wtd]);
+    }
+
+    /**
+     * AT-373 — is the amendment turn-gate relaxed to PER-PARTY for this document? During an
+     * in-flight amendment cycle/cascade (or when the acting party is raising a fresh edit), the
+     * blanket "no completing while ANY party owes an initial" gate would deadlock the sequential
+     * flow: earlier already-signed recipients legitimately owe initials they can only place once
+     * the cascade re-engages them. In those states a signer gates ONLY on their OWN slots; the
+     * global invariant stays enforced by completeDocument()'s hard throw at finalisation.
+     */
+    public function isAmendmentTurnGateRelaxed(SignatureTemplate $template): bool
+    {
+        if (in_array($template->status, [
+            SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW,
+            SignatureTemplate::STATUS_AMENDMENT_INITIALING,
+            SignatureTemplate::STATUS_EDITOR_REACCEPTANCE,
+        ], true)) {
+            return true;
+        }
+        return $this->amendmentCycle($template) !== null || $this->unreviewedWetInkChangeIds($template) !== [];
+    }
+
+    /** The active amendment cycle marker (['change_ids','editor_key','editor_request_id','chain_pos','phase']) or null. */
+    public function amendmentCycle(SignatureTemplate $template): ?array
+    {
+        $cycle = $this->docWtd($template)['amendment_cycle'] ?? null;
+        return is_array($cycle) && ! empty($cycle['change_ids']) ? $cycle : null;
+    }
+
+    /**
+     * Change ids the acting party has AUTHORED this turn that still need chain approval:
+     * present in pending_body_changes, NOT reverted, NOT yet chain-approved, and NOT
+     * already carried by an in-flight cycle. Because the editing party amends + signs
+     * together (decision i), at their completion these are exactly this turn's edits.
+     */
+    public function unreviewedWetInkChangeIds(SignatureTemplate $template): array
+    {
+        $wtd     = $this->docWtd($template);
+        $changes = is_array($wtd['pending_body_changes'] ?? null) ? $wtd['pending_body_changes'] : [];
+        $cycling = [];
+        if (is_array($wtd['amendment_cycle']['change_ids'] ?? null)) {
+            $cycling = array_flip($wtd['amendment_cycle']['change_ids']);
+        }
+        $ids = [];
+        foreach ($changes as $c) {
+            if (! is_array($c)) {
+                continue;
+            }
+            $cid = (string) ($c['change_id'] ?? '');
+            if ($cid === '' || ! empty($c['reverted']) || ! empty($c['chain_approved_at']) || isset($cycling[$cid])) {
+                continue;
+            }
+            $ids[$cid] = true;
+        }
+        return array_keys($ids);
+    }
+
+    /**
+     * The ordered approval chain that sits ABOVE the recipients — the pre-recipient
+     * approval nodes an edit is routed up through. Derived from signing_order: every
+     * approval-role request whose order is below the first recipient's. A1 = top =
+     * prep node (candidate/agent); Am = last authoriser before the recipients. The
+     * post-recipient supervisor_final node is the AT-322 FINAL gate, NOT part of this
+     * mid-loop chain, so it is excluded here.
+     */
+    public function preRecipientApprovalChain(SignatureTemplate $template): \Illuminate\Support\Collection
+    {
+        $requests = $template->requests()->orderBy('signing_order')->get();
+        $firstRecipientOrder = $requests
+            ->first(fn ($r) => $this->isRecipientRole($r->party_role))?->signing_order;
+        return $requests->filter(function ($r) use ($firstRecipientOrder) {
+            if (! $this->isApprovalRole($r->party_role)) {
+                return false;
+            }
+            // No recipients at all (approval-only doc) → the whole approval chain qualifies.
+            return $firstRecipientOrder === null || $r->signing_order < $firstRecipientOrder;
+        })->values();
+    }
+
+    /**
+     * INC 3 — open the two-stage edit-approval cycle. The editing party K has completed
+     * (signed) with a fresh wet-ink edit; route that edit to the TOP of the approval chain
+     * (A1) for approval before any re-initialing. Generic over chain length; if the chain
+     * is empty (no approver above the recipients — should not happen for a real ceremony)
+     * the edit is treated as self-approved and the flow resumes.
+     */
+    public function openAmendmentCycle(SignatureTemplate $template, SignatureRequest $editor, array $changeIds): void
+    {
+        $chain = $this->preRecipientApprovalChain($template);
+        if ($chain->isEmpty()) {
+            // Degenerate: nobody above the recipients to approve. Stamp approved + resume.
+            $this->stampChainApproved($template, $changeIds);
+            $this->proceedAfterChainApproval($template, $editor);
+            return;
+        }
+
+        $wtd = $this->docWtd($template);
+        $wtd['amendment_cycle'] = [
+            'change_ids'        => array_values($changeIds),
+            'editor_key'        => $editor->canonicalPartyKey(),
+            'editor_request_id' => $editor->id,
+            'chain_pos'         => 0,
+            'phase'             => 'chain_review',
+        ];
+        $this->writeDocWtd($template, $wtd);
+
+        SignatureAuditLog::log(
+            $template,
+            'amendment_cycle_opened',
+            SignatureAuditLog::ACTOR_SYSTEM,
+            'System',
+            metadata: [
+                'change_ids'  => array_values($changeIds),
+                'editor_key'  => $editor->canonicalPartyKey(),
+                'editor_name' => $editor->signer_name,
+                'chain_size'  => $chain->count(),
+            ],
+        );
+
+        $this->activateAmendmentChainNode($template, $chain->first());
+    }
+
+    /** The approval node currently reviewing the active cycle (approvalChain[chain_pos]), or null. */
+    public function currentAmendmentChainNode(SignatureTemplate $template): ?SignatureRequest
+    {
+        $cycle = $this->amendmentCycle($template);
+        if ($cycle === null) {
+            return null;
+        }
+        return $this->preRecipientApprovalChain($template)->get((int) $cycle['chain_pos']);
+    }
+
+    /** Route the doc to a chain node for amendment review — status + notify (agent vs authoriser pool). */
+    private function activateAmendmentChainNode(SignatureTemplate $template, SignatureRequest $node): void
+    {
+        $template->update(['status' => SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW]);
+
+        if ($this->isAuthoriserRole($node->party_role)) {
+            // Authoriser node — notify the shared branch pool (in-app), exactly like the initial review.
+            $this->notifyEligibleAuthorisers($template, 'amendment_review');
+        } else {
+            // Prep node (candidate/agent) — the document creator reviews from "Needs Your Approval".
+            $this->sendAgentApprovalNotification($template, $node->party_role, $node);
+        }
+
+        SignatureAuditLog::log(
+            $template,
+            'amendment_chain_node_activated',
+            SignatureAuditLog::ACTOR_SYSTEM,
+            'System',
+            metadata: ['node_role' => $node->party_role, 'node_name' => $node->signer_name],
+        );
+    }
+
+    /**
+     * INC 3 — the current chain node APPROVES the amendment. Decision (i): approval IS an
+     * initial — the node must already have placed its initial on every cycle change via the
+     * standard modal (recordChangeInitial). We gate on the node owing ZERO outstanding on the
+     * cycle's changes, then advance: next chain node, or — when the chain is exhausted — stamp
+     * the changes chain-approved and proceed (inc3: resume the walk; inc4: sequential cascade).
+     */
+    public function approveAmendmentNode(SignatureTemplate $template, User $approver): array
+    {
+        $cycle = $this->amendmentCycle($template);
+        if ($cycle === null || $template->status !== SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW) {
+            return ['ok' => false, 'error' => 'No amendment is awaiting chain approval on this document.'];
+        }
+        $node = $this->currentAmendmentChainNode($template);
+        if ($node === null) {
+            return ['ok' => false, 'error' => 'The reviewing approval node could not be resolved.'];
+        }
+
+        // Decision (i) — the approver must have placed their OWN initial on every cycle change first.
+        $owed = $this->outstandingForPartyOnChanges($template, $node->canonicalPartyKey(), $cycle['change_ids']);
+        if ($owed > 0) {
+            return ['ok' => false, 'error' => 'Initial each amendment before approving — approval is captured as your initial.'];
+        }
+
+        return DB::transaction(function () use ($template, $cycle, $node, $approver) {
+            // Record who authorised this node (audit parity with the normal chain).
+            $node->update([
+                'authorised_by' => $node->authorised_by ?? $approver->id,
+                'authorised_at' => $node->authorised_at ?? now(),
+            ]);
+
+            SignatureAuditLog::log(
+                $template,
+                'amendment_node_approved',
+                SignatureAuditLog::ACTOR_USER,
+                $approver->name ?? 'Approver',
+                $approver->email,
+                $approver->id,
+                metadata: ['node_role' => $node->party_role, 'change_ids' => $cycle['change_ids']],
+            );
+
+            $chain   = $this->preRecipientApprovalChain($template);
+            $nextPos = (int) $cycle['chain_pos'] + 1;
+            $editor  = $template->requests()->find($cycle['editor_request_id']);
+
+            if ($nextPos < $chain->count()) {
+                // Walk down to the next authoriser node.
+                $wtd = $this->docWtd($template);
+                $wtd['amendment_cycle']['chain_pos'] = $nextPos;
+                $this->writeDocWtd($template, $wtd);
+                $this->activateAmendmentChainNode($template, $chain->get($nextPos));
+                return ['ok' => true, 'action' => 'advanced_chain', 'next_node' => $chain->get($nextPos)->party_role];
+            }
+
+            // Chain exhausted → the amendment is APPROVED. Stamp it and hand to the recipient pass.
+            $this->stampChainApproved($template, $cycle['change_ids']);
+            $this->proceedAfterChainApproval($template, $editor);
+            return ['ok' => true, 'action' => 'chain_approved'];
+        });
+    }
+
+    /**
+     * INC 3 — the current chain node REJECTS the amendment. Revert each cycle change on the
+     * wet-ink spine (inc6 — restore the original text, RETAIN the attempt in audit), clear the
+     * cycle, and route the EDITING party to re-acceptance (inc5). Existing signatures untouched.
+     */
+    public function rejectAmendmentNode(SignatureTemplate $template, User $approver, ?string $reason = null): array
+    {
+        $cycle = $this->amendmentCycle($template);
+        if ($cycle === null || $template->status !== SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW) {
+            return ['ok' => false, 'error' => 'No amendment is awaiting chain approval on this document.'];
+        }
+
+        return DB::transaction(function () use ($template, $cycle, $approver, $reason) {
+            $sel = app(SelectionEditService::class);
+            foreach ($cycle['change_ids'] as $cid) {
+                $sel->revertChange($template, (string) $cid, $approver);
+            }
+
+            SignatureAuditLog::log(
+                $template,
+                'amendment_node_rejected',
+                SignatureAuditLog::ACTOR_USER,
+                $approver->name ?? 'Approver',
+                $approver->email,
+                $approver->id,
+                metadata: ['change_ids' => $cycle['change_ids'], 'reason' => $reason],
+            );
+
+            // Route the editor to the re-acceptance screen (inc5). Keep the cycle marker (now
+            // 'rejected' phase) so the re-acceptance screen knows which changes were removed.
+            $editor = $template->requests()->find($cycle['editor_request_id']);
+            $this->routeEditorToReacceptance($template, $editor, $cycle, $reason);
+
+            return ['ok' => true, 'action' => 'rejected', 'editor' => $editor?->canonicalPartyKey()];
+        });
+    }
+
+    /** Stamp chain_approved_at onto each named change in pending_body_changes (audit + gate marker). */
+    private function stampChainApproved(SignatureTemplate $template, array $changeIds): void
+    {
+        $wtd     = $this->docWtd($template);
+        $changes = is_array($wtd['pending_body_changes'] ?? null) ? $wtd['pending_body_changes'] : [];
+        $flip    = array_flip(array_map('strval', $changeIds));
+        foreach ($changes as &$c) {
+            if (is_array($c) && isset($flip[(string) ($c['change_id'] ?? '')])) {
+                $c['chain_approved_at'] = now()->toIso8601String();
+            }
+        }
+        unset($c);
+        $wtd['pending_body_changes'] = $changes;
+        $this->writeDocWtd($template, $wtd);
+    }
+
+    /**
+     * INC 3 terminal — the approval chain has approved the amendment. Clear the cycle and
+     * resume the signing walk. When already-signed recipients owe an initial on the change,
+     * inc4 overrides this with the SEQUENTIAL re-initial cascade; here (inc3) — reached only
+     * when no earlier recipient signed (the editor was the first/only recipient) — it resumes
+     * the normal walk, which routes not-yet-reached recipients and finally the AT-322 gate.
+     */
+    protected function proceedAfterChainApproval(SignatureTemplate $template, ?SignatureRequest $editor): void
+    {
+        // inc4 replaces the body of this branch with beginSequentialAmendmentInitialing().
+        if ($this->hasAlreadySignedRecipientsOwingInitial($template)) {
+            $this->beginSequentialAmendmentInitialing($template);
+            return;
+        }
+
+        $this->clearAmendmentCycle($template);
+        // Resume the walk from the editor's completion — route the next waiting recipient, or
+        // (all recipients done) hold at the AT-322 final gate for the chain-top approval.
+        $this->advanceToNextParty($template, $editor?->party_role ?? 'system', null, true);
+    }
+
+    /** Are there COMPLETED recipients (other than the editor) that still owe an initial on the active cycle's changes? */
+    private function hasAlreadySignedRecipientsOwingInitial(SignatureTemplate $template): bool
+    {
+        $cycle = $this->amendmentCycle($template);
+        if ($cycle === null) {
+            return false;
+        }
+        return $this->orderedRecipientsOwingInitial($template, $cycle)->isNotEmpty();
+    }
+
+    /**
+     * Ordered (signing_order asc) already-signed recipients that owe an initial on the cycle's
+     * changes — the sequential cascade worklist. Excludes the editor (already initialed at edit
+     * time) and any party with no row slot / an already-filled slot on every change.
+     */
+    private function orderedRecipientsOwingInitial(SignatureTemplate $template, array $cycle): \Illuminate\Support\Collection
+    {
+        $sel  = app(SelectionEditService::class);
+        $html = CanonicalDocumentRenderer::amendSource($this->docWtd($template))['html'];
+        if ($html === '') {
+            return collect();
+        }
+        return $template->requests()
+            ->where('status', SignatureRequest::STATUS_COMPLETED)
+            ->orderBy('signing_order')
+            ->get()
+            ->filter(function ($r) use ($sel, $html, $cycle) {
+                if (! $this->isRecipientRole($r->party_role)) {
+                    return false;
+                }
+                if ($r->canonicalPartyKey() === ($cycle['editor_key'] ?? null)) {
+                    return false;
+                }
+                foreach ($cycle['change_ids'] as $cid) {
+                    if ($sel->hasRowSlot($html, (string) $cid, $r->canonicalPartyKey())
+                        && ! $sel->rowSlotFilled($html, (string) $cid, $r->canonicalPartyKey())) {
+                        return true;
+                    }
+                }
+                return false;
+            })
+            ->values();
+    }
+
+    /** Outstanding initial count for ONE party across a set of changes (their own unfilled row slots). */
+    private function outstandingForPartyOnChanges(SignatureTemplate $template, string $partyKey, array $changeIds): int
+    {
+        $sel  = app(SelectionEditService::class);
+        $html = CanonicalDocumentRenderer::amendSource($this->docWtd($template))['html'];
+        if ($html === '') {
+            return 0;
+        }
+        $owed = 0;
+        foreach ($changeIds as $cid) {
+            if ($sel->hasRowSlot($html, (string) $cid, $partyKey) && ! $sel->rowSlotFilled($html, (string) $cid, $partyKey)) {
+                $owed++;
+            }
+        }
+        return $owed;
+    }
+
+    /** Remove the amendment-cycle marker from the document. */
+    private function clearAmendmentCycle(SignatureTemplate $template): void
+    {
+        $wtd = $this->docWtd($template);
+        unset($wtd['amendment_cycle']);
+        $this->writeDocWtd($template, $wtd);
+    }
+
+    /**
+     * INC 4 placeholder (real body lands in increment 4) — begin the SEQUENTIAL re-initial
+     * cascade over already-signed recipients. Declared here so inc3's terminal can route into
+     * it once earlier recipients exist; inc3's own test never reaches this branch.
+     */
+    public function beginSequentialAmendmentInitialing(SignatureTemplate $template): void
+    {
+        // inc4 fills this. Until then, fail safe: resume the normal walk rather than stalling.
+        $this->clearAmendmentCycle($template);
+        $this->advanceToNextParty($template, 'system', null, true);
+    }
+
+    /**
+     * INC 5 placeholder (real body lands in increment 5) — route the editing party to the
+     * re-acceptance screen after a reject. Declared here so inc3's reject action has a target;
+     * inc3's own test asserts the reject reverts + the editor is flagged, not the full screen.
+     */
+    protected function routeEditorToReacceptance(SignatureTemplate $template, ?SignatureRequest $editor, array $cycle, ?string $reason): void
+    {
+        // inc5 fills this (second mandatory ECT-Act tick + resume). Until then, park the cycle as
+        // rejected and hold the document at the editor_reacceptance state so nothing finalises.
+        $wtd = $this->docWtd($template);
+        if (isset($wtd['amendment_cycle'])) {
+            $wtd['amendment_cycle']['phase']        = 'rejected';
+            $wtd['amendment_cycle']['reject_reason'] = $reason;
+            $this->writeDocWtd($template, $wtd);
+        }
+        $template->update(['status' => SignatureTemplate::STATUS_EDITOR_REACCEPTANCE]);
     }
 
     /**

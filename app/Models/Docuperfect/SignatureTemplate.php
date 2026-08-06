@@ -77,6 +77,15 @@ class SignatureTemplate extends Model
     const STATUS_AMENDMENT_INITIALING = 'amendment_initialing';
     const STATUS_CANCELLED = 'cancelled';
 
+    // AT-373 (recipient wet-ink amend → edit-re-enters-the-loop). Generic over the approval chain.
+    // amendment_chain_review — a wet-ink edit authored at a party's turn is walking the approval
+    //   chain (A1..Am) for approval; each node places its initial before the sequential recipient
+    //   re-initial cascade begins. m=1 (no candidate) → full-status is the sole/top node.
+    const STATUS_AMENDMENT_CHAIN_REVIEW = 'amendment_chain_review';
+    // editor_reacceptance — a chain node REJECTED the edit; it was reverted and the editing party
+    //   must RE-ACCEPT the reverted-accepted document via a second mandatory ECT-Act acknowledgment.
+    const STATUS_EDITOR_REACCEPTANCE = 'editor_reacceptance';
+
     // Track C (§11-A) — the legal-deadline lifecycle. A LAPSED ceremony cannot be signed; the only
     // way back is a party-initialled date extension (revived), which can itself re-lapse.
     const STATUS_LAPSED = 'lapsed';

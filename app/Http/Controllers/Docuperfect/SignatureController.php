@@ -2819,6 +2819,58 @@ class SignatureController extends Controller
     }
 
     /**
+     * AT-373 (inc3) — the current approval-chain node APPROVES a recipient's wet-ink amendment.
+     * Decision (i): approval IS an initial — the node must first have placed its initial on every
+     * amended change via initialChange (the standard modal). The service gates on that, advances to
+     * the next chain node, or (chain exhausted) stamps the change approved and proceeds to the
+     * sequential re-initial cascade. Generic over the approval chain length.
+     */
+    public function approveAmendmentNode(Request $request, Document $document)
+    {
+        $user = $request->user();
+        $this->authorizeDocument($user, $document);
+
+        $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+        $result = $this->signatureService->approveAmendmentNode($template, $user);
+
+        $templateType   = $document->template?->template_type ?? 'rentals';
+        $dashboardRoute = $templateType === 'sales' ? 'docuperfect.sales' : 'docuperfect.rental';
+
+        if (empty($result['ok'])) {
+            return back()->with('error', $result['error'] ?? 'Could not approve the amendment.');
+        }
+        $msg = ($result['action'] ?? null) === 'advanced_chain'
+            ? 'Amendment approved. Sent to the next approver.'
+            : 'Amendment approved. Earlier signers will be asked to initial the change.';
+        return redirect()->route($dashboardRoute)->with('status', $msg);
+    }
+
+    /**
+     * AT-373 (inc3) — the current approval-chain node REJECTS a recipient's wet-ink amendment. The
+     * service reverts each change on the wet-ink spine (inc6 — restores the original, retains the
+     * attempt in audit) and routes the editing party to the re-acceptance screen (inc5).
+     */
+    public function rejectAmendmentNode(Request $request, Document $document)
+    {
+        $user = $request->user();
+        $this->authorizeDocument($user, $document);
+
+        $validated = $request->validate(['reason' => ['nullable', 'string', 'max:2000']]);
+
+        $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+        $result = $this->signatureService->rejectAmendmentNode($template, $user, $validated['reason'] ?? null);
+
+        $templateType   = $document->template?->template_type ?? 'rentals';
+        $dashboardRoute = $templateType === 'sales' ? 'docuperfect.sales' : 'docuperfect.rental';
+
+        if (empty($result['ok'])) {
+            return back()->with('error', $result['error'] ?? 'Could not reject the amendment.');
+        }
+        return redirect()->route($dashboardRoute)
+            ->with('status', 'Amendment rejected and removed. The signer who proposed it will be asked to re-accept the document.');
+    }
+
+    /**
      * Return a document to the candidate practitioner with supervisor notes.
      * Only available in candidate practitioner flows.
      */

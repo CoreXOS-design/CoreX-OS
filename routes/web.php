@@ -3733,6 +3733,11 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::post('/documents/{document}/signatures/edit-selection', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'editSelection'])->name('docuperfect.signatures.editSelection');
     // WET-INK per-change initial — the acting party initials one change (by data-change-id).
     Route::post('/documents/{document}/signatures/initial-change', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'initialChange'])->name('docuperfect.signatures.initialChange');
+    // AT-373 (inc3) — the approval-chain node approves/rejects a recipient's wet-ink amendment
+    // (two-stage edit-approval gate). Approve = the node placed its initial (initial-change) then
+    // advances the chain; reject reverts the change and routes the editor to re-acceptance.
+    Route::post('/documents/{document}/signatures/amendment/approve', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'approveAmendmentNode'])->name('docuperfect.signatures.amendment.approve');
+    Route::post('/documents/{document}/signatures/amendment/reject', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'rejectAmendmentNode'])->name('docuperfect.signatures.amendment.reject');
 
     // Dashboard polling
     Route::get('/rental/status-check', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'statusCheck'])->name('docuperfect.rental.statusCheck');
