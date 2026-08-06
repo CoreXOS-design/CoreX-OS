@@ -26,7 +26,6 @@ class PropertyWizardController extends Controller
 {
     use \App\Http\Concerns\AppliesP24Location;
     use \App\Http\Controllers\Concerns\AuthorizesPropertyAccess;
-    use \App\Http\Controllers\Concerns\EnforcesFicaBeforeLink;
 
     public function start(Request $request)
     {
@@ -261,9 +260,6 @@ class PropertyWizardController extends Controller
             $contact = \App\Models\Contact::find($contactId);
             if ($contact) {
                 $role = ($property->listing_type ?? 'sale') === 'rental' ? 'landlord' : 'seller';
-                // The draft property persists either way — only the seller link
-                // waits on real FICA, so the agent doesn't lose the capture.
-                $this->enforceFicaBeforeLink($contact, $role);
                 $property->contacts()->syncWithoutDetaching([$contact->id => ['role' => $role]]);
                 \App\Models\PropertySellerLink::ensureExists($property->id, $contact->id);
                 event(new \App\Events\Contact\ContactLinkedToProperty(

@@ -24,7 +24,6 @@ class PropertyController extends Controller
 {
     use \App\Http\Controllers\Concerns\EnforcesMarketingReadiness;
     use \App\Http\Controllers\Concerns\AuthorizesPropertyAccess;
-    use \App\Http\Controllers\Concerns\EnforcesFicaBeforeLink;
     use \App\Http\Concerns\AppliesP24Location;
 
     public function index(Request $request)
@@ -900,10 +899,6 @@ class PropertyController extends Controller
         foreach ((array) $request->input('pending_contact_ids', []) as $cid) {
             $cid = (int) $cid;
             if ($cid > 0) {
-                $pendingContact = \App\Models\Contact::find($cid);
-                if ($pendingContact) {
-                    $this->enforceFicaBeforeLink($pendingContact, $defaultLinkRole);
-                }
                 $wasLinked = $property->contacts()->where('contacts.id', $cid)->exists();
                 $property->contacts()->syncWithoutDetaching([$cid => ['role' => $defaultLinkRole]]);
                 if (!$wasLinked) {
@@ -945,7 +940,6 @@ class PropertyController extends Controller
             // Auto-link if duplicate found (non-blocking in bulk create context)
             $existing = $dupService->findDuplicates($ncData, $agencyId)->first();
             if ($existing) {
-                $this->enforceFicaBeforeLink($existing, $defaultLinkRole);
                 $wasLinked = $property->contacts()->where('contacts.id', $existing->id)->exists();
                 $property->contacts()->syncWithoutDetaching([$existing->id => ['role' => $defaultLinkRole]]);
                 $match = $dupService->identifyMatch($ncData, $existing, $agencyId);
@@ -978,9 +972,6 @@ class PropertyController extends Controller
             }
 
             $contact = \App\Models\Contact::create($ncData);
-            // Contact record persists even if the link is blocked below — the
-            // agent's data entry isn't lost, only the property link waits on real FICA.
-            $this->enforceFicaBeforeLink($contact, $defaultLinkRole);
             $property->contacts()->attach($contact->id, ['role' => $defaultLinkRole]);
             \App\Models\PropertySellerLink::ensureExists($property->id, $contact->id);
             event(new \App\Events\Contact\ContactLinkedToProperty(

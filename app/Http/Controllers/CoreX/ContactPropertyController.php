@@ -10,8 +10,6 @@ use Illuminate\Http\Request;
 
 class ContactPropertyController extends Controller
 {
-    use \App\Http\Controllers\Concerns\EnforcesFicaBeforeLink;
-
     /** Search properties (AJAX JSON) for the link picker — by address/title/suburb. */
     public function search(Request $request, Contact $contact)
     {
@@ -57,8 +55,6 @@ class ContactPropertyController extends Controller
             ];
             $role = $roleMap[$esignRole] ?? null;
         }
-
-        $this->enforceFicaBeforeLink($contact, $role);
 
         $alreadyLinked = $contact->properties()->where('properties.id', (int) $data['property_id'])->exists();
 

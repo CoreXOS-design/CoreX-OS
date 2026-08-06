@@ -16,7 +16,6 @@ use Illuminate\Validation\Rule;
 class PropertyContactController extends Controller
 {
     use AuthorizesPropertyAccess;
-    use \App\Http\Controllers\Concerns\EnforcesFicaBeforeLink;
 
     /** Search contacts globally — used for the property create form (no property ID yet). */
     public function searchGlobal(Request $request)
@@ -124,8 +123,6 @@ class PropertyContactController extends Controller
         }
 
         $role = $data['role'];
-        $this->enforceFicaBeforeLink($contact, $role);
-
         $property->contacts()->syncWithoutDetaching([
             $contact->id => ['role' => $role],
         ]);
@@ -181,7 +178,6 @@ class PropertyContactController extends Controller
                 $mode = $service->resolveMode($agencyId);
                 if ($mode === 'auto_link') {
                     $existing = $duplicates->first();
-                    $this->enforceFicaBeforeLink($existing, $role);
                     $wasLinked = $property->contacts()->where('contacts.id', $existing->id)->exists();
                     $property->contacts()->syncWithoutDetaching([$existing->id => ['role' => $role]]);
                     if (in_array($role, ['owner', 'seller', 'landlord', 'lessor'])) {
@@ -239,9 +235,6 @@ class PropertyContactController extends Controller
         }
 
         $contact = Contact::create($data);
-        // Contact record persists even if the link is blocked below — the agent's
-        // data entry isn't lost, only the property link waits on real FICA.
-        $this->enforceFicaBeforeLink($contact, $role);
         $property->contacts()->attach($contact->id, ['role' => $role]);
         if (in_array($role, ['owner', 'seller', 'landlord', 'lessor'])) {
             \App\Models\PropertySellerLink::ensureExists($property->id, $contact->id);

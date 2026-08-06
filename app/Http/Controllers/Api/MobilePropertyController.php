@@ -17,8 +17,6 @@ use Illuminate\Support\Facades\Storage;
 
 class MobilePropertyController extends Controller
 {
-    use \App\Http\Controllers\Concerns\EnforcesFicaBeforeLink;
-
     // Same chain-verifier the web create/edit form + quick-setup wizard use.
     // Verifies suburb → city → province and overwrites the denormalised
     // suburb/city/province text columns with canonical P24 names.
@@ -160,7 +158,6 @@ class MobilePropertyController extends Controller
         if ($linkContactId) {
             $contact = \App\Models\Contact::find($linkContactId);
             if ($contact && $contact->created_by_user_id === $user->id) {
-                $this->enforceFicaBeforeLink($contact, $linkContactRole);
                 $property->contacts()->attach($contact->id, ['role' => $linkContactRole]);
             }
         }
@@ -1000,7 +997,6 @@ class MobilePropertyController extends Controller
             $role = ['seller' => 'owner', 'lessor' => 'lessor', 'buyer' => 'buyer', 'lessee' => 'tenant'][$esignRole] ?? null;
         }
 
-        $this->enforceFicaBeforeLink($contact, $role);
         $property->contacts()->syncWithoutDetaching([$contact->id => ['role' => $role]]);
 
         if (in_array($role, ['owner', 'seller', 'landlord', 'lessor'], true)) {
