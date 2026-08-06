@@ -9,6 +9,7 @@ use App\Models\Compliance\FicaOfficerAppointment;
 use App\Models\Compliance\Rcr\RcrAnswer;
 use App\Models\Compliance\Rcr\RcrQuestion;
 use App\Models\Compliance\Rcr\RcrSubmission;
+use App\Models\FicaSubmission;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -346,8 +347,9 @@ final class EvidenceGatheringService
 
     private function resolveCddCompletedInPeriod(RcrSubmission $submission): array
     {
-        $count = DB::table('fica_submissions')
-            ->where('agency_id', $submission->agency_id)
+        $count = FicaSubmission::applyGenuineRecordFilter(
+            DB::table('fica_submissions')->where('agency_id', $submission->agency_id)
+        )
             ->whereIn('status', ['agent_approved', 'approved'])
             ->whereBetween('created_at', [$submission->reporting_period_from, $submission->reporting_period_to->endOfDay()])
             ->count();
@@ -360,8 +362,9 @@ final class EvidenceGatheringService
 
     private function resolveCddOutstanding(Agency $agency): array
     {
-        $count = DB::table('fica_submissions')
-            ->where('agency_id', $agency->id)
+        $count = FicaSubmission::applyGenuineRecordFilter(
+            DB::table('fica_submissions')->where('agency_id', $agency->id)
+        )
             ->whereIn('status', ['draft', 'submitted', 'corrections_requested'])
             ->count();
         return ['populated' => true, 'value' => $count, 'data' => ['count' => $count]];
@@ -372,8 +375,9 @@ final class EvidenceGatheringService
         if (!\Schema::hasColumn('fica_submissions', 'risk_rating')) {
             return $this->resolveNoDataAvailable('FicaSubmission.risk_rating not yet populated by workflow — manual entry required.');
         }
-        $count = DB::table('fica_submissions')
-            ->where('agency_id', $submission->agency_id)
+        $count = FicaSubmission::applyGenuineRecordFilter(
+            DB::table('fica_submissions')->where('agency_id', $submission->agency_id)
+        )
             ->where('risk_rating', '>=', 3)
             ->whereBetween('created_at', [$submission->reporting_period_from, $submission->reporting_period_to->endOfDay()])
             ->count();
