@@ -1155,6 +1155,23 @@
                  layout itself. --}}
             <div x-show="previewRenderType === 'web' && previewHtml" class="overflow-y-auto" style="max-height: calc(100vh - 200px);">
                 <link href="/css/corex-document.css" rel="stylesheet">
+                {{-- WET-INK amendment marks in the Fill & Review preview (Johan 2026-08-06). The signing view
+                     styles change marks via DocumentChangeHighlighter::styleBlock(); the F&R preview replays
+                     strikes with SelectionEditService directly and never got that CSS — so a PURE strike-out
+                     (no replacement) rendered a text-coloured <del> line (invisible) and an unstyled initial
+                     row, making it look like nothing happened (reword only "showed" because of its inserted
+                     text). Mirror the same styling here so a strike is visibly struck AND the per-party
+                     "Initial this change" row reads as a block — for BOTH pure strike and reword. --}}
+                <style>
+                    .web-template-preview del.change-del{text-decoration:line-through !important;text-decoration-thickness:1.5px;color:#b91c1c !important;}
+                    .web-template-preview .change-ins{background:#fef08a;color:#111827;text-decoration:none;padding:0 2px;border-radius:2px;font-weight:600;}
+                    .web-template-preview .change-xref{margin-left:4px;padding:0 5px;background:#dbeafe;color:#1e40af;border-radius:3px;font-size:.72rem;font-weight:600;white-space:nowrap;}
+                    .web-template-preview .change-initial-row{display:block;margin:8px 0 14px 0;padding:8px 10px;border:1px solid #fcd34d;background:#fffbeb;border-radius:8px;font-size:.82rem;}
+                    .web-template-preview .change-initial-row .cir-label{font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:.03em;font-size:.66rem;margin-right:.6rem;}
+                    .web-template-preview .change-initial-row .cir-slot{display:inline-flex;align-items:center;gap:.45rem;margin:.2rem .6rem .2rem 0;padding:.25rem .55rem;border:1px solid #e5e7eb;border-radius:6px;background:#fff;vertical-align:middle;}
+                    .web-template-preview .change-initial-row .cir-name{color:#374151;font-weight:600;}
+                    .web-template-preview .change-initial-row .cir-ink{min-width:48px;text-align:center;color:#9ca3af;border-bottom:1px solid #d1d5db;font-size:.72rem;padding:0 4px;}
+                </style>
                 <div style="zoom: 0.7;">
                     <div class="web-template-preview"
                          :class="{ 'wizard-fill-context': currentStep === 5, 'wizard-preview-context': currentStep !== 5 }"
