@@ -131,6 +131,49 @@ final class WetInkPackStrikeTest extends TestCase
         $this->assertStringContainsString('data-party-key="seller"', $html);
     }
 
+    public function test_strike_spans_multiple_text_nodes_and_inline_markup(): void
+    {
+        // CROSS-NODE GUARD (Johan 2026-08-06). The locator used to match only WITHIN a single text node, so any
+        // selection that spanned inline markup — a field-value / clause-number / id span, an underline, a link,
+        // bold — silently no-op'd (some lines struck, others didn't). The range-based locate + strike must lift
+        // out the whole visible run across nodes. Real mandate shape: text, then a <span class="field">, then text.
+        $svc = app(SelectionEditService::class);
+        $parties = [['key' => 'agent', 'name' => 'A'], ['key' => 'seller', 'name' => 'S']];
+        $html = '<div class="corex-document-wrapper"><p class="corex-clause">'
+              . '<span class="corex-clause-number">4.7</span> '
+              . '<span class="corex-clause-text">Unit no <span class="corex-field-value">380</span> in the <u>Shelly Beach</u> township, occupation on <a href="#">registration</a>.</span>'
+              . '</p></div>';
+
+        // The visible text the browser sends CROSSES the field-value, the <u> and the <a> — three inline elements.
+        $selected = 'Unit no 380 in the Shelly Beach township, occupation on registration';
+
+        // (a) reword across the nodes
+        $reword = $svc->applyStrikeToHtml($html, $selected, '', '', 'the reworded occupation clause', 'inline', $parties);
+        $this->assertNotNull($reword, 'a selection spanning inline markup must locate + strike');
+        $out = $reword['html'];
+        $this->assertStringContainsString('change-del', $out);
+        // the struck text is authored as the whole visible selection, including the field value + underlined text
+        $this->assertStringContainsString('Unit no 380 in the Shelly Beach township, occupation on registration', strip_tags($out));
+        $this->assertStringContainsString('change-ins', $out);
+        $this->assertStringContainsString('the reworded occupation clause', $out);
+        $this->assertStringContainsString('change-initial-row', $out);
+        $this->assertSame(2, substr_count($out, 'cir-slot'), 'per-party initial row for the cross-node change');
+        // the emptied inline wrappers were pruned — no stray empty field/underline/link left behind
+        $this->assertStringNotContainsString('<span class="corex-field-value"></span>', $out);
+        $this->assertStringNotContainsString('<u></u>', $out);
+
+        // (b) pure strike across the nodes — struck, initial row, NO insert
+        $pure = $svc->applyStrikeToHtml($html, $selected, '', '', '', 'strike', $parties);
+        $this->assertNotNull($pure);
+        $this->assertStringContainsString('change-del', $pure['html']);
+        $this->assertStringContainsString('change-initial-row', $pure['html']);
+        $this->assertStringNotContainsString('change-ins', $pure['html']);
+
+        // (c) idempotent — re-striking the already-struck cross-node run is a no-op (locate skips struck text)
+        $again = $svc->applyStrikeToHtml($pure['html'], $selected, '', '', '', 'strike', $parties);
+        $this->assertNull($again, 're-striking a struck cross-node run must be a no-op');
+    }
+
     public function test_pure_strike_mode_in_pack_segment_has_no_insert(): void
     {
         $svc = app(SelectionEditService::class);

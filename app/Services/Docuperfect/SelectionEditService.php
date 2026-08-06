@@ -82,16 +82,16 @@ final class SelectionEditService
         // Locate the selected span: find the text node + offset whose text equals $selected AND whose
         // surrounding text best matches the sent context. Single-text-node selections (the common case:
         // a word/phrase inside a paragraph). Returns [textNode, offset] or null.
-        $hit = $this->locate($dom, $selected, $prefix, $suffix);
+        $hit = $this->locateRange($dom, $selected, $prefix, $suffix);
         if ($hit === null) {
             return ['ok' => false, 'error' => 'Could not locate the highlighted text — try selecting it again.'];
         }
-        [$node, $offset] = $hit;
+        [$startNode, $startOff, $endNode, $endOff] = $hit;
 
         $changeId = substr(sha1($this->norm($prefix) . '|' . $selected . '|' . $replacement), 0, 12);
 
         $baked = $canvas['baked'];
-        $result = DB::transaction(function () use ($template, $document, $dom, $node, $offset, $selected, $replacement, $changeId, $actor, $wtd, $mode, $baked) {
+        $result = DB::transaction(function () use ($template, $document, $dom, $startNode, $startOff, $endNode, $endOff, $selected, $replacement, $changeId, $actor, $wtd, $mode, $baked) {
             $ocNumber = null;
             $condition = null;
             if ($mode === 'reference') {
@@ -118,7 +118,7 @@ final class SelectionEditService
                 ]);
             }
 
-            $this->authorStrike($dom, $node, $offset, $selected, $replacement, $changeId, $this->parties($template), $mode, $ocNumber);
+            $this->authorStrikeRange($dom, $startNode, $startOff, $endNode, $endOff, $selected, $replacement, $changeId, $this->parties($template), $mode, $ocNumber);
 
             DocumentClauseStrikethrough::create([
                 'signature_template_id'    => $template->id,
@@ -188,58 +188,119 @@ final class SelectionEditService
         )) {
             return null;
         }
-        $hit = $this->locate($dom, $selected, $prefix, $suffix);
+        $hit = $this->locateRange($dom, $selected, $prefix, $suffix);
         if ($hit === null) {
             return null; // not found (or already struck) — caller keeps the html unchanged
         }
-        [$node, $offset] = $hit;
+        [$startNode, $startOff, $endNode, $endOff] = $hit;
         $changeId = substr(sha1($this->norm($prefix) . '|' . $selected . '|' . $replacement), 0, 12);
-        $this->authorStrike($dom, $node, $offset, $selected, $replacement, $changeId, $parties, $mode, null);
+        $this->authorStrikeRange($dom, $startNode, $startOff, $endNode, $endOff, $selected, $replacement, $changeId, $parties, $mode, null);
 
         return ['html' => $this->innerHtml($dom, new \DOMXPath($dom)), 'change_id' => $changeId, 'mode' => $mode];
     }
 
-    /** @return array{0: \DOMText, 1: int}|null */
-    private function locate(\DOMDocument $dom, string $selected, string $prefix, string $suffix): ?array
+    /**
+     * Locate the highlighted selection ACROSS the document — robust to selections that span multiple text
+     * nodes and cross inline markup (a field-value / clause-number / id span, an underline, a link, bold, …).
+     * The frontend sends the visible text whitespace-collapsed; we match it against a whitespace-collapsed
+     * index of the whole document body and map the match back to the exact start/end DOM text-node positions.
+     * Text already inside an authored change mark (and inside <style>/<script>) is excluded so a re-apply can
+     * never match a struck span (idempotency) and CSS/JS text is never selectable.
+     *
+     * @return array{0: \DOMText, 1: int, 2: \DOMText, 3: int}|null  [startNode, startOffset, endNode, endOffsetExclusive]
+     */
+    private function locateRange(\DOMDocument $dom, string $selected, string $prefix, string $suffix): ?array
     {
-        $xpath = new \DOMXPath($dom);
-        $textNodes = $xpath->query('//text()');
-        if ($textNodes === false) {
+        $sel = $this->norm($selected);
+        if ($sel === '') {
+            return null;
+        }
+        $index = $this->buildTextIndex($dom);
+        $hay = $index['norm'];
+        if ($hay === '') {
             return null;
         }
 
+        $normPrefix = $this->norm($prefix);
+        $normSuffix = $this->norm($suffix);
+        $selLen = mb_strlen($sel);
+
         $best = null;
         $bestScore = -1;
-        $normSuffix = $this->norm($suffix);
-        $normPrefix = $this->norm($prefix);
-
-        foreach ($textNodes as $tn) {
-            if (! $tn instanceof \DOMText) {
-                continue;
+        $from = 0;
+        while (($pos = mb_strpos($hay, $sel, $from)) !== false) {
+            // Score by the surrounding CONTEXT in the flattened text (works across node boundaries) so the
+            // right occurrence is chosen when a phrase repeats.
+            $before = mb_substr($hay, max(0, $pos - 30), min(30, $pos));
+            $after  = mb_substr($hay, $pos + $selLen, 30);
+            $score = 0;
+            if ($normPrefix !== '' && str_ends_with($before, mb_substr($normPrefix, -20))) $score += 2;
+            if ($normSuffix !== '' && str_starts_with($after, mb_substr($normSuffix, 0, 20))) $score += 2;
+            if ($normPrefix === '' && $normSuffix === '') $score += 1; // no context → first match
+            if ($score > $bestScore) {
+                $bestScore = $score;
+                $best = $pos;
             }
-            $t = $tn->nodeValue ?? '';
-            $from = 0;
-            while (($pos = mb_strpos($t, $selected, $from)) !== false) {
-                // Skip if this node is already inside an authored change mark.
-                if ($this->insideChangeMark($tn)) {
-                    $from = $pos + 1;
+            $from = $pos + 1;
+        }
+        if ($best === null) {
+            return null;
+        }
+
+        [$startNode, $startOff] = $index['map'][$best];
+        [$endNode, $endOff]     = $index['map'][$best + $selLen - 1];
+        return [$startNode, $startOff, $endNode, $endOff + 1];
+    }
+
+    /**
+     * Flatten the document body to a whitespace-collapsed string, with a per-character map back to the exact
+     * (text node, char offset) that produced it. ASCII-whitespace runs collapse to one space (matching the
+     * frontend's `sel.toString().replace(/\s+/g,' ')` and this class's norm()); leading whitespace is dropped.
+     * Nodes inside an authored change mark or a <style>/<script> are skipped.
+     *
+     * @return array{norm: string, map: array<int, array{0: \DOMText, 1: int}>}
+     */
+    private function buildTextIndex(\DOMDocument $dom): array
+    {
+        $xpath = new \DOMXPath($dom);
+        $textNodes = $xpath->query('//text()');
+        $norm = '';
+        $map  = [];
+        $prevSpace = true; // drop leading whitespace
+        if ($textNodes !== false) {
+            foreach ($textNodes as $tn) {
+                if (! $tn instanceof \DOMText || $this->insideChangeMark($tn) || $this->insideSkippable($tn)) {
                     continue;
                 }
-                // Score by context match within the same node (cheap + robust for single-node selections).
-                $before = $this->norm(mb_substr($t, max(0, $pos - 40), min(40, $pos)));
-                $after  = $this->norm(mb_substr($t, $pos + mb_strlen($selected), 40));
-                $score = 0;
-                if ($normPrefix !== '' && str_ends_with($before, mb_substr($normPrefix, -20))) $score += 2;
-                if ($normSuffix !== '' && str_starts_with($after, mb_substr($normSuffix, 0, 20))) $score += 2;
-                if ($normPrefix === '' && $normSuffix === '') $score += 1; // no context → first match
-                if ($score > $bestScore) {
-                    $bestScore = $score;
-                    $best = [$tn, $pos];
+                $chars = mb_str_split($tn->nodeValue ?? '');
+                foreach ($chars as $o => $ch) {
+                    $isSpace = ($ch === ' ' || $ch === "\t" || $ch === "\n" || $ch === "\r" || $ch === "\f" || $ch === "\x0B");
+                    if ($isSpace) {
+                        if (! $prevSpace) {
+                            $norm .= ' ';
+                            $map[] = [$tn, $o];
+                            $prevSpace = true;
+                        }
+                        continue;
+                    }
+                    $norm .= $ch;
+                    $map[] = [$tn, $o];
+                    $prevSpace = false;
                 }
-                $from = $pos + 1;
             }
         }
-        return $best;
+        return ['norm' => $norm, 'map' => $map];
+    }
+
+    /** True when $node sits inside a <style>/<script> (its text is not document prose and must never be struck). */
+    private function insideSkippable(\DOMNode $node): bool
+    {
+        for ($p = $node->parentNode; $p !== null; $p = $p->parentNode) {
+            if ($p instanceof \DOMElement && in_array(strtolower($p->nodeName), ['style', 'script'], true)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function insideChangeMark(\DOMNode $node): bool
@@ -252,23 +313,83 @@ final class SelectionEditService
         return false;
     }
 
-    /** Split $node at the selected span and author the inline strike + margin initial block in place. */
-    private function authorStrike(\DOMDocument $dom, \DOMText $node, int $offset, string $selected, string $replacement, string $changeId, array $parties, string $mode = 'inline', ?int $ocNumber = null): void
+    /**
+     * Author the inline strike + full-width per-party initial row over the located RANGE — works whether the
+     * selection sits in one text node or SPANS MANY (crossing inline markup: a field-value / clause-number /
+     * id span, an underline, a link, bold, …). The selected run (which may cross elements) is removed and
+     * replaced, at its start position, by ONE change-mark wrapper: <del>{selected}</del> + optional <ins>/xref.
+     * The struck text is authored as the exact visible selection (whitespace-collapsed) — its former internal
+     * markup is being struck out anyway, so it is flattened; empty inline wrappers left behind are pruned.
+     */
+    private function authorStrikeRange(\DOMDocument $dom, \DOMText $startNode, int $startOff, \DOMText $endNode, int $endOff, string $selected, string $replacement, string $changeId, array $parties, string $mode = 'inline', ?int $ocNumber = null): void
     {
-        $full   = $node->nodeValue ?? '';
-        $before = mb_substr($full, 0, $offset);
-        $after  = mb_substr($full, $offset + mb_strlen($selected));
+        // Split the boundary text nodes so the selected run occupies whole text nodes we can lift out.
+        if ($startNode === $endNode) {
+            $selNode = $startOff > 0 ? $this->splitTextAt($startNode, $startOff) : $startNode;
+            $selLen  = $endOff - $startOff;
+            if ($selLen < mb_strlen($selNode->nodeValue ?? '')) {
+                $this->splitTextAt($selNode, $selLen); // trim the trailing (unselected) remainder off
+            }
+            $collected = [$selNode];
+        } else {
+            $startSel = $startOff > 0 ? $this->splitTextAt($startNode, $startOff) : $startNode;
+            if ($endOff < mb_strlen($endNode->nodeValue ?? '')) {
+                $this->splitTextAt($endNode, $endOff); // $endNode keeps the selected head
+            }
+            $collected = $this->collectTextNodesInOrder($startSel, $endNode);
+        }
+        if ($collected === []) {
+            return;
+        }
 
-        $parent = $node->parentNode;
+        $anchor = $collected[0];
+        $parent = $anchor->parentNode;
         if ($parent === null) {
             return;
         }
 
-        $frag = [];
-        if ($before !== '') {
-            $frag[] = $dom->createTextNode($before);
+        $wrap = $this->buildChangeWrapper($dom, $selected, $replacement, $changeId, $mode, $ocNumber);
+        $parent->insertBefore($wrap, $anchor);
+
+        // Remove every text node of the selected run, then prune inline wrappers it emptied out.
+        $touchedInline = [];
+        foreach ($collected as $c) {
+            $p = $c->parentNode;
+            if ($p instanceof \DOMElement) {
+                $touchedInline[spl_object_id($p)] = $p;
+            }
+            $p?->removeChild($c);
+        }
+        $inlineTags = ['span', 'u', 'a', 'b', 'strong', 'em', 'i', 'small', 'sub', 'sup', 'font'];
+        foreach ($touchedInline as $el) {
+            while ($el instanceof \DOMElement
+                && $el !== $wrap
+                && in_array(strtolower($el->nodeName), $inlineTags, true)
+                && $el->childNodes->length === 0) {
+                $up = $el->parentNode;
+                $el->parentNode?->removeChild($el);
+                $el = $up;
+            }
         }
 
+        // FULL-WIDTH INITIAL ROW — a block right after the clause/paragraph the change sits in. One labeled
+        // slot per signing party; each party applies their REAL initial in their own slot at signing.
+        $row = $this->buildInitialRow($dom, $changeId, $parties);
+        $block = $this->closestBlock($wrap);
+        if ($block instanceof \DOMElement && $block->parentNode) {
+            if ($block->nextSibling) {
+                $block->parentNode->insertBefore($row, $block->nextSibling);
+            } else {
+                $block->parentNode->appendChild($row);
+            }
+        } else {
+            $wrap->appendChild($row); // fallback — keep the row attached to the change
+        }
+    }
+
+    /** Build the change-mark wrapper: <span change-inline><del>{selected}</del> + optional <ins>/xref</span>. */
+    private function buildChangeWrapper(\DOMDocument $dom, string $selected, string $replacement, string $changeId, string $mode, ?int $ocNumber): \DOMElement
+    {
         $wrap = $dom->createElement('span');
         $wrap->setAttribute('class', 'change-inline');
         $wrap->setAttribute('data-strikethrough-applied', '1');
@@ -282,6 +403,7 @@ final class SelectionEditService
         }
         $del->appendChild($dom->createTextNode($selected));
         $wrap->appendChild($del);
+
         if ($mode === 'strike') {
             // Pure strike-out — the deleted text stands struck through with NO replacement and NO cross-reference.
         } elseif ($mode === 'reference' && $ocNumber !== null) {
@@ -302,29 +424,56 @@ final class SelectionEditService
             $wrap->appendChild($ins);
         }
 
-        $frag[] = $wrap;
-        if ($after !== '') {
-            $frag[] = $dom->createTextNode($after);
-        }
-        foreach ($frag as $n) {
-            $parent->insertBefore($n, $node);
-        }
-        $parent->removeChild($node);
+        return $wrap;
+    }
 
-        // FULL-WIDTH INITIAL ROW — inserted as a block right after the clause/paragraph the change sits in.
-        // One labeled slot per signing party; each party APPLIES THEIR REAL INITIAL in their own slot (the
-        // slot opens the same capture modal the rest of the document uses). Replaces the squashed margin block.
-        $row = $this->buildInitialRow($dom, $changeId, $parties);
-        $block = $this->closestBlock($wrap);
-        if ($block instanceof \DOMElement && $block->parentNode) {
-            if ($block->nextSibling) {
-                $block->parentNode->insertBefore($row, $block->nextSibling);
-            } else {
-                $block->parentNode->appendChild($row);
-            }
+    /**
+     * Split a text node at a CHARACTER offset (mb-safe — never libxml's byte-offset splitText). $node keeps
+     * [0, $offset); a NEW text node carrying [$offset, end) is inserted right after it and returned.
+     */
+    private function splitTextAt(\DOMText $node, int $offset): \DOMText
+    {
+        $full = $node->nodeValue ?? '';
+        $node->nodeValue = mb_substr($full, 0, $offset);
+        $tail = $node->ownerDocument->createTextNode(mb_substr($full, $offset));
+        if ($node->nextSibling) {
+            $node->parentNode?->insertBefore($tail, $node->nextSibling);
         } else {
-            $wrap->appendChild($row); // fallback — keep the row attached to the change
+            $node->parentNode?->appendChild($tail);
         }
+        return $tail;
+    }
+
+    /** Every text node from $start to $end inclusive, in document order (the selected run across nodes). */
+    private function collectTextNodesInOrder(\DOMNode $start, \DOMNode $end): array
+    {
+        $out  = [];
+        $node = $start;
+        while ($node !== null) {
+            if ($node instanceof \DOMText) {
+                $out[] = $node;
+            }
+            if ($node === $end) {
+                break;
+            }
+            $node = $this->nextInDocOrder($node);
+        }
+        return $out;
+    }
+
+    /** Next node in document order (depth-first): first child, else next sibling, else up-and-over. */
+    private function nextInDocOrder(\DOMNode $node): ?\DOMNode
+    {
+        if ($node->firstChild) {
+            return $node->firstChild;
+        }
+        while ($node !== null) {
+            if ($node->nextSibling) {
+                return $node->nextSibling;
+            }
+            $node = $node->parentNode;
+        }
+        return null;
     }
 
     /**
