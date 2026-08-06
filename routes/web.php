@@ -146,14 +146,17 @@ Route::get('/legal/privacy/{token}', [\App\Http\Controllers\Public\PrivacyPolicy
     ->middleware('throttle:60,1')
     ->name('public.privacy-policy');
 
-// CoreX OS platform legal pages (Meta/Facebook App Review). Public, no auth —
-// Meta's crawler fetches these without logging in. See LegalController.
+// CoreX OS platform legal + support pages (Meta/Facebook and Apple App Review).
+// Public, no auth — App Review fetches these logged out. See LegalController.
 Route::get('/privacy', [\App\Http\Controllers\Public\LegalController::class, 'privacy'])
     ->middleware('throttle:60,1')
     ->name('public.platform-privacy');
 Route::get('/data-deletion', [\App\Http\Controllers\Public\LegalController::class, 'dataDeletion'])
     ->middleware('throttle:60,1')
     ->name('public.data-deletion');
+Route::get('/support', [\App\Http\Controllers\Public\LegalController::class, 'support'])
+    ->middleware('throttle:60,1')
+    ->name('public.support');
 
 Route::post('/m/{shortcode}/callback', [\App\Http\Controllers\SellerOutreach\PublicLandingController::class, 'callback'])
     ->where('shortcode', '[A-Za-z0-9]{6}')

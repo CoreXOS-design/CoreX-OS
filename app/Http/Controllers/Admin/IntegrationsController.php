@@ -30,6 +30,7 @@ class IntegrationsController extends Controller
             'appDomain'       => $appDomain,
             'privacyUrl'      => route('public.platform-privacy'),
             'dataDeletionUrl' => route('public.data-deletion'),
+            'supportUrl'      => route('public.support'),
             'redirectIsHttps' => str_starts_with($redirectUri, 'https://'),
         ]);
     }
