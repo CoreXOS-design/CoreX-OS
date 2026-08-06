@@ -152,6 +152,19 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        // ── DESTRUCTIVE-SCHEMA GUARD (post-incident 2026-08-05: hfc_staging wiped by a
+        // migrate:fresh run directly against it) ────────────────────────────────────────
+        // Hard-block the destructive schema commands — migrate:fresh, migrate:refresh,
+        // migrate:reset, db:wipe — in PRODUCTION and STAGING. Laravel's native guard makes
+        // them THROW immediately (before any table is touched) regardless of --force, so an
+        // accidental or mistaken full-schema reset can never wipe a real database again.
+        // Deliberately NOT gated on local/qa/dev: migrate:fresh stays available for local
+        // dev and the QA1 rebuild. (Demo, if ever on this line, must run APP_ENV != production
+        // /staging so its migrate:fresh rebuild still works — flagged for the demo box.)
+        if ($this->app->environment(['production', 'staging'])) {
+            \Illuminate\Support\Facades\DB::prohibitDestructiveCommands();
+        }
+
         // AT-321 — attribute property writes made outside an HTTP request. Queue
         // jobs and console commands have no auth()->user(); stamp a clear source
         // label ("job:<Name>" / "console:<signature>") so every audit row — app
