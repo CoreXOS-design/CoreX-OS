@@ -2947,6 +2947,54 @@ img.web-sig-signed-img, img.cir-ink-img, .cir-ink img, .corex-ink img, img.corex
     color: #000 !important;
     -webkit-text-fill-color: #000 !important;
 }
+
+/* === AT-374 / FIX B — completed-doc captions + amendment marks in BLACK ink (letterhead excepted above) === */
+/* "Signed by {name}" signature captions + "Initialed by {name}" change labels render GREEN on screen —
+   force BLACK in the PDF, and drop the green pill background. */
+.corex-sig-caption, .change-initialed {
+    color: #000 !important;
+    -webkit-text-fill-color: #000 !important;
+    background: transparent !important;
+    background-color: transparent !important;
+}
+/* Amendment body marks stay VISIBLE but monochrome: struck text = BLACK line-through (not red); inserted
+   (reword) text = BLACK with an UNDERLINE so it stays distinguishable (not a yellow highlight). */
+.change-del, .change-del * {
+    color: #000 !important;
+    text-decoration: line-through !important;
+    text-decoration-color: #000 !important;
+}
+.change-ins, .change-ins * {
+    color: #000 !important;
+    -webkit-text-fill-color: #000 !important;
+    background: transparent !important;
+    background-color: transparent !important;
+    text-decoration: underline !important;
+    text-decoration-color: #000 !important;
+}
+/* The appended "Schedule of Amendments" appendix (kept on the AUDIT copy) — every cell BLACK, black grid,
+   no coloured header fill; its Removed column = black line-through, Inserted column = black underline (drops
+   the yellow highlight), Initialed column = black (not green). The spans are inline-styled, so target them. */
+.change-history-page, .change-history-page * {
+    color: #000 !important;
+    -webkit-text-fill-color: #000 !important;
+}
+.change-history-page th, .change-history-page td,
+.change-history-page tr, .change-history-page thead tr {
+    border-color: #000 !important;
+    background: transparent !important;
+    background-color: transparent !important;
+}
+.change-history-page span[style*="line-through"] {
+    text-decoration: line-through !important;
+    text-decoration-color: #000 !important;
+}
+.change-history-page span[style*="background"] {
+    background: transparent !important;
+    background-color: transparent !important;
+    text-decoration: underline !important;
+    text-decoration-color: #000 !important;
+}
 CSS;
     }
 

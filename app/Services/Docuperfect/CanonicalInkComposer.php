@@ -494,6 +494,9 @@ class CanonicalInkComposer
         }
         if ($isSig) {
             $label = $dom->createElement('div');
+            // Class = stable hook for the PDF monochrome override (AT-374/FIX B) — the caption stays green
+            // on SCREEN (inline style) but renders BLACK in the filed PDF. Screen appearance unchanged.
+            $label->setAttribute('class', 'corex-sig-caption');
             $label->setAttribute('style', 'font-size:8px;color:#059669;text-align:center;font-weight:600;');
             $label->textContent = 'Signed by ' . ($signerName !== '' ? $signerName : 'party');
             $el->appendChild($label);

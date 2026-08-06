@@ -80,4 +80,50 @@ final class PdfMonochromeBlackTest extends TestCase
         // And the red strike colour still lives in the screen stylesheet (colour retained for usability).
         $this->assertMatchesRegularExpression('/change-del/i', $screen, 'screen keeps its change-mark styling');
     }
+
+    /** FIX B — the completed-doc captions + Schedule + amendment marks are forced black in the PDF. */
+    public function test_fixb_captions_schedule_and_marks_forced_black(): void
+    {
+        $out = $this->wrap($this->sampleBody());
+        // "Signed by" captions + "Initialed by" pills → black (they render green on screen).
+        $this->assertMatchesRegularExpression('/\.corex-sig-caption[^{]*\{[^}]*color:\s*#000/is', $out, '"Signed by" caption must be black in the PDF');
+        $this->assertMatchesRegularExpression('/\.change-initialed[^{]*\{[^}]*color:\s*#000/is', $out, '"Initialed by" pill must be black in the PDF');
+        // Inserted (reword) text stays visible via a BLACK UNDERLINE (not a yellow highlight).
+        $this->assertMatchesRegularExpression('/\.change-ins[^{]*\{[^}]*text-decoration:\s*underline/is', $out, 'reword inserts must be underlined (distinguishable, no highlight)');
+        // The appended Schedule of Amendments is blackened where it IS kept (the audit copy).
+        $this->assertStringContainsString('.change-history-page', $out, 'the amendment Schedule must be forced black on the audit copy');
+        $this->assertMatchesRegularExpression('/\.change-history-page span\[style\*="line-through"\]/i', $out, 'Schedule Removed column = black line-through');
+        $this->assertMatchesRegularExpression('/\.change-history-page span\[style\*="background"\][^{]*\{[^}]*underline/is', $out, 'Schedule Inserted column = black underline (drops the yellow highlight)');
+    }
+
+    /** FIX B — the "Signed by" caption carries the stable PDF hook class while keeping its screen colour. */
+    public function test_fixb_signed_by_caption_has_pdf_hook_class(): void
+    {
+        $src = (string) file_get_contents(app_path('Services/Docuperfect/CanonicalInkComposer.php'));
+        $this->assertStringContainsString("'corex-sig-caption'", $src, 'the Signed-by caption must carry the corex-sig-caption class for the PDF override');
+        $this->assertStringContainsString('#059669', $src, 'the caption keeps its green inline style for the SCREEN');
+    }
+
+    /** FIX A — the recipient (client) PDF excludes the Schedule of Amendments; the audit copy keeps it. */
+    public function test_fixa_strips_schedule_from_recipient_copy_only(): void
+    {
+        $body = '<div class="corex-document-wrapper"><p class="corex-clause">Body text here.</p></div>';
+        $schedule = '<div class="change-history-page" style="page-break-before:always;">'
+            . '<h3>Schedule of Amendments</h3><p>desc</p>'
+            . '<table><thead><tr><th>#</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table></div>';
+        $full = $body . $schedule;
+
+        $svc = app(\App\Services\Docuperfect\SignaturePdfService::class);
+        $m = new \ReflectionMethod(\App\Services\Docuperfect\SignaturePdfService::class, 'stripAmendmentSchedule');
+        $m->setAccessible(true);
+        $clientHtml = $m->invoke($svc, $full);
+
+        // Recipient copy: NO Schedule, but the document body is intact + byte-identical.
+        $this->assertStringNotContainsString('change-history-page', $clientHtml, 'recipient copy must NOT contain the Schedule');
+        $this->assertStringNotContainsString('Schedule of Amendments', $clientHtml);
+        $this->assertStringContainsString('Body text here.', $clientHtml, 'the document body is kept');
+        $this->assertSame($body, trim($clientHtml), 'only the appendix is removed — the rest is byte-identical');
+        // Audit copy uses the UNSTRIPPED html → keeps the Schedule.
+        $this->assertStringContainsString('change-history-page', $full);
+    }
 }

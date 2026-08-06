@@ -127,8 +127,11 @@ class SignaturePdfService
             return $result;
         };
 
-        // 1. Client copy — document with signatures (no audit certificate)
-        $clientTempPath = $step('copy1_generatePdfFromHtml', fn () => $signingController->generatePdfFromHtml($mergedHtml, $document->id));
+        // 1. Client copy — document with signatures (no audit certificate). FIX A (Johan 2026-08-06): the
+        //    "Schedule of Amendments" appendix is EXCLUDED from the recipient-emailed copy (kept only on the
+        //    audit/internal copy below). Recipients receive the document; CoreX retains the full record.
+        $clientHtml = $this->stripAmendmentSchedule($mergedHtml);
+        $clientTempPath = $step('copy1_generatePdfFromHtml', fn () => $signingController->generatePdfFromHtml($clientHtml, $document->id));
         if (!$clientTempPath || !file_exists($clientTempPath)) {
             Log::error('SignaturePdfService: Puppeteer client PDF generation failed', [
                 'template_id' => $template->id,
@@ -181,6 +184,27 @@ class SignaturePdfService
             'internal' => $internalStoragePath,
             'client' => $clientStoragePath,
         ];
+    }
+
+    /**
+     * FIX A (Johan 2026-08-06) — remove the appended "Schedule of Amendments" appendix from the copy sent to
+     * recipients. The appendix is a self-contained `.change-history-page` block (DocumentChangeHighlighter::
+     * appendixHtml) that always ends `…</table></div>`; this strips exactly that block and leaves the rest of
+     * the document HTML byte-identical, so the client PDF is the document WITHOUT the amendment report while
+     * the internal/audit copy (generated from the unstripped $mergedHtml) keeps it. Fail-open: returns the
+     * input unchanged when no appendix is present.
+     */
+    private function stripAmendmentSchedule(string $html): string
+    {
+        if (!str_contains($html, 'change-history-page')) {
+            return $html;
+        }
+        $stripped = preg_replace(
+            '#<div class="change-history-page"[^>]*>.*?</table>\s*</div>#is',
+            '',
+            $html,
+        );
+        return is_string($stripped) ? $stripped : $html;
     }
 
     /**
