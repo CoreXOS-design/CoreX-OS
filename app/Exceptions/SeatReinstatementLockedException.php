@@ -33,10 +33,9 @@ class SeatReinstatementLockedException extends RuntimeException
 
         return new self(
             sprintf(
-                '%s cannot be reinstated until %s (%s). A seat released on %s is held for '
-                . '%d days before that person can occupy a seat again. This prevents removing '
-                . 'agents to lower a monthly bill and adding them back afterwards. '
-                . 'If this was a mistake, contact CoreX support — a System Owner can lift the hold immediately.',
+                '%s cannot be reinstated until %s (%s). They were released on %s and cannot be '
+                . 'added back for %d days. '
+                . 'If this was a mistake, contact CoreX support — CoreX Dev can lift the hold immediately.',
                 $name,
                 $release->reinstatable_at->format('j F Y'),
                 $days === 1 ? '1 day' : "{$days} days",
@@ -56,11 +55,11 @@ class SeatReinstatementLockedException extends RuntimeException
         );
     }
 
-    /** Someone who is not a CoreX System Owner tried to override. */
+    /** Someone who is not CoreX Dev tried to override. */
     public static function notAuthorised(): self
     {
         return new self(
-            'Only a CoreX System Owner can lift a seat hold early. '
+            'Only CoreX Dev can lift a hold early. '
             . 'Contact CoreX support if this agent was archived by mistake.'
         );
     }

@@ -180,6 +180,15 @@ Reactivating a locked user fails with the same message. The toggle button on
 `/admin/users` renders disabled with a tooltip carrying the date, rather than failing
 after the click.
 
+**Amended 2026-08-06:** a deactivated-but-not-deleted agent (`is_active = 0`,
+`deleted_at IS NULL`) never appears on Archived Agents — that page is `onlyTrashed()`
+only. Originally this control had no override, only the disabled state above, which
+left a System Owner with no way back in for this class of agent at all. `toggle()` now
+accepts the same `override_reason` as `restore()`, and a System Owner sees an
+"Override & activate now" control here identical in shape to the one on Archived
+Agents (§6.1). Everyone else still sees the plain disabled button — the server
+re-checks `isOwnerRole()` regardless of what renders.
+
 ### 6.4 Re-creating the same email (replaces the `forceDelete`)
 
 `store()` currently **hard-deletes** any trashed user with the submitted email. Removed. Now:

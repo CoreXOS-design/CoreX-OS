@@ -17,7 +17,7 @@
         x-show="visible"
         x-transition
         class="rounded-md w-full"
-        style="background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); max-width: 560px; max-height: 90vh; overflow: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.18);"
+        style="background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); max-width: 760px; max-height: 90vh; overflow: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.18);"
     >
         {{-- Header --}}
         <div class="flex items-start justify-between gap-3 p-5" style="border-bottom: 1px solid var(--border);">
@@ -36,6 +36,17 @@
 
         {{-- Body --}}
         <div class="p-5 space-y-4">
+            {{-- AT-278 — deleting releases this agent's billable seat and starts the same
+                 30-day reinstatement hold as deactivating. Always shown, unconditional on
+                 the preview load, so it is read BEFORE the admin commits to the delete. --}}
+            <div class="rounded-md px-4 py-3 text-sm"
+                 style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent); color: var(--text-primary);">
+                Billing for <span x-text="userName"></span> stops immediately, but they cannot
+                be restored, reactivated, or re-created for
+                <strong>{{ config('corex-billing.seat_release.lock_days', 30) }} days</strong>.
+                CoreX Dev can lift the hold early if this was a mistake.
+            </div>
+
             <template x-if="loading">
                 <p class="text-sm" style="color: var(--text-muted);">Loading…</p>
             </template>
@@ -51,45 +62,47 @@
 
             <template x-if="!loading && !error && counts && counts.has_any">
                 <div class="space-y-4">
-                    <div>
-                        <p class="text-sm mb-2" style="color: var(--text-secondary);">This agent currently owns:</p>
-                        <ul class="space-y-1.5 text-sm" style="color: var(--text-primary);">
-                            <li class="flex items-center gap-2">
-                                <span class="ds-badge" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon); white-space: nowrap;" x-text="counts.properties_primary"></span>
-                                properties as primary agent
-                            </li>
-                            <li class="flex items-center gap-2">
-                                <span class="ds-badge" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon); white-space: nowrap;" x-text="counts.properties_secondary"></span>
-                                properties as secondary agent
-                            </li>
-                            <li class="flex items-center gap-2">
-                                <span class="ds-badge" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon); white-space: nowrap;" x-text="counts.contacts"></span>
-                                contacts
-                            </li>
-                            <li class="flex items-center gap-2">
-                                <span class="ds-badge" style="background: color-mix(in srgb, var(--ds-amber) 12%, transparent); color: var(--ds-amber); white-space: nowrap;" x-text="counts.calendar_events"></span>
-                                calendar events <span class="text-xs" style="color: var(--text-muted);">(will be deleted)</span>
-                            </li>
-                            <li class="flex items-center gap-2">
-                                <span class="ds-badge" style="background: color-mix(in srgb, var(--ds-amber) 12%, transparent); color: var(--ds-amber); white-space: nowrap;" x-text="counts.command_tasks"></span>
-                                tasks <span class="text-xs" style="color: var(--text-muted);">(will be deleted)</span>
-                            </li>
-                        </ul>
-                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <p class="text-sm mb-2" style="color: var(--text-secondary);">This agent currently owns:</p>
+                            <ul class="space-y-1.5 text-sm" style="color: var(--text-primary);">
+                                <li class="flex items-center gap-2">
+                                    <span class="ds-badge" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon); white-space: nowrap;" x-text="counts.properties_primary"></span>
+                                    properties as primary agent
+                                </li>
+                                <li class="flex items-center gap-2">
+                                    <span class="ds-badge" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon); white-space: nowrap;" x-text="counts.properties_secondary"></span>
+                                    properties as secondary agent
+                                </li>
+                                <li class="flex items-center gap-2">
+                                    <span class="ds-badge" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon); white-space: nowrap;" x-text="counts.contacts"></span>
+                                    contacts
+                                </li>
+                                <li class="flex items-center gap-2">
+                                    <span class="ds-badge" style="background: color-mix(in srgb, var(--ds-amber) 12%, transparent); color: var(--ds-amber); white-space: nowrap;" x-text="counts.calendar_events"></span>
+                                    calendar events <span class="text-xs" style="color: var(--text-muted);">(will be deleted)</span>
+                                </li>
+                                <li class="flex items-center gap-2">
+                                    <span class="ds-badge" style="background: color-mix(in srgb, var(--ds-amber) 12%, transparent); color: var(--ds-amber); white-space: nowrap;" x-text="counts.command_tasks"></span>
+                                    tasks <span class="text-xs" style="color: var(--text-muted);">(will be deleted)</span>
+                                </li>
+                            </ul>
+                        </div>
 
-                    <fieldset class="rounded-md p-3" style="border: 1px solid var(--border);">
-                        <legend class="px-1 text-xs font-medium" style="color: var(--text-secondary);">
-                            For properties where this agent is primary AND a secondary agent exists
-                        </legend>
-                        <label class="flex items-start gap-2 text-sm cursor-pointer py-1" style="color: var(--text-primary);">
-                            <input type="radio" value="promote" x-model="secondaryHandling" class="mt-1">
-                            <span>Promote the secondary agent to primary <span class="text-xs" style="color: var(--text-muted);">(default)</span></span>
-                        </label>
-                        <label class="flex items-start gap-2 text-sm cursor-pointer py-1" style="color: var(--text-primary);">
-                            <input type="radio" value="replace" x-model="secondaryHandling" class="mt-1">
-                            <span>Keep them as secondary; assign chosen agent as primary</span>
-                        </label>
-                    </fieldset>
+                        <fieldset class="rounded-md p-3" style="border: 1px solid var(--border);">
+                            <legend class="px-1 text-xs font-medium" style="color: var(--text-secondary);">
+                                For properties where this agent is primary AND a secondary agent exists
+                            </legend>
+                            <label class="flex items-start gap-2 text-sm cursor-pointer py-1" style="color: var(--text-primary);">
+                                <input type="radio" value="promote" x-model="secondaryHandling" class="mt-1">
+                                <span>Promote the secondary agent to primary <span class="text-xs" style="color: var(--text-muted);">(default)</span></span>
+                            </label>
+                            <label class="flex items-start gap-2 text-sm cursor-pointer py-1" style="color: var(--text-primary);">
+                                <input type="radio" value="replace" x-model="secondaryHandling" class="mt-1">
+                                <span>Keep them as secondary; assign chosen agent as primary</span>
+                            </label>
+                        </fieldset>
+                    </div>
 
                     <p class="text-xs" style="color: var(--text-muted);">
                         Calendar events and tasks will be soft-deleted.
@@ -97,9 +110,12 @@
                 </div>
             </template>
 
-            {{-- AT-118 — a successor is MANDATORY (no orphaned comms/contacts; no house account).
-                 Always shown. Receives the departing agent's live working set: contacts, FICA,
-                 communications, and ON-MARKET stock; sold/historic stock + deals + commissions stay. --}}
+            {{-- AT-118 — a successor is MANDATORY (no orphaned comms/contacts; no house account),
+                 paired side-by-side with the equally mandatory QR reroute (moved up from further
+                 down the form) so the two required fields use the modal's width instead of
+                 stacking the whole form taller. Receives the departing agent's live working set:
+                 contacts, FICA, communications, and ON-MARKET stock; sold/historic stock + deals
+                 + commissions stay. --}}
             <template x-if="!loading && !error && counts">
                 <div class="space-y-2">
                     <template x-if="!counts.has_any">
@@ -107,22 +123,47 @@
                             This agent has no attached properties, contacts, events, or tasks — but a successor is still required so their communications and FICA records are never orphaned.
                         </p>
                     </template>
-                    <label for="agent-delete-target" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">
-                        Nominate a successor (contacts, FICA, communications &amp; on-market stock transfer to them) <span class="text-red-500">*</span>
-                    </label>
-                    <select
-                        id="agent-delete-target"
-                        x-model="targetUserId"
-                        class="w-full rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
-                    >
-                        <option value="">— choose an agent —</option>
-                        <template x-for="t in targets" :key="t.id">
-                            <option :value="t.id" x-text="t.label"></option>
-                        </template>
-                    </select>
-                    <p class="text-xs" x-show="!transferHistoricStock" style="color: var(--text-muted);">Sold/historic stock, the deal register, and commissions stay attributed to the departing agent.</p>
-                    <p class="text-xs" x-show="transferHistoricStock" style="color: var(--text-muted);">Historic stock will also transfer. The deal register and commissions still stay attributed to the departing agent.</p>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label for="agent-delete-target" class="block text-xs font-medium mb-1" style="color: var(--text-secondary); min-height: 2.25em;">
+                                Nominate a successor (contacts, FICA, communications &amp; on-market stock transfer to them) <span class="text-red-500">*</span>
+                            </label>
+                            <select
+                                id="agent-delete-target"
+                                x-model="targetUserId"
+                                class="w-full rounded-md px-3 py-2 text-sm"
+                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                            >
+                                <option value="">— choose an agent —</option>
+                                <template x-for="t in targets" :key="t.id">
+                                    <option :value="t.id" x-text="t.label"></option>
+                                </template>
+                            </select>
+                            <p class="text-xs mt-1" x-show="!transferHistoricStock" style="color: var(--text-muted);">Sold/historic stock, the deal register, and commissions stay attributed to the departing agent.</p>
+                            <p class="text-xs mt-1" x-show="transferHistoricStock" style="color: var(--text-muted);">Historic stock will also transfer. The deal register and commissions still stay attributed to the departing agent.</p>
+                        </div>
+
+                        <div>
+                            <label for="agent-delete-qr-target" class="block text-xs font-medium mb-1" style="color: var(--text-secondary); min-height: 2.25em;">
+                                Reroute this agent's QR code to <span class="text-red-500">*</span>
+                            </label>
+                            <select
+                                id="agent-delete-qr-target"
+                                x-model="qrRerouteUserId"
+                                @change="qrTouched = true"
+                                class="w-full rounded-md px-3 py-2 text-sm"
+                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                            >
+                                <option value="">— choose an agent —</option>
+                                <template x-for="t in targets" :key="'qr-' + t.id">
+                                    <option :value="t.id" x-text="t.label"></option>
+                                </template>
+                            </select>
+                            <p class="text-xs mt-1" style="color: var(--text-muted);">
+                                Clients who scan this agent's existing QR code (printed cards, signage) will be onboarded to the chosen agent instead. The original code keeps working — nothing needs reprinting.
+                            </p>
+                        </div>
+                    </div>
                 </div>
             </template>
 
@@ -179,30 +220,6 @@
                         </select>
                     </div>
                 </fieldset>
-            </template>
-
-            {{-- QR rerouting — always required (every agent has a QR code) --}}
-            <template x-if="!loading && !error && counts">
-                <div class="rounded-md p-3" style="border: 1px solid var(--border); background: color-mix(in srgb, var(--brand-icon) 5%, transparent);">
-                    <label for="agent-delete-qr-target" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">
-                        Reroute this agent's QR code to <span class="text-red-500">*</span>
-                    </label>
-                    <select
-                        id="agent-delete-qr-target"
-                        x-model="qrRerouteUserId"
-                        @change="qrTouched = true"
-                        class="w-full rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
-                    >
-                        <option value="">— choose an agent —</option>
-                        <template x-for="t in targets" :key="'qr-' + t.id">
-                            <option :value="t.id" x-text="t.label"></option>
-                        </template>
-                    </select>
-                    <p class="text-xs mt-2" style="color: var(--text-muted);">
-                        Clients who scan this agent's existing QR code (printed cards, signage) will be onboarded to the chosen agent instead. The original code keeps working — nothing needs reprinting.
-                    </p>
-                </div>
             </template>
         </div>
 
