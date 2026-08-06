@@ -2,7 +2,7 @@
 
 @section('title', 'Agent Journey — ' . ($journey['agent']['name'] ?? ''))
 
-@section('content')
+@section('corex-content')
 <div class="p-6 space-y-6">
     <div class="flex items-center justify-between flex-wrap gap-3">
         <div>

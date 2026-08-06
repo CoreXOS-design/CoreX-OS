@@ -12,9 +12,10 @@ use App\Services\Performance\PerformanceScope;
 use Illuminate\Http\Request;
 
 /**
- * AT-366 — Agency Performance & ROI report. AT-366-A foundation: renders the
- * scope + period selector and the user → branch → company rollup for the
- * registered metric providers. Coverage grows as providers are added (AT-366-B).
+ * AT-366 — Agency Performance & ROI report. Renders the scope + period selector
+ * and the agent → branch → company rollup over the registered metric providers,
+ * plus branch/agent drill-down (AT-366-D) and the period-scoped buyer-activity
+ * view (AT-366-E). Every metric reconciles agent → branch → company.
  */
 class AgencyPerformanceReportController extends Controller
 {

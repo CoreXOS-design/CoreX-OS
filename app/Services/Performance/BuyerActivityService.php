@@ -130,8 +130,10 @@ class BuyerActivityService
                 'contact_id'       => (int) $b->id,
                 'name'             => trim(($b->first_name ?? '') . ' ' . ($b->last_name ?? '')) ?: 'Unnamed buyer',
                 'state'            => $state,
-                'days_in_state'    => $stateSince ? CarbonImmutable::parse($stateSince)->diffInDays($now) : null,
-                'days_in_pipeline' => $enteredAt ? $enteredAt->diffInDays($now) : null,
+                // (int) whole days — Carbon 3 diffInDays() returns a signed float; abs+cast
+                // gives a clean day count for display (no fractional/negative days).
+                'days_in_state'    => $stateSince ? (int) abs(CarbonImmutable::parse($stateSince)->diffInDays($now)) : null,
+                'days_in_pipeline' => $enteredAt ? (int) abs($enteredAt->diffInDays($now)) : null,
                 'last_worked_at'   => $lastWorked,
                 'appointments'     => $apptByContact[(int) $b->id] ?? 0,
                 'comms'            => $commsByContact[(int) $b->id] ?? 0,

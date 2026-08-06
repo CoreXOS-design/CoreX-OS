@@ -2,7 +2,7 @@
 
 @section('title', 'Branch — ' . ($report['branch']['label'] ?? ''))
 
-@section('content')
+@section('corex-content')
 <div class="p-6 space-y-6">
     <div class="flex items-center justify-between flex-wrap gap-3">
         <div>

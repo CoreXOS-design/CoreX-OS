@@ -2,7 +2,7 @@
 
 @section('title', 'Agency Performance & ROI')
 
-@section('content')
+@section('corex-content')
 <div class="p-6 space-y-6" x-data>
     <div class="flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -125,7 +125,7 @@
     </div>
 
     <p class="text-[10px]" style="color:var(--text-muted);">
-        AT-366-A foundation — {{ count($report['metrics']) }} metric(s) wired. Coverage expands in AT-366-B.
+        Agency Performance &amp; ROI — {{ count($report['metrics']) }} metrics rolled up agent → branch → company for the selected period, with point-in-time branch attribution.
     </p>
 </div>
 @endsection
