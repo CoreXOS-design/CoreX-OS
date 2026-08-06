@@ -2882,6 +2882,15 @@ CSS;
 CSS;
         }
 
+        // AT-374 — MONOCHROME BLACK for the FILED/EMAILED/PRINTED legal document. wrapHtmlForPdf() is used
+        // ONLY for PDF generation (SignaturePdfService's client + internal copies + the audit certificate);
+        // the on-screen signing / Fill & Review views render through a DIFFERENT path and KEEP their colour
+        // (red strikes, yellow reword inserts) for usability. Legal documents allow only black ink, so the
+        // PDF forces every mark — amendment strikes, reword inserts, Other-Conditions blocks, amendment
+        // initial blocks, and every signature/initial (drawn or typed) — to solid black with no colour fills
+        // or highlights. Appended LAST so it wins over the CDS + change-mark styles above.
+        $pdfStyles .= "\n" . $this->monochromePdfCss();
+
         // If it already has a DOCTYPE or <html> tag, inject all styles before </head>
         if (preg_match('/<!DOCTYPE|<html/i', $mergedHtml)) {
             $styleTag = '<style>' . $pdfStyles . '</style>';
@@ -2906,6 +2915,70 @@ CSS;
 </body>
 </html>
 HTML;
+    }
+
+    /**
+     * AT-374 — the monochrome-black stylesheet for the FILED PDF (screen keeps colour). Legal docs allow
+     * only black ink: every amendment mark + Other-Conditions block renders black with no colour fill or
+     * highlight, and every signature/initial (drawn or typed) is forced to solid black regardless of the
+     * captured ink colour. Scoped so the agency letterhead LOGO (an image, not signature ink) is never
+     * blackened. Injected LAST in wrapHtmlForPdf() so it overrides the CDS + change-mark styles.
+     */
+    private function monochromePdfCss(): string
+    {
+        return <<<'CSS'
+/* === AT-374 — MONOCHROME BLACK (PDF/print output ONLY; the screen views keep their colour) === */
+/* Whole-document monochrome: desaturate the entire body so NO colour leaks (the agency letterhead logo
+   and any tinted asset render in greyscale, not colour). The rules below then force all document ink +
+   signatures/initials to solid BLACK. grayscale on the wrapper + black text/ink together = a fully
+   monochrome black legal record. */
+.corex-document-wrapper {
+    filter: grayscale(1) !important;
+    -webkit-filter: grayscale(1) !important;
+}
+/* Every mark of document ink renders solid black — headings, clauses, amendments, conditions, initials. */
+.corex-document-wrapper, .corex-document-wrapper *,
+.change-inline, .change-inline *, .change-del, .change-ins, .change-xref,
+.change-initial-row, .change-initial-row *, .change-margin, .change-margin *,
+.cir-label, .cir-name, .cir-ink, .cir-slot,
+.insertable-block, .insertable-block *, .block-header, .block-header * {
+    color: #000 !important;
+    -webkit-text-fill-color: #000 !important;
+}
+/* Struck removals — black strike-through, never red. */
+.change-del, .change-del * {
+    color: #000 !important;
+    text-decoration-color: #000 !important;
+}
+/* No colour fills / highlights / tinted borders on amendment + Other-Conditions blocks. */
+.change-ins, .change-xref, .change-initial-row, .cir-slot, .cir-ink,
+.insertable-block, .block-header, .change-margin {
+    background: transparent !important;
+    background-color: transparent !important;
+}
+.change-initial-row, .cir-slot, .insertable-block, .change-margin {
+    border-color: #000 !important;
+}
+.cir-slot.cir-filled, .cir-slot.cir-mine {
+    background: transparent !important;
+    background-color: transparent !important;
+    border-color: #000 !important;
+}
+/* Signatures + initials (drawn OR typed-as-image) — force solid black ink regardless of captured colour.
+   brightness(0) maps every opaque pixel to black while preserving the stroke shape (alpha). SCOPED to
+   signature/initial images ONLY — the agency letterhead logo is never touched. */
+img.web-sig-signed-img, img.cir-ink-img, .cir-ink img, .corex-ink img, img.corex-ink,
+[data-marker-type="signature"] img, [data-marker-type="initial"] img,
+[data-marker-party] img.signature, .sig-inline-line img, .signature-image, img.signature, img.initial-image {
+    filter: grayscale(1) brightness(0) !important;
+    -webkit-filter: grayscale(1) brightness(0) !important;
+}
+/* Typed signatures/initials rendered as TEXT (font-based, e.g. Dancing Script) — black. */
+.corex-ink, .sig-typed, .cir-ink, .signature-text, .initial-text {
+    color: #000 !important;
+    -webkit-text-fill-color: #000 !important;
+}
+CSS;
     }
 
     /**
