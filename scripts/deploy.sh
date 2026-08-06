@@ -499,9 +499,20 @@ ok "Laravel queue:restart signal sent"
 # got restarted (mail/matching silently kept running old code). Match ONLY
 # this environment's own pool name(s), and restart every match, not just one.
 WORKER_MECHANISM=""
+# AT-357 follow-up (env-derive, 2026-08-06): the worker-pool prefix is DERIVED
+# from this deploy's already-computed environment (EXPECT_APP_ENV/BRANCH set at
+# the top), never hardcoded, so one deploy.sh is correct on every environment.
+# Fail safe: if the env cannot be mapped, ABORT rather than risk restarting
+# another environment's worker pool.
+case "$EXPECT_APP_ENV" in
+    production) WORKER_POOL="corex-worker-live" ;;
+    staging)    WORKER_POOL="corex-worker-staging" ;;
+    *)          fail "Cannot derive worker pool: unexpected EXPECT_APP_ENV='$EXPECT_APP_ENV' (branch=$BRANCH)" ;;
+esac
+ok "Worker pool (derived from APP_ENV=$EXPECT_APP_ENV): $WORKER_POOL"
 if command -v supervisorctl >/dev/null 2>&1; then
     SUPER_PROGS=$(sudo supervisorctl status 2>/dev/null \
-        | awk '/^corex-worker-staging[:-]/ {print $1}' \
+        | awk -v p="$WORKER_POOL" '$0 ~ ("^" p "[:-]") {print $1}' \
         | cut -d: -f1 | sort -u || true)
     if [[ -n "$SUPER_PROGS" ]]; then
         while IFS= read -r prog; do
@@ -513,7 +524,7 @@ fi
 if [[ -z "$WORKER_MECHANISM" ]] && command -v systemctl >/dev/null 2>&1; then
     SYSTEMD_UNIT=$(sudo systemctl list-units --type=service --no-pager --plain 2>/dev/null \
         | awk '{print $1}' \
-        | grep -E '^corex-worker-staging[a-z0-9.-]*\.service$' \
+        | grep -E "^${WORKER_POOL}[a-z0-9.-]*\.service$" \
         | head -1 || true)
     if [[ -n "$SYSTEMD_UNIT" ]]; then
         sudo systemctl restart "$SYSTEMD_UNIT"
