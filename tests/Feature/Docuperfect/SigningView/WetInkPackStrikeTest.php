@@ -290,6 +290,88 @@ final class WetInkPackStrikeTest extends TestCase
         $this->assertStringContainsString('change-initial-row', $reword['html']);
     }
 
+    public function test_whole_section_multi_block_strike_is_one_amendment(): void
+    {
+        // WHOLE-SECTION GUARD (Johan 2026-08-06, Requirement A). A selection spanning MULTIPLE block elements
+        // (a heading + body, several <p>, a complete multi-paragraph clause) used to no-op. It must strike each
+        // block's portion in place — keeping the section's layout — as ONE amendment with ONE initial block.
+        $svc = app(SelectionEditService::class);
+        $parties = [['key' => 'agent', 'name' => 'A'], ['key' => 'seller', 'name' => 'S']];
+        $html = '<div class="corex-document-wrapper">'
+              . '<h3 class="corex-clause-number">2.5.2 Sale of 2nd property</h3>'
+              . '<p class="corex-clause">This clause applies only when the buyer must first sell an existing property.</p>'
+              . '<p class="corex-clause">It is not applicable to this contract.</p>'
+              . '</div>';
+        // The browser joins the three blocks with whitespace in Selection.toString().
+        $whole = '2.5.2 Sale of 2nd property This clause applies only when the buyer must first sell an existing property. It is not applicable to this contract.';
+
+        // (a) pure strike of the whole section
+        $pure = $svc->applyStrikeToHtml($html, $whole, '', '', '', 'strike', $parties);
+        $this->assertNotNull($pure, 'a whole multi-block section must strike, not no-op');
+        $this->assertSame(3, substr_count($pure['html'], 'change-del'), 'each of the 3 blocks struck in place');
+        $this->assertStringNotContainsString('change-ins', $pure['html']);
+        $this->assertSame(1, substr_count($pure['html'], 'change-initial-row'), 'ONE initial block for the whole section');
+        $this->assertSame(2, substr_count($pure['html'], 'cir-slot'), 'one slot per party, once');
+        $this->assertStringContainsString('Sale of 2nd property', strip_tags($pure['html']));
+        $this->assertStringContainsString('not applicable to this contract', strip_tags($pure['html']));
+
+        // (b) reword of the whole section — one insert, on the last block; still one initial block
+        $reword = $svc->applyStrikeToHtml($html, $whole, '', '', 'See Annexure A for the applicable terms', 'inline', $parties);
+        $this->assertNotNull($reword);
+        $this->assertSame(3, substr_count($reword['html'], 'change-del'));
+        $this->assertSame(1, substr_count($reword['html'], 'change-ins'), 'one insert for the whole section');
+        $this->assertSame(1, substr_count($reword['html'], 'change-initial-row'));
+        $this->assertStringContainsString('See Annexure A for the applicable terms', $reword['html']);
+    }
+
+    public function test_edit_and_remove_amendment_via_wizard_endpoints(): void
+    {
+        // EDIT/REMOVE GUARD (Johan 2026-08-06, Requirement B). An applied amendment can be edited (change the
+        // replacement / mode) or removed (revert the section to original), keyed by the change-id the mark
+        // carries, WITHOUT corrupting other amendments.
+        $uid = (int) DB::table('users')->insertGetId([
+            'name' => 'Amend Agent', 'email' => 'wpa-' . Str::random(6) . '@x.test',
+            'password' => bcrypt('p'), 'role' => 'agent', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $actor = User::findOrFail($uid);
+
+        $sA = ['selected' => 'Commission is payable on registration', 'prefix' => '', 'suffix' => '', 'replacement' => 'ORIGINAL REWORD A', 'mode' => 'inline', 'at' => now()->toIso8601String()];
+        $sB = ['selected' => 'The mandate is exclusive and irrevocable', 'prefix' => '', 'suffix' => '', 'replacement' => '', 'mode' => 'strike', 'at' => now()->toIso8601String()];
+        $flow = new Flow();
+        $flow->user_id = $uid;
+        $flow->type = 'esign';
+        $flow->step_data = ['fill_review' => ['body_strikes' => [$sA, $sB]]];
+        $flow->save();
+
+        $cidA = SelectionEditService::changeId('', $sA['selected'], $sA['replacement']);
+        $cidB = SelectionEditService::changeId('', $sB['selected'], $sB['replacement']);
+        $ctrl = app(ESignWizardController::class);
+        $req = function (array $payload) use ($actor) {
+            $r = Request::create('/x', 'POST', [], [], [], ['CONTENT_TYPE' => 'application/json'], json_encode($payload));
+            $r->setUserResolver(fn () => $actor);
+            return $r;
+        };
+
+        // EDIT A — change its replacement; B must be untouched.
+        $resp = $ctrl->bodyStrikeEdit($req(['change_id' => $cidA, 'mode' => 'inline', 'replacement' => 'EDITED REWORD A']), $flow->id);
+        $this->assertSame(200, $resp->getStatusCode());
+        $strikes = $flow->fresh()->step_data['fill_review']['body_strikes'];
+        $this->assertCount(2, $strikes, 'edit changes content, not count');
+        $a = collect($strikes)->firstWhere('selected', $sA['selected']);
+        $b = collect($strikes)->firstWhere('selected', $sB['selected']);
+        $this->assertSame('EDITED REWORD A', $a['replacement'], 'A now carries the edited wording');
+        $this->assertSame('strike', $b['mode']);
+        $this->assertSame('', $b['replacement'], 'B untouched by editing A');
+
+        // REMOVE B — A must remain (with its edit).
+        $resp2 = $ctrl->bodyStrikeRemove($req(['change_id' => $cidB]), $flow->id);
+        $this->assertSame(200, $resp2->getStatusCode());
+        $strikes2 = $flow->fresh()->step_data['fill_review']['body_strikes'];
+        $this->assertCount(1, $strikes2, 'B removed, A remains');
+        $this->assertSame($sA['selected'], $strikes2[0]['selected']);
+        $this->assertSame('EDITED REWORD A', $strikes2[0]['replacement'], 'A untouched by removing B');
+    }
+
     public function test_advancing_fill_review_to_sign_and_send_preserves_body_strikes(): void
     {
         // FLOW-THROUGH REGRESSION (Johan 2026-08-06). The Fill & Review body strike is authored server-side

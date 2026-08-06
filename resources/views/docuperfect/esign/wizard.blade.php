@@ -1088,15 +1088,17 @@
 
         {{-- RIGHT PANEL: Document Preview --}}
         <div class="flex-1 overflow-y-auto p-6 min-w-0" style="background: var(--bg);"
-             @mouseup="onPreviewStrikeSelect()">
+             @mouseup="onPreviewStrikeSelect()" @click="onPreviewMarkClick($event)">
             {{-- Fill & Review strike-out hint (Step 5, web templates) --}}
             <template x-if="currentStep === 5 && previewRenderType === 'web'">
                 <div class="mb-3 rounded-lg border px-3 py-2 text-xs flex items-center gap-2"
                      style="border-color: var(--border); background: var(--surface-2); color: var(--text-muted);">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4"><path d="M2.695 14.762l-1.262 3.155a.5.5 0 00.65.65l3.155-1.262a4 4 0 001.343-.885L17.5 5.501a2.121 2.121 0 00-3-3L3.58 13.419a4 4 0 00-.885 1.343z"/></svg>
-                    Highlight any section in the document to strike it out or reword it — every party initials the change.
+                    Highlight any section to strike it out or reword it — every party initials the change. Click an existing change to edit or remove it.
                 </div>
             </template>
+            {{-- Applied amendments are clickable at Fill & Review to edit / remove them --}}
+            <style>.wizard-fill-context .change-inline{cursor:pointer;} .wizard-fill-context .change-inline:hover{outline:2px solid #93c5fd;outline-offset:1px;border-radius:2px;}</style>
 
             {{-- Strike-out modal (same inline/strike engine as the sign screen), teleported to body --}}
             <template x-teleport="body">
@@ -1104,7 +1106,7 @@
                  style="background: rgba(0,0,0,.6);" @keydown.escape.window="strikeSel.open=false" @click="strikeSel.open=false">
                 <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden" @click.stop>
                     <div class="px-6 py-4 border-b border-slate-200" style="background:#0b2a4a;">
-                        <h3 class="text-white font-semibold text-lg">Strike out / amend the highlighted text</h3>
+                        <h3 class="text-white font-semibold text-lg" x-text="strikeSel.editing ? 'Edit / remove this amendment' : 'Strike out / amend the highlighted text'"></h3>
                     </div>
                     <div class="p-6 space-y-4">
                         <div>
@@ -1134,11 +1136,14 @@
                         </div>
                         <p class="text-xs text-slate-500">A full-width initial row for every party is dropped in under that clause — all parties initial the change on the signed document.</p>
                         <p x-show="strikeSel.err" x-text="strikeSel.err" class="text-xs text-red-600"></p>
-                        <div class="flex items-center justify-end gap-3 pt-2">
-                            <button type="button" @click="strikeSel.open=false" class="px-4 py-2.5 text-sm text-slate-600 font-medium">Cancel</button>
-                            <button type="button" @click="submitPreviewStrike()" :disabled="strikeSel.busy" class="rounded-lg px-6 py-2.5 text-sm font-semibold text-white" style="background:#0b2a4a;">
-                                <span x-show="!strikeSel.busy">Apply strike-out</span><span x-show="strikeSel.busy" x-cloak>Applying…</span>
-                            </button>
+                        <div class="flex items-center justify-between gap-3 pt-2">
+                            <button type="button" x-show="strikeSel.editing" @click="removeAmendment()" :disabled="strikeSel.busy" class="rounded-lg px-4 py-2.5 text-sm font-semibold text-[#b91c1c] border border-[#fca5a5]" style="background:#fef2f2;">Remove amendment</button>
+                            <div class="flex items-center justify-end gap-3 ml-auto">
+                                <button type="button" @click="strikeSel.open=false" class="px-4 py-2.5 text-sm text-slate-600 font-medium">Cancel</button>
+                                <button type="button" @click="submitPreviewStrike()" :disabled="strikeSel.busy" class="rounded-lg px-6 py-2.5 text-sm font-semibold text-white" style="background:#0b2a4a;">
+                                    <span x-show="!strikeSel.busy" x-text="strikeSel.editing ? 'Save change' : 'Apply strike-out'"></span><span x-show="strikeSel.busy" x-cloak>Saving…</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1573,7 +1578,7 @@ function esignWizard() {
         selectedTemplateId: serverTemplate?.id || null,
         templateName: serverTemplate?.name || '',
         // Fill & Review strike-out (creation-time amend, same engine as the sign screen)
-        strikeSel: { open: false, selected: '', prefix: '', suffix: '', mode: 'inline', replacement: '', busy: false, err: '' },
+        strikeSel: { open: false, editing: false, changeId: null, selected: '', prefix: '', suffix: '', mode: 'inline', replacement: '', busy: false, err: '' },
         documentName: serverStepData?.document_name || '',
         allWebPacks: serverWebPacks,
         allPdfPacks: serverPdfPacks,
@@ -2349,25 +2354,67 @@ function esignWizard() {
                 prefix = (range.startContainer.textContent || '').slice(Math.max(0, range.startOffset - 40), range.startOffset);
                 suffix = (range.endContainer.textContent || '').slice(range.endOffset, range.endOffset + 40);
             } catch (e) {}
-            this.strikeSel = { open: true, selected: text, prefix, suffix, mode: 'inline', replacement: '', busy: false, err: '' };
+            this.strikeSel = { open: true, editing: false, changeId: null, selected: text, prefix, suffix, mode: 'inline', replacement: '', busy: false, err: '' };
+        },
+        // Click an EXISTING amendment (any of its struck marks) to edit its wording / mode or remove it.
+        onPreviewMarkClick($event) {
+            if (this.currentStep !== 5 || this.previewRenderType !== 'web') return;
+            const t = $event.target;
+            const mark = t && t.closest && t.closest('[data-strikethrough-applied="1"]');
+            if (!mark || !mark.closest('.web-template-preview')) return;
+            const sel = window.getSelection();
+            if (sel && !sel.isCollapsed) return; // a drag-select, not a click — let strike-select handle it
+            const changeId = mark.getAttribute('data-change-id');
+            if (!changeId) return;
+            const preview = mark.closest('.web-template-preview');
+            // A whole-section amendment has several struck blocks that SHARE the change-id — gather them all.
+            const dels = preview.querySelectorAll('del.change-del[data-change-id="' + changeId + '"]');
+            const struck = [...dels].map(d => (d.textContent || '').replace(/\s+/g, ' ').trim()).filter(Boolean).join(' ');
+            const ins = preview.querySelector('ins.change-ins[data-change-id="' + changeId + '"]');
+            const replacement = ins ? ins.textContent : '';
+            const mode = ins ? 'inline' : 'strike';
+            this.strikeSel = { open: true, editing: true, changeId, selected: struck, prefix: '', suffix: '', mode, replacement, busy: false, err: '' };
         },
         async submitPreviewStrike() {
             const s = this.strikeSel;
-            if (!s.selected.trim()) { s.err = 'Highlight the text to strike first.'; return; }
-            if (s.mode !== 'strike' && !s.replacement.trim()) { s.err = 'Enter the replacement text (or choose Strike out).'; return; }
             if (!this.flowId) { s.err = 'Save the draft first, then strike.'; return; }
+            if (!s.editing && !s.selected.trim()) { s.err = 'Highlight the text to strike first.'; return; }
+            if (s.mode !== 'strike' && !s.replacement.trim()) { s.err = 'Enter the replacement text (or choose Strike out).'; return; }
             s.busy = true;
             try {
-                const resp = await fetch('/docuperfect/esign/' + this.flowId + '/body-strike', {
+                const url = s.editing
+                    ? '/docuperfect/esign/' + this.flowId + '/body-strike/edit'
+                    : '/docuperfect/esign/' + this.flowId + '/body-strike';
+                const body = s.editing
+                    ? { change_id: s.changeId, mode: s.mode, replacement: s.mode === 'strike' ? '' : s.replacement.trim() }
+                    : { selected: s.selected, prefix: s.prefix, suffix: s.suffix, mode: s.mode, replacement: s.mode === 'strike' ? '' : s.replacement.trim() };
+                const resp = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content },
-                    body: JSON.stringify({ selected: s.selected, prefix: s.prefix, suffix: s.suffix, mode: s.mode, replacement: s.mode === 'strike' ? '' : s.replacement.trim() }),
+                    body: JSON.stringify(body),
                 });
                 const data = await resp.json().catch(() => ({}));
                 if (resp.ok && data.ok) {
                     this.strikeSel.open = false;
-                    await this.loadTemplatePreview(this.selectedTemplateId); // replay renders the strike onto the preview
-                } else { s.err = data.error || 'Could not apply the strike.'; s.busy = false; }
+                    await this.loadTemplatePreview(this.selectedTemplateId); // replay renders the change onto the preview
+                } else { s.err = data.error || 'Could not save the change.'; s.busy = false; }
+            } catch (e) { s.err = 'Network error — please retry.'; s.busy = false; }
+        },
+        async removeAmendment() {
+            const s = this.strikeSel;
+            if (!s.changeId || !this.flowId) return;
+            s.busy = true;
+            try {
+                const resp = await fetch('/docuperfect/esign/' + this.flowId + '/body-strike/remove', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content },
+                    body: JSON.stringify({ change_id: s.changeId }),
+                });
+                const data = await resp.json().catch(() => ({}));
+                if (resp.ok && data.ok) {
+                    this.strikeSel.open = false;
+                    await this.loadTemplatePreview(this.selectedTemplateId); // the section reverts to its original text
+                } else { s.err = data.error || 'Could not remove the amendment.'; s.busy = false; }
             } catch (e) { s.err = 'Network error — please retry.'; s.busy = false; }
         },
 

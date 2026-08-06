@@ -1648,6 +1648,92 @@ class ESignWizardController extends Controller
     }
 
     /**
+     * EDIT an applied Fill & Review amendment (Johan 2026-08-06) — change its replacement text / switch it
+     * between reword and pure strike-out. Keyed by the change-id the clicked mark carries (derived the same way
+     * the render stamps it), so the edit reflects on every surface (preview replay now, baked at send). Other
+     * amendments in the doc are untouched — each body strike is independent and replayed on its own.
+     */
+    public function bodyStrikeEdit(Request $request, $flowId)
+    {
+        $user = $request->user();
+        $flow = Flow::where('user_id', $user->id)->findOrFail($flowId);
+
+        $v = $request->validate([
+            'change_id'   => ['required', 'string', 'max:64'],
+            'replacement' => ['nullable', 'string', 'max:8000', 'required_unless:mode,strike'],
+            'mode'        => ['nullable', 'in:inline,strike'],
+        ]);
+        $mode = ($v['mode'] ?? 'inline') === 'strike' ? 'strike' : 'inline';
+
+        $stepData = $flow->step_data ?? [];
+        $strikes = $stepData['fill_review']['body_strikes'] ?? [];
+        $found = false;
+        foreach ($strikes as &$s) {
+            if (! is_array($s)) {
+                continue;
+            }
+            $cid = \App\Services\Docuperfect\SelectionEditService::changeId(
+                (string) ($s['prefix'] ?? ''),
+                (string) ($s['selected'] ?? ''),
+                (string) ($s['replacement'] ?? ''),
+            );
+            if ($cid === $v['change_id']) {
+                $s['replacement'] = $mode === 'strike' ? '' : trim((string) ($v['replacement'] ?? ''));
+                $s['mode']        = $mode;
+                $s['at']          = now()->toIso8601String();
+                $found = true;
+                break;
+            }
+        }
+        unset($s);
+
+        if (! $found) {
+            return response()->json(['ok' => false, 'error' => 'Amendment not found.'], 404);
+        }
+        $stepData['fill_review']['body_strikes'] = $strikes;
+        $flow->step_data = $stepData;
+        $flow->save();
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * REMOVE an applied Fill & Review amendment (Johan 2026-08-06) — revert that section to its original text
+     * and drop its strike/insert + the per-party "Initial this change" block, everywhere. The strike is deleted
+     * from step_data so the replay no longer applies it (the original source text shows through); the send bakes
+     * the reduced set. Other amendments are unaffected.
+     */
+    public function bodyStrikeRemove(Request $request, $flowId)
+    {
+        $user = $request->user();
+        $flow = Flow::where('user_id', $user->id)->findOrFail($flowId);
+
+        $v = $request->validate(['change_id' => ['required', 'string', 'max:64']]);
+
+        $stepData = $flow->step_data ?? [];
+        $strikes = $stepData['fill_review']['body_strikes'] ?? [];
+        $before = is_array($strikes) ? count($strikes) : 0;
+        $strikes = array_values(array_filter(is_array($strikes) ? $strikes : [], function ($s) use ($v) {
+            if (! is_array($s)) {
+                return false;
+            }
+            $cid = \App\Services\Docuperfect\SelectionEditService::changeId(
+                (string) ($s['prefix'] ?? ''),
+                (string) ($s['selected'] ?? ''),
+                (string) ($s['replacement'] ?? ''),
+            );
+            return $cid !== $v['change_id'];
+        }));
+
+        $stepData['fill_review'] = $stepData['fill_review'] ?? [];
+        $stepData['fill_review']['body_strikes'] = $strikes;
+        $flow->step_data = $stepData;
+        $flow->save();
+
+        return response()->json(['ok' => true, 'removed' => $before - count($strikes), 'count' => count($strikes)]);
+    }
+
+    /**
      * Replay the flow's stored Fill & Review strike-outs onto a composed HTML body. Reuses the sign-screen
      * amend engine verbatim, so a creation-time strike renders identically to a returned-doc strike (struck
      * <del> + optional <ins> + the per-party initial row). Idempotent: applyStrikeToHtml skips text already

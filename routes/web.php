@@ -3615,6 +3615,8 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::post('/esign/{flow}/autosave-fields', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'autosaveFields'])->name('docuperfect.esign.autosaveFields');
     // Fill & Review strike-out — the agent strikes an unwanted section at creation time (stored on the flow, replayed at compose).
     Route::post('/esign/{flow}/body-strike', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'bodyStrike'])->name('docuperfect.esign.bodyStrike');
+    Route::post('/esign/{flow}/body-strike/edit', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'bodyStrikeEdit'])->name('docuperfect.esign.bodyStrikeEdit');
+    Route::post('/esign/{flow}/body-strike/remove', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'bodyStrikeRemove'])->name('docuperfect.esign.bodyStrikeRemove');
     Route::post('/esign/{flow}/prepare-signing', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'prepareSigning'])->name('docuperfect.esign.prepareSigning');
     Route::post('/esign/{flow}/prepare-download', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'prepareDownload'])->name('docuperfect.esign.prepareDownload');
     Route::post('/esign/{flow}/prepare-wet-ink', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'prepareWetInk'])->name('docuperfect.esign.prepareWetInk');

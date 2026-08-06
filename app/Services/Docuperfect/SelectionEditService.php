@@ -32,6 +32,18 @@ final class SelectionEditService
     {
     }
 
+    /**
+     * The stable change-id for a body strike — sha1(normalisedPrefix | selected | replacement)[:12], exactly as
+     * authorStrikeRange stamps onto the rendered mark (data-change-id). Editing an amendment recomputes it, so a
+     * removed/edited amendment is matched by the SAME derivation the render uses. Used by the wizard edit/remove
+     * endpoints to find the stored strike a clicked mark refers to.
+     */
+    public static function changeId(string $prefix, string $selected, string $replacement): string
+    {
+        $normPrefix = trim((string) preg_replace('/\s+/', ' ', $prefix));
+        return substr(sha1($normPrefix . '|' . $selected . '|' . $replacement), 0, 12);
+    }
+
     public function strikeSelection(
         SignatureTemplate $template,
         string $selected,
@@ -267,11 +279,22 @@ final class SelectionEditService
         $norm = '';
         $map  = [];
         $prevSpace = true; // drop leading whitespace
+        $prevBlock = null;
         if ($textNodes !== false) {
             foreach ($textNodes as $tn) {
                 if (! $tn instanceof \DOMText || $this->insideChangeMark($tn) || $this->insideSkippable($tn)) {
                     continue;
                 }
+                // Block boundary → the browser's Selection.toString() joins block elements with a line break,
+                // which the frontend collapses to a single space. Mirror that with one separating space so a
+                // selection spanning MULTIPLE blocks (a heading + body, several <p>, list items) matches.
+                $block = $this->closestBlock($tn);
+                if ($prevBlock !== null && $block !== $prevBlock && ! $prevSpace && $norm !== '') {
+                    $norm .= ' ';
+                    $map[] = [$tn, 0];
+                    $prevSpace = true;
+                }
+                $prevBlock = $block;
                 $chars = mb_str_split($tn->nodeValue ?? '');
                 foreach ($chars as $o => $ch) {
                     $isSpace = ($ch === ' ' || $ch === "\t" || $ch === "\n" || $ch === "\r" || $ch === "\f" || $ch === "\x0B");
@@ -342,18 +365,70 @@ final class SelectionEditService
             return;
         }
 
-        $anchor = $collected[0];
-        $parent = $anchor->parentNode;
-        if ($parent === null) {
-            return;
+        // Group the selected text nodes by their block element. A WHOLE-SECTION selection (a heading + body,
+        // several <p>, list items, a complete multi-paragraph clause) spans >1 block — we strike each block's
+        // portion in place (so the section keeps its layout, struck through) under the SAME change-id, and add
+        // ONE "Initial this change" block for the whole amendment. A within-block selection is one group and
+        // behaves exactly as before.
+        $groups = $this->groupByBlock($collected);
+        $lastIdx = count($groups) - 1;
+        $lastWrap = null;
+        foreach ($groups as $gi => [, $nodes]) {
+            $anchor = $nodes[0];
+            if ($anchor->parentNode === null) {
+                continue;
+            }
+            $isLast = ($gi === $lastIdx);
+            // The struck text of this block = its own selected portion; the replacement / OC-xref is authored
+            // once, on the LAST block, so a multi-block reword shows one insert at the end of the section.
+            $delText = ($lastIdx === 0) ? $selected : $this->norm(implode('', array_map(fn ($n) => $n->nodeValue ?? '', $nodes)));
+            $wrap = $this->buildChangeWrapper(
+                $dom,
+                $delText,
+                $isLast ? $replacement : '',
+                $changeId,
+                $isLast ? $mode : 'strike',
+                $isLast ? $ocNumber : null,
+            );
+            $anchor->parentNode->insertBefore($wrap, $anchor);
+            $this->removeAndPrune($nodes, $wrap);
+            $lastWrap = $wrap;
         }
 
-        $wrap = $this->buildChangeWrapper($dom, $selected, $replacement, $changeId, $mode, $ocNumber);
-        $parent->insertBefore($wrap, $anchor);
+        // ONE full-width initial row for the whole amendment, after the LAST block it touched.
+        if ($lastWrap !== null) {
+            $this->appendInitialRowAfterBlock($dom, $lastWrap, $changeId, $parties);
+        }
+    }
 
-        // Remove every text node of the selected run, then prune inline wrappers it emptied out.
+    /** Group consecutive selected text nodes by their closest block element (document order preserved). */
+    private function groupByBlock(array $nodes): array
+    {
+        $groups = [];
+        $curBlock = false;
+        $cur = [];
+        foreach ($nodes as $n) {
+            $blk = $this->closestBlock($n);
+            if ($blk !== $curBlock) {
+                if ($cur !== []) {
+                    $groups[] = [$curBlock, $cur];
+                }
+                $curBlock = $blk;
+                $cur = [];
+            }
+            $cur[] = $n;
+        }
+        if ($cur !== []) {
+            $groups[] = [$curBlock, $cur];
+        }
+        return $groups;
+    }
+
+    /** Remove the selected text nodes and prune any inline wrappers they emptied out (never the change wrap). */
+    private function removeAndPrune(array $nodes, \DOMElement $wrap): void
+    {
         $touchedInline = [];
-        foreach ($collected as $c) {
+        foreach ($nodes as $c) {
             $p = $c->parentNode;
             if ($p instanceof \DOMElement) {
                 $touchedInline[spl_object_id($p)] = $p;
@@ -371,9 +446,15 @@ final class SelectionEditService
                 $el = $up;
             }
         }
+    }
 
-        // FULL-WIDTH INITIAL ROW — a block right after the clause/paragraph the change sits in. One labeled
-        // slot per signing party; each party applies their REAL initial in their own slot at signing.
+    /**
+     * FULL-WIDTH INITIAL ROW — a block right after the clause/paragraph (or the LAST block of a whole-section
+     * amendment) the change sits in. One labeled slot per signing party; each party applies their REAL initial
+     * in their own slot at signing.
+     */
+    private function appendInitialRowAfterBlock(\DOMDocument $dom, \DOMElement $wrap, string $changeId, array $parties): void
+    {
         $row = $this->buildInitialRow($dom, $changeId, $parties);
         $block = $this->closestBlock($wrap);
         if ($block instanceof \DOMElement && $block->parentNode) {
