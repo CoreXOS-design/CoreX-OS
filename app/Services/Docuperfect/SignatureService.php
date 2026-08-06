@@ -1291,6 +1291,18 @@ class SignatureService
                 ]);
             }
 
+            // AT-373 (inc4) — a party completing an initial-only turn DURING the SEQUENTIAL re-initial
+            // cascade advances the cascade (hand the pen to the next owed already-signed recipient, one
+            // at a time), never the normal recipient logic. Gated tightly on OUR cascade marker
+            // (amendment_cycle.phase === recipient_cascade), so the legacy parallel path is untouched.
+            $cyc = $this->amendmentCycle($template);
+            if ($request
+                && $template->status === SignatureTemplate::STATUS_AMENDMENT_INITIALING
+                && ($cyc['phase'] ?? null) === 'recipient_cascade') {
+                $this->advanceSequentialInitialing($template, $request);
+                return;
+            }
+
             // If a RECIPIENT (a party outside the approval chain) just completed, require agent approval
             if ($this->isRecipientRole($completedParty)) {
 
@@ -2534,15 +2546,137 @@ class SignatureService
     }
 
     /**
-     * INC 4 placeholder (real body lands in increment 4) — begin the SEQUENTIAL re-initial
-     * cascade over already-signed recipients. Declared here so inc3's terminal can route into
-     * it once earlier recipients exist; inc3's own test never reaches this branch.
+     * INC 4 — begin the SEQUENTIAL re-initial cascade over already-signed recipients.
+     *
+     * Decision (ii) — LEGAL: the cascade advances ONE party at a time in signing_order, NEVER in
+     * parallel (the legacy requeueAllPartiesForInitialing broadcast to everyone at once — that is
+     * retired in inc7). Restart the recipient walk at the lowest-order already-signed recipient who
+     * owes an initial on the approved change; activate ONLY them. Each completes a focused
+     * initial-only turn (their captured signature preserved), then advanceSequentialInitialing hands
+     * the pen to the next owed signer. When the already-signed worklist is exhausted the cascade
+     * concludes and the normal walk resumes into the not-yet-reached recipients (full signing).
      */
     public function beginSequentialAmendmentInitialing(SignatureTemplate $template): void
     {
-        // inc4 fills this. Until then, fail safe: resume the normal walk rather than stalling.
+        $cycle = $this->amendmentCycle($template);
+        if ($cycle === null) {
+            // Defensive — nothing to cascade; resume the walk.
+            $this->advanceToNextParty($template, 'system', null, true);
+            return;
+        }
+
+        // Mark the cascade phase so a completing party routes back through the sequential advance.
+        $wtd = $this->docWtd($template);
+        $wtd['amendment_cycle']['phase'] = 'recipient_cascade';
+        $this->writeDocWtd($template, $wtd);
+        $template->update(['status' => SignatureTemplate::STATUS_AMENDMENT_INITIALING]);
+
+        $worklist = $this->orderedRecipientsOwingInitial($template, $cycle);
+        if ($worklist->isEmpty()) {
+            $this->concludeSequentialCascade($template, null);
+            return;
+        }
+
+        SignatureAuditLog::log(
+            $template,
+            'amendment_cascade_started',
+            SignatureAuditLog::ACTOR_SYSTEM,
+            'System',
+            metadata: [
+                'change_ids'   => $cycle['change_ids'],
+                'worklist'     => $worklist->map(fn ($r) => $r->canonicalPartyKey())->values()->all(),
+                'first_signer' => $worklist->first()->canonicalPartyKey(),
+            ],
+        );
+
+        $this->activateInitialingParty($template, $worklist->first());
+    }
+
+    /**
+     * INC 4 — advance the sequential cascade: a party has completed their initial-only turn; hand
+     * the pen to the NEXT already-signed recipient who still owes an initial (lowest signing_order
+     * remaining). When none remain, conclude and resume the normal walk. One active party only.
+     */
+    private function advanceSequentialInitialing(SignatureTemplate $template, SignatureRequest $justCompleted): void
+    {
+        $cycle = $this->amendmentCycle($template);
+        if ($cycle === null) {
+            $this->advanceToNextParty($template, $justCompleted->party_role, null, true);
+            return;
+        }
+
+        // orderedRecipientsOwingInitial already excludes filled slots, so the just-completed party
+        // (who just filled theirs) is gone from the list; the next is simply the lowest remaining.
+        $next = $this->orderedRecipientsOwingInitial($template, $cycle)->first();
+        if ($next !== null) {
+            $this->activateInitialingParty($template, $next);
+            return;
+        }
+
+        $this->concludeSequentialCascade($template, $justCompleted);
+    }
+
+    /**
+     * INC 4 — reactivate ONE already-signed recipient for a focused initial-only turn: fresh token,
+     * PENDING, email. They land on their signing view showing their captured signature in place plus
+     * the outstanding amendment initial to fill (the standard modal). Status stays amendment_initialing.
+     */
+    private function activateInitialingParty(SignatureTemplate $template, SignatureRequest $req): void
+    {
+        $token = $this->generateToken();
+        $req->update([
+            'token'            => $token,
+            'token_expires_at' => now()->addDays(14),
+            'status'           => SignatureRequest::STATUS_PENDING,
+        ]);
+
+        try {
+            $url = route('signatures.external.sign', $token);
+            Mail::to($req->signer_email)->send(
+                (new SigningRequestMail(
+                    signerName:      $req->signer_name,
+                    documentName:    $template->document->name ?? 'Document',
+                    signingUrl:      $url,
+                    personalMessage: 'A change to this document was approved. Please initial the change to confirm — your original signature stays in place.',
+                    expiresAt:       $req->token_expires_at,
+                ))->fromAgent($template->creator)
+            );
+        } catch (\Throwable $e) {
+            Log::warning('AT-373 sequential-initialing mail send failed', [
+                'template_id' => $template->id,
+                'request_id'  => $req->id,
+                'error'       => $e->getMessage(),
+            ]);
+        }
+
+        SignatureAuditLog::log(
+            $template,
+            'amendment_initialing_activated',
+            SignatureAuditLog::ACTOR_SYSTEM,
+            'System',
+            metadata: ['party_role' => $req->party_role, 'signer_name' => $req->signer_name],
+        );
+    }
+
+    /**
+     * INC 4 — the already-signed worklist is exhausted. Clear the cycle and resume the normal walk:
+     * the not-yet-reached recipients full-sign (they see the approved amendment and their normal sign
+     * covers it), last recipient → AT-322 final gate → chain-top approval → file.
+     */
+    private function concludeSequentialCascade(SignatureTemplate $template, ?SignatureRequest $justCompleted): void
+    {
         $this->clearAmendmentCycle($template);
-        $this->advanceToNextParty($template, 'system', null, true);
+
+        SignatureAuditLog::log(
+            $template,
+            'amendment_cascade_complete',
+            SignatureAuditLog::ACTOR_SYSTEM,
+            'System',
+            metadata: ['last_initialer' => $justCompleted?->canonicalPartyKey()],
+        );
+
+        // Resume the walk — route the next WAITING recipient, or (all done) hold at the AT-322 gate.
+        $this->advanceToNextParty($template, $justCompleted?->party_role ?? 'system', null, true);
     }
 
     /**
