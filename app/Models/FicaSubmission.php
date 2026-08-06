@@ -17,15 +17,6 @@ class FicaSubmission extends Model
 {
     use SoftDeletes, BelongsToAgency, BelongsToBranch;
 
-    /**
-     * verification_method->source value stamped on the AT-3xx bulk go-live Excel-
-     * import auto-approval (2026-06-17, 7,714 contacts blanket-approved with no
-     * human review, reviewer_notes "Auto-approved via contact Excel import (agency
-     * go-live migration)."). Never genuine compliance evidence — policy is that an
-     * imported contact must pass REAL FICA before being used on a property.
-     */
-    public const BULK_IMPORT_SOURCE = 'go_live_migration';
-
     protected $fillable = [
         'contact_id',
         'agency_id',
@@ -259,26 +250,27 @@ class FicaSubmission extends Model
     }
 
     /**
-     * Excludes soft-deleted rows AND the bulk go-live import auto-approval batch —
-     * the shared filter for "does this row reflect a REAL compliance action?".
-     * Works on both an Eloquent Builder and a raw \Illuminate\Database\Query\Builder
-     * (DB::table('fica_submissions')), which is why it's a plain static helper
-     * rather than an Eloquent local scope — most call sites on this table are raw
-     * query-builder calls, not Eloquent, and never benefited from the automatic
-     * SoftDeletes exclusion.
+     * Excludes soft-deleted rows — the shared filter for "does this row reflect a
+     * REAL, current compliance action?". Works on both an Eloquent Builder and a
+     * raw \Illuminate\Database\Query\Builder (DB::table('fica_submissions')),
+     * which is why it's a plain static helper rather than an Eloquent local scope
+     * — most call sites on this table are raw query-builder calls, not Eloquent,
+     * and never benefited from the automatic SoftDeletes exclusion.
+     *
+     * Universal rule (Johan): the gate is contact-agnostic — a valid, non-deleted
+     * 'approved' row counts, same rule for every contact, imported or not. No
+     * special-casing by source/origin here; imported contacts instead simply
+     * never GET an auto-created 'approved' row in the first place (see
+     * ContactImportController — the import path no longer auto-marks FICA).
      *
      * Every call site that decides "is this contact FICA-compliant" or displays a
      * contact's current FICA status MUST route through this (or
      * applyGenuineApprovalFilter()) — a bare `->where('status', 'approved')` on a
-     * raw query builder silently counts soft-deleted AND bulk-import rows.
+     * raw query builder silently counts soft-deleted rows.
      */
     public static function applyGenuineRecordFilter($query)
     {
-        return $query->whereNull('deleted_at')
-            ->whereRaw(
-                "NOT (JSON_UNQUOTE(JSON_EXTRACT(verification_method, '\$.source')) <=> ?)",
-                [self::BULK_IMPORT_SOURCE],
-            );
+        return $query->whereNull('deleted_at');
     }
 
     /** applyGenuineRecordFilter() + status='approved' — the authoritative "is this contact FICA-approved" filter. */
