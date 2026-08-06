@@ -1894,6 +1894,23 @@ function signDocument() {
             return yyyy + '/' + mm + '/' + dd;
         },
 
+        // Paint a captured change-initial into its slot exactly as the server would render a filled slot —
+        // WITHOUT a reload (which would discard un-submitted client-side field initials). Mirrors the
+        // server render: add .cir-filled, drop the "Click to initial" affordance, write the initial image.
+        _paintChangeInitialSlot(changeId, partyKey, imageDataUrl) {
+            const root = (this.$refs && this.$refs.webDocContent) ? this.$refs.webDocContent : document;
+            const esc = (window.CSS && CSS.escape) ? CSS.escape : (s => String(s).replace(/["\\]/g, '\\$&'));
+            const slots = root.querySelectorAll('.cir-slot[data-change-id="' + esc(changeId) + '"][data-party-key="' + esc(partyKey) + '"]');
+            slots.forEach((slot) => {
+                slot.classList.add('cir-filled');
+                const ink = slot.querySelector('.cir-ink');
+                if (ink) {
+                    ink.removeAttribute('data-empty');
+                    ink.innerHTML = '<img src="' + imageDataUrl + '" style="max-height:20px;max-width:64px;object-fit:contain;vertical-align:middle;" alt="Initial">';
+                }
+            });
+        },
+
         // ── Apply signature ──
         async applySignature() {
             if (!this.activeMarker) return;
@@ -1938,14 +1955,22 @@ function signDocument() {
 
             // WET-INK per-change initial — apply the party's REAL captured initial to their row slot.
             if (this.activeMarker._isChangeInitial) {
-                const ok = await window.__corexApplyChangeInitial(
-                    this.activeMarker._changeId,
-                    this.activeMarker._partyKey,
-                    signatureData,
-                );
+                const cid = this.activeMarker._changeId;
+                const pk  = this.activeMarker._partyKey;
+                const ok = await window.__corexApplyChangeInitial(cid, pk, signatureData);
                 this.showSignModal = false;
                 this.applying = false;
-                if (ok) window.location.reload();
+                if (ok) {
+                    // Paint the captured initial into the slot IN-PLACE — never re-fetch the page here.
+                    // Re-fetching the server document loses the field initials the agent applied client-side
+                    // via "apply to all" (those are held only in the DOM / webSig state until final submit) —
+                    // so a full page refresh WIPED every already-applied document initial, leaving only the
+                    // amendments. The change-initial is already persisted server-side by recordChangeInitial,
+                    // so painting the slot here reflects it while every other applied initial + signature
+                    // stays exactly as it is (Johan 2026-08-06).
+                    this._paintChangeInitialSlot(cid, pk, signatureData);
+                    this._updateIncompleteCount();
+                }
                 return;
             }
 
