@@ -2086,6 +2086,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/', [\App\Http\Controllers\Compliance\FicaController::class, 'store'])->name('store');
         Route::get('/wet-ink/create', [\App\Http\Controllers\Compliance\FicaController::class, 'createWetInk'])->name('wet-ink.create');
         Route::post('/wet-ink', [\App\Http\Controllers\Compliance\FicaController::class, 'storeWetInk'])->name('wet-ink.store');
+        // AT-361 — contact's existing documents feed for the wet-ink link picker (before /{submission}).
+        Route::get('/contact/{contact}/documents', [\App\Http\Controllers\Compliance\FicaController::class, 'contactDocuments'])->name('contact-documents');
         Route::get('/{submission}', [\App\Http\Controllers\Compliance\FicaController::class, 'show'])->name('show');
         Route::get('/{submission}/pdf', [\App\Http\Controllers\Compliance\FicaController::class, 'downloadPdf'])->name('pdf');
         Route::post('/{submission}/agent-approve', [\App\Http\Controllers\Compliance\FicaController::class, 'agentApprove'])->name('agent-approve');
@@ -2107,6 +2109,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{submission}/documents/{document}/remove', [\App\Http\Controllers\Compliance\FicaController::class, 'removeDocument'])->name('documents.remove');
         // AT-173 — decrypting stream serve for uploaded FICA documents (replaces the direct Storage::url).
         Route::get('/{submission}/documents/{document}/view', [\App\Http\Controllers\Compliance\FicaController::class, 'viewDocument'])->name('documents.view');
+        // AT-361 — link existing contact documents into the FICA (reference, no copy); RO/CO view them here.
+        Route::post('/{submission}/link-contact-documents', [\App\Http\Controllers\Compliance\FicaController::class, 'linkContactDocuments'])->name('link-contact-documents');
+        Route::post('/{submission}/linked-documents/{contactDocument}/unlink', [\App\Http\Controllers\Compliance\FicaController::class, 'unlinkContactDocument'])->name('linked-documents.unlink');
+        Route::get('/{submission}/linked-documents/{contactDocument}/view', [\App\Http\Controllers\Compliance\FicaController::class, 'viewLinkedDocument'])->name('linked-documents.view');
     });
 
     // AT-173 — media-encryption status (admin visibility of encryption at rest).
@@ -2541,6 +2547,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             // AT-117 §4 — add the prepared pitch to the deferred outreach queue (due-time, in-window).
             Route::post('/queue',      [\App\Http\Controllers\SellerOutreach\ComposerController::class, 'queue'])->name('queue');
             Route::get('/sent/{send}', [\App\Http\Controllers\SellerOutreach\ComposerController::class, 'sent'])->name('sent');
+            // AT-323 — on the sent page the agent confirms whether WhatsApp actually went out.
+            // "Yes" promotes the mirrored comm to sent (the ONLY path a pitch counts as sent);
+            // "No" records the honest not_sent outcome (+ mirrors not_delivered to the linked comm).
+            Route::post('/sent/{send}/mark-sent', [\App\Http\Controllers\SellerOutreach\ComposerController::class, 'markSent'])->name('mark-sent');
+            Route::post('/sent/{send}/not-sent', [\App\Http\Controllers\SellerOutreach\ComposerController::class, 'markNotSent'])->name('not-sent');
 
             // Timeline (Prompt 07) — agent-side view of every send + click + opt-out
             Route::get('/timeline',                       [\App\Http\Controllers\SellerOutreach\ContactTimelineController::class, 'index'])->name('timeline');
@@ -3112,6 +3123,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/syndication/agent/register',        [\App\Http\Controllers\PrivateProperty\SyndicationController::class, 'registerAgent'])->name('syndication.agent.register');
         Route::post('/syndication/agent/deactivate',      [\App\Http\Controllers\PrivateProperty\SyndicationController::class, 'deactivateAgent'])->name('syndication.agent.deactivate');
         Route::post('/syndication/agent/image',           [\App\Http\Controllers\PrivateProperty\SyndicationController::class, 'uploadAgentImage'])->name('syndication.agent.image');
+        // AT-369 follow-up — one-time, self-scoped "seen the exclusivity explainer" ack
+        Route::post('/syndication/exclusivity-explainer/ack', [\App\Http\Controllers\PrivateProperty\SyndicationController::class, 'acknowledgeExclusivityExplainer'])->name('syndication.exclusivity-explainer.ack');
         // PP Video/Matterport & Listing Ownership
         Route::post('/{property}/syndication/video',     [\App\Http\Controllers\PrivateProperty\PropertyPpController::class, 'video'])->name('syndication.video');
         Route::post('/{property}/syndication/update-id',  [\App\Http\Controllers\PrivateProperty\PropertyPpController::class, 'updateId'])->name('syndication.update-id');
@@ -3244,6 +3257,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{contact}/birthday-reminder', [\App\Http\Controllers\CoreX\ContactController::class, 'toggleBirthdayReminder'])->name('birthday-reminder.toggle');
         Route::post('/{contact}/increment', [\App\Http\Controllers\CoreX\ContactController::class, 'incrementChannel'])->name('increment');
 
+        // Contact-details Phase 4 — outreach could-not-send flow
+        Route::post('/{contact}/communications/{communication}/not-delivered', [\App\Http\Controllers\CoreX\ContactController::class, 'markCommunicationNotDelivered'])->name('communications.not-delivered');
+        // AT-323 — "Yes, I sent it" modal confirmation: the ONLY path a send reaches sent.
+        Route::post('/{contact}/communications/{communication}/mark-sent',     [\App\Http\Controllers\CoreX\ContactController::class, 'markCommunicationSent'])->name('communications.mark-sent');
+
         // Notes
         Route::post('/{contact}/notes',          [\App\Http\Controllers\CoreX\ContactNoteController::class, 'store'])->name('notes.store');
         Route::delete('/{contact}/notes/{note}', [\App\Http\Controllers\CoreX\ContactNoteController::class, 'destroy'])->name('notes.destroy');
@@ -3291,6 +3309,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/',                  [\App\Http\Controllers\CoreX\ContactSourceController::class, 'store'])->name('store');
         Route::put('/{contactSource}',    [\App\Http\Controllers\CoreX\ContactSourceController::class, 'update'])->name('update');
         Route::delete('/{contactSource}', [\App\Http\Controllers\CoreX\ContactSourceController::class, 'destroy'])->name('destroy');
+    });
+
+    // Contact-details Phase 2 — Contact Labels (settings): the managed list
+    // assignable to each tel/email on a contact.
+    Route::prefix('settings/contact-identifier-labels')->middleware('permission:access_settings')->name('corex.settings.contact-identifier-labels.')->group(function () {
+        Route::post('/',                          [\App\Http\Controllers\CoreX\ContactIdentifierLabelController::class, 'store'])->name('store');
+        Route::put('/{contactIdentifierLabel}',    [\App\Http\Controllers\CoreX\ContactIdentifierLabelController::class, 'update'])->name('update');
+        Route::delete('/{contactIdentifierLabel}', [\App\Http\Controllers\CoreX\ContactIdentifierLabelController::class, 'destroy'])->name('destroy');
     });
 
     // Contact Tags (settings)

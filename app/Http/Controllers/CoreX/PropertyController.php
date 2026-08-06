@@ -469,11 +469,16 @@ class PropertyController extends Controller
         // AT-321 — FULL history for the History tab. The old ->limit(50) hid the
         // rest of the trail; paginate instead so every change is reachable. CSV
         // export (below) remains the unlimited one-shot. Page links keep tab=history.
+        // AT-321 — History tab "Include system trail" toggle. Default OFF shows
+        // user changes only; the db-trigger backstop rows (source='db-trigger')
+        // are hidden unless the toggle is ticked.
+        $includeSystem = request()->boolean('include_system');
         $fullAuditLog = \App\Models\PropertyAuditLog::where('property_id', $property->id)
             ->with('user')
+            ->when(!$includeSystem, fn ($q) => $q->where(fn ($w) => $w->whereNull('source')->orWhere('source', '<>', 'db-trigger')))
             ->orderByDesc('created_at')
             ->paginate(50, ['*'], 'history')
-            ->appends(['tab' => 'history']);
+            ->appends(array_filter(['tab' => 'history', 'include_system' => $includeSystem ? 1 : null]));
 
         // Drive tab: all documents linked to this property
         try {
@@ -570,7 +575,7 @@ class PropertyController extends Controller
 
         return view('corex.properties.show', compact(
             'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches', 'ppMissingFields', 'p24MissingFields', 'hfcMissingFields',
-            'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline', 'fullAuditLog', 'readinessReport', 'complianceChecklist', 'propertyComplianceComplaints',
+            'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline', 'fullAuditLog', 'includeSystem', 'readinessReport', 'complianceChecklist', 'propertyComplianceComplaints',
             'aiImageSuggestions', 'propertyComms', 'canEdit', 'thirdPartySale'
         ));
     }

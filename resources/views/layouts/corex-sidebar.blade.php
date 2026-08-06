@@ -1671,7 +1671,7 @@
         {{-- AT-338 — What's New: the archive of system updates. Sits under Filing
              Register in Tools (moved here 2026-07-26).
 
-             Carries NO @feature or @permission of its own, deliberately: an agency able
+             Carries NO @feature or permission of its own, deliberately: an agency able
              to switch off release notes would recreate the "ships inert" problem this
              feature exists to solve. It is therefore visible to everyone who can see the
              Tools section at all. The page itself still filters server-side to what the
@@ -2042,9 +2042,9 @@
                 @endpermission
 
                 {{-- Agency Billing (AT-11) — every agency's CoreX bill + custom amounts/discounts.
-                     No @permission gate BY DESIGN: a permission key is grantable via Role Manager,
+                     No permission gate BY DESIGN: a permission key is grantable via Role Manager,
                      and an agency admin handed it would see every other agency's commercial terms.
-                     Already inside @if($isOwner). Spec: agency-billing.md §9. --}}
+                     Already inside if($isOwner). Spec: agency-billing.md §9. --}}
                 <a href="{{ route('admin.billing.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.billing.*') ? 'active' : '' }}">Agency Billing</a>
             </div>
         </div>
@@ -2100,7 +2100,7 @@
         </a>
 
         {{-- System Updates (AT-338) — write the "what's new in CoreX" pop-up every
-             user sees once. Owner-only, and deliberately NOT @permission-gated: a
+             user sees once. Owner-only, and deliberately NOT permission-gated: a
              permission key is grantable via Role Manager, and this broadcasts a
              modal to every user of every agency. Spec: system-updates.md §10 --}}
         <a href="{{ route('admin.system-updates.index') }}" class="corex-nav-item {{ request()->routeIs('admin.system-updates.*') ? 'active' : '' }}">
@@ -2113,7 +2113,7 @@
         {{-- Demo Access (AT-230) — system-owner sales tooling: who is evaluating
              CoreX, what they looked at, when their access dies.
 
-             Deliberately NOT wrapped in @permission. This block is already inside
+             Deliberately NOT wrapped in permission. This block is already inside
              the owner-only section (same as Dev Settings above), and a permission
              key would be GRANTABLE — one mis-click in the Role Manager and an
              agency admin can see which of their competitors are trialling us.

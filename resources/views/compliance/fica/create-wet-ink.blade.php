@@ -44,8 +44,27 @@
               selected: {{ \Illuminate\Support\Js::from(old('contact_id') ?: null) }},
               selectedName: {{ \Illuminate\Support\Js::from('') }},
               entityType: {{ \Illuminate\Support\Js::from(old('entity_type', 'natural')) }},
-              contactInfo: null
-          }">
+              contactInfo: null,
+              // AT-361 — link existing contact documents instead of re-uploading.
+              contactDocs: [],
+              docsLoading: false,
+              docsLoaded: false,
+              links: { fica_form: null, id_copy: null, proof_of_address: null },
+              supportingLinks: [],
+              // Build from the NAMED route so the app's route prefix (/corex) is included —
+              // a hand-built url('/compliance/...') omits it and 404s, silently emptying the picker.
+              docsUrl: {{ \Illuminate\Support\Js::from(route('compliance.fica.contact-documents', ['contact' => '__CID__'])) }},
+              fetchDocs() {
+                  if (!this.selected) { this.contactDocs = []; this.docsLoaded = false; return; }
+                  this.docsLoading = true; this.docsLoaded = false;
+                  fetch(this.docsUrl.replace('__CID__', this.selected), { headers: { Accept: 'application/json' } })
+                      .then(r => r.ok ? r.json() : { documents: [] })
+                      .then(j => { this.contactDocs = j.documents || []; })
+                      .catch(() => { this.contactDocs = []; })
+                      .finally(() => { this.docsLoading = false; this.docsLoaded = true; });
+              }
+          }"
+          x-init="$watch('selected', () => { links.fica_form = null; links.id_copy = null; links.proof_of_address = null; supportingLinks = []; fetchDocs(); }); if (selected) fetchDocs();">
         @csrf
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -134,21 +153,27 @@
                 <div class="space-y-4">
                     <div>
                         <label class="block text-xs font-semibold mb-1" style="color:var(--text-primary);">FICA Form (signed paper form) <span style="color:var(--ds-crimson, #c41e3a);">*</span></label>
-                        <input type="file" name="fica_form_file" accept=".pdf,.jpg,.jpeg,.png" required
+                        <input type="file" name="fica_form_file" accept=".pdf,.jpg,.jpeg,.png" x-bind:required="!links.fica_form"
                                class="block w-full text-sm" style="color:var(--text-primary);">
+                        @include('compliance.fica.partials._link-existing-doc', ['slot' => 'fica_form'])
                         @error('fica_form_file') <p class="text-xs mt-1" style="color:var(--ds-crimson, #c41e3a);">{{ $message }}</p> @enderror
+                        @error('linked_fica_form_document_id') <p class="text-xs mt-1" style="color:var(--ds-crimson, #c41e3a);">{{ $message }}</p> @enderror
                     </div>
                     <div>
                         <label class="block text-xs font-semibold mb-1" style="color:var(--text-primary);">ID Copy <span style="color:var(--ds-crimson, #c41e3a);">*</span></label>
-                        <input type="file" name="id_copy_file" accept=".pdf,.jpg,.jpeg,.png" required
+                        <input type="file" name="id_copy_file" accept=".pdf,.jpg,.jpeg,.png" x-bind:required="!links.id_copy"
                                class="block w-full text-sm" style="color:var(--text-primary);">
+                        @include('compliance.fica.partials._link-existing-doc', ['slot' => 'id_copy'])
                         @error('id_copy_file') <p class="text-xs mt-1" style="color:var(--ds-crimson, #c41e3a);">{{ $message }}</p> @enderror
+                        @error('linked_id_copy_document_id') <p class="text-xs mt-1" style="color:var(--ds-crimson, #c41e3a);">{{ $message }}</p> @enderror
                     </div>
                     <div>
                         <label class="block text-xs font-semibold mb-1" style="color:var(--text-primary);">Proof of Address (not older than 3 months) <span style="color:var(--ds-crimson, #c41e3a);">*</span></label>
-                        <input type="file" name="proof_of_address_file" accept=".pdf,.jpg,.jpeg,.png" required
+                        <input type="file" name="proof_of_address_file" accept=".pdf,.jpg,.jpeg,.png" x-bind:required="!links.proof_of_address"
                                class="block w-full text-sm" style="color:var(--text-primary);">
+                        @include('compliance.fica.partials._link-existing-doc', ['slot' => 'proof_of_address'])
                         @error('proof_of_address_file') <p class="text-xs mt-1" style="color:var(--ds-crimson, #c41e3a);">{{ $message }}</p> @enderror
+                        @error('linked_proof_of_address_document_id') <p class="text-xs mt-1" style="color:var(--ds-crimson, #c41e3a);">{{ $message }}</p> @enderror
                     </div>
 
                     {{-- Entity-specific supporting docs --}}
@@ -162,6 +187,20 @@
                         <input type="file" name="supporting_docs[]" accept=".pdf,.jpg,.jpeg,.png" multiple
                                class="block w-full text-sm" style="color:var(--text-primary);">
                         @error('supporting_docs.*') <p class="text-xs mt-1" style="color:var(--ds-crimson, #c41e3a);">{{ $message }}</p> @enderror
+
+                        {{-- AT-361 — or link existing contact documents as supporting (no re-upload) --}}
+                        <div class="mt-2" x-show="selected && contactDocs.length" x-cloak>
+                            <div class="text-[11px] mb-1" style="color:var(--text-muted);">…or link existing documents already on this contact:</div>
+                            <template x-for="d in contactDocs" :key="'sup-' + d.id">
+                                <label class="flex items-center gap-2 text-xs mt-1">
+                                    <input type="checkbox" :value="d.id" x-model.number="supportingLinks" style="accent-color:var(--brand-icon);">
+                                    <span style="color:var(--text-primary);" x-text="(d.type ? '[' + d.type + '] ' : '') + d.name + (d.date ? ' · ' + d.date : '')"></span>
+                                </label>
+                            </template>
+                            <template x-for="id in supportingLinks" :key="'suph-' + id">
+                                <input type="hidden" name="linked_supporting_document_ids[]" :value="id">
+                            </template>
+                        </div>
                     </div>
                 </div>
             </div>

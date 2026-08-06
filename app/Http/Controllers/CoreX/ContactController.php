@@ -117,6 +117,9 @@ class ContactController extends Controller
         // The four fixed parents, each with its agency-scoped sub-tags — feeds
         // the type/tag pop-up picker on the contact forms (AT-79).
         $contactTypes = ContactType::parents()->with('subTags')->get()->unique('name')->values();
+        // Contact-details Phase 2 — the label list for the phone/email repeaters.
+        $contactIdentifierLabels = \App\Models\ContactIdentifierLabel::where('is_active', true)
+            ->orderBy('sort_order')->orderBy('name')->get();
 
         $agentList     = $canPickAgent ? $this->agentList()->values() : collect();
         $selectedAgent = ($canPickAgent && $filterAgentId !== '')
@@ -124,7 +127,7 @@ class ContactController extends Controller
             : null;
 
         return view('corex.contacts.index', compact(
-            'contacts', 'contactTypes', 'filterAgentId', 'agentList', 'selectedAgent', 'canPickAgent'
+            'contacts', 'contactTypes', 'contactIdentifierLabels', 'filterAgentId', 'agentList', 'selectedAgent', 'canPickAgent'
         ));
     }
 
@@ -416,6 +419,9 @@ class ContactController extends Controller
             ->orderBy('name')
             ->get(['id', 'name']);
         $contactTypes     = ContactType::parents()->with('subTags')->get()->unique('name')->values();
+        // Contact-details Phase 2 — the label list for the phone/email repeaters.
+        $contactIdentifierLabels = \App\Models\ContactIdentifierLabel::where('is_active', true)
+            ->orderBy('sort_order')->orderBy('name')->get();
         $contactTags      = ContactTag::where('is_active', true)->orderBy('sort_order')->orderBy('name')->get();
         $matchCategories  = PropertySettingItem::group('category')->get();
         $matchTypes       = PropertySettingItem::group('property_type')->where('active', true)->get();
@@ -750,6 +756,40 @@ class ContactController extends Controller
         $waSent    = $contact->outboundCommCount(\App\Models\Communications\Communication::CHANNEL_WHATSAPP);
         $emailSent = $contact->outboundCommCount(\App\Models\Communications\Communication::CHANNEL_EMAIL);
 
+        // Contact-details Phase 4 — the "could not send" flow needs a per-send
+        // list to act on (none existed before this — the comms-tile path had no
+        // individual-send UI at all). Reuses the ALREADY eager-loaded
+        // `communications` relation (no extra query), most recent first, capped
+        // at 15 — this is an action list, not the full archive (that's the
+        // Communications tab).
+        $recentSends = $contact->communications
+            ->where('direction', \App\Models\Communications\Communication::DIRECTION_OUTBOUND)
+            ->whereNull('purged_at')
+            ->sortByDesc('occurred_at')
+            ->take(15)
+            ->values();
+
+        // Audit strip for the panel above — reads the SAME domain_event_log the
+        // 3 Phase 4 events auto-write to (no parallel audit table). Grouped by
+        // communication_id in the Blade view so each row can show its own chain.
+        $sendAuditLog = \Illuminate\Support\Facades\DB::table('domain_event_log')
+            ->where('subject_type', \App\Models\Contact::class)
+            ->where('subject_id', $contact->id)
+            ->whereIn('event_name', [
+                \App\Events\Communication\CommunicationMarkedNotDelivered::class,
+                \App\Events\Communication\CommunicationSendStatusReverted::class,
+                \App\Events\Communication\CommunicationResent::class,
+            ])
+            ->orderBy('occurred_at')
+            ->get()
+            ->map(function ($row) {
+                $row->context = json_decode($row->context, true) ?? [];
+                return $row;
+            });
+
+        $sendAuditActors = \App\Models\User::whereIn('id', $sendAuditLog->pluck('actor_user_id')->filter()->unique())
+            ->pluck('name', 'id');
+
         // AT-136 — the viewing agent's WhatsApp-capture decision for THIS contact
         // (per-agent; SEPARATE from AT-125 marketing opt-out). null = no WA match yet.
         $myCaptureStatus = $viewer
@@ -759,11 +799,16 @@ class ContactController extends Controller
 
         // AT-321-C — FULL contact audit trail for the History tab, paginated (no
         // cap). CSV export above is the unlimited one-shot. Page links keep tab=history.
+        // AT-321-C — History tab "Include system trail" toggle. Default OFF shows
+        // user changes only; the db-trigger backstop rows (source='db-trigger')
+        // are hidden unless the toggle is ticked.
+        $includeSystem = request()->boolean('include_system');
         $fullAuditLog = \App\Models\ContactAuditLog::where('contact_id', $contact->id)
             ->with('user')
+            ->when(!$includeSystem, fn ($q) => $q->where(fn ($w) => $w->whereNull('source')->orWhere('source', '<>', 'db-trigger')))
             ->orderByDesc('created_at')
             ->paginate(50, ['*'], 'history')
-            ->appends(['tab' => 'history']);
+            ->appends(array_filter(['tab' => 'history', 'include_system' => $includeSystem ? 1 : null]));
 
         // AT-267 — may the current user EDIT this contact? An assistant may VIEW a colleague's
         // contact but only EDIT the agent's own — OR an unowned contact (no linked agent). The view
@@ -772,7 +817,10 @@ class ContactController extends Controller
 
         // MERGE NOTE (QA2 -> Staging, 2026-07-26): both sides added a view variable here —
         // AT-321-C's $fullAuditLog and AT-267's $canEdit. They are independent; both are kept.
-        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent', 'fullAuditLog', 'canEdit'));
+        // Contact-details Phase 2 adds $contactIdentifierLabels; Phase 4 adds the
+        // Recent-Sends panel vars ($recentSends, $sendAuditLog, $sendAuditActors);
+        // AT-321 audit adds $includeSystem (History-tab system-trail toggle).
+        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactIdentifierLabels', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent', 'fullAuditLog', 'includeSystem', 'recentSends', 'sendAuditLog', 'sendAuditActors', 'canEdit'));
     }
 
     public function checkDuplicate(Request $request)
@@ -846,7 +894,7 @@ class ContactController extends Controller
         return [$phones, $emails];
     }
 
-    /** @return array<int,array{value:string,label:?string,is_primary:bool}> */
+    /** @return array<int,array{value:string,label:?string,is_primary:bool,country_iso:?string,dial_code:?string}> */
     private function normaliseIdentifierInput($input): array
     {
         if (!is_array($input)) {
@@ -859,10 +907,22 @@ class ContactController extends Controller
                 continue;
             }
             $label = is_array($row) ? trim((string) ($row['label'] ?? '')) : '';
+            // Contact-details Phase 1/2 — country_iso and label_id are passed
+            // through RAW/unresolved here. ContactIdentifierService::syncKind()
+            // is THE canonical resolution point for both (derives dial_code from
+            // country_iso; verifies label_id ownership against the contact's own
+            // agency) — every writer (form, API, importer, console) gets the
+            // same resolution, not just this one. A posted dial_code, if any,
+            // is never read/trusted anywhere.
             $out[] = [
                 'value'      => $value,
                 'label'      => $label !== '' ? $label : null,
+                'label_id'   => is_array($row) ? ($row['label_id'] ?? null) : null,
                 'is_primary' => is_array($row) && filter_var($row['is_primary'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                'country_iso' => is_array($row) ? ($row['country_iso'] ?? null) : null,
+                // Contact-details Phase 3 — WhatsApp designation, phone rows only.
+                'is_whatsapp'         => is_array($row) && filter_var($row['is_whatsapp'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                'is_primary_whatsapp' => is_array($row) && filter_var($row['is_primary_whatsapp'] ?? false, FILTER_VALIDATE_BOOLEAN),
             ];
         }
         if ($out !== [] && !collect($out)->contains(fn ($r) => $r['is_primary'])) {
@@ -894,10 +954,20 @@ class ContactController extends Controller
             'phones.*.value'      => 'nullable|string|max:30',
             'phones.*.label'      => 'nullable|string|max:60',
             'phones.*.is_primary' => 'nullable|boolean',
+            // Contact-details Phase 1 — country dial prefix; unrecognised/absent
+            // resolves to ZA in ContactIdentifierService::resolveCountry(), never trusted as-is.
+            'phones.*.country_iso' => 'nullable|string|max:2',
+            // Contact-details Phase 2 — managed label; ContactIdentifierService
+            // re-verifies agency ownership, never trusts the exists() check alone.
+            'phones.*.label_id'    => 'nullable|integer|exists:contact_identifier_labels,id',
+            // Contact-details Phase 3 — WhatsApp designation, phone-only.
+            'phones.*.is_whatsapp'         => 'nullable|boolean',
+            'phones.*.is_primary_whatsapp' => 'nullable|boolean',
             'emails'              => 'nullable|array',
             'emails.*.value'      => 'nullable|email|max:150',
             'emails.*.label'      => 'nullable|string|max:60',
             'emails.*.is_primary' => 'nullable|boolean',
+            'emails.*.label_id'   => 'nullable|integer|exists:contact_identifier_labels,id',
             // Type/tag assignments arrive via the pop-up picker and are applied
             // after creation (applyTypeAssignments) — not a single column.
             'notes'           => 'nullable|string|max:1000',
@@ -1126,10 +1196,20 @@ class ContactController extends Controller
             'phones.*.value'      => 'nullable|string|max:30',
             'phones.*.label'      => 'nullable|string|max:60',
             'phones.*.is_primary' => 'nullable|boolean',
+            // Contact-details Phase 1 — country dial prefix; unrecognised/absent
+            // resolves to ZA in ContactIdentifierService::resolveCountry(), never trusted as-is.
+            'phones.*.country_iso' => 'nullable|string|max:2',
+            // Contact-details Phase 2 — managed label; ContactIdentifierService
+            // re-verifies agency ownership, never trusts the exists() check alone.
+            'phones.*.label_id'    => 'nullable|integer|exists:contact_identifier_labels,id',
+            // Contact-details Phase 3 — WhatsApp designation, phone-only.
+            'phones.*.is_whatsapp'         => 'nullable|boolean',
+            'phones.*.is_primary_whatsapp' => 'nullable|boolean',
             'emails'              => 'nullable|array',
             'emails.*.value'      => 'nullable|email|max:150',
             'emails.*.label'      => 'nullable|string|max:60',
             'emails.*.is_primary' => 'nullable|boolean',
+            'emails.*.label_id'   => 'nullable|integer|exists:contact_identifier_labels,id',
             // Type/tag assignments handled by applyTypeAssignments (the picker).
             'notes'           => 'nullable|string|max:1000',
             // Agent assignment — primary (reassignable) + optional co-agent.
@@ -1398,7 +1478,10 @@ class ContactController extends Controller
             'last_contacted_at' => 'required|date',
         ]);
 
-        $contact->update(['last_contacted_at' => $data['last_contacted_at']]);
+        // AT-372 — "Mark as Now" / "Pick Date" are EXPLICIT contacted actions: record
+        // them as the first-class contacted signal (markContacted) so they persist and
+        // are never wiped by a later send's recompute, then re-derive last_contacted_at.
+        $contact->markContacted($data['last_contacted_at']);
 
         return redirect()->route('corex.contacts.show', $contact)->with('success', 'Last contacted date updated.');
     }
@@ -1437,9 +1520,18 @@ class ContactController extends Controller
     {
         $this->authorizeContact($contact);
         $data = $request->validate([
-            'channel' => 'required|in:whatsapp,email',
-            'subject' => 'nullable|string|max:1000',
-            'body'    => 'nullable|string|max:20000',
+            'channel'          => 'required|in:whatsapp,email',
+            'subject'          => 'nullable|string|max:1000',
+            'body'             => 'nullable|string|max:20000',
+            // Outreach number/email selector — the agent may target a NON-default
+            // number/email; resolved below (scoped to THIS contact) and passed as
+            // the logger's recipientValue so the archived row reflects what was
+            // actually used, not always the primary/WhatsApp designation.
+            'contact_phone_id' => 'nullable|integer',
+            'contact_email_id' => 'nullable|integer',
+            // AT-323 — set when this send is a Resend of an earlier not_delivered row,
+            // so the new attempt is lineage-linked and audited as a resend.
+            'resent_from_communication_id' => 'nullable|integer',
         ]);
 
         // AT-117 §4a — send-window lock (server-side; the UI also disables the
@@ -1456,13 +1548,54 @@ class ContactController extends Controller
             }
         }
 
+        $recipientValue = null;
+        if ($data['channel'] === 'whatsapp' && !empty($data['contact_phone_id'])) {
+            $recipientValue = $contact->phones()->find($data['contact_phone_id'])?->phone;
+        } elseif ($data['channel'] === 'email' && !empty($data['contact_email_id'])) {
+            $recipientValue = $contact->emails()->find($data['contact_email_id'])?->email;
+        }
+
+        $resentFrom = !empty($data['resent_from_communication_id']) ? (int) $data['resent_from_communication_id'] : null;
+
         $communication = $logger->log(
             $contact,
             $data['channel'],
             $data['subject'] ?? null,
             $data['body'] ?? null,
-            auth()->id()
+            auth()->id(),
+            resentFromCommunicationId: $resentFrom,
+            recipientValue: $recipientValue,
         );
+
+        // AT-323 — a WhatsApp "send" is client-side click-to-chat: CoreX opens WhatsApp but
+        // never transmits, so it has NO delivery signal of its own. The WhatsApp row is
+        // therefore born NOT counted (send_status=not_delivered) and stays uncounted until the
+        // agent answers the ALWAYS-SHOWN "Did you send it?" modal with "Yes"
+        // (markCommunicationSent → sent). That is the ONLY way a WhatsApp send reaches sent, so
+        // the "messages sent" counter can never run ahead of what the agent actually confirmed
+        // (INVARIANTS 2 & 3). A born-'sent' default counted the message before it was confirmed
+        // — the bug this fixes. Email is exempt: it is system-sent (mailto) with no modal, so it
+        // keeps the born-'sent' default and its own count.
+        if ($data['channel'] === \App\Models\Communications\Communication::CHANNEL_WHATSAPP) {
+            $communication->forceFill([
+                'send_status' => \App\Models\Communications\Communication::SEND_STATUS_NOT_DELIVERED,
+            ])->save();
+            // last_contacted was optimistically touched by the logger; pull it back to the last
+            // ACTUALLY-sent row so an unconfirmed send never advances "last contacted".
+            $contact->recomputeLastContacted();
+        }
+
+        // AT-323 — a Resend re-runs the whole flow; audit it as a resend of the original.
+        if ($resentFrom) {
+            event(new \App\Events\Communication\CommunicationResent(
+                contact: $contact,
+                originalCommunicationId: $resentFrom,
+                newCommunicationId: (int) $communication->id,
+                channel: $communication->channel,
+                actorUserId: auth()->id(),
+                agencyId: (int) $communication->agency_id,
+            ));
+        }
 
         // Part 4 — make the comms-tile quick-send visible on the Outreach &
         // Canvassing board (it writes only a provisional `communications` row and
@@ -1478,14 +1611,80 @@ class ContactController extends Controller
             ));
         }
 
-        // The logger advanced last_contacted_at on this same instance.
-        $last = $contact->last_contacted_at ?? now();
+        // The logger advanced last_contacted_at on this same instance; reload for the response.
+        $contact->refresh();
+        $last = $contact->last_contacted_at;
 
         return response()->json([
             'count'                   => $contact->outboundCommCount($data['channel']),
-            'last_contacted'          => $last->format('d M Y H:i'),
-            'last_contacted_relative' => $last->diffForHumans(),
+            'last_contacted'          => $last?->format('d M Y H:i'),
+            'last_contacted_relative' => $last?->diffForHumans(),
+            // AT-323 (option 2) — the provisional row's id, so the ALWAYS-SHOWN post-send
+            // "Did it send? Yes/No" confirmation can flag THIS send not_delivered on "No"
+            // (never a false "sent"). The row stays 'sent' optimistically until the agent answers.
+            'communication_id'        => $communication->id ?? null,
+            'send_status'             => $communication->refresh()->send_status,
         ]);
+    }
+
+    /**
+     * Contact-details Phase 4 — flag a previously-recorded send as "could not
+     * send / not delivered". Agent-initiated (WhatsApp is click-to-chat — CoreX
+     * has no delivery signal of its own to detect this automatically); the
+     * agent finds out on their own phone and reports it back here.
+     */
+    public function markCommunicationNotDelivered(
+        Request $request,
+        Contact $contact,
+        \App\Models\Communications\Communication $communication,
+        \App\Services\Communications\CommunicationSendStatusService $service
+    ) {
+        abort_unless($this->communicationBelongsToContact($communication, $contact), 404);
+
+        $data = $request->validate(['reason' => 'nullable|string|max:500']);
+
+        $service->markNotDelivered($communication, $contact, auth()->id(), $data['reason'] ?? null);
+
+        // AT-323 — the post-send confirmation modal calls this over fetch(); answer JSON so the
+        // tile can update the count in place. The existing form-post callers still get the redirect.
+        if ($request->wantsJson()) {
+            return response()->json([
+                'ok'      => true,
+                'count'   => $contact->outboundCommCount($communication->channel),
+                'message' => 'Recorded as not sent — this contact is no longer counted as reached by that send.',
+            ]);
+        }
+
+        return back()->with('success', 'Marked as could not send. The contact is no longer counted as reached by this send.');
+    }
+
+    /**
+     * AT-323 — "Yes, I sent it" from the post-send modal. The ONLY path that marks a
+     * click-to-chat send as sent (+1 the counter). No other control reaches sent — the
+     * old "Revert to sent" (which flipped a not_delivered row to sent with NO modal, a
+     * false-sent path) has been removed. Returns the recomputed count so the tile updates
+     * live without a reload.
+     */
+    public function markCommunicationSent(
+        Request $request,
+        Contact $contact,
+        \App\Models\Communications\Communication $communication,
+        \App\Services\Communications\CommunicationSendStatusService $service
+    ) {
+        abort_unless($this->communicationBelongsToContact($communication, $contact), 404);
+
+        $service->markSent($communication, $contact, auth()->id());
+
+        return response()->json([
+            'ok'    => true,
+            'count' => $contact->outboundCommCount($communication->channel),
+        ]);
+    }
+
+    /** Contact-details Phase 4 — a communication must actually belong to this contact (agency-scoped via the relation) before any status action touches it. */
+    private function communicationBelongsToContact(\App\Models\Communications\Communication $communication, Contact $contact): bool
+    {
+        return $contact->communications()->where('communications.id', $communication->id)->exists();
     }
 
     public function destroy(Contact $contact)

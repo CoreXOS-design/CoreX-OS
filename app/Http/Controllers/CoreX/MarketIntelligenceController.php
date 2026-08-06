@@ -105,6 +105,17 @@ class MarketIntelligenceController extends Controller
             });
         }
 
+        // BUG 3 — a listing flagged sole/exclusive mandate is already spoken
+        // for by another agency; canvassing it is a professional courtesy
+        // issue, not an opportunity. Default-exclude, same shape as the
+        // in-stock/pitch-lock toggles above. ?include_mandated=1 reveals them.
+        if (! $request->boolean('include_mandated')) {
+            $query->where(function ($q) {
+                $q->whereNull('mandate_type')
+                    ->orWhereRaw('LOWER(mandate_type) NOT IN (?, ?)', ['sole', 'exclusive']);
+            });
+        }
+
         // Filters
         if ($request->filled('portal_source') && $request->portal_source !== 'all') {
             $query->where('portal_source', $request->portal_source);
@@ -135,8 +146,16 @@ class MarketIntelligenceController extends Controller
         if ($request->filled('agency_name')) {
             $query->where('agency_name', 'like', '%' . $request->agency_name . '%');
         }
-        if ($request->filled('is_active') && $request->is_active !== 'all') {
-            $query->where('is_active', $request->is_active === '1');
+        // BUG 2 fix — default the canvass pool to AVAILABLE listings only, same
+        // default-exclude/explicit-override shape as applyInStockFilter/pitch-lock
+        // above. ?is_active=all reveals everything; ?is_active=0/1 stays honoured
+        // for the explicit audit toggle.
+        if ($request->filled('is_active')) {
+            if ($request->is_active !== 'all') {
+                $query->where('is_active', $request->is_active === '1');
+            }
+        } else {
+            $query->where('is_active', true);
         }
         if ($request->filled('captured_by')) {
             $query->where('captured_by_user_id', $request->captured_by);
@@ -188,6 +207,19 @@ class MarketIntelligenceController extends Controller
         // files under those towns (p24_suburbs) → the listings. suburb→town is P24's
         // truth (never re-derived here); town→municipality is towns.region. Composes
         // AND with every other filter.
+        //
+        // Suburb names are NOT unique nationally (e.g. "Glenmore" is both a Port
+        // Edward suburb and a Durban suburb; "Leisure Bay" is both Port Edward and
+        // Knysna). A bare `suburb IN (region's suburb names)` match lets a listing
+        // whose suburb name is shared with a city OUTSIDE this region leak into the
+        // results (same root cause as the prospecting:assign-municipalities town-
+        // centroid bug). Suburb names that are unambiguous — they belong to no city
+        // outside this region — are matched by name alone; names that ALSO exist
+        // under an outside city additionally require the listing's own portal_url to
+        // name one of THIS region's cities as a path segment (both P24 and PP encode
+        // province/town/suburb in the URL, e.g. .../glenmore/port-edward/...). A
+        // listing that stays ambiguous is excluded — safer than a guess that
+        // reintroduces the leak.
         if ($request->filled('region')) {
             $region = (string) $request->query('region');
             $regionCityIds = \DB::table('towns')
@@ -205,10 +237,45 @@ class MarketIntelligenceController extends Controller
                     ->pluck('sub')
                     ->all()
                 : [];
-            if (!empty($regionSuburbs)) {
-                $query->whereIn(\DB::raw('LOWER(TRIM(suburb))'), $regionSuburbs);
-            } else {
+
+            $ambiguousSuburbs = !empty($regionSuburbs)
+                ? \DB::table('p24_suburbs')
+                    ->whereIn(\DB::raw('LOWER(TRIM(name))'), $regionSuburbs)
+                    ->whereNotNull('p24_city_id')
+                    ->whereNull('deleted_at')
+                    ->selectRaw('LOWER(TRIM(name)) nm, p24_city_id')
+                    ->get()
+                    ->groupBy('nm')
+                    ->filter(fn ($rows) => $rows->pluck('p24_city_id')->unique()->diff($regionCityIds)->isNotEmpty())
+                    ->keys()
+                    ->values()
+                    ->all()
+                : [];
+            $safeSuburbs = array_values(array_diff($regionSuburbs, $ambiguousSuburbs));
+
+            if (empty($regionSuburbs)) {
                 $query->whereRaw('1 = 0');
+            } else {
+                $query->where(function ($q) use ($safeSuburbs, $ambiguousSuburbs, $regionCityIds) {
+                    if (!empty($safeSuburbs)) {
+                        $q->orWhereIn(\DB::raw('LOWER(TRIM(suburb))'), $safeSuburbs);
+                    }
+                    if (!empty($ambiguousSuburbs)) {
+                        $regionCitySlugs = \DB::table('p24_cities')
+                            ->whereIn('id', $regionCityIds)
+                            ->pluck('name')
+                            ->map(fn ($name) => \Illuminate\Support\Str::slug($name))
+                            ->all();
+                        $q->orWhere(function ($q2) use ($ambiguousSuburbs, $regionCitySlugs) {
+                            $q2->whereIn(\DB::raw('LOWER(TRIM(suburb))'), $ambiguousSuburbs)
+                                ->where(function ($q3) use ($regionCitySlugs) {
+                                    foreach ($regionCitySlugs as $slug) {
+                                        $q3->orWhere('portal_url', 'like', "%/{$slug}/%");
+                                    }
+                                });
+                        });
+                    }
+                });
             }
         }
 

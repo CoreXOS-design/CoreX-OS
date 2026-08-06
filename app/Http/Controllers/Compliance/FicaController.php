@@ -35,14 +35,37 @@ class FicaController extends Controller
         $isCO = $user->isComplianceOfficer();                 // any FICA appointment (RO or CO)
         $isPrimaryCo = $user->isPrimaryComplianceOfficer((int) ($user->effectiveAgencyId() ?: 0)); // Elize
         $isAdmin = $user->isOwnerRole() || $user->hasPermission('manage_compliance');
-        $canSeeAll = $isCO || $isAdmin;
+
+        // AT-346 — per-user FICA visibility scope (own / branch / company), driven by
+        // the Role Manager `fica.view` grant and mirroring Contacts/Properties. The CO
+        // review station, owners and admins resolve to 'all'; branch managers to their
+        // branch; ordinary agents to their own requests. See FicaSubmission::scopeVisibleTo().
+        $scope = FicaSubmission::ficaScopeFor($user);
+        $canSeeAll = $scope === 'all';
         $tab = $request->query('tab', $canSeeAll ? 'all' : 'submitted');
 
-        // Base query — AgencyScope on FicaSubmission handles tenancy:
-        // super_admin/owner with no switcher sees all, others see their agency.
-        $baseQuery = FicaSubmission::query();
-        if (! $canSeeAll) {
-            $baseQuery->where('requested_by', $user->id);
+        // AT-346 — "My / All" scope pill, mirroring the Contacts/Properties list toggle.
+        // The ceiling ($scope) is the security cap; the pill lets a user with a branch or
+        // company ceiling switch between their own requests ("My") and everything inside
+        // their ceiling ("All" = their branch, or the whole agency). It can only ever
+        // narrow: visibleTo() below clamps the base query to the granted tier, so a
+        // hand-edited ?agent_id can never escape the branch/agency bound. 'own'-ceiling
+        // users get no pill and are forced to their own rows. Default is "My" (like Contacts).
+        $canPickAgent = in_array($scope, ['branch', 'all'], true);
+        if ($request->has('agent_id')) {
+            $filterAgentId = (string) $request->query('agent_id', '');
+        } elseif ($canPickAgent) {
+            $filterAgentId = (string) $user->id;
+        } else {
+            $filterAgentId = '';
+        }
+
+        // Base query — AgencyScope handles tenancy; visibleTo() applies the own/branch/
+        // company CEILING so no user ever sees FICA records outside their granted scope.
+        $baseQuery = FicaSubmission::query()->visibleTo($user);
+        // Apply the pill choice on top of the ceiling ("My" = a specific requester).
+        if ($filterAgentId !== '' && $filterAgentId !== 'all') {
+            $baseQuery->where('requested_by', (int) $filterAgentId);
         }
 
         // Counts (per status)
@@ -62,10 +85,10 @@ class FicaController extends Controller
         //   RO Approvals      = agent_approved (any authorized reviewer / RO works it)
         //   CO Approvals Needed = referred_to_co (escalated — the primary CO only)
         $roQueueCount = $isCO
-            ? FicaSubmission::where('status', 'agent_approved')->count()
+            ? FicaSubmission::where('status', 'agent_approved')->visibleTo($user)->count()
             : 0;
         $coQueueCount = $isPrimaryCo
-            ? FicaSubmission::where('status', 'referred_to_co')->count()
+            ? FicaSubmission::where('status', 'referred_to_co')->visibleTo($user)->count()
             : 0;
 
         // Build filtered query
@@ -75,12 +98,16 @@ class FicaController extends Controller
 
         if ($tab === 'ro_queue') {
             // RO Approvals — the shared review pool, any authorized reviewer.
+            // AT-346: still scoped to the viewer's tier (CO = all; a branch manager
+            // reviewer would see only their branch's escalations).
             $query = FicaSubmission::where('status', 'agent_approved')
+                ->visibleTo($user)
                 ->with(['contact', 'requestedBy', 'agentVerifiedBy'])
                 ->oldest('agent_verified_at');
         } elseif ($tab === 'co_queue') {
             // CO Approvals Needed — escalated packs, the primary CO's station.
             $query = FicaSubmission::where('status', 'referred_to_co')
+                ->visibleTo($user)
                 ->with(['contact', 'requestedBy', 'agentVerifiedBy', 'referredBy'])
                 ->oldest('referred_at');
         } elseif ($tab !== 'all') {
@@ -99,14 +126,14 @@ class FicaController extends Controller
         // CO Approvals Needed stats (escalations awaiting the primary CO)
         $coQueueStats = null;
         if ($isPrimaryCo && $coQueueCount > 0) {
-            $oldest = FicaSubmission::where('status', 'referred_to_co')->min('referred_at');
+            $oldest = FicaSubmission::where('status', 'referred_to_co')->visibleTo($user)->min('referred_at');
             $coQueueStats = [
                 'count'       => $coQueueCount,
                 'oldest_days' => $oldest ? (int) now()->diffInDays($oldest) : 0,
             ];
         }
 
-        return view('compliance.fica.index', compact('submissions', 'counts', 'isCO', 'isPrimaryCo', 'isAdmin', 'canSeeAll', 'tab', 'roQueueCount', 'coQueueCount', 'coQueueStats'));
+        return view('compliance.fica.index', compact('submissions', 'counts', 'isCO', 'isPrimaryCo', 'isAdmin', 'canSeeAll', 'tab', 'roQueueCount', 'coQueueCount', 'coQueueStats', 'canPickAgent', 'filterAgentId', 'scope'));
     }
 
     /**
@@ -184,15 +211,23 @@ class FicaController extends Controller
      */
     public function storeWetInk(Request $request)
     {
+        // AT-361 — each required slot is satisfied by EITHER a fresh upload OR a
+        // LINK to one of the contact's existing documents (Drive / splitter output).
+        // required_without pairs keep the upload mandatory only when no link is given.
         $validated = $request->validate([
             'contact_id'              => 'required|exists:contacts,id',
             'entity_type'             => 'required|in:natural,company,trust,partnership',
             'wet_ink_received_date'   => 'required|date|before_or_equal:today',
             'confirmed_signed_paper'  => 'required|accepted',
-            'fica_form_file'          => 'required|file|mimes:pdf,jpg,jpeg,png|max:10240',
-            'id_copy_file'            => 'required|file|mimes:pdf,jpg,jpeg,png|max:10240',
-            'proof_of_address_file'   => 'required|file|mimes:pdf,jpg,jpeg,png|max:10240',
+            'fica_form_file'          => 'required_without:linked_fica_form_document_id|nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
+            'linked_fica_form_document_id' => 'required_without:fica_form_file|nullable|integer|exists:documents,id',
+            'id_copy_file'            => 'required_without:linked_id_copy_document_id|nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
+            'linked_id_copy_document_id' => 'required_without:id_copy_file|nullable|integer|exists:documents,id',
+            'proof_of_address_file'   => 'required_without:linked_proof_of_address_document_id|nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
+            'linked_proof_of_address_document_id' => 'required_without:proof_of_address_file|nullable|integer|exists:documents,id',
             'supporting_docs.*'       => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
+            'linked_supporting_document_ids'   => 'nullable|array',
+            'linked_supporting_document_ids.*' => 'integer|exists:documents,id',
         ]);
 
         $contact = Contact::findOrFail($validated['contact_id']);
@@ -213,13 +248,29 @@ class FicaController extends Controller
                 'wet_ink_received_date' => $validated['wet_ink_received_date'],
             ]);
 
-            $service->addUploadedDocument($submission, $request->file('fica_form_file'), 'fica_form');
-            $service->addUploadedDocument($submission, $request->file('id_copy_file'), 'id_copy');
-            $service->addUploadedDocument($submission, $request->file('proof_of_address_file'), 'proof_of_address');
+            // Required slots: a fresh upload, or a LINK to an existing contact document (AT-361).
+            foreach (['fica_form', 'id_copy', 'proof_of_address'] as $slot) {
+                if ($request->hasFile($slot . '_file')) {
+                    $service->addUploadedDocument($submission, $request->file($slot . '_file'), $slot);
+                } elseif ($linkedId = $request->input('linked_' . $slot . '_document_id')) {
+                    $doc = Document::findOrFail($linkedId);
+                    if (! $service->linkContactDocument($submission, $doc, $slot, Auth::id())) {
+                        throw \Illuminate\Validation\ValidationException::withMessages([
+                            'linked_' . $slot . '_document_id' => 'That document does not belong to the selected contact.',
+                        ]);
+                    }
+                }
+            }
 
+            // Supporting: any fresh uploads PLUS any linked contact documents.
             if ($request->hasFile('supporting_docs')) {
                 foreach ($request->file('supporting_docs') as $file) {
                     $service->addUploadedDocument($submission, $file, 'supporting');
+                }
+            }
+            foreach ((array) $request->input('linked_supporting_document_ids', []) as $linkedId) {
+                if ($doc = Document::find($linkedId)) {
+                    $service->linkContactDocument($submission, $doc, 'supporting', Auth::id());
                 }
             }
         });
@@ -245,7 +296,7 @@ class FicaController extends Controller
             Log::warning('TFS auto-screen on show failed', ['submission_id' => $submission->id, 'error' => $e->getMessage()]);
         }
 
-        $submission->load(['contact', 'requestedBy', 'verifiedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents', 'referredBy']);
+        $submission->load(['contact', 'requestedBy', 'verifiedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents', 'referredBy', 'linkedDocuments.documentType']);
 
         $referralEnabled = $referrals->referralEnabled((int) $submission->agency_id);
         $viewerIsPrimaryCo = Auth::user()->isPrimaryComplianceOfficer((int) $submission->agency_id);
@@ -398,7 +449,7 @@ class FicaController extends Controller
         $this->authorizeAgency($submission);
         abort_unless(Auth::user()->isComplianceOfficer(), 403, 'Only compliance officers can access this page.');
 
-        $submission->load(['contact', 'requestedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents', 'referredBy']);
+        $submission->load(['contact', 'requestedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents', 'referredBy', 'linkedDocuments.documentType']);
 
         $referralEnabled = $referrals->referralEnabled((int) $submission->agency_id);
         $viewerIsPrimaryCo = Auth::user()->isPrimaryComplianceOfficer((int) $submission->agency_id);
@@ -755,7 +806,7 @@ class FicaController extends Controller
         $this->authorizeAgency($submission);
         abort_unless($submission->status === 'approved', 404, 'PDF only available for approved submissions.');
 
-        $submission->load(['contact', 'agency', 'requestedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents']);
+        $submission->load(['contact', 'agency', 'requestedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents', 'linkedDocuments.documentType']);
 
         // Return the HTML template as a printable page (Puppeteer rendering is a server-side concern)
         return view('compliance.fica.pdf', compact('submission'));
@@ -991,6 +1042,129 @@ class FicaController extends Controller
     }
 
     /**
+     * AT-361 — JSON list of the contact's existing documents for the wet-ink create
+     * picker (the contact is chosen dynamically client-side, so the list is fetched
+     * after selection). Read-only; gated by the route (access_compliance +
+     * agency.required) plus an agency check on the contact.
+     */
+    public function contactDocuments(Contact $contact)
+    {
+        $user = Auth::user();
+        abort_unless(
+            $user->isOwnerRole() || (int) $contact->agency_id === (int) ($user->effectiveAgencyId() ?? 0),
+            403
+        );
+
+        $docs = $contact->documents()->with('documentType')->get()->map(fn (Document $d) => [
+            'id'     => $d->id,
+            'name'   => $d->original_name,
+            'type'   => $d->documentType?->label,
+            'date'   => optional($d->created_at)->format('d M Y'),
+            'source' => $d->source_type,
+        ])->values();
+
+        return response()->json(['documents' => $docs]);
+    }
+
+    /**
+     * AT-361 — LINK existing contact documents into a FICA submission from the agent
+     * review touchpoint (no upload, no copy — a reference via fica_submission_documents).
+     * Same stage + authorship gate as agentUpload().
+     */
+    public function linkContactDocuments(Request $request, FicaSubmission $submission)
+    {
+        $this->authorizeAgency($submission);
+        abort_unless(
+            in_array($submission->status, ['submitted', 'under_review', 'corrections_requested']),
+            400,
+            'Cannot link documents at this stage.'
+        );
+        $user = Auth::user();
+        abort_unless(
+            $submission->requested_by === $user->id || $user->isOwnerRole() || $user->hasPermission('manage_compliance'),
+            403,
+            'Only the requesting agent or an admin can link documents.'
+        );
+
+        $data = $request->validate([
+            'document_ids'   => 'required|array|min:1',
+            'document_ids.*' => 'integer|exists:documents,id',
+            'document_type'  => 'nullable|string|in:fica_form,id_copy,proof_of_address,supporting',
+        ]);
+        $slot = $data['document_type'] ?? 'supporting';
+
+        $service = app(\App\Services\Compliance\FicaWetInkService::class);
+        $linked = 0;
+        foreach ($data['document_ids'] as $id) {
+            $doc = Document::find($id);
+            if ($doc && $service->linkContactDocument($submission, $doc, $slot, $user->id)) {
+                $linked++;
+            }
+        }
+
+        Log::info('FICA agent linked contact documents', [
+            'submission_id' => $submission->id,
+            'linked_count'  => $linked,
+            'agent_id'      => $user->id,
+        ]);
+
+        return back()->with('success', $linked === 1
+            ? 'Contact document linked to this FICA.'
+            : "{$linked} contact documents linked to this FICA.");
+    }
+
+    /**
+     * AT-361 — remove a contact-document LINK (detaches the pivot only; the contact's
+     * document itself is untouched — nothing is deleted).
+     */
+    public function unlinkContactDocument(Request $request, FicaSubmission $submission, Document $contactDocument)
+    {
+        $this->authorizeAgency($submission);
+        abort_unless(
+            in_array($submission->status, ['submitted', 'under_review', 'corrections_requested']),
+            400,
+            'Cannot unlink documents at this stage.'
+        );
+        $user = Auth::user();
+        abort_unless(
+            $submission->requested_by === $user->id || $user->isOwnerRole() || $user->hasPermission('manage_compliance'),
+            403,
+            'Only the requesting agent or an admin can unlink documents.'
+        );
+
+        $submission->linkedDocuments()->detach($contactDocument->id);
+
+        return back()->with('success', 'Contact document unlinked (the document itself was not deleted).');
+    }
+
+    /**
+     * AT-361 — stream a LINKED contact document for RO/CO review. Linked docs live in
+     * the unified `documents` store (the contact's own disk), NOT the encrypted FICA
+     * store, so they are served here — gated by the route (access_compliance +
+     * agency.required), the agency check, and a membership check that the document is
+     * actually linked to THIS submission. Inline preview, never a public URL.
+     */
+    public function viewLinkedDocument(FicaSubmission $submission, Document $contactDocument)
+    {
+        $this->authorizeAgency($submission);
+        abort_unless(
+            $submission->linkedDocuments()->where('documents.id', $contactDocument->id)->exists(),
+            404
+        );
+        abort_unless(
+            Storage::disk($contactDocument->disk)->exists($contactDocument->storage_path),
+            404,
+            'File not found.'
+        );
+
+        return Storage::disk($contactDocument->disk)->response(
+            $contactDocument->storage_path,
+            $contactDocument->original_name,
+            ['Content-Type' => $contactDocument->mime_type ?: 'application/octet-stream']
+        );
+    }
+
+    /**
      * File approved FICA documents to the contact's document drive.
      */
     private function fileDocumentsToContact(FicaSubmission $submission): void
@@ -1121,8 +1295,16 @@ class FicaController extends Controller
     }
 
     /**
-     * Ensure submission belongs to the user's agency.
-     * Super-admin / owner-role users bypass (they can access any agency).
+     * Ensure submission belongs to the user's agency AND falls within the user's
+     * FICA visibility scope (own / branch / company).
+     *
+     * Super-admin / owner-role users bypass (they can access any agency). For
+     * everyone else this is the single per-record choke-point every read and
+     * action method already calls, so AT-346 enforces the own/branch/company tier
+     * here once — a user can neither view nor act on a FICA record outside their
+     * granted scope. The scope check only ever RESTRICTS on top of the existing
+     * role/status guards (Compliance Officers / admins resolve to 'all', so the
+     * CO review station is unaffected); it can never widen access.
      */
     private function authorizeAgency(FicaSubmission $submission): void
     {
@@ -1131,6 +1313,14 @@ class FicaController extends Controller
             return;
         }
         abort_unless($submission->agency_id === $user->effectiveAgencyId(), 403);
+
+        // AT-346 — per-user scope membership. visibleTo() re-applies the own/branch/
+        // company filter; if this record is not inside it, the user may not touch it.
+        abort_unless(
+            FicaSubmission::query()->visibleTo($user)->whereKey($submission->getKey())->exists(),
+            403,
+            'This FICA record is outside your access scope.'
+        );
     }
 
     /**

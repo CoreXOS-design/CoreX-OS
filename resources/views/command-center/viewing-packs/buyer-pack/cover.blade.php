@@ -42,7 +42,11 @@
                     </div>
                 </div>
                 @if($agentPhoto)
-                    <img src="{{ $agentPhoto }}" style="width:128px; height:156px; object-fit:cover; border-radius:8px; border:3px solid var(--brand);">
+                    {{-- AT-367 — dompdf ignores object-fit on <img>, so the photo was stretched to the
+                         128×156 frame. Render it as a background on a fixed frame with background-size:cover
+                         (dompdf v3 honours this) so it fills the frame at its natural aspect ratio, cropped
+                         and centred, never distorted. --}}
+                    <div style="width:128px; height:156px; background-image:url('{{ $agentPhoto }}'); background-size:cover; background-position:center center; background-repeat:no-repeat; border-radius:8px; border:3px solid var(--brand);"></div>
                 @endif
             </div>
         </div>

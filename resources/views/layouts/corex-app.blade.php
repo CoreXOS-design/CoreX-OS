@@ -71,7 +71,7 @@
 
         {{-- Phase 3g — head stack for per-page assets that must load before
              body inline scripts (e.g. Leaflet on /corex/map). Pages opt in
-             via @push('head'); pages that don't push produce nothing here. --}}
+             via push('head'); pages that don't push produce nothing here. --}}
         @stack('head')
     </head>
     <body class="font-sans antialiased corex-ui-v2">
@@ -176,11 +176,11 @@
         @include('partials.error-reporter')
 
         {{-- AT-220 — global session armour + persistent connection indicator on
-             every long-lived authenticated screen. Loaded before @stack('scripts')
+             every long-lived authenticated screen. Loaded before stack('scripts')
              so page-pushed scripts can rely on window.CoreXSessionGuard. --}}
         @include('layouts.partials._session-guard')
 
-        {{-- Partial-pushed scripts (e.g. P24 location pickers via @push('scripts')) --}}
+        {{-- Partial-pushed scripts (e.g. P24 location pickers via push('scripts')) --}}
         @stack('scripts')
     </body>
 </html>

@@ -703,9 +703,13 @@
                             :class="{ 'pointer-events-none': reschedule.dragging }"
                             data-layer="{{ $evt->layer_key ?? 'appointments' }}"
                             {{-- Inline z-index (see week overlay note): the z-[3] class was not in
-                                 the compiled CSS, dropping the tile below the z-1 drag layers. --}}
+                                 the compiled CSS, dropping the tile below the z-1 drag layers.
+                                 Completed/dismissed tiles are full-width (AT-335) and appended last, so at
+                                 an equal z-index they painted OVER an active event sharing the slot (an old
+                                 completed viewing covering a newly-scheduled one). Drop done tiles one layer
+                                 (2) so active tiles (3) always paint on top; still above the z-1 drag layers. --}}
                             class="cal-layerable absolute text-left rounded overflow-hidden transition hover:opacity-90 {{ $isDone ? 'line-through opacity-70' : '' }}"
-                            style="z-index: 3; {{ $chipStyle }} {{ $isDraggable ? 'cursor:grab;' : '' }} top: {{ $topPct }}%; height: calc({{ $heightPct }}% - 2px); min-height: 18px; left: calc(56px + (100% - 56px) * {{ $lane }} / {{ $lanes }}); width: calc((100% - 56px) / {{ $lanes }} - 3px);"
+                            style="z-index: {{ $isDone ? 2 : 3 }}; {{ $chipStyle }} {{ $isDraggable ? 'cursor:grab;' : '' }} top: {{ $topPct }}%; height: calc({{ $heightPct }}% - 2px); min-height: 18px; left: calc(56px + (100% - 56px) * {{ $lane }} / {{ $lanes }}); width: calc((100% - 56px) / {{ $lanes }} - 3px);"
                             title="{{ $tr }} {{ $evt->title }}">
                         <div class="flex items-center gap-2 px-2 pt-1">
                             <span class="text-[11px] opacity-80">{{ $tr }}</span>
@@ -915,17 +919,17 @@
                             <option value="{{ $cls->event_class }}" data-multi-property="{{ $cls->allow_multiple_properties ? '1' : '0' }}">{{ $cls->label }}</option>
                         @endforeach
                     </select>
-                    {{-- CAL-3-HOTFIX — the @php block + <script id="classConfigMap">
+                    {{-- CAL-3-HOTFIX — the php block + <script id="classConfigMap">
                          that lived here was a duplicate of the live copy at the
                          live form's category select (L~1897 below). Both elements
                          carried the same DOM id; document.getElementById
                          ('classConfigMap') from calendarPage's Alpine readers
                          (propertySearch.getClassConfig L~3327 + contactSearch.add
                          L~3396) returns the FIRST DOM match — and a duplicate
-                         inside this dead @if(false) block was the wrong element
+                         inside this dead if(false) block was the wrong element
                          for the live form's auto-populate + Capture-Feedback
                          flows. The live copy below is the single source of truth;
-                         this duplicate is removed. Full cleanup of the @if(false)
+                         this duplicate is removed. Full cleanup of the if(false)
                          dead block is a separate task. --}}
                 </div>
 
@@ -1310,6 +1314,48 @@
                                 class="text-xs font-medium transition-colors hover:underline" style="color: var(--brand-button);">
                             Capture feedback &rarr;
                         </button>
+                    </div>
+                </template>
+
+                {{-- AT-111 — Viewing Pack tie-in on the appointment: launch a pack
+                     (schedule-now-prep-later) or download the prepared pack's PDFs
+                     straight from the event, no trip back to the buyer pipeline. --}}
+                <template x-if="panelData.viewing_pack">
+                    <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
+                        <div class="text-[10px] font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">Viewing Pack</div>
+
+                        {{-- Not yet prepped → launch from the appointment. --}}
+                        <template x-if="panelData.viewing_pack.linked === false">
+                            <form :action="panelData.viewing_pack.launch_url" method="POST">
+                                @csrf
+                                <button type="submit" class="corex-btn-primary text-xs w-full justify-center">
+                                    Create viewing pack
+                                </button>
+                                <p class="text-[10px] mt-1" style="color: var(--text-muted);">Select the properties you can show, then Update Appointment.</p>
+                            </form>
+                        </template>
+
+                        {{-- Linked pack → open + (when prepared) download buttons. --}}
+                        <template x-if="panelData.viewing_pack.linked === true">
+                            <div class="space-y-2">
+                                <a :href="panelData.viewing_pack.open_url"
+                                   class="text-xs font-medium hover:underline inline-flex items-center gap-1" style="color: var(--brand-button);">
+                                    Download viewing pack
+                                    <span class="text-[9px] px-1.5 py-0.5 rounded-full" style="background: var(--surface-2); color: var(--text-muted);" x-text="panelData.viewing_pack.status"></span>
+                                </a>
+                                <template x-if="panelData.viewing_pack.can_download">
+                                    <div class="flex items-center gap-2">
+                                        <a :href="panelData.viewing_pack.buyer_pack_url" target="_blank"
+                                           class="corex-btn-primary text-xs flex-1 justify-center no-underline">Download Buyer Pack</a>
+                                        <a :href="panelData.viewing_pack.agent_sheet_url" target="_blank"
+                                           class="text-xs flex-1 text-center px-3 py-2 rounded-md no-underline" style="border: 1px solid var(--border); color: var(--text-primary);">Agent Sheet</a>
+                                    </div>
+                                </template>
+                                <template x-if="!panelData.viewing_pack.can_download">
+                                    <p class="text-[10px]" style="color: var(--text-muted);">Add properties to the pack to enable downloads.</p>
+                                </template>
+                            </div>
+                        </template>
                     </div>
                 </template>
 
@@ -1735,7 +1781,7 @@
             </select>
             {{-- CAL-3 — class config map for the LIVE create form. Mirrors
                  the version inside the deprecated DEAD form below (which
-                 sits inside @if(false) and so never renders). Without this
+                 sits inside if(false) and so never renders). Without this
                  the Alpine helpers propertySearch.getClassConfig() (L~3303)
                  and contactSearch.add() (L~3372) read null from the DOM
                  and fall back to {actor_role:'both', multi:true} for every
@@ -2246,7 +2292,7 @@
                    class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
                    style="color: var(--text-primary); text-decoration:none;">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"/></svg>
-                    Open pack
+                    Download viewing pack
                 </a>
                 <template x-if="panelData.linked_viewing_pack.property_count > 0">
                     <span class="inline-flex items-center gap-4">
@@ -2273,7 +2319,7 @@
                         class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
                         style="color: var(--brand-button); background:none; border:none; cursor:pointer;">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-                    Prepare viewing pack
+                    Create viewing pack
                 </button>
             </form>
         </template>

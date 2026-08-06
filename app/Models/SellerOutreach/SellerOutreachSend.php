@@ -25,10 +25,16 @@ class SellerOutreachSend extends Model
     public const OUTCOME_NO_RESPONSE = 'no_response';
     public const OUTCOME_NOT_INTERESTED = 'not_interested';
     public const OUTCOME_BOUNCED = 'bounced';
+    // AT-323 — the honest terminal state when the agent confirms on the sent page
+    // that WhatsApp did NOT actually go out. Never counted as a reached send.
+    public const OUTCOME_NOT_SENT = 'not_sent';
 
     protected $fillable = [
         'agency_id',
-        'contact_id', 'property_id', 'agent_id', 'template_id', 'channel',
+        'contact_id', 'property_id', 'agent_id', 'template_id',
+        // AT-323 — link to the mirrored provisional Communication (comms archive),
+        // so a "not sent" answer flips both this row's outcome AND the comm's send_status.
+        'communication_id', 'channel',
         'subject_snapshot', 'body_snapshot', 'facts_snapshot',
         'tracking_short_code', 'opt_out_token', 'recipient_phone_snapshot', 'recipient_email_snapshot',
         'address_snapshot', 'suburb_snapshot',
@@ -61,6 +67,12 @@ class SellerOutreachSend extends Model
     public function template(): BelongsTo
     {
         return $this->belongsTo(SellerOutreachTemplate::class, 'template_id');
+    }
+
+    /** AT-323 — the mirrored provisional Communication this send was logged as. */
+    public function communication(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Communications\Communication::class, 'communication_id');
     }
 
     public function clicks(): HasMany

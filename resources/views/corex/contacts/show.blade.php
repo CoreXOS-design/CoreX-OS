@@ -134,40 +134,129 @@
                     waMessage: 'Hi {{ addslashes($contact->first_name) }}',
                     emailSubject: 'Hi {{ addslashes($contact->first_name) }}',
                     emailBody: 'Hi {{ addslashes($contact->first_name) }}',
+                    // Outreach number/email selector — the agent picks WHICH of the
+                    // contact's numbers/emails a send goes to, defaulting to the
+                    // Phase 3 primary/WhatsApp/email designations but changeable
+                    // before every send. Same selector data feeds the Phase 4
+                    // could-not-send reselect-and-resend picker (contact_phone_id /
+                    // contact_email_id) — one source of truth for which number.
+                    waNumbers: @js($contact->phones->map(fn($p) => [
+                        'id' => $p->id,
+                        'display' => $p->phone . ($p->label ? ' (' . $p->label . ')' : '') . ($p->is_whatsapp ? ' — WhatsApp' : ''),
+                        'deeplink' => \App\Support\WhatsAppNumberFormatter::forDeepLink($p->phone, $p->dial_code),
+                    ])->values()),
+                    selectedPhoneId: {{ $contact->whatsAppPhone()?->id ?? 'null' }},
+                    emailAddresses: @js($contact->emails->map(fn($e) => [
+                        'id' => $e->id,
+                        'display' => $e->email . ($e->label ? ' (' . $e->label . ')' : ''),
+                        'email' => $e->email,
+                    ])->values()),
+                    selectedEmailId: {{ $contact->primaryEmail?->id ?? 'null' }},
                     async increment(channel, payload = {}) {
-                        // Optimistic bump for instant feedback; reconciled by the
-                        // server's derived count below (AT-59).
-                        if (channel === 'whatsapp') this.waCount++;
-                        else this.emailCount++;
+                        // AT-323 — do NOT optimistically bump the WhatsApp counter: a WhatsApp
+                        // send is born not_delivered (uncounted) and only counts once the agent
+                        // answers Yes in the modal. Email is system-sent (no modal), so it keeps
+                        // the optimistic bump. Either way the server derived count is authoritative.
+                        // NOTE: no literal double-quotes in comments here — this x-data sits inside
+                        // a double-quoted attribute and a stray one closes it, leaking JS as text.
+                        if (channel === 'email') this.emailCount++;
                         try {
                             const res = await fetch('{{ route('corex.contacts.increment', $contact) }}', {
                                 method: 'POST',
-                                headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'X-Requested-With': 'XMLHttpRequest' },
-                                body: JSON.stringify({ channel, subject: payload.subject ?? null, body: payload.body ?? null })
+                                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'X-Requested-With': 'XMLHttpRequest' },
+                                body: JSON.stringify({
+                                    channel, subject: payload.subject ?? null, body: payload.body ?? null,
+                                    contact_phone_id: payload.contactPhoneId ?? null,
+                                    contact_email_id: payload.contactEmailId ?? null,
+                                    resent_from_communication_id: payload.resentFrom ?? null,
+                                })
                             });
                             const data = await res.json();
                             if (channel === 'whatsapp') this.waCount = data.count;
                             else this.emailCount = data.count;
                             this.lastContactedLabel = data.last_contacted;
                             this.lastContactedRelative = data.last_contacted_relative;
+                            return data; // AT-323 — carries communication_id for the send-confirm modal
                         } catch (e) {
                             // Network blip: keep the optimistic bump; the archive
                             // remains the source of truth on next page load.
+                            return null;
                         }
                     },
-                    sendWa() {
-                        let phone = '{{ preg_replace('/[^0-9]/', '', $contact->phone ?? '') }}';
-                        if (phone.startsWith('0')) phone = '27' + phone.substring(1);
-                        window.location.href = 'whatsapp://send?phone=' + phone + '&text=' + encodeURIComponent(this.waMessage);
-                        this.increment('whatsapp', { body: this.waMessage });
+                    // AT-323 — post-send did-it-send confirmation. WhatsApp is client-side
+                    // (opens the app); CoreX can't confirm delivery, so we ask. A No answer flags
+                    // the just-recorded send not_delivered instead of leaving a false sent.
+                    // NOTE: no literal double-quote characters in comments here — this x-data
+                    // sits inside a double-quoted HTML attribute; a stray one closes it early
+                    // and leaks the rest of the JS onto the page as visible text.
+                    sentConfirm: { open: false, communicationId: null },
+                    async confirmSent(didSend) {
+                        const commId = this.sentConfirm.communicationId;
+                        this.sentConfirm.open = false;
+                        if (!commId) return;
+                        if (!didSend) return; // No — the row was born not_delivered; nothing counts, nothing to do.
+                        // Yes, I sent it — the ONLY path a WhatsApp send reaches sent (+1 the counter).
+                        try {
+                            const res = await fetch('{{ url('corex/contacts/'.$contact->id.'/communications') }}/' + commId + '/mark-sent', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'X-Requested-With': 'XMLHttpRequest' },
+                                body: '{}'
+                            });
+                            const d = await res.json();
+                            if (d && typeof d.count === 'number') this.waCount = d.count;
+                        } catch (e) {
+                            // network blip — the archive reconciles the count on next load
+                        }
+                    },
+                    // AT-323 — Resend from the Recent Sends list re-runs the FULL flow (open
+                    // WhatsApp + modal), never a silent record. Dispatched as a window event so
+                    // the Recent Sends partial (a separate component) can trigger it.
+                    resendWa(detail) {
+                        if (detail && detail.phoneId) this.selectedPhoneId = detail.phoneId;
                         this.showWa = false;
+                        this.sendWa(detail && detail.resendFrom ? detail.resendFrom : null);
+                    },
+                    async sendWa(resentFrom = null) {
+                        // Contact-details Phase 1 fix — this used to strip digits and
+                        // blindly replace a leading '0' with South Africa's '27', so a
+                        // USA (or any non-ZA) number could never resolve on WhatsApp: a
+                        // number typed with a local-style leading 0 got a ZA country code
+                        // prepended to non-ZA digits (agents literally could not reach a
+                        // USA contact — can't load a USA number. The digits are built
+                        // server-side by WhatsAppNumberFormatter using THIS number's own
+                        // dial code (contact_phones.dial_code), never a hardcoded '27'.
+                        // Outreach selector — the agent's chosen number (selectedPhoneId),
+                        // defaulting to the Phase 3 WhatsApp/primary designation but
+                        // changeable per send via the Send-to dropdown below.
+                        const target = this.waNumbers.find(p => p.id === this.selectedPhoneId) ?? this.waNumbers[0];
+                        if (!target) { alert('This contact has no phone number.'); return; }
+                        // AT-323 — ORDER MATTERS: open WhatsApp FIRST, in a NEW TAB, so the agent
+                        // can actually send. This runs inside the click gesture, so the new tab is
+                        // not popup-blocked; wa.me opens WhatsApp Web on desktop / the app on mobile
+                        // (universal), so it opens regardless of platform. CoreX stays in this tab
+                        // and THEN asks did-you-send below (a modal that replaced the open would be
+                        // the never-opens bug).
+                        // NOTE: keep this comment free of literal double-quotes — it lives inside the
+                        // double-quoted x-data attribute and a stray one closes it, leaking JS as text.
+                        window.open('https://wa.me/' + target.deeplink + '?text=' + encodeURIComponent(this.waMessage), '_blank', 'noopener');
+                        this.showWa = false;
+                        const data = await this.increment('whatsapp', { body: this.waMessage, contactPhoneId: target.id, resentFrom });
+                        if (data && data.communication_id) {
+                            this.sentConfirm = { open: true, communicationId: data.communication_id };
+                        }
                     },
                     sendEmail() {
-                        window.location.href = 'mailto:' + encodeURIComponent({{ Illuminate\Support\Js::from($contact->email) }}) + '?subject=' + encodeURIComponent(this.emailSubject) + '&body=' + encodeURIComponent(this.emailBody);
-                        this.increment('email', { subject: this.emailSubject, body: this.emailBody });
+                        const target = this.emailAddresses.find(e => e.id === this.selectedEmailId) ?? this.emailAddresses[0];
+                        if (!target) { alert('This contact has no email address.'); return; }
+                        window.location.href = 'mailto:' + encodeURIComponent(target.email) + '?subject=' + encodeURIComponent(this.emailSubject) + '&body=' + encodeURIComponent(this.emailBody);
+                        this.increment('email', { subject: this.emailSubject, body: this.emailBody, contactEmailId: target.id });
                         this.showEmail = false;
                     }
-                 }" class="space-y-3">
+                 }" @at323-resend.window="resendWa($event.detail)" class="space-y-3">
+
+                {{-- AT-323 — SHARED post-send confirmation modal (same component used by the
+                     outreach pitch-send). Driven by this component's sentConfirm / confirmSent. --}}
+                @include('partials.whatsapp-send-confirm-modal')
 
                 {{-- 3 boxes in a row --}}
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -198,6 +287,33 @@
                                             style="color:var(--text-muted); border:1px solid var(--border);">
                                         Pick Date
                                     </button>
+                                    {{-- AT-372 — mark contacted AND write a note in one step. Own
+                                         nested scope so the big send component's x-data is untouched. --}}
+                                    <div x-data="{ cnOpen: false }" class="contents">
+                                        <button type="button" @click="cnOpen = true"
+                                                class="text-[10px] font-semibold px-2.5 py-1 rounded-md"
+                                                style="color:var(--ds-green,#16a34a); border:1px solid color-mix(in srgb, var(--ds-green,#16a34a) 40%, transparent);">
+                                            + Contacted &amp; note
+                                        </button>
+                                        <div x-show="cnOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center px-4" style="background:rgba(0,0,0,0.45);">
+                                            <div class="w-full max-w-sm rounded-lg p-5" style="background:var(--surface,#fff); border:1px solid var(--border,#e5e7eb);">
+                                                <div class="text-base font-semibold mb-1" style="color:var(--text-primary,#111827);">Mark as contacted</div>
+                                                <p class="text-xs mb-3" style="color:var(--text-muted,#6b7280);">Sets Last Contacted to now and saves your note — in one step.</p>
+                                                <form method="POST" action="{{ route('corex.contacts.notes.store', $contact) }}">
+                                                    @csrf
+                                                    <input type="hidden" name="mark_contacted" value="1">
+                                                    <input type="hidden" name="redirect_to" value="info">
+                                                    <textarea name="body" rows="3" required placeholder="What happened? e.g. Called — wants a viewing Saturday"
+                                                              class="w-full rounded-md px-3 py-2 text-sm resize-none"
+                                                              style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"></textarea>
+                                                    <div class="flex gap-2 mt-3">
+                                                        <button type="submit" class="corex-btn-primary text-sm flex-1">Mark contacted + save note</button>
+                                                        <button type="button" @click="cnOpen = false" class="text-sm" style="color:var(--text-muted);">Cancel</button>
+                                                    </div>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </template>
                             <template x-if="editing">
@@ -266,6 +382,16 @@
                         <div class="text-xs font-bold" style="color:#25d366;">WhatsApp Message</div>
                     </div>
                     <div class="mb-3">
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Send to</label>
+                        <select x-model.number="selectedPhoneId"
+                                class="w-full rounded-md px-3 py-2 text-sm"
+                                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            <template x-for="p in waNumbers" :key="p.id">
+                                <option :value="p.id" x-text="p.display"></option>
+                            </template>
+                        </select>
+                    </div>
+                    <div class="mb-3">
                         <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Template</label>
                         <select @change="waMessage = $el.value"
                                 class="w-full rounded-md px-3 py-2 text-sm"
@@ -314,6 +440,16 @@
                         <div class="text-xs font-bold" style="color:var(--brand-icon, #0ea5e9);">Email Message</div>
                     </div>
                     <div class="mb-3">
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Send to</label>
+                        <select x-model.number="selectedEmailId"
+                                class="w-full rounded-md px-3 py-2 text-sm"
+                                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            <template x-for="e in emailAddresses" :key="e.id">
+                                <option :value="e.id" x-text="e.display"></option>
+                            </template>
+                        </select>
+                    </div>
+                    <div class="mb-3">
                         <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Template</label>
                         <select @change="emailSubject = 'Hi {{ addslashes($contact->first_name) }}'; emailBody = $el.value"
                                 class="w-full rounded-md px-3 py-2 text-sm"
@@ -346,6 +482,8 @@
                 @endif
             </div>
 
+            @include('corex.contacts._recent-sends')
+
             <form method="POST" action="{{ route('corex.contacts.update', $contact) }}" class="space-y-6">
                 @csrf @method('PUT')
                 <input type="hidden" name="_from_show" value="1">
@@ -372,10 +510,10 @@
                             @error('parent_type_ids')<p class="mt-1 text-[11px]" style="color:var(--ds-crimson, #c41e3a);">{{ $message }}</p>@enderror
                         </div>
                         <div class="sm:col-span-2 lg:col-span-3">
-                            @include('corex.contacts._identifier-repeater', ['kind' => 'phones', 'type' => 'text', 'title' => 'Phone Numbers', 'addLabel' => 'phone', 'placeholder' => 'e.g. 082 123 4567', 'existing' => $contact->phones()->orderByDesc('is_primary')->orderBy('id')->get()])
+                            @include('corex.contacts._identifier-repeater', ['kind' => 'phones', 'type' => 'text', 'title' => 'Phone Numbers', 'addLabel' => 'phone', 'placeholder' => 'e.g. 082 123 4567', 'existing' => $contact->phones()->orderByDesc('is_primary')->orderBy('id')->get(), 'labels' => $contactIdentifierLabels])
                         </div>
                         <div class="sm:col-span-2 lg:col-span-3">
-                            @include('corex.contacts._identifier-repeater', ['kind' => 'emails', 'type' => 'email', 'title' => 'Emails (optional — but a contact needs at least one phone or email)', 'addLabel' => 'email', 'placeholder' => 'e.g. john@example.com', 'existing' => $contact->emails()->orderByDesc('is_primary')->orderBy('id')->get()])
+                            @include('corex.contacts._identifier-repeater', ['kind' => 'emails', 'type' => 'email', 'title' => 'Emails (optional — but a contact needs at least one phone or email)', 'addLabel' => 'email', 'placeholder' => 'e.g. john@example.com', 'existing' => $contact->emails()->orderByDesc('is_primary')->orderBy('id')->get(), 'labels' => $contactIdentifierLabels])
                         </div>
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID Number <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
@@ -520,57 +658,7 @@
                     </div>
                 </div>
 
-                {{-- Assigned Agents — the operational Primary/Co-Agent (agent_id /
-                     second_agent_id). created_by stays the immutable capture audit
-                     (shown as "Captured by"), never as the assigned agent. AT-118:
-                     changing the assignment requires contacts.reassign_agent. --}}
-                @php $canReassign = auth()->user()?->hasPermission('contacts.reassign_agent'); @endphp
-                <div class="pt-2 border-t" style="border-color:var(--border);">
-                    <h3 class="text-xs font-bold uppercase tracking-widest pt-4 mb-1" style="color:var(--text-muted);">Assigned Agents</h3>
-                    <p class="text-[11px] mb-3" style="color:var(--text-muted);">The agent(s) assigned to this contact. Captured by {{ $contact->createdBy?->name ?? 'Unknown' }}.</p>
-                    @if($canReassign)
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Primary Agent</label>
-                            <select name="agent_id"
-                                    class="w-full rounded-md px-3 py-2 text-sm"
-                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                                <option value="">— Unassigned —</option>
-                                @foreach($agencyAgents as $agent)
-                                    <option value="{{ $agent->id }}" @selected((int) old('agent_id', $contact->agent_id) === $agent->id)>{{ $agent->name }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Co-Agent <span class="font-normal normal-case">(optional)</span></label>
-                            <select name="second_agent_id"
-                                    class="w-full rounded-md px-3 py-2 text-sm"
-                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                                <option value="">— None —</option>
-                                @foreach($agencyAgents as $agent)
-                                    <option value="{{ $agent->id }}" @selected((int) old('second_agent_id', $contact->second_agent_id) === $agent->id)>{{ $agent->name }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                    </div>
-                    @error('second_agent_id')
-                        <p class="text-[11px] mt-1" style="color:var(--ds-crimson);">{{ $message }}</p>
-                    @enderror
-                    @else
-                    {{-- No Silent Locks: show the current assignment read-only + why it's locked. --}}
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Primary Agent</label>
-                            <p class="text-sm" style="color:var(--text-primary);">{{ $contact->agent?->name ?? 'Unassigned' }}</p>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Co-Agent</label>
-                            <p class="text-sm" style="color:var(--text-primary);">{{ $contact->secondAgent?->name ?? 'None' }}</p>
-                        </div>
-                    </div>
-                    <p class="text-[11px] mt-2" style="color:var(--text-muted);">Only a manager can change the agent assigned to a contact. Ask an admin or branch manager to reassign it.</p>
-                    @endif
-                </div>
+                @include('corex.contacts._assigned-agents')
 
                 <div class="flex items-center gap-3 pt-2">
                     <button type="submit" class="corex-btn-primary text-sm">Save Changes</button>
@@ -586,79 +674,7 @@
              ════════════════════════════ --}}
         <div x-show="activeTab === 'properties'" x-cloak class="p-6 space-y-6">
 
-            {{-- Linked properties list --}}
-            <div>
-                <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">
-                    Linked Properties ({{ $contact->properties->count() }})
-                </h3>
-                @forelse($contact->properties as $prop)
-                @php
-                $propThumb = $prop->thumbFor($prop->gallery_images_json[0] ?? ($prop->dawn_images_json[0] ?? null));
-                $propSc = [
-                    'active' => 'var(--ds-green)',
-                    'draft' => 'var(--text-muted)',
-                    'sold' => 'var(--brand-icon)',
-                    'withdrawn' => 'var(--ds-amber)',
-                ][$prop->status] ?? 'var(--text-muted)';
-                @endphp
-                <div class="flex items-center gap-3 px-4 py-3 rounded-md mb-2" style="background:var(--surface-2); border:1px solid var(--border);">
-                    {{-- Thumb --}}
-                    <div class="w-12 h-12 rounded-md overflow-hidden flex-shrink-0" style="background:var(--surface);">
-                        @if($propThumb)
-                        <img src="{{ $propThumb }}" alt="" class="w-full h-full object-cover">
-                        @else
-                        <div class="w-full h-full flex items-center justify-center">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-6 h-6" style="color:var(--text-muted);opacity:.4;"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" /></svg>
-                        </div>
-                        @endif
-                    </div>
-                    <div class="flex-1 min-w-0">
-                        <a href="{{ route('corex.properties.show', $prop) }}"
-                           class="text-sm font-semibold no-underline hover:underline"
-                           style="color:var(--text-primary);">{{ $prop->title }}</a>
-                        {{-- AT-243 — same derived truth, read from the other side: this contact is the
-                             one who actually bought this property (buyer on its granted/registered deal). --}}
-                        @if(in_array((int) $contact->id, $prop->purchaserContactIds(), true))
-                            <span class="ds-badge ds-badge-success" style="margin-left:.4rem;"
-                                  title="This contact bought this property — they are the buyer on its granted deal.">Purchaser</span>
-                        @endif
-                        <div class="text-xs mt-0.5 flex flex-wrap gap-2" style="color:var(--text-muted);">
-                            <span style="color:{{ $propSc }};">{{ ucfirst($prop->status) }}</span>
-                            <span>{{ $prop->formattedPrice() }}</span>
-                            <span>{{ $prop->buildDisplayAddress() }}</span>
-                            @if($prop->pivot->role)<span class="font-semibold" style="color:var(--brand-icon, #0ea5e9);">{{ ucfirst($prop->pivot->role) }}</span>@endif
-                        </div>
-                    </div>
-                    <form method="POST" action="{{ route('corex.contacts.properties.unlink', [$contact, $prop]) }}"
-                          onsubmit="return confirm('Unlink this property from {{ addslashes($contact->full_name) }}?')">
-                        @csrf @method('DELETE')
-                        <button type="submit" class="text-xs font-semibold px-3 py-1.5 rounded-md transition-all duration-300 flex-shrink-0"
-                                style="color: var(--ds-crimson); border: 1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);">Unlink</button>
-                    </form>
-                </div>
-                @if(in_array($prop->pivot->role, ['owner', 'seller', 'landlord', 'lessor']))
-                    @php
-                        $sellerLink = \App\Models\PropertySellerLink::ensureExists($prop->id, $contact->id);
-                        $sellerLinkUrl = url('/property/live/' . $sellerLink->token);
-                    @endphp
-                    <div class="flex items-center gap-2 px-4 pb-2 -mt-1 text-[10px]" style="color:var(--text-muted);">
-                        <span style="color:var(--brand-icon);">Seller Live Link</span>
-                        <span class="truncate max-w-[200px]" title="{{ $sellerLinkUrl }}">{{ $sellerLinkUrl }}</span>
-                        <button type="button" onclick="navigator.clipboard.writeText('{{ $sellerLinkUrl }}'); this.textContent='Copied!';"
-                                class="font-medium px-1.5 py-0.5 rounded-md flex-shrink-0" style="color: var(--ds-green, #059669); background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent);">Copy</button>
-                    </div>
-                @endif
-                @empty
-                <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
-                    <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
-                         style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" /></svg>
-                    </div>
-                    <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No properties linked</h3>
-                    <p class="text-sm mb-4" style="color: var(--text-muted);">Use the search below to link an existing property to this contact.</p>
-                </div>
-                @endforelse
-            </div>
+            @include('corex.contacts._linked-properties')
 
             {{-- Link property by address search --}}
             <div class="rounded-md p-5" style="background: var(--surface-2); border: 1px solid var(--border);">
@@ -700,28 +716,7 @@
                 </div>
             </div>
 
-            {{-- AT-60 — Capture an address to START A NEW PROPERTY. This is a
-                 property-creation aid: it persists to the contact's structured
-                 property-address columns and transfers onto a new Property via
-                 "Use for property". It is INDEPENDENT of the contact's residential
-                 address (the free-text field on the Info tab) and never writes to it. --}}
-            @if(session('held_address_warning'))
-                @php $heldWarn = session('held_address_warning'); @endphp
-                <div class="rounded-md p-4 mb-4" role="alert"
-                     style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 45%, transparent);">
-                    <div class="flex items-start gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:var(--ds-amber, #f59e0b);"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
-                        <div class="text-sm" style="color:var(--text-primary);">
-                            <strong>HFC already has this property on its books</strong> — {{ $heldWarn['label'] ?? '' }}.
-                            @if(!empty($heldWarn['address'])) <span style="color:var(--text-secondary);">({{ $heldWarn['address'] }})</span>@endif
-                            <div class="mt-1 text-xs" style="color:var(--text-secondary);">
-                                Check the existing record before canvassing the owner —
-                                @if(!empty($heldWarn['property_url']))<a href="{{ $heldWarn['property_url'] }}" target="_blank" rel="noopener" class="font-semibold" style="color:var(--brand-icon, #2563eb);">open the property record</a>@elseif(!empty($heldWarn['tracked_url']))<a href="{{ $heldWarn['tracked_url'] }}" target="_blank" rel="noopener" class="font-semibold" style="color:var(--brand-icon, #2563eb);">open property intel</a>@endif.
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            @endif
+            @include('corex.contacts._held-address-warning')
 
             <div class="rounded-md p-5" style="background: var(--surface-2); border: 1px solid var(--border);"
                  x-data="contactAddress({{ Js::from([
@@ -1067,7 +1062,12 @@
                               placeholder="Write a note…"
                               class="w-full rounded-md px-3 py-2 text-sm resize-none"
                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"></textarea>
-                    <div class="flex justify-end">
+                    {{-- AT-372 — two submit buttons: plain add, or add AND mark contacted (writes the
+                         same explicit contacted signal the Last Contacted tile uses; tile updates). --}}
+                    <div class="flex justify-end gap-2 flex-wrap">
+                        <button type="submit" name="mark_contacted" value="1"
+                                class="text-sm font-semibold px-3 py-2 rounded-md"
+                                style="background:var(--ds-green,#16a34a); color:#fff;">Add note &amp; mark contacted</button>
                         <button type="submit" class="corex-btn-primary text-sm">Add Note</button>
                     </div>
                 </form>
@@ -1112,361 +1112,21 @@
              ════════════════════════════ --}}
         <div x-show="activeTab === 'drive'" x-cloak class="p-6 space-y-5" id="tab-drive"
              x-data="{ dragging: false }">
-
-            {{-- Upload area --}}
-            <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
-                <div class="text-xs font-semibold mb-3" style="color:var(--text-secondary);">Upload File</div>
-                <form method="POST" action="{{ route('corex.contacts.documents.store', $contact) }}"
-                      enctype="multipart/form-data" class="space-y-3">
-                    @csrf
-                    <div @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false"
-                         @drop.prevent="dragging = false; $refs.fileInput.files = $event.dataTransfer.files"
-                         :style="dragging ? 'border-color:var(--brand-icon, #0ea5e9); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);' : ''"
-                         class="border-2 border-dashed rounded-md p-8 text-center transition-all duration-300 cursor-pointer"
-                         style="border-color:var(--border);"
-                         @click="$refs.fileInput.click()">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 mx-auto mb-2 opacity-30"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" /></svg>
-                        <div class="text-sm" style="color:var(--text-secondary);">Drag & drop or click to upload</div>
-                        <div class="text-xs mt-1" style="color:var(--text-muted);">Max 20 MB — images, PDFs, documents</div>
-                        <input x-ref="fileInput" type="file" name="file" class="hidden"
-                               @change="$el.closest('form').querySelector('.file-name').textContent = $el.files[0]?.name ?? ''">
-                    </div>
-                    <div class="grid grid-cols-2 gap-3">
-                        <select name="document_type_id" class="text-xs rounded-md border px-2 py-1.5" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
-                            <option value="">Document Type (optional)</option>
-                            @foreach($documentTypes as $dt)
-                            <option value="{{ $dt->id }}">{{ $dt->label }}</option>
-                            @endforeach
-                        </select>
-                        <select name="property_id" class="text-xs rounded-md border px-2 py-1.5" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
-                            <option value="">Link to Property (optional)</option>
-                            @foreach($contact->properties as $prop)
-                            <option value="{{ $prop->id }}">{{ trim(($prop->unit_number ? 'Unit '.$prop->unit_number.', ' : '').($prop->complex_name ? $prop->complex_name.', ' : '').($prop->address ? $prop->address.', ' : '').($prop->suburb ?? ''), ', ') ?: 'Property #'.$prop->id }}</option>
-                            @endforeach
-                        </select>
-                    </div>
-                    <div class="flex items-center justify-between gap-3">
-                        <span class="file-name text-xs truncate" style="color:var(--text-muted);"></span>
-                        <button type="submit" class="corex-btn-primary text-sm flex-shrink-0">Upload</button>
-                    </div>
-                </form>
-            </div>
-
-            {{-- Grouped file list --}}
-            @if($contact->documents->isNotEmpty())
-                <div class="text-xs" style="color:var(--text-muted);">{{ $contact->documents->count() }} file{{ $contact->documents->count() !== 1 ? 's' : '' }}</div>
-
-                @foreach($driveLinkedGroups as $propId => $docs)
-                @php $prop = $drivePropertyMap->get($propId); @endphp
-                <div class="rounded-md overflow-hidden" style="border: 1px solid var(--border);">
-                    <div class="px-4 py-2.5 flex items-center gap-2" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 opacity-50"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" /></svg>
-                        <span class="text-xs font-semibold" style="color:var(--text-primary);">{{ $prop ? (trim(($prop->unit_number ? 'Unit '.$prop->unit_number.', ' : '').($prop->complex_name ? $prop->complex_name.', ' : '').($prop->address ? $prop->address.', ' : '').($prop->suburb ?? ''), ', ') ?: 'Property #'.$prop->id) : 'Unknown Property' }}</span>
-                    </div>
-                    @foreach($docs as $doc)
-                    @include('corex.contacts._drive-row', ['doc' => $doc, 'contact' => $contact, 'documentTypes' => $documentTypes])
-                    @endforeach
-                </div>
-                @endforeach
-
-                @if($driveUnlinkedDocs->isNotEmpty())
-                <div class="rounded-md overflow-hidden" style="border: 1px solid var(--border);">
-                    <div class="px-4 py-2.5" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
-                        <span class="text-xs font-semibold" style="color:var(--text-muted);">Not Property-Linked</span>
-                    </div>
-                    @foreach($driveUnlinkedDocs as $doc)
-                    @include('corex.contacts._drive-row', ['doc' => $doc, 'contact' => $contact, 'documentTypes' => $documentTypes])
-                    @endforeach
-                </div>
-                @endif
-            @else
-            <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
-                <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
-                     style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" /></svg>
-                </div>
-                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No files uploaded</h3>
-                <p class="text-sm" style="color: var(--text-muted);">Drop a file in the upload area above to attach it to this contact.</p>
-            </div>
-            @endif
+            @include('corex.contacts._drive-tab-body')
         </div>
 
         {{-- ════════════════════════════
              FICA COMPLIANCE TAB
              ════════════════════════════ --}}
         <div x-show="activeTab === 'fica'" x-cloak class="p-6 space-y-6" id="tab-fica">
-
-            {{-- FICA status indicator --}}
-            @php
-                $ficaDocs = $contact->signedDocuments()
-                    ->wherePivot('document_type', 'fica')
-                    ->wherePivot('is_signed', true)
-                    ->orderByPivot('signed_at', 'desc')
-                    ->get();
-                $ficaSubmissions = $contact->ficaSubmissions()
-                    ->whereIn('status', ['approved', 'submitted', 'under_review'])
-                    ->with('verifiedBy')
-                    ->get();
-                $approvedFicaSubs = $ficaSubmissions->where('status', 'approved');
-                $allSignedDocs = $contact->signedDocuments()
-                    ->wherePivot('is_signed', true)
-                    ->orderByPivot('signed_at', 'desc')
-                    ->get();
-            @endphp
-
-            <div class="rounded-md p-5" style="border: 1px solid var(--border); background: var(--surface-2);">
-                <div class="flex items-center gap-4">
-                    @if($ficaStatus === 'complete')
-                        <div class="w-12 h-12 rounded-full flex items-center justify-center text-lg"
-                             style="background: color-mix(in srgb, var(--ds-green) 15%, transparent); color: var(--ds-green);">
-                            &#10003;
-                        </div>
-                        <div>
-                            <h3 class="text-base font-bold" style="color:var(--text-primary);">FICA Complete</h3>
-                            <p class="text-sm" style="color:var(--text-secondary);">
-                                @if($approvedFicaSubs->isNotEmpty())
-                                    {{ $approvedFicaSubs->count() }} approved FICA submission{{ $approvedFicaSubs->count() !== 1 ? 's' : '' }}.
-                                    Latest approved {{ $approvedFicaSubs->first()->verified_at?->format('d M Y') }}.
-                                @elseif($ficaDocs->isNotEmpty())
-                                    {{ $ficaDocs->count() }} FICA document{{ $ficaDocs->count() !== 1 ? 's' : '' }} on file.
-                                    @if($ficaDocs->first()?->pivot?->signed_at)
-                                        Latest signed {{ \Carbon\Carbon::parse($ficaDocs->first()->pivot->signed_at)->format('d M Y') }}.
-                                    @endif
-                                @endif
-                            </p>
-                        </div>
-                    @elseif($ficaStatus === 'expiring')
-                        <div class="w-12 h-12 rounded-full flex items-center justify-center text-lg"
-                             style="background: color-mix(in srgb, var(--ds-amber) 15%, transparent); color: var(--ds-amber);">
-                            &#9888;
-                        </div>
-                        <div>
-                            <h3 class="text-base font-bold" style="color:var(--text-primary);">FICA Expiring Soon</h3>
-                            <p class="text-sm" style="color:var(--text-secondary);">FICA documents are nearing expiry. Consider requesting updated documentation.</p>
-                        </div>
-                    @else
-                        <div class="w-12 h-12 rounded-full flex items-center justify-center text-lg"
-                             style="background: color-mix(in srgb, var(--ds-crimson) 15%, transparent); color: var(--ds-crimson);">
-                            &#10007;
-                        </div>
-                        <div>
-                            <h3 class="text-base font-bold" style="color:var(--text-primary);">No FICA on File</h3>
-                            <p class="text-sm" style="color:var(--text-secondary);">This contact has no signed FICA documents. FICA compliance is required before transacting.</p>
-                        </div>
-                    @endif
-                </div>
-            </div>
-
-            {{-- FICA submissions (new system) --}}
-            @if($ficaSubmissions->isNotEmpty())
-            <div>
-                <h4 class="text-sm font-bold uppercase tracking-wide mb-3" style="color:var(--text-muted);">FICA Submissions</h4>
-                <div class="space-y-2">
-                    @foreach($ficaSubmissions as $sub)
-                    @php
-                        $subBadge = match($sub->status) {
-                            'approved' => 'ds-badge-success',
-                            'submitted' => 'ds-badge-info',
-                            'under_review' => 'ds-badge-warning',
-                            default => 'ds-badge-default',
-                        };
-                    @endphp
-                    <div class="flex items-center justify-between p-3 rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
-                        <div class="flex items-center gap-3">
-                            <svg class="w-5 h-5 flex-shrink-0" style="color:var(--brand-icon);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
-                            </svg>
-                            <div>
-                                <p class="text-sm font-semibold" style="color:var(--text-primary);">
-                                    FICA Form — {{ ucfirst($sub->entity_type) }}
-                                    <span class="ds-badge {{ $subBadge }} ml-1">{{ $sub->status_label }}</span>
-                                </p>
-                                <p class="text-xs" style="color:var(--text-muted);">
-                                    Submitted {{ $sub->signed_at?->format('d M Y') }}
-                                    @if($sub->status === 'approved' && $sub->verifiedBy)
-                                        &middot; Approved by {{ $sub->verifiedBy->name }} on {{ $sub->verified_at?->format('d M Y') }}
-                                        @if($sub->risk_rating)
-                                            &middot; Risk: {{ [1 => 'Low', 2 => 'Medium', 3 => 'High'][$sub->risk_rating] ?? '' }}
-                                        @endif
-                                    @endif
-                                </p>
-                            </div>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            @if($sub->status === 'approved')
-                            <a href="{{ route('compliance.fica.pdf', $sub) }}" target="_blank"
-                               class="text-xs font-semibold px-3 py-1.5 rounded-md transition-all"
-                               style="color:var(--text-muted); border:1px solid var(--border);" title="Download PDF">
-                                PDF
-                            </a>
-                            @endif
-                            <a href="{{ route('compliance.fica.show', $sub) }}"
-                               class="text-xs font-semibold px-3 py-1.5 rounded-md transition-all"
-                               style="color:var(--brand-icon); border:1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent);">
-                                View
-                            </a>
-                        </div>
-                    </div>
-                    @endforeach
-                </div>
-            </div>
-            @endif
-
-            {{-- Legacy FICA documents (e-sign system) --}}
-            @if($ficaDocs->isNotEmpty())
-            <div>
-                <h4 class="text-sm font-bold uppercase tracking-wide mb-3" style="color:var(--text-muted);">FICA Documents (E-Sign)</h4>
-                <div class="space-y-2">
-                    @foreach($ficaDocs as $doc)
-                    <div class="flex items-center justify-between p-3 rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
-                        <div class="flex items-center gap-3">
-                            <svg class="w-5 h-5 flex-shrink-0" style="color:var(--brand-icon);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-                            </svg>
-                            <div>
-                                <p class="text-sm font-semibold" style="color:var(--text-primary);">{{ $doc->name }}</p>
-                                <p class="text-xs" style="color:var(--text-muted);">
-                                    {{ ucfirst(str_replace('_', ' ', $doc->pivot->party_role ?? '')) }}
-                                    &middot; Signed {{ $doc->pivot->signed_at ? \Carbon\Carbon::parse($doc->pivot->signed_at)->format('d M Y') : 'N/A' }}
-                                </p>
-                            </div>
-                        </div>
-                        @if($doc->pivot->signed_pdf_path)
-                        <a href="{{ route('docuperfect.signatures.download', $doc) }}"
-                           class="text-xs font-semibold px-3 py-1.5 rounded-md transition-all"
-                           style="color:var(--brand-icon); border:1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent);">
-                            Download
-                        </a>
-                        @endif
-                    </div>
-                    @endforeach
-                </div>
-            </div>
-            @endif
-
-            {{-- All signed documents for this contact --}}
-            @if($allSignedDocs->isNotEmpty())
-            <div>
-                <h4 class="text-sm font-bold uppercase tracking-wide mb-3" style="color:var(--text-muted);">All Signed Documents</h4>
-                <div class="space-y-2">
-                    @foreach($allSignedDocs as $doc)
-                    <div class="flex items-center justify-between p-3 rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
-                        <div class="flex items-center gap-3">
-                            <svg class="w-5 h-5 flex-shrink-0" style="color:var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-                            </svg>
-                            <div>
-                                <p class="text-sm font-semibold" style="color:var(--text-primary);">{{ $doc->name }}</p>
-                                <p class="text-xs" style="color:var(--text-muted);">
-                                    {{ ucfirst(str_replace('_', ' ', $doc->pivot->party_role ?? '')) }}
-                                    &middot; {{ ucfirst($doc->pivot->document_type ?? 'document') }}
-                                    &middot; {{ $doc->pivot->signed_at ? \Carbon\Carbon::parse($doc->pivot->signed_at)->format('d M Y') : '' }}
-                                </p>
-                            </div>
-                        </div>
-                        @if($doc->pivot->signed_pdf_path)
-                        <a href="{{ route('docuperfect.signatures.download', $doc) }}"
-                           class="text-xs font-semibold px-3 py-1.5 rounded-md transition-all"
-                           style="color:var(--brand-icon); border:1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent);">
-                            Download
-                        </a>
-                        @endif
-                    </div>
-                    @endforeach
-                </div>
-            </div>
-            @endif
+            @include('corex.contacts._fica-tab-body')
         </div>
 
         {{-- ════════════════════════════
              CONSENT & COMPLIANCE TAB (M3.4)
              ════════════════════════════ --}}
         <div x-show="activeTab === 'consent'" x-cloak class="p-6 space-y-4" id="tab-consent">
-            @php
-                $consentTypes  = \App\Models\Contact::CONSENT_TYPES;
-                $consentStates = collect($contact->consentStates())->keyBy('type');
-            @endphp
-
-            <div class="flex items-center justify-between">
-                <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Consent Records</h3>
-                <span class="text-xs" style="color: var(--text-muted);">POPIA + CPA compliant</span>
-            </div>
-
-            <p class="text-[11px]" style="color: var(--text-muted);">
-                <span class="font-medium" style="color: var(--ds-crimson);">No</span>
-                means the client has refused this — do not contact them this way.
-            </p>
-
-            <div class="space-y-2">
-                @foreach($consentTypes as $typeKey => $typeLabel)
-                    @php
-                        $state    = $consentStates->get($typeKey);
-                        $decision = $state['decision'] ?? null;        // given | declined | null
-                        $recordedAt = $state['recorded_at'] ?? null;
-                        $isDeclined = $decision === 'declined';
-                    @endphp
-                    <div class="flex items-center justify-between px-3 py-2 rounded-md"
-                         style="background: var(--surface-2); border: 1px solid {{ $isDeclined ? 'var(--ds-crimson)' : 'var(--border)' }};">
-                        <div>
-                            <span class="text-xs font-medium" style="color: var(--text-primary);">{{ $typeLabel }}</span>
-                            @if($decision === 'given')
-                                <span class="ds-badge ds-badge-success ml-2">Given</span>
-                                @if($recordedAt)
-                                    <span class="ml-1 text-[10px]" style="color: var(--text-muted);">since {{ $recordedAt->format('d M Y') }}</span>
-                                @endif
-                            @elseif($isDeclined)
-                                <span class="ds-badge ds-badge-danger ml-2">No</span>
-                                @if($recordedAt)
-                                    <span class="ml-1 text-[10px]" style="color: var(--text-muted);">since {{ $recordedAt->format('d M Y') }}</span>
-                                @endif
-                            @else
-                                <span class="ds-badge ds-badge-default ml-2">Not recorded</span>
-                            @endif
-                        </div>
-                        <div class="flex items-center gap-1">
-                            {{-- Given — shown unless the client has declined. Once "Given"
-                                 is chosen the "No" option is hidden; Clear reveals both again. --}}
-                            @if(!$isDeclined)
-                                <form method="POST" action="{{ route('corex.contacts.consent.record', $contact) }}">
-                                    @csrf
-                                    <input type="hidden" name="consent_type" value="{{ $typeKey }}">
-                                    <input type="hidden" name="decision" value="given">
-                                    <input type="hidden" name="method" value="electronic">
-                                    <button type="submit"
-                                            class="text-[10px] px-2 py-1 rounded-md {{ $decision === 'given' ? 'corex-btn-primary' : 'corex-btn-outline' }}">
-                                        Given
-                                    </button>
-                                </form>
-                            @endif
-                            {{-- No — shown unless the client has given. Hidden once "Given"
-                                 is chosen (per the toggle rule); Clear reveals it again. --}}
-                            @if($decision !== 'given')
-                                <form method="POST" action="{{ route('corex.contacts.consent.record', $contact) }}">
-                                    @csrf
-                                    <input type="hidden" name="consent_type" value="{{ $typeKey }}">
-                                    <input type="hidden" name="decision" value="declined">
-                                    <input type="hidden" name="method" value="electronic">
-                                    <button type="submit"
-                                            class="text-[10px] px-2 py-1 rounded-md"
-                                            style="{{ $isDeclined
-                                                ? 'background: var(--ds-crimson); color: #fff; border: 1px solid var(--ds-crimson);'
-                                                : 'background: transparent; color: var(--ds-crimson); border: 1px solid var(--ds-crimson);' }}">
-                                        No
-                                    </button>
-                                </form>
-                            @endif
-                            @if($decision !== null)
-                                <form method="POST" action="{{ route('corex.contacts.consent.revoke', $contact) }}">
-                                    @csrf
-                                    <input type="hidden" name="consent_type" value="{{ $typeKey }}">
-                                    <input type="hidden" name="reason" value="Cleared by agent">
-                                    <button type="submit" class="text-[10px] px-2 py-1" style="color: var(--text-muted);" title="Clear — back to not recorded">Clear</button>
-                                </form>
-                            @endif
-                        </div>
-                    </div>
-                @endforeach
-            </div>
+            @include('corex.contacts._consent-tab-body')
         </div>
 
         {{-- ════════════════════════════
@@ -1696,195 +1356,7 @@
              UI_DESIGN_SYSTEM.md (tokens via var(), no emojis, sharp corners). --}}
         @if(($canViewComms ?? false) || ($canRequestComms ?? false))
         <div x-show="activeTab === 'communications'" x-cloak class="p-6 space-y-4" id="tab-communications">
-            <div class="flex items-center justify-between">
-                <div>
-                    <h3 class="text-sm font-bold" style="color:var(--text-primary);">Communications</h3>
-                    <p class="text-xs mt-0.5" style="color:var(--text-muted);">Email &amp; WhatsApp threads linked to this contact. Message contents are private to the owning agent — request access to a thread to read it.</p>
-                </div>
-                @if($canViewComms ?? false)
-                <a href="{{ route('compliance.comm-archive.index', ['contact' => $contact->id]) }}" class="text-xs font-semibold underline" style="color:var(--brand-icon, #0ea5e9);">Open full archive</a>
-                @endif
-            </div>
-
-            {{-- AT-136 — per-agent WhatsApp capture toggle for THIS contact (controls
-                 whether MY WhatsApp chats with them are archived; SEPARATE from the
-                 contact's marketing opt-out). --}}
-            <div class="rounded px-4 py-3 flex items-center justify-between gap-3"
-                 style="background:var(--surface-2); border:1px solid var(--border);"
-                 x-data="{ status: @js($myCaptureStatus), busy:false,
-                    async set(s){ if(s===this.status) return; let reason='';
-                        if(s==='opted_out'){ reason = prompt('Optional: why not capture your WhatsApp with this contact? (recorded for compliance)') || ''; }
-                        this.busy=true;
-                        try{ const r=await fetch('{{ route('communications.capture.decide') }}',{method:'POST',
-                            headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':document.querySelector('meta[name=csrf-token]').content},
-                            body:JSON.stringify({contact_id:{{ $contact->id }},status:s,reason})});
-                            if(r.status===419){ alert('Your session refreshed — reloading the page; please choose again.'); window.location.reload(); return; }
-                            const d=await r.json(); if(r.ok&&d.ok){ this.status=d.status; } else { alert(d.error||'Could not save.'); }
-                        }catch(e){ alert('Network error — try again.'); } finally{ this.busy=false; } } }">
-                <div class="min-w-0">
-                    <div class="text-xs font-semibold" style="color:var(--text-primary);">Capture my WhatsApp chats with this contact</div>
-                    <p class="text-[11px] mt-0.5" style="color:var(--text-muted);">
-                        <span x-show="status==='opted_in'" style="color:var(--ds-green,#059669);">On — bodies captured for compliance.</span>
-                        <span x-show="status==='opted_out'">Off — only that a message occurred is kept; bodies are not captured.</span>
-                        <span x-show="status==='pending'" style="color:var(--ds-amber,#f59e0b);">Awaiting your decision — bodies not captured until you choose.</span>
-                        <span x-show="!status" style="color:var(--text-muted);">No WhatsApp match with this contact yet — choose to pre-set your preference.</span>
-                    </p>
-                </div>
-                <div class="inline-flex gap-2 shrink-0">
-                    <button type="button" @click="set('opted_in')" :disabled="busy" class="text-[11px] font-semibold rounded px-3 py-1.5"
-                            :style="status==='opted_in' ? 'background:var(--ds-green,#059669);color:#fff;border:1px solid var(--border);' : 'background:var(--surface);color:var(--text-secondary);border:1px solid var(--border);'">Capture</button>
-                    <button type="button" @click="set('opted_out')" :disabled="busy" class="text-[11px] font-semibold rounded px-3 py-1.5"
-                            :style="status==='opted_out' ? 'background:var(--text-muted);color:#fff;border:1px solid var(--border);' : 'background:var(--surface);color:var(--text-secondary);border:1px solid var(--border);'">Don't capture</button>
-                </div>
-            </div>
-
-            @forelse(($contactThreads ?? collect()) as $thread)
-                @php
-                    $isWa     = $thread->channel === \App\Models\Communications\Communication::CHANNEL_WHATSAPP;
-                    $accent   = $isWa ? '#25d366' : 'var(--brand-icon, #0ea5e9)';
-                    // AT-137 — pass origin context so the thread/message Back returns
-                    // HERE (the contact), not the compliance archive.
-                    $openHref = $thread->is_visible
-                        ? ($thread->thread_key !== null
-                            ? route('compliance.comm-archive.thread', ['threadKey' => $thread->thread_key, 'from' => 'contact', 'contact' => $contact->id])
-                            : route('compliance.comm-archive.show', ['communication' => $thread->communication_id, 'from' => 'contact', 'contact' => $contact->id]))
-                        : null;
-                @endphp
-
-                @if($thread->is_visible)
-                {{-- VISIBLE thread — opens to the body; owner may toggle hide-subject --}}
-                <div class="rounded px-4 py-3"
-                     style="background:var(--surface-2); border:1px solid var(--border); border-left:3px solid {{ $accent }};">
-                    <a href="{{ $openHref }}" class="block transition-all hover:opacity-90">
-                        @include('corex.contacts._comm-thread-meta', ['thread' => $thread, 'isWa' => $isWa, 'accent' => $accent])
-                    </a>
-                    <div class="flex items-center gap-3 mt-1.5">
-                        @if($thread->can_manage_subject)
-                        <div x-data="{
-                                hidden: {{ $thread->subject_hidden_setting ? 'true' : 'false' }},
-                                busy: false,
-                                async toggle(){
-                                    this.busy = true;
-                                    try {
-                                        const r = await fetch('{{ route('api.v1.comms-access.thread-settings') }}', {
-                                            method: 'POST',
-                                            headers: { 'Content-Type':'application/json', 'Accept':'application/json',
-                                                       'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content },
-                                            body: JSON.stringify({ contact_id: {{ $contact->id }}, thread_key: {{ json_encode($thread->thread_key) }}, hide_subject: !this.hidden })
-                                        });
-                                        const d = await r.json();
-                                        if (r.ok && d.ok) { this.hidden = d.hide_subject; }
-                                        else { alert(d.error || 'Could not update.'); }
-                                    } catch(e) { alert('Network error — please try again.'); }
-                                    finally { this.busy = false; }
-                                }
-                             }">
-                            <button type="button" @click="toggle()" :disabled="busy"
-                                    class="text-[11px] font-semibold rounded px-2.5 py-1"
-                                    style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);">
-                                <span x-show="!hidden">Hide subject from others</span>
-                                <span x-show="hidden" x-cloak>Subject hidden from others — show</span>
-                            </button>
-                        </div>
-                        @endif
-                        @if($thread->viewer_grant_id)
-                        {{-- AT-132 — viewer holds a per-thread grant → show its mode + a Revoke control (No Silent Locks). --}}
-                        <div x-data="{
-                                revoked: false, busy: false,
-                                async revoke(){
-                                    if (!confirm('Revoke your access to this thread?')) return;
-                                    this.busy = true;
-                                    try {
-                                        const r = await fetch('{{ route('api.v1.comms-access.revoke', ['commsAccessRequest' => $thread->viewer_grant_id]) }}', {
-                                            method: 'POST',
-                                            headers: { 'Content-Type':'application/json', 'Accept':'application/json',
-                                                       'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content },
-                                            body: JSON.stringify({ reason: 'self_revoke' })
-                                        });
-                                        const d = await r.json();
-                                        if (r.ok && d.ok) { this.revoked = true; setTimeout(() => window.location.reload(), 600); }
-                                        else { alert(d.error || 'Could not revoke.'); }
-                                    } catch(e) { alert('Network error — please try again.'); }
-                                    finally { this.busy = false; }
-                                }
-                             }" class="inline-flex items-center gap-2">
-                            <span class="text-[11px] font-semibold rounded px-2 py-0.5"
-                                  style="background:color-mix(in srgb, var(--ds-teal, #00d4aa) 16%, transparent); color:var(--ds-green, #059669);">
-                                Access granted · {{ $thread->viewer_grant_mode === 'always' ? 'always' : 'this session' }}
-                            </span>
-                            <button type="button" @click="revoke()" :disabled="busy" x-show="!revoked"
-                                    class="text-[11px] font-semibold rounded px-2.5 py-1"
-                                    style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);">Revoke access</button>
-                            <span x-show="revoked" x-cloak class="text-[11px]" style="color:var(--text-muted);">Revoked</span>
-                        </div>
-                        @endif
-                        <a href="{{ $openHref }}" class="text-[11px] font-semibold ml-auto" style="color:var(--brand-icon, #0ea5e9);">Open thread</a>
-                    </div>
-                </div>
-                @else
-                {{-- GATED thread — safe metadata + per-thread Request access (No Silent Locks) --}}
-                <div class="rounded px-4 py-3"
-                     style="background:var(--surface-2); border:1px solid var(--border); border-left:3px solid var(--text-muted);"
-                     x-data="{
-                        requested: {{ $thread->pending ? 'true' : 'false' }},
-                        loading: false, error: '',
-                        async request(){
-                            this.loading = true; this.error = '';
-                            try {
-                                const r = await fetch('{{ route('api.v1.comms-access.store') }}', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type':'application/json', 'Accept':'application/json',
-                                               'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content },
-                                    body: JSON.stringify({
-                                        contact_id: {{ $contact->id }},
-                                        thread_key: {{ $thread->thread_key !== null ? json_encode($thread->thread_key) : 'null' }},
-                                        communication_id: {{ $thread->communication_id !== null ? $thread->communication_id : 'null' }}
-                                    })
-                                });
-                                const d = await r.json();
-                                if (r.ok && d.ok) { this.requested = true; }
-                                else { this.error = d.error || 'Could not send the request.'; }
-                            } catch (e) { this.error = 'Network error — please try again.'; }
-                            finally { this.loading = false; }
-                        }
-                     }">
-                    @include('corex.contacts._comm-thread-meta', ['thread' => $thread, 'isWa' => $isWa, 'accent' => 'var(--text-muted)'])
-                    <div class="flex items-center gap-3 mt-2">
-                        {{-- AT-153 — name the owning agent so the requester knows whom to ask
-                             (bodies stay gated); fallback message avoids a dead-end when no
-                             owning agent is on record. --}}
-                        <span class="text-[11px]" style="color:var(--text-muted);">
-                            @if($thread->owner_name)
-                                Private to {{ $thread->owner_name }} — request access to read it.
-                            @else
-                                Private — no owning agent on record; your request routes to a communications manager.
-                            @endif
-                        </span>
-                        <div class="ml-auto">
-                            <template x-if="!requested">
-                                <button type="button" @click="request()" :disabled="loading"
-                                        class="text-[11px] font-semibold rounded px-3 py-1.5"
-                                        style="background:var(--brand-button, #0ea5e9); color:#fff;"
-                                        :style="loading ? 'opacity:.6;cursor:wait' : ''">
-                                    <span x-show="!loading">Request access</span>
-                                    <span x-show="loading">Sending</span>
-                                </button>
-                            </template>
-                            <template x-if="requested">
-                                <span class="inline-flex items-center text-[11px] font-semibold rounded px-2.5 py-1"
-                                      style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 16%, transparent); color:var(--ds-amber, #f59e0b);">Requested — awaiting approval</span>
-                            </template>
-                        </div>
-                    </div>
-                    <p x-show="error" x-text="error" class="text-[11px] mt-1.5" style="color:var(--ds-crimson, #c41e3a);"></p>
-                </div>
-                @endif
-            @empty
-                <div class="rounded px-4 py-8 text-center" style="background:var(--surface-2); border:1px dashed var(--border);">
-                    <p class="text-sm" style="color:var(--text-secondary);">No communications linked to this contact yet.</p>
-                    <p class="text-xs mt-1" style="color:var(--text-muted);">Captured email/WhatsApp with this contact's address or number will appear here automatically.</p>
-                </div>
-            @endforelse
+            @include('corex.contacts._communications-tab-body')
         </div>
         @endif
 
@@ -1903,62 +1375,7 @@
 
         {{-- ── HISTORY TAB (AT-321-C — contact audit trail) ─────────────────── --}}
         <div x-show="activeTab === 'history'" x-cloak class="p-6 space-y-4" id="tab-history">
-            @if(isset($fullAuditLog))
-                @php
-                    $catColors = [
-                        'contact' => '#0ea5e9', 'compliance' => '#10b981', 'consent' => '#22c55e',
-                        'document' => '#8b5cf6', 'marketing' => '#ec4899', 'system' => '#64748b',
-                    ];
-                @endphp
-                <div class="flex items-center justify-between mb-2">
-                    <h3 class="text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Contact Audit Trail</h3>
-                    <a href="{{ route('corex.contacts.show', $contact->id) }}?tab=history&export=csv"
-                       class="text-[10px] font-medium px-2 py-1 rounded no-underline"
-                       style="background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border);">Export CSV</a>
-                </div>
-                @forelse($fullAuditLog as $entry)
-                    <div class="flex items-start gap-3 px-4 py-2.5 rounded" style="background:var(--surface-2); border:1px solid var(--border);" x-data="{ showDetail: false }">
-                        <div class="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style="background:{{ $catColors[$entry->event_category] ?? '#94a3b8' }};"></div>
-                        <div class="flex-1 min-w-0">
-                            <div class="flex items-start justify-between gap-2">
-                                <div>
-                                    <span class="text-xs font-medium" style="color:var(--text-primary);">{{ $entry->human_summary ?? ucfirst(str_replace('_', ' ', $entry->event_type)) }}</span>
-                                    <span class="text-[10px] ml-1 px-1.5 py-0.5 rounded" style="background:{{ $catColors[$entry->event_category] ?? '#94a3b8' }}20; color:{{ $catColors[$entry->event_category] ?? '#94a3b8' }};">{{ ucfirst($entry->event_category) }}</span>
-                                </div>
-                                <div class="text-[10px] flex-shrink-0" style="color:var(--text-muted);">{{ $entry->created_at->format('j M Y, H:i') }}</div>
-                            </div>
-                            <div class="text-[10px] mt-0.5" style="color:var(--text-muted);">
-                                {{-- AT-321-C — always attributable: user name, else the source/actor label, never a bare blank "System". --}}
-                                @if($entry->user)
-                                    {{ $entry->user->name }}
-                                @else
-                                    {{ $entry->actor_label ?? 'System' }}
-                                @endif
-                                @if($entry->source)
-                                    <span class="ml-1 px-1 py-0.5 rounded" style="background:var(--surface); border:1px solid var(--border);">{{ $entry->source }}</span>
-                                @endif
-                            </div>
-                            @if($entry->old_values || $entry->new_values || $entry->metadata)
-                                <button type="button" @click="showDetail = !showDetail" class="text-[10px] mt-1 underline" style="color:var(--text-muted);" x-text="showDetail ? 'Hide details' : 'Show details'"></button>
-                                <div x-show="showDetail" x-cloak class="mt-1 text-[10px] rounded p-2" style="background:var(--surface); border:1px solid var(--border); color:var(--text-muted);">
-                                    @if($entry->old_values)<div><span class="font-medium">Before:</span> {{ json_encode($entry->old_values) }}</div>@endif
-                                    @if($entry->new_values)<div><span class="font-medium">After:</span> {{ json_encode($entry->new_values) }}</div>@endif
-                                    @if($entry->metadata)<div><span class="font-medium">Details:</span> {{ json_encode($entry->metadata) }}</div>@endif
-                                </div>
-                            @endif
-                        </div>
-                    </div>
-                @empty
-                    <div class="py-8 text-center">
-                        <p class="text-sm" style="color:var(--text-muted);">No audit history recorded yet.</p>
-                    </div>
-                @endforelse
-
-                {{-- AT-321-C — the FULL trail is paginated (no cap). --}}
-                @if(method_exists($fullAuditLog, 'hasPages') && $fullAuditLog->hasPages())
-                    <div class="pt-2">{{ $fullAuditLog->links() }}</div>
-                @endif
-            @endif
+            @include('corex.contacts._history-tab-body')
         </div>
 
     </div>{{-- /tab container --}}

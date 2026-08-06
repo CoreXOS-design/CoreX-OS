@@ -41,6 +41,11 @@ class AgencyObserver
                 ]
             );
 
+            // Contact-details Phase 2 — seed the agency's contact-label list
+            // (Personal/Business/Contact) so the phone/email label dropdown is
+            // never empty for a brand-new agency.
+            \App\Models\ContactIdentifierLabel::seedDefaultsFor($agency->id);
+
             // Seed leave visibility matrix with defaults
             foreach (AgencyLeaveVisibilityMatrix::defaultRows() as $row) {
                 AgencyLeaveVisibilityMatrix::withoutGlobalScopes()->firstOrCreate(

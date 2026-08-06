@@ -6,10 +6,15 @@
     $defaultWaMsg = \App\Models\PerformanceSetting::get('matches_wa_message',
         "Hi {name}! \xf0\x9f\x91\x8b\n\nI've put together a personalised selection of properties that match your search criteria.\n\nView your property matches here:\n{link}\n\nFeel free to reach out if you'd like to arrange viewings or have any questions!"
     );
-    $waPhone = preg_replace('/\D/', '', $contact->phone ?? '');
-    if ($waPhone && str_starts_with($waPhone, '0')) {
-        $waPhone = '27' . substr($waPhone, 1);
-    }
+    // Contact-details Phase 1 fix — this used to strip digits and blindly
+    // replace a leading '0' with South Africa's '27' regardless of the
+    // number's real country (same defect as show.blade.php's sendWa()).
+    // WhatsAppNumberFormatter uses the number's OWN dial code instead.
+    // Contact-details Phase 3 — prefer the designated primary-WhatsApp
+    // number (may differ from the primary contact number); falls back to
+    // the primary contact number when no WhatsApp designation exists yet.
+    $waPhoneRecord = $contact->whatsAppPhone();
+    $waPhone = \App\Support\WhatsAppNumberFormatter::forDeepLink($waPhoneRecord?->phone ?? $contact->phone, $waPhoneRecord?->dial_code ?? $contact->primaryPhone?->dial_code);
     $renderedWaMsg = str_replace(['{name}', '{link}'], [$contact->first_name, $match->sharedUrl()], $defaultWaMsg);
 
     $defaultEmailSubject = \App\Models\PerformanceSetting::get('matches_email_subject', 'Your personalised property matches');
@@ -468,18 +473,6 @@
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
                     View Property
                 </a>
-
-                @permission('core_matches.convert_to_deal')
-                <form method="POST" action="{{ route('corex.contacts.matches.convertToDeal', [$contact, $match, $property]) }}"
-                      onsubmit="return confirm('Create a draft Deal from this match?');">
-                    @csrf
-                    <input type="hidden" name="mark_fulfilled" value="0">
-                    <button type="submit" class="corex-btn-primary w-full">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-                        Convert to Deal
-                    </button>
-                </form>
-                @endpermission
 
                 <form method="POST" action="{{ route('corex.contacts.matches.toggleHide', [$contact, $match, $property]) }}">
                     @csrf

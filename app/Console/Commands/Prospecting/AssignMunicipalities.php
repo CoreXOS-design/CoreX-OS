@@ -82,14 +82,20 @@ class AssignMunicipalities extends Command
 
             // (2) Per-P24-town centroid (from that town's geocoded listings), grouped by
             //     the P24 city id — the town, not the suburb.
-            $townCentroids = DB::table('prospecting_listings as pl')
-                ->join('p24_suburbs as ps', DB::raw('LOWER(TRIM(ps.name))'), '=', DB::raw('LOWER(TRIM(pl.suburb))'))
-                ->where('pl.agency_id', $agencyId)
-                ->whereNotNull('pl.latitude')->whereNotNull('pl.longitude')
-                ->whereNotNull('ps.p24_city_id')
-                ->groupBy('ps.p24_city_id')
-                ->selectRaw('ps.p24_city_id, AVG(pl.latitude) la, AVG(pl.longitude) lo, COUNT(*) c')
-                ->get();
+            //
+            //     Suburb names are NOT unique nationally (e.g. "Glenmore" is both a Port
+            //     Edward suburb and a Durban suburb; "Leisure Bay" is both Port Edward and
+            //     Knysna). A bare name join fans a single listing's coordinate into every
+            //     same-named city, dragging far-away, low-stock cities' centroids toward
+            //     wherever the colliding listings really are — that's how Durban/Johannesburg/
+            //     Knysna/Stanger ended up placed inside Ray Nkonyeni. Resolve each listing to
+            //     exactly one city: if its suburb name is unambiguous, use it directly; if
+            //     ambiguous, only accept the candidate whose town name is literally a path
+            //     segment of the listing's own portal_url (both P24 and PP encode
+            //     province/town/suburb in the URL, e.g. .../glenmore/port-edward/...).
+            //     Listings that stay ambiguous are dropped from the centroid — safer than a
+            //     guess that could re-contaminate another city.
+            [$townCentroids, $unresolved] = $this->resolveTownCentroids($agencyId);
 
             // Retire the parallel town_suburbs tree + rebuild towns (soft — no data loss).
             if (! $dry) {
@@ -116,10 +122,66 @@ class AssignMunicipalities extends Command
             }
 
             $this->info(($dry ? '[dry-run] ' : '') . "agency {$agencyId}: {$placed} P24 towns placed across " . count($munisWithStock)
-                . ' municipalities, ' . $queued . ' town-centroids outside boundaries. National region rows: ' . $allMunicipalities->count() . '.');
+                . ' municipalities, ' . $queued . ' town-centroids outside boundaries, ' . $unresolved
+                . ' listings dropped as suburb-name-ambiguous (unresolved). National region rows: ' . $allMunicipalities->count() . '.');
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Resolve every geocoded listing to exactly one P24 city id and average its
+     * coordinate into that city's centroid — never into a same-named city elsewhere.
+     *
+     * @return array{0: \Illuminate\Support\Collection, 1: int} [townCentroids, unresolvedCount]
+     */
+    private function resolveTownCentroids(int $agencyId): array
+    {
+        $candidatesByName = DB::table('p24_suburbs')
+            ->whereNotNull('p24_city_id')
+            ->select('name', 'p24_city_id')
+            ->get()
+            ->groupBy(fn ($row) => mb_strtolower(trim($row->name)))
+            ->map(fn ($rows) => $rows->pluck('p24_city_id')->unique()->values());
+
+        $citySlugById = DB::table('p24_cities')->pluck('name', 'id')->map(fn ($name) => Str::slug($name));
+
+        $sums = [];
+        $unresolved = 0;
+
+        DB::table('prospecting_listings')
+            ->where('agency_id', $agencyId)
+            ->whereNotNull('latitude')->whereNotNull('longitude')
+            ->select('suburb', 'portal_url', 'latitude', 'longitude')
+            ->orderBy('id')
+            ->chunk(1000, function ($listings) use ($candidatesByName, $citySlugById, &$sums, &$unresolved) {
+                foreach ($listings as $listing) {
+                    $candidates = $candidatesByName->get(mb_strtolower(trim($listing->suburb)));
+                    if (! $candidates || $candidates->isEmpty()) { $unresolved++; continue; }
+
+                    $cityId = $candidates->count() === 1 ? $candidates->first() : null;
+                    if ($cityId === null) {
+                        $urlSegments = collect(explode('/', (string) parse_url($listing->portal_url, PHP_URL_PATH)))->filter();
+                        $matches = $candidates->filter(fn ($cid) => $urlSegments->contains($citySlugById->get($cid)));
+                        $cityId = $matches->count() === 1 ? $matches->first() : null;
+                    }
+                    if ($cityId === null) { $unresolved++; continue; }
+
+                    $sums[$cityId] ??= ['lat' => 0.0, 'lon' => 0.0, 'c' => 0];
+                    $sums[$cityId]['lat'] += (float) $listing->latitude;
+                    $sums[$cityId]['lon'] += (float) $listing->longitude;
+                    $sums[$cityId]['c']++;
+                }
+            });
+
+        $townCentroids = collect($sums)->map(fn ($s, $cityId) => (object) [
+            'p24_city_id' => $cityId,
+            'la' => $s['lat'] / $s['c'],
+            'lo' => $s['lon'] / $s['c'],
+            'c' => $s['c'],
+        ])->values();
+
+        return [$townCentroids, $unresolved];
     }
 
     private function loadBoundaries(bool $refresh): ?array

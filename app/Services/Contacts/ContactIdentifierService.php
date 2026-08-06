@@ -54,6 +54,24 @@ class ContactIdentifierService
     }
 
     /**
+     * Contact-details Phase 3 — make $phone the contact's primary WhatsApp
+     * number (clears siblings). Independent of setPrimaryPhone() — the two
+     * can point at different numbers.
+     */
+    public function setPrimaryWhatsApp(ContactPhone $phone): void
+    {
+        DB::transaction(function () use ($phone) {
+            ContactPhone::withoutGlobalScope(AgencyScope::class)
+                ->where('contact_id', $phone->contact_id)
+                ->where('id', '!=', $phone->id)
+                ->update(['is_primary_whatsapp' => false]);
+
+            $phone->is_primary_whatsapp = true;
+            $phone->saveQuietly();
+        });
+    }
+
+    /**
      * Canonical multi-identifier write for the form / API.
      *
      * Upserts the contact's phones + emails from structured input, soft-deletes
@@ -155,10 +173,36 @@ class ContactIdentifierService
                 continue;
             }
             $label = trim((string) ($item['label'] ?? ''));
+            // Contact-details Phase 2 — managed label, both kinds. Resolved HERE
+            // (not by the caller) so every writer — form, API, importer, console
+            // — gets the SAME agency-scoped resolution and a display string that
+            // never drifts from the FK. Scoped explicitly to $contact->agency_id
+            // (not the ambient auth-user global scope, which is absent for
+            // console/job callers) so a foreign-agency id can never leak in
+            // regardless of who's calling. An unresolved/absent id falls back to
+            // whatever free-text `label` string was posted (back-compat for
+            // callers that don't know about managed labels at all).
+            [$labelId, $labelName] = $this->resolveIdentifierLabel($contact->agency_id, $item['label_id'] ?? null);
+            // Contact-details Phase 1 — country/dial-code, phone-only. Resolved
+            // HERE from the posted country_iso ALONE (a posted dial_code, if
+            // any, is never trusted/read) — same canonical-resolution
+            // discipline as the label above. This is what the US demo contact
+            // exposed: syncIdentifiers() called directly (bypassing the
+            // controller, which used to be the only place resolving this)
+            // persisted country_iso=US with dial_code left at the request's
+            // raw value — wrong/missing unless the caller happened to also
+            // pass a correct dial_code. Now every writer gets the right pair.
+            [$countryIso, $dialCode] = $this->resolveCountry($item['country_iso'] ?? null);
             $incoming[$key] = [
                 'value' => $raw,
-                'label' => $label !== '' ? $label : null,
+                'label' => $labelName ?? ($label !== '' ? $label : null),
                 'is_primary' => ! empty($item['is_primary']),
+                'country_iso' => $countryIso,
+                'dial_code' => $dialCode,
+                'label_id' => $labelId,
+                // Contact-details Phase 3 — phone-only; ignored for emails.
+                'is_whatsapp' => ! empty($item['is_whatsapp']),
+                'is_primary_whatsapp' => ! empty($item['is_primary_whatsapp']),
             ];
         }
 
@@ -182,6 +226,15 @@ class ContactIdentifierService
             if ($row) {
                 $row->{$rawCol} = $inc['value']; // re-set raw → mutator recomputes the normalised key
                 $row->label = $inc['label'];
+                $row->contact_identifier_label_id = $inc['label_id'];
+                if ($rawCol === 'phone') {
+                    // resolveCountry() above always returns a valid pair
+                    // (defaults ZA/+27 for anything unrecognised) — no ?:
+                    // fallback needed here anymore.
+                    $row->country_iso = $inc['country_iso'];
+                    $row->dial_code = $inc['dial_code'];
+                    $row->is_whatsapp = $inc['is_whatsapp'];
+                }
                 $row->save();
             } else {
                 $row = $modelClass::create([
@@ -189,10 +242,21 @@ class ContactIdentifierService
                     'contact_id' => $contact->id,
                     $rawCol => $inc['value'],
                     'label' => $inc['label'],
+                    'contact_identifier_label_id' => $inc['label_id'],
                     'is_primary' => false,
+                    ...($rawCol === 'phone' ? [
+                        'country_iso' => $inc['country_iso'],
+                        'dial_code' => $inc['dial_code'],
+                        'is_whatsapp' => $inc['is_whatsapp'],
+                    ] : []),
                 ]);
             }
-            $rows[] = ['row' => $row, 'is_primary' => $inc['is_primary']];
+            $rows[] = [
+                'row' => $row,
+                'is_primary' => $inc['is_primary'],
+                'is_whatsapp' => $inc['is_whatsapp'],
+                'is_primary_whatsapp' => $inc['is_primary_whatsapp'],
+            ];
         }
 
         if ($rows === []) {
@@ -209,6 +273,37 @@ class ContactIdentifierService
         }
         $primary ??= $rows[0]['row'];
         $setPrimary($primary);
+
+        // Contact-details Phase 3 — primary WhatsApp, phone-only. Unlike
+        // is_primary (which always needs exactly one when any rows exist),
+        // "no WhatsApp number designated" is a normal, common state — most
+        // contacts won't have any is_whatsapp row at all, so there's nothing
+        // to auto-promote a fallback for.
+        if ($rawCol === 'phone') {
+            $whatsAppRows = array_filter($rows, fn ($r) => $r['is_whatsapp']);
+            if ($whatsAppRows !== []) {
+                $waPrimary = null;
+                foreach ($whatsAppRows as $r) {
+                    if ($r['is_primary_whatsapp']) {
+                        $waPrimary = $r['row'];
+                        break;
+                    }
+                }
+                // Exactly one WhatsApp-flagged number → it's unambiguously
+                // THE one, whether or not the agent explicitly radio'd it.
+                // Several, none explicitly marked → first one wins (same
+                // first-wins tie-break as is_primary above).
+                $waPrimary ??= reset($whatsAppRows)['row'];
+                $this->setPrimaryWhatsApp($waPrimary);
+            } else {
+                // No row flagged is_whatsapp this save — clear any stale
+                // pick rather than leaving a primary-WhatsApp on a number
+                // that's no longer flagged WhatsApp-capable at all.
+                ContactPhone::withoutGlobalScope(AgencyScope::class)
+                    ->where('contact_id', $contact->id)
+                    ->update(['is_primary_whatsapp' => false]);
+            }
+        }
     }
 
     /**
@@ -292,5 +387,49 @@ class ContactIdentifierService
         }
 
         return $keep;
+    }
+
+    /**
+     * Contact-details Phase 2 — resolve a posted label id to a REAL label
+     * owned by $agencyId. Explicitly scoped to the CONTACT's own agency_id
+     * (not the ambient auth-user global scope, which BelongsToAgency skips
+     * entirely when there's no logged-in user — console/job/import callers)
+     * so a foreign-agency id can never be trusted regardless of caller.
+     *
+     * @return array{0:?int,1:?string}
+     */
+    private function resolveIdentifierLabel(?int $agencyId, $labelId): array
+    {
+        $id = (int) $labelId;
+        if ($id <= 0 || !$agencyId) {
+            return [null, null];
+        }
+        $label = \App\Models\ContactIdentifierLabel::withoutGlobalScope(AgencyScope::class)
+            ->where('agency_id', $agencyId)
+            ->find($id);
+
+        return $label ? [$label->id, $label->name] : [null, null];
+    }
+
+    /**
+     * Contact-details Phase 1 — resolve a posted ISO code to a known
+     * {iso, dial_code} pair, defaulting to ZA/+27 for anything unrecognised
+     * (including no selection at all). A posted dial_code is NEVER read —
+     * it's derived from the iso here, THE canonical resolution point, so
+     * every writer (form, API, importer, console) gets a consistent pair
+     * even if it only ever supplies country_iso.
+     *
+     * @return array{0:string,1:string}
+     */
+    private function resolveCountry(?string $iso): array
+    {
+        $iso = strtoupper(trim((string) $iso));
+        foreach (config('country-dial-codes.countries', []) as $c) {
+            if ($c['iso'] === $iso) {
+                return [$c['iso'], $c['dial_code']];
+            }
+        }
+
+        return ['ZA', '+27'];
     }
 }

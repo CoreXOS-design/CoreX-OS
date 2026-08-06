@@ -21,7 +21,7 @@ class ContactEmail extends Model
     use BelongsToAgency, SoftDeletes;
 
     protected $fillable = [
-        'agency_id', 'contact_id', 'email', 'label', 'is_primary',
+        'agency_id', 'contact_id', 'email', 'label', 'contact_identifier_label_id', 'is_primary',
     ];
 
     protected $casts = [
@@ -40,5 +40,11 @@ class ContactEmail extends Model
     public function contact(): BelongsTo
     {
         return $this->belongsTo(Contact::class);
+    }
+
+    /** Contact-details Phase 2 — the assigned managed label, if any. */
+    public function identifierLabel(): BelongsTo
+    {
+        return $this->belongsTo(ContactIdentifierLabel::class, 'contact_identifier_label_id');
     }
 }

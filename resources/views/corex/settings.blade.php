@@ -101,7 +101,7 @@
                         : null,
                     ['key'=>'feature-documents',     'label'=>'Documents',             'type'=>'section', 'keywords'=>'docuperfect named fields'],
                     ['key'=>'feature-rentals',       'label'=>'Rentals',               'type'=>'section', 'keywords'=>'rental document types reminders'],
-                    ['key'=>'feature-contacts',      'label'=>'Contacts',              'type'=>'section', 'keywords'=>'contact types sources tags'],
+                    ['key'=>'feature-contacts',      'label'=>'Contacts',              'type'=>'section', 'keywords'=>'contact types sources tags labels phone email personal business dial code country prefix'],
                     ['key'=>'feature-properties',    'label'=>'Properties & Listings', 'type'=>'section', 'keywords'=>'syndication portals marketing'],
                     ['key'=>'feature-presentations', 'label'=>'Presentations',         'type'=>'section', 'keywords'=>'cma coverage thresholds comps period rich moderate thin comparable selection price band radius erf percentile range widen anchor'],
                     ['key'=>'feature-matches',       'label'=>'Matches',               'type'=>'section', 'keywords'=>'whatsapp message'],
@@ -2078,6 +2078,126 @@
                     </div>{{-- /x-show open (Contact Sources) --}}
                 </div>{{-- /x-data accordion (Contact Sources) --}}
 
+                {{-- ── Contact Labels (accordion) — Phase 2: one shared list for tel + email.
+                     Defaults OPEN (unlike the other accordions here) — this is the newest
+                     feature in this section and agents/admins need to find it without an
+                     extra click; it was previously missed entirely because "labels" wasn't
+                     in this section's settings-search keywords (fixed above). ── --}}
+                <div x-data="{ open: true }" class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
+                    <button type="button" @click="open = !open"
+                            class="w-full flex items-center justify-between px-4 py-3 transition-colors"
+                            style="background:var(--surface-2);"
+                            onmouseover="this.style.background='color-mix(in srgb, var(--brand-icon, #0ea5e9) 4%, transparent)'" onmouseout="this.style.background='var(--surface-2)'">
+                        <div class="flex items-center gap-3">
+                            <span class="text-sm font-semibold" style="color:var(--text-primary);">Contact Labels</span>
+                            <span class="text-xs px-2 py-0.5 rounded-full font-medium" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color: var(--brand-icon, #0ea5e9);">{{ count($contactIdentifierLabels) }}</span>
+                        </div>
+                        <svg class="w-4 h-4 transition-transform" :class="open ? 'rotate-180' : ''" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:var(--text-muted);"><path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </button>
+                    <div x-show="open" x-cloak style="border-top:1px solid var(--border);">
+                    <div class="p-4 space-y-4">
+                    <p class="text-xs" style="color:var(--text-muted);">Labels an agent can assign to each of a contact's phone numbers and email addresses (e.g. Personal, Business, Contact). Shared list — the same labels apply to both.</p>
+
+                    {{-- Add Label --}}
+                    <div class="p-4 rounded-md mb-3" style="background:var(--surface-2); border:1px solid var(--border);">
+                        <div class="text-xs font-semibold mb-3" style="color:var(--text-secondary);">Add Contact Label</div>
+                        <form method="POST" action="{{ route('corex.settings.contact-identifier-labels.store') }}"
+                              class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                            @csrf
+                            <div class="md:col-span-6">
+                                <label class="block text-xs mb-1" style="color:var(--text-muted);">Name</label>
+                                <input name="name" required placeholder="e.g. Personal, Business, Contact"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div class="md:col-span-2">
+                                <label class="block text-xs mb-1" style="color:var(--text-muted);">Color</label>
+                                <input type="color" name="color" value="#6366f1"
+                                       class="w-full h-9 rounded-md cursor-pointer border"
+                                       style="border-color:var(--border); background:var(--surface);">
+                            </div>
+                            <div class="md:col-span-2">
+                                <label class="block text-xs mb-1" style="color:var(--text-muted);">Sort order</label>
+                                <input name="sort_order" type="number" step="1" min="0" placeholder="0"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div class="md:col-span-2">
+                                <button class="w-full corex-btn-primary text-sm">Add</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    {{-- Labels list --}}
+                    <div class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
+                        <div class="px-4 py-3 flex items-center justify-between" style="border-bottom:1px solid var(--border); background:var(--surface-2);">
+                            <div class="text-sm font-semibold" style="color:var(--text-primary);">Current Labels</div>
+                            <div class="text-xs" style="color:var(--text-muted);">{{ count($contactIdentifierLabels) }} total</div>
+                        </div>
+                        <div x-data="{ editCLId: null }">
+                            @forelse($contactIdentifierLabels as $cLabel)
+                            <div style="border-bottom:1px solid var(--border);">
+                                <div x-show="editCLId !== {{ $cLabel->id }}"
+                                     class="p-4 flex items-center justify-between gap-4">
+                                    <div class="flex items-center gap-3">
+                                        <span class="w-4 h-4 rounded-full flex-shrink-0"
+                                              style="background-color: {{ $cLabel->color }}"></span>
+                                        <span class="text-sm font-medium" style="color:var(--text-primary);">{{ $cLabel->name }}</span>
+                                        <span class="text-xs" style="color:var(--text-muted);">{{ $cLabel->phones()->count() + $cLabel->emails()->count() }} in use</span>
+                                    </div>
+                                    <div class="flex items-center gap-3">
+                                        <button @click="editCLId = {{ $cLabel->id }}"
+                                                class="text-xs font-semibold" style="color: var(--brand-icon, #0ea5e9);">Edit</button>
+                                        <form method="POST" action="{{ route('corex.settings.contact-identifier-labels.destroy', $cLabel) }}"
+                                              onsubmit="return confirm('Delete this contact label? Numbers/emails carrying it just lose the tag.');">
+                                            @csrf @method('DELETE')
+                                            <button class="text-xs font-semibold" style="color: var(--ds-crimson);">
+                                                Delete
+                                            </button>
+                                        </form>
+                                    </div>
+                                </div>
+                                <div x-show="editCLId === {{ $cLabel->id }}" x-cloak
+                                     class="p-4" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent); border-top:1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent);">
+                                    <form method="POST" action="{{ route('corex.settings.contact-identifier-labels.update', $cLabel) }}"
+                                          class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                                        @csrf @method('PUT')
+                                        <div class="md:col-span-6">
+                                            <label class="block text-xs mb-1" style="color:var(--text-muted);">Name</label>
+                                            <input name="name" value="{{ $cLabel->name }}" required
+                                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                        </div>
+                                        <div class="md:col-span-2">
+                                            <label class="block text-xs mb-1" style="color:var(--text-muted);">Color</label>
+                                            <input type="color" name="color" value="{{ $cLabel->color }}"
+                                                   class="w-full h-9 rounded-md cursor-pointer border"
+                                                   style="border-color:var(--border); background:var(--surface);">
+                                        </div>
+                                        <div class="md:col-span-2">
+                                            <label class="block text-xs mb-1" style="color:var(--text-muted);">Sort order</label>
+                                            <input name="sort_order" type="number" step="1" min="0" value="{{ (int)$cLabel->sort_order }}"
+                                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                        </div>
+                                        <div class="md:col-span-2 flex gap-2">
+                                            <button type="submit" class="flex-1 corex-btn-primary text-sm">Save</button>
+                                            <button type="button" @click="editCLId = null"
+                                                    class="flex-1 text-sm rounded-md"
+                                                    style="border:1px solid var(--border); color:var(--text-secondary);">Cancel</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                            @empty
+                            <div class="p-5 text-sm" style="color:var(--text-muted);">No contact labels yet. Add one above.</div>
+                            @endforelse
+                        </div>
+                    </div>
+                    </div>
+                    </div>{{-- /x-show open (Contact Labels) --}}
+                </div>{{-- /x-data accordion (Contact Labels) --}}
+
             </div>{{-- /contacts --}}
 
             {{-- PROPERTIES section --}}
@@ -2278,11 +2398,13 @@
                           x-data="{
                             pp:  {{ $syndicationPpEnabled      ? 'true' : 'false' }},
                             p24: {{ $syndicationP24Enabled     ? 'true' : 'false' }},
+                            ppExcl: {{ $ppExclusivityEnabled   ? 'true' : 'false' }},
                             submit() { this.$refs.frm.submit(); }
                           }" x-ref="frm">
                         @csrf
                         <input type="hidden" name="syndication_pp_enabled"      :value="pp  ? 1 : 0">
                         <input type="hidden" name="syndication_p24_enabled"     :value="p24 ? 1 : 0">
+                        <input type="hidden" name="pp_exclusivity_enabled"      :value="ppExcl ? 1 : 0">
 
                         @foreach([
                             ['key' => 'pp',  'label' => 'Private Property', 'desc' => 'Submit listings to Private Property'],
@@ -2302,6 +2424,25 @@
                             </label>
                         </div>
                         @endforeach
+
+                        {{-- AT-369 follow-up — master kill switch for the agent opt-in
+                             PP-exclusivity sub-feature. Off removes the tick from every
+                             sole-mandate Sale listing's syndication panel entirely; it does
+                             not touch listings already exclusive on PP (pp_delay_until keeps
+                             gating P24 until it lapses — turning this off is not a delist). --}}
+                        <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md" style="background:var(--surface); border:1px solid var(--border);">
+                            <div>
+                                <div class="text-sm font-medium" style="color:var(--text-primary);">Private Property exclusivity</div>
+                                <div class="text-xs" style="color:var(--text-muted);">Let agents opt a sole mandate sale into Private Property exclusivity. Off hides the option entirely — existing exclusive listings are unaffected until their window lapses.</div>
+                            </div>
+                            <label class="relative cursor-pointer flex-shrink-0" style="width:44px; height:24px; display:block;">
+                                <input type="checkbox" class="sr-only" x-model="ppExcl" @change="submit()">
+                                <span class="block w-full h-full rounded-full transition-colors duration-200"
+                                      :style="ppExcl ? 'background:var(--brand-button, #0ea5e9)' : 'background:var(--border-hover)'"></span>
+                                <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-all duration-200"
+                                      :style="ppExcl ? 'transform:translateX(20px)' : 'transform:translateX(0)'"></span>
+                            </label>
+                        </div>
 
                         {{-- AT-369 — agency cap on agent-opted-in PP sole-mandate exclusivity
                              days. This is a MAXIMUM only: nothing is exclusive unless an agent

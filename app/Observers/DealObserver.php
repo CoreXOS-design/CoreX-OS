@@ -7,8 +7,8 @@ use App\Events\Deal\DealCommissionFinalised;
 use App\Events\Deal\DealCreated;
 use App\Events\Deal\DealStageAdvanced;
 use App\Events\Deal\DealStatusChanged;
+use App\Jobs\RebuildDealMoneyLinesJob;
 use App\Models\Deal;
-use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
 
 class DealObserver
@@ -76,7 +76,15 @@ class DealObserver
 
     public function saved(Deal $deal): void
     {
-        Artisan::call('deals:recalc-money-lines');
+        // Rebuild ONLY this deal's money lines, off the web request. Previously this ran
+        // `deals:recalc-money-lines` with no filter — an all-deals rebuild (O(all deals) + a full
+        // Artisan bootstrap) synchronously on EVERY deal save, which 502'd cold requests. The math is
+        // unchanged: rebuildDealId() runs the identical per-deal rebuildSingleDeal() the all-deals path
+        // ran — same rows for this deal. Display-critical flows (DR2 register, Admin deal edit) already
+        // call DealMoneyLineRebuilder::rebuildDealId() inline synchronously, so their pages stay fresh;
+        // this queued rebuild is the catch-all safety net for every other save path.
+        RebuildDealMoneyLinesJob::dispatch($deal->id);
+
         // WS1 — mirror the shared core fields onto the linked DR2 twin (no-op
         // if unlinked). Single-writer service; quiet writes + re-entrancy guard.
         app(\App\Services\DealV2\DealSyncService::class)->syncFromV1($deal);

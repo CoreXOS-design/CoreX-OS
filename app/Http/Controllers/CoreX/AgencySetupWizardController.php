@@ -86,6 +86,7 @@ class AgencySetupWizardController extends Controller
      */
     private const COLLECTIONS = [
         'contact_source' => ['step' => 'contacts', 'model' => \App\Models\ContactSource::class, 'label' => 'Contact sources', 'placeholder' => 'e.g. Walk-in'],
+        'contact_identifier_label' => ['step' => 'contacts', 'model' => \App\Models\ContactIdentifierLabel::class, 'label' => 'Contact labels', 'placeholder' => 'e.g. Personal'],
         'branch'         => ['step' => 'branches', 'label' => 'Branches', 'placeholder' => 'e.g. Seabreeze Bay'],
     ];
 
@@ -103,6 +104,8 @@ class AgencySetupWizardController extends Controller
             // surface them. Only lead sources are editable here.
             'contacts' => [
                 'contactSources' => \App\Models\ContactSource::orderBy('sort_order')->orderBy('name')->get(),
+                // Contact-details Phase 2 — the tel/email label list.
+                'contactIdentifierLabels' => \App\Models\ContactIdentifierLabel::orderBy('sort_order')->orderBy('name')->get(),
             ],
             'notifications' => [
                 'dashboard' => \App\Models\CommandCenter\AgencyDashboardSetting::firstOrNew(['agency_id' => $agency->id]),
@@ -195,6 +198,8 @@ class AgencySetupWizardController extends Controller
         try {
             if ($collection === 'contact_source') {
                 app(\App\Http\Controllers\CoreX\ContactSourceController::class)->store($request);
+            } elseif ($collection === 'contact_identifier_label') {
+                app(\App\Http\Controllers\CoreX\ContactIdentifierLabelController::class)->store($request);
             } elseif ($collection === 'branch') {
                 app(\App\Http\Controllers\Admin\BranchAssignmentController::class)->createBranch($request);
             }
@@ -220,6 +225,9 @@ class AgencySetupWizardController extends Controller
             if ($collection === 'contact_source') {
                 $src = \App\Models\ContactSource::findOrFail($id);
                 app(\App\Http\Controllers\CoreX\ContactSourceController::class)->destroy($src);
+            } elseif ($collection === 'contact_identifier_label') {
+                $lbl = \App\Models\ContactIdentifierLabel::findOrFail($id);
+                app(\App\Http\Controllers\CoreX\ContactIdentifierLabelController::class)->destroy($lbl);
             } elseif ($collection === 'branch') {
                 $branch = \App\Models\Branch::findOrFail($id);
                 // deleteBranch refuses (and flashes an error bag) while users are
@@ -362,8 +370,11 @@ class AgencySetupWizardController extends Controller
         foreach (($config['controls'] ?? []) as $control) {
             $key = $control['key'];
             $values[$key] = match ($control['source'] ?? 'agency') {
-                'perf'  => PerformanceSetting::get($key, $control['default'] ?? null),
-                default => $agency->{$key} ?? ($control['default'] ?? null),
+                'perf'      => PerformanceSetting::get($key, $control['default'] ?? null),
+                // DR2 Wave 2 — Deal → Property → Portal sync settings live on their
+                // own singleton row (agency_deal_sync_settings), not on Agency.
+                'deal_sync' => \App\Models\AgencyDealSyncSettings::forAgency($agency->id)->{$key} ?? ($control['default'] ?? null),
+                default     => $agency->{$key} ?? ($control['default'] ?? null),
             };
         }
         return $values;

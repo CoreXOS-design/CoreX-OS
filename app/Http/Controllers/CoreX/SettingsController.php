@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Agency;
 use App\Models\AgentSocialAccount;
 use App\Models\ContactSource;
+use App\Models\ContactIdentifierLabel;
 use App\Models\ContactTag;
 use App\Models\ContactType;
 use App\Models\CommissionSetting;
@@ -87,6 +88,8 @@ class SettingsController extends Controller
         // parent is surfaced separately so it can be re-homed.
         $data['contactTypes']    = ContactType::parents()->with('subTags')->get()->unique('name')->values();
         $data['contactSources']  = ContactSource::orderBy('sort_order')->orderBy('name')->get();
+        // Contact-details Phase 2 — the label list assignable to each tel/email.
+        $data['contactIdentifierLabels'] = ContactIdentifierLabel::orderBy('sort_order')->orderBy('name')->get();
         // Legacy tags awaiting a parent (pre-normalisation). BOUNDED: on an
         // un-normalised install EVERY tag is unassigned, so an unbounded render
         // would OOM the settings page — cap the rendered forms and surface the
@@ -122,6 +125,11 @@ class SettingsController extends Controller
         // Admin → Agencies → API Access. Spec: agency-public-api.md §6.5.
         $data['syndicationPpEnabled']      = (bool) PerformanceSetting::get('syndication_pp_enabled', 1);
         $data['syndicationP24Enabled']     = (bool) PerformanceSetting::get('syndication_p24_enabled', 1);
+        // AT-369 follow-up — master kill switch for the agent opt-in PP-exclusivity
+        // sub-feature. Default enabled (1) — existing agencies already using it (AT-369
+        // shipped 2026-08-04) see no behaviour change; an agency can switch it off to
+        // remove the tick from every sole-mandate Sale listing's syndication panel.
+        $data['ppExclusivityEnabled']      = (bool) PerformanceSetting::get('pp_exclusivity_enabled', 1);
         // AT-369 — agency cap on agent-opted-in PP sole-mandate exclusivity days.
         // Default 92 = PP's own hard maximum (Rev 4.6 p20); agency-configurable downward.
         $data['ppExclusiveDaysMax']        = (int) PerformanceSetting::get('pp_exclusive_days_max', 92);
@@ -463,7 +471,7 @@ class SettingsController extends Controller
         }
 
         // Saver-precondition guard (spec §3.4 / parent §6.1) — see updateMarketingEnabled.
-        foreach (['syndication_pp_enabled', 'syndication_p24_enabled'] as $key) {
+        foreach (['syndication_pp_enabled', 'syndication_p24_enabled', 'pp_exclusivity_enabled'] as $key) {
             if ($request->has($key)) {
                 // Per-agency write (multi-tenancy #7) — set() stamps the current agency.
                 PerformanceSetting::set($key, $request->boolean($key) ? 1 : 0);
