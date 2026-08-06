@@ -140,6 +140,18 @@ class CanonicalDocumentRenderer
             is_array($webData['_fill_review_overlay'] ?? null) ? $webData['_fill_review_overlay'] : [],
         );
 
+        // 5b) Fill & Review creation-time strikes — replay AFTER role-block expansion (CONVERGENCE, Johan
+        //     2026-08-06). body_strikes are authored on the Fill & Review preview, which is expanded
+        //     per-recipient (this pipeline, step 4). Baking them into the UN-expanded merged_html at send
+        //     time (ESignWizardController::replayBodyStrikes) cannot locate a selection that spans a
+        //     role-block — the Seller domicilium block, whose Seller 1/Seller 2 instances do not exist
+        //     until step 4 — so a whole-Seller-block strike dropped on the signing + recipient views.
+        //     Replaying HERE, against the identical expanded structure the agent authored on, closes that
+        //     gap: the served document IS the authored Fill & Review document. Idempotent — a strike whose
+        //     mark is already baked (a within-clause strike that DID locate in merged_html) is skipped by
+        //     change-id, and applyStrikeToHtml never double-strikes text already inside a change mark.
+        $html = $this->replayFillReviewBodyStrikes($html, $template, $webData);
+
         // 6) Returned-doc CHANGE-HIGHLIGHT (wet-ink, AT-368). Marks every field/clause change against the
         //    last-authorised sealed baseline — struck removals + inline write-ins that stay on the final
         //    document. GATED: only when cc6's flow flags the doc as re-edited-after-authorisation
@@ -269,6 +281,73 @@ class CanonicalDocumentRenderer
         } catch (\Throwable $e) {
             Log::warning('CanonicalDocumentRenderer::reapplyMissingBodyStrikes failed (non-fatal)', [
                 'document_id' => $document->id,
+                'error'       => $e->getMessage(),
+            ]);
+        }
+        return $html;
+    }
+
+    /**
+     * CONVERGENCE (Johan 2026-08-06) — replay the Fill & Review creation-time strikes onto the
+     * fully-EXPANDED document, at compose time, so the served document IS the document the agent
+     * authored on. `body_strikes` (persisted onto web_template_data at send by
+     * ESignWizardController) are located, in the wizard preview, against the per-recipient EXPANDED
+     * body. The send-time bake into merged_html runs BEFORE expansion, so a selection spanning a
+     * role-block (the whole Seller domicilium block, whose Seller 1/Seller 2 instances only exist
+     * after expandWithLooping) cannot locate there and silently drops. Replaying here — after
+     * expansion, against the identical structure the preview used — makes that whole-block strike
+     * survive to every served surface (agent sign, recipient ceremony, and the baked signed doc,
+     * since the signed canonical is composed from this same pipeline).
+     *
+     * IDEMPOTENT: a strike whose baked mark is already present (a within-clause strike that DID
+     * locate in merged_html) is skipped by change-id, and applyStrikeToHtml's insideChangeMark guard
+     * never double-strikes text already inside a change mark. Fail-safe (returns $html unchanged on
+     * any error) so a normal document is never regressed.
+     */
+    private function replayFillReviewBodyStrikes(string $html, SignatureTemplate $template, array $webData): string
+    {
+        $strikes = is_array($webData['body_strikes'] ?? null) ? $webData['body_strikes'] : [];
+        if ($strikes === [] || trim($html) === '') {
+            return $html;
+        }
+        try {
+            $svc     = app(SelectionEditService::class);
+            $parties = $svc->partiesFor($template);
+            foreach ($strikes as $s) {
+                if (! is_array($s)) {
+                    continue;
+                }
+                $selected = (string) ($s['selected'] ?? '');
+                if (trim($selected) === '') {
+                    continue;
+                }
+                // Skip a strike whose mark is already baked into this body (the within-clause case that
+                // located in merged_html) — no re-author, no double row. change_id is prefix|selected|
+                // replacement, identical to the author-side stamp, so the gate matches exactly.
+                $cid = SelectionEditService::changeId(
+                    (string) ($s['prefix'] ?? ''),
+                    $selected,
+                    (string) ($s['replacement'] ?? ''),
+                );
+                if ($cid !== '' && str_contains($html, 'data-change-id="' . $cid . '"')) {
+                    continue;
+                }
+                $out = $svc->applyStrikeToHtml(
+                    $html,
+                    $selected,
+                    (string) ($s['prefix'] ?? ''),
+                    (string) ($s['suffix'] ?? ''),
+                    (string) ($s['replacement'] ?? ''),
+                    (string) ($s['mode'] ?? 'inline'),
+                    $parties,
+                );
+                if ($out !== null) {
+                    $html = $out['html'];
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('CanonicalDocumentRenderer::replayFillReviewBodyStrikes failed (non-fatal)', [
+                'template_id' => $template->id,
                 'error'       => $e->getMessage(),
             ]);
         }

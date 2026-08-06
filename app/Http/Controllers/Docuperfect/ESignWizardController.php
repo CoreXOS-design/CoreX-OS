@@ -2439,6 +2439,17 @@ class ESignWizardController extends Controller
             }
         }
 
+        // CONVERGENCE (Johan 2026-08-06) — persist the Fill & Review creation-time strikes onto the
+        // document so compose() (the ONE serve path every surface routes through) can replay them AFTER
+        // role-block expansion. The send-time bake into merged_html above STAYS (it handles within-clause
+        // strikes), but it runs on the UN-expanded merged_html: a selection that spans a role-block — the
+        // whole Seller domicilium block, whose per-recipient instances (Seller 1/Seller 2) only exist
+        // after expandWithLooping — cannot locate there, so the strike silently drops at send time and the
+        // Seller block renders un-struck on the signing + recipient views. Replaying inside compose(),
+        // after expansion, locates against the exact expanded structure the agent authored on, so a
+        // whole-Seller-block strike survives to every served surface. Empty when no strikes were authored.
+        $webTemplateData['body_strikes'] = $stepData['fill_review']['body_strikes'] ?? [];
+
         $packInstanceId = ($isPackFlow || $isPdfPack) ? (int) round(microtime(true) * 1000) : null;
 
         // Resolve document_type: map template's DocumentType to a RentalDocumentType slug

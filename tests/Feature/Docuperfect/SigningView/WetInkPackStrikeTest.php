@@ -474,4 +474,121 @@ final class WetInkPackStrikeTest extends TestCase
         $this->assertSame(1, substr_count($served, 'data-strikethrough-applied="1"'), 'already-baked mark is not re-struck (idempotent — gate skipped the re-apply)');
         $this->assertStringContainsString('six percent (6%)', $served, 'the baked strike content is served intact');
     }
+
+    /**
+     * CONVERGENCE REGRESSION (Johan 2026-08-06) — a strike that SPANS a role-block must survive to the
+     * SERVED document. THIS is the case the earlier "green" suite missed: the agent strikes the whole Seller
+     * domicilium block (heading + the per-recipient Seller field-value lines). The send-time bake
+     * (ESignWizardController::replayBodyStrikes) runs on the UN-expanded merged_html — the Seller instances
+     * (Seller 1 / Seller 2) do not exist until RoleBlockExpansionService::expandWithLooping in compose() — so
+     * a selection spanning the block cannot locate at send time and drops. It rendered struck at Fill & Review
+     * (that preview IS expanded) but UN-struck at the signing + recipient views.
+     *
+     * The fix persists body_strikes onto web_template_data and replays them INSIDE compose(), AFTER expansion,
+     * against the identical expanded structure the preview authored on. This test drives the real serve path
+     * (compose(), the one path forDisplay + resolveOrCompose both call for an un-inked v0 document) and asserts
+     * the Seller-block address is struck in the SERVED body — the surface the recipient receives. Pre-fix
+     * (no compose replay) the served body carries ZERO change marks; this test fails. Post-fix it is struck.
+     */
+    public function test_body_strike_spanning_a_role_block_survives_to_the_served_document(): void
+    {
+        // merged_html: a static heading FOLLOWED by a Seller ROLE-BLOCK (expands per recipient in compose).
+        // No baked strike, canonical NOT inked (v0) → compose() runs, exactly like a freshly-sent document.
+        // The role-block carries NO inner static header — expansion INSERTS the "Seller - <name>" recipient
+        // label, precisely as the real template does; that inserted label is why a hand-built selection
+        // (missing it) never matched the expanded body and the "green" suite missed the bug.
+        $addr = 'Home Finders Coastal, shop 5, The emporium';
+        $merged = '<div class="corex-document-wrapper" data-doc-key="seg-eats">'
+            . '<div class="corex-h1">1.  DOMICILUM CITANDI ET EXECUTANDI</div>'
+            . '<div class="corex-h2">Seller</div>'
+            . '<div class="corex-clause recipient-instance--seller" data-role-block="seller" data-role-block-segment="address">'
+            . '<span class="corex-clause-text">Physical address '
+            . '<span class="corex-field-value" data-field="seller_address">' . $addr . '</span></span>'
+            . '</div>'
+            . '<p class="corex-clause"><span class="sig-inline-line" data-marker-party="seller" data-marker-type="signature"> </span></p>'
+            . '</div>';
+
+        [$tpl, $doc] = $this->seedRoleBlockDoc($merged);
+
+        // Derive the selection from the EXPANDED body — exactly what the agent drags in the (expanded) Fill &
+        // Review preview: heading → the inserted "Seller - Anine…" label → Physical address → the address
+        // value. Deriving it from the expansion is the faithful reproduction; a literal string cannot know the
+        // inserted per-recipient label.
+        $recips = SignatureRequest::where('signature_template_id', $tpl->id)->orderBy('signing_order')->get();
+        $expanded = app(\App\Services\Docuperfect\RoleBlockExpansionService::class)
+            ->expandWithLooping($doc->template, $merged, $recips, null, []);
+        $vis = trim(preg_replace('/\s+/', ' ', strip_tags($expanded)));
+        $s = stripos($vis, 'DOMICILUM');
+        $e = stripos($vis, $addr) + strlen($addr);
+        $selected = trim(substr($vis, $s, $e - $s));
+        $this->assertStringContainsString('Anine', $selected, 'the selection must span the expansion-inserted Seller label (Johan\'s exact case)');
+        $this->assertStringEndsWith($addr, $selected);
+
+        $doc->web_template_data = array_merge($doc->web_template_data, [
+            'body_strikes' => [[
+                'selected' => $selected, 'prefix' => '', 'suffix' => '', 'replacement' => '', 'mode' => 'strike',
+            ]],
+        ]);
+        $doc->save();
+
+        // Sanity: the stored merged_html carries NO change mark — so any mark in the served body was authored
+        // by compose()'s replay, not pre-baked. This is what pins the regression to the compose step.
+        $this->assertStringNotContainsString('change-del', $doc->web_template_data['merged_html'], 'precondition: no strike is baked into merged_html (the send-time bake could not locate it)');
+
+        // The REAL recipient serve path for an un-inked document → compose() → replay AFTER expansion.
+        $served = app(CanonicalDocumentRenderer::class)->resolveOrCompose($tpl->fresh());
+
+        // The Seller-block address is STRUCK on the served document (the surface the recipient receives).
+        $this->assertStringContainsString('change-del', $served, 'the Seller-block strike must be present on the SERVED document');
+        $this->assertMatchesRegularExpression(
+            '/<del[^>]*class="[^"]*change-del[^"]*"[^>]*>[^<]*' . preg_quote($addr, '/') . '/',
+            $served,
+            'the Seller ADDRESS value itself must sit inside the struck <del> on the served document'
+        );
+        $this->assertStringContainsString('data-strikethrough-applied="1"', $served);
+        // And the per-party initial row is authored once for the whole-block amendment.
+        $this->assertStringContainsString('change-initial-row', $served, 'a whole-block strike carries one per-party initial row');
+    }
+
+    /**
+     * Seed an un-inked (v0) document whose merged_html expands a Seller role-block in compose(). Distinct from
+     * seedPackDoc (which bakes canonical_version=1 → served verbatim, bypassing compose): here compose() MUST
+     * run, so canonical_html is absent and canonical_version is 0.
+     *
+     * @return array{0: SignatureTemplate, 1: Document}
+     */
+    private function seedRoleBlockDoc(string $merged, array $extraWtd = []): array
+    {
+        $uid = (int) DB::table('users')->insertGetId([
+            'name' => 'RB Agent', 'email' => 'rb-' . Str::random(6) . '@x.test',
+            'password' => bcrypt('p'), 'role' => 'agent', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $docTmpl = DocuperfectTemplate::create([
+            'name' => 'RB tmpl', 'render_type' => 'web', 'template_type' => 'cds', 'category' => 'sales',
+            'signing_parties' => ['agent', 'seller'], 'field_mappings' => [], 'owner_id' => $uid,
+        ]);
+        $doc = Document::create([
+            'name' => 'RB Doc', 'document_type' => 'mandate', 'owner_id' => $uid, 'template_id' => $docTmpl->id,
+            'web_template_data' => array_merge(['merged_html' => $merged], $extraWtd), // v0 — NO canonical_html
+        ]);
+        $tpl = SignatureTemplate::create([
+            'document_id' => $doc->id, 'document_hash' => Str::random(64),
+            'status' => SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL, 'created_by' => $uid,
+        ]);
+        SignatureRequest::create([
+            'signature_template_id' => $tpl->id, 'party_role' => 'agent', 'role_index' => 1,
+            'signer_name' => 'RB Agent', 'signer_email' => 'a@x.test', 'token' => Str::random(48),
+            'token_expires_at' => now()->addDays(30), 'status' => 'completed', 'signing_order' => 1,
+        ]);
+        // A Seller recipient with NO contact_id → expandWithLooping keeps the baked address span verbatim
+        // (SellerIdentityPreservation: an absent Contact never overwrites the baked value), so the expanded
+        // text equals the authored text and the selection locates deterministically.
+        SignatureRequest::create([
+            'signature_template_id' => $tpl->id, 'party_role' => 'seller', 'role_index' => 1,
+            'signer_name' => 'Anine Van der Westhuizen', 'signer_email' => 's@x.test', 'token' => Str::random(48),
+            'token_expires_at' => now()->addDays(30), 'status' => 'pending', 'signing_order' => 2,
+        ]);
+
+        return [$tpl, $doc->fresh()];
+    }
 }
