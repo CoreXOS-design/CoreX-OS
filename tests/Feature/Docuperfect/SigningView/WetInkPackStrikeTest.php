@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Docuperfect\SigningView;
 
+use App\Http\Controllers\Docuperfect\ESignWizardController;
 use App\Models\Docuperfect\Document;
+use App\Models\Docuperfect\Flow;
 use App\Models\Docuperfect\SignatureRequest;
 use App\Models\Docuperfect\SignatureTemplate;
 use App\Models\Docuperfect\Template as DocuperfectTemplate;
@@ -12,6 +14,7 @@ use App\Models\User;
 use App\Services\Docuperfect\CanonicalDocumentRenderer;
 use App\Services\Docuperfect\SelectionEditService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -192,6 +195,55 @@ final class WetInkPackStrikeTest extends TestCase
         // (change-del/change-ins occur more than once because the highlighter's Schedule-of-Amendments pass
         //  legitimately restates the change; those are not additional strikes.)
         $this->assertSame(1, substr_count($served, 'data-strikethrough-applied="1"'), 'exactly one authored strike (no accidental doubling)');
+    }
+
+    public function test_advancing_fill_review_to_sign_and_send_preserves_body_strikes(): void
+    {
+        // FLOW-THROUGH REGRESSION (Johan 2026-08-06). The Fill & Review body strike is authored server-side
+        // (bodyStrike) into step_data['fill_review']['body_strikes']. The step-5 save payload (Fill & Review ->
+        // Sign & Send) carries fieldValues / clauses / other_conditions but NOT body_strikes. A wholesale
+        // $stepData['fill_review'] = $data WIPED the strike the instant the agent advanced — so it showed at
+        // Fill & Review then vanished from Sign & Send, the signing view and the signed document. saveStep must
+        // preserve the server-authored strikes across the save.
+        $uid = (int) DB::table('users')->insertGetId([
+            'name' => 'Flow Agent', 'email' => 'wpf-' . Str::random(6) . '@x.test',
+            'password' => bcrypt('p'), 'role' => 'agent', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $actor = User::findOrFail($uid);
+
+        $flow = new Flow();
+        $flow->user_id = $uid;
+        $flow->type = 'esign';
+        $flow->step_data = [
+            'fill_review' => [
+                'fieldValues'          => ['old' => 'value'],
+                'other_conditions_text'=> 'ORIGINAL',
+                // authored earlier by the bodyStrike endpoint — NOT part of the step-5 client payload:
+                'body_strikes' => [[
+                    'selected' => 'The notice must state the following', 'prefix' => '', 'suffix' => '',
+                    'replacement' => 'This is a reworded clause', 'mode' => 'inline', 'at' => now()->toIso8601String(),
+                ]],
+            ],
+        ];
+        $flow->save();
+
+        // The exact step-5 payload getStepData() sends when advancing Fill & Review -> Sign & Send (NO body_strikes).
+        $payload = ['data' => [
+            'fieldValues' => ['new' => 'typed'], 'partyOverrides' => [], 'clauses' => [],
+            'other_conditions_text' => 'EDITED', 'other_condition_frames' => [],
+        ]];
+        $req = Request::create('/x', 'POST', [], [], [], ['CONTENT_TYPE' => 'application/json'], json_encode($payload));
+        $req->setUserResolver(fn () => $actor);
+
+        app(ESignWizardController::class)->saveStep($req, $flow->id, 5);
+
+        $fr = $flow->fresh()->step_data['fill_review'];
+        // The strike SURVIVES the advance (the fix) …
+        $this->assertCount(1, $fr['body_strikes'] ?? [], 'body_strikes must survive the Fill & Review -> Sign & Send save');
+        $this->assertSame('The notice must state the following', $fr['body_strikes'][0]['selected']);
+        // … and the wholesale client fields still update as before (the fix is additive, not a behaviour change).
+        $this->assertSame('EDITED', $fr['other_conditions_text'], 'client-authored fill_review fields still save');
+        $this->assertArrayNotHasKey('old', $fr['fieldValues'] ?? [], 'client payload still replaces client-owned keys');
     }
 
     public function test_legacy_edge_is_idempotent_when_mark_already_baked(): void

@@ -736,7 +736,24 @@ class ESignWizardController extends Controller
 
         // Merge step data into flow
         $stepData = $flow->step_data ?? [];
+
+        // WET-INK FLOW-THROUGH (Johan 2026-08-06) — the Fill & Review body strike/reword amendments live under
+        // step_data['fill_review']['body_strikes'], authored SERVER-SIDE by the bodyStrike endpoint. The step-5
+        // save payload (getStepData case 5) carries fieldValues / clauses / other_conditions — but NOT
+        // body_strikes. A wholesale $stepData['fill_review'] = $data therefore WIPED them the instant the agent
+        // advanced Fill & Review -> Sign & Send (CLAUDE.md §6.1: the step posts a SUBSET), so the strike showed
+        // transiently at authoring then vanished from Sign & Send, the signing view and the signed document.
+        // Preserve the server-authored strikes across the wholesale save (the client never removes a strike
+        // through this path; the only remover is a future dedicated endpoint, which would carry its own key).
+        $preservedBodyStrikes = ($stepKey === 'fill_review' && ! isset($data['body_strikes']))
+            ? ($stepData['fill_review']['body_strikes'] ?? null)
+            : null;
+
         $stepData[$stepKey] = $data;
+
+        if ($preservedBodyStrikes !== null) {
+            $stepData['fill_review']['body_strikes'] = $preservedBodyStrikes;
+        }
 
         // Sort recipients by SA signing convention when saving step 3
         if ($stepKey === 'recipients' && !empty($data['recipients'])) {
