@@ -1949,6 +1949,11 @@ function signDocument() {
             try {
                 const changeId = detail.changeId, range = detail.range;
                 if (!changeId || !range) return;
+                // Idempotent — never paint the same change twice (guards against a re-dispatched event / a
+                // re-inited listener): if this change's initial row is already in the document, do nothing.
+                const _root = (this.$refs && this.$refs.webDocContent) ? this.$refs.webDocContent : document;
+                const _esc = (window.CSS && CSS.escape) ? CSS.escape : (s => String(s).replace(/["\\]/g, '\\$&'));
+                if (_root.querySelector('.change-initial-row[data-change-id="' + _esc(changeId) + '"]')) return;
                 const wrap = document.createElement('span');
                 wrap.className = 'change-inline';
                 wrap.setAttribute('data-strikethrough-applied', '1');
