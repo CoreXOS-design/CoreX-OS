@@ -169,6 +169,18 @@ class DocumentChangeHighlighter
             if ($out === '') {
                 return $currentHtml;
             }
+            // ATTRIBUTION (Johan/cc2 flag 2026-08-06) — override each change's "Initialed" attribution from the
+            // AUTHORITATIVE filled cir-slots (per-party ink, kept in canonical_html by cc2's recordChangeInitial
+            // fix) so the Schedule of Amendments never shows the flat `change_initials` last-writer name for a
+            // multi-party change (doc 705 rendered "Andre Roets" for BOTH changes). Only overrides when the
+            // change has filled slots; a legacy pill-only mark keeps whatever the row already carried.
+            foreach ($changes as &$c) {
+                $fromSlots = $this->initialedFromSlots($curX, (string) ($c['id'] ?? ''));
+                if ($fromSlots !== null) {
+                    $c['initialed'] = $fromSlots;
+                }
+            }
+            unset($c);
             // Decision #2 — append the Schedule of Amendments so the change record persists on the final
             // document alongside the inline marks.
             return $this->styleBlock() . $out . $this->appendixHtml($changes);
@@ -475,10 +487,44 @@ class DocumentChangeHighlighter
         return mb_strtoupper(mb_substr($parts[0], 0, 1) . mb_substr(end($parts), 0, 1));
     }
 
+    /**
+     * The AUTHORITATIVE per-party attribution for a change — the names on its FILLED cir-slots. cc2's
+     * recordChangeInitial keeps each party's cir-slot fill in canonical_html + merged_html, so the filled
+     * slots are the correct per-party record. The parallel `change_initials` map is written FLAT
+     * (change_initials[cid] = {name}, last-writer-wins), so attribution labels must NOT read it — they would
+     * show only the last party to initial for every change. Returns ['name' => 'A, B, …'] over the distinct
+     * filled-slot party names, or null when the change has no filled slots (a legacy pill-only mark → the
+     * caller falls back to the flat map). (Johan/cc2 flag 2026-08-06 — render-boundary fix.)
+     */
+    private function initialedFromSlots(DOMXPath $x, string $changeId): ?array
+    {
+        $slots = $x->query(
+            '//*[contains(concat(" ", normalize-space(@class), " "), " cir-slot ")'
+            . ' and contains(concat(" ", normalize-space(@class), " "), " cir-filled ")'
+            . ' and @data-change-id="' . $changeId . '"]'
+        );
+        if ($slots === false || $slots->length === 0) {
+            return null;
+        }
+        $names = [];
+        foreach ($slots as $slot) {
+            if ($slot instanceof DOMElement) {
+                $n = trim($slot->getAttribute('data-party-name'));
+                if ($n !== '' && ! in_array($n, $names, true)) {
+                    $names[] = $n;
+                }
+            }
+        }
+        return $names === [] ? null : ['name' => implode(', ', $names)];
+    }
+
     /** Append a "✓ initialed by {name}" tag to a change mark when cc6 has recorded its initial. */
     private function appendInitialedTag(DOMElement $node, string $changeId, array $initials): void
     {
-        $info = $this->anyInitial($initials, $changeId);
+        // Prefer the authoritative filled cir-slots (correct per-party); fall back to the flat change_initials
+        // map only for legacy pill-only marks that have no row slots.
+        $info = $this->initialedFromSlots(new DOMXPath($node->ownerDocument), $changeId)
+            ?? $this->anyInitial($initials, $changeId);
         if ($info === null) {
             return;
         }
