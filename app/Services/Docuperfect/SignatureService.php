@@ -2862,21 +2862,39 @@ class SignatureService
         $map[$changeId] = ['name' => $name, 'at' => $at];
         $wtd['change_initials'] = $map;
 
-        // WET-INK: fill the initial into the SAME artifact the strike was authored onto — the signed canonical
-        // when ink is baked (so every signature + the location carry through) — never the un-inked merged_html.
+        // WET-INK per-party ROW slot: this party applies their OWN REAL initial in their own slot,
+        // independently of the others (the captured image is the same ink the rest of the doc uses). A
+        // legacy clause mark (no margin slots) falls back to the shared "Initialed by {name}" pill.
+        $selSvc = app(SelectionEditService::class);
+        $applyFill = function (string $html) use ($selSvc, $changeId, $partyKey, $name, $imageDataUrl): string {
+            if ($html === '' || ! str_contains($html, 'data-change-id="' . $changeId . '"')) {
+                return $html;
+            }
+            if ($partyKey !== null && $partyKey !== '' && $selSvc->hasRowSlot($html, $changeId, $partyKey)) {
+                return $selSvc->fillRowSlot($html, $changeId, $partyKey, $name, $imageDataUrl);
+            }
+            return app(ClauseEditService::class)->stampInitialPill($html, $changeId, $name);
+        };
+
+        // Fill the initial into the artifact the amend was authored onto (the signed canonical when ink
+        // is baked, so every signature + the location carry through), via writeAmend (version semantics).
         $canvas = CanonicalDocumentRenderer::amendSource($wtd);
         $html   = $canvas['html'];
         if ($html !== '' && str_contains($html, 'data-change-id="' . $changeId . '"')) {
-            $selSvc = app(SelectionEditService::class);
-            if ($partyKey !== null && $partyKey !== '' && $selSvc->hasRowSlot($html, $changeId, $partyKey)) {
-                // WET-INK per-party ROW slot: this party applies their OWN REAL initial in their own slot,
-                // independently of the others. The captured initial image is the same ink the rest of the doc uses.
-                $newHtml = $selSvc->fillRowSlot($html, $changeId, $partyKey, $name, $imageDataUrl);
-            } else {
-                // Legacy clause mark (no margin slots): the shared "Initialed by {name}" pill.
-                $newHtml = app(ClauseEditService::class)->stampInitialPill($html, $changeId, $name);
-            }
-            $wtd = CanonicalDocumentRenderer::writeAmend($wtd, $newHtml, $canvas['baked']);
+            $wtd = CanonicalDocumentRenderer::writeAmend($wtd, $applyFill($html), $canvas['baked']);
+        }
+
+        // AT-373 amendment-initial DROP fix — keep the SAME fill in BOTH canonical_html AND merged_html.
+        // recordChangeInitial used to write ONLY the amendSource artifact (merged_html before a party has
+        // baked, canonical_html after). But completeWeb bakes the STORED canonical_html and freezes it at
+        // version >= 1; a fill recorded while the doc was still v0 lived only in merged_html and was
+        // dropped from the served/baked canonical — so the 1st recipient's amendment-initials vanished on
+        // the final PDF while a later party (who initialed post-bake, straight into canonical) survived.
+        // Filling the OTHER artifact in place (slot fill only — canonical_version untouched) makes the
+        // per-party initial durable regardless of the bake boundary or which artifact a surface serves.
+        $secondaryKey = $canvas['baked'] ? 'merged_html' : 'canonical_html';
+        if (is_string($wtd[$secondaryKey] ?? null) && $wtd[$secondaryKey] !== '') {
+            $wtd[$secondaryKey] = $applyFill($wtd[$secondaryKey]);
         }
 
         $document->update(['web_template_data' => $wtd]);
