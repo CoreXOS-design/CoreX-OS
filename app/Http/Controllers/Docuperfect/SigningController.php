@@ -2927,17 +2927,22 @@ HTML;
     private function monochromePdfCss(): string
     {
         return <<<'CSS'
-/* === AT-374 — MONOCHROME BLACK (PDF/print output ONLY; the screen views keep their colour) === */
-/* Whole-document monochrome: desaturate the entire body so NO colour leaks (the agency letterhead logo
-   and any tinted asset render in greyscale, not colour). The rules below then force all document ink +
-   signatures/initials to solid BLACK. grayscale on the wrapper + black text/ink together = a fully
-   monochrome black legal record. */
-.corex-document-wrapper {
-    filter: grayscale(1) !important;
-    -webkit-filter: grayscale(1) !important;
-}
-/* Every mark of document ink renders solid black — headings, clauses, amendments, conditions, initials. */
-.corex-document-wrapper, .corex-document-wrapper *,
+/* === AT-374 — MONOCHROME BLACK DOCUMENT CONTENT (PDF/print output ONLY; the screen views keep colour) === */
+/* The HEADER / LETTERHEAD (agency logo + details) stays FULL COLOUR — it is branding, not document ink, so
+   it is NOT desaturated or blackened (Johan 2026-08-06). Only the legal CONTENT renders solid black: body
+   text, clauses, headings, field values, amendments (strike + reword), Other-Conditions, amendment-initial
+   blocks, and every signature/initial (drawn or typed). Every rule is scoped to CONTENT classes so the
+   header region (.corex-header / .corex-letterhead / .corex-title-banner and its logo) is never touched.
+   Appended LAST in wrapHtmlForPdf() so it wins over the CDS + change-mark styles. */
+
+/* Legal content ink → solid black (clauses, headings, field values, ceremony + signature-section text,
+   amendments, Other-Conditions, amendment-initial blocks). The header/letterhead is deliberately absent. */
+.corex-clause, .corex-clause *,
+.corex-h1, .corex-h2, .corex-h3, .corex-h4, .corex-section-heading,
+.corex-clause-number, .corex-clause-text, .corex-field-value,
+.corex-document-title, .corex-title,
+.corex-signature-section, .corex-signature-section *, .corex-signature-block, .corex-signature-block *,
+.corex-ceremony-section, .corex-ceremony-section *,
 .change-inline, .change-inline *, .change-del, .change-ins, .change-xref,
 .change-initial-row, .change-initial-row *, .change-margin, .change-margin *,
 .cir-label, .cir-name, .cir-ink, .cir-slot,

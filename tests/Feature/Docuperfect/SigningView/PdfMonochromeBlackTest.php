@@ -45,10 +45,10 @@ final class PdfMonochromeBlackTest extends TestCase
     {
         $out = $this->wrap($this->sampleBody());
 
-        $this->assertStringContainsString('MONOCHROME BLACK (PDF/print output', $out, 'the PDF wrapper must carry the AT-374 monochrome override');
+        $this->assertStringContainsString('MONOCHROME BLACK DOCUMENT CONTENT', $out, 'the PDF wrapper must carry the AT-374 monochrome override');
         // The override must sit AFTER the CDS stylesheet so it wins the cascade.
         $cdsPos  = strpos($out, 'CDS Document Stylesheet');
-        $monoPos = strpos($out, 'MONOCHROME BLACK (PDF/print output');
+        $monoPos = strpos($out, 'MONOCHROME BLACK DOCUMENT CONTENT');
         $this->assertNotFalse($cdsPos);
         $this->assertNotFalse($monoPos);
         $this->assertGreaterThan($cdsPos, $monoPos, 'the monochrome override must be appended AFTER the CDS styles to win');
@@ -62,9 +62,13 @@ final class PdfMonochromeBlackTest extends TestCase
         $this->assertMatchesRegularExpression('/\.change-del[^{]*\{[^}]*color:\s*#000/is', $out, 'strike text must be forced black');
         $this->assertStringContainsString('text-decoration-color: #000', $out, 'the strike-through line must be black, not red');
         $this->assertMatchesRegularExpression('/\.change-ins[^{]*\{[^}]*background:\s*transparent/is', $out, 'reword inserts must lose their colour highlight');
-        // Signatures + initials forced to solid black (brightness(0)); whole doc desaturated (grayscale).
+        // Signatures + initials forced to solid black (brightness(0)).
         $this->assertStringContainsString('brightness(0)', $out, 'signature/initial images must be forced to solid black');
-        $this->assertStringContainsString('grayscale(1)', $out, 'the whole document must render monochrome (no colour leaks)');
+        // The HEADER / letterhead stays full colour — the override must NOT desaturate the whole wrapper and
+        // must NOT blanket-blacken every wrapper descendant; content is targeted by content classes instead.
+        $this->assertDoesNotMatchRegularExpression('/\.corex-document-wrapper\s*\{[^}]*grayscale/is', $out, 'the whole document must NOT be desaturated — the header/letterhead keeps its colour');
+        $this->assertDoesNotMatchRegularExpression('/\.corex-document-wrapper\s+\*[^{]*\{[^}]*color:\s*#000/is', $out, 'must not blanket-blacken every wrapper descendant (would blacken the header)');
+        $this->assertStringContainsString('.corex-clause', $out, 'black-ink rules must be scoped to document content classes');
     }
 
     public function test_screen_change_mark_styles_stay_coloured(): void
