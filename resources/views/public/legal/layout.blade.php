@@ -63,8 +63,7 @@
     </main>
 
     <footer class="doc-footer">
-        CoreX OS · operated by Home Finders Coastal (KwaZulu-Natal South Coast, South Africa)
-        · <a href="mailto:{{ $contactEmail }}">{{ $contactEmail }}</a>
+        CoreX OS · <a href="mailto:{{ $contactEmail }}">{{ $contactEmail }}</a>
     </footer>
 </body>
 </html>
