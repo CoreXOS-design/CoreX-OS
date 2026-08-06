@@ -372,6 +372,32 @@ final class WetInkPackStrikeTest extends TestCase
         $this->assertSame('EDITED REWORD A', $strikes2[0]['replacement'], 'A untouched by removing B');
     }
 
+    public function test_authoritative_overlay_preserves_a_struck_field(): void
+    {
+        // STRUCK-FIELD GUARD (Johan 2026-08-06). A struck/reworded FIELD carries the change mark INSIDE its
+        // data-field wrapper: <span data-field><span data-strikethrough-applied><del>value</del></span></span>.
+        // The Fill & Review authoritative overlay runs on the preview AND at send/compose; it must NOT
+        // re-resolve a struck field from the pillar value — that cleared the strike and re-rendered the field
+        // UN-struck at the signing view (the property-address multi-block defect). A struck field is served
+        // verbatim; an un-struck field with the same key still overlays normally.
+        $r = app(CanonicalDocumentRenderer::class);
+
+        $struck = '<div class="corex-document-wrapper"><p class="corex-clause">Address '
+                . '<span class="corex-field-value" data-field="property_street">'
+                . '<span class="change-inline" data-strikethrough-applied="1" data-change-id="abc123">'
+                . '<del class="change-del" data-change-id="abc123">380 Wilfred Street</del></span></span> here.</p></div>';
+        $out = $r->applyFillReviewAuthoritativeOverlay($struck, ['property_street' => '380 Wilfred Street']);
+        $this->assertStringContainsString('change-del', $out, 'the strike survives the authoritative overlay');
+        $this->assertStringContainsString('data-strikethrough-applied', $out);
+        $this->assertStringContainsString('380 Wilfred Street', strip_tags($out));
+
+        // an UN-struck field with the same key is still re-resolved — the guard is scoped to struck fields only.
+        $plain = '<div class="corex-document-wrapper"><p class="corex-clause">Address <span data-field="property_street">OLD VALUE</span> here.</p></div>';
+        $out2 = $r->applyFillReviewAuthoritativeOverlay($plain, ['property_street' => 'NEW VALUE']);
+        $this->assertStringContainsString('NEW VALUE', $out2, 'un-struck fields still overlay normally');
+        $this->assertStringNotContainsString('OLD VALUE', $out2);
+    }
+
     public function test_advancing_fill_review_to_sign_and_send_preserves_body_strikes(): void
     {
         // FLOW-THROUGH REGRESSION (Johan 2026-08-06). The Fill & Review body strike is authored server-side

@@ -400,6 +400,17 @@ class CanonicalDocumentRenderer
                 continue;
             }
 
+            // STRUCK-FIELD PRESERVATION (Johan 2026-08-06). A field the agent struck out / reworded at Fill &
+            // Review carries the change mark INSIDE it: <span data-field="…"><span data-strikethrough-applied>
+            // <del>value</del></span></span>. Re-resolving it here would clear the strike and re-render the
+            // field un-struck — the exact "property address multi-block strike re-appears at the signing view"
+            // defect. A struck field is served VERBATIM: the strike is the authoritative content, not the pillar
+            // value. This is the convergence point — the SAME overlay runs on the Fill & Review preview and at
+            // send/compose, so a struck field renders identically on every surface.
+            if ($this->containsChangeMark($node)) {
+                continue;
+            }
+
             while ($node->firstChild) {
                 $node->removeChild($node->firstChild);
             }
@@ -413,6 +424,20 @@ class CanonicalDocumentRenderer
 
         $out = $detector->serializeFragment($dom);
         return $out !== '' ? $out : $html;
+    }
+
+    /** True when this element's content carries an authored wet-ink change mark (a struck / reworded field). */
+    private function containsChangeMark(\DOMElement $node): bool
+    {
+        foreach ($node->getElementsByTagName('*') as $desc) {
+            if ($desc instanceof \DOMElement
+                && ($desc->getAttribute('data-strikethrough-applied') === '1'
+                    || str_contains(' ' . $desc->getAttribute('class') . ' ', ' change-del ')
+                    || str_contains(' ' . $desc->getAttribute('class') . ' ', ' change-inline '))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
