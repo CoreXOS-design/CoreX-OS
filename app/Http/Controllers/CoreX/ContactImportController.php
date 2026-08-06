@@ -317,10 +317,11 @@ class ContactImportController extends Controller
                     $pendingTagEvents[] = [$contact, $tagIds];
                 }
 
-                // Policy (post-incident, see FicaSubmission::BULK_IMPORT_SOURCE): imported
-                // contacts must NEVER be auto-marked FICA-approved. An agent who wants to
-                // link an imported contact to a property must take them through a REAL
-                // FICA submission first — no import-time shortcut, no exceptions.
+                // Policy (post-incident): imported contacts must NEVER be auto-marked
+                // FICA-approved. No special-casing at the compliance gate for imported
+                // vs. non-imported contacts — every contact earns FICA the same way,
+                // and the existing marketing-readiness gate (MarketingReadinessService)
+                // is the one place that's enforced, before a property can go live.
                 $created++;
             }
 
