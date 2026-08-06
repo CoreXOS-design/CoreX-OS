@@ -47,6 +47,48 @@ class UserObserver
         }
     }
 
+    /**
+     * AT-278 backstop — a locked agent may not be un-archived.
+     * Spec: .ai/specs/agent-seat-release-lock.md §5.1 (enforcement point 7)
+     *
+     * The controllers call AgentSeatLockService::assertCanReinstate() and then
+     * perform the authorised write inside ::bypass(). This hook exists for
+     * everything else: a future controller, an Artisan command, a queued job, a
+     * one-off tinker fix. Without it the rule is a habit; with it, it is
+     * structural. Deliberately NOT failure-isolated — a guard that swallows its
+     * own exception is not a guard.
+     */
+    public function restoring(User $user): void
+    {
+        $this->assertReinstatable($user);
+    }
+
+    /**
+     * Same backstop for the other way back into a billable seat: flipping
+     * `is_active` 0 → 1. Deactivating frees a seat exactly as archiving does
+     * (billing spec §3 D1), so reactivating must clear the same gate.
+     */
+    public function updating(User $user): void
+    {
+        $reactivating = $user->isDirty('is_active')
+            && ! $user->getOriginal('is_active')
+            && $user->is_active;
+
+        if ($reactivating) {
+            $this->assertReinstatable($user);
+        }
+    }
+
+    /** @throws \App\Exceptions\SeatReinstatementLockedException */
+    private function assertReinstatable(User $user): void
+    {
+        if (\App\Services\Admin\AgentSeatLockService::isBypassing()) {
+            return;
+        }
+
+        app(\App\Services\Admin\AgentSeatLockService::class)->assertCanReinstate($user);
+    }
+
     public function updated(User $user): void
     {
         try {

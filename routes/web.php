@@ -607,6 +607,17 @@ Route::middleware('auth')->group(function () {
     Route::post('/admin/users/{user}/delete', [App\Http\Controllers\Admin\UserManagementController::class, 'delete'])
         ->middleware('permission:manage_users')->name('admin.users.delete');
 
+    // AT-278 — archived agents + the gated restore path.
+    // Spec: .ai/specs/agent-seat-release-lock.md §6.1. Declared before any
+    // /admin/users/{user} GET so "archived" is never swallowed as an id.
+    // Restore takes a raw {userId}, not model binding: the user is soft-deleted,
+    // so implicit binding would 404 on the very records this page exists for.
+    Route::get('/admin/users/archived', [App\Http\Controllers\Admin\UserManagementController::class, 'archived'])
+        ->middleware('permission:manage_users')->name('admin.users.archived');
+    Route::post('/admin/users/{userId}/restore', [App\Http\Controllers\Admin\UserManagementController::class, 'restore'])
+        ->whereNumber('userId')
+        ->middleware('permission:manage_users')->name('admin.users.restore');
+
     Route::get('/api/v1/admin/users/{user}/delete-preview', [App\Http\Controllers\Admin\UserManagementController::class, 'deletePreview'])
         ->middleware('permission:manage_users')->name('api.v1.admin.users.delete-preview');
 
