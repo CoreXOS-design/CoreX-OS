@@ -96,6 +96,10 @@
                class="inline-flex items-center gap-1.5 font-medium" style="color: var(--brand-icon, #0ea5e9);">
                 View Data Deletion page ↗
             </a>
+            <a href="{{ $supportUrl }}" target="_blank" rel="noopener"
+               class="inline-flex items-center gap-1.5 font-medium" style="color: var(--brand-icon, #0ea5e9);">
+                View Support page ↗
+            </a>
         </div>
 
         {{-- App Review note --}}

@@ -134,9 +134,70 @@ Retry policy: `call()` retries once on timeout-style faults (`Error Fetching htt
 | `Attributes` | structural: `Bedrooms,Bathrooms,Garages,FloorArea,LandArea,HomeType\|BusinessType\|FarmType\|LandType,Rates,Levies` **+ feature attributes** (see §Feature Attributes) | category-specific type attribute; features from `features_json`/`spaces_json` |
 | `HideStreetName/No/ComplexName/UnitNumber` | bool, `pp_hide_*` columns | |
 | `RentalPriceType` | `mapRentalPriceType()` → `PerMonth\|PerWeek\|PerDay\|PerM2` | legacy "PerSquareMeter" mapped to `PerM2` |
-| `SoleMandateExclusiveDays` | derived from listed_date↔expiry_date for FullMandate Sale | 1-92 only; else 0 |
+| `SoleMandateExclusiveDays` | `$p->pp_exclusive_days` (agent opt-in ONLY, AT-369) | sent only when `pp_exclusive_days >= 1` AND `MandateType === FullMandate` AND `ListingType === Sale`; capped at 92; else omitted (field stays `0`, PP's own "not requested" value) |
 
 `validate($payload): array` enforces all of the above. `checkReadiness(Property $p): array` returns user-facing missing-field list before submission is even attempted.
+
+### 6a. Agent opt-in PP exclusivity (AT-369, 2026-08-04)
+
+**Design (Johan's ruling):** sole mandates syndicate normally to every selected portal by
+default. PP exclusivity is an **opt-in tick per listing** — never derived from dates,
+never assumed from mandate type alone, never an agency-mandated blanket mode. While a
+listing's exclusive window is open, it must **not** reach Property24 or any other portal.
+
+**History:** before this fix, `PrivatePropertyListingMapper::map()` auto-calculated
+`SoleMandateExclusiveDays` from `listed_date`↔`expiry_date` on every sole-mandate Sale
+submit — no agent ever chose it, and nothing gated Property24 on the result. See
+§6/§17 history and `PpRemediateLegacyExclusiveDays` below for the cleanup.
+
+**Flow:**
+1. Agent ticks "Make this listing exclusive to Private Property" on the syndication
+   panel (`resources/views/corex/properties/partials/syndication-panel.blade.php`,
+   visible only for sole-mandate Sale listings). Ticking opens an info modal
+   (the shared `<x-modal>` component — `resources/views/components/modal.blade.php`)
+   explaining: PP-only publish while other portals are blocked; the "Only on Private
+   Property" label runs the full period while featured placement caps at 7 days; the
+   listing must be a newly signed sole mandate not already advertised elsewhere; and
+   exclusivity cannot be cancelled within 24 hours of PP creation (PP rejects it).
+2. Agent picks 1..agency-max days in the modal and confirms — nothing is sent to the
+   server yet. Cancel leaves the tick off; nothing saved.
+3. The chosen day count travels to the server on the next Submit/Refresh
+   (`syndication-scripts.blade.php` `submitListing()`/`refreshListing()` — both POST
+   `pp_exclusive_days` to `/syndication/submit`).
+4. `SyndicationController::submit()` validates server-side (never trusts the client
+   alone): a value of `0` always clears it; a positive value must be an integer within
+   `1..pp_exclusive_days_max` (agency setting, below) AND the listing must be a sole
+   mandate Sale — anything else is rejected with a 422, never silently dropped.
+5. `PrivatePropertyListingMapper::map()` sends `SoleMandateExclusiveDays` from
+   `pp_exclusive_days` under the same FullMandate+Sale condition (§6 table above).
+6. PP's response `DelayListingOnOtherWebsitesUntil` is parsed and stored in
+   `pp_delay_until` exactly as before (`PrivatePropertySyndicationService.php:156-168` —
+   unchanged by AT-369).
+
+**Agency cap — `pp_exclusive_days_max` (PerformanceSetting, agency-scoped):**
+- Default 92 (PP's own hard maximum), agency-configurable downward, never below 1 or
+  above 92 — enforced server-side in `SettingsController::updateSyndicationPortals()`
+  regardless of what the form sends.
+- UI: Company Settings → Feature Settings → Properties → "Syndication Portals" card.
+- Onboarding wizard: `config/agency-onboarding-copy.php` `capabilities` step, alongside
+  `syndication_pp_enabled`.
+- **Not** registered in `AgencyFeatureService::SWITCHBOARD_STORES` — that map is
+  boolean-only (`enabled()` casts every entry through `(bool) PerformanceSetting::get(...)`),
+  and this is a numeric cap on an already-gated feature, not a feature to gate on/off.
+
+**The real P24 gate (server-side, not cosmetic):** `Property::isPpExclusiveActive()`
+(`pp_delay_until` set and in the future) is the single source of truth, enforced at
+every Property24 entry point. Full detail: `.ai/specs/p24-syndication.md` §"AT-369 — PP
+exclusivity gate".
+
+**Remediation:** `php artisan pp:remediate-legacy-exclusivity` (`--dry-run` default,
+`--live` to act) finds every property with `pp_delay_until` set (PP's own ground truth
+for "exclusivity was granted") and, for any still inside the window, clears
+`pp_exclusive_days` and resubmits so PP releases it. Skips anything activated on PP
+within the last 24 hours (PP rejects the reduction) and reports those separately.
+Transaction-per-listing, rolls back the local clear if the resubmit fails. No hard
+deletes — the only write is the ordinary `pp_exclusive_days` update + the standard
+`submitListing()` path "Refresh" already uses.
 
 ### Feature Attributes (added 2026-07-01 — property 6049 fix)
 
@@ -393,7 +454,7 @@ Plus `php artisan pp:smoke-test` → `GetBranchDetails`.
 - **Suburb hierarchy** — `Suburb` must be more specific than `Town` and the two strings must not be identical (case-insensitive). Province is a fixed enum.
 - **PhotoUrl must be HTTPS** — localhost / http:// URLs are rejected by PP. Override via `PP_IMAGE_BASE_URL`.
 - **Agent image** — field name in WSDL is `imgurl` lowercase. Min 160×120, max 1MB.
-- **`SoleMandateExclusiveDays`** — only valid for `FullMandate Sale`, range 1-92. Anything else must be 0.
+- **`SoleMandateExclusiveDays`** — only valid for `FullMandate Sale`, range 1-92. Anything else must be 0. **AT-369 (2026-08-04):** sent from agent opt-in (`pp_exclusive_days`) only — see §6a. Reducing it below 1 within 24 hours of the listing's PP creation is a PP error; `pp:remediate-legacy-exclusivity` skips candidates inside that window for manual handling.
 
 ---
 
@@ -418,7 +479,7 @@ The integration treats PP errors as opaque strings stored in `pp_last_error`. Co
 - **Elize duplicate** — AgentId=100, encrypted `lW2pKs8th84=`. Listings 16 and 34 currently assigned to it on PP. Cannot be deactivated until PP support reassigns. Track at `app/Services/PrivateProperty/PrivatePropertySyndicationService.php` agent-flow.
 - ~~**`pp_listing_feed_ref` for T2870133** — null. Video push blocked.~~ **RESOLVED 2026-05-18.** Was NOT blocked on PP — the Event Feed parser was broken (wrong envelope path, mis-spelled `LisitngEventFeedData` child, inverted `ListingFeedRef`/`OfficeFeedRef` roles). Fixed in `ProcessPrivatePropertyEventFeed`. PP has emitted multiple `Activated` events for property 16 (`ListingFeedRef="16"`); the corrected job populates `pp_listing_feed_ref="16"` on the next run for any Active listing.
 - **`PP_WEBHOOK_SECRET`** — must be obtained by registering `https://corex.hfcoastal.co.za/api/pp/webhook` in the PP Admin Portal.
-- **Sole-mandate exclusive listing test** — outstanding test case (FullMandate Sale, `pp_exclusive_days > 0`).
+- ~~**Sole-mandate exclusive listing test** — outstanding test case (FullMandate Sale, `pp_exclusive_days > 0`).~~ **RESOLVED 2026-08-04 (AT-369).** `pp_exclusive_days` is no longer a dormant column — it is read by the mapper, set via the syndication panel's opt-in + info modal, and validated server-side. See §6a. Live remediation of pre-fix listings (`pp:remediate-legacy-exclusivity --live`) is still outstanding — Johan gives a separate explicit order for that run; the dry-run was proven on QA1 only.
 
 ---
 

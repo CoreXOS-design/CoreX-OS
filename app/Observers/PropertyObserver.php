@@ -590,6 +590,27 @@ class PropertyObserver
         if (isset($dirty['status'])) {
             $p24Status = Property24ListingMapper::getP24Status($property->status, $property->p24_ref, $property->status_label);
 
+            // AT-369 — found in audit: this direct status-sync call goes straight
+            // to Property24ApiClient, bypassing Property24SyndicationService
+            // entirely — so it never hit blockIfPpExclusive(). Terminal/removing
+            // statuses (Sold, Rented, Withdrawn, Expired, Cancelled) only ever
+            // REDUCE exposure and must never be blocked; anything that keeps or
+            // returns the listing to market (Active, BackOnMarket, Pending,
+            // ReducedPrice, RaisedPrice, NewListing) must not reach P24 while PP
+            // holds this listing exclusive — e.g. an agent flipping status back
+            // to 'active' on a previously sold/archived, PP-exclusive listing.
+            if (!Property24ListingMapper::isTerminalStatus($p24Status) && $property->isPpExclusiveActive()) {
+                $until = $property->pp_delay_until->format('d M Y');
+                Log::channel('property24')->warning(
+                    "Status auto-sync blocked for property #{$property->id} — PP exclusive until {$until}",
+                    ['attempted_p24_status' => $p24Status]
+                );
+                $property->updateQuietly([
+                    'p24_last_error' => "Blocked — Private Property exclusivity is active until {$until}. Property24 cannot receive this listing until the exclusive period lapses.",
+                ]);
+                return;
+            }
+
             try {
                 $agency = $property->agency ?? \App\Models\Agency::find($property->agency_id);
                 $client = new Property24ApiClient($agency);

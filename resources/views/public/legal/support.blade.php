@@ -1,102 +1,102 @@
 @extends('public.legal.layout')
 
-@section('legal-title', 'CoreX OS Support')
+@section('legal-title', 'Support')
 
 @section('legal-body')
     <p>
-        Welcome to support for <strong>CoreX OS</strong>, the real-estate operating system
-        operated by <strong>Home Finders Coastal</strong>. This page is for agents, agencies
-        and their clients using the CoreX OS mobile app or web dashboard.
+        This page covers how to get help with the <strong>CoreX OS</strong> mobile app —
+        contacting us, signing in, resetting your password, the device permissions the app
+        requests, and fixes for common issues.
     </p>
 
-    <h2>Contact us</h2>
+    <h2>1. Contact us</h2>
     <p>
-        The fastest way to reach us is by email. We aim to reply within one business day
-        (Monday to Friday, 08:00–17:00 SAST).
+        For any support question, email
+        <a href="mailto:{{ $contactEmail }}">{{ $contactEmail }}</a>. We aim to respond within
+        <strong>1 business day</strong>.
     </p>
-    <ul>
-        <li><strong>Email</strong> — <a href="mailto:{{ $contactEmail }}">{{ $contactEmail }}</a></li>
-        <li><strong>Postal address</strong> — Home Finders Coastal, KwaZulu-Natal South Coast, South Africa</li>
-    </ul>
+    <h2>2. Getting started &amp; signing in</h2>
     <p>
-        When reporting a problem, please include your account email, the device you are using
-        (for example "iPad Air, iPadOS 26"), and the app version shown at the bottom of the
-        Settings screen. That lets us reproduce the issue much faster.
-    </p>
-
-    <h2>Getting started</h2>
-    <h3>Signing in</h3>
-    <p>
-        CoreX OS requires a valid account — it is not a self-signup product. Your agency
-        administrator creates your account and you receive an invitation by email. If you have
-        not received one, contact your agency administrator or email us at the address above.
-    </p>
-    <p>
-        Once signed in you can enable fingerprint sign-in from the Settings screen for faster
-        access on subsequent launches.
+        CoreX OS is <strong>invite-only</strong>. There is no self-signup — an account is
+        created for you by your agency's administrator, who sends you an invitation with your
+        login details. If you believe you should have access but have not received an
+        invitation, contact your agency administrator or email us at
+        <a href="mailto:{{ $contactEmail }}">{{ $contactEmail }}</a>.
     </p>
 
-    <h3>Resetting your password</h3>
+    <h2>3. Resetting your password</h2>
     <p>
-        Use the "Forgot password" link on the sign-in screen. A reset link is sent to your
-        registered email address. If the email does not arrive within a few minutes, check your
-        spam folder before contacting us.
+        On the sign-in screen, tap <strong>"Forgot password?"</strong> and enter the email
+        address your account was created with. You'll receive an email with a link to set a new
+        password. If the email doesn't arrive within a few minutes, check your spam/junk folder,
+        confirm you used the same email your administrator invited you with, or contact us at
+        <a href="mailto:{{ $contactEmail }}">{{ $contactEmail }}</a> for a manual reset.
     </p>
 
-    <h2>Permissions the app asks for</h2>
+    <h2>4. Device permissions the app requests</h2>
     <p>
-        CoreX OS only requests the permissions it needs, and only at the point you use the
-        related feature. You can change any of these at any time in your device settings under
-        <strong>Settings → CoreX OS</strong>.
+        CoreX OS asks for the following device permissions. Each is used only for the feature
+        described, and each can be reviewed or changed at any time in your device's
+        <strong>Settings → CoreX OS</strong> screen.
     </p>
     <ul>
         <li>
-            <strong>Microphone</strong> — used by Ellie, the in-app voice assistant, so you can
-            hold the microphone button and speak a command such as booking a viewing. Tap the
-            microphone button once to grant access, then press and hold to talk. If you
-            previously declined, enable <strong>Microphone</strong> for CoreX OS in your device
-            settings and return to the app.
+            <strong>Microphone</strong> — used by <strong>Ellie</strong>, the in-app voice
+            assistant. Tap the microphone button once to grant access. To talk to Ellie, press
+            and <strong>hold</strong> the mic button while you speak, then release. If you denied
+            microphone access, re-enable it under
+            <em>Settings → CoreX OS → Microphone</em> on iOS, or
+            <em>Settings → Apps → CoreX OS → Permissions → Microphone</em> on Android.
         </li>
         <li>
-            <strong>Camera</strong> — used to photograph properties and to scan QR codes.
-            Requested the first time you open the camera or scanner.
+            <strong>Camera</strong> — used to take property photos and to scan QR codes (for
+            example, when checking in to a viewing). Re-enable under
+            <em>Settings → CoreX OS → Camera</em> on iOS, or
+            <em>Settings → Apps → CoreX OS → Permissions → Camera</em> on Android.
         </li>
         <li>
-            <strong>Photo library</strong> — used to attach existing images to a listing and to
-            save your agent QR code to your photos.
+            <strong>Photo library</strong> — used to attach existing photos to a property listing
+            or document instead of taking a new one. Re-enable under
+            <em>Settings → CoreX OS → Photos</em> on iOS, or
+            <em>Settings → Apps → CoreX OS → Permissions → Photos and videos</em> on Android.
         </li>
         <li>
-            <strong>Notifications</strong> — used for reminders about appointments, tasks and
-            new leads. Optional; the app works without them.
+            <strong>Notifications</strong> — used to alert you to new leads, messages, and
+            deal/task updates. Re-enable under
+            <em>Settings → CoreX OS → Notifications</em> on iOS, or
+            <em>Settings → Apps → CoreX OS → Notifications</em> on Android.
         </li>
     </ul>
 
-    <h2>Common questions</h2>
-    <h3>Ellie does not hear me</h3>
-    <p>
-        Make sure microphone access is enabled for CoreX OS in your device settings, that no
-        other app is currently using the microphone, and that you press and <em>hold</em> the
-        microphone button while speaking — releasing immediately discards the clip as an
-        accidental tap.
-    </p>
+    <h2>5. Troubleshooting</h2>
+    <h3>Ellie isn't hearing me</h3>
+    <ul>
+        <li>Confirm microphone access is granted (see section 4 above).</li>
+        <li>Make sure you're pressing and <strong>holding</strong> the mic button while you
+            speak — a single tap only opens Ellie, it does not start listening.</li>
+        <li>Check your device isn't on silent/muted input and that no other app is currently
+            using the microphone.</li>
+    </ul>
+    <h3>Data looks out of date</h3>
+    <ul>
+        <li>Pull down on the screen to refresh the current list or view.</li>
+        <li>Confirm the device has an active internet connection.</li>
+        <li>Sign out and sign back in if the data still doesn't update.</li>
+    </ul>
+    <h3>Connectivity issues</h3>
+    <ul>
+        <li>CoreX OS requires an internet connection (Wi-Fi or mobile data) to load and save
+            data — it does not work fully offline.</li>
+        <li>If the app can't connect, check your connection, then close and reopen the app.</li>
+        <li>If the problem continues, email
+            <a href="mailto:{{ $contactEmail }}">{{ $contactEmail }}</a> with a description of
+            what you were doing and, if possible, a screenshot.</li>
+    </ul>
 
-    <h3>My data is not up to date</h3>
+    <h2>6. Legal</h2>
     <p>
-        Most screens support pull-to-refresh. If data still looks stale, check your internet
-        connection and sign out and back in. Contact us if the problem persists.
-    </p>
-
-    <h3>Deleting your account or data</h3>
-    <p>
-        You can request deletion of your account and associated personal information at any
-        time. See our <a href="{{ route('public.data-deletion') }}">Data Deletion</a> page, or
-        email <a href="mailto:{{ $contactEmail }}">{{ $contactEmail }}</a>.
-    </p>
-
-    <h2>Privacy</h2>
-    <p>
-        For details on what we collect and how it is protected under the South African
-        Protection of Personal Information Act (POPIA), see our
-        <a href="{{ route('public.platform-privacy') }}">Privacy Policy</a>.
+        See our <a href="{{ route('public.platform-privacy') }}">Privacy Policy</a> and
+        <a href="{{ route('public.data-deletion') }}">Data Deletion</a> pages for how we handle
+        your information.
     </p>
 @endsection

@@ -146,18 +146,14 @@ Route::get('/legal/privacy/{token}', [\App\Http\Controllers\Public\PrivacyPolicy
     ->middleware('throttle:60,1')
     ->name('public.privacy-policy');
 
-// CoreX OS platform legal pages (Meta/Facebook App Review). Public, no auth —
-// Meta's crawler fetches these without logging in. See LegalController.
+// CoreX OS platform legal + support pages (Meta/Facebook and Apple App Review).
+// Public, no auth — App Review fetches these logged out. See LegalController.
 Route::get('/privacy', [\App\Http\Controllers\Public\LegalController::class, 'privacy'])
     ->middleware('throttle:60,1')
     ->name('public.platform-privacy');
 Route::get('/data-deletion', [\App\Http\Controllers\Public\LegalController::class, 'dataDeletion'])
     ->middleware('throttle:60,1')
     ->name('public.data-deletion');
-
-// Support URL declared in App Store Connect. Public and unauthenticated —
-// Apple App Review fetches it logged out, and a 404 here is a guideline 1.5
-// rejection.
 Route::get('/support', [\App\Http\Controllers\Public\LegalController::class, 'support'])
     ->middleware('throttle:60,1')
     ->name('public.support');
@@ -2463,6 +2459,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/presentations/sections', [CoreXSettingsController::class, 'updatePresentationSections'])->middleware('permission:access_settings')->name('corex.settings.presentations.sections.update');
     Route::post('/settings/matches-enabled', [CoreXSettingsController::class, 'updateMatchesEnabled'])->middleware('permission:access_settings')->name('corex.settings.matches-enabled');
     Route::post('/settings/matches-wa-message', [CoreXSettingsController::class, 'updateMatchesWaMessage'])->middleware('permission:access_settings')->name('corex.settings.matches-wa-message');
+    Route::post('/settings/matches-email-message', [CoreXSettingsController::class, 'updateMatchesEmailMessage'])->middleware('permission:access_settings')->name('corex.settings.matches-email-message');
     Route::post('/settings/matches-show-on-properties', [CoreXSettingsController::class, 'updateMatchesShowOnProperties'])->middleware('permission:access_settings')->name('corex.settings.matches-show-on-properties');
     Route::post('/settings/matches-visibility-scope', [CoreXSettingsController::class, 'updateMatchesVisibilityScope'])->middleware('permission:access_settings')->name('corex.settings.matches-visibility-scope');
     Route::post('/settings/contacts-per-page', [CoreXSettingsController::class, 'updateContactsPerPage'])->middleware('permission:access_settings')->name('corex.settings.contacts-per-page');

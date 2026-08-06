@@ -2158,6 +2158,7 @@
                 <a href="{{ route('admin.integrations.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.integrations.*') ? 'active' : '' }}">Meta (Facebook &amp; Instagram)</a>
                 <a href="{{ route('public.platform-privacy') }}" target="_blank" rel="noopener" class="corex-nav-subitem">Privacy Policy ↗</a>
                 <a href="{{ route('public.data-deletion') }}" target="_blank" rel="noopener" class="corex-nav-subitem">Data Deletion ↗</a>
+                <a href="{{ route('public.support') }}" target="_blank" rel="noopener" class="corex-nav-subitem">Support ↗</a>
             </div>
         </div>
 
