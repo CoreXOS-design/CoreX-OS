@@ -1079,7 +1079,60 @@
                 </div>
             </template>
 
-            {{-- Web Template Consent + Submit (only for live HTML signing). Hidden by flag-blocks-signing above. --}}
+            {{-- AT-373 (inc5) — EDITOR RE-ACCEPTANCE. A chain node rejected this signer's amendment; it
+                 was reverted. The editing party must re-accept the reverted document with TWO mandatory
+                 ticks (the ECT-Act acknowledgment + a distinct amendment-removed acknowledgment). This
+                 replaces the normal consent/submit footer for the editor while the doc is in re-acceptance;
+                 their signature is preserved (no re-sign). Server-gated: reacceptanceMode is only true for
+                 the editor's own request at status editor_reacceptance. --}}
+            @if($reacceptanceMode ?? false)
+                <div class="bg-white rounded-2xl shadow-sm border border-amber-300 p-5 space-y-4"
+                     x-data="{ ectAck: false, removedAck: false, submitting: false }">
+                    <div class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                        <p class="font-semibold">Your proposed amendment was not approved and has been removed.</p>
+                        <p class="mt-1">The document below is the agreed document <span class="font-semibold">without</span> your proposed change. Your signature stays in place. To continue, please re-accept it.</p>
+                        @if(!empty($reacceptanceReason))
+                            <p class="mt-2 text-amber-800"><span class="font-semibold">Reason given:</span> {{ $reacceptanceReason }}</p>
+                        @endif
+                    </div>
+                    <form method="POST" action="{{ route('signatures.external.reaccept', $token) }}" @submit="submitting = true">
+                        @csrf
+                        <label class="flex items-start gap-3 cursor-pointer mb-3">
+                            <input type="checkbox" name="ect_act_ack" value="1" x-model="ectAck" required
+                                   class="mt-0.5 w-4 h-4 text-teal-600 rounded border-slate-300 focus:ring-teal-500">
+                            <span class="text-sm text-slate-700 leading-relaxed">
+                                I confirm that I have read and understood this document. I consent to signing it
+                                electronically and understand that my electronic signature has the same legal effect
+                                as a handwritten signature under South African law (ECTA Section 13).
+                            </span>
+                        </label>
+                        <label class="flex items-start gap-3 cursor-pointer mb-4">
+                            <input type="checkbox" name="amendment_removed_ack" value="1" x-model="removedAck" required
+                                   class="mt-0.5 w-4 h-4 text-teal-600 rounded border-slate-300 focus:ring-teal-500">
+                            <span class="text-sm text-slate-700 leading-relaxed">
+                                I acknowledge that my proposed amendment(s) have been removed and that the document I am
+                                accepting is the agreed document <span class="font-semibold">without</span> my proposed changes.
+                            </span>
+                        </label>
+                        <div class="flex items-center justify-end">
+                            <button type="submit"
+                                    :disabled="!ectAck || !removedAck || submitting"
+                                    :class="(ectAck && removedAck && !submitting)
+                                        ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                        : 'bg-slate-100 text-slate-400 cursor-not-allowed'"
+                                    class="rounded-lg px-6 py-2.5 text-sm font-medium transition-colors">
+                                <span x-show="!submitting">Re-accept Document</span>
+                                <span x-show="submitting" x-cloak>Submitting…</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            @endif
+
+            {{-- Web Template Consent + Submit (only for live HTML signing). Hidden by flag-blocks-signing
+                 above, and suppressed entirely in re-acceptance mode (the editor re-accepts via the panel
+                 above — they have already signed, so there is no normal submit for them). --}}
+            @unless($reacceptanceMode ?? false)
             <template x-if="isWebTemplate && !hasPendingRecipientFlags">
                 <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 space-y-4">
                     <label id="consent-checkbox-label" class="flex items-start gap-3 cursor-pointer">
@@ -1119,6 +1172,7 @@
                     </div>
                 </div>
             </template>
+            @endunless
 
             {{-- Complete Signing (standard marker-based flow — hidden for web templates) --}}
             <div x-show="!isWebTemplate" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 flex items-center justify-between">

@@ -3879,6 +3879,9 @@ Route::prefix('sign')->group(function () {
     Route::post('/{token}/consent', [\App\Http\Controllers\Docuperfect\SigningController::class, 'captureConsent'])->name('signatures.external.consent');
     Route::get('/{token}/already-signed', [\App\Http\Controllers\Docuperfect\SigningController::class, 'alreadySigned'])->name('signatures.external.alreadySigned');
     Route::post('/{token}/choose-method', [\App\Http\Controllers\Docuperfect\SigningController::class, 'chooseMethod'])->name('signatures.external.chooseMethod');
+    // AT-373 (inc5) — the editing party re-accepts the reverted document after their amendment was
+    // rejected (TWO mandatory ticks: ECT-Act ack + amendment-removed ack). Not a re-sign.
+    Route::post('/{token}/reaccept', [\App\Http\Controllers\Docuperfect\SigningController::class, 'reacceptAfterReject'])->name('signatures.external.reaccept');
     Route::post('/{token}/capture/{marker}', [\App\Http\Controllers\Docuperfect\SigningController::class, 'capture'])->name('signatures.external.capture');
     Route::post('/{token}/save-fields', [\App\Http\Controllers\Docuperfect\SigningController::class, 'saveFields'])->name('signatures.external.saveFields');
     Route::post('/{token}/save-web-fields', [\App\Http\Controllers\Docuperfect\SigningController::class, 'saveWebFields'])->name('signatures.external.saveWebFields');

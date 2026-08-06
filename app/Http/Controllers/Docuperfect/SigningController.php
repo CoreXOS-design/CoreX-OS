@@ -576,8 +576,21 @@ class SigningController extends Controller
             ]
             : null;
 
+        // AT-373 (inc5) — re-acceptance mode. After a chain node REJECTED this signer's amendment it
+        // was reverted; the editing party must RE-ACCEPT the reverted document via a SECOND mandatory
+        // ECT-Act tick. True ONLY for the editor's own request while the template sits at
+        // editor_reacceptance — every other party/state renders the normal signing footer.
+        $amendmentCycle = $webTemplateData['amendment_cycle'] ?? null;
+        $reacceptanceMode = $template
+            && $template->status === SignatureTemplate::STATUS_EDITOR_REACCEPTANCE
+            && is_array($amendmentCycle)
+            && (int) ($amendmentCycle['editor_request_id'] ?? 0) === (int) $signingRequest->id;
+        $reacceptanceReason = $reacceptanceMode ? ($amendmentCycle['reject_reason'] ?? null) : null;
+
         return view('docuperfect.signatures.external.sign', [
             'request' => $signingRequest,
+            'reacceptanceMode' => $reacceptanceMode,       // AT-373 inc5 — second mandatory ECT-Act tick
+            'reacceptanceReason' => $reacceptanceReason,   // AT-373 inc5 — why the amendment was rejected
             'currentRecipient' => $signingRequest,        // B1 — alias for the loop-engine downstream layers
             'currentRoleIdentity' => $signingRequest->role_identity,  // B1 — '{party_role}_{role_index}'
             'template' => $template,
@@ -4027,6 +4040,44 @@ CSS;
         );
 
         return response()->json($result, empty($result['ok']) ? 422 : 200);
+    }
+
+    /**
+     * AT-373 (inc5) — the editing party RE-ACCEPTS the reverted document after a chain node rejected
+     * their amendment. TWO mandatory ticks: the ECT-Act e-signature acknowledgment AND a distinct
+     * acknowledgment that the proposed amendment was removed and the document being accepted is the
+     * agreed one WITHOUT their change. Not a re-sign (their signature is preserved) — a consent. The
+     * service resumes the walk from the editor's position. Gated to the editor's own turn.
+     */
+    public function reacceptAfterReject(Request $request, string $token)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)
+            ->with('template.document')
+            ->firstOrFail();
+
+        if (! $this->signerCanAct($signingRequest)) {
+            return back()->with('error', 'This re-acceptance link is no longer active.');
+        }
+        if (optional($signingRequest->template)->status !== SignatureTemplate::STATUS_EDITOR_REACCEPTANCE) {
+            return back()->with('error', 'This document is not awaiting re-acceptance.');
+        }
+
+        // Both mandatory acknowledgments must be ticked (server-enforced — the client also gates them).
+        $request->validate([
+            'ect_act_ack'        => ['required', 'accepted'],
+            'amendment_removed_ack' => ['required', 'accepted'],
+        ], [
+            'ect_act_ack.accepted'         => 'You must accept the electronic-signature acknowledgment to continue.',
+            'amendment_removed_ack.accepted' => 'You must acknowledge that your proposed amendment has been removed to continue.',
+        ]);
+
+        $result = $this->signatureService->editorReaccept($signingRequest->template, $signingRequest);
+        if (empty($result['ok'])) {
+            return back()->with('error', $result['error'] ?? 'Could not record your re-acceptance.');
+        }
+
+        return redirect()->route('signatures.external.completed', $token)
+            ->with('status', 'Thank you — you have re-accepted the document without your proposed change.');
     }
 
     /**

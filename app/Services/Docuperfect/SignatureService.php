@@ -2680,21 +2680,101 @@ class SignatureService
     }
 
     /**
-     * INC 5 placeholder (real body lands in increment 5) — route the editing party to the
-     * re-acceptance screen after a reject. Declared here so inc3's reject action has a target;
-     * inc3's own test asserts the reject reverts + the editor is flagged, not the full screen.
+     * INC 5 — route the editing party to the RE-ACCEPTANCE screen after a chain node rejected
+     * their amendment. The change is already reverted (rejectAmendmentNode → revertChange). Hold
+     * the document at editor_reacceptance, park the cycle as rejected (so the view knows which
+     * signer + reason), and reactivate the editor's request (fresh token, PENDING, email) so they
+     * land on the reverted document and must re-accept via a SECOND mandatory ECT-Act tick (inc5
+     * view). Their captured signature is untouched — re-acceptance is a consent, not a re-sign.
      */
     protected function routeEditorToReacceptance(SignatureTemplate $template, ?SignatureRequest $editor, array $cycle, ?string $reason): void
     {
-        // inc5 fills this (second mandatory ECT-Act tick + resume). Until then, park the cycle as
-        // rejected and hold the document at the editor_reacceptance state so nothing finalises.
         $wtd = $this->docWtd($template);
         if (isset($wtd['amendment_cycle'])) {
-            $wtd['amendment_cycle']['phase']        = 'rejected';
+            $wtd['amendment_cycle']['phase']         = 'rejected';
             $wtd['amendment_cycle']['reject_reason'] = $reason;
             $this->writeDocWtd($template, $wtd);
         }
         $template->update(['status' => SignatureTemplate::STATUS_EDITOR_REACCEPTANCE]);
+
+        if ($editor) {
+            $token = $this->generateToken();
+            $editor->update([
+                'token'            => $token,
+                'token_expires_at' => now()->addDays(14),
+                'status'           => SignatureRequest::STATUS_PENDING,
+            ]);
+            try {
+                $url = route('signatures.external.sign', $token);
+                Mail::to($editor->signer_email)->send(
+                    (new SigningRequestMail(
+                        signerName:      $editor->signer_name,
+                        documentName:    $template->document->name ?? 'Document',
+                        signingUrl:      $url,
+                        personalMessage: 'Your proposed amendment was not approved and has been removed. Please review the document and re-accept it without your proposed change — your signature stays in place.',
+                        expiresAt:       $editor->token_expires_at,
+                    ))->fromAgent($template->creator)
+                );
+            } catch (\Throwable $e) {
+                Log::warning('AT-373 editor re-acceptance mail send failed', [
+                    'template_id' => $template->id,
+                    'request_id'  => $editor->id,
+                    'error'       => $e->getMessage(),
+                ]);
+            }
+
+            SignatureAuditLog::log(
+                $template,
+                'editor_routed_to_reacceptance',
+                SignatureAuditLog::ACTOR_SYSTEM,
+                'System',
+                metadata: ['editor_key' => $editor->canonicalPartyKey(), 'reason' => $reason],
+            );
+        }
+    }
+
+    /**
+     * INC 5 — the editing party RE-ACCEPTS the reverted document (both mandatory ticks captured by
+     * the controller). Audit the distinct re-acceptance, clear the (rejected) cycle, restore the
+     * editor's COMPLETED status (their signature never left), and resume the normal walk from their
+     * position — the next waiting recipient, or (all done) the AT-322 final gate. Existing
+     * signatures/initials untouched.
+     */
+    public function editorReaccept(SignatureTemplate $template, SignatureRequest $editor): array
+    {
+        if ($template->status !== SignatureTemplate::STATUS_EDITOR_REACCEPTANCE) {
+            return ['ok' => false, 'error' => 'This document is not awaiting re-acceptance.'];
+        }
+        $cycle = $this->docWtd($template)['amendment_cycle'] ?? null;
+        if (! is_array($cycle) || (int) ($cycle['editor_request_id'] ?? 0) !== (int) $editor->id) {
+            return ['ok' => false, 'error' => 'Only the signer whose amendment was removed can re-accept.'];
+        }
+
+        return DB::transaction(function () use ($template, $editor, $cycle) {
+            SignatureAuditLog::log(
+                $template,
+                'editor_reaccepted_after_reject',
+                SignatureAuditLog::ACTOR_SIGNER,
+                $editor->signer_name ?? 'Signer',
+                metadata: [
+                    'editor_key'    => $editor->canonicalPartyKey(),
+                    'change_ids'    => $cycle['change_ids'] ?? [],
+                    'reject_reason' => $cycle['reject_reason'] ?? null,
+                ],
+            );
+
+            // The editor already signed — re-acceptance restores their completed state (no new mark).
+            $editor->update([
+                'status'       => SignatureRequest::STATUS_COMPLETED,
+                'completed_at' => $editor->completed_at ?? now(),
+            ]);
+
+            $this->clearAmendmentCycle($template);
+            // Resume the walk from the editor's position — next waiting recipient, or AT-322 gate.
+            $this->advanceToNextParty($template, $editor->party_role, null, true);
+
+            return ['ok' => true, 'action' => 'reaccepted'];
+        });
     }
 
     /**
