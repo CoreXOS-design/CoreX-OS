@@ -16,6 +16,7 @@ use App\Models\Docuperfect\SignatureAuditLog;
 use App\Models\Docuperfect\SignatureMarker;
 use App\Models\Docuperfect\SignatureRequest;
 use App\Models\Docuperfect\SignatureTemplate;
+use Illuminate\Support\Collection;
 use App\Models\Docuperfect\SignatureZone;
 use App\Models\Docuperfect\TemplateSignatureZone;
 use App\Models\Docuperfect\WetInkInspection;
@@ -1200,6 +1201,72 @@ class SignatureService
     }
 
     /**
+     * AT-373 — GENERIC APPROVAL CHAIN
+     * -----------------------------------------------------------------------
+     * The signing loop is [approval chain A1..Am] -> [recipients R1..Rn] -> back
+     * to the chain TOP (A1) for final approval -> file + email. The "approval chain"
+     * is the ordered set of APPROVER requests (the agent/candidate prep node plus any
+     * authorisers) that sit above the recipients in signing order. These resolvers
+     * replace the hardcoded is_candidate_flow / literal-role branches so the loop is
+     * generic over chain length: 1 node (plain agent, or full-status-only), 2 nodes
+     * (candidate + full-status), or m nodes in future.
+     *
+     * BEHAVIOUR-PRESERVING: for today's configs these return exactly what the literal
+     * branches assumed — a candidate flow creates authoriser node(s) (supervisor /
+     * supervisor_final), a non-candidate flow does not, so chainHasAuthoriser() is
+     * equivalent to is_candidate_flow at the routing points it replaces.
+     */
+    public const APPROVAL_ROLES = ['agent', 'supervisor', 'supervisor_final'];
+
+    /** Authoriser roles = the approvers ABOVE the top prep (agent/candidate) node. */
+    public const AUTHORISER_ROLES = ['supervisor', 'supervisor_final'];
+
+    /** party_role is stored as a base token; strip a stray _N defensively. */
+    private function basePartyRole(?string $role): ?string
+    {
+        return $role === null ? null : preg_replace('/_\d+$/', '', $role);
+    }
+
+    /** Is this an APPROVAL-chain role (the prep node or an authoriser)? */
+    public function isApprovalRole(?string $role): bool
+    {
+        return in_array($this->basePartyRole($role), self::APPROVAL_ROLES, true);
+    }
+
+    /** Is this an AUTHORISER role (an approver above the top prep node)? */
+    public function isAuthoriserRole(?string $role): bool
+    {
+        return in_array($this->basePartyRole($role), self::AUTHORISER_ROLES, true);
+    }
+
+    /** Is this a RECIPIENT — a signing party that is NOT part of the approval chain? */
+    public function isRecipientRole(?string $role): bool
+    {
+        return $role !== null && ! $this->isApprovalRole($role);
+    }
+
+    /** The ordered approval chain (approver requests above the recipients), by signing order. */
+    public function approvalChain(SignatureTemplate $template): Collection
+    {
+        return $template->requests()
+            ->whereIn('party_role', self::APPROVAL_ROLES)
+            ->orderBy('signing_order')
+            ->get();
+    }
+
+    /**
+     * Does the approval chain continue past the top prep node — i.e. is there an
+     * authoriser? Chain-derived equivalent of is_candidate_flow at the agent-routing
+     * points (a candidate flow always has authoriser node(s); a plain flow has none).
+     */
+    public function chainHasAuthoriser(SignatureTemplate $template): bool
+    {
+        return $template->requests()
+            ->whereIn('party_role', self::AUTHORISER_ROLES)
+            ->exists();
+    }
+
+    /**
      * Handle party completion — if a non-agent party finished, require agent approval
      * before advancing. Agent signing auto-advances to the next external party.
      */
@@ -1224,8 +1291,8 @@ class SignatureService
                 ]);
             }
 
-            // If an external party (non-agent, non-supervisor) just completed, require agent approval
-            if ($completedParty !== 'agent' && $completedParty !== 'supervisor' && $completedParty !== 'supervisor_final') {
+            // If a RECIPIENT (a party outside the approval chain) just completed, require agent approval
+            if ($this->isRecipientRole($completedParty)) {
 
                 // HD-5 (§4) — the checkpoint fires between GROUPS, not between people.
                 //
@@ -1377,12 +1444,16 @@ class SignatureService
                 return;
             }
 
-            // Agent just finished signing
-            if ($template->is_candidate_flow) {
-                // Candidate flow: route to supervisor for initial review (not directly to external parties)
+            // Agent (chain TOP prep node) just finished. If the approval chain continues
+            // past the agent — an authoriser awaits (the candidate -> full-status case) —
+            // route up the chain; otherwise release straight to the recipients. Chain-derived
+            // replacement for the former is_candidate_flow branch (equivalent: a candidate flow
+            // has authoriser node(s), a plain flow has none).
+            if ($this->chainHasAuthoriser($template)) {
+                // Chain continues: route to the authoriser for review (not directly to recipients).
                 $this->advanceToSupervisor($template);
             } else {
-                // Full status flow: auto-advance to the first external party
+                // Single-node chain: auto-advance to the first recipient.
                 $this->advanceToNextParty($template, $completedParty);
             }
         });
@@ -1419,8 +1490,8 @@ class SignatureService
                 $newStatus = $statusMap[$nextRequest->party_role] ?? SignatureTemplate::STATUS_SIGNING;
                 $template->update(['status' => $newStatus]);
 
-                // Supervisor steps: notify all eligible authorisers (shared queue)
-                if (in_array($nextRequest->party_role, ['supervisor', 'supervisor_final'])) {
+                // Authoriser steps: notify all eligible authorisers (shared queue)
+                if ($this->isAuthoriserRole($nextRequest->party_role)) {
                     $nextRequest->update([
                         'status'  => SignatureRequest::STATUS_PENDING,
                         'sent_at' => now(),
@@ -1444,8 +1515,10 @@ class SignatureService
                 return ['action' => 'sent', 'next_party' => $nextRequest->party_role, 'next_name' => $nextRequest->signer_name];
             }
 
-            // Candidate flow: route to authorisation queue for final sign-off instead of completing
-            if ($template->is_candidate_flow) {
+            // Chain has an authoriser: route to the authorisation queue for final sign-off
+            // instead of completing (the inner check self-guards on the supervisor_final node).
+            // Chain-derived replacement for the former is_candidate_flow branch.
+            if ($this->chainHasAuthoriser($template)) {
                 $supervisorFinalRequest = $template->requests()
                     ->where('party_role', 'supervisor_final')
                     ->whereIn('status', [SignatureRequest::STATUS_WAITING, SignatureRequest::STATUS_PENDING])
