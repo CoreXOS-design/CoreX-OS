@@ -223,32 +223,38 @@ final class SelectionEditService
      */
     private function locateRange(\DOMDocument $dom, string $selected, string $prefix, string $suffix): ?array
     {
-        $sel = $this->norm($selected);
+        // Match WHITESPACE-INSENSITIVELY. The browser's Selection.toString() inserts unpredictable whitespace at
+        // block boundaries (a line break here, a blank line there) which the frontend collapses differently from
+        // how the DOM text is spaced — so an exact whitespace match is fragile for whole-section selections. We
+        // strip ALL whitespace from both the selection and the document index and match the dense strings, then
+        // map back to the exact (text node, offset) of the first/last visible char. Immune to any block/line
+        // spacing difference, while the struck RANGE still spans the real DOM (whitespace included) in between.
+        $sel = $this->stripWs($selected);
         if ($sel === '') {
             return null;
         }
         $index = $this->buildTextIndex($dom);
-        $hay = $index['norm'];
+        $hay = $index['dense'];
         if ($hay === '') {
             return null;
         }
 
-        $normPrefix = $this->norm($prefix);
-        $normSuffix = $this->norm($suffix);
+        $prefixDense = $this->stripWs($prefix);
+        $suffixDense = $this->stripWs($suffix);
         $selLen = mb_strlen($sel);
 
         $best = null;
         $bestScore = -1;
         $from = 0;
         while (($pos = mb_strpos($hay, $sel, $from)) !== false) {
-            // Score by the surrounding CONTEXT in the flattened text (works across node boundaries) so the
-            // right occurrence is chosen when a phrase repeats.
+            // Score by the surrounding CONTEXT (also whitespace-stripped) so the right occurrence is chosen when
+            // a phrase repeats.
             $before = mb_substr($hay, max(0, $pos - 30), min(30, $pos));
             $after  = mb_substr($hay, $pos + $selLen, 30);
             $score = 0;
-            if ($normPrefix !== '' && str_ends_with($before, mb_substr($normPrefix, -20))) $score += 2;
-            if ($normSuffix !== '' && str_starts_with($after, mb_substr($normSuffix, 0, 20))) $score += 2;
-            if ($normPrefix === '' && $normSuffix === '') $score += 1; // no context → first match
+            if ($prefixDense !== '' && str_ends_with($before, mb_substr($prefixDense, -20))) $score += 2;
+            if ($suffixDense !== '' && str_starts_with($after, mb_substr($suffixDense, 0, 20))) $score += 2;
+            if ($prefixDense === '' && $suffixDense === '') $score += 1; // no context → first match
             if ($score > $bestScore) {
                 $bestScore = $score;
                 $best = $pos;
@@ -264,55 +270,44 @@ final class SelectionEditService
         return [$startNode, $startOff, $endNode, $endOff + 1];
     }
 
+    /** Strip ALL whitespace (incl. nbsp) — the frontend's JS \s and this matcher agree, so spacing never blocks a match. */
+    private function stripWs(string $s): string
+    {
+        return (string) preg_replace('/\s+/u', '', $s);
+    }
+
     /**
      * Flatten the document body to a whitespace-collapsed string, with a per-character map back to the exact
      * (text node, char offset) that produced it. ASCII-whitespace runs collapse to one space (matching the
      * frontend's `sel.toString().replace(/\s+/g,' ')` and this class's norm()); leading whitespace is dropped.
      * Nodes inside an authored change mark or a <style>/<script> are skipped.
      *
-     * @return array{norm: string, map: array<int, array{0: \DOMText, 1: int}>}
+     * @return array{dense: string, map: array<int, array{0: \DOMText, 1: int}>}
      */
     private function buildTextIndex(\DOMDocument $dom): array
     {
         $xpath = new \DOMXPath($dom);
         $textNodes = $xpath->query('//text()');
-        $norm = '';
-        $map  = [];
-        $prevSpace = true; // drop leading whitespace
-        $prevBlock = null;
+        $dense = '';
+        $map   = [];
         if ($textNodes !== false) {
             foreach ($textNodes as $tn) {
                 if (! $tn instanceof \DOMText || $this->insideChangeMark($tn) || $this->insideSkippable($tn)) {
                     continue;
                 }
-                // Block boundary → the browser's Selection.toString() joins block elements with a line break,
-                // which the frontend collapses to a single space. Mirror that with one separating space so a
-                // selection spanning MULTIPLE blocks (a heading + body, several <p>, list items) matches.
-                $block = $this->closestBlock($tn);
-                if ($prevBlock !== null && $block !== $prevBlock && ! $prevSpace && $norm !== '') {
-                    $norm .= ' ';
-                    $map[] = [$tn, 0];
-                    $prevSpace = true;
-                }
-                $prevBlock = $block;
                 $chars = mb_str_split($tn->nodeValue ?? '');
                 foreach ($chars as $o => $ch) {
-                    $isSpace = ($ch === ' ' || $ch === "\t" || $ch === "\n" || $ch === "\r" || $ch === "\f" || $ch === "\x0B");
-                    if ($isSpace) {
-                        if (! $prevSpace) {
-                            $norm .= ' ';
-                            $map[] = [$tn, $o];
-                            $prevSpace = true;
-                        }
+                    // Skip ALL whitespace (space/tab/newline/CR/FF/VT/nbsp) — matching is whitespace-insensitive,
+                    // so block-boundary / line-break spacing can never block a whole-section selection.
+                    if ($ch === ' ' || $ch === "\t" || $ch === "\n" || $ch === "\r" || $ch === "\f" || $ch === "\x0B" || $ch === "\u{A0}") {
                         continue;
                     }
-                    $norm .= $ch;
-                    $map[] = [$tn, $o];
-                    $prevSpace = false;
+                    $dense .= $ch;
+                    $map[]  = [$tn, $o];
                 }
             }
         }
-        return ['norm' => $norm, 'map' => $map];
+        return ['dense' => $dense, 'map' => $map];
     }
 
     /** True when $node sits inside a <style>/<script> (its text is not document prose and must never be struck). */
