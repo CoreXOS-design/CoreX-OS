@@ -125,4 +125,72 @@ class AgencyPerformanceReportService
             'metrics'         => $metrics,
         ];
     }
+
+    /**
+     * AT-366-D — one branch's drill-down: the branch's rolled-up 12 metrics paired
+     * with the prior-period value (trend), plus the agents that roll into it.
+     *
+     * It composes the SAME company build ($scope = agency only) that the top-level
+     * report renders, then reads the branch bucket out of it — so a branch's totals
+     * are guaranteed to reconcile with the company rollup, and its agents are exactly
+     * the ones point-in-time-attributed to it (not the current-branch membership,
+     * which can differ after a move). $branchKey is a numeric branch id or the
+     * 'unassigned' sentinel. Returns ['branch' => null] for an unknown branch.
+     */
+    public function branchJourney(int $agencyId, string $branchKey, Period $period): array
+    {
+        $scope    = new PerformanceScope($agencyId);
+        $current  = $this->build($scope, $period);
+        $previous = $this->build($scope, $period->previous());
+
+        $branchNames = $this->hierarchy->branchNames($agencyId);
+
+        // Resolve a label. An empty-but-valid branch still gets a name; a branch
+        // that only exists as a point-in-time bucket (e.g. since-renamed) falls
+        // back to the label the rollup already carried; anything else is a 404.
+        if ($branchKey === 'unassigned') {
+            $label = 'Unassigned';
+        } elseif (ctype_digit($branchKey) && isset($branchNames[(int) $branchKey])) {
+            $label = $branchNames[(int) $branchKey];
+        } elseif (isset($current['branches'][$branchKey]['label'])) {
+            $label = $current['branches'][$branchKey]['label'];
+        } else {
+            return ['branch' => null];
+        }
+
+        $curMetrics  = $current['branches'][$branchKey]['metrics'] ?? [];
+        $prevMetrics = $previous['branches'][$branchKey]['metrics'] ?? [];
+
+        $metrics = [];
+        foreach ($current['metrics'] as $m) {
+            $cur  = $curMetrics[$m['key']] ?? 0;
+            $prev = $prevMetrics[$m['key']] ?? 0;
+            $metrics[] = [
+                'key'      => $m['key'],
+                'label'    => $m['label'],
+                'value'    => $cur,
+                'previous' => $prev,
+                'delta'    => $cur - $prev,
+            ];
+        }
+
+        $targetBranchId = $branchKey === 'unassigned' ? null : (int) $branchKey;
+        $agents = array_values(array_filter(
+            $current['agents'],
+            fn ($a) => $a['branch_id'] === $targetBranchId
+        ));
+
+        return [
+            'branch' => [
+                'key'   => $branchKey,
+                'id'    => $targetBranchId,
+                'label' => $label,
+            ],
+            'period'          => $current['period'],
+            'previous_period' => $previous['period'],
+            'metrics'         => $metrics,          // branch rollup, current vs prior
+            'metric_meta'     => $current['metrics'], // headers for the agent table
+            'agents'          => $agents,           // agents attributed to this branch
+        ];
+    }
 }

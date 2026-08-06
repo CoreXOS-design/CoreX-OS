@@ -2,7 +2,7 @@
 
 @section('title', 'Agency Performance & ROI')
 
-@section('content')
+@section('corex-content')
 <div class="p-6 space-y-6" x-data>
     <div class="flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -55,6 +55,9 @@
         </div>
     </div>
 
+    {{-- AT-366-E — company buyer-activity summary --}}
+    @includeWhen(isset($buyer), 'performance.agency-report._buyer-summary')
+
     {{-- Branch rollup --}}
     <div>
         <h2 class="text-xs font-bold uppercase tracking-widest mb-2" style="color:var(--text-muted);">By branch</h2>
@@ -69,9 +72,12 @@
                     </tr>
                 </thead>
                 <tbody>
-                    @forelse($report['branches'] as $branch)
+                    @forelse($report['branches'] as $branchKey => $branch)
                         <tr style="border-top:1px solid var(--border);">
-                            <td class="px-3 py-2" style="color:var(--text-primary);">{{ $branch['label'] }}</td>
+                            <td class="px-3 py-2">
+                                <a href="{{ route('performance.agency-report.branch', ['branch' => $branchKey, 'period' => $preset]) }}"
+                                   class="no-underline" style="color:var(--brand, #3b82f6);">{{ $branch['label'] }}</a>
+                            </td>
                             @foreach($report['metrics'] as $m)
                                 <td class="text-right px-3 py-2" style="color:var(--text-primary);">{{ $branch['metrics'][$m['key']] ?? 0 }}</td>
                             @endforeach
@@ -119,7 +125,7 @@
     </div>
 
     <p class="text-[10px]" style="color:var(--text-muted);">
-        AT-366-A foundation — {{ count($report['metrics']) }} metric(s) wired. Coverage expands in AT-366-B.
+        Agency Performance &amp; ROI — {{ count($report['metrics']) }} metrics rolled up agent → branch → company for the selected period, with point-in-time branch attribution.
     </p>
 </div>
 @endsection
