@@ -7,13 +7,13 @@ namespace App\Http\Controllers\Public;
 use App\Http\Controllers\Controller;
 
 /**
- * Public, logged-out CoreX OS platform legal pages.
+ * Public, logged-out CoreX OS platform legal + support pages.
  *
- * These are the platform-level (not per-agency) Privacy Policy and Data
- * Deletion pages required by Meta/Facebook App Review. Meta's crawler fetches
- * them with no authentication, so they MUST stay outside the auth + agency
- * middleware. The per-agency, token-gated privacy policy lives separately at
- * /legal/privacy/{token} (PrivacyPolicyController).
+ * These are the platform-level (not per-agency) Privacy Policy, Data
+ * Deletion and Support pages required by Meta/Facebook and Apple App Review.
+ * Reviewer crawlers fetch them with no authentication, so they MUST stay
+ * outside the auth + agency middleware. The per-agency, token-gated privacy
+ * policy lives separately at /legal/privacy/{token} (PrivacyPolicyController).
  */
 final class LegalController extends Controller
 {
@@ -33,6 +33,14 @@ final class LegalController extends Controller
         return view('public.legal.data-deletion', [
             'contactEmail' => self::CONTACT_EMAIL,
             'lastUpdated'  => 'June 2026',
+        ]);
+    }
+
+    public function support()
+    {
+        return view('public.legal.support', [
+            'contactEmail' => self::CONTACT_EMAIL,
+            'lastUpdated'  => 'August 2026',
         ]);
     }
 }
