@@ -1021,63 +1021,6 @@
                 </template>
             </div>
 
-            {{-- Walk-fix FIX 4 — flag-blocks-signing.
-                 When the recipient has flagged any clause, the consent +
-                 submit surface is HIDDEN and a single "Amendments under
-                 review" CTA replaces it. No signature possible while the
-                 agent has not yet resolved the recipient's proposed
-                 amendments — informed-consent legal requirement.
-                 Surface unlocks automatically once the server marks the
-                 flags as resolved (status moves out of 'pending_review'). --}}
-            <template x-if="isWebTemplate && hasPendingRecipientFlags">
-                <div class="bg-amber-50 rounded-2xl shadow-sm border border-amber-300 p-5 space-y-3"
-                     data-flag-blocks-signing="active">
-                    <div class="flex items-start gap-3">
-                        <svg class="w-6 h-6 text-amber-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 21h18M12 3v18M5 9l7-6 7 6"/>
-                        </svg>
-                        <div class="flex-1">
-                            <h3 class="text-base font-semibold text-amber-900 mb-1">
-                                Your proposed amendments are under review
-                            </h3>
-                            <p class="text-sm text-amber-800 leading-relaxed">
-                                You've flagged <span x-text="webClauseFlaggedItems.length"></span>
-                                clause<span x-show="webClauseFlaggedItems.length !== 1">s</span> for the agent to review. Signing is paused until the agent has resolved your proposed amendments. You'll receive an email when the agent acts — return to this link then to complete signing.
-                            </p>
-                            <p class="text-xs text-amber-700 mt-3">
-                                This document is not legally binding until the agent has resolved your amendments and you have completed signing.
-                            </p>
-                        </div>
-                    </div>
-                    {{-- AT-291 ITEM 5 — while frozen the only action is Close.
-                         The document has gone back to the agent to fix and
-                         re-send; the recipient returns via the email link. --}}
-                    <div class="flex justify-end">
-                        <button type="button" @click="closeAfterFlag()"
-                                class="rounded-lg px-5 py-2 text-sm font-medium bg-amber-600 text-white hover:bg-amber-700 transition-colors">
-                            Close
-                        </button>
-                    </div>
-                </div>
-            </template>
-
-            {{-- AT-291 ITEM 5 — post-Close confirmation overlay. Shown when the
-                 recipient closes out of a frozen (flagged) document. --}}
-            <template x-if="signingClosedAfterFlag">
-                <div class="fixed inset-0 z-[9998] flex items-center justify-center p-6" style="background:#f8fafc;">
-                    <div class="max-w-md text-center space-y-4">
-                        <svg class="w-12 h-12 text-amber-500 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 21h18M12 3v18M5 9l7-6 7 6"/>
-                        </svg>
-                        <h2 class="text-lg font-semibold text-slate-800">Your amendment request has been sent</h2>
-                        <p class="text-sm text-slate-600 leading-relaxed">
-                            We've let the agent know about the clause you flagged. You can close this
-                            window now. When the agent has resolved it you'll receive an email with a
-                            link to return and complete signing.
-                        </p>
-                    </div>
-                </div>
-            </template>
 
             {{-- AT-373 (inc5) — EDITOR RE-ACCEPTANCE. A chain node rejected this signer's amendment; it
                  was reverted. The editing party must re-accept the reverted document with TWO mandatory
@@ -1129,11 +1072,11 @@
                 </div>
             @endif
 
-            {{-- Web Template Consent + Submit (only for live HTML signing). Hidden by flag-blocks-signing
-                 above, and suppressed entirely in re-acceptance mode (the editor re-accepts via the panel
-                 above — they have already signed, so there is no normal submit for them). --}}
+            {{-- Web Template Consent + Submit (only for live HTML signing). Suppressed entirely in
+                 re-acceptance mode (the editor re-accepts via the panel above — they have already
+                 signed, so there is no normal submit for them). --}}
             @unless($reacceptanceMode ?? false)
-            <template x-if="isWebTemplate && !hasPendingRecipientFlags">
+            <template x-if="isWebTemplate">
                 <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 space-y-4">
                     <label id="consent-checkbox-label" class="flex items-start gap-3 cursor-pointer">
                         <input type="checkbox" x-model="webConsented"
@@ -1640,26 +1583,6 @@ function externalSign() {
         webSigMode: 'draw',
         webTypedSignature: '',
         webCeremonyValues: {},
-        // Phase 1B.6 (FIX 6) — seed from server-persisted clause_flags so
-        // a refresh after flagging restores the visible flag UI. The
-        // persistedClauseFlags JSON shape is keyed by party_role; we
-        // flatten to a per-clause list for client use.
-        webClauseFlaggedItems: (function () {
-            const persisted = @json($persistedClauseFlags ?? []);
-            const me = @json($request->party_role ?? '');
-            const mine = (persisted && persisted[me]) ? persisted[me] : [];
-            if (!Array.isArray(mine)) return [];
-            return mine.map((f, idx) => ({
-                clauseNum: f.clauseNum ?? f.clause_num ?? '',
-                clauseIndex: idx,
-                concern: f.concern ?? f.suggested_change ?? '',
-                amendment_id: f.amendment_id ?? null,
-                status: f.status ?? 'pending_review',
-            }));
-        })(),
-        // AT-291 ITEM 5 — set true when the recipient clicks Close on the
-        // freeze banner; renders the "amendment sent, you may close" overlay.
-        signingClosedAfterFlag: false,
         otherConditionsText: '',
         totalDisclosureRows: 0,
         webIsDrawing: false,
@@ -1779,7 +1702,6 @@ function externalSign() {
                         this._makeWebElementsInteractive();
                         this._makeCeremonyFieldsEditable();
                         this._processAllDisclosures();
-                        this._initClauseFlagging();
                         // Compute incomplete count after all interactive elements are set up
                         setTimeout(() => {
                             this.updateIncompleteCount();
@@ -2550,7 +2472,6 @@ function externalSign() {
                                 this._makeWebElementsInteractive();
                                 this._makeCeremonyFieldsEditable();
                                 this._processAllDisclosures();
-                                this._initClauseFlagging();
                                 setTimeout(() => this.updateIncompleteCount(), 300);
                             }, 150);
                         });
@@ -3269,35 +3190,9 @@ function externalSign() {
         },
 
         get canSubmitWeb() {
-            // Walk-fix FIX 4 — when the recipient has flagged any
-            // clause, signing is locked until the agent has resolved
-            // the amendment. The recipient sees the locked surface
-            // (sign + initial actions hidden, "amendments under
-            // review" status banner). canSubmitWeb returning false
-            // also disables the submit button as a defence-in-depth
-            // gate alongside the template-level x-if guard below.
-            if (this.hasPendingRecipientFlags) return false;
             return this.webConsented && this.webIncompleteCount === 0;
         },
 
-        /**
-         * Walk-fix FIX 4 — true when this recipient has at least one
-         * clause flag in `pending_review` status. Drives the lockout
-         * UI: hides sign / initial actions, swaps in the "amendments
-         * under review" CTA, and disables canSubmitWeb.
-         *
-         * Reads from webClauseFlaggedItems — pre-seeded from the
-         * server's persistedClauseFlags map for THIS recipient's
-         * party_role at page render, then live-updated when the
-         * recipient adds/removes flags during the session. The lock
-         * survives refreshes because the server re-seeds the same
-         * data on every page render.
-         */
-        get hasPendingRecipientFlags() {
-            const items = this.webClauseFlaggedItems || [];
-            if (!Array.isArray(items) || items.length === 0) return false;
-            return items.some(f => (f.status || 'pending_review') === 'pending_review');
-        },
 
         // Legacy — replaced by _makeWebElementsInteractive()
         processWebSignatureBlocks() { /* no-op */ },
@@ -3455,212 +3350,6 @@ function externalSign() {
         },
         @include('docuperfect.signatures.partials.disclosure-logic')
 
-        /**
-         * Attach clause-level flagging to numbered clauses in the document.
-         *
-         * Phase 1B.6 (FIX 2 + FIX 6) — the flag icon now dispatches the
-         * `open-flag-clause-modal` event consumed by the flag-clause-modal
-         * partial. The modal POSTs to /sign/{token}/flag-clause which
-         * persists immediately (DocumentAmendment + clause_flags JSON), so
-         * a page refresh re-seeds the visible flag indicator without
-         * losing recipient input.
-         *
-         * On init we ALSO re-paint clauses that were flagged in a prior
-         * session (data seeded server-side via persistedClauseFlags) so
-         * the visible state survives reload.
-         */
-        _initClauseFlagging() {
-            const container = this.$refs.webDocContent || null;
-            if (!container) return;
-
-            const self = this;
-
-            // AT-291 ITEM 4 — bind once. When the flag-clause modal commits
-            // a flag it dispatches `clause-flagged-committed` instead of
-            // reloading the page; we apply the flag to the signing view in
-            // place so captured signatures / initials / fields survive.
-            if (!self._flagCommitListenerBound) {
-                self._flagCommitListenerBound = true;
-                window.addEventListener('clause-flagged-committed', (e) => {
-                    self._applyCommittedFlag(e.detail || {});
-                });
-            }
-
-            const clauses = container.querySelectorAll('.corex-clause');
-
-            // Build a quick lookup of clauses already flagged from
-            // persisted state — so we can paint the orange treatment on
-            // them at init.
-            const flaggedByNum = new Set(
-                (self.webClauseFlaggedItems || []).map(f => String(f.clauseNum))
-            );
-
-            clauses.forEach((clause, idx) => {
-                const numEl = clause.querySelector('.corex-clause-number');
-                if (!numEl) return;
-                const clauseNum = numEl.textContent.trim();
-
-                clause.style.position = 'relative';
-
-                // Repaint flagged state if persisted.
-                if (flaggedByNum.has(clauseNum)) {
-                    clause.classList.add('clause-flagged');
-                }
-
-                // Render the flag icon — always visible at the clause
-                // edge. For flagged clauses we still show it (as the
-                // "you flagged this" indicator) but use a distinct title.
-                const flagBtn = document.createElement('span');
-                flagBtn.className = 'clause-flag-icon';
-                flagBtn.title = flaggedByNum.has(clauseNum)
-                    ? 'You flagged this clause for agent review'
-                    : 'Flag / suggest change to this clause';
-                flagBtn.textContent = '⚑';
-                flagBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    self._openClauseFlagModal(clause, clauseNum, idx);
-                });
-                clause.appendChild(flagBtn);
-
-                // Phase 1B.9 (FIX 1, pre-completion) — when this party has
-                // raised a flag AND hasn't signed yet, show a small "X"
-                // affordance that lets them undo it. After signing
-                // completes the affordance disappears (gated by
-                // partyHasCompleted, computed below) — removal then
-                // requires the agent-initiated consent flow.
-                const partyHasCompleted = @json($partyAlreadySigned ?? false);
-                if (flaggedByNum.has(clauseNum) && !partyHasCompleted) {
-                    self._addFlagRemoveButton(clause, clauseNum);
-                }
-            });
-        },
-
-        /**
-         * AT-291 ITEM 4 — build + attach the "remove my flag" (✕) affordance
-         * on a flagged clause. Extracted so both the initial repaint pass
-         * (_initClauseFlagging) and the in-place apply after a fresh flag
-         * (_applyCommittedFlag) share one implementation.
-         */
-        _addFlagRemoveButton(clause, clauseNum) {
-            const self = this;
-            const removeBtn = document.createElement('button');
-            removeBtn.type = 'button';
-            removeBtn.className = 'clause-flag-remove';
-            removeBtn.title = 'Remove this flag';
-            removeBtn.textContent = '✕';
-            removeBtn.style.cssText = 'margin-left:0.4rem; padding:0 0.4rem; '
-                + 'background:transparent; border:1px solid #d97706; color:#92400e; '
-                + 'border-radius:3px; cursor:pointer; font-size:0.7rem; line-height:1.4;';
-            removeBtn.addEventListener('click', async (e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                if (!confirm('Remove this flag? You can re-flag the clause later if you change your mind.')) return;
-                await self._removeOwnFlag(clauseNum, clause, removeBtn);
-            });
-            clause.appendChild(removeBtn);
-        },
-
-        /**
-         * AT-291 ITEM 4 — apply a freshly-committed flag to the signing view
-         * WITHOUT a page reload. Pushes the flag into webClauseFlaggedItems
-         * (drives the reactive freeze banner + canSubmitWeb lockout) and
-         * repaints the clause in place. Every captured signature, initial and
-         * field stays exactly where the recipient left it.
-         */
-        _applyCommittedFlag(detail) {
-            const clauseNum = String(detail.clauseRef || '');
-            if (!clauseNum) return;
-
-            const already = (this.webClauseFlaggedItems || [])
-                .some(f => String(f.clauseNum) === clauseNum);
-            if (!already) {
-                this.webClauseFlaggedItems.push({
-                    clauseNum:   clauseNum,
-                    clauseIndex: this.webClauseFlaggedItems.length,
-                    concern:     detail.concern || '',
-                    amendment_id: detail.amendmentId ?? null,
-                    status:      'pending_review',
-                });
-            }
-
-            const container = this.$refs.webDocContent || null;
-            if (!container) return;
-            const partyHasCompleted = @json($partyAlreadySigned ?? false);
-            container.querySelectorAll('.corex-clause').forEach(clause => {
-                const numEl = clause.querySelector('.corex-clause-number');
-                if (!numEl || numEl.textContent.trim() !== clauseNum) return;
-                clause.classList.add('clause-flagged');
-                const icon = clause.querySelector('.clause-flag-icon');
-                if (icon) icon.title = 'You flagged this clause for agent review';
-                if (!partyHasCompleted && !clause.querySelector('.clause-flag-remove')) {
-                    this._addFlagRemoveButton(clause, clauseNum);
-                }
-            });
-        },
-
-        async _removeOwnFlag(clauseNum, clauseEl, removeBtn) {
-            try {
-                const csrf = document.querySelector('meta[name=csrf-token]')?.content;
-                const token = @json($request->token);
-                const url = '/sign/' + token + '/flag/' + encodeURIComponent(clauseNum);
-                const r = await fetch(url, {
-                    method: 'DELETE',
-                    headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': csrf },
-                });
-                if (r.ok) {
-                    clauseEl.classList.remove('clause-flagged');
-                    removeBtn.remove();
-                    const commentDiv = clauseEl.querySelector('.clause-flag-comment');
-                    if (commentDiv) commentDiv.remove();
-                    this.webClauseFlaggedItems = this.webClauseFlaggedItems.filter(f => String(f.clauseNum) !== String(clauseNum));
-                } else {
-                    const j = await r.json().catch(() => ({}));
-                    alert(j.error || ('Could not remove flag (' + r.status + ')'));
-                }
-            } catch (e) {
-                alert('Network error: ' + e.message);
-            }
-        },
-
-        /**
-         * Phase 1B.6 — open the flag-clause modal. Captures the full
-         * clause text (sans the flag icon glyph itself) and dispatches
-         * the open-flag-clause-modal event. The modal handles the POST and,
-         * on success, dispatches clause-flagged-committed which this
-         * component applies in place (AT-291 ITEM 4 — no reload); this side
-         * just gathers context.
-         */
-        _openClauseFlagModal(clauseEl, clauseNum, idx) {
-            // Lift the original clause text — strip our own flag icon
-            // glyph so it doesn't appear inside the modal.
-            const clone = clauseEl.cloneNode(true);
-            clone.querySelectorAll('.clause-flag-icon, .clause-flag-comment')
-                .forEach(n => n.remove());
-            const clauseText = (clone.innerText || clone.textContent || '').trim();
-
-            window.dispatchEvent(new CustomEvent('open-flag-clause-modal', {
-                detail: { clauseRef: clauseNum, clauseText: clauseText },
-            }));
-        },
-
-        // Legacy hook kept for any caller that still references the
-        // toggle API; routes to the modal instead of inline input.
-        _toggleClauseFlag(clauseEl, clauseNum, idx) {
-            this._openClauseFlagModal(clauseEl, clauseNum, idx);
-        },
-
-        /**
-         * AT-291 ITEM 5 — the only action available while a flag freezes
-         * signing. The document has gone to the agent to fix + re-send, so
-         * there is nothing more for the recipient to do now. Try to close
-         * the tab (works when it was script-opened); otherwise the overlay
-         * driven by signingClosedAfterFlag tells them they may close it.
-         */
-        closeAfterFlag() {
-            this.signingClosedAfterFlag = true;
-            try { window.close(); } catch (e) { /* browser blocked — overlay covers it */ }
-        },
 
         /**
          * Process disclosure tables (corex-table with YES/NO/N/A headers)
@@ -4266,7 +3955,6 @@ function externalSign() {
                         signatures: this.webSignatures,
                         disclosure_answers: this.webDisclosureAnswers,
                         ceremony_values: this.webCeremonyValues,
-                        clause_flags: this.webClauseFlaggedItems,
                         other_conditions_text: this.otherConditionsText,
                         consented: this.webConsented,
                         consent_timestamp: new Date().toISOString(),
@@ -4357,19 +4045,14 @@ function uploadForm() {
 }
 </script>
 
-{{-- Phase 1B.5 + 1B.6 — recipient Other Conditions + Flag Clause modals.
-     The modal partials wire themselves via window CustomEvent dispatch:
+{{-- Recipient Other Conditions modal. The partial wires itself via window CustomEvent dispatch:
        open-add-condition-modal — fired by + Add condition buttons inside
-         InsertableBlockRenderer-rendered blocks
-       open-flag-clause-modal   — fired by the existing _toggleClauseFlag
-         icon handler (Phase 1B.6 replaces the inline-input UX with this
-         richer modal — see _initClauseFlagging / _toggleClauseFlag).
-     The Phase 1B.5 override-modal partial was removed in Phase 1B.6 — the
-     clause-flag flow is the canonical recipient change-proposal path. --}}
+         InsertableBlockRenderer-rendered blocks.
+     (AT-373 inc7 — the recipient clause-flag modal was retired; recipients now propose changes
+     via the wet-ink amend tool at their turn.) --}}
 @isset($request)
     @php $token = $request->token; @endphp
     @include('docuperfect.signatures._partials.add-condition-modal', ['token' => $token, 'numberedClauses' => $numberedClauses ?? []])
-    @include('docuperfect.signatures._partials.flag-clause-modal', ['token' => $token])
     {{-- WET-INK recipient-side per-change initialing (item 4): a recipient initials changes the agent made.
          viewerPartyKey MUST be canonicalPartyKey — the SAME convention the row slots (SelectionEditService::parties)
          and the fill endpoint (SigningController::initialChange) use. currentRoleIdentity ('{role}_{index}', always

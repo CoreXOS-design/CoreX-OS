@@ -511,22 +511,6 @@ class SigningController extends Controller
         // the Add Condition + Flag Clause modal pickers.
         $numberedClauses = $this->extractNumberedClauses($webTemplateHtml);
 
-        // Phase 1B.6 (FIX 6) — seed the persisted clause flags state so a
-        // page refresh restores the visible flag UI (the legacy webData
-        // path only persisted at signComplete; reading it back means a
-        // mid-session flag survives reload).
-        // AT-291 ITEM 5 — derive each persisted clause-flag's status from the
-        // LIVE DocumentAmendment record rather than the frozen JSON snapshot.
-        // The agent resolution cascade never rewrites clause_flags JSON, so
-        // reading it raw would keep a recipient frozen forever after the agent
-        // resolves. Cross-referencing the amendment status lets the client
-        // freeze banner lift the moment the agent acts (amendment leaves
-        // STATUS_PENDING).
-        $persistedClauseFlags = $this->hydrateClauseFlagStatuses(
-            $webTemplateData['clause_flags'] ?? [],
-            $template
-        );
-
         // Phase 1B.6 (FIX 5) — flag whether this signing party has already
         // completed signing. The view uses this to render captured
         // signatures read-only instead of "click to sign" affordances when
@@ -598,7 +582,6 @@ class SigningController extends Controller
             'docTemplate' => $docTemplate,                // B3 info panel — isSalesDocument() / role labelling
             'isRecipientSigningView' => true,             // B3 info panel — render flag (false on agent wizard)
             'numberedClauses' => $numberedClauses,
-            'persistedClauseFlags' => $persistedClauseFlags,
             'partyAlreadySigned' => $partyAlreadySigned,
             'inAmendmentInitialing' => $inAmendmentInitialing,
             'isAgent' => $isAgent,
@@ -1505,21 +1488,6 @@ class SigningController extends Controller
             return response()->json(['ok' => false, 'error' => 'It is not your turn to sign yet. Please wait for notification.'], 403);
         }
 
-        // AT-291 ITEM 5 — server-side freeze gate. When a clause on this
-        // document has been flagged for agent review, signing is frozen for
-        // ALL parties until the agent resolves it and re-sends. The client
-        // hides the submit surface (freeze banner), but a crafted or
-        // JS-failed POST MUST be rejected server-side too — a party must
-        // never complete a document that is about to change. The gate lifts
-        // automatically the moment the agent resolves the flag (the
-        // amendment leaves STATUS_PENDING); no JSON rewrite required.
-        if ($this->templateHasPendingFlag($signingRequest->template)) {
-            return response()->json([
-                'ok'    => false,
-                'error' => 'This document is paused while the agent reviews a flagged clause. You\'ll get an email when it\'s resolved — return to your signing link then to complete.',
-            ], 423);
-        }
-
         // WET-INK HARD GATE — a party cannot complete their signing turn while any required party still owes
         // an initial on an amendment. Server-side and non-bypassable: no finalising a document with unsigned
         // changes. The message names the acting party's own outstanding count when they are the blocker.
@@ -1738,26 +1706,6 @@ class SigningController extends Controller
         $ceremonyValues = $request->input('ceremony_values', []);
         if (!empty($ceremonyValues)) {
             $webData['ceremony_values'] = array_merge($webData['ceremony_values'] ?? [], $ceremonyValues);
-        }
-
-        // Save clause flags (concerns raised by signer)
-        $clauseFlags = $request->input('clause_flags', []);
-        if (!empty($clauseFlags)) {
-            $existingFlags = $webData['clause_flags'] ?? [];
-            $webData['clause_flags'] = array_merge($existingFlags, [
-                $signingRequest->party_role => $clauseFlags,
-            ]);
-
-            // ES-4 — Promote each flag to a first-class DocumentAmendment row
-            // so it flows through the same agent review surface used by
-            // Other Conditions + Strikethroughs (Phase 1B). The JSON note in
-            // web_template_data is preserved for backward compatibility and
-            // forensic context; it is no longer the sole record.
-            $this->promoteClauseFlagsToAmendments(
-                $signingRequest,
-                $document,
-                $clauseFlags
-            );
         }
 
         // Save signatures (base64 data URIs keyed by block ID)
@@ -2104,16 +2052,6 @@ class SigningController extends Controller
         // Sequential signing gate — reject if not this signer's turn
         if ($signingRequest->status === SignatureRequest::STATUS_WAITING) {
             return response()->json(['ok' => false, 'error' => 'It is not your turn to sign yet. Please wait for notification.'], 403);
-        }
-
-        // AT-291 ITEM 5 — freeze gate (marker-based path; mirrors completeWeb).
-        // A document with a flagged clause pending agent review cannot be
-        // completed until the agent resolves it and re-sends.
-        if ($this->templateHasPendingFlag($signingRequest->template)) {
-            return response()->json([
-                'ok'    => false,
-                'error' => 'This document is paused while the agent reviews a flagged clause. You\'ll get an email when it\'s resolved — return to your signing link then to complete.',
-            ], 423);
         }
 
         // WET-INK HARD GATE (mirrors completeWeb) — no completing while an amendment initial is outstanding.
@@ -4202,279 +4140,19 @@ CSS;
         ], 201);
     }
 
-    /**
-     * POST /docuperfect/api/sign/{token}/flag-clause   (Phase 1B.6 — FIX 2)
-     *
-     * Recipient flags a numbered clause with a suggested change. Creates a
-     * DocumentAmendment row with amendment_type = 'flag_raised' (existing
-     * Phase 2 ES-4 enum value) and ALSO writes through to the legacy
-     * web_template_data.clause_flags JSON so the orange-flag display
-     * survives page refresh.
-     *
-     * Replaces Phase 1B.5's proposeStrikethrough — the override modal was
-     * the wrong abstraction. The flag UI is the recipient's clause-change
-     * path. Agent approval of a flag-raised amendment creates a numbered
-     * condition in the Other Conditions block with is_override = true.
-     */
-    public function flagClause(Request $request, string $token): \Illuminate\Http\JsonResponse
-    {
-        $signingRequest = SignatureRequest::where('token', $token)
-            ->with('template.document')
-            ->firstOrFail();
-
-        if (! $this->signerCanAct($signingRequest)) {
-            return response()->json(['error' => 'Not authorised at this stage.'], 403);
-        }
-
-        $validated = $request->validate([
-            'clause_ref'           => ['required', 'string', 'max:50'],
-            'clause_original_text' => ['required', 'string', 'max:4000'],
-            'suggested_change'     => ['required', 'string', 'max:4000'],
-            'reason'               => ['nullable', 'string', 'max:2000'],
-        ]);
-
-        $template = $signingRequest->template;
-        $document = $template->document;
-
-        $result = DB::transaction(function () use ($validated, $signingRequest, $template, $document) {
-            $version = (int) ($template->document_version ?? 1);
-
-            // Compose the flag-raised reason text — pair the suggested
-            // change with an optional why-explanation so the agent review
-            // surface (Phase 1B AmendmentController) has full context.
-            $flagReason = $validated['suggested_change'];
-            if (! empty($validated['reason'])) {
-                $flagReason .= "\n\nReason: " . $validated['reason'];
-            }
-
-            $amendment = DocumentAmendment::create([
-                'document_id'             => $document?->id,
-                'signature_template_id'   => $template->id,
-                'amended_by_request_id'   => $signingRequest->id,
-                'amendment_type'          => DocumentAmendment::TYPE_FLAG_RAISED,
-                'flag_origin'             => DocumentAmendment::FLAG_ORIGIN_SIGNING_PARTY,
-                'flag_clause_ref'         => $validated['clause_ref'],
-                'flag_reason'             => $flagReason,
-                'section_reference'       => 'Clause ' . $validated['clause_ref'],
-                'original_text'           => $validated['clause_original_text'],
-                'new_text'                => $validated['suggested_change'],
-                'document_version_before' => $version,
-                'document_version_after'  => $version,
-                'document_hash_before'    => $template->document_hash,
-                'document_hash_after'     => null,
-                'status'                  => DocumentAmendment::STATUS_PENDING,
-            ]);
-
-            // Phase 1B.6 (FIX 6) — write through to web_template_data
-            // .clause_flags JSON immediately so a refresh of the signing
-            // page can re-seed the visible flag indicator (was previously
-            // only persisted at signComplete time).
-            if ($document) {
-                $webData = $document->web_template_data ?? [];
-                $existing = $webData['clause_flags'][$signingRequest->party_role] ?? [];
-                $existing[] = [
-                    'clauseNum'         => $validated['clause_ref'],
-                    'concern'           => $validated['suggested_change'],
-                    'reason'            => $validated['reason'] ?? null,
-                    'amendment_id'      => $amendment->id,
-                    'flagged_at'        => now()->toIso8601String(),
-                    'status'            => 'pending_review',
-                ];
-                $webData['clause_flags'][$signingRequest->party_role] = $existing;
-                $document->update(['web_template_data' => $webData]);
-            }
-
-            $template->update([
-                'amendment_status' => SignatureTemplate::AMENDMENT_STATUS_PENDING_REVIEW,
-                'status'           => SignatureTemplate::STATUS_AMENDMENT_REVIEW,
-            ]);
-
-            SignatureAuditLog::log(
-                $template,
-                'clause_flagged_by_recipient',
-                SignatureAuditLog::ACTOR_SIGNER,
-                $signingRequest->signer_name ?? 'Unknown',
-                metadata: [
-                    'amendment_id' => $amendment->id,
-                    'clause_ref'   => $validated['clause_ref'],
-                ],
-            );
-
-            return $amendment;
-        });
-
-        // E-sign walk-fix FIX 4 — legal trail. Send the recipient an
-        // email confirming their proposed amendments are under agent
-        // review. Critical line for legal compliance: "this document
-        // is NOT legally binding until the agent has resolved your
-        // amendments and you have completed signing." Failures here
-        // never block the flag persistence — the amendment is already
-        // safe in the database; the email is the recipient-facing
-        // confirmation only.
-        try {
-            $agent = $template->creator;
-            $documentName = $template->document->name ?? 'Document';
-            $signingUrl = route('signatures.external', $signingRequest->token);
-            \Illuminate\Support\Facades\Mail::to($signingRequest->signer_email)
-                ->send((new \App\Mail\Signatures\AmendmentSubmittedToAgent(
-                    recipientName:   $signingRequest->signer_name ?? 'Signing party',
-                    documentName:    $documentName,
-                    agentName:       $agent?->name ?? 'the agent',
-                    clauseRef:       $validated['clause_ref'],
-                    suggestedChange: $validated['suggested_change'],
-                    reason:          $validated['reason'] ?? null,
-                    signingUrl:      $signingUrl,
-                ))->fromAgent($agent));
-        } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::error('Failed to send AmendmentSubmittedToAgent email', [
-                'amendment_id' => $result->id,
-                'recipient_email' => $signingRequest->signer_email,
-                'error' => $e->getMessage(),
-            ]);
-        }
-
-        // AT-299 — notify the SENDING AGENT that a clause was flagged, so a
-        // frozen ceremony is never invisible (a frozen seller behind an
-        // uninformed agent = a dead deal). Rides the AT-235 gateway
-        // (NotificationDispatcher) so it is in-app + email per the agent's
-        // prefs; event 'esign.clause_flagged' is default-ON and per-user
-        // configurable on the notifications settings matrix. Never blocks the
-        // flag persistence (the amendment + freeze are already committed).
-        try {
-            $notifyAgent = $template->creator;
-            if ($notifyAgent) {
-                app(\App\Services\CommandCenter\NotificationDispatcher::class)->send(
-                    $notifyAgent,
-                    'esign.clause_flagged',
-                    $result,
-                    new \App\Notifications\ClauseFlaggedNotification($result, $signingRequest),
-                    [
-                        'threshold_hit_at' => now()->toIso8601String(),
-                        'amendment_id'     => $result->id,
-                    ],
-                );
-            }
-        } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning('Clause-flagged agent notification failed (non-fatal)', [
-                'amendment_id' => $result->id,
-                'error'        => $e->getMessage(),
-            ]);
-        }
-
-        return response()->json([
-            'ok'           => true,
-            'amendment_id' => $result->id,
-            'clause_ref'   => $validated['clause_ref'],
-        ], 201);
-    }
-
-    /**
-     * DELETE /docuperfect/api/sign/{token}/flag/{clauseRef}   (Phase 1B.9 — FIX 1, pre-completion)
-     *
-     * Recipient self-removes a flag they raised — allowed ONLY while the
-     * party has not yet completed signing AND the amendment is still in
-     * 'pending' state (agent hasn't acted on it).
-     *
-     * After signing completes, removal must go through the agent-initiated
-     * consent flow via FlagRemovalController.
-     */
-    public function removeOwnFlag(Request $request, string $token, string $clauseRef): \Illuminate\Http\JsonResponse
-    {
-        $signingRequest = SignatureRequest::where('token', $token)
-            ->with('template.document')
-            ->firstOrFail();
-
-        // Pre-completion gate. After completed_at is set the recipient
-        // can no longer unilaterally remove their own flag — they must
-        // go through the consent path.
-        if ($signingRequest->status === SignatureRequest::STATUS_COMPLETED
-            || $signingRequest->completed_at !== null
-        ) {
-            return response()->json([
-                'error' => 'You have already signed. Removing a flag now requires the agent to request your authenticated consent.',
-            ], 409);
-        }
-
-        $template = $signingRequest->template;
-        $document = $template?->document;
-        if (! $document) {
-            return response()->json(['error' => 'Document not found.'], 404);
-        }
-
-        // Find a pending amendment matching the clause + this party.
-        $amendment = DocumentAmendment::query()
-            ->where('signature_template_id', $template->id)
-            ->where('amendment_type', DocumentAmendment::TYPE_FLAG_RAISED)
-            ->where('flag_clause_ref', $clauseRef)
-            ->where('amended_by_request_id', $signingRequest->id)
-            ->where('status', DocumentAmendment::STATUS_PENDING)
-            ->latest('id')
-            ->first();
-
-        DB::transaction(function () use ($document, $signingRequest, $clauseRef, $amendment, $template) {
-            // Scrub the matching entry from clause_flags JSON.
-            $webData = $document->web_template_data ?? [];
-            $partyRole = $signingRequest->party_role;
-            $flagsByParty = $webData['clause_flags'] ?? [];
-            if ($partyRole && isset($flagsByParty[$partyRole]) && is_array($flagsByParty[$partyRole])) {
-                $flagsByParty[$partyRole] = array_values(array_filter(
-                    $flagsByParty[$partyRole],
-                    fn($f) => (string) ($f['clauseNum'] ?? '') !== (string) $clauseRef
-                ));
-                if (empty($flagsByParty[$partyRole])) {
-                    unset($flagsByParty[$partyRole]);
-                }
-                $webData['clause_flags'] = $flagsByParty;
-                $document->update(['web_template_data' => $webData]);
-            }
-
-            // Soft-delete the pending amendment (audit retained).
-            if ($amendment) {
-                $amendment->update(['status' => DocumentAmendment::STATUS_REJECTED]);
-                $amendment->delete();
-            }
-
-            // If this was the only pending amendment, clear amendment_status.
-            $stillPending = DocumentAmendment::query()
-                ->where('signature_template_id', $template->id)
-                ->where('status', DocumentAmendment::STATUS_PENDING)
-                ->exists();
-            if (! $stillPending) {
-                $template->update([
-                    'status'           => SignatureTemplate::STATUS_SIGNING,
-                    'amendment_status' => null,
-                ]);
-            }
-
-            SignatureAuditLog::log(
-                $template,
-                'flag_self_removed_pre_completion',
-                SignatureAuditLog::ACTOR_SIGNER,
-                $signingRequest->signer_name ?? 'Recipient',
-                metadata: [
-                    'clause_ref'    => $clauseRef,
-                    'amendment_id'  => $amendment?->id,
-                    'party_role'    => $partyRole,
-                ],
-            );
-        });
-
-        return response()->json(['ok' => true]);
-    }
 
     /**
      * POST /docuperfect/api/sign/{token}/strikethroughs  (Phase 1B.5 — deprecated)
      *
-     * Phase 1B.6 (FIX 2): retained as a soft-deprecated endpoint that 410s
-     * with a clear message. The recipient flow now uses flagClause()
-     * exclusively. Agent-side strikethrough creation (if introduced
-     * later) will go through a different path.
+     * Soft-deprecated endpoint that 410s with a clear message. Recipients now
+     * propose changes via the wet-ink amend tool at their signing turn
+     * (AT-373 — the recipient clause-flag flow was retired in inc7).
      */
     public function proposeStrikethrough(Request $request, string $token): \Illuminate\Http\JsonResponse
     {
         return response()->json([
-            'error' => 'The strikethrough override flow has been replaced by clause flagging. '
-                . 'Use POST /sign/{token}/flag-clause instead.',
+            'error' => 'The strikethrough override flow has been retired. '
+                . 'Propose changes using the amend tool at your signing turn.',
         ], 410);
 
         // The original implementation is retained below behind an
@@ -4831,89 +4509,6 @@ CSS;
      * strikethroughs right now? Allowed when the request hasn't completed
      * and the template isn't terminal-state.
      */
-    /**
-     * AT-291 ITEM 5 — true when any party has flagged a clause on this
-     * document that the agent has NOT yet resolved. A pending flag freezes
-     * COMPLETION for the whole document (it may still change), matching the
-     * agent "fix + re-send" workflow. Source of truth is the
-     * DocumentAmendment record (STATUS_PENDING) — NOT the web_template_data
-     * JSON — so the freeze lifts automatically when the agent acts, with no
-     * JSON rewrite. Flagging / self-removing flags stays allowed while
-     * frozen (that is deliberately NOT gated here) so a recipient can flag
-     * more than one clause; only completion is blocked.
-     */
-    private function templateHasPendingFlag(?SignatureTemplate $template): bool
-    {
-        if (! $template) {
-            return false;
-        }
-
-        return DocumentAmendment::query()
-            ->where('signature_template_id', $template->id)
-            ->where('amendment_type', DocumentAmendment::TYPE_FLAG_RAISED)
-            ->where('status', DocumentAmendment::STATUS_PENDING)
-            ->exists();
-    }
-
-    /**
-     * AT-291 ITEM 5 — re-stamp each persisted clause-flag entry's `status`
-     * from its live DocumentAmendment. A flag whose amendment is no longer
-     * STATUS_PENDING is 'resolved' (the agent has acted); the client reads
-     * this to lift the freeze banner. Entries with no resolvable amendment
-     * keep their stored status (default pending_review). Pure read-side
-     * derivation — the stored JSON is never mutated here.
-     *
-     * @param  array<string, mixed>  $clauseFlags  party_role => [ flag, … ]
-     * @return array<string, mixed>
-     */
-    private function hydrateClauseFlagStatuses(array $clauseFlags, ?SignatureTemplate $template): array
-    {
-        if (empty($clauseFlags) || ! $template) {
-            return $clauseFlags;
-        }
-
-        $ids = [];
-        foreach ($clauseFlags as $entries) {
-            if (! is_array($entries)) {
-                continue;
-            }
-            foreach ($entries as $entry) {
-                if (! empty($entry['amendment_id'])) {
-                    $ids[] = (int) $entry['amendment_id'];
-                }
-            }
-        }
-        if (empty($ids)) {
-            return $clauseFlags;
-        }
-
-        // id => status for every amendment that actually EXISTS. An
-        // amendment_id with no matching row (e.g. legacy / seed-only JSON)
-        // is left untouched — we only re-stamp what we can positively
-        // resolve, so we never fabricate a 'resolved' for an unknown id.
-        $statusById = DocumentAmendment::query()
-            ->whereIn('id', array_values(array_unique($ids)))
-            ->pluck('status', 'id');
-
-        foreach ($clauseFlags as &$entries) {
-            if (! is_array($entries)) {
-                continue;
-            }
-            foreach ($entries as &$entry) {
-                $id = (int) ($entry['amendment_id'] ?? 0);
-                if ($id === 0 || ! $statusById->has($id)) {
-                    continue;
-                }
-                $entry['status'] = $statusById->get($id) === DocumentAmendment::STATUS_PENDING
-                    ? 'pending_review'
-                    : 'resolved';
-            }
-            unset($entry);
-        }
-        unset($entries);
-
-        return $clauseFlags;
-    }
 
     private function signerCanAct(SignatureRequest $req): bool
     {
@@ -4977,89 +4572,4 @@ CSS;
         );
     }
 
-    /**
-     * ES-4 — promote signer-raised clause flags into first-class
-     * DocumentAmendment rows. Each flag becomes its own amendment so the
-     * agent review surface (Phase 1B) can render and action it through the
-     * same approve / reject / reject-document workflow as conditions and
-     * strikethroughs.
-     *
-     * Backward compatibility: the JSON note in
-     * docuperfect_documents.web_template_data['clause_flags'] is preserved
-     * by the caller — this method only ADDS the relational record.
-     *
-     * Failures are logged but never abort the signing transaction: a flag
-     * record that fails to write should not block the signer's signature
-     * commit.
-     *
-     * @param array $clauseFlags Array of { clauseNum, clauseIndex, concern }
-     *
-     * Spec: .ai/specs/esign-v3-complete-spec.md §17 ES-4
-     */
-    private function promoteClauseFlagsToAmendments(
-        SignatureRequest $signingRequest,
-        $document,
-        array $clauseFlags
-    ): void {
-        try {
-            $template = $signingRequest->template
-                ?? SignatureTemplate::find($signingRequest->signature_template_id);
-            if (! $template) {
-                return;
-            }
-
-            foreach ($clauseFlags as $flag) {
-                $clauseRef = $flag['clauseNum'] ?? $flag['clause_num'] ?? null;
-                $reason    = trim((string) ($flag['concern'] ?? $flag['reason'] ?? ''));
-                if ($reason === '') {
-                    // A flag without a concern note is still a signal the
-                    // signer stopped — but we can't action a blank. Skip
-                    // promotion in that case (the JSON note is still kept).
-                    continue;
-                }
-
-                $currentVersion = (int) ($template->document_version ?? 1);
-
-                DocumentAmendment::create([
-                    'document_id'              => $document->id,
-                    'signature_template_id'    => $template->id,
-                    'amended_by_request_id'    => $signingRequest->id,
-                    'amendment_type'           => DocumentAmendment::TYPE_FLAG_RAISED,
-                    'flag_origin'              => DocumentAmendment::FLAG_ORIGIN_SIGNING_PARTY,
-                    'flag_clause_ref'          => $clauseRef ? (string) $clauseRef : null,
-                    'flag_reason'              => $reason,
-                    'section_reference'        => $clauseRef ? ('Clause ' . $clauseRef) : 'Flag',
-                    'original_text'            => '',
-                    'new_text'                 => $reason,
-                    'document_version_before'  => $currentVersion,
-                    'document_version_after'   => $currentVersion,
-                    'document_hash_before'     => $template->document_hash,
-                    'document_hash_after'      => null,
-                    'status'                   => DocumentAmendment::STATUS_PENDING,
-                ]);
-            }
-
-            // Transition into review state so the agent picks it up.
-            $template->update([
-                'status'           => SignatureTemplate::STATUS_AMENDMENT_REVIEW,
-                'amendment_status' => SignatureTemplate::AMENDMENT_STATUS_PENDING_REVIEW,
-            ]);
-
-            SignatureAuditLog::log(
-                $template,
-                'flag_raised',
-                SignatureAuditLog::ACTOR_SIGNER,
-                $signingRequest->signer_name ?? 'Unknown',
-                metadata: [
-                    'flag_count'   => count($clauseFlags),
-                    'party_role'   => $signingRequest->party_role,
-                ],
-            );
-        } catch (\Throwable $e) {
-            Log::warning('ES-4 flag promotion failed', [
-                'request_id' => $signingRequest->id,
-                'error'      => $e->getMessage(),
-            ]);
-        }
-    }
 }
