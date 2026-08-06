@@ -87,20 +87,25 @@
                 </div>
             </div>
 
-            {{-- Type mode --}}
+            {{-- Type mode — FIX 1 (Johan 2026-08-06): the TYPE INPUT is the prominent, obvious click target
+                 (large, bordered, auto-focused); the rendered PREVIEW is de-emphasised (small, dashed, clearly
+                 labelled) so it never looks like where you act. --}}
             <div x-show="{{ $mode }} === 'type'" x-transition>
-                <div class="mb-3">
-                    <label class="block text-xs font-medium text-slate-600 mb-1">Type your name</label>
+                <div class="mb-2">
+                    <label class="block text-sm font-semibold text-slate-700 mb-1"
+                           x-text="activeMarker && activeMarker.type === 'initial' ? 'Type your initials here' : 'Type your full name here'"></label>
                     <input type="text" x-model="{{ $typed }}"
-                           class="w-full rounded-lg border-slate-300 text-sm px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+                           x-effect="if ({{ $mode }} === 'type' && {{ $show }}) $nextTick(() => $el.focus())"
+                           class="w-full rounded-lg border-2 border-blue-500 text-xl font-medium text-slate-800 px-4 py-3 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-600"
                            :placeholder="{{ $placeholder }}">
                 </div>
-                <div class="border-2 border-slate-200 rounded-xl bg-slate-50 p-4 min-h-[80px] flex items-center">
+                <span class="block text-[11px] uppercase tracking-wide text-slate-400 mb-1">Preview</span>
+                <div class="border border-dashed border-slate-200 rounded-lg bg-slate-50/60 px-3 py-2 min-h-[44px] flex items-center">
                     <template x-if="{{ $typed }}.trim()">
-                        <span class="text-4xl text-slate-800" style="font-family:'Dancing Script',cursive;" x-text="{{ $typed }}"></span>
+                        <span class="text-2xl text-slate-500" style="font-family:'Dancing Script',cursive;" x-text="{{ $typed }}"></span>
                     </template>
                     <template x-if="!{{ $typed }}.trim()">
-                        <span class="text-sm text-slate-400 italic">Preview will appear here</span>
+                        <span class="text-xs text-slate-300 italic">Your typed signature appears here</span>
                     </template>
                 </div>
                 @if($showTypedCanvas)

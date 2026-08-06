@@ -630,7 +630,9 @@
                 <style>
                     .sel-modal-overlay { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center;
                         justify-content: center; padding: 1rem; background: rgba(0,0,0,.6); }
-                    .sel-sticky-bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; z-index: 9000;
+                    /* FIX 3 (Johan 2026-08-06) — sit ABOVE the fixed "N items remaining / Go to next" nav
+                       (bottom:16px) so the amend bar never covers the next-block navigation; they stack. */
+                    .sel-sticky-bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 88px; z-index: 9000;
                         display: flex; align-items: center; gap: .6rem; width: min(720px, 94vw);
                         background: #0b2a4a; color: #fff; padding: .55rem .9rem; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
                     .change-margin { float: right; clear: right; margin: .1rem 0 .35rem 1rem; padding: .2rem .55rem;
@@ -1675,7 +1677,10 @@ function externalSign() {
                     page_number: '', _isChangeInitial: true, _changeId: d.changeId, _partyKey: d.partyKey,
                 };
                 this.captureMode = 'draw';
-                this.typedName = this.signerName ? this.signerName.split(' ').map(n => n.charAt(0).toUpperCase()).join('') : '';
+                // FIX 2 (Johan 2026-08-06) — the recipient must actively enter their OWN amendment initial
+                // (draw or type), not just click Apply on a pre-filled one. Start the field EMPTY (no
+                // auto-populated initials from signerName); the recipient types/draws it themselves.
+                this.typedName = '';
                 this.showSignModal = true;
                 this.$nextTick(() => this.initCanvas());
             });

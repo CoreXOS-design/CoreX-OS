@@ -50,6 +50,13 @@
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     table.change-initial-row td.cir-slot .cir-ink { display: block; min-height: 18px; }
 
+    /* FIX 4 (Johan 2026-08-06) — the inline "INITIAL THIS CHANGE" box shows INITIALS ONLY (drop the party
+       NAMES) so every party's initial fits on ONE line. Applies on screen AND in the PDF (both render this
+       shared stylesheet). The audit "Schedule of Amendments" keeps full per-party attribution — unaffected.
+       Keeps the box title (.change-initial-row > .cir-label) + the initial ink (.cir-ink). */
+    .change-initial-row .cir-name { display: none; }
+    table.change-initial-row td.cir-slot .cir-label { display: none; }
+
     @media print {
         .change-del, .change-ins, .change-xref, .change-initialed, .change-initial-row, .cir-slot, .cir-ink {
             -webkit-print-color-adjust: exact; print-color-adjust: exact;
