@@ -174,7 +174,10 @@
                                     prefix = (range.startContainer.textContent || '').slice(Math.max(0, range.startOffset - 40), range.startOffset);
                                     suffix = (range.endContainer.textContent || '').slice(range.endOffset, range.endOffset + 40);
                                 } catch (e) {}
-                                return { text, prefix, suffix, rect: range.getBoundingClientRect() };
+                                // Keep the live Range so a created amendment can be PAINTED in place (no reload,
+                                // which would wipe in-progress field initials/signatures — same bug class as the
+                                // amendment-initial fix, Johan 2026-08-06).
+                                return { text, prefix, suffix, rect: range.getBoundingClientRect(), range: range.cloneRange() };
                             },
                             onSelect() {
                                 const cap = this.capture();
@@ -207,7 +210,23 @@
                                         body: JSON.stringify({ selected: this.selected, prefix: this.prefix, suffix: this.suffix, replacement: this.replacement.trim(), mode: this.mode }),
                                     });
                                     const data = await resp.json().catch(() => ({}));
-                                    if (resp.ok && data.ok) { window.location.reload(); }
+                                    if (resp.ok && data.ok) {
+                                        // Paint the new amendment IN PLACE — never re-fetch the page here.
+                                        // A reload re-fetches the server doc, which has no record of the field
+                                        // initials/signatures applied client-side via "apply to all" (held only
+                                        // in the DOM until final submit) → reloading WIPED them. The amendment is
+                                        // already persisted server-side (strikeSelection → writeAmend), so we hand
+                                        // the change to the main signing component to render the struck mark + the
+                                        // per-party initial row at the captured selection, preserving every applied
+                                        // initial/signature (Johan 2026-08-06).
+                                        document.dispatchEvent(new CustomEvent('corex-amendment-created', { detail: {
+                                            changeId: data.change_id, mode: this.mode,
+                                            replacement: this.replacement.trim(), ocRef: data.oc_ref || null,
+                                            selected: this.selected, range: this._cap ? this._cap.range : null,
+                                        } }));
+                                        this.open = false; this.busy = false; this.selected = ''; this.replacement = ''; this._cap = null;
+                                        const fb = this.$refs.floatBtn; if (fb) fb.style.display = 'none';
+                                    }
                                     else { this.err = data.error || 'Could not apply the change.'; this.busy = false; }
                                 } catch (e) { this.err = 'Network error — please retry.'; this.busy = false; }
                             },
@@ -988,6 +1007,14 @@ function signDocument() {
                 this.typedName = @json($userInitials ?? '');
                 this.showSignModal = true;
                 this.$nextTick(() => this.initCanvas());
+            });
+
+            // WET-INK amendment CREATED at signing time (selectionEditor) — paint the struck mark + the
+            // per-party initial row IN PLACE at the captured selection, so creating an amendment never
+            // reloads (which would wipe in-progress field initials/signatures). Same bug class as the
+            // amendment-initial fix. The amendment is already persisted server-side; this is the display.
+            document.addEventListener('corex-amendment-created', (e) => {
+                this._paintNewAmendment(e.detail || {});
             });
 
             // For web templates: split into A4 pages, then make elements interactive
@@ -1909,6 +1936,98 @@ function signDocument() {
                     ink.innerHTML = '<img src="' + imageDataUrl + '" style="max-height:20px;max-width:64px;object-fit:contain;vertical-align:middle;" alt="Initial">';
                 }
             });
+        },
+
+        // Paint a newly-created amendment (strike/reword) IN PLACE at the captured selection — the struck
+        // <del> (+ optional reword <ins> / Other-Conditions xref) wrapped in the canonical change-mark
+        // markup, followed by the full-width per-party initial row — WITHOUT a reload. Every already-applied
+        // field initial/signature elsewhere in the DOM is untouched. The amendment is already persisted
+        // server-side (strikeSelection → writeAmend); on the next authoritative load the server's render is
+        // served. Fail-safe: on any error the amendment stays saved and simply isn't repainted (never reload,
+        // which is the very wipe we are removing).
+        _paintNewAmendment(detail) {
+            try {
+                const changeId = detail.changeId, range = detail.range;
+                if (!changeId || !range) return;
+                const wrap = document.createElement('span');
+                wrap.className = 'change-inline';
+                wrap.setAttribute('data-strikethrough-applied', '1');
+                wrap.setAttribute('data-change-id', changeId);
+                const del = document.createElement('del');
+                del.className = 'change-del';
+                del.setAttribute('data-change-id', changeId);
+                try { del.appendChild(range.extractContents()); }
+                catch (e) { del.textContent = detail.selected || ''; }
+                wrap.appendChild(del);
+                if (detail.mode === 'reference' && detail.ocRef) {
+                    wrap.appendChild(document.createTextNode(' '));
+                    const xref = document.createElement('span');
+                    xref.className = 'change-xref';
+                    xref.setAttribute('data-change-id', changeId);
+                    xref.setAttribute('data-oc-ref', String(detail.ocRef));
+                    xref.textContent = 'See Other Conditions — clause ' + detail.ocRef;
+                    wrap.appendChild(xref);
+                } else if (detail.mode !== 'strike' && (detail.replacement || '').length) {
+                    wrap.appendChild(document.createTextNode(' '));
+                    const ins = document.createElement('ins');
+                    ins.className = 'change-ins';
+                    ins.setAttribute('data-change-id', changeId);
+                    ins.textContent = detail.replacement;
+                    wrap.appendChild(ins);
+                }
+                try { range.insertNode(wrap); } catch (e) { return; }
+                const row = this._buildChangeInitialRow(changeId);
+                const block = this._closestDocBlock(wrap);
+                if (block && block.parentNode) block.parentNode.insertBefore(row, block.nextSibling);
+                else if (wrap.parentNode) wrap.parentNode.insertBefore(row, wrap.nextSibling);
+                if (window.__corexWireChangeInitials) window.__corexWireChangeInitials();
+                if (this._updateIncompleteCount) this._updateIncompleteCount();
+            } catch (e) { /* amendment is saved server-side; never reload (that is the wipe we removed) */ }
+        },
+
+        // Build the full-width per-party initial row for a change — mirrors the server's buildInitialRow
+        // (class family change-initial-row / cir-slot / cir-name / cir-ink). Party keys follow the same
+        // scheme as the server (role, then role_N for a duplicate role) so the viewer's own slot ('agent')
+        // is actionable immediately; the server's authoritative row (with signer names) replaces this on the
+        // next load.
+        _buildChangeInitialRow(changeId) {
+            const row = document.createElement('div');
+            row.className = 'change-initial-row';
+            row.setAttribute('data-change-id', changeId);
+            row.setAttribute('contenteditable', 'false');
+            const label = document.createElement('span');
+            label.className = 'cir-label';
+            label.textContent = 'Initial this change:';
+            row.appendChild(label);
+            const counts = {};
+            (this.signingParties || []).forEach((p) => {
+                const role = (p.role || 'party');
+                counts[role] = (counts[role] || 0) + 1;
+                const key = counts[role] > 1 ? role + '_' + counts[role] : role;
+                const name = p.label || role;
+                const slot = document.createElement('span');
+                slot.className = 'cir-slot';
+                slot.setAttribute('data-change-id', changeId);
+                slot.setAttribute('data-party-key', key);
+                slot.setAttribute('data-party-name', name);
+                const ns = document.createElement('span');
+                ns.className = 'cir-name';
+                ns.textContent = name;
+                slot.appendChild(ns);
+                const ink = document.createElement('span');
+                ink.className = 'cir-ink';
+                ink.setAttribute('data-empty', '1');
+                ink.textContent = '—';
+                slot.appendChild(ink);
+                row.appendChild(slot);
+            });
+            return row;
+        },
+
+        // Nearest block-level ancestor for placing the initial row after (mirrors server closestBlock).
+        _closestDocBlock(el) {
+            const b = el.closest && el.closest('.corex-clause, .corex-h1, .corex-h2, .corex-h3, p, li, td, blockquote');
+            return b || el.parentElement;
         },
 
         // ── Apply signature ──

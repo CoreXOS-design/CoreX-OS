@@ -94,4 +94,53 @@ final class AmendmentInitialPreservesFieldInitialsTest extends TestCase
             $this->assertMatchesRegularExpression('/cir-filled/', $src, "$label: painted slot must be marked filled");
         }
     }
+
+    /**
+     * CREATE-AMENDMENT path (Johan 2026-08-06). Same bug class: creating a NEW amendment at signing time
+     * (`selectionEditor.submit` in the agent view) used to `window.location.reload()` after the server saved
+     * the change — which wiped the in-progress field initials/signatures exactly like the amendment-initial
+     * did. The submit must instead paint the new amendment in place (dispatch `corex-amendment-created` →
+     * `_paintNewAmendment` renders the struck mark + the per-party initial row at the captured selection),
+     * preserving every applied initial. The recipient (external) view has no amendment-creation UI yet
+     * (upcoming), so this guard is scoped to the agent view where the path exists.
+     */
+    private function agentSubmitRegion(): string
+    {
+        $src = (string) file_get_contents(base_path('resources/views/docuperfect/signatures/sign.blade.php'));
+        $start = strpos($src, 'async submit() {');
+        $this->assertNotFalse($start, 'the selectionEditor.submit handler must exist');
+        // Through the end of the try/catch that POSTs the amendment (the reload used to live here).
+        $anchor = strpos($src, "this.err = 'Network error", (int) $start);
+        $this->assertNotFalse($anchor, 'submit must end in its network-error catch');
+
+        return substr($src, (int) $start, ($anchor - (int) $start) + 40);
+    }
+
+    public function test_creating_an_amendment_does_not_reload_the_page(): void
+    {
+        $region = $this->agentSubmitRegion();
+        $this->assertStringNotContainsString(
+            'window.location.reload()',
+            $region,
+            'agent create-amendment: saving a new amendment must NOT reload — a reload wipes the client-side '
+            . 'field initials/signatures applied via "apply to all".'
+        );
+    }
+
+    public function test_creating_an_amendment_paints_it_in_place(): void
+    {
+        $region = $this->agentSubmitRegion();
+        $this->assertStringContainsString(
+            "corex-amendment-created",
+            $region,
+            'agent create-amendment: the saved amendment must be painted in place (dispatch corex-amendment-created).'
+        );
+
+        $src = (string) file_get_contents(base_path('resources/views/docuperfect/signatures/sign.blade.php'));
+        $this->assertStringContainsString('_paintNewAmendment(detail)', $src, 'must define the in-place amendment painter');
+        $this->assertStringContainsString('corex-amendment-created', $src, 'must listen for the created-amendment event');
+        // The painter renders the canonical change-mark + the per-party initial row (no reload).
+        $this->assertStringContainsString("change-initial-row", $src, 'painter must render the per-party initial row');
+        $this->assertStringContainsString("change-inline", $src, 'painter must render the struck change-mark wrapper');
+    }
 }
