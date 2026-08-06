@@ -34,6 +34,13 @@
                     PP Agents
                 </a>
                 @endif
+                {{-- AT-278 — nav entry for Archived Agents (non-negotiable #2, same day). --}}
+                <a href="{{ route('admin.users.archived') }}"
+                   class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-300"
+                   style="background:rgba(255,255,255,0.08); color:#fff; border:1px solid rgba(255,255,255,0.18);"
+                   title="Archived agents — restore an agent and reactivate them">
+                    Archived @if(($archivedCount ?? 0) > 0)({{ number_format($archivedCount) }})@endif
+                </a>
                 <a href="{{ route('admin.users.create') }}" class="corex-btn-primary text-sm inline-flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
@@ -356,34 +363,35 @@
                             Files
                         </div>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            {{-- Agent Photo --}}
+                            {{-- Agent Photo — same cropper component as the user-edit page
+                                 (custom pan/zoom/face-alignment), so upload behaves identically
+                                 whichever screen it's done from. --}}
                             <div>
                                 <label class="block text-xs mb-1" style="color:var(--text-secondary);">
                                     Agent Photo <span style="color:var(--text-muted);">(jpg/png/webp, max 2MB)</span>
                                 </label>
+                                <x-agent-photo-cropper name="agent_photo" :current="$u->profilePhotoUrl()" size="64" />
                                 @if($u->profilePhotoUrl())
-                                <div class="flex items-center gap-3 mb-2">
-                                    <img src="{{ $u->profilePhotoUrl() }}" alt="Photo"
-                                         class="w-10 h-10 rounded-md object-cover flex-shrink-0"
-                                         style="border:1px solid var(--border);">
-                                    <form method="POST" action="{{ route('admin.users.remove-file', $u) }}" class="inline" onsubmit="return confirm('Remove agent photo?')">
-                                        @csrf
-                                        <input type="hidden" name="field" value="agent_photo">
-                                        <button type="submit" class="text-xs font-semibold" style="color:var(--ds-crimson, #c41e3a);">Remove</button>
-                                    </form>
-                                </div>
+                                <form method="POST" action="{{ route('admin.users.remove-file', $u) }}" class="inline" onsubmit="return confirm('Remove agent photo?')">
+                                    @csrf
+                                    <input type="hidden" name="field" value="agent_photo">
+                                    <button type="submit" class="text-[11px] font-medium mt-2 px-2 py-1 rounded-md transition-colors"
+                                            style="color:var(--ds-crimson, #c41e3a); background:color-mix(in srgb, var(--ds-crimson, #c41e3a) 10%, transparent);">
+                                        Remove current photo
+                                    </button>
+                                </form>
                                 @endif
-                                <input type="file" name="agent_photo" accept="image/jpeg,image/png,image/webp"
-                                       class="block w-full text-sm rounded-md px-3 py-2"
-                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);">
                             </div>
-                            {{-- FFC Certificate --}}
+                            {{-- FFC Certificate — icon box matches the cropper's visual weight
+                                 so this column's file input lines up with the photo column's,
+                                 instead of sitting higher (bare text link had no height to speak of). --}}
                             <div>
                                 <label class="block text-xs mb-1" style="color:var(--text-secondary);">
                                     FFC Certificate <span style="color:var(--text-muted);">(pdf/jpg/png, max 5MB)</span>
                                 </label>
                                 @if($u->ffc_certificate_path)
-                                <div class="flex items-center gap-3 mb-2">
+                                <div class="flex items-center gap-3 mb-2 p-2.5 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color:var(--brand-icon, #0ea5e9);"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
                                     <a href="{{ asset('storage/'.$u->ffc_certificate_path) }}" target="_blank"
                                        class="text-xs truncate flex-1" style="color:var(--brand-icon, #0ea5e9);">
                                         {{ basename($u->ffc_certificate_path) }}
@@ -408,16 +416,125 @@
                     <div class="flex items-center justify-between gap-3 pt-1 px-4 pb-4"
                          style="border-top:1px solid var(--border); padding-top:16px;">
                         <div class="flex items-center gap-3">
+                            @php
+                                // AT-278 — an inactive agent inside their seat hold cannot be
+                                // reactivated. Render the reason ON the control rather than
+                                // letting the admin click into a refusal (STANDARDS: No Silent Locks).
+                                $hold        = ($seatHolds ?? collect())[$u->id] ?? null;
+                                $seatBlocked = ! $u->is_active && $hold && $hold->isBlocking();
+                            @endphp
+                            @if($seatBlocked && ($canOverride ?? false))
+                                {{-- System Owner only. Everyone else sees the plain
+                                     disabled button below — the server re-checks the
+                                     real role regardless of what renders here. --}}
+                                <div x-data="{ open: false, reason: '' }" class="inline-block">
+                                    <button type="button" @click="open = true"
+                                            class="px-3 py-1.5 rounded-md text-sm font-medium"
+                                            style="background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);"
+                                            title="Inactive until {{ $hold->reinstatable_at->format('j M Y') }}">
+                                        Override &amp; activate now
+                                    </button>
+
+                                    <div x-show="open" x-cloak
+                                         class="fixed inset-0 z-50 flex items-center justify-center px-4"
+                                         style="background: rgba(0,0,0,0.6);"
+                                         @keydown.escape.window="open = false">
+                                        <div class="w-full max-w-lg rounded-md p-5 text-left"
+                                             style="background: var(--surface); border:1px solid var(--border);"
+                                             @click.outside="open = false">
+                                            <h3 class="text-base font-bold mb-2" style="color: var(--text-primary);">
+                                                Lift the hold on {{ $u->name }}
+                                            </h3>
+                                            <p class="text-sm mb-3" style="color: var(--text-secondary);">
+                                                This hold runs until
+                                                <strong>{{ $hold->reinstatable_at->format('j F Y') }}</strong>.
+                                                Lifting it early is recorded permanently against this agency.
+                                            </p>
+                                            <form method="POST" action="{{ route('admin.users.toggle', $u) }}">
+                                                @csrf
+                                                <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">
+                                                    Reason (required, at least 10 characters)
+                                                </label>
+                                                <textarea name="override_reason" x-model="reason" rows="3" required minlength="10"
+                                                          placeholder="e.g. Deactivated in error — confirmed with the principal."
+                                                          class="w-full rounded-md px-3 py-2 text-sm"
+                                                          style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);"></textarea>
+                                                <div class="flex items-center justify-end gap-2 mt-4">
+                                                    <button type="button" @click="open = false"
+                                                            class="px-3 py-1.5 rounded-md text-xs font-semibold"
+                                                            style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
+                                                        Cancel
+                                                    </button>
+                                                    <button type="submit" class="corex-btn-primary text-xs"
+                                                            :disabled="reason.trim().length < 10">
+                                                        Lift hold &amp; activate
+                                                    </button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                            @elseif($seatBlocked)
+                                <button type="button" disabled
+                                        class="px-3 py-1.5 rounded-md text-sm font-medium cursor-not-allowed"
+                                        style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border); opacity:.75;"
+                                        title="Inactive until {{ $hold->reinstatable_at->format('j M Y') }}">
+                                    Deactivated — locked until {{ $hold->reinstatable_at->format('j M Y') }}
+                                </button>
+                            @elseif($u->is_active)
+                                {{-- Custom CoreX confirm — a native browser confirm() reads as
+                                     a stray Chrome/OS dialog, not part of the product. --}}
+                                <div x-data="{ open: false }" class="inline-block">
+                                    <button type="button" @click="open = true"
+                                            class="px-3 py-1.5 rounded-md text-sm font-medium transition-colors"
+                                            style="background:color-mix(in srgb, var(--ds-crimson) 12%, transparent); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);">
+                                        Deactivate
+                                    </button>
+
+                                    <div x-show="open" x-cloak
+                                         class="fixed inset-0 z-50 flex items-center justify-center px-4"
+                                         style="background: rgba(0,0,0,0.6);"
+                                         @keydown.escape.window="open = false">
+                                        <div class="w-full max-w-md rounded-md p-5 text-left"
+                                             style="background: var(--surface); border:1px solid var(--border);"
+                                             @click.outside="open = false">
+                                            <h3 class="text-base font-bold mb-2" style="color: var(--text-primary);">
+                                                Deactivate {{ $u->name }}?
+                                            </h3>
+                                            <p class="text-sm mb-4" style="color: var(--text-secondary);">
+                                                This stops billing for them immediately, but they cannot be
+                                                reactivated for
+                                                <strong>{{ config('corex-billing.seat_release.lock_days', 30) }} days</strong>
+                                                — only CoreX Dev can lift that early. They keep all their data,
+                                                but cannot sign in or do anything on CoreX while deactivated.
+                                            </p>
+                                            <div class="flex items-center justify-end gap-2">
+                                                <button type="button" @click="open = false"
+                                                        class="px-3 py-1.5 rounded-md text-xs font-semibold"
+                                                        style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
+                                                    Cancel
+                                                </button>
+                                                <form method="POST" action="{{ route('admin.users.toggle', $u) }}">
+                                                    @csrf
+                                                    <button type="submit" class="corex-btn-primary text-xs"
+                                                            style="background: var(--ds-crimson); border-color: var(--ds-crimson);">
+                                                        Deactivate
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            @else
                             <form method="POST" action="{{ route('admin.users.toggle', $u) }}">
                                 @csrf
                                 <button type="submit"
                                         class="px-3 py-1.5 rounded-md text-sm font-medium transition-colors"
-                                        style="{{ $u->is_active
-                                            ? 'background:color-mix(in srgb, var(--ds-crimson) 12%, transparent); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);'
-                                            : 'background:color-mix(in srgb, var(--ds-green) 12%, transparent); color:var(--ds-green); border:1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);' }}">
-                                    {{ $u->is_active ? 'Deactivate' : 'Activate' }}
+                                        style="background:color-mix(in srgb, var(--ds-green) 12%, transparent); color:var(--ds-green); border:1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);">
+                                    Activate
                                 </button>
                             </form>
+                            @endif
                             <button type="button"
                                     data-agent-delete
                                     data-user-id="{{ $u->id }}"

@@ -768,7 +768,10 @@ class CommandCentreService
 
     private function agencyHealthSnapshot(int $agencyId): array
     {
-        $agents = DB::table('users')->where('agency_id', $agencyId)->where('is_active', true)->count();
+        // AT-278 §11 — raw query, no SoftDeletes scope. Correct today only
+        // because delete() happens to set is_active = 0 first; that coupling is
+        // not enforced anywhere, so filter on deleted_at explicitly.
+        $agents = DB::table('users')->where('agency_id', $agencyId)->whereNull('deleted_at')->where('is_active', true)->count();
         $listings = DB::table('properties')->where('agency_id', $agencyId)->where('status', 'available')->count();
         $activeBuyers = DB::table('contacts')->where('agency_id', $agencyId)->where('is_buyer', true)
             ->whereIn('buyer_state', ['new', 'warm'])->count();
