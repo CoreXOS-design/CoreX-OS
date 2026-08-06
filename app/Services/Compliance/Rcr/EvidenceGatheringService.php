@@ -382,7 +382,9 @@ final class EvidenceGatheringService
 
     private function resolveTrainingCompletedPct(Agency $agency, RcrSubmission $submission): array
     {
-        $required = DB::table('users')->where('agency_id', $agency->id)->where('is_active', true)->count();
+        // AT-278 §11 — raw query, no SoftDeletes scope. An archived agent must
+        // never inflate the training-completion denominator.
+        $required = DB::table('users')->where('agency_id', $agency->id)->whereNull('deleted_at')->where('is_active', true)->count();
         if ($required === 0) {
             return ['populated' => true, 'value' => '100%', 'data' => ['required' => 0]];
         }

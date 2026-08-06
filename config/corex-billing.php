@@ -82,4 +82,37 @@ return [
         'mailer' => 'corex',
     ],
 
+    /*
+    |---------------------------------------------------------------------------
+    | Seat release hold — the anti-churn lock (AT-278)
+    |---------------------------------------------------------------------------
+    | Spec: .ai/specs/agent-seat-release-lock.md
+    |
+    | The bill is computed on the LIVE seat count, so a seat freed today stops
+    | being charged today. Honest — but it also means a seat could be freed and
+    | retaken at will, so an agency could archive eight agents on the 28th and
+    | restore them on the 1st.
+    |
+    | Releasing a seat (soft-delete OR deactivate) therefore starts a hold: that
+    | PERSON cannot occupy a seat again for `lock_days`. The agency still stops
+    | paying immediately — we never charge for people who are gone — but a
+    | R450 dodge now costs a month of that agent's production instead.
+    |
+    | PLATFORM CONTROL, NOT AN AGENCY SETTING. This must never reach the Agency
+    | Onboarding Setup Wizard (non-negotiable #10a): an agency that can set its
+    | own anti-abuse window has no anti-abuse window. Recorded as a deliberate
+    | wizard exemption in the spec §10, same as the seat rates above.
+    |
+    | Changing this value does NOT move existing holds — `reinstatable_at` is
+    | stamped at release time, so a policy change never retroactively extends a
+    | hold an agency is already sitting inside (spec D4).
+    |
+    | A CoreX System Owner can lift any hold immediately, with a mandatory
+    | reason, on the record. Nobody inside the agency can — that asymmetry is
+    | the design.
+    */
+    'seat_release' => [
+        'lock_days' => 30,
+    ],
+
 ];

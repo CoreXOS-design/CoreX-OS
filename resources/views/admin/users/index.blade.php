@@ -34,6 +34,13 @@
                     PP Agents
                 </a>
                 @endif
+                {{-- AT-278 — nav entry for Archived Agents (non-negotiable #2, same day). --}}
+                <a href="{{ route('admin.users.archived') }}"
+                   class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-300"
+                   style="background:rgba(255,255,255,0.08); color:#fff; border:1px solid rgba(255,255,255,0.18);"
+                   title="Archived agents — restore an agent and give back their seat">
+                    Archived @if(($archivedCount ?? 0) > 0)({{ number_format($archivedCount) }})@endif
+                </a>
                 <a href="{{ route('admin.users.create') }}" class="corex-btn-primary text-sm inline-flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
@@ -408,6 +415,21 @@
                     <div class="flex items-center justify-between gap-3 pt-1 px-4 pb-4"
                          style="border-top:1px solid var(--border); padding-top:16px;">
                         <div class="flex items-center gap-3">
+                            @php
+                                // AT-278 — an inactive agent inside their seat hold cannot be
+                                // reactivated. Render the reason ON the control rather than
+                                // letting the admin click into a refusal (STANDARDS: No Silent Locks).
+                                $hold        = ($seatHolds ?? collect())[$u->id] ?? null;
+                                $seatBlocked = ! $u->is_active && $hold && $hold->isBlocking();
+                            @endphp
+                            @if($seatBlocked)
+                                <button type="button" disabled
+                                        class="px-3 py-1.5 rounded-md text-sm font-medium cursor-not-allowed"
+                                        style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border); opacity:.75;"
+                                        title="Their seat was released on {{ $hold->released_at->format('j M Y') }} and is held for {{ $hold->released_at->diffInDays($hold->reinstatable_at) }} days, so agents cannot be removed to lower a bill and added back afterwards. Contact CoreX support if this agent was archived in error.">
+                                    Activate — held until {{ $hold->reinstatable_at->format('j M Y') }}
+                                </button>
+                            @else
                             <form method="POST" action="{{ route('admin.users.toggle', $u) }}">
                                 @csrf
                                 <button type="submit"
@@ -418,6 +440,7 @@
                                     {{ $u->is_active ? 'Deactivate' : 'Activate' }}
                                 </button>
                             </form>
+                            @endif
                             <button type="button"
                                     data-agent-delete
                                     data-user-id="{{ $u->id }}"
