@@ -903,30 +903,14 @@ class DocumentChangeHighlighter
             . '</tr></thead><tbody>' . $rows . '</tbody></table></div>';
     }
 
-    /** Wet-ink mark styles — inline so they travel into dompdf + browser identically. */
-    private function styleBlock(): string
+    /**
+     * Wet-ink mark styles — inline so they travel into dompdf + the browser identically. Rendered from the ONE
+     * canonical stylesheet (docuperfect.shared._change-mark-styles) so the signing view / PDF and the Fill &
+     * Review preview (which @includes the same partial) style every change mark IDENTICALLY — a pure strike-out
+     * and a reword can never diverge between the two render paths again (Johan 2026-08-06).
+     */
+    public function styleBlock(): string
     {
-        return '<style>'
-            . '.change-del{text-decoration:line-through;color:#b91c1c;text-decoration-thickness:1.5px;}'
-            . '.change-ins{background:#fef08a;color:#111827;text-decoration:none;padding:0 1px;border-radius:2px;}'
-            . '.change-clause{display:inline;}'
-            . '.change-xref{margin-left:4px;padding:0 5px;background:#dbeafe;color:#1e40af;border-radius:3px;'
-            . 'font-size:0.72rem;font-weight:600;white-space:nowrap;}'
-            . '.change-initialed{margin-left:4px;padding:0 5px;background:#dcfce7;color:#166534;border-radius:3px;'
-            . 'font-size:0.68rem;font-weight:600;white-space:nowrap;}'
-            . '.change-anchor{position:relative;}'
-            // FULL-WIDTH INITIAL ROW (Johan redesign): a fixed-layout table so slots spread evenly across the
-            // full content width — never squashed, never off-page — in dompdf AND the browser.
-            . '.change-initial-row{width:100%;max-width:100%;border-collapse:collapse;table-layout:fixed;'
-            . 'margin:6px 0 16px 0;border:1px solid #cbd5e1;background:#f8fafc;page-break-inside:avoid;}'
-            . '.change-initial-row td.cir-slot{text-align:center;padding:6px 8px;vertical-align:bottom;'
-            . 'border-right:1px solid #e2e8f0;overflow:hidden;}'
-            . '.change-initial-row td.cir-slot:last-child{border-right:0;}'
-            . '.cir-label{display:block;font-size:0.6rem;color:#475569;white-space:nowrap;overflow:hidden;'
-            . 'text-overflow:ellipsis;margin-bottom:6px;}'
-            . '.cir-ink{display:block;min-height:18px;font-weight:700;font-size:0.82rem;color:#166534;'
-            . 'border-bottom:1.5px solid #94a3b8;padding-bottom:1px;}'
-            . '@media print{.change-del,.change-ins,.change-xref,.change-initialed,.change-initial-row,.cir-ink{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}'
-            . '</style>';
+        return trim((string) view('docuperfect.shared._change-mark-styles')->render());
     }
 }

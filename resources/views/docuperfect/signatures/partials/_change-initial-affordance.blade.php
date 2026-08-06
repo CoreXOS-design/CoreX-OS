@@ -8,17 +8,10 @@
     $__viewerPartyKey   = $viewerPartyKey ?? 'agent';
 @endphp
 @if($__initialChangeUrl)
+{{-- Base change-mark appearance comes from the ONE canonical stylesheet (shared with the Fill & Review
+     preview + PDF). This partial layers ONLY the interactive signing states (click-to-initial / filled). --}}
+@include('docuperfect.shared._change-mark-styles')
 <style>
-    .change-initial-row { display:block; margin:.5rem 0 1.1rem; padding:.55rem .8rem; border:1px solid #fcd34d;
-        background:#fffbeb; border-radius:8px; font-size:.82rem; }
-    .change-initial-row .cir-label { font-weight:700; color:#92400e; margin-right:.75rem; text-transform:uppercase;
-        letter-spacing:.03em; font-size:.68rem; }
-    .cir-slot { display:inline-flex; align-items:center; gap:.45rem; margin:.2rem .7rem .2rem 0; padding:.25rem .55rem;
-        border:1px solid #e5e7eb; border-radius:6px; background:#fff; vertical-align:middle; }
-    .cir-slot .cir-name { color:#374151; font-weight:600; }
-    .cir-ink { min-width:56px; min-height:28px; display:inline-flex; align-items:center; justify-content:center;
-        color:#9ca3af; border-bottom:1px solid #d1d5db; font-size:.72rem; }
-    .cir-ink-img { height:28px; max-height:28px; width:auto; object-fit:contain; }
     .cir-slot.cir-filled { border-color:#22c55e; background:#f0fdf4; }
     .cir-slot.cir-filled .cir-name { color:#166534; }
     .cir-slot.cir-mine:not(.cir-filled) .cir-ink { cursor:pointer; color:#0369a1; border:1px dashed #0ea5e9;

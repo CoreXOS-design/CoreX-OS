@@ -197,6 +197,56 @@ final class WetInkPackStrikeTest extends TestCase
         $this->assertSame(1, substr_count($served, 'data-strikethrough-applied="1"'), 'exactly one authored strike (no accidental doubling)');
     }
 
+    public function test_both_strike_modes_share_one_canonical_style_source(): void
+    {
+        // PING-PONG GUARD (Johan 2026-08-06). Pure strike-out kept desyncing from reword because the Fill &
+        // Review preview and the signing view styled change marks through DIFFERENT CSS. Both must now render
+        // from the ONE canonical stylesheet (docuperfect.shared._change-mark-styles), so a pure strike and a
+        // reword render identically in BOTH places and neither can silently break the other.
+
+        // (a) The single source styles BOTH modes' marks — red strikethrough (strike + reword), yellow insert
+        //     (reword), and the yellow "Initial this change" block (both) — plus BOTH row markups.
+        $canonical = view('docuperfect.shared._change-mark-styles')->render();
+        $this->assertStringContainsString('.change-del', $canonical);
+        $this->assertStringContainsString('#b91c1c', $canonical, 'struck text is red (visible for a pure strike, no insert to carry it)');
+        $this->assertStringContainsString('.change-ins', $canonical);
+        $this->assertStringContainsString('#fef08a', $canonical, 'reworded insert is highlighted');
+        $this->assertStringContainsString('.change-initial-row', $canonical);
+        $this->assertStringContainsString('#fffbeb', $canonical, 'per-party initial block is a visible block');
+        $this->assertStringContainsString('td.cir-slot', $canonical, 'the field-diff table row markup is styled too');
+
+        // (b) The signing-view / PDF path serves that EXACT source (DocumentChangeHighlighter::styleBlock).
+        $styleBlock = app(\App\Services\Docuperfect\DocumentChangeHighlighter::class)->styleBlock();
+        $this->assertStringContainsString('#b91c1c', $styleBlock);
+        $this->assertStringContainsString('#fef08a', $styleBlock);
+        $this->assertStringContainsString('#fffbeb', $styleBlock);
+
+        // (c) The Fill & Review preview + the interactive affordance both PULL that one partial — structural
+        //     lock so a future edit can't reintroduce a divergent hand-copied stylesheet on one surface.
+        $wizard = (string) file_get_contents(resource_path('views/docuperfect/esign/wizard.blade.php'));
+        $afford = (string) file_get_contents(resource_path('views/docuperfect/signatures/partials/_change-initial-affordance.blade.php'));
+        $this->assertStringContainsString("@include('docuperfect.shared._change-mark-styles')", $wizard, 'Fill & Review preview uses the shared stylesheet');
+        $this->assertStringContainsString("@include('docuperfect.shared._change-mark-styles')", $afford, 'signing affordance uses the shared stylesheet');
+
+        // (d) The universal engine renders each mode's markup: pure strike = struck <del> + per-party initial
+        //     row, NO insert; reword = struck <del> + <ins> + row. Same engine, empty replacement handled.
+        $svc = app(SelectionEditService::class);
+        $parties = [['key' => 'agent', 'name' => 'A'], ['key' => 'seller', 'name' => 'S']];
+        $body = '<div class="corex-document-wrapper"><p class="corex-clause">The notice must state the following facts here.</p></div>';
+
+        $pure = $svc->applyStrikeToHtml($body, 'The notice must state the following', '', '', '', 'strike', $parties);
+        $this->assertNotNull($pure);
+        $this->assertStringContainsString('change-del', $pure['html']);
+        $this->assertStringContainsString('change-initial-row', $pure['html']);
+        $this->assertStringNotContainsString('change-ins', $pure['html'], 'a pure strike has no inserted text');
+
+        $reword = $svc->applyStrikeToHtml($body, 'The notice must state the following', '', '', 'Reworded text', 'inline', $parties);
+        $this->assertNotNull($reword);
+        $this->assertStringContainsString('change-del', $reword['html']);
+        $this->assertStringContainsString('change-ins', $reword['html']);
+        $this->assertStringContainsString('change-initial-row', $reword['html']);
+    }
+
     public function test_advancing_fill_review_to_sign_and_send_preserves_body_strikes(): void
     {
         // FLOW-THROUGH REGRESSION (Johan 2026-08-06). The Fill & Review body strike is authored server-side
