@@ -35,4 +35,19 @@ final class LegalController extends Controller
             'lastUpdated'  => 'June 2026',
         ]);
     }
+
+    /**
+     * Public support page.
+     *
+     * Referenced as the Support URL in App Store Connect, so it must stay
+     * reachable with no authentication — App Review fetches it logged out and
+     * rejects under guideline 1.5 if it errors.
+     */
+    public function support()
+    {
+        return view('public.legal.support', [
+            'contactEmail' => self::CONTACT_EMAIL,
+            'lastUpdated'  => 'August 2026',
+        ]);
+    }
 }

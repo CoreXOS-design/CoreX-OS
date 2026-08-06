@@ -155,6 +155,13 @@ Route::get('/data-deletion', [\App\Http\Controllers\Public\LegalController::clas
     ->middleware('throttle:60,1')
     ->name('public.data-deletion');
 
+// Support URL declared in App Store Connect. Public and unauthenticated —
+// Apple App Review fetches it logged out, and a 404 here is a guideline 1.5
+// rejection.
+Route::get('/support', [\App\Http\Controllers\Public\LegalController::class, 'support'])
+    ->middleware('throttle:60,1')
+    ->name('public.support');
+
 Route::post('/m/{shortcode}/callback', [\App\Http\Controllers\SellerOutreach\PublicLandingController::class, 'callback'])
     ->where('shortcode', '[A-Za-z0-9]{6}')
     ->middleware('throttle:10,60')
