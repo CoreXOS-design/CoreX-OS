@@ -1213,6 +1213,17 @@ Route::middleware(['auth'])->group(function () {
 
     Route::get('/admin/performance', [\App\Http\Controllers\Admin\PerformanceController::class, 'index'])->middleware('permission:view_performance')->name('admin.performance');
     Route::get('/admin/branch/{branchId}/performance', [\App\Http\Controllers\Admin\BranchPerformanceController::class, 'index'])->middleware('permission:view_performance')->name('admin.branch.performance');
+
+    // AT-366 — Agency Performance & ROI report (per-agent → branch → company, any period).
+    Route::get('/corex/performance/agency-report', [\App\Http\Controllers\Performance\AgencyPerformanceReportController::class, 'index'])
+        ->middleware('permission:view_performance')->name('performance.agency-report');
+    // AT-366-D — branch drill-down (branch rollup + prior-period trend + its agents).
+    Route::get('/corex/performance/agency-report/branch/{branch}', [\App\Http\Controllers\Performance\AgencyPerformanceReportController::class, 'branch'])
+        ->where('branch', '[0-9]+|unassigned')
+        ->middleware('permission:view_performance')->name('performance.agency-report.branch');
+    // AT-366-C — single-agent journey drill-down (metrics + prior-period trend).
+    Route::get('/corex/performance/agency-report/agent/{user}', [\App\Http\Controllers\Performance\AgencyPerformanceReportController::class, 'agent'])
+        ->middleware('permission:view_performance')->name('performance.agency-report.agent');
           Route::get('/bm/worksheet-market', [\App\Http\Controllers\BM\WorksheetMarketController::class, 'index'])
           ->middleware('permission:access_worksheet_market')->name('bm.worksheet.market');
       Route::post('/bm/worksheet-market', [\App\Http\Controllers\BM\WorksheetMarketController::class, 'save'])
