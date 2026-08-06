@@ -3967,6 +3967,56 @@ CSS;
     }
 
     /**
+     * POST /sign/{token}/edit-selection — AT-373 increment 2: a RECIPIENT amends the document AT THEIR TURN,
+     * using the SAME wet-ink selection tool the agent uses. The recipient highlights a word/phrase/clause and
+     * strikes / rewords it (or routes a big change to Other Conditions via 'reference' mode); the strike is
+     * authored inline with the full-width per-party initial row so the recipient can then initial their own
+     * change with the standard sign/initial modal. Their identity is the token's signer (`canonicalPartyKey`),
+     * so authorship + slot ownership are the recipient's — never a bare role, never the agent.
+     *
+     * Guarded by signerCanAct() — the recipient may only amend on THEIR active turn (mirrors the internal
+     * SignatureController::editSelection re-edit gate, but keyed to the recipient's own turn rather than the
+     * template being returned-to-candidate). cc2 owns the completion routing that carries the raised amendment
+     * into the sequential chain-review cascade; this endpoint only AUTHORS the amendment on the recipient side.
+     */
+    public function editSelection(Request $request, string $token): \Illuminate\Http\JsonResponse
+    {
+        $signingRequest = SignatureRequest::where('token', $token)
+            ->with('template.document')
+            ->firstOrFail();
+
+        if (! $this->signerCanAct($signingRequest)) {
+            return response()->json(['ok' => false, 'error' => 'It is not your turn to sign yet.'], 403);
+        }
+
+        $validated = $request->validate([
+            'selected'    => ['required', 'string', 'max:8000'],
+            // replacement is required for inline/reference; a pure strike-out ('strike') has none.
+            'replacement' => ['nullable', 'string', 'max:8000', 'required_unless:mode,strike'],
+            'prefix'      => ['nullable', 'string', 'max:200'],
+            'suffix'      => ['nullable', 'string', 'max:200'],
+            'mode'        => ['nullable', 'in:inline,reference,strike'],
+        ]);
+
+        $template = $signingRequest->template;
+        // A recipient amends as THEMSELVES — they hold no CoreX user account, so the author actor is null and
+        // SelectionEditService resolves the agency from the template (never a null agency_id). Authorship +
+        // slot ownership are carried by the per-party initial row, which is keyed to every party including
+        // this recipient's canonicalPartyKey; the recipient then initials THEIR OWN slot at their turn.
+        $result = app(\App\Services\Docuperfect\SelectionEditService::class)->strikeSelection(
+            $template,
+            $validated['selected'],
+            $validated['prefix'] ?? '',
+            $validated['suffix'] ?? '',
+            $validated['replacement'] ?? '',
+            null,
+            $validated['mode'] ?? 'inline',
+        );
+
+        return response()->json($result, empty($result['ok']) ? 422 : 200);
+    }
+
+    /**
      * POST /docuperfect/api/sign/{token}/conditions
      * Recipient adds a condition to one of the document's insertable blocks.
      */
