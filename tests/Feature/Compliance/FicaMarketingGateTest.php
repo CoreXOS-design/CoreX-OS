@@ -19,44 +19,30 @@ use Tests\TestCase;
  * 2026-08-05): MarketingReadinessService::checkSellersFicaSubmissions() counted a
  * soft-deleted 'approved' fica_submissions row as valid evidence — a raw
  * DB::table() query never benefits from Eloquent's automatic SoftDeletes scope.
- * The stale row traced to a single bulk go-live Excel-import auto-approval batch
- * (7,714 contacts, 2026-06-17) that was later soft-deleted en masse.
+ * The stale row traced to a bulk go-live Excel-import auto-approval batch (7,714
+ * contacts, 2026-06-17) that was later soft-deleted en masse.
  *
- * Policy (Johan): an imported contact must NEVER be treated as FICA-compliant —
- * not via a leftover soft-deleted row, and not even if such a row were somehow
- * not deleted. Only a genuine, current 'approved' fica_submissions row (not
- * carrying the bulk-import marker) satisfies the gate.
+ * Universal rule (Johan): the gate is contact-agnostic — ANY contact, imported or
+ * not, needs a genuine, current, non-deleted 'approved' fica_submissions row. No
+ * special-casing by source/origin at the gate. The import path instead simply no
+ * longer auto-creates an 'approved' row in the first place (see
+ * test_contact_import_no_longer_creates_an_approved_fica_submission below).
  */
 final class FicaMarketingGateTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_stale_deleted_bulk_import_approval_does_not_satisfy_fica(): void
+    public function test_soft_deleted_approval_does_not_satisfy_fica(): void
     {
         [$agencyId, $agent] = $this->fixture();
         $seller = $this->seller($agencyId, $agent->id);
         $property = $this->property($agencyId, $agent->id, $seller->id);
 
-        // The exact incident shape: bulk-import 'approved' row, later soft-deleted.
-        $this->bulkImportApproval($seller->id, $agencyId, $agent->id)->delete();
+        $this->approval($seller->id, $agencyId, $agent->id)->delete();
 
         $checklist = app(MarketingReadinessService::class)->statusFor($property)->checklist;
 
-        $this->assertFalse($checklist['fica']['passed'], 'a soft-deleted bulk-import approval must NOT satisfy FICA');
-    }
-
-    public function test_bulk_import_marker_does_not_satisfy_fica_even_when_not_deleted(): void
-    {
-        [$agencyId, $agent] = $this->fixture();
-        $seller = $this->seller($agencyId, $agent->id);
-        $property = $this->property($agencyId, $agent->id, $seller->id);
-
-        // Defense-in-depth: NOT soft-deleted, but still the bulk-import batch.
-        $this->bulkImportApproval($seller->id, $agencyId, $agent->id);
-
-        $checklist = app(MarketingReadinessService::class)->statusFor($property)->checklist;
-
-        $this->assertFalse($checklist['fica']['passed'], 'the bulk-import marker alone must never satisfy FICA, deleted or not');
+        $this->assertFalse($checklist['fica']['passed'], 'a soft-deleted approval must NOT satisfy FICA — same rule for every contact');
     }
 
     public function test_genuine_current_approval_satisfies_fica(): void
@@ -65,16 +51,11 @@ final class FicaMarketingGateTest extends TestCase
         $seller = $this->seller($agencyId, $agent->id);
         $property = $this->property($agencyId, $agent->id, $seller->id);
 
-        FicaSubmission::create([
-            'contact_id' => $seller->id, 'agency_id' => $agencyId, 'requested_by' => $agent->id,
-            'entity_type' => 'natural', 'status' => 'approved',
-            'verification_method' => ['source' => 'co_review'],
-            'verified_by' => $agent->id, 'verified_at' => now(),
-        ]);
+        $this->approval($seller->id, $agencyId, $agent->id);
 
         $checklist = app(MarketingReadinessService::class)->statusFor($property)->checklist;
 
-        $this->assertTrue($checklist['fica']['passed'], 'a genuine, current approval must still satisfy FICA');
+        $this->assertTrue($checklist['fica']['passed'], 'a genuine, current, non-deleted approval must satisfy FICA');
     }
 
     public function test_freshly_imported_contact_with_no_fica_submission_is_not_done(): void
@@ -115,14 +96,13 @@ final class FicaMarketingGateTest extends TestCase
 
     // ── Harness ───────────────────────────────────────────────────────────
 
-    private function bulkImportApproval(int $contactId, int $agencyId, int $agentId): FicaSubmission
+    private function approval(int $contactId, int $agencyId, int $agentId): FicaSubmission
     {
         return FicaSubmission::create([
             'contact_id' => $contactId, 'agency_id' => $agencyId, 'requested_by' => $agentId,
             'entity_type' => 'natural', 'status' => 'approved',
-            'verification_method' => ['source' => FicaSubmission::BULK_IMPORT_SOURCE],
+            'verification_method' => ['source' => 'co_review'],
             'verified_by' => $agentId, 'verified_at' => now(),
-            'reviewer_notes' => 'Auto-approved via contact Excel import (agency go-live migration).',
         ]);
     }
 
