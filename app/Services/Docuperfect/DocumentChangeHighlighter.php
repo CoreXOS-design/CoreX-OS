@@ -182,8 +182,11 @@ class DocumentChangeHighlighter
             }
             unset($c);
             // Decision #2 — append the Schedule of Amendments so the change record persists on the final
-            // document alongside the inline marks.
-            return $this->styleBlock() . $out . $this->appendixHtml($changes);
+            // document alongside the inline marks. IDEMPOTENT (AT-373 P1): if the body already carries a
+            // Schedule (e.g. a baked canonical that was highlighted before, then re-highlighted on the
+            // agent-review serve), do NOT append a second — that rendered the Schedule table TWICE.
+            $appendix = str_contains($out, 'change-history-page') ? '' : $this->appendixHtml($changes);
+            return $this->styleBlock() . $out . $appendix;
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('DocumentChangeHighlighter failed (non-fatal, marks skipped)', [
                 'error' => $e->getMessage(),

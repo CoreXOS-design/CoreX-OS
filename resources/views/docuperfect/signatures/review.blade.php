@@ -245,6 +245,10 @@
                         </template>
                     </div>
 
+                    {{-- AT-373 — the inline per-amendment Accept/Reject is HIDDEN during amendment approval:
+                         the ONE approve path is the consolidated "Approve Amendment" action at the bottom
+                         (agent initials each change, then a single approve). Kept for the legacy flag flow. --}}
+                    @unless(!empty($isAmendmentApproval))
                     <div x-show="amendment.status === 'pending'" class="mt-3 flex items-center gap-2">
                         <button @click="agentAction(amendment.id, 'accept')"
                                 class="px-3 py-1 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700">
@@ -255,6 +259,7 @@
                             Reject
                         </button>
                     </div>
+                    @endunless
                 </div>
             </template>
         </div>
@@ -474,6 +479,10 @@
     @endif
 
     @include('docuperfect.signatures.partials._change-initial-affordance')
+    @if(!empty($isAmendmentApproval))
+        {{-- AT-373 — self-contained capture modal so the agent can place their initial on each change. --}}
+        @include('docuperfect.signatures.partials._agent-change-initial-modal')
+    @endif
 
     {{-- ACTION BUTTONS --}}
     <div class="rounded-sm border border-slate-200 bg-white p-5" x-data="{ showReturnModal: false, showRejectModal: false, showRejectAmendmentModal: false }">
@@ -486,21 +495,34 @@
             @endphp
 
             @if(!empty($isAmendmentApproval))
-                {{-- AT-373 — a recipient's amendment returned for approval. The agent initials the
-                     change above (the change-initial affordance), then Approve Amendment: it advances
-                     the chain / kicks off the prior-recipient re-initial cascade. Reject reverts it. --}}
-                <form method="POST" action="{{ route('docuperfect.signatures.amendment.approve', $document) }}">
-                    @csrf
-                    <button type="submit"
-                            class="px-6 py-2.5 text-sm font-semibold rounded-lg text-white transition-colors bg-emerald-600 hover:bg-emerald-700 shadow"
-                            onclick="return confirm('Approve this amendment? Make sure you have initialled the change above first — the earlier signers will then be asked to initial it.')">
-                        Approve Amendment
-                    </button>
-                </form>
-                <button @click="showRejectAmendmentModal = true"
-                        class="px-5 py-2.5 text-sm font-medium text-red-700 border border-red-300 rounded-lg hover:bg-red-50 transition-colors">
-                    Reject Amendment
-                </button>
+                {{-- AT-373 — a recipient's amendment returned for approval. ONE deterministic flow: the
+                     agent initials EACH change in the document above (click the "Initial this change"
+                     slot → the capture modal), then the SINGLE Approve action below advances the chain /
+                     kicks off the prior-recipient re-initial cascade. No competing approve controls. --}}
+                @php
+                    $amendNextName = ($nextPartyDisplayName ?? null) ?: ($nextPartyName ?: $nextPartyLabel);
+                    $amendNextLabel = $nextParty
+                        ? 'Approve &amp; Send to ' . e($amendNextName)
+                        : 'Approve &amp; Finalise';
+                @endphp
+                <div class="w-full">
+                    <div id="approveAmendmentNote" class="text-xs mb-2" style="color: var(--text-muted);">Initial each change above to approve.</div>
+                    <div class="flex flex-wrap items-center gap-3">
+                        <form method="POST" action="{{ route('docuperfect.signatures.amendment.approve', $document) }}">
+                            @csrf
+                            <button type="submit" id="approveAmendmentBtn" disabled
+                                    class="px-6 py-2.5 text-sm font-semibold rounded-lg text-white transition-colors bg-emerald-600 hover:bg-emerald-700 shadow"
+                                    style="opacity:0.5; cursor:not-allowed;"
+                                    onclick="return confirm('{{ $nextParty ? 'Approve the amendment and send to ' . $amendNextName . '?' : 'Approve and finalise the document?' }}')">
+                                {!! $amendNextLabel !!} &rarr;
+                            </button>
+                        </form>
+                        <button type="button" @click="showRejectAmendmentModal = true"
+                                class="px-5 py-2.5 text-sm font-medium text-red-700 border border-red-300 rounded-lg hover:bg-red-50 transition-colors">
+                            Reject Amendment
+                        </button>
+                    </div>
+                </div>
             @elseif(!empty($isCandidateFlow) && in_array($template->status, [\App\Models\Docuperfect\SignatureTemplate::STATUS_AWAITING_SUPERVISOR, \App\Models\Docuperfect\SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL]))
                 {{-- Candidate flow: supervisor must SIGN, not just approve --}}
                 <a href="{{ route('docuperfect.signatures.authoriseSigning', $document) }}"

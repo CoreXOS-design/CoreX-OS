@@ -2432,6 +2432,26 @@ class SignatureController extends Controller
             $nextParty = null;
         }
 
+        // AT-373 — for amendment approval, the "next" party is the next RECIPIENT still to sign: after
+        // the agent approves the amendment it returns to them (and the earlier signers re-initial). Derive
+        // it from the real request state (not the signing-parties order, which can under-specify co-signers),
+        // so the approve label says "send to the next recipient", never "finalise" — unless the agent truly
+        // is the last action (no recipient still pending). $nextPartyName is set for a clean label.
+        $nextPartyDisplayName = null;
+        if ($isAmendmentApproval) {
+            $svc = app(\App\Services\Docuperfect\SignatureService::class);
+            $notYet = [
+                SignatureRequest::STATUS_WAITING, SignatureRequest::STATUS_PENDING,
+                SignatureRequest::STATUS_VIEWED, 'partially_signed',
+            ];
+            $nextReq = $template->requests
+                ->filter(fn ($r) => $svc->isRecipientRole($r->party_role) && in_array($r->status, $notYet, true))
+                ->sortBy('signing_order')
+                ->first();
+            $nextParty = $nextReq?->canonicalPartyKey();
+            $nextPartyDisplayName = $nextReq?->signer_name;
+        }
+
         // Get progress for the completed party
         $progress = $template->partyProgress();
 
@@ -2543,6 +2563,7 @@ class SignatureController extends Controller
             'hasFlattened' => $hasFlattened,
             'user' => $user,
             'isAmendmentApproval' => $isAmendmentApproval,   // AT-373 — recipient amendment awaiting agent approval
+            'nextPartyDisplayName' => $nextPartyDisplayName,  // AT-373 — the next recipient's name for the approve label
             'isCandidateFlow' => $isCandidateFlow,
             'candidateName' => $candidateName,
             'isWebTemplate' => $isWebTemplate,

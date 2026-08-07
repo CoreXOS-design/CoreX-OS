@@ -5595,6 +5595,19 @@ class SignatureService
                 ];
             });
 
+            // Attribution: prefer the direct amended_by_request link; a recipient-added Other Condition
+            // (Issue C / P2) leaves that null — the author is on the backing DocumentCondition
+            // (added_by_party_id → the signing request), so resolve it there rather than show "Unknown".
+            $author = $amendment->amendedByRequest;
+            if (! $author) {
+                $condition = \App\Models\Docuperfect\DocumentCondition::where('amendment_id', $amendment->id)
+                    ->whereNotNull('added_by_party_id')
+                    ->latest('id')->first();
+                if ($condition && $condition->added_by_party_id) {
+                    $author = \App\Models\Docuperfect\SignatureRequest::find($condition->added_by_party_id);
+                }
+            }
+
             return [
                 'id' => $amendment->id,
                 'type' => $amendment->amendment_type,
@@ -5602,8 +5615,8 @@ class SignatureService
                 'original_text' => $amendment->original_text,
                 'new_text' => $amendment->new_text,
                 'status' => $amendment->status,
-                'amended_by' => $amendment->amendedByRequest->signer_name ?? 'Unknown',
-                'amended_by_role' => $amendment->amendedByRequest->party_role ?? '',
+                'amended_by' => $author->signer_name ?? 'Unknown',
+                'amended_by_role' => $author->party_role ?? '',
                 'version_before' => $amendment->document_version_before,
                 'version_after' => $amendment->document_version_after,
                 'created_at' => $amendment->created_at?->format('Y-m-d H:i'),
