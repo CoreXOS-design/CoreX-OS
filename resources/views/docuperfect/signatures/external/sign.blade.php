@@ -1931,6 +1931,7 @@ function externalSign() {
                         this._makeWebElementsInteractive();
                         this._makeCeremonyFieldsEditable();
                         this._processAllDisclosures();
+                        this._stripLiveSchedule();
                         // The document body (and its change-marks) is now painted — tell the amendments panel
                         // to (re)build its list. A discrete signal, NOT a MutationObserver.
                         document.dispatchEvent(new CustomEvent('corex-doc-ready'));
@@ -2704,6 +2705,7 @@ function externalSign() {
                                 this._makeWebElementsInteractive();
                                 this._makeCeremonyFieldsEditable();
                                 this._processAllDisclosures();
+                                this._stripLiveSchedule();
                                 // Doc body painted after the method choice — (re)build the amendments panel list.
                                 document.dispatchEvent(new CustomEvent('corex-doc-ready'));
                                 setTimeout(() => this.updateIncompleteCount(), 300);
@@ -3038,6 +3040,18 @@ function externalSign() {
 
         formatDate(d) {
             return d.getFullYear() + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + String(d.getDate()).padStart(2, '0');
+        },
+
+        // Remove the appended "Schedule of Amendments" appendix from the LIVE signing view ONLY — the
+        // right-hand Amendments panel supersedes it on screen, so showing both is redundant (Johan
+        // 2026-08-07). This is a DISPLAY-only strip of the on-screen document: the stored canonical, the
+        // baked/final document, and the audit PDF are generated server-side and KEEP the Schedule (a legal
+        // artifact) — this client-side DOM removal never touches what gets baked or filed.
+        _stripLiveSchedule() {
+            try {
+                const root = this.$refs.webDocContent || document;
+                root.querySelectorAll('.change-history-page').forEach((el) => el.remove());
+            } catch (e) { /* display-only; never break the signing surface */ }
         },
 
         // Paint a captured change-initial into its slot exactly as the server would render a filled slot —
