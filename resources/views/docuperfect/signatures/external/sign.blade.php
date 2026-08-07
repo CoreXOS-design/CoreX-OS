@@ -576,6 +576,13 @@
                                 return { text, prefix, suffix, rect: range.getBoundingClientRect(), range: range.cloneRange() };
                             },
                             onSelect() {
+                                // While the amend modal is OPEN, the selection has already been captured into
+                                // _cap. Opening the modal (clicking the ✎ button / sticky bar) fires the button's
+                                // own document 'mouseup', and clicking collapses the text selection — so this
+                                // delayed onSelect would otherwise capture nothing and NULL _cap, leaving submit()
+                                // with range:null so the created amendment never paints live (Johan 2026-08-07,
+                                // ISSUE B). Preserve the captured selection until the modal closes.
+                                if (this.open) return;
                                 const cap = this.capture();
                                 const btn = this.$refs.floatBtn;
                                 if (!cap) { this._cap = null; if (btn) btn.style.display = 'none'; return; }
@@ -589,7 +596,12 @@
                             },
                             openFromSelection() {
                                 const cap = this._cap || this.capture();
-                                if (cap) { this.selected = cap.text; this.prefix = cap.prefix; this.suffix = cap.suffix; }
+                                // PERSIST the capture (incl. its live Range) onto _cap. Without this, a capture
+                                // taken fresh here (when _cap was null/stale — e.g. opening from the sticky-bar
+                                // button rather than the float ✎) is discarded, so submit() sends range:null and
+                                // the created amendment NEVER paints in place → it only appears after a manual
+                                // reload even though the server applied it (Johan 2026-08-07, ISSUE B).
+                                if (cap) { this._cap = cap; this.selected = cap.text; this.prefix = cap.prefix; this.suffix = cap.suffix; }
                                 this.replacement = ''; this.mode = 'inline'; this.err = ''; this.open = true;
                                 const btn = this.$refs.floatBtn; if (btn) btn.style.display = 'none';
                             },
@@ -644,9 +656,12 @@
                     .sel-sticky-bar .sel-amend-label { font-size: .62rem; text-transform: uppercase; letter-spacing: .05em; color: #94a3b8; flex-shrink: 0; }
                     .sel-sticky-bar .sel-amend-text { font-size: .72rem; font-weight: 500; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 340px; }
                     .sel-sticky-bar .sel-amend-btn { flex-shrink: 0; margin-left: auto; padding: .4rem 1rem; font-size: .72rem; font-weight: 600; border-radius: 8px; color: #fff; }
-                    /* FIX 1 — wide screens: right-gutter vertical panel (the centred A4 doc leaves a wide empty
-                       gutter on the right at >=1600px). Below that, keep the safe bottom bar (no doc overlap). */
-                    @media (min-width: 1600px) {
+                    /* FIX 1 — wide screens: right-gutter vertical panel (the A4 doc's right edge sits at ~1150px,
+                       so a 240px bar docked at right:28 clears it once the viewport is wider than ~1417px). The
+                       breakpoint is 1440px, NOT 1600px: a 1920px monitor at 125% Windows scaling reports only
+                       1536 CSS px, and a non-maximised window is narrower still — at 1600px the bar never docked
+                       on a normal wide desktop (Johan 2026-08-07, ISSUE A). Below 1440px keep the safe bottom bar. */
+                    @media (min-width: 1440px) {
                         .sel-sticky-bar { left: auto; right: 28px; bottom: auto; top: 104px; transform: none;
                             width: 240px; flex-direction: column; align-items: stretch; gap: .55rem; padding: .85rem .95rem; }
                         .sel-sticky-bar .sel-amend-info { flex-direction: column; align-items: flex-start; gap: .2rem; }
