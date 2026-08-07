@@ -680,8 +680,12 @@
          document, not a floating overlay). The panel is position:sticky WITHIN this column. --}}
     @if($isAmendmentApproval ?? false)
     </div>{{-- /review-main --}}
-    {{-- 260px column matching cc6's recipient panel (022c377a .recipient-amend-col: flex 0 0 260px). --}}
-    <aside class="review-aside" style="width:260px; flex:0 0 260px;">
+    {{-- 260px column matching cc6's recipient panel (022c377a .recipient-amend-col: flex 0 0 260px + align-self:stretch).
+         align-self:stretch is LOAD-BEARING: the row is align-items:flex-start (so the document column is not forced to
+         the panel's short height), so the panel column would otherwise collapse to its own content height — a sticky
+         element inside a box no taller than itself has ZERO scroll travel and rides away with the page (BUG B). Stretch
+         makes this column span the full document height, giving position:sticky its range so the panel stays put. --}}
+    <aside class="review-aside" style="width:260px; flex:0 0 260px; align-self:stretch;">
         @include('docuperfect.signatures.partials._agent-amendments-panel')
     </aside>
     </div>{{-- /review-columns --}}
@@ -695,8 +699,12 @@
     /* Real column layout matching cc6's recipient side (022c377a): a 260px column, the panel sticky
        WITHIN it (top:16px, max-height calc(100vh - 32px)), never floating over the document. The panel's
        INNER list scrolls independently (header + footer stay put) so it scrolls apart from the left nav. */
+    /* The column stretches to the document's height (cc6 .recipient-amend-col align-self:stretch) — WITHOUT this the
+       sticky panel has no travel and scrolls off with the page. */
+    .review-aside { align-self: stretch; }
     #agentAmendPanel { position: sticky; top: 16px; width: 100%; max-height: calc(100vh - 32px); overflow: hidden; }
     @media (max-width: 1279px) {
+        .review-aside { align-self: auto !important; }
         .review-columns { flex-direction: column !important; }
         .review-aside { width: 100% !important; flex-basis: auto !important; }
         #agentAmendPanel { position: static !important; max-height: none !important; }

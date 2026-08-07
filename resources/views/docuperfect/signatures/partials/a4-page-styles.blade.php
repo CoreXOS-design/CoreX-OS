@@ -378,6 +378,27 @@ function _paginateWrapper(wrapper, docIdx, parties) {
     var innerPage = wrapper.querySelector(':scope > .corex-page');
     if (innerPage) contentEl = innerPage;
 
+    // AT-373 — keep each change's INITIAL ROW glued to the change it belongs to. The wet-ink
+    // "Initial this change" row (.change-initial-row) is stored as the change block's NEXT SIBLING,
+    // so the height-packer below treats it as its OWN top-level child — and a page boundary falling
+    // between the change and its row strands the yellow row in the inter-page gap, detached from the
+    // change (BUG A). Wrap [change block + its .change-initial-row] in ONE keep-together unit BEFORE
+    // packing, so the pair always lands on the same page. Runs pre-detach on the live DOM; harmless
+    // when no changes exist. Only DIRECT children can be split by the packer (nested rows already ride
+    // inside their parent block), so scoping to contentEl's direct .change-initial-row children is exact.
+    Array.prototype.slice.call(contentEl.children).forEach(function (row) {
+        if (!row.classList || !row.classList.contains('change-initial-row')) return;
+        var prev = row.previousElementSibling;
+        if (!prev || (prev.classList && prev.classList.contains('change-initial-row'))) return;
+        if (prev.classList && prev.classList.contains('cir-keep')) { prev.appendChild(row); return; }
+        var keep = doc.createElement('div');
+        keep.className = 'cir-keep';
+        keep.style.cssText = 'break-inside:avoid;';
+        contentEl.insertBefore(keep, prev);
+        keep.appendChild(prev);
+        keep.appendChild(row);
+    });
+
     var children = Array.from(contentEl.children).filter(function (el) {
         return !(el.tagName === 'STYLE' || el.tagName === 'LINK');
     });
