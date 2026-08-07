@@ -103,8 +103,8 @@
                 // IMPORTANT: scope the read to THIS New-Contact form ($root), NOT the
                 // whole document — the contact list renders each row's edit form with
                 // its own identifier inputs, so a document-wide query scraped another
-                // contact's email/phone (esp. when the New-Contact email was empty),
-                // producing a phantom "duplicate" against an unrelated record.
+                // contact email/phone (esp. when the New-Contact email was empty),
+                // producing a phantom match against an unrelated record.
                 const firstVal = (group) => [...this.$root.querySelectorAll(`[data-identifier-group='${group}'] [data-identifier-value]`)]
                     .map(el => el.value.trim()).find(v => v) || '';
                 const phone = firstVal('phones');
