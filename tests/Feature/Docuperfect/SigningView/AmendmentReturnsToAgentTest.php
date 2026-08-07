@@ -11,10 +11,12 @@ use App\Models\Docuperfect\DocumentCondition;
 use App\Models\Docuperfect\SignatureRequest;
 use App\Models\Docuperfect\SignatureTemplate;
 use App\Models\Docuperfect\Template as DocuperfectTemplate;
+use App\Http\Controllers\Docuperfect\ESignWizardController;
 use App\Models\User;
 use App\Services\Docuperfect\SelectionEditService;
 use App\Services\Docuperfect\SignatureService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
@@ -165,6 +167,20 @@ final class AmendmentReturnsToAgentTest extends TestCase
         $this->assertSame(DocumentAmendment::STATUS_ACCEPTED,
             DocumentAmendment::where('signature_template_id', $tpl->id)->value('status'),
             'the added condition is approved by the chain');
+
+        // ── DASHBOARD VISIBILITY (re-circulation surfacing) — while the doc is OUT WITH THE PRIOR recipient
+        //    for re-initialing (amendment_initialing), it MUST still appear on the agent's My E-Sign Documents
+        //    as an OUTSTANDING flow. Before the fix this state was in NO bucket, so the doc VANISHED and the
+        //    agent lost visibility of an in-progress document. It belongs in Awaiting Signatures. ──
+        $dashReq = Request::create('/docuperfect/esign/my-documents', 'GET');
+        $dashReq->setUserResolver(fn () => $agent);
+        $dashData = app(ESignWizardController::class)->myDocuments($dashReq)->getData();
+        $this->assertTrue(
+            $dashData['groups']['awaiting']->contains(fn ($t) => (int) $t->id === (int) $tpl->id),
+            'a doc out with a prior recipient for re-initialing must show as Awaiting Signatures, not vanish'
+        );
+        $this->assertGreaterThanOrEqual(1, $dashData['counts']['awaiting_signatures'],
+            'the Awaiting Signatures tile counts the re-circulating doc');
 
         // ── The prior recipient re-initials the change AND the condition, then completes. ──
         $svc->recordChangeInitial($tpl->fresh(), $cid, 'Anine Van der Westhuizen', 'seller', self::PNG);

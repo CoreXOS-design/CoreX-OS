@@ -5457,6 +5457,17 @@ class ESignWizardController extends Controller
             SignatureTemplate::STATUS_AWAITING_SUPERVISOR,
             SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL,
             SignatureTemplate::STATUS_AWAITING_DEFERRED,
+            // AT-373 (re-circulation surfacing) — after the agent APPROVES a recipient's amendment the
+            // document is sent BACK to a prior recipient to re-initial the change (amendment_initialing), or
+            // — if a chain node rejected the amendment — to the editor to re-accept (editor_reacceptance).
+            // Both are genuinely OUT WITH A PARTY (a recipient holds the pen), yet neither was in ANY bucket
+            // — same orphaned-state defect class as the AT-299 flagged-doc and BUG-2 returned-doc gaps above
+            // — so the doc VANISHED from My E-Sign Documents the moment it re-circulated, and the agent lost
+            // all visibility of an outstanding flow. Surface them as Awaiting Signatures (in-progress): the
+            // per-party progress render already shows the re-activated recipient holding it. They leave
+            // "outstanding" only on genuine completion (STATUS_COMPLETED) or cancellation.
+            SignatureTemplate::STATUS_AMENDMENT_INITIALING,
+            SignatureTemplate::STATUS_EDITOR_REACCEPTANCE,
         ];
 
         // Group templates by status category

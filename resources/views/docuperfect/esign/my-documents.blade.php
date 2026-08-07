@@ -430,6 +430,14 @@
                             @if($doc && $doc->template)
                                 <div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $doc->template->name }}</div>
                             @endif
+                            {{-- AT-373 — a doc that re-circulated after an approved amendment reads as a normal
+                                 "awaiting" row; this badge tells the agent it is a post-amendment re-initial /
+                                 re-acceptance round, not a first-time signing, so the state is legible. --}}
+                            @if($tpl->status === \App\Models\Docuperfect\SignatureTemplate::STATUS_AMENDMENT_INITIALING)
+                                <span class="ds-badge ds-badge-warning mt-1 inline-block">Re-initialing amendment</span>
+                            @elseif($tpl->status === \App\Models\Docuperfect\SignatureTemplate::STATUS_EDITOR_REACCEPTANCE)
+                                <span class="ds-badge ds-badge-warning mt-1 inline-block">Awaiting re-acceptance</span>
+                            @endif
                         </td>
                         <td class="px-4 py-3">
                             @if($totalReq > 0)
