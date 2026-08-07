@@ -103,8 +103,12 @@
     };
     document.addEventListener('corex-open-change-initial', function(e){ AgentCI.open(e.detail||{}); });
     modal.addEventListener('click', function(){ AgentCI.close(); });
-    // Re-evaluate the approve gate once the doc + rows have painted/wired.
-    setTimeout(function(){ AgentCI.refreshApproveGate(); }, 1200);
-    try { new MutationObserver(function(){ AgentCI.refreshApproveGate(); }).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['class']}); } catch(e){}
+    // Re-evaluate the approve gate after the document + change-initial rows have painted/wired.
+    // ONE-SHOT delays ONLY — do NOT use a MutationObserver here: refreshApproveGate() sets
+    // note.textContent (a childList mutation) and btn attributes, which a body-wide observer would
+    // catch and re-fire, looping forever and pinning the browser (the 7044b94e regression that hung the
+    // agent review page). fillSlot() calls refreshApproveGate() whenever an initial is actually applied,
+    // so the gate stays current without continuous observation.
+    [400, 1200, 2500].forEach(function(ms){ setTimeout(function(){ AgentCI.refreshApproveGate(); }, ms); });
 })();
 </script>
