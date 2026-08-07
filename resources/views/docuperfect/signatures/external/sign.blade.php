@@ -459,7 +459,7 @@
                 {{-- AT-373 increment 2 — RECIPIENT wet-ink amend at their turn: HIGHLIGHT the exact word / phrase
                      / clause anywhere in the document, then amend it. No clause numbers — the selection is
                      the target. Entry via the floating ✎ by the selection AND a sticky toolbar. --}}
-                <div x-data="selectionEditor({ url: @js(route('signatures.external.editSelection', $token)) })" class="mt-3 flex flex-wrap items-center gap-3">
+                <div x-data="selectionEditor({ url: @js(route('signatures.external.editSelection', $token)), viewerKey: @js($request->canonicalPartyKey() ?? $request->party_role), pendingReview: @js((bool) ($wetInkPendingReview ?? false)) })" class="mt-3 flex flex-wrap items-center gap-3">
                     <span class="text-xs text-amber-800 inline-flex items-center gap-1">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4"><path d="M2.695 14.762l-1.262 3.155a.5.5 0 00.65.65l3.155-1.262a4 4 0 001.343-.885L17.5 5.501a2.121 2.121 0 00-3-3L3.58 13.419a4 4 0 00-.885 1.343z"/></svg>
                         Highlight any word, phrase, or clause in the document below, then amend it.
@@ -475,22 +475,50 @@
                                 style="display:none; position:fixed; z-index:9500; background:#b45309;">✎ Amend this</button>
                     </template>
 
-                    {{-- STICKY amend panel — the right-gutter counterpart of the left "How to sign" rail on
-                         wide screens, a clean compact bottom bar on narrower ones. Titled + light-carded so it
-                         reads as a deliberate part of the page, never a floating tooltip. --}}
+                    {{-- STICKY "Amendments" panel — the right-gutter counterpart of the left "How to sign" rail
+                         on wide screens, a clean compact card at the bottom on narrower ones. Houses the amend
+                         controls AND a navigable list of the changes on this document (built from the rendered
+                         change-marks — no MutationObserver; rebuilt on discrete events). Matches cc2's agent
+                         review-page amendment pattern (card / list-item / type badge / status pill). --}}
                     <template x-teleport="body">
-                        <div class="sel-sticky-bar" role="region" aria-label="Amend a clause">
+                        <div class="sel-sticky-bar" role="region" aria-label="Amendments">
                             <div class="sel-amend-head">
                                 <span class="sel-amend-head-icon" aria-hidden="true">✎</span>
-                                <span>Amend a clause</span>
+                                <span>Amendments</span>
+                                <span class="sel-amend-count" x-text="amendments.length"></span>
                             </div>
-                            <div class="sel-amend-info">
-                                <span class="sel-amend-label">Highlighted text</span>
-                                <span class="sel-amend-text" :class="selected ? 'has-sel' : 'is-hint'"
-                                      x-text="selected ? ('“' + selected.slice(0,80) + (selected.length>80?'…':'') + '”') : 'Nothing yet — drag to highlight any word, phrase or clause in the document.'"></span>
+
+                            {{-- amend controls — highlighted text + Amend button --}}
+                            <div class="sel-amend-controls">
+                                <div class="sel-amend-info">
+                                    <span class="sel-amend-label">Highlighted text</span>
+                                    <span class="sel-amend-text" :class="selected ? 'has-sel' : 'is-hint'"
+                                          x-text="selected ? ('“' + selected.slice(0,80) + (selected.length>80?'…':'') + '”') : 'Nothing yet — drag to highlight any word, phrase or clause below.'"></span>
+                                </div>
+                                <button type="button" @click="openFromSelection()" :disabled="!selected"
+                                        class="sel-amend-btn">✎ Amend highlighted text</button>
                             </div>
-                            <button type="button" @click="openFromSelection()" :disabled="!selected"
-                                    class="sel-amend-btn">✎ Amend highlighted text</button>
+
+                            {{-- navigable list of changes on this document --}}
+                            <div class="amend-list">
+                                <div class="amend-empty" x-show="amendments.length === 0">
+                                    No amendments yet — highlight any word, phrase or clause below to propose a change.
+                                </div>
+                                <template x-for="a in amendments" :key="a.id">
+                                    <button type="button" class="amend-item" @click="scrollToChange(a.id)"
+                                            :title="'Go to this change'">
+                                        <div class="amend-item-top">
+                                            <span class="amend-badge" x-text="a.badge"></span>
+                                            <span class="amend-pill" :class="a.pillClass" x-text="a.status"></span>
+                                        </div>
+                                        <div class="amend-item-loc" x-text="a.location" x-show="a.location"></div>
+                                        <div class="amend-item-sum">
+                                            <span class="amend-old" x-text="a.oldText"></span>
+                                            <span class="amend-new" x-show="a.newText" x-text="a.newText"></span>
+                                        </div>
+                                    </button>
+                                </template>
+                            </div>
                         </div>
                     </template>
 
@@ -552,11 +580,95 @@
                     function selectionEditor(cfg) {
                         return {
                             open: false, selected: '', prefix: '', suffix: '', replacement: '', mode: 'inline', busy: false, err: '', _cap: null,
+                            amendments: [], viewerKey: (cfg.viewerKey || ''), pendingReview: !!cfg.pendingReview,
                             init() {
                                 const handler = () => setTimeout(() => this.onSelect(), 10);
                                 document.addEventListener('mouseup', handler);
                                 document.addEventListener('keyup', handler);
                                 document.addEventListener('selectionchange', handler);
+                                // Build the amendments list from the rendered change-marks. Rebuild ONLY on
+                                // discrete events — never a MutationObserver loop: after the doc paints
+                                // (corex-doc-ready), after an amendment is created (corex-amendment-created),
+                                // and after a change is initialed (corex-change-initialed). A couple of timed
+                                // passes cover the late doc render (post "Sign Electronically").
+                                const rb = () => setTimeout(() => this.rebuildList(), 60);
+                                document.addEventListener('corex-doc-ready', rb);
+                                document.addEventListener('corex-amendment-created', rb);
+                                document.addEventListener('corex-change-initialed', rb);
+                                setTimeout(rb, 1200);
+                                setTimeout(rb, 2600);
+                            },
+                            _cssEsc(s) { return (window.CSS && CSS.escape) ? CSS.escape(String(s)) : String(s).replace(/["\\]/g, '\\$&'); },
+                            // Nearest heading/clause label above a change — a short "location" for the list item.
+                            _changeLocation(el) {
+                                try {
+                                    const block = (el.closest && el.closest('.corex-clause, .corex-h1, .corex-h2, .corex-h3, p, li, td, blockquote')) || el;
+                                    let cur = block, h = null;
+                                    while (cur && !h) {
+                                        let prev = cur.previousElementSibling;
+                                        while (prev) {
+                                            if (prev.matches && prev.matches('.corex-h1, .corex-h2, .corex-h3, h1, h2, h3, h4')) { h = prev; break; }
+                                            const inner = prev.querySelector && prev.querySelector('.corex-h1, .corex-h2, .corex-h3');
+                                            if (inner) { h = inner; break; }
+                                            prev = prev.previousElementSibling;
+                                        }
+                                        cur = cur.parentElement;
+                                    }
+                                    if (h) { const t = (h.textContent || '').replace(/\s+/g, ' ').trim(); return t.slice(0, 48); }
+                                    const t = (block.textContent || '').replace(/\s+/g, ' ').trim();
+                                    return t ? (t.slice(0, 46) + (t.length > 46 ? '…' : '')) : '';
+                                } catch (e) { return ''; }
+                            },
+                            // Enumerate the change-marks in the document (each unique data-change-id) into list items
+                            // with a type badge, one-line location + summary, and this recipient's status pill.
+                            rebuildList() {
+                                try {
+                                    const seen = new Set(); const out = [];
+                                    document.querySelectorAll('.change-del[data-change-id]').forEach((del) => {
+                                        const id = del.getAttribute('data-change-id');
+                                        if (!id || seen.has(id)) return; seen.add(id);
+                                        const e = this._cssEsc(id);
+                                        const wrap = del.closest('.change-inline') || del.parentElement;
+                                        const ins  = document.querySelector('.change-ins[data-change-id="' + e + '"]');
+                                        const xref = document.querySelector('.change-xref[data-change-id="' + e + '"]');
+                                        const isOc = !!xref || del.hasAttribute('data-oc-ref');
+                                        const oldText = (del.textContent || '').replace(/\s+/g, ' ').trim();
+                                        let newText = '';
+                                        if (isOc) newText = '→ Other Conditions';
+                                        else if (ins && (ins.textContent || '').trim()) newText = (ins.textContent || '').replace(/\s+/g, ' ').trim();
+                                        else newText = 'Struck out (removed)';
+                                        // status — from THIS recipient's own initial slot for the change.
+                                        let status = 'Pending', pillClass = 'amend-pill--pending';
+                                        const mySlot = this.viewerKey
+                                            ? document.querySelector('.cir-slot[data-change-id="' + e + '"][data-party-key="' + this._cssEsc(this.viewerKey) + '"]')
+                                            : null;
+                                        const myInk = mySlot ? mySlot.querySelector('.cir-ink') : null;
+                                        const myFilled = !!mySlot && (mySlot.classList.contains('cir-filled') || (myInk && !myInk.hasAttribute('data-empty') && !!myInk.querySelector('img')));
+                                        if (myFilled) { status = 'Initialed'; pillClass = 'amend-pill--done'; }
+                                        else if (this.pendingReview) { status = 'Amendment pending agent review'; pillClass = 'amend-pill--review'; }
+                                        out.push({
+                                            id,
+                                            badge: isOc ? 'Other Condition' : 'Clause amendment',
+                                            location: this._changeLocation(wrap),
+                                            oldText: oldText.slice(0, 90),
+                                            newText: newText.slice(0, 90),
+                                            status, pillClass,
+                                        });
+                                    });
+                                    this.amendments = out;
+                                } catch (e) { /* list is a convenience; never break the signing surface */ }
+                            },
+                            // Scroll the document to a change and flash it.
+                            scrollToChange(id) {
+                                try {
+                                    const e = this._cssEsc(id);
+                                    const el = document.querySelector('.change-inline[data-change-id="' + e + '"]')
+                                            || document.querySelector('.change-del[data-change-id="' + e + '"]');
+                                    if (!el) return;
+                                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                    el.classList.add('amend-flash');
+                                    setTimeout(() => el.classList.remove('amend-flash'), 1700);
+                                } catch (e) {}
                             },
                             inOwnUi(node) {
                                 const el = node && (node.nodeType === 1 ? node : node.parentElement);
@@ -650,64 +762,98 @@
                 <style>
                     .sel-modal-overlay { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center;
                         justify-content: center; padding: 1rem; background: rgba(0,0,0,.6); }
-                    /* The amend control — styled to MATCH the left "How to sign" rail (light card, #e2e8f0
-                       borders, slate type, amber action) so it reads as a deliberate part of the page, never a
-                       floating navy tooltip (Johan 2026-08-07 redesign). DEFAULT (narrower than 1440px) = a clean
-                       compact white bar docked at the bottom, ABOVE the orange "Go to next" nav (they never
-                       overlap). WIDE (>=1440px) = a titled sticky card in the empty RIGHT gutter, aligned BELOW
-                       the dark header so it never overlaps the title block. Sticky (position:fixed) in both. */
+                    /* The "Amendments" panel — a light card matching the left "How to sign" rail (white, #e2e8f0
+                       border, slate type, amber action) AND cc2's agent review-page amendment pattern (list-item
+                       card + type badge + rounded status pill). Vertical card in BOTH layouts (Johan 2026-08-07):
+                       DEFAULT (narrower than 1440px) = a compact card centred at the bottom, ABOVE the orange
+                       "Go to next" nav. WIDE (>=1440px) = the same card docked in the empty RIGHT gutter, BELOW
+                       the dark header so it never overlaps the title. Sticky (position:fixed) in both. */
                     .sel-sticky-bar {
                         position: fixed; z-index: 9000;
                         left: 50%; transform: translateX(-50%); bottom: 88px;
-                        width: min(760px, 94vw);
-                        display: flex; align-items: center; gap: .75rem;
+                        width: min(560px, 94vw); max-height: 46vh;
+                        display: flex; flex-direction: column; gap: .6rem;
                         background: #ffffff; color: #0f172a;
-                        border: 1px solid #e2e8f0; border-radius: 12px;
-                        padding: .6rem .85rem;
-                        box-shadow: 0 8px 24px rgba(15, 23, 42, .12);
+                        border: 1px solid #e2e8f0; border-radius: 14px;
+                        padding: 14px 16px;
+                        box-shadow: 0 10px 30px rgba(15, 23, 42, .12);
                         font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
                     }
-                    .sel-sticky-bar .sel-amend-head { display: none; }   /* title shows only in the wide card */
-                    .sel-sticky-bar .sel-amend-info { display: flex; align-items: baseline; gap: .5rem; min-width: 0; flex: 1; }
-                    .sel-sticky-bar .sel-amend-label { font-size: .62rem; text-transform: uppercase; letter-spacing: .06em; color: #64748b; font-weight: 600; flex-shrink: 0; }
-                    .sel-sticky-bar .sel-amend-text { font-size: .8rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 380px; }
+                    .sel-sticky-bar .sel-amend-head {
+                        display: flex; align-items: center; gap: .45rem; flex-shrink: 0;
+                        font-size: 13px; font-weight: 600; color: #0f172a;
+                        padding-bottom: 10px; border-bottom: 1px solid #e2e8f0;
+                    }
+                    .sel-sticky-bar .sel-amend-head-icon {
+                        display: inline-flex; align-items: center; justify-content: center;
+                        width: 22px; height: 22px; border-radius: 50%;
+                        background: #fff7ed; color: #b45309; font-size: 12px; flex-shrink: 0;
+                    }
+                    .sel-sticky-bar .sel-amend-count {
+                        margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px;
+                        display: inline-flex; align-items: center; justify-content: center;
+                        border-radius: 10px; background: #f1f5f9; color: #475569; font-size: 11px; font-weight: 700;
+                    }
+                    /* amend controls */
+                    .sel-sticky-bar .sel-amend-controls { display: flex; flex-direction: column; gap: .4rem; flex-shrink: 0; }
+                    .sel-sticky-bar .sel-amend-info { display: flex; flex-direction: column; align-items: flex-start; gap: .2rem; min-width: 0; }
+                    .sel-sticky-bar .sel-amend-label { font-size: .62rem; text-transform: uppercase; letter-spacing: .06em; color: #64748b; font-weight: 600; }
+                    .sel-sticky-bar .sel-amend-text { font-size: .78rem; font-weight: 500; line-height: 1.4; max-width: 100%;
+                        display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
                     .sel-sticky-bar .sel-amend-text.has-sel { color: #0f172a; }
                     .sel-sticky-bar .sel-amend-text.is-hint { color: #94a3b8; font-weight: 400; }
                     .sel-sticky-bar .sel-amend-btn {
-                        flex-shrink: 0; margin-left: auto;
-                        padding: .5rem 1rem; font-size: .74rem; font-weight: 600; border-radius: 8px;
+                        width: 100%; padding: .5rem 1rem; font-size: .74rem; font-weight: 600; border-radius: 8px;
                         color: #fff; background: #b45309;
                         display: inline-flex; align-items: center; justify-content: center; gap: .3rem;
                         transition: background .12s ease;
                     }
                     .sel-sticky-bar .sel-amend-btn:hover:not(:disabled) { background: #92400e; }
                     .sel-sticky-bar .sel-amend-btn:disabled { background: #cbd5e1; color: #f1f5f9; cursor: not-allowed; }
-                    /* WIDE — a titled card in the right gutter (the A4 doc's right edge sits at ~1150px, so a
-                       264px card at right:24 clears it once the viewport passes ~1440px). top:150px starts it
-                       BELOW the dark header. Breakpoint is 1440px, NOT 1600px: a 1920px monitor at 125% Windows
-                       scaling reports only 1536 CSS px (Johan 2026-08-07, ISSUE A). Below 1440px = the bottom bar. */
+                    /* navigable amendments list */
+                    .sel-sticky-bar .amend-list {
+                        flex: 1; min-height: 0; overflow-y: auto;
+                        display: flex; flex-direction: column; gap: 8px;
+                        margin-top: 2px; padding-top: 10px; border-top: 1px solid #e2e8f0;
+                    }
+                    .sel-sticky-bar .amend-empty { font-size: 12px; color: #94a3b8; line-height: 1.45; }
+                    .sel-sticky-bar .amend-item {
+                        display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left;
+                        background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px;
+                        cursor: pointer; transition: border-color .12s, box-shadow .12s;
+                    }
+                    .sel-sticky-bar .amend-item:hover { border-color: #b45309; box-shadow: 0 0 0 2px #fef3c7; }
+                    .sel-sticky-bar .amend-item-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+                    .sel-sticky-bar .amend-badge {
+                        font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+                        color: #475569; background: #f1f5f9; border-radius: 4px; padding: 1px 6px;
+                    }
+                    .sel-sticky-bar .amend-pill {
+                        margin-left: auto; font-size: 10px; font-weight: 600; border-radius: 999px; padding: 1px 8px; white-space: nowrap;
+                    }
+                    .sel-sticky-bar .amend-pill--pending { background: #fef3c7; color: #92400e; }
+                    .sel-sticky-bar .amend-pill--review  { background: #dbeafe; color: #1e40af; }
+                    .sel-sticky-bar .amend-pill--done    { background: #dcfce7; color: #166534; }
+                    .sel-sticky-bar .amend-item-loc { font-size: 11px; color: #64748b; }
+                    .sel-sticky-bar .amend-item-sum { font-size: 12px; line-height: 1.35; }
+                    .sel-sticky-bar .amend-old { color: #b91c1c; text-decoration: line-through; }
+                    .sel-sticky-bar .amend-new { color: #166534; margin-left: 4px; }
+                    /* flash the change when a list item is clicked */
+                    .amend-flash { animation: amendFlash 1.7s ease; border-radius: 3px; }
+                    @keyframes amendFlash {
+                        0%, 100% { background: transparent; box-shadow: none; }
+                        15%, 55% { background: #fde68a; box-shadow: 0 0 0 3px #fbbf24; }
+                    }
+                    /* WIDE — dock the same card in the right gutter (the A4 doc's right edge sits at ~1150px, so a
+                       288px card at right:24 clears it once the viewport passes ~1440px). top:150px starts it BELOW
+                       the dark header. Breakpoint is 1440px, NOT 1600px: a 1920px monitor at 125% Windows scaling
+                       reports only 1536 CSS px (Johan 2026-08-07). Below 1440px = the bottom card. */
                     @media (min-width: 1440px) {
                         .sel-sticky-bar {
-                            left: auto; right: 24px; transform: none;
+                            left: auto; right: 20px; transform: none;
                             bottom: auto; top: 150px;
-                            width: 264px;
-                            flex-direction: column; align-items: stretch; gap: .7rem;
-                            padding: 16px 18px; border-radius: 14px;
-                            box-shadow: 0 10px 30px rgba(15, 23, 42, .10);
+                            width: 260px; max-height: calc(100vh - 180px);
                         }
-                        .sel-sticky-bar .sel-amend-head {
-                            display: flex; align-items: center; gap: .45rem;
-                            font-size: 13px; font-weight: 600; color: #0f172a;
-                            padding-bottom: 10px; border-bottom: 1px solid #e2e8f0;
-                        }
-                        .sel-sticky-bar .sel-amend-head-icon {
-                            display: inline-flex; align-items: center; justify-content: center;
-                            width: 22px; height: 22px; border-radius: 50%;
-                            background: #fff7ed; color: #b45309; font-size: 12px; flex-shrink: 0;
-                        }
-                        .sel-sticky-bar .sel-amend-info { flex-direction: column; align-items: flex-start; gap: .3rem; }
-                        .sel-sticky-bar .sel-amend-text { max-width: 100%; white-space: normal; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; }
-                        .sel-sticky-bar .sel-amend-btn { margin-left: 0; width: 100%; padding: .6rem 1rem; }
                     }
                     .change-margin { float: right; clear: right; margin: .1rem 0 .35rem 1rem; padding: .2rem .55rem;
                         border-left: 3px solid #d97706; background: #fffbeb; border-radius: 0 6px 6px 0; font-size: .62rem; color: #92400e; max-width: 40%; }
@@ -1781,6 +1927,9 @@ function externalSign() {
                         this._makeWebElementsInteractive();
                         this._makeCeremonyFieldsEditable();
                         this._processAllDisclosures();
+                        // The document body (and its change-marks) is now painted — tell the amendments panel
+                        // to (re)build its list. A discrete signal, NOT a MutationObserver.
+                        document.dispatchEvent(new CustomEvent('corex-doc-ready'));
                         // Compute incomplete count after all interactive elements are set up
                         setTimeout(() => {
                             this.updateIncompleteCount();
@@ -2551,6 +2700,8 @@ function externalSign() {
                                 this._makeWebElementsInteractive();
                                 this._makeCeremonyFieldsEditable();
                                 this._processAllDisclosures();
+                                // Doc body painted after the method choice — (re)build the amendments panel list.
+                                document.dispatchEvent(new CustomEvent('corex-doc-ready'));
                                 setTimeout(() => this.updateIncompleteCount(), 300);
                             }, 150);
                         });
@@ -3049,6 +3200,8 @@ function externalSign() {
                     // every other applied initial stays exactly as it is (Johan 2026-08-06).
                     this._paintChangeInitialSlot(cid, pk, signatureData);
                     this.updateIncompleteCount();
+                    // The recipient just initialed a change — refresh the amendments panel status pills.
+                    document.dispatchEvent(new CustomEvent('corex-change-initialed', { detail: { changeId: cid, partyKey: pk } }));
                 }
                 return;
             }
