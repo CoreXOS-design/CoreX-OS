@@ -104,7 +104,11 @@
                 // whole document — the contact list renders each row's edit form with
                 // its own identifier inputs, so a document-wide query scraped another
                 // contact's email/phone (esp. when the New-Contact email was empty),
-                // producing a phantom "duplicate" against an unrelated record.
+                // producing a phantom duplicate hit against an unrelated record.
+                // (No literal double-quote characters anywhere in this comment block
+                // — this whole function sits inside the x-data HTML attribute, which
+                // is itself double-quoted, so a bare double-quote here would close
+                // that attribute early and corrupt the rest of this component.)
                 const firstVal = (group) => [...this.$root.querySelectorAll(`[data-identifier-group='${group}'] [data-identifier-value]`)]
                     .map(el => el.value.trim()).find(v => v) || '';
                 const phone = firstVal('phones');
