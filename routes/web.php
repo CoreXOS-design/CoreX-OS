@@ -3739,6 +3739,9 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     // (two-stage edit-approval gate). Approve = the node placed its initial (initial-change) then
     // advances the chain; reject reverts the change and routes the editor to re-acceptance.
     Route::post('/documents/{document}/signatures/amendment/approve', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'approveAmendmentNode'])->name('docuperfect.signatures.amendment.approve');
+    // AT-373 — PER-ITEM reject (agent curates the recipient's changes one at a time; others proceed).
+    Route::post('/documents/{document}/signatures/amendment/reject-change', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'rejectAmendmentChange'])->name('docuperfect.signatures.amendment.rejectChange');
+    Route::post('/documents/{document}/signatures/amendment/condition/{condition}/reject', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'rejectAmendmentCondition'])->whereNumber('condition')->name('docuperfect.signatures.amendment.rejectCondition');
     Route::post('/documents/{document}/signatures/amendment/reject', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'rejectAmendmentNode'])->name('docuperfect.signatures.amendment.reject');
 
     // Dashboard polling

@@ -19,13 +19,15 @@
     @keyframes amendFlash { 0%,100%{ background:transparent; } 15%,60%{ background:#fef9c3; box-shadow:0 0 0 3px #fde047; } }
     #agentAmendPanel .amend-item { cursor:pointer; }
     #agentAmendPanel .amend-item:hover { background:#f8fafc; }
-    @media (max-width:1279px){ #agentAmendPanel { position:static !important; width:auto !important; max-height:none !important; margin-bottom:16px; } }
 </style>
 
+{{-- The panel is a real COLUMN element (its parent .review-aside is a flex column beside the document).
+     position:sticky (set on #agentAmendPanel by the review page) keeps it in view while the document
+     scrolls — it is part of the page flow, NOT a floating overlay over the document. --}}
 <div id="agentAmendPanel" x-data="agentAmendmentPanel(@js($items))"
-     style="position:fixed; top:96px; right:24px; width:340px; max-height:calc(100vh - 128px); overflow:auto;
-            background:#ffffff; border:1px solid #e2e8f0; border-radius:14px; box-shadow:0 8px 24px rgba(15,23,42,0.08);
-            z-index:40; display:flex; flex-direction:column;">
+     style="width:100%; max-height:calc(100vh - 108px); overflow:auto;
+            background:#ffffff; border:1px solid #e2e8f0; border-radius:14px; box-shadow:0 4px 16px rgba(15,23,42,0.06);
+            display:flex; flex-direction:column;">
     <div style="padding:14px 16px; border-bottom:1px solid #e2e8f0; display:flex; align-items:center; gap:8px;">
         <span style="font-weight:600; color:#0f172a;">Amendments</span>
         <span style="margin-left:auto; font-size:12px; font-weight:600; color:#fff; background:#f59e0b; border-radius:999px; padding:2px 9px;" x-text="items.length"></span>
@@ -44,53 +46,48 @@
                             : 'font-size:10px;font-weight:700;text-transform:uppercase;color:#0369a1;background:#f0f9ff;border-radius:6px;padding:1px 6px;'"
                           x-text="it.badge"></span>
                     <span style="margin-left:auto; font-size:11px; font-weight:600; border-radius:999px; padding:1px 8px;"
-                          :style="it.initialed ? 'color:#166534;background:#f0fdf4;' : 'color:#92400e;background:#fffbeb;'"
-                          x-text="it.initialed ? 'Initialed' : 'Pending'"></span>
+                          :style="it.state==='accepted' ? 'color:#166534;background:#f0fdf4;' : (it.state==='rejected' ? 'color:#b91c1c;background:#fef2f2;' : 'color:#92400e;background:#fffbeb;')"
+                          x-text="it.state==='accepted' ? 'Accepted ✓' : (it.state==='rejected' ? 'Rejected' : 'Pending')"></span>
                 </div>
-                <div style="font-size:12.5px; font-weight:600; color:#0f172a;" x-text="it.location"></div>
+                <div style="font-size:12.5px; font-weight:600; color:#0f172a;" :style="it.state==='rejected' ? 'text-decoration:line-through; color:#94a3b8;' : ''" x-text="it.location"></div>
                 <div style="font-size:12px; color:#475569; margin-top:2px;" x-text="it.summary"></div>
                 <div x-show="it.author" style="font-size:11px; color:#64748b; margin-top:3px;" x-text="'Added by ' + (it.author||'')"></div>
-                <div @click.stop style="display:flex; gap:8px; margin-top:8px;">
-                    <button type="button" x-show="!it.initialed" @click="doInitial(it)"
-                            style="font-size:12px; font-weight:600; color:#fff; background:#0369a1; border-radius:7px; padding:5px 12px;">
-                        Initial this change
-                    </button>
-                    <button type="button" x-show="it.initialed" @click="doInitial(it)"
-                            style="font-size:12px; color:#0369a1; background:#f0f9ff; border-radius:7px; padding:5px 12px;">
-                        Re-initial
+                {{-- PER-ITEM actions: the agent Accepts (places their initial) OR Rejects (reverts) EACH change
+                     individually. No accept-all / reject-all. --}}
+                <div @click.stop style="display:flex; flex-wrap:wrap; gap:8px; margin-top:8px;" x-show="it.state!=='rejected'">
+                    <button type="button" @click="accept(it)"
+                            :style="it.state==='accepted' ? 'color:#166534;background:#f0fdf4;' : 'color:#fff;background:#059669;'"
+                            style="font-size:12px; font-weight:600; border-radius:7px; padding:5px 12px;"
+                            x-text="it.state==='accepted' ? 'Re-initial' : 'Accept &amp; Initial'"></button>
+                    <button type="button" @click="reject(it)"
+                            style="font-size:12px; color:#b91c1c; border:1px solid #fecaca; border-radius:7px; padding:5px 12px;">
+                        Reject
                     </button>
                     <button type="button" @click="scrollTo(it)"
                             style="font-size:12px; color:#475569; border:1px solid #cbd5e1; border-radius:7px; padding:5px 10px;">
                         View
                     </button>
                 </div>
+                <div x-show="it.state==='rejected'" style="margin-top:8px; font-size:11px; color:#94a3b8;">This change was removed from the document.</div>
             </div>
         </template>
     </div>
 
     <div style="padding:12px 16px; border-top:1px solid #e2e8f0;">
+        {{-- The single Approve enables ONLY once EVERY change has been actioned individually
+             (accepted+initialled, or rejected) — nothing outstanding. No accept-all / reject-all. --}}
         <div style="font-size:12px; margin-bottom:8px;"
              :style="outstanding>0 ? 'color:#92400e;' : 'color:#166534;'"
-             x-text="outstanding>0 ? (outstanding + ' change' + (outstanding===1?'':'s') + ' still need your initial') : 'All changes initialled — ready to approve.'"></div>
-        <div style="display:flex; gap:8px; align-items:center;">
-            <form method="POST" action="{{ route('docuperfect.signatures.amendment.approve', $document) }}" style="flex:1;">
-                @csrf
-                <button type="submit" :disabled="outstanding>0"
-                        :style="outstanding>0 ? 'opacity:0.5;cursor:not-allowed;' : 'cursor:pointer;'"
-                        style="width:100%; font-size:13px; font-weight:600; color:#fff; background:#059669; border-radius:9px; padding:9px 12px;"
-                        @click="return outstanding>0 ? $event.preventDefault() : confirm('{{ $nextParty ? 'Approve the amendment and send to ' . ($amendNextName ?? 'the next recipient') . '?' : 'Approve and finalise the document?' }}')">
-                    {!! $approveLabel !!} &rarr;
-                </button>
-            </form>
-            <form method="POST" action="{{ route('docuperfect.signatures.amendment.reject', $document) }}"
-                  onsubmit="return confirm('Reject this amendment? The change is removed and the signer who proposed it is asked to re-accept the document without it. Existing signatures are preserved.');">
-                @csrf
-                <button type="submit"
-                        style="font-size:12px; color:#b91c1c; border:1px solid #fecaca; border-radius:9px; padding:9px 12px;">
-                    Reject
-                </button>
-            </form>
-        </div>
+             x-text="outstanding>0 ? (outstanding + ' change' + (outstanding===1?'':'s') + ' still need a decision (Accept or Reject each above)') : 'Every change actioned — ready to approve.'"></div>
+        <form method="POST" action="{{ route('docuperfect.signatures.amendment.approve', $document) }}">
+            @csrf
+            <button type="submit" :disabled="outstanding>0"
+                    :style="outstanding>0 ? 'opacity:0.5;cursor:not-allowed;' : 'cursor:pointer;'"
+                    style="width:100%; font-size:13px; font-weight:600; color:#fff; background:#059669; border-radius:9px; padding:9px 12px;"
+                    @click="return outstanding>0 ? $event.preventDefault() : confirm('{{ $nextParty ? 'Approve and send to ' . ($amendNextName ?? 'the next recipient') . '?' : 'Approve and finalise the document?' }}')">
+                {!! $approveLabel !!} &rarr;
+            </button>
+        </form>
     </div>
 </div>
 
@@ -131,6 +128,18 @@
     window.__corexApplyConditionInitial = async function (conditionId, img) {
         try { const r = await fetch(COND_URL_BASE + '/' + conditionId + '/initial', { method:'POST', headers:{'Content-Type':'application/json','X-CSRF-TOKEN':CSRF,'X-Requested-With':'XMLHttpRequest'}, body:JSON.stringify({initial_image:img}) }); const d=await r.json().catch(()=>({})); return r.ok && !!d.ok; } catch(e){ return false; }
     };
+    // PER-ITEM reject: revert one body change (reject-change) or supersede one Other Condition
+    // (condition/{id}/reject); the other changes are untouched.
+    const REJECT_CHANGE_URL = @json(route('docuperfect.signatures.amendment.rejectChange', $document));
+    const REJECT_COND_BASE  = @json(url('/docuperfect/documents/' . $document->id . '/signatures/amendment/condition'));
+    window.AgentReject = async function (it) {
+        try {
+            const url  = it.kind==='condition' ? (REJECT_COND_BASE + '/' + it.id + '/reject') : REJECT_CHANGE_URL;
+            const body = it.kind==='condition' ? {} : { change_id: it.id };
+            const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json','X-CSRF-TOKEN':CSRF,'X-Requested-With':'XMLHttpRequest'}, body:JSON.stringify(body) });
+            const d = await r.json().catch(()=>({})); return r.ok && !!d.ok;
+        } catch(e){ return false; }
+    };
 
     const modal=document.getElementById('agentCiModal'), canvas=document.getElementById('agentCiCanvas'), ctx=canvas.getContext('2d');
     let drawing=false, hasInk=false, mode='draw', pending=null; // pending = {item, resolve}
@@ -168,10 +177,18 @@
 })();
 function agentAmendmentPanel(items){
     return {
-        items: items || [],
-        get outstanding(){ return this.items.filter(i=>!i.initialed).length; },
+        // state per item: 'pending' (needs a decision) | 'accepted' (initialled) | 'rejected' (reverted).
+        items: (items||[]).map(function(it){ return Object.assign({}, it, { state: it.initialed ? 'accepted' : 'pending' }); }),
+        get outstanding(){ return this.items.filter(function(i){ return i.state==='pending'; }).length; },
         scrollTo(it){ const sel = it.kind==='body' ? '[data-change-id="'+it.id+'"]' : '[data-condition-id="'+it.id+'"]'; const el=document.querySelector(sel); if(el){ el.scrollIntoView({behavior:'smooth',block:'center'}); el.classList.add('amend-flash'); setTimeout(()=>el.classList.remove('amend-flash'),1600); } },
-        async doInitial(it){ const ok = await window.AgentCI.capture(it); if(ok){ it.initialed = true; } },
+        // Accept = place the agent's initial on this change (accept IS the initial — decision i).
+        async accept(it){ const ok = await window.AgentCI.capture(it); if(ok){ it.state='accepted'; } },
+        // Reject = revert JUST this change; the others are unaffected.
+        async reject(it){
+            if(!confirm('Reject this change? It is removed from the document. The other changes are unaffected.')) return;
+            const ok = await window.AgentReject(it);
+            if(ok){ it.state='rejected'; }
+        },
     };
 }
 </script>

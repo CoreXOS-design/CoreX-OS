@@ -2703,6 +2703,32 @@ class SignatureService
         return $liveConditionIds->diff($mineInitialed)->isNotEmpty();
     }
 
+    /**
+     * AT-373 — PER-ITEM reject of an added Other Condition (agent curating the recipient's changes).
+     * Supersede the condition so it drops out of the render + every initial gate, and mark its backing
+     * DocumentAmendment rejected. Retained in audit (no hard delete); the other changes proceed.
+     */
+    public function rejectRecipientCondition(SignatureTemplate $template, \App\Models\Docuperfect\DocumentCondition $condition, ?User $actor = null): array
+    {
+        return DB::transaction(function () use ($template, $condition, $actor) {
+            $condition->update(['superseded_at' => now()]);
+            if ($condition->amendment_id) {
+                \App\Models\Docuperfect\DocumentAmendment::where('id', $condition->amendment_id)
+                    ->update(['status' => \App\Models\Docuperfect\DocumentAmendment::STATUS_REJECTED]);
+            }
+            SignatureAuditLog::log(
+                $template,
+                'amendment_condition_rejected',
+                SignatureAuditLog::ACTOR_USER,
+                $actor?->name ?? 'Agent',
+                $actor?->email,
+                $actor?->id,
+                metadata: ['condition_id' => $condition->id],
+            );
+            return ['ok' => true, 'condition_id' => $condition->id];
+        });
+    }
+
     /** Remove the amendment-cycle marker from the document. */
     private function clearAmendmentCycle(SignatureTemplate $template): void
     {

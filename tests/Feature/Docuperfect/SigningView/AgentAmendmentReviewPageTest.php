@@ -130,6 +130,33 @@ final class AgentAmendmentReviewPageTest extends TestCase
         $this->assertNotSame(SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW, $tpl->fresh()->status, 'the flow advanced past review');
     }
 
+    public function test_per_item_reject_reverts_only_that_change_and_lets_the_rest_proceed(): void
+    {
+        ['agent' => $agent, 'doc' => $doc, 'tpl' => $tpl, 'changeId' => $cid, 'condition' => $condition] = $this->seedAmendmentReturnedToAgent();
+        $svc = app(SignatureService::class);
+
+        // PER-ITEM reject the BODY amendment via the endpoint — reverts JUST that change, and does NOT
+        // trigger a whole-document editor re-acceptance (the agent is curating changes one at a time).
+        $req1 = \Illuminate\Http\Request::create('/x', 'POST', ['change_id' => $cid]);
+        $req1->setUserResolver(fn () => $agent);
+        $r1 = app(SignatureController::class)->rejectAmendmentChange($req1, $doc->fresh());
+        $this->assertSame(200, $r1->getStatusCode());
+        $this->assertSame(SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW, $tpl->fresh()->status, 'still in review — no whole-doc re-acceptance');
+
+        // PER-ITEM reject the Other Condition via the endpoint — superseded, drops out of the gate.
+        $req2 = \Illuminate\Http\Request::create('/x', 'POST');
+        $req2->setUserResolver(fn () => $agent);
+        $r2 = app(SignatureController::class)->rejectAmendmentCondition($req2, $doc->fresh(), $condition->fresh());
+        $this->assertSame(200, $r2->getStatusCode());
+        $this->assertNotNull($condition->fresh()->superseded_at, 'the condition is superseded (removed)');
+        $this->assertFalse($svc->partyOwesConditionInitial($tpl->fresh(), 'agent'), 'no live condition remains to owe an initial');
+
+        // Every change actioned (both rejected) → nothing outstanding → approve succeeds + advances.
+        $res = $svc->approveAmendmentNode($tpl->fresh(), $agent);
+        $this->assertTrue($res['ok'] ?? false, 'approve succeeds once every change is actioned');
+        $this->assertNotSame(SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW, $tpl->fresh()->status, 'the flow advanced');
+    }
+
     public function test_internal_condition_initial_endpoint_records_the_agent_initial(): void
     {
         ['agent' => $agent, 'doc' => $doc, 'tpl' => $tpl, 'condition' => $condition] = $this->seedAmendmentReturnedToAgent();
@@ -165,10 +192,22 @@ final class AgentAmendmentReviewPageTest extends TestCase
         $this->assertContains('condition', array_column($items, 'kind'), 'the panel data includes the Other Condition');
 
         $html = $view->render();
-        $this->assertStringContainsString('agentAmendPanel', $html, 'the sticky right-rail amendments panel is rendered');
+        // REAL column layout — the panel is in its OWN column (review-aside) beside the document
+        // (review-main), inside a flex row (review-columns), NOT a position:fixed floating overlay.
+        $this->assertStringContainsString('review-columns', $html, 'the page uses a real flex column row');
+        $this->assertStringContainsString('review-aside', $html, 'the amendments panel has its own column');
+        $this->assertStringContainsString('review-main', $html, 'the document reflows into its own (narrower) column');
+        $this->assertStringNotContainsString('position:fixed; top:96px; right:24px', $html, 'the panel is NOT a fixed floating card');
+        $this->assertStringContainsString('agentAmendPanel', $html, 'the amendments panel is rendered');
         $this->assertStringContainsString('signatures/amendment/approve', $html, 'the single Approve posts to the amendment approve endpoint');
         $this->assertStringContainsString('Clause amendment', $html, 'the body amendment is listed');
         $this->assertStringContainsString('Other Condition', $html, 'the Other Condition is listed in the SAME panel');
+        // PER-ITEM Accept + Reject (no global accept-all/reject-all).
+        $this->assertStringContainsString('Accept &amp; Initial', $html, 'each change has its own Accept control');
+        $this->assertStringContainsString('reject-change', $html, 'per-item body reject endpoint is wired');
+        $this->assertStringContainsString('AgentReject', $html, 'the per-item reject handler is present');
+        $this->assertStringContainsString('reject(it)', $html, 'each change row has its own per-item Reject control');
+        $this->assertStringContainsString('accept(it)', $html, 'each change row has its own per-item Accept control');
         $this->assertStringContainsString('agentCiModal', $html, 'the self-contained capture modal (both change types) is included');
         // The next recipient exists → the label must say "send", never "Finalise".
         $this->assertStringContainsString('Approve &amp; Send to', $html, 'label reflects the real next step (send to next recipient)');

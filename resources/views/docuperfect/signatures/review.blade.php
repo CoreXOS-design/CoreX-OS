@@ -30,7 +30,7 @@
 }
 </style>
 
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-4">
+<div class="{{ ($isAmendmentApproval ?? false) ? 'max-w-[1600px]' : 'max-w-7xl' }} mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-4">
 
     <x-sticky-action-bar>
         <x-slot name="left">
@@ -43,6 +43,14 @@
             <h2 class="text-sm font-semibold text-gray-700 truncate">Agent Review — {{ $document->name }}</h2>
         </x-slot>
     </x-sticky-action-bar>
+
+    {{-- AT-373 — REAL three-column layout: the document reflows narrower (review-main, flex:1) and the
+         Amendments panel occupies its OWN column beside it (review-aside), part of the page flow — NOT a
+         floating card over the document. Stacks below the doc under 1280px. --}}
+    @if($isAmendmentApproval ?? false)
+    <div class="review-columns" style="display:flex; gap:24px; align-items:flex-start;">
+    <div class="review-main space-y-4" style="flex:1 1 0%; min-width:0;">
+    @endif
 
     {{-- Candidate Practitioner Banner --}}
     @if(!empty($isCandidateFlow) && !empty($candidateName))
@@ -480,15 +488,9 @@
     @endif
 
     @include('docuperfect.signatures.partials._change-initial-affordance')
-    @if(!empty($isAmendmentApproval))
-        {{-- AT-373 — the ONE unified amendments surface: a sticky right-rail panel listing BOTH body
-             amendments AND Other Conditions, each navigable + agent-initialable, with the single Approve
-             in its footer. Replaces the old top box + bottom-action approve for the review/action surface. --}}
-        @include('docuperfect.signatures.partials._agent-amendments-panel')
-    @endif
 
     {{-- ACTION BUTTONS — the legacy final-gate/candidate actions. In AT-373 amendment-approval mode the
-         action surface is the right-rail panel above, so this whole block is suppressed. --}}
+         action surface is the right-rail panel column (beside the document), so this whole block is suppressed. --}}
     @unless(!empty($isAmendmentApproval))
     <div class="rounded-sm border border-slate-200 bg-white p-5" x-data="{ showReturnModal: false, showRejectModal: false, showRejectAmendmentModal: false }">
         <h4 class="font-semibold text-slate-800 mb-4">Review Actions</h4>
@@ -674,5 +676,27 @@
     </div>
     @endunless
 
+    {{-- AT-373 — close review-main + the Amendments panel's OWN column (a real flex column beside the
+         document, not a floating overlay). The panel is position:sticky WITHIN this column. --}}
+    @if($isAmendmentApproval ?? false)
+    </div>{{-- /review-main --}}
+    <aside class="review-aside" style="width:360px; flex:0 0 360px;">
+        @include('docuperfect.signatures.partials._agent-amendments-panel')
+    </aside>
+    </div>{{-- /review-columns --}}
+    @endif
+
 </div>
 @endsection
+
+@if($isAmendmentApproval ?? false)
+<style>
+    /* Real column layout — the panel is sticky WITHIN its own column, never floating over the document. */
+    #agentAmendPanel { position: sticky; top: 88px; width: 100%; max-height: calc(100vh - 108px); }
+    @media (max-width: 1279px) {
+        .review-columns { flex-direction: column !important; }
+        .review-aside { width: 100% !important; flex-basis: auto !important; }
+        #agentAmendPanel { position: static !important; max-height: none !important; }
+    }
+</style>
+@endif

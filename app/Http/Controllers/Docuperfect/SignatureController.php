@@ -3165,6 +3165,40 @@ class SignatureController extends Controller
     }
 
     /**
+     * AT-373 — PER-ITEM reject of a single BODY amendment on the Agent Review page. Reverts JUST that
+     * change (restores the original text, retains the attempt in audit — SelectionEditService::revertChange,
+     * inc6); the OTHER changes are untouched and proceed. No editor re-acceptance (that is the whole-set
+     * reject) — the agent is curating the recipient's changes one at a time.
+     */
+    public function rejectAmendmentChange(Request $request, Document $document)
+    {
+        $user = $request->user();
+        $this->authorizeDocument($user, $document);
+        $validated = $request->validate(['change_id' => ['required', 'string', 'max:64']]);
+        $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+        $result = app(\App\Services\Docuperfect\SelectionEditService::class)
+            ->revertChange($template, $validated['change_id'], $user);
+        return response()->json($result, empty($result['ok']) ? 422 : 200);
+    }
+
+    /**
+     * AT-373 — PER-ITEM reject of a single added Other Condition. Supersedes the condition (so it is no
+     * longer live and drops out of every initial gate) and marks its backing DocumentAmendment rejected.
+     * The other changes proceed. Retained in audit; no editor re-acceptance.
+     */
+    public function rejectAmendmentCondition(Request $request, Document $document, \App\Models\Docuperfect\DocumentCondition $condition)
+    {
+        $user = $request->user();
+        $this->authorizeDocument($user, $document);
+        $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+        if ((int) $condition->signature_template_id !== (int) $template->id) {
+            return response()->json(['ok' => false, 'error' => 'Condition does not belong to this document.'], 422);
+        }
+        $result = $this->signatureService->rejectRecipientCondition($template, $condition, $user);
+        return response()->json($result, empty($result['ok']) ? 422 : 200);
+    }
+
+    /**
      * Status check endpoint for dashboard polling.
      */
     public function statusCheck(Request $request)
