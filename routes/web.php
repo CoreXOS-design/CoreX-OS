@@ -3733,6 +3733,8 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::post('/documents/{document}/signatures/edit-selection', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'editSelection'])->name('docuperfect.signatures.editSelection');
     // WET-INK per-change initial — the acting party initials one change (by data-change-id).
     Route::post('/documents/{document}/signatures/initial-change', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'initialChange'])->name('docuperfect.signatures.initialChange');
+    // AT-373 — internal agent per-CONDITION initial (Other Condition equivalent of initial-change).
+    Route::post('/documents/{document}/signatures/condition/{condition}/initial', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'initialCondition'])->whereNumber('condition')->name('docuperfect.signatures.initialCondition');
     // AT-373 (inc3) — the approval-chain node approves/rejects a recipient's wet-ink amendment
     // (two-stage edit-approval gate). Approve = the node placed its initial (initial-change) then
     // advances the chain; reject reverts the change and routes the editor to re-acceptance.

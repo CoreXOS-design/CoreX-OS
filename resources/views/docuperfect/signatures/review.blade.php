@@ -193,12 +193,13 @@
         </div>
     </div>
 
-    {{-- Amendments --}}
+    {{-- Amendments (legacy DocumentAmendment box) — SUPPRESSED in AT-373 amendment-approval mode, where
+         the sticky right-rail panel is the single review/action surface for BOTH change types. --}}
     @php
         $templateModel = $document->signatureTemplate;
         $hasAmendments = $templateModel && $templateModel->amendments()->exists();
     @endphp
-    @if($hasAmendments)
+    @if($hasAmendments && empty($isAmendmentApproval))
     <div class="rounded-sm border border-amber-200 bg-amber-50 p-5" x-data="amendmentManager()">
         <h4 class="font-semibold text-amber-800 mb-3 flex items-center gap-2">
             <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -480,11 +481,15 @@
 
     @include('docuperfect.signatures.partials._change-initial-affordance')
     @if(!empty($isAmendmentApproval))
-        {{-- AT-373 — self-contained capture modal so the agent can place their initial on each change. --}}
-        @include('docuperfect.signatures.partials._agent-change-initial-modal')
+        {{-- AT-373 — the ONE unified amendments surface: a sticky right-rail panel listing BOTH body
+             amendments AND Other Conditions, each navigable + agent-initialable, with the single Approve
+             in its footer. Replaces the old top box + bottom-action approve for the review/action surface. --}}
+        @include('docuperfect.signatures.partials._agent-amendments-panel')
     @endif
 
-    {{-- ACTION BUTTONS --}}
+    {{-- ACTION BUTTONS — the legacy final-gate/candidate actions. In AT-373 amendment-approval mode the
+         action surface is the right-rail panel above, so this whole block is suppressed. --}}
+    @unless(!empty($isAmendmentApproval))
     <div class="rounded-sm border border-slate-200 bg-white p-5" x-data="{ showReturnModal: false, showRejectModal: false, showRejectAmendmentModal: false }">
         <h4 class="font-semibold text-slate-800 mb-4">Review Actions</h4>
 
@@ -667,6 +672,7 @@
             </div>
         </div>
     </div>
+    @endunless
 
 </div>
 @endsection

@@ -2550,8 +2550,53 @@ class SignatureController extends Controller
             $packSegmentTitles[] = $document->name;
         }
 
+        // AT-373 — the unified Amendments panel data: BOTH wet-ink body/clause amendments AND recipient
+        // -added Other Conditions as ONE navigable, actionable list for the agent. Each item carries its
+        // kind, id, the agent's initial state, a location + one-line summary, and (OC) its author.
+        $amendmentItems = [];
+        if ($isAmendmentApproval) {
+            $wtdA     = is_array($document->web_template_data) ? $document->web_template_data : [];
+            $selA     = app(\App\Services\Docuperfect\SelectionEditService::class);
+            $htmlA    = \App\Services\Docuperfect\CanonicalDocumentRenderer::amendSource($wtdA)['html'];
+            $agentReq = $template->requests->firstWhere('party_role', 'agent');
+            $agentKey = $agentReq ? $agentReq->canonicalPartyKey() : 'agent';
+
+            foreach (($wtdA['pending_body_changes'] ?? []) as $c) {
+                if (! is_array($c) || ! empty($c['reverted'])) { continue; }
+                $cid = (string) ($c['change_id'] ?? '');
+                if ($cid === '') { continue; }
+                $old  = trim((string) ($c['old'] ?? ''));
+                $new  = trim((string) ($c['new'] ?? ''));
+                $mode = $c['mode'] ?? 'selection';
+                $filled = $selA->hasRowSlot($htmlA, $cid, $agentKey) ? $selA->rowSlotFilled($htmlA, $cid, $agentKey) : true;
+                $amendmentItems[] = [
+                    'kind' => 'body', 'id' => $cid, 'party_key' => $agentKey, 'badge' => 'Clause amendment',
+                    'location' => \Illuminate\Support\Str::limit($old !== '' ? $old : 'Document text', 40),
+                    'summary'  => $mode === 'strike'
+                        ? ('Removed: ' . \Illuminate\Support\Str::limit($old, 60))
+                        : (\Illuminate\Support\Str::limit($old, 28) . ' → ' . \Illuminate\Support\Str::limit($new, 28)),
+                    'author'   => null, 'initialed' => (bool) $filled,
+                ];
+            }
+            $conds = \App\Models\Docuperfect\DocumentCondition::where('signature_template_id', $template->id)
+                ->where('added_via', 'recipient_signing')->whereNull('superseded_at')->whereNull('deleted_at')
+                ->orderBy('condition_number')->get();
+            foreach ($conds as $cond) {
+                $author = $cond->added_by_party_id ? $template->requests->firstWhere('id', $cond->added_by_party_id) : null;
+                $initialed = \App\Models\Docuperfect\ConditionInitial::where('initialable_type', \App\Models\Docuperfect\DocumentCondition::class)
+                    ->where('initialable_id', $cond->id)->where('party_key', $agentKey)->exists();
+                $amendmentItems[] = [
+                    'kind' => 'condition', 'id' => (string) $cond->id, 'party_key' => $agentKey, 'badge' => 'Other Condition',
+                    'location' => 'Other Conditions — #' . $cond->condition_number,
+                    'summary'  => \Illuminate\Support\Str::limit((string) $cond->content, 70),
+                    'author'   => $author?->signer_name, 'initialed' => (bool) $initialed,
+                ];
+            }
+        }
+
         return view('docuperfect.signatures.review', [
             'document' => $document,
+            'amendmentItems' => $amendmentItems,   // AT-373 — unified right-rail amendments panel data
             'template' => $template,
             'packSegmentTitles' => $packSegmentTitles,
             'completedRequest' => $completedRequest,
@@ -3049,6 +3094,74 @@ class SignatureController extends Controller
         $result = $this->signatureService->recordChangeInitial($template, $validated['change_id'], (string) $user->name, $partyKey, $validated['initial_image']);
 
         return response()->json($result, empty($result['ok']) ? 422 : 200);
+    }
+
+    /**
+     * AT-373 — INTERNAL agent per-CONDITION initial (the Other Condition equivalent of initialChange).
+     * On the Agent Review page the agent must be able to initial an added Other Condition in the SAME
+     * unified mechanism as a body amendment, so the outstanding count can reach 0 and Approve enables.
+     * Creates the agent's ConditionInitial (party_key 'agent') and adopts the drawn/typed ink into
+     * web_template_data['signed_initials']['agent']['condition_{id}'] (same store the recipient path uses).
+     */
+    public function initialCondition(Request $request, Document $document, \App\Models\Docuperfect\DocumentCondition $condition)
+    {
+        $user = $request->user();
+        $this->authorizeDocument($user, $document);
+        $validated = $request->validate([
+            'initial_image' => ['required', 'string'],
+        ]);
+
+        $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+        if ((int) $condition->signature_template_id !== (int) $template->id) {
+            return response()->json(['ok' => false, 'error' => 'Condition does not belong to this document.'], 422);
+        }
+        // Internal actor party resolution (never trusted from the client), mirroring initialChange.
+        $role = ((int) $template->created_by === (int) $user->id) ? 'agent' : 'supervisor';
+        $mine = $template->requests()->where('party_role', $role)->first()
+            ?? $template->requests()->where('party_role', 'agent')->first();
+        $partyKey = $mine
+            ? (method_exists($mine, 'canonicalPartyKey') ? $mine->canonicalPartyKey() : (string) $mine->party_role)
+            : $role;
+
+        $existing = \App\Models\Docuperfect\ConditionInitial::query()
+            ->where('initialable_type', \App\Models\Docuperfect\DocumentCondition::class)
+            ->where('initialable_id', $condition->id)
+            ->where('party_key', $partyKey)
+            ->first();
+        if (! $existing) {
+            \App\Models\Docuperfect\ConditionInitial::create([
+                'initialable_type'     => \App\Models\Docuperfect\DocumentCondition::class,
+                'initialable_id'       => $condition->id,
+                'party_key'            => $partyKey,
+                'signature_request_id' => $mine?->id,
+                'amendment_id'         => $condition->amendment_id,
+                'initial_image_path'   => null,
+                'ip_address'           => $request->ip(),
+                'user_agent'           => substr((string) $request->userAgent(), 0, 500),
+            ]);
+        }
+
+        // Adopt the real ink into signed_initials (initial_image_path is varchar and cannot hold a data-URL).
+        $img = (string) $validated['initial_image'];
+        if (str_starts_with($img, 'data:image') && strlen($img) <= 2_000_000) {
+            $wtd    = is_array($document->web_template_data) ? $document->web_template_data : [];
+            $signed = is_array($wtd['signed_initials'] ?? null) ? $wtd['signed_initials'] : [];
+            $group  = is_array($signed[$partyKey] ?? null) ? $signed[$partyKey] : [];
+            $group['condition_' . $condition->id] = $img;
+            $signed[$partyKey] = $group;
+            $wtd['signed_initials'] = $signed;
+            $document->update(['web_template_data' => $wtd]);
+        }
+
+        SignatureAuditLog::log(
+            $template,
+            'condition_initialed',
+            SignatureAuditLog::ACTOR_USER,
+            (string) ($user->name ?? 'Agent'),
+            metadata: ['condition_id' => $condition->id, 'party_key' => $partyKey],
+        );
+
+        return response()->json(['ok' => true, 'condition_id' => $condition->id, 'party_key' => $partyKey]);
     }
 
     /**

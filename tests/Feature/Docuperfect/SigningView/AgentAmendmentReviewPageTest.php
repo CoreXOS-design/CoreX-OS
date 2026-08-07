@@ -77,14 +77,74 @@ final class AgentAmendmentReviewPageTest extends TestCase
         ]);
 
         $svc = app(SignatureService::class);
+        // The recipient makes a wet-ink body amendment AND adds an Other Condition, then completes.
         $edit = app(SelectionEditService::class)->strikeSelection(
             $tpl->fresh(), 'seven percent (7%)', 'The fee is ', ' of the price', 'six percent (6%)', null, 'inline'
         );
         $svc->recordChangeInitial($tpl->fresh(), $edit['change_id'], 'Anine Van der Westhuizen', 'seller', self::PNG);
+        $amendment = DocumentAmendment::create([
+            'signature_template_id' => $tpl->id, 'document_id' => $tpl->document_id,
+            'amendment_type' => DocumentAmendment::TYPE_ADDITION, 'section_reference' => 'Other Conditions',
+            'original_text' => '', 'new_text' => 'Seller to leave the light fittings.', 'status' => DocumentAmendment::STATUS_PENDING,
+        ]);
+        $condition = DocumentCondition::create([
+            'signature_template_id' => $tpl->id, 'block_id' => 'other_conditions', 'block_purpose' => 'other_conditions',
+            'condition_number' => 1, 'content' => 'Seller to leave the light fittings.',
+            'added_by_party_id' => $sellerReq->id, 'added_via' => 'recipient_signing', 'source' => 'custom', 'amendment_id' => $amendment->id,
+        ]);
+        \App\Models\Docuperfect\ConditionInitial::create([
+            'initialable_type' => DocumentCondition::class, 'initialable_id' => $condition->id,
+            'party_key' => 'seller', 'signature_request_id' => $sellerReq->id,
+        ]);
         $svc->handlePartyCompletion($tpl->fresh(), 'seller', $sellerReq);
         $this->assertSame(SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW, $tpl->fresh()->status);
+        $this->assertTrue($svc->amendmentCycle($tpl->fresh())['has_condition'] ?? false, 'cycle tracks the added condition');
 
-        return ['agent' => User::find($uid), 'doc' => $doc->fresh(), 'tpl' => $tpl->fresh(), 'sellerReq' => $sellerReq];
+        return ['agent' => User::find($uid), 'doc' => $doc->fresh(), 'tpl' => $tpl->fresh(),
+                'sellerReq' => $sellerReq, 'changeId' => $edit['change_id'], 'condition' => $condition];
+    }
+
+    public function test_approve_is_blocked_until_the_agent_initials_BOTH_body_and_condition(): void
+    {
+        ['agent' => $agent, 'tpl' => $tpl, 'changeId' => $cid, 'condition' => $condition] = $this->seedAmendmentReturnedToAgent();
+        $svc = app(SignatureService::class);
+
+        // Agent initials ONLY the body amendment — the Other Condition is still un-initialled → BLOCKED
+        // (this is the deadlock: the OC must be actionable/counted, not an unreachable "1 outstanding").
+        $svc->recordChangeInitial($tpl->fresh(), $cid, 'Johan Reichel', 'agent', self::PNG);
+        $this->assertTrue($svc->partyOwesConditionInitial($tpl->fresh(), 'agent'), 'agent still owes the OC initial');
+        $blocked = $svc->approveAmendmentNode($tpl->fresh(), $agent);
+        $this->assertFalse($blocked['ok'] ?? true, 'approve blocked while the Other Condition is not initialled');
+        $this->assertSame(SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW, $tpl->fresh()->status);
+
+        // Agent initials the Other Condition (what the internal condition-initial endpoint records).
+        \App\Models\Docuperfect\ConditionInitial::create([
+            'initialable_type' => DocumentCondition::class, 'initialable_id' => $condition->id,
+            'party_key' => 'agent', 'signature_request_id' => $tpl->requests()->where('party_role', 'agent')->value('id'),
+        ]);
+        $this->assertFalse($svc->partyOwesConditionInitial($tpl->fresh(), 'agent'), 'agent no longer owes the OC initial');
+
+        // Now BOTH are initialled → approve succeeds and the doc advances (deadlock resolved).
+        $ok = $svc->approveAmendmentNode($tpl->fresh(), $agent);
+        $this->assertTrue($ok['ok'] ?? false, 'approve succeeds once body AND condition are initialled');
+        $this->assertNotSame(SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW, $tpl->fresh()->status, 'the flow advanced past review');
+    }
+
+    public function test_internal_condition_initial_endpoint_records_the_agent_initial(): void
+    {
+        ['agent' => $agent, 'doc' => $doc, 'tpl' => $tpl, 'condition' => $condition] = $this->seedAmendmentReturnedToAgent();
+
+        $request = \Illuminate\Http\Request::create(
+            '/docuperfect/documents/' . $doc->id . '/signatures/condition/' . $condition->id . '/initial', 'POST',
+            ['initial_image' => self::PNG]
+        );
+        $request->setUserResolver(fn () => $agent);
+        $resp = app(SignatureController::class)->initialCondition($request, $doc->fresh(), $condition->fresh());
+        $this->assertSame(200, $resp->getStatusCode());
+        $this->assertTrue(
+            \App\Models\Docuperfect\ConditionInitial::where('initialable_id', $condition->id)->where('party_key', 'agent')->exists(),
+            'the agent condition-initial is recorded'
+        );
     }
 
     public function test_review_page_is_in_amendment_approval_mode_with_a_single_approve_and_the_modal(): void
@@ -99,11 +159,17 @@ final class AgentAmendmentReviewPageTest extends TestCase
 
         $this->assertTrue($data['isAmendmentApproval'] ?? false, 'the page renders in amendment-approval mode');
 
+        // The unified right-rail panel lists BOTH change types together, with the single Approve in its footer.
+        $items = $data['amendmentItems'] ?? [];
+        $this->assertContains('body', array_column($items, 'kind'), 'the panel data includes the body amendment');
+        $this->assertContains('condition', array_column($items, 'kind'), 'the panel data includes the Other Condition');
+
         $html = $view->render();
-        $this->assertStringContainsString('approveAmendmentBtn', $html, 'the single gated approve button is present');
-        $this->assertStringContainsString('signatures/amendment/approve', $html, 'it posts to the amendment approve endpoint (not approve-and-advance)');
-        $this->assertStringContainsString('Reject Amendment', $html, 'the amendment reject action is present');
-        $this->assertStringContainsString('agentCiModal', $html, 'the self-contained agent initial modal is included');
+        $this->assertStringContainsString('agentAmendPanel', $html, 'the sticky right-rail amendments panel is rendered');
+        $this->assertStringContainsString('signatures/amendment/approve', $html, 'the single Approve posts to the amendment approve endpoint');
+        $this->assertStringContainsString('Clause amendment', $html, 'the body amendment is listed');
+        $this->assertStringContainsString('Other Condition', $html, 'the Other Condition is listed in the SAME panel');
+        $this->assertStringContainsString('agentCiModal', $html, 'the self-contained capture modal (both change types) is included');
         // The next recipient exists → the label must say "send", never "Finalise".
         $this->assertStringContainsString('Approve &amp; Send to', $html, 'label reflects the real next step (send to next recipient)');
         $this->assertStringNotContainsString('Approve &amp; Finalise', $html, 'not mislabelled as Finalise when a next recipient exists');

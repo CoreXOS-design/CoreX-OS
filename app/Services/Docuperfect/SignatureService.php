@@ -2433,10 +2433,14 @@ class SignatureService
             return ['ok' => false, 'error' => 'The reviewing approval node could not be resolved.'];
         }
 
-        // Decision (i) — the approver must have placed their OWN initial on every cycle change first.
+        // Decision (i) — the approver must have placed their OWN initial on every cycle change first:
+        // both the wet-ink body amendments (cir-slots) AND any added Other Condition (condition-initial).
         $owed = $this->outstandingForPartyOnChanges($template, $node->canonicalPartyKey(), $cycle['change_ids']);
+        if (! empty($cycle['has_condition']) && $this->partyOwesConditionInitial($template, $node->canonicalPartyKey())) {
+            $owed++;
+        }
         if ($owed > 0) {
-            return ['ok' => false, 'error' => 'Initial each amendment before approving — approval is captured as your initial.'];
+            return ['ok' => false, 'error' => 'Initial each change — body amendment and Other Condition — before approving.'];
         }
 
         return DB::transaction(function () use ($template, $cycle, $node, $approver) {
@@ -2674,6 +2678,29 @@ class SignatureService
             }
         }
         return $owed;
+    }
+
+    /**
+     * AT-373 — does this party still owe an initial on any live recipient-added Other Condition?
+     * (A live DocumentCondition with no ConditionInitial for the party's key.) $partyKey is the party's
+     * canonicalPartyKey — the SAME key the internal condition-initial endpoint writes with.
+     */
+    public function partyOwesConditionInitial(SignatureTemplate $template, string $partyKey): bool
+    {
+        $liveConditionIds = \App\Models\Docuperfect\DocumentCondition::query()
+            ->where('signature_template_id', $template->id)
+            ->whereNull('superseded_at')
+            ->whereNull('deleted_at')
+            ->pluck('id');
+        if ($liveConditionIds->isEmpty()) {
+            return false;
+        }
+        $mineInitialed = \App\Models\Docuperfect\ConditionInitial::query()
+            ->where('initialable_type', \App\Models\Docuperfect\DocumentCondition::class)
+            ->whereIn('initialable_id', $liveConditionIds)
+            ->where('party_key', $partyKey)
+            ->pluck('initialable_id');
+        return $liveConditionIds->diff($mineInitialed)->isNotEmpty();
     }
 
     /** Remove the amendment-cycle marker from the document. */

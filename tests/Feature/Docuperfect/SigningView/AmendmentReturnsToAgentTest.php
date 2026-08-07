@@ -139,8 +139,15 @@ final class AmendmentReturnsToAgentTest extends TestCase
         $this->assertSame([$cid], $cycle['change_ids']);
         $this->assertTrue($cycle['has_condition'], 'the added Other Condition is tracked in the cycle');
 
-        // ── The agent initials the change (decision i) and APPROVES. ──
+        // ── The agent initials EACH change — the body amendment AND the Other Condition (decision i) —
+        //    then APPROVES. Approve is gated on BOTH (the P0 deadlock fix). ──
         $svc->recordChangeInitial($tpl->fresh(), $cid, 'Johan Reichel', 'agent', self::PNG);
+        $this->assertFalse($svc->approveAmendmentNode($tpl->fresh(), $agent)['ok'] ?? true,
+            'approve blocked while the agent has not initialled the Other Condition');
+        ConditionInitial::create([                                                             // agent initials the OC
+            'initialable_type' => DocumentCondition::class, 'initialable_id' => $condition->id,
+            'party_key' => 'agent', 'signature_request_id' => $reqs['agent']->id,
+        ]);
         $res = $svc->approveAmendmentNode($tpl->fresh(), $agent);
         $this->assertTrue($res['ok'] ?? false);
 
