@@ -1573,6 +1573,25 @@ class SigningController extends Controller
         if (!$capturedAnyMark && $signingRequest->signatures()->exists()) {
             $capturedAnyMark = true;
         }
+        // P0 follow-up (Johan 2026-08-08) — the AMENDMENT RE-INITIAL re-submit. A recipient who signed
+        // INLINE web-sig blocks in their FIRST round leaves NO Signature rows (inline marks are baked into
+        // the canonical + stored in signed_initials, never persisted as Signature rows), so the check above
+        // does not cover them. When an amendment re-circulates and that recipient re-enters to initial the
+        // change, they re-apply only the amendment initial (via the separate initialChange endpoint) and
+        // then click "Submit Signed Document" → completeWeb runs again with an EMPTY signatures/initials
+        // body. Without this, the floor false-positive-422s a fully-signed inline recipient on the
+        // re-initial round. Their authoritative "already signed once" evidence is the electronic_consent_given
+        // audit row written by their FIRST completion (logged BELOW the floor, so it only ever reflects a
+        // PRIOR round — a genuinely first-time empty POST has no such row and is still rejected). The
+        // outstanding-amendment-initial gate ABOVE already forces this round's re-initial to be done, so
+        // accepting prior consent here can never become an empty-completion hole.
+        if (!$capturedAnyMark
+            && SignatureAuditLog::where('signature_request_id', $signingRequest->id)
+                ->where('action', 'electronic_consent_given')
+                ->exists()
+        ) {
+            $capturedAnyMark = true;
+        }
         // The authorising practitioner signs their FULL parity set ONCE — at the
         // initial-review checkpoint right after the candidate (Johan 2026-08). The
         // post-external `supervisor_final` checkpoint is the completion/distribution

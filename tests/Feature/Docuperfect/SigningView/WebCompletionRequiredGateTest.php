@@ -125,6 +125,39 @@ final class WebCompletionRequiredGateTest extends TestCase
             'The floor must accept a recipient whose signature is already persisted via the marker path.');
     }
 
+    /**
+     * P0 follow-up (Johan 2026-08-08) — the AMENDMENT RE-INITIAL re-submit. A recipient who signed INLINE
+     * web-sig blocks leaves NO Signature rows, so on the amendment re-initial round they re-submit with an
+     * empty signatures/initials body. Their prior electronic_consent_given audit row (from their first
+     * completion) proves they already signed, so the floor must NOT false-positive-422 them.
+     */
+    public function test_complete_web_passes_for_returning_signer_with_prior_consent(): void
+    {
+        $session = $this->buildCanonicalTemplate111Session(sellerCount: 1, includeAgent: false);
+        $seller1 = $this->recipient($session['recipients'], 'seller', 1);
+
+        // Their FIRST completion logged electronic consent (no Signature rows for an inline signer).
+        \App\Models\Docuperfect\SignatureAuditLog::create([
+            'signature_template_id' => $session['signatureTemplate']->id,
+            'signature_request_id'  => $seller1->id,
+            'action'                => 'electronic_consent_given',
+            'actor_type'            => \App\Models\Docuperfect\SignatureAuditLog::ACTOR_SIGNER,
+            'actor_name'            => $seller1->signer_name,
+            'actor_email'           => $seller1->signer_email,
+        ]);
+
+        $response = $this->postJson('/sign/' . $seller1->token . '/complete-web', [
+            'consented'    => true,
+            'signatures'   => [],   // re-initial round: nothing re-signed inline
+            'initials'     => [],
+            'field_values' => [],
+        ]);
+
+        $error = (string) $response->json('error');
+        $this->assertStringNotContainsString('no signature was captured', $error,
+            'A returning signer with prior electronic consent must not be blocked by the no-signature floor.');
+    }
+
     /** Consent remains enforced (unchanged, but pinned alongside the new floor). */
     public function test_complete_web_still_requires_consent(): void
     {
