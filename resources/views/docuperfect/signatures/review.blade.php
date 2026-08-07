@@ -48,7 +48,7 @@
          Amendments panel occupies its OWN column beside it (review-aside), part of the page flow — NOT a
          floating card over the document. Stacks below the doc under 1280px. --}}
     @if($isAmendmentApproval ?? false)
-    <div class="review-columns" style="display:flex; gap:24px; align-items:flex-start;">
+    <div class="review-columns" style="display:flex; gap:16px; align-items:flex-start;">
     <div class="review-main space-y-4" style="flex:1 1 0%; min-width:0;">
     @endif
 
@@ -680,7 +680,8 @@
          document, not a floating overlay). The panel is position:sticky WITHIN this column. --}}
     @if($isAmendmentApproval ?? false)
     </div>{{-- /review-main --}}
-    <aside class="review-aside" style="width:360px; flex:0 0 360px;">
+    {{-- 260px column matching cc6's recipient panel (022c377a .recipient-amend-col: flex 0 0 260px). --}}
+    <aside class="review-aside" style="width:260px; flex:0 0 260px;">
         @include('docuperfect.signatures.partials._agent-amendments-panel')
     </aside>
     </div>{{-- /review-columns --}}
@@ -691,8 +692,10 @@
 
 @if($isAmendmentApproval ?? false)
 <style>
-    /* Real column layout — the panel is sticky WITHIN its own column, never floating over the document. */
-    #agentAmendPanel { position: sticky; top: 88px; width: 100%; max-height: calc(100vh - 108px); }
+    /* Real column layout matching cc6's recipient side (022c377a): a 260px column, the panel sticky
+       WITHIN it (top:16px, max-height calc(100vh - 32px)), never floating over the document. The panel's
+       INNER list scrolls independently (header + footer stay put) so it scrolls apart from the left nav. */
+    #agentAmendPanel { position: sticky; top: 16px; width: 100%; max-height: calc(100vh - 32px); overflow: hidden; }
     @media (max-width: 1279px) {
         .review-columns { flex-direction: column !important; }
         .review-aside { width: 100% !important; flex-basis: auto !important; }

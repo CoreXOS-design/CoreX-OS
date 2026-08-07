@@ -139,6 +139,12 @@ final class AmendmentReturnsToAgentTest extends TestCase
         $this->assertSame([$cid], $cycle['change_ids']);
         $this->assertTrue($cycle['has_condition'], 'the added Other Condition is tracked in the cycle');
 
+        // The approve button must reflect the REAL next step — a PRIOR recipient re-initials FIRST — so it
+        // reads "Send to <prior> to initial", NEVER "Finalise" (the last-recipient-amends label bug).
+        $step = $svc->amendmentApprovalNextStep($tpl->fresh());
+        $this->assertSame('initial', $step['action'] ?? null, 'next step is a prior re-initial, not finalise');
+        $this->assertSame('Anine Van der Westhuizen', $step['name'] ?? null, 'the prior recipient (rec 1) is named on the button');
+
         // ── The agent initials EACH change — the body amendment AND the Other Condition (decision i) —
         //    then APPROVES. Approve is gated on BOTH (the P0 deadlock fix). ──
         $svc->recordChangeInitial($tpl->fresh(), $cid, 'Johan Reichel', 'agent', self::PNG);

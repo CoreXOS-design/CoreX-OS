@@ -2729,6 +2729,35 @@ class SignatureService
         });
     }
 
+    /**
+     * AT-373 — the REAL next step after the agent approves the current amendment, for the approve-button
+     * label. After approval the PRIOR recipients (everyone who signed before the amender — INCLUDING joint
+     * co-signers) re-initial the change FIRST; only once none owe does a not-yet-reached recipient sign,
+     * and only when neither remains does the document finalise. So the button must say "Send to <prior> to
+     * initial" for a last-recipient amendment, never "Finalise" while a prior still owes.
+     * @return array{key:string,name:string,action:string}|null  null ⇒ the agent is genuinely the last action.
+     */
+    public function amendmentApprovalNextStep(SignatureTemplate $template): ?array
+    {
+        $cycle = $this->amendmentCycle($template);
+        if ($cycle === null) {
+            return null;
+        }
+        $prior = $this->orderedRecipientsOwingInitial($template, $cycle)->first();
+        if ($prior) {
+            return ['key' => $prior->canonicalPartyKey(), 'name' => $prior->signer_name ?: ucfirst((string) $prior->party_role), 'action' => 'initial'];
+        }
+        $next = $template->requests()
+            ->where('status', SignatureRequest::STATUS_WAITING)
+            ->orderBy('signing_order')
+            ->get()
+            ->first(fn ($r) => $this->isRecipientRole($r->party_role));
+        if ($next) {
+            return ['key' => $next->canonicalPartyKey(), 'name' => $next->signer_name ?: ucfirst((string) $next->party_role), 'action' => 'sign'];
+        }
+        return null;
+    }
+
     /** Remove the amendment-cycle marker from the document. */
     private function clearAmendmentCycle(SignatureTemplate $template): void
     {
@@ -2823,7 +2852,7 @@ class SignatureService
         ]);
 
         try {
-            $url = route('signatures.external.sign', $token);
+            $url = route('signatures.external', $token);
             Mail::to($req->signer_email)->send(
                 (new SigningRequestMail(
                     signerName:      $req->signer_name,
@@ -2897,7 +2926,7 @@ class SignatureService
                 'status'           => SignatureRequest::STATUS_PENDING,
             ]);
             try {
-                $url = route('signatures.external.sign', $token);
+                $url = route('signatures.external', $token);
                 Mail::to($editor->signer_email)->send(
                     (new SigningRequestMail(
                         signerName:      $editor->signer_name,
@@ -5069,7 +5098,7 @@ class SignatureService
             'status' => SignatureRequest::STATUS_PENDING,
         ]);
         try {
-            $url = route('signatures.external.sign', $token);
+            $url = route('signatures.external', $token);
             Mail::to($request->signer_email)->send(
                 (new SigningRequestMail(
                     signerName: $request->signer_name,

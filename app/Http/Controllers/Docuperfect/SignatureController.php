@@ -2438,18 +2438,15 @@ class SignatureController extends Controller
         // so the approve label says "send to the next recipient", never "finalise" — unless the agent truly
         // is the last action (no recipient still pending). $nextPartyName is set for a clean label.
         $nextPartyDisplayName = null;
+        $amendNextAction = null;   // AT-373 — 'initial' (a prior re-initials) | 'sign' (next recipient) | null
         if ($isAmendmentApproval) {
-            $svc = app(\App\Services\Docuperfect\SignatureService::class);
-            $notYet = [
-                SignatureRequest::STATUS_WAITING, SignatureRequest::STATUS_PENDING,
-                SignatureRequest::STATUS_VIEWED, 'partially_signed',
-            ];
-            $nextReq = $template->requests
-                ->filter(fn ($r) => $svc->isRecipientRole($r->party_role) && in_array($r->status, $notYet, true))
-                ->sortBy('signing_order')
-                ->first();
-            $nextParty = $nextReq?->canonicalPartyKey();
-            $nextPartyDisplayName = $nextReq?->signer_name;
+            // The REAL post-approval step: a prior recipient re-initials FIRST (even when the amender was
+            // the LAST recipient), then the next recipient signs, then finalise. Drives the button label so
+            // it never says "Finalise" while a prior still owes an initial.
+            $step = app(\App\Services\Docuperfect\SignatureService::class)->amendmentApprovalNextStep($template);
+            $nextParty = $step['key'] ?? null;
+            $nextPartyDisplayName = $step['name'] ?? null;
+            $amendNextAction = $step['action'] ?? null;
         }
 
         // Get progress for the completed party
@@ -2609,6 +2606,7 @@ class SignatureController extends Controller
             'user' => $user,
             'isAmendmentApproval' => $isAmendmentApproval,   // AT-373 — recipient amendment awaiting agent approval
             'nextPartyDisplayName' => $nextPartyDisplayName,  // AT-373 — the next recipient's name for the approve label
+            'amendNextAction' => $amendNextAction,            // AT-373 — 'initial' | 'sign' | null (drives the label verb)
             'isCandidateFlow' => $isCandidateFlow,
             'candidateName' => $candidateName,
             'isWebTemplate' => $isWebTemplate,
@@ -2906,16 +2904,15 @@ class SignatureController extends Controller
         $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
         $result = $this->signatureService->approveAmendmentNode($template, $user);
 
-        $templateType   = $document->template?->template_type ?? 'rentals';
-        $dashboardRoute = $templateType === 'sales' ? 'docuperfect.sales' : 'docuperfect.rental';
-
         if (empty($result['ok'])) {
             return back()->with('error', $result['error'] ?? 'Could not approve the amendment.');
         }
         $msg = ($result['action'] ?? null) === 'advanced_chain'
-            ? 'Amendment approved. Sent to the next approver.'
-            : 'Amendment approved. Earlier signers will be asked to initial the change.';
-        return redirect()->route($dashboardRoute)->with('status', $msg);
+            ? 'Amendment approved — sent to the next approver.'
+            : 'Amendment approved. Earlier signers are being asked to initial the change before the document continues.';
+        // AT-373 — return the agent to My E-Sign Documents (where they came from), NEVER /docuperfect/rental
+        // (that stray dashboard redirect tripped a browser "dangerous site" warning).
+        return redirect()->route('docuperfect.esign.myDocuments')->with('status', $msg);
     }
 
     /**
@@ -2933,13 +2930,10 @@ class SignatureController extends Controller
         $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
         $result = $this->signatureService->rejectAmendmentNode($template, $user, $validated['reason'] ?? null);
 
-        $templateType   = $document->template?->template_type ?? 'rentals';
-        $dashboardRoute = $templateType === 'sales' ? 'docuperfect.sales' : 'docuperfect.rental';
-
         if (empty($result['ok'])) {
             return back()->with('error', $result['error'] ?? 'Could not reject the amendment.');
         }
-        return redirect()->route($dashboardRoute)
+        return redirect()->route('docuperfect.esign.myDocuments')
             ->with('status', 'Amendment rejected and removed. The signer who proposed it will be asked to re-accept the document.');
     }
 

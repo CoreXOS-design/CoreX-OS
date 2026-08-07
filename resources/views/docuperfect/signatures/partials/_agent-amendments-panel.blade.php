@@ -11,7 +11,13 @@
 @php
     $items = $amendmentItems ?? [];
     $agentInitials = collect(preg_split('/\s+/', trim((string)($user->name ?? 'Agent'))))->filter()->map(fn($p)=>mb_strtoupper(mb_substr($p,0,1)))->take(3)->implode('');
-    $approveLabel = $nextParty ? ('Approve &amp; Send to ' . e($amendNextName ?? $nextPartyLabel ?? 'next')) : 'Approve &amp; Finalise';
+    // The REAL next step drives the label: a prior recipient re-initials FIRST (even when the amender was
+    // the LAST recipient), so it reads "Send to <prior> to initial" — never "Finalise" while a prior owes.
+    $amendNextName = $nextPartyDisplayName ?? 'the next recipient';
+    $amendNextVerb = (($amendNextAction ?? null) === 'initial') ? ' to initial' : '';
+    $approveLabel  = $nextParty
+        ? ('Approve &amp; Send to ' . e($amendNextName) . $amendNextVerb)
+        : 'Approve &amp; Finalise';
 @endphp
 
 <style>
@@ -25,9 +31,8 @@
      position:sticky (set on #agentAmendPanel by the review page) keeps it in view while the document
      scrolls — it is part of the page flow, NOT a floating overlay over the document. --}}
 <div id="agentAmendPanel" x-data="agentAmendmentPanel(@js($items))"
-     style="width:100%; max-height:calc(100vh - 108px); overflow:auto;
-            background:#ffffff; border:1px solid #e2e8f0; border-radius:14px; box-shadow:0 4px 16px rgba(15,23,42,0.06);
-            display:flex; flex-direction:column;">
+     style="width:100%; background:#ffffff; border:1px solid #e2e8f0; border-radius:14px;
+            box-shadow:0 4px 16px rgba(15,23,42,0.06); display:flex; flex-direction:column;">
     <div style="padding:14px 16px; border-bottom:1px solid #e2e8f0; display:flex; align-items:center; gap:8px;">
         <span style="font-weight:600; color:#0f172a;">Amendments</span>
         <span style="margin-left:auto; font-size:12px; font-weight:600; color:#fff; background:#f59e0b; border-radius:999px; padding:2px 9px;" x-text="items.length"></span>
