@@ -2163,6 +2163,22 @@ function externalSign() {
                         return;
                     }
 
+                    // RETURNING-SIGNER round (re-initial / re-acceptance): this ceremony span already carries
+                    // the value captured at INITIAL signing — cc2's serve path (applyCeremonyValues) filled it
+                    // and stamped data-signed="true". A signer's original place/date/time is a HISTORICAL FACT,
+                    // not re-editable in this round; and prefills has NO 'location' key, so replacing the filled
+                    // span with a fresh editable input would BLANK the location (Johan 2026-08-08). Keep it
+                    // READ-ONLY showing the persisted value, and register it so it travels + never counts as
+                    // incomplete. (A first-time signer's ceremony spans are never data-signed, so they still
+                    // become editable inputs below.)
+                    if (el.getAttribute('data-signed') === 'true') {
+                        const carried = el.textContent.trim();
+                        if (carried !== '') {
+                            self.webCeremonyValues[ceremonyKeyParty + '_' + fieldType] = carried;
+                        }
+                        return;
+                    }
+
                     // Replace span with an inline input
                     const input = document.createElement('input');
                     input.type = 'text';
