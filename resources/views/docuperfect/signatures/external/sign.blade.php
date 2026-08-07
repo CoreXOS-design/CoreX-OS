@@ -475,16 +475,22 @@
                                 style="display:none; position:fixed; z-index:9500; background:#b45309;">✎ Amend this</button>
                     </template>
 
-                    {{-- STICKY toolbar — always reachable while the user scrolls the document. --}}
+                    {{-- STICKY amend panel — the right-gutter counterpart of the left "How to sign" rail on
+                         wide screens, a clean compact bottom bar on narrower ones. Titled + light-carded so it
+                         reads as a deliberate part of the page, never a floating tooltip. --}}
                     <template x-teleport="body">
-                        <div class="sel-sticky-bar" role="toolbar">
+                        <div class="sel-sticky-bar" role="region" aria-label="Amend a clause">
+                            <div class="sel-amend-head">
+                                <span class="sel-amend-head-icon" aria-hidden="true">✎</span>
+                                <span>Amend a clause</span>
+                            </div>
                             <div class="sel-amend-info">
-                                <span class="sel-amend-label">Highlighted</span>
-                                <span class="sel-amend-text" x-text="selected ? ('“' + selected.slice(0,60) + (selected.length>60?'…':'') + '”') : 'nothing yet — drag to highlight text in the document'"></span>
+                                <span class="sel-amend-label">Highlighted text</span>
+                                <span class="sel-amend-text" :class="selected ? 'has-sel' : 'is-hint'"
+                                      x-text="selected ? ('“' + selected.slice(0,80) + (selected.length>80?'…':'') + '”') : 'Nothing yet — drag to highlight any word, phrase or clause in the document.'"></span>
                             </div>
                             <button type="button" @click="openFromSelection()" :disabled="!selected"
-                                    class="sel-amend-btn"
-                                    :style="selected ? 'background:#b45309' : 'background:#475569;opacity:.6;cursor:not-allowed'">✎ Amend highlighted text</button>
+                                    class="sel-amend-btn">✎ Amend highlighted text</button>
                         </div>
                     </template>
 
@@ -644,29 +650,64 @@
                 <style>
                     .sel-modal-overlay { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center;
                         justify-content: center; padding: 1rem; background: rgba(0,0,0,.6); }
-                    /* The amend control. DEFAULT (narrower screens) = compact bottom bar sitting ABOVE the
-                       fixed "N items remaining / Go to next" nav (FIX 3, bottom:16px) so they never overlap.
-                       On WIDE screens it moves into the empty RIGHT gutter (FIX 1, Johan 2026-08-07) — the
-                       orange Go-to-next nav stays at the bottom, only this blue control relocates. Sticky
-                       (position:fixed) in both, always showing the current highlighted text + Amend button. */
-                    .sel-sticky-bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 88px; z-index: 9000;
-                        display: flex; align-items: center; gap: .7rem; width: min(720px, 94vw);
-                        background: #0b2a4a; color: #fff; padding: .55rem .9rem; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
-                    .sel-sticky-bar .sel-amend-info { display: flex; align-items: center; gap: .5rem; min-width: 0; flex: 1; }
-                    .sel-sticky-bar .sel-amend-label { font-size: .62rem; text-transform: uppercase; letter-spacing: .05em; color: #94a3b8; flex-shrink: 0; }
-                    .sel-sticky-bar .sel-amend-text { font-size: .72rem; font-weight: 500; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 340px; }
-                    .sel-sticky-bar .sel-amend-btn { flex-shrink: 0; margin-left: auto; padding: .4rem 1rem; font-size: .72rem; font-weight: 600; border-radius: 8px; color: #fff; }
-                    /* FIX 1 — wide screens: right-gutter vertical panel (the A4 doc's right edge sits at ~1150px,
-                       so a 240px bar docked at right:28 clears it once the viewport is wider than ~1417px). The
-                       breakpoint is 1440px, NOT 1600px: a 1920px monitor at 125% Windows scaling reports only
-                       1536 CSS px, and a non-maximised window is narrower still — at 1600px the bar never docked
-                       on a normal wide desktop (Johan 2026-08-07, ISSUE A). Below 1440px keep the safe bottom bar. */
+                    /* The amend control — styled to MATCH the left "How to sign" rail (light card, #e2e8f0
+                       borders, slate type, amber action) so it reads as a deliberate part of the page, never a
+                       floating navy tooltip (Johan 2026-08-07 redesign). DEFAULT (narrower than 1440px) = a clean
+                       compact white bar docked at the bottom, ABOVE the orange "Go to next" nav (they never
+                       overlap). WIDE (>=1440px) = a titled sticky card in the empty RIGHT gutter, aligned BELOW
+                       the dark header so it never overlaps the title block. Sticky (position:fixed) in both. */
+                    .sel-sticky-bar {
+                        position: fixed; z-index: 9000;
+                        left: 50%; transform: translateX(-50%); bottom: 88px;
+                        width: min(760px, 94vw);
+                        display: flex; align-items: center; gap: .75rem;
+                        background: #ffffff; color: #0f172a;
+                        border: 1px solid #e2e8f0; border-radius: 12px;
+                        padding: .6rem .85rem;
+                        box-shadow: 0 8px 24px rgba(15, 23, 42, .12);
+                        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                    }
+                    .sel-sticky-bar .sel-amend-head { display: none; }   /* title shows only in the wide card */
+                    .sel-sticky-bar .sel-amend-info { display: flex; align-items: baseline; gap: .5rem; min-width: 0; flex: 1; }
+                    .sel-sticky-bar .sel-amend-label { font-size: .62rem; text-transform: uppercase; letter-spacing: .06em; color: #64748b; font-weight: 600; flex-shrink: 0; }
+                    .sel-sticky-bar .sel-amend-text { font-size: .8rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 380px; }
+                    .sel-sticky-bar .sel-amend-text.has-sel { color: #0f172a; }
+                    .sel-sticky-bar .sel-amend-text.is-hint { color: #94a3b8; font-weight: 400; }
+                    .sel-sticky-bar .sel-amend-btn {
+                        flex-shrink: 0; margin-left: auto;
+                        padding: .5rem 1rem; font-size: .74rem; font-weight: 600; border-radius: 8px;
+                        color: #fff; background: #b45309;
+                        display: inline-flex; align-items: center; justify-content: center; gap: .3rem;
+                        transition: background .12s ease;
+                    }
+                    .sel-sticky-bar .sel-amend-btn:hover:not(:disabled) { background: #92400e; }
+                    .sel-sticky-bar .sel-amend-btn:disabled { background: #cbd5e1; color: #f1f5f9; cursor: not-allowed; }
+                    /* WIDE — a titled card in the right gutter (the A4 doc's right edge sits at ~1150px, so a
+                       264px card at right:24 clears it once the viewport passes ~1440px). top:150px starts it
+                       BELOW the dark header. Breakpoint is 1440px, NOT 1600px: a 1920px monitor at 125% Windows
+                       scaling reports only 1536 CSS px (Johan 2026-08-07, ISSUE A). Below 1440px = the bottom bar. */
                     @media (min-width: 1440px) {
-                        .sel-sticky-bar { left: auto; right: 28px; bottom: auto; top: 104px; transform: none;
-                            width: 240px; flex-direction: column; align-items: stretch; gap: .55rem; padding: .85rem .95rem; }
-                        .sel-sticky-bar .sel-amend-info { flex-direction: column; align-items: flex-start; gap: .2rem; }
-                        .sel-sticky-bar .sel-amend-text { max-width: 100%; white-space: normal; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
-                        .sel-sticky-bar .sel-amend-btn { margin-left: 0; width: 100%; text-align: center; }
+                        .sel-sticky-bar {
+                            left: auto; right: 24px; transform: none;
+                            bottom: auto; top: 150px;
+                            width: 264px;
+                            flex-direction: column; align-items: stretch; gap: .7rem;
+                            padding: 16px 18px; border-radius: 14px;
+                            box-shadow: 0 10px 30px rgba(15, 23, 42, .10);
+                        }
+                        .sel-sticky-bar .sel-amend-head {
+                            display: flex; align-items: center; gap: .45rem;
+                            font-size: 13px; font-weight: 600; color: #0f172a;
+                            padding-bottom: 10px; border-bottom: 1px solid #e2e8f0;
+                        }
+                        .sel-sticky-bar .sel-amend-head-icon {
+                            display: inline-flex; align-items: center; justify-content: center;
+                            width: 22px; height: 22px; border-radius: 50%;
+                            background: #fff7ed; color: #b45309; font-size: 12px; flex-shrink: 0;
+                        }
+                        .sel-sticky-bar .sel-amend-info { flex-direction: column; align-items: flex-start; gap: .3rem; }
+                        .sel-sticky-bar .sel-amend-text { max-width: 100%; white-space: normal; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; }
+                        .sel-sticky-bar .sel-amend-btn { margin-left: 0; width: 100%; padding: .6rem 1rem; }
                     }
                     .change-margin { float: right; clear: right; margin: .1rem 0 .35rem 1rem; padding: .2rem .55rem;
                         border-left: 3px solid #d97706; background: #fffbeb; border-radius: 0 6px 6px 0; font-size: .62rem; color: #92400e; max-width: 40%; }
