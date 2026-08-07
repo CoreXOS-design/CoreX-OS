@@ -548,10 +548,14 @@ final class SellerOutreachComposerService
 
     private function cooldownSignal(int $agencyId, Contact $contact): ?array
     {
+        // A not_sent pitch never reached the contact — it must not count as a
+        // recent contact for the "Recently contacted" soft signal, or the banner
+        // cites a message that was never delivered.
         $recent = SellerOutreachSend::withoutGlobalScopes()
             ->where('agency_id', $agencyId)
             ->where('contact_id', $contact->id)
             ->whereNull('deleted_at')
+            ->where('outcome', '!=', SellerOutreachSend::OUTCOME_NOT_SENT)
             ->where('sent_at', '>=', now()->subDays(7))
             ->latest('sent_at')
             ->first();
