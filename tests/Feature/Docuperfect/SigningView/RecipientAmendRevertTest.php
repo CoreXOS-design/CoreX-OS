@@ -206,4 +206,34 @@ final class RecipientAmendRevertTest extends TestCase
             'selected' => 'seven percent (7%)', 'replacement' => 'six percent (6%)', 'mode' => 'inline',
         ])->assertStatus(403);
     }
+
+    // ── FIX 3 (Johan 2026-08-07) — inline SUB-FRAGMENT of a clause must locate, not only whole lines ──
+
+    public function test_recipient_can_amend_an_inline_sub_fragment(): void
+    {
+        [, $token] = $this->seedSignableDocForRecipient('pending');
+
+        // "(7%)" is a mid-clause fragment (not a whole line) — the exact shape Johan reported failing.
+        $resp = $this->postJson(route('signatures.external.editSelection', $token), [
+            'selected' => '(7%)', 'prefix' => 'seven percent ', 'suffix' => ' of the price',
+            'replacement' => '(6%)', 'mode' => 'inline',
+        ]);
+        $resp->assertOk();
+        $resp->assertJson(['ok' => true, 'old' => '(7%)']);
+        $this->assertNotEmpty($resp->json('change_id'), 'the inline fragment resolves to a DOM anchor and strikes');
+    }
+
+    public function test_unlocatable_selection_returns_422_and_diagnostic_never_breaks_the_response(): void
+    {
+        [, $token] = $this->seedSignableDocForRecipient('pending');
+
+        // Text that is simply not in the document → locate fails. The FIX 3 diagnostic branch runs here;
+        // it must log-only and never alter the 422 contract or throw.
+        $resp = $this->postJson(route('signatures.external.editSelection', $token), [
+            'selected' => 'this phrase does not exist anywhere in the document body',
+            'replacement' => 'x', 'mode' => 'inline',
+        ]);
+        $resp->assertStatus(422);
+        $resp->assertJson(['ok' => false]);
+    }
 }

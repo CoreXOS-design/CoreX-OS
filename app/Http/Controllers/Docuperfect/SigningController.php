@@ -4025,6 +4025,34 @@ CSS;
             $validated['mode'] ?? 'inline',
         );
 
+        // FIX 3 diagnostic (Johan 2026-08-07) — a recipient's inline-fragment amend intermittently fails to
+        // LOCATE ("Could not locate the highlighted text") on live docs, but not reproducibly on fresh ones.
+        // When a locate fails, capture the EXACT payload + whether the selection's whitespace-stripped form is
+        // present in the document's text (and where), so the cause is unambiguous the instant it recurs —
+        // whether the client sent text absent from the amend source (present=NO) or the text is there but
+        // skipped (already inside a change mark / style — present=yes but locate still failed). Log-only;
+        // wrapped so it can never affect the response.
+        if (empty($result['ok'])) {
+            try {
+                $canvas   = \App\Services\Docuperfect\CanonicalDocumentRenderer::amendSource($template->document->web_template_data ?? []);
+                $docText  = (string) preg_replace('/\s+/u', '', strip_tags((string) preg_replace('/<(style|script)\b[^>]*>.*?<\/\1>/is', '', $canvas['html'] ?? '')));
+                $selDense = (string) preg_replace('/\s+/u', '', (string) $validated['selected']);
+                $pos      = $selDense !== '' ? mb_strpos($docText, $selDense) : false;
+                \Illuminate\Support\Facades\Log::warning('AT-373 recipient editSelection LOCATE-FAIL', [
+                    'document_id'       => $template->document?->id,
+                    'party_key'         => method_exists($signingRequest, 'canonicalPartyKey') ? $signingRequest->canonicalPartyKey() : $signingRequest->party_role,
+                    'error'             => $result['error'] ?? null,
+                    'mode'              => $validated['mode'] ?? 'inline',
+                    'baked'             => $canvas['baked'] ?? null,
+                    'selected'          => mb_substr((string) $validated['selected'], 0, 140),
+                    'prefix'            => mb_substr((string) ($validated['prefix'] ?? ''), 0, 60),
+                    'suffix'            => mb_substr((string) ($validated['suffix'] ?? ''), 0, 60),
+                    'selDenseInDocText' => $pos !== false ? "yes@{$pos}" : 'NO',
+                    'docTextSnippet'    => $pos !== false ? mb_substr($docText, max(0, $pos - 20), 90) : null,
+                ]);
+            } catch (\Throwable $e) { /* diagnostic must never break the amend response */ }
+        }
+
         return response()->json($result, empty($result['ok']) ? 422 : 200);
     }
 
