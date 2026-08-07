@@ -1306,6 +1306,23 @@ class SignatureService
             // If a RECIPIENT (a party outside the approval chain) just completed, require agent approval
             if ($this->isRecipientRole($completedParty)) {
 
+                // AT-373 (Issue C) — the amendment-approval gate takes PRECEDENCE over the joint-signer
+                // group-handoff. If this recipient raised ANY amendment on their turn — a wet-ink
+                // strike/reword OR an added Other Condition — the document RETURNS TO THE AGENT for
+                // approval BEFORE it advances, EVEN to a co-signer in the SAME signing_group. Previously
+                // the HD-5 group-handoff (below) ran first and returned early, so a joint seller's
+                // amendment was skipped and the pen handed straight to the next co-signer (the doc 718
+                // bug). The chain approves, then the SEQUENTIAL cascade (inc4) re-initials the
+                // already-signed recipients — including on the added condition — before the flow
+                // continues forward. A CLEAN joint accept (no amendment) still hands to the group below.
+                if ($request) {
+                    $signal = $this->recipientPendingAmendmentSignal($template, $request);
+                    if ($signal !== null) {
+                        $this->openAmendmentCycle($template, $request, $signal['change_ids'], $signal['condition']);
+                        return;
+                    }
+                }
+
                 // HD-5 (§4) — the checkpoint fires between GROUPS, not between people.
                 //
                 // Joint sellers signing the same mandate are one group: asking the agent to authorise
@@ -1337,21 +1354,6 @@ class SignatureService
                     $this->advanceToNextParty($template, $completedParty, $nextInGroup);
 
                     return;
-                }
-
-                // AT-373 (inc3) — the TWO-STAGE edit-approval gate. Did this party author a
-                // wet-ink edit AT THEIR TURN that has not yet been approved by the chain? If so
-                // the edit does NOT flow straight to the next recipient — it re-enters the loop
-                // at the TOP of the approval chain (A1) for approval, generic over chain length,
-                // BEFORE any already-signed recipient re-initials it. The editor's own change
-                // initial was captured at edit time (inc2); the chain approves, then the
-                // SEQUENTIAL cascade (inc4) re-initials the earlier signers, one at a time.
-                if ($request) {
-                    $unreviewed = $this->unreviewedWetInkChangeIds($template);
-                    if ($unreviewed !== []) {
-                        $this->openAmendmentCycle($template, $request, $unreviewed);
-                        return;
-                    }
                 }
 
                 // ESIGN-WETINK Ruling #1 (Elize flow optimisation) — a CLEAN accept
@@ -2209,11 +2211,40 @@ class SignatureService
         return $this->amendmentCycle($template) !== null || $this->unreviewedWetInkChangeIds($template) !== [];
     }
 
-    /** The active amendment cycle marker (['change_ids','editor_key','editor_request_id','chain_pos','phase']) or null. */
+    /** The active amendment cycle marker (['change_ids','has_condition','editor_key','editor_request_id','chain_pos','phase']) or null. */
     public function amendmentCycle(SignatureTemplate $template): ?array
     {
         $cycle = $this->docWtd($template)['amendment_cycle'] ?? null;
-        return is_array($cycle) && ! empty($cycle['change_ids']) ? $cycle : null;
+        // A cycle is active when it carries a wet-ink change OR an added Other Condition (a
+        // condition-only amendment has no wet-ink change_ids but must still hold for approval).
+        return is_array($cycle) && (! empty($cycle['change_ids']) || ! empty($cycle['has_condition']))
+            ? $cycle : null;
+    }
+
+    /**
+     * AT-373 (Issue C) — does this recipient's just-completed turn carry an UNREVIEWED amendment that
+     * must return to the agent? Two amendment mechanisms qualify:
+     *   - wet-ink strike/reword → pending_body_changes (unreviewedWetInkChangeIds), and/or
+     *   - an added Other Condition → a live DocumentCondition this request authored (added_via
+     *     recipient_signing) whose backing DocumentAmendment is still pending review.
+     * Returns ['change_ids' => string[], 'condition' => bool] when an amendment is present, else null.
+     */
+    public function recipientPendingAmendmentSignal(SignatureTemplate $template, SignatureRequest $request): ?array
+    {
+        $changeIds = $this->unreviewedWetInkChangeIds($template);
+
+        $addedCondition = \App\Models\Docuperfect\DocumentCondition::query()
+            ->where('signature_template_id', $template->id)
+            ->where('added_by_party_id', $request->id)
+            ->where('added_via', 'recipient_signing')
+            ->whereNull('superseded_at')
+            ->whereNull('deleted_at')
+            ->exists();
+
+        if ($changeIds === [] && ! $addedCondition) {
+            return null;
+        }
+        return ['change_ids' => $changeIds, 'condition' => $addedCondition];
     }
 
     /**
@@ -2267,13 +2298,13 @@ class SignatureService
     }
 
     /**
-     * INC 3 — open the two-stage edit-approval cycle. The editing party K has completed
-     * (signed) with a fresh wet-ink edit; route that edit to the TOP of the approval chain
-     * (A1) for approval before any re-initialing. Generic over chain length; if the chain
-     * is empty (no approver above the recipients — should not happen for a real ceremony)
-     * the edit is treated as self-approved and the flow resumes.
+     * INC 3 / Issue C — open the two-stage edit-approval cycle. The editing party K has completed
+     * (signed) with a fresh amendment — a wet-ink edit ($changeIds) and/or an added Other Condition
+     * ($hasCondition). Route it to the TOP of the approval chain (A1) for approval before any
+     * re-initialing. Generic over chain length; if the chain is empty (no approver above the
+     * recipients — should not happen for a real ceremony) the edit is treated as self-approved.
      */
-    public function openAmendmentCycle(SignatureTemplate $template, SignatureRequest $editor, array $changeIds): void
+    public function openAmendmentCycle(SignatureTemplate $template, SignatureRequest $editor, array $changeIds, bool $hasCondition = false): void
     {
         $chain = $this->preRecipientApprovalChain($template);
         if ($chain->isEmpty()) {
@@ -2286,6 +2317,7 @@ class SignatureService
         $wtd = $this->docWtd($template);
         $wtd['amendment_cycle'] = [
             'change_ids'        => array_values($changeIds),
+            'has_condition'     => $hasCondition,
             'editor_key'        => $editor->canonicalPartyKey(),
             'editor_request_id' => $editor->id,
             'chain_pos'         => 0,
@@ -2299,10 +2331,11 @@ class SignatureService
             SignatureAuditLog::ACTOR_SYSTEM,
             'System',
             metadata: [
-                'change_ids'  => array_values($changeIds),
-                'editor_key'  => $editor->canonicalPartyKey(),
-                'editor_name' => $editor->signer_name,
-                'chain_size'  => $chain->count(),
+                'change_ids'    => array_values($changeIds),
+                'has_condition' => $hasCondition,
+                'editor_key'    => $editor->canonicalPartyKey(),
+                'editor_name'   => $editor->signer_name,
+                'chain_size'    => $chain->count(),
             ],
         );
 
@@ -2464,6 +2497,14 @@ class SignatureService
      */
     protected function proceedAfterChainApproval(SignatureTemplate $template, ?SignatureRequest $editor): void
     {
+        // Issue C — when the amendment includes an added Other Condition, mark its pending backing
+        // DocumentAmendment(s) approved (chain-reviewed) so the condition is now agreed; the prior
+        // recipients then re-initial it in the cascade below (driven by orderedRecipientsOwingInitial).
+        $cycle = $this->amendmentCycle($template);
+        if (! empty($cycle['has_condition'])) {
+            $this->approvePendingRecipientConditions($template);
+        }
+
         // inc4 replaces the body of this branch with beginSequentialAmendmentInitialing().
         if ($this->hasAlreadySignedRecipientsOwingInitial($template)) {
             $this->beginSequentialAmendmentInitialing($template);
@@ -2488,36 +2529,93 @@ class SignatureService
 
     /**
      * Ordered (signing_order asc) already-signed recipients that owe an initial on the cycle's
-     * changes — the sequential cascade worklist. Excludes the editor (already initialed at edit
-     * time) and any party with no row slot / an already-filled slot on every change.
+     * amendment — the sequential cascade worklist. A prior recipient owes when they have an unfilled
+     * wet-ink cir-slot on a cycle change, OR (Issue C) the cycle added an Other Condition they have
+     * not yet initialed (a live DocumentCondition with no ConditionInitial for their party key).
+     * Excludes the editor (already initialed at edit time) and not-yet-reached recipients (WAITING).
      */
     private function orderedRecipientsOwingInitial(SignatureTemplate $template, array $cycle): \Illuminate\Support\Collection
     {
         $sel  = app(SelectionEditService::class);
         $html = CanonicalDocumentRenderer::amendSource($this->docWtd($template))['html'];
-        if ($html === '') {
+
+        // Live conditions the cascade must re-circulate (only when the cycle carries an added condition).
+        $liveConditionIds = collect();
+        if (! empty($cycle['has_condition'])) {
+            $liveConditionIds = \App\Models\Docuperfect\DocumentCondition::query()
+                ->where('signature_template_id', $template->id)
+                ->whereNull('superseded_at')
+                ->whereNull('deleted_at')
+                ->pluck('id');
+        }
+
+        if ($html === '' && $liveConditionIds->isEmpty()) {
             return collect();
         }
+
         return $template->requests()
             ->where('status', SignatureRequest::STATUS_COMPLETED)
             ->orderBy('signing_order')
             ->get()
-            ->filter(function ($r) use ($sel, $html, $cycle) {
+            ->filter(function ($r) use ($sel, $html, $cycle, $template, $liveConditionIds) {
                 if (! $this->isRecipientRole($r->party_role)) {
                     return false;
                 }
                 if ($r->canonicalPartyKey() === ($cycle['editor_key'] ?? null)) {
                     return false;
                 }
-                foreach ($cycle['change_ids'] as $cid) {
-                    if ($sel->hasRowSlot($html, (string) $cid, $r->canonicalPartyKey())
-                        && ! $sel->rowSlotFilled($html, (string) $cid, $r->canonicalPartyKey())) {
+                // (a) owes a wet-ink cir-slot initial on a cycle change?
+                if ($html !== '') {
+                    foreach (($cycle['change_ids'] ?? []) as $cid) {
+                        if ($sel->hasRowSlot($html, (string) $cid, $r->canonicalPartyKey())
+                            && ! $sel->rowSlotFilled($html, (string) $cid, $r->canonicalPartyKey())) {
+                            return true;
+                        }
+                    }
+                }
+                // (b) owes a condition initial on an added Other Condition?
+                if ($liveConditionIds->isNotEmpty()) {
+                    $condKey = \App\Services\Docuperfect\InsertableBlockRenderer::partyKeyForViewer(
+                        $template->parties_json, (string) $r->party_role, (int) ($r->role_index ?? 1),
+                    );
+                    $mineInitialed = \App\Models\Docuperfect\ConditionInitial::query()
+                        ->where('initialable_type', \App\Models\Docuperfect\DocumentCondition::class)
+                        ->whereIn('initialable_id', $liveConditionIds)
+                        ->where('party_key', $condKey)
+                        ->pluck('initialable_id');
+                    if ($liveConditionIds->diff($mineInitialed)->isNotEmpty()) {
                         return true;
                     }
                 }
                 return false;
             })
             ->values();
+    }
+
+    /**
+     * Issue C — mark the pending recipient-added Other Condition DocumentAmendment(s) as accepted
+     * (chain-reviewed). RETAIN audit; the condition itself stays live and is re-initialed by the
+     * prior recipients in the cascade. Idempotent.
+     */
+    private function approvePendingRecipientConditions(SignatureTemplate $template): void
+    {
+        $pending = \App\Models\Docuperfect\DocumentAmendment::query()
+            ->where('signature_template_id', $template->id)
+            ->where('amendment_type', \App\Models\Docuperfect\DocumentAmendment::TYPE_ADDITION)
+            ->where('status', \App\Models\Docuperfect\DocumentAmendment::STATUS_PENDING)
+            ->get();
+        foreach ($pending as $amendment) {
+            $amendment->update(['status' => \App\Models\Docuperfect\DocumentAmendment::STATUS_ACCEPTED]);
+        }
+        if ($pending->isNotEmpty()) {
+            SignatureAuditLog::log(
+                $template,
+                'amendment_conditions_approved',
+                SignatureAuditLog::ACTOR_USER,
+                'Agent',
+                metadata: ['amendment_ids' => $pending->pluck('id')->all()],
+            );
+        }
     }
 
     /** Outstanding initial count for ONE party across a set of changes (their own unfilled row slots). */
