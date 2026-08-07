@@ -4256,7 +4256,18 @@ function externalSign() {
                     },
                     body: JSON.stringify({
                         field_values: fieldValues,
-                        signatures: this.webSignatures,
+                        // P0 (Johan 2026-08-07) — the enable-gate counts positioned DB MARKER signatures as
+                        // signed, but those were captured through a SEPARATE /capture/{id} request and never
+                        // landed in webSignatures. Include them here so the completeWeb payload reflects every
+                        // mark the gate counted (the server floor also has an authoritative persisted-evidence
+                        // check; this keeps the body itself consistent for a marker-only recipient).
+                        signatures: Object.assign(
+                            {},
+                            this.webSignatures,
+                            Object.fromEntries((this.markers || [])
+                                .filter(m => m.is_mine && m.signed && m.signature_data)
+                                .map(m => ['marker-' + m.id, m.signature_data]))
+                        ),
                         disclosure_answers: this.webDisclosureAnswers,
                         ceremony_values: this.webCeremonyValues,
                         other_conditions_text: this.otherConditionsText,
