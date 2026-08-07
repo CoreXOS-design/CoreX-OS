@@ -235,7 +235,7 @@
      (not on the agent wizard's Step 5). --}}
 @include('docuperfect.signatures.external._info-panel')
 
-<div x-data="externalSign()" x-init="init()" class="recipient-info-main max-w-4xl mx-auto px-4 py-6 space-y-4">
+<div x-data="externalSign()" x-init="init()" class="recipient-info-main recipient-info-main--wide mx-auto px-4 py-6 space-y-4">
 
     {{-- Phase 1B.6 (FIX 5) — banner shown when this party has already
          completed signing AND the document is now in an amendment
@@ -453,21 +453,17 @@
             </div>
 
             {{-- Document viewer --}}
-            <div x-show="!completionDone" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 overflow-hidden flex flex-col" style="min-height:600px;">
+            <div x-show="!completionDone" class="recipient-doc-shell bg-white rounded-2xl shadow-sm border border-slate-200 p-4 flex flex-col" style="min-height:600px;">
                 {{-- AT-373 increment 2 — recipient amend tool (same wet-ink engine + standard
                      sign/initial modal as the agent). Server-gated to the recipient's turn. --}}
                 {{-- AT-373 increment 2 — RECIPIENT wet-ink amend at their turn: HIGHLIGHT the exact word / phrase
                      / clause anywhere in the document, then amend it. No clause numbers — the selection is
                      the target. Entry via the floating ✎ by the selection AND a sticky toolbar. --}}
-                <div x-data="selectionEditor({ url: @js(route('signatures.external.editSelection', $token)), viewerKey: @js($request->canonicalPartyKey() ?? $request->party_role), pendingReview: @js((bool) ($wetInkPendingReview ?? false)) })" class="mt-3 flex flex-wrap items-center gap-3">
-                    <span class="text-xs text-amber-800 inline-flex items-center gap-1">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4"><path d="M2.695 14.762l-1.262 3.155a.5.5 0 00.65.65l3.155-1.262a4 4 0 001.343-.885L17.5 5.501a2.121 2.121 0 00-3-3L3.58 13.419a4 4 0 00-.885 1.343z"/></svg>
-                        Highlight any word, phrase, or clause in the document below, then amend it.
-                    </span>
+                <div x-data="selectionEditor({ url: @js(route('signatures.external.editSelection', $token)), viewerKey: @js($request->canonicalPartyKey() ?? $request->party_role), pendingReview: @js((bool) ($wetInkPendingReview ?? false)) })" class="recipient-amend-col">
 
-                    {{-- All three fixed-position UI pieces are TELEPORTED to <body> so `position:fixed`
-                         resolves to the VIEWPORT, not the layout's transformed wrapper (which was making the
-                         modal float mid-page over the header). --}}
+                    {{-- The float ✎ button + the amend modal are true overlays → stay teleported to <body> so
+                         position:fixed resolves to the VIEWPORT. The Amendments PANEL itself is NOT teleported:
+                         it is a real flow element in its own column beside the document (Johan 2026-08-07). --}}
                     {{-- Floating edit button — positioned by JS right at the current selection. --}}
                     <template x-teleport="body">
                         <button type="button" x-ref="floatBtn" @click="openFromSelection()"
@@ -475,12 +471,11 @@
                                 style="display:none; position:fixed; z-index:9500; background:#b45309;">✎ Amend this</button>
                     </template>
 
-                    {{-- STICKY "Amendments" panel — the right-gutter counterpart of the left "How to sign" rail
-                         on wide screens, a clean compact card at the bottom on narrower ones. Houses the amend
-                         controls AND a navigable list of the changes on this document (built from the rendered
-                         change-marks — no MutationObserver; rebuilt on discrete events). Matches cc2's agent
-                         review-page amendment pattern (card / list-item / type badge / status pill). --}}
-                    <template x-teleport="body">
+                    {{-- "Amendments" panel — a real column beside the document (position:sticky within its own
+                         column so it stays in view while scrolling; NOT a fixed overlay over the document).
+                         Houses the amend controls AND a navigable list of the changes on this document (built
+                         from the rendered change-marks — no MutationObserver; rebuilt on discrete events).
+                         Matches cc2's agent review-page amendment pattern (card / list-item / badge / pill). --}}
                         <div class="sel-sticky-bar" role="region" aria-label="Amendments">
                             <div class="sel-amend-head">
                                 <span class="sel-amend-head-icon" aria-hidden="true">✎</span>
@@ -520,7 +515,6 @@
                                 </template>
                             </div>
                         </div>
-                    </template>
 
                     {{-- Modal — a proper CENTERED overlay with backdrop, teleported to body, above the top nav. --}}
                     <template x-teleport="body">
@@ -762,22 +756,43 @@
                 <style>
                     .sel-modal-overlay { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center;
                         justify-content: center; padding: 1rem; background: rgba(0,0,0,.6); }
+                    /* ── TRUE 3-COLUMN LAYOUT (Johan 2026-08-07) ──────────────────────────────────────────────
+                       [ fixed left "How to sign" rail ] | [ document column ] | [ "Amendments" panel column ].
+                       The document viewer card becomes a flex ROW: the document (recipient-doc-main) and the
+                       Amendments panel column (recipient-amend-col) are real flow siblings — the panel is NOT a
+                       fixed overlay over the document, so they never overlap. The A4 body is a fixed 794px, and
+                       the left rail eats 304px, so the row only fits from ~1400px up; below that the panel STACKS
+                       under the document. The panel is position:sticky WITHIN its own column so it stays in view
+                       while scrolling. */
+                    .recipient-info-main--wide { max-width: 1280px; }
+                    /* order at ALL widths so the document is first — on narrow the panel stacks BELOW it,
+                       on wide it sits to the RIGHT of it. */
+                    .recipient-doc-main  { order: 1; }
+                    .recipient-amend-col { order: 2; width: 100%; }
+                    @media (min-width: 1440px) {
+                        .recipient-doc-shell { flex-direction: row !important; align-items: flex-start; gap: 16px; }
+                        .recipient-doc-main  { flex: 1 1 auto; min-width: 0; }
+                        .recipient-amend-col { flex: 0 0 260px; width: 260px; align-self: stretch; }
+                    }
                     /* The "Amendments" panel — a light card matching the left "How to sign" rail (white, #e2e8f0
                        border, slate type, amber action) AND cc2's agent review-page amendment pattern (list-item
-                       card + type badge + rounded status pill). Vertical card in BOTH layouts (Johan 2026-08-07):
-                       DEFAULT (narrower than 1440px) = a compact card centred at the bottom, ABOVE the orange
-                       "Go to next" nav. WIDE (>=1440px) = the same card docked in the empty RIGHT gutter, BELOW
-                       the dark header so it never overlaps the title. Sticky (position:fixed) in both. */
+                       card + type badge + rounded status pill). Vertical card; position:sticky within its column
+                       on wide screens, a normal stacked card below the document on narrow screens. */
                     .sel-sticky-bar {
-                        position: fixed; z-index: 9000;
-                        left: 50%; transform: translateX(-50%); bottom: 88px;
-                        width: min(560px, 94vw); max-height: 46vh;
+                        position: static; z-index: 20;
+                        width: 100%; margin-top: 12px; max-height: none;
                         display: flex; flex-direction: column; gap: .6rem;
                         background: #ffffff; color: #0f172a;
                         border: 1px solid #e2e8f0; border-radius: 14px;
                         padding: 14px 16px;
-                        box-shadow: 0 10px 30px rgba(15, 23, 42, .12);
+                        box-shadow: 0 4px 14px rgba(15, 23, 42, .06);
                         font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                    }
+                    @media (min-width: 1440px) {
+                        .sel-sticky-bar {
+                            position: sticky; top: 16px; margin-top: 0;
+                            max-height: calc(100vh - 32px);
+                        }
                     }
                     .sel-sticky-bar .sel-amend-head {
                         display: flex; align-items: center; gap: .45rem; flex-shrink: 0;
@@ -844,17 +859,6 @@
                         0%, 100% { background: transparent; box-shadow: none; }
                         15%, 55% { background: #fde68a; box-shadow: 0 0 0 3px #fbbf24; }
                     }
-                    /* WIDE — dock the same card in the right gutter (the A4 doc's right edge sits at ~1150px, so a
-                       288px card at right:24 clears it once the viewport passes ~1440px). top:150px starts it BELOW
-                       the dark header. Breakpoint is 1440px, NOT 1600px: a 1920px monitor at 125% Windows scaling
-                       reports only 1536 CSS px (Johan 2026-08-07). Below 1440px = the bottom card. */
-                    @media (min-width: 1440px) {
-                        .sel-sticky-bar {
-                            left: auto; right: 20px; transform: none;
-                            bottom: auto; top: 150px;
-                            width: 260px; max-height: calc(100vh - 180px);
-                        }
-                    }
                     .change-margin { float: right; clear: right; margin: .1rem 0 .35rem 1rem; padding: .2rem .55rem;
                         border-left: 3px solid #d97706; background: #fffbeb; border-radius: 0 6px 6px 0; font-size: .62rem; color: #92400e; max-width: 40%; }
                     .change-margin-label { display: block; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; opacity: .7; margin-bottom: 2px; }
@@ -869,7 +873,7 @@
 
                 {{-- Web template: render HTML directly — document elements are the interactive surface --}}
                 <template x-if="isWebTemplate">
-                    <div class="flex-1 overflow-auto" style="background:#e2e8f0; padding:16px 0; min-width:794px;">
+                    <div class="recipient-doc-main flex-1 overflow-auto" style="background:#e2e8f0; padding:16px 0; min-width:794px;">
                         {{-- AT-303 Stage 1 — disclosure-mark lock notice for a DOWNSTREAM
                              recipient whose shared MDF disclosure grid was already signed
                              by an earlier party (grid renders read-only). --}}
@@ -999,7 +1003,7 @@
 
                 {{-- PDF template: page images with overlays --}}
                 <template x-if="!isWebTemplate">
-                    <div>
+                    <div class="recipient-doc-main">
 
                 {{-- Page navigation --}}
                 <div class="flex items-center justify-between mb-3 flex-shrink-0">
