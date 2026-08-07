@@ -100,7 +100,12 @@
             async checkDuplicate() {
                 // AT-125 — read the first non-empty value from the phones/emails
                 // repeaters (the live hint; store() checks ALL identifiers).
-                const firstVal = (group) => [...document.querySelectorAll(`[data-identifier-group='${group}'] [data-identifier-value]`)]
+                // IMPORTANT: scope the read to THIS New-Contact form ($root), NOT the
+                // whole document — the contact list renders each row's edit form with
+                // its own identifier inputs, so a document-wide query scraped another
+                // contact's email/phone (esp. when the New-Contact email was empty),
+                // producing a phantom "duplicate" against an unrelated record.
+                const firstVal = (group) => [...this.$root.querySelectorAll(`[data-identifier-group='${group}'] [data-identifier-value]`)]
                     .map(el => el.value.trim()).find(v => v) || '';
                 const phone = firstVal('phones');
                 const email = firstVal('emails');
@@ -146,7 +151,7 @@
                 <svg class="w-5 h-5 flex-shrink-0 mt-0.5" style="color:var(--ds-amber);" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" /></svg>
                 <div class="flex-1 min-w-0">
                     <p class="text-sm font-semibold" style="color:var(--text-primary);">Possible duplicate contact</p>
-                    <p class="text-xs mt-0.5" style="color:var(--text-secondary);">A contact with this phone or email already exists. Saving is blocked to prevent a duplicate — open the existing record instead.</p>
+                    <p class="text-xs mt-0.5" style="color:var(--text-secondary);">A contact with this phone or email may already exist — review the record below before saving. (If it's genuinely a duplicate, the save is still blocked server-side.)</p>
                     <div class="mt-3 rounded-md p-3 text-xs space-y-1.5" style="background:var(--surface); border:1px solid var(--border);">
                         <div class="flex justify-between gap-3">
                             <span style="color:var(--text-muted);">Name</span>
@@ -229,8 +234,11 @@
                 </div>
             </div>
             <div class="flex items-center gap-3 pt-2">
-                <button type="submit" data-tour="contact-save" class="corex-btn-primary text-sm" :disabled="dupFound"
-                        :style="dupFound ? 'opacity:0.4; cursor:not-allowed;' : ''">Save Contact</button>
+                {{-- Pre-check is ADVISORY only: never hard-disable Save on the client-side
+                     dupFound (a stale/foreign hint must not block a genuine new contact).
+                     The authoritative guard is store()'s server-side dedup, which checks
+                     the ACTUAL submitted identifiers and 422-blocks a real duplicate. --}}
+                <button type="submit" data-tour="contact-save" class="corex-btn-primary text-sm">Save Contact</button>
                 <button type="button" @click="showAdd = false" class="text-sm transition-all duration-300" style="color:var(--text-muted);">Cancel</button>
             </div>
         </form>
@@ -547,9 +555,11 @@
                 </div>
             </div>
 
-            {{-- Edit row (inline) --}}
-            <div x-show="editId === {{ $contact->id }}" x-cloak
-                 class="rounded-md p-4 mt-1"
+            {{-- Edit row (inline) — x-if (not x-show): a hidden row's identifier inputs must
+                 NOT be in the DOM, or the New-Contact duplicate pre-check could scrape them.
+                 Rendered only when this row is actually being edited. --}}
+            <template x-if="editId === {{ $contact->id }}">
+            <div class="rounded-md p-4 mt-1"
                  style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 5%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent);">
                 <form method="POST" action="{{ route('corex.contacts.update', $contact) }}" class="space-y-3">
                     @csrf @method('PUT')
@@ -596,6 +606,7 @@
                     </div>
                 </form>
             </div>
+            </template>
 
         </div>
         @empty
