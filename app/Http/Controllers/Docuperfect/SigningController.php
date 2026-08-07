@@ -1494,6 +1494,38 @@ class SigningController extends Controller
     }
 
     /**
+     * BUG 2 (AT-373) — merge incoming ceremony values WITHOUT letting a BLANK incoming value clobber an
+     * already-captured non-blank one.
+     *
+     * On a RETURNING signer's changes-only round (amendment_initialing / editor_reacceptance) the recipient
+     * signing view rebuilds their ceremony fields as fresh EMPTY inputs — it seeds date/time from now() but
+     * NEVER re-seeds the Location a signer typed at their initial signing. If such an emptied Location input
+     * reaches the payload as `seller_location=''`, a plain array_merge OVERWRITES the value the signer
+     * entered at their initial ceremony — silent, permanent ceremony data loss on the very round that is
+     * only meant to add an initial. Guard: an incoming key overwrites the stored value only when the incoming
+     * value is non-blank, OR nothing is stored yet. (An ABSENT key already never overwrites — array_merge
+     * semantics; this additionally neutralises an explicit blank so re-submits are safe regardless of what
+     * the client posts.) A signer legitimately CLEARING a field is not a supported ceremony action — these
+     * are captured-once execution facts (place/date/time of signing), not editable state.
+     *
+     * @param  array<string,mixed> $existing  the already-stored ceremony_values
+     * @param  array<string,mixed> $incoming  this submit's ceremony_values
+     * @return array<string,mixed>
+     */
+    private function mergeCeremonyValues(array $existing, array $incoming): array
+    {
+        foreach ($incoming as $key => $value) {
+            $incomingBlank = trim((string) $value) === '';
+            $existingHas   = array_key_exists($key, $existing) && trim((string) $existing[$key]) !== '';
+            if ($incomingBlank && $existingHas) {
+                continue; // never clobber a captured ceremony value with a blank re-submit
+            }
+            $existing[$key] = $value;
+        }
+        return $existing;
+    }
+
+    /**
      * Complete web template signing (CDS/web documents with live HTML).
      * Handles field values, signatures, disclosure answers, and consent logging.
      */
@@ -1757,10 +1789,12 @@ class SigningController extends Controller
             ];
         }
 
-        // Save ceremony values (location, day, month, year, time, am_pm per party)
+        // Save ceremony values (location, day, month, year, time, am_pm per party). Blank-safe merge so a
+        // returning signer's re-submit (changes-only round) can never clobber the Location captured at their
+        // initial signing with an emptied input — see mergeCeremonyValues (BUG 2, AT-373).
         $ceremonyValues = $request->input('ceremony_values', []);
         if (!empty($ceremonyValues)) {
-            $webData['ceremony_values'] = array_merge($webData['ceremony_values'] ?? [], $ceremonyValues);
+            $webData['ceremony_values'] = $this->mergeCeremonyValues($webData['ceremony_values'] ?? [], $ceremonyValues);
         }
 
         // Save signatures (base64 data URIs keyed by block ID)
@@ -2216,12 +2250,13 @@ class SigningController extends Controller
                 'user_agent' => $request->userAgent(),
             ]);
 
-            // Save ceremony values (date, location, time) if provided
+            // Save ceremony values (date, location, time) if provided. Blank-safe merge (BUG 2, AT-373) —
+            // a returning signer's emptied Location input must never overwrite the captured value.
             $ceremonyValues = $request->input('ceremony_values', []);
             if (!empty($ceremonyValues)) {
                 $document = $template->document;
                 $webData = $document->web_template_data ?? [];
-                $webData['ceremony_values'] = array_merge($webData['ceremony_values'] ?? [], $ceremonyValues);
+                $webData['ceremony_values'] = $this->mergeCeremonyValues($webData['ceremony_values'] ?? [], $ceremonyValues);
 
                 // Embed into merged_html if present (web templates)
                 if (!empty($webData['merged_html'])) {

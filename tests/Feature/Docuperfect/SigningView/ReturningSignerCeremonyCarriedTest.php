@@ -130,4 +130,30 @@ final class ReturningSignerCeremonyCarriedTest extends TestCase
 
         $this->get('/sign/' . $seller->token)->assertStatus(200);
     }
+
+    /**
+     * BUG 2 (persistence) — a returning signer's re-submit must NEVER clobber the Location captured at their
+     * initial signing. The changes-only round shows an EMPTY location input; if that emptied field reaches
+     * the payload as seller_location='', completeWeb's merge must PRESERVE the stored value (blank-safe),
+     * while a genuinely new/changed non-blank value still writes through.
+     */
+    public function test_blank_resubmit_does_not_clobber_captured_ceremony_value(): void
+    {
+        $controller = app(\App\Http\Controllers\Docuperfect\SigningController::class);
+        $m = new \ReflectionMethod($controller, 'mergeCeremonyValues');
+        $m->setAccessible(true);
+
+        $existing = ['seller_location' => 'Margate Town Hall', 'seller_day' => '14', 'agent_location' => 'Head Office'];
+
+        // A re-submit that posts a BLANK Location (emptied input) + an unrelated blank must keep the captured values.
+        $afterBlank = $m->invoke($controller, $existing, ['seller_location' => '', 'agent_location' => '   ']);
+        $this->assertSame('Margate Town Hall', $afterBlank['seller_location'], 'a blank re-submit must NOT wipe the captured location');
+        $this->assertSame('Head Office', $afterBlank['agent_location'], 'whitespace-only is treated as blank and must not clobber');
+
+        // A genuinely new value still writes; a brand-new key is added; a first-time blank (no stored value) is allowed.
+        $afterReal = $m->invoke($controller, $existing, ['seller_location' => 'Shelly Beach', 'seller_time' => '10:30', 'seller_2_location' => '']);
+        $this->assertSame('Shelly Beach', $afterReal['seller_location'], 'a non-blank value overwrites');
+        $this->assertSame('10:30', $afterReal['seller_time'], 'a new ceremony key is added');
+        $this->assertArrayHasKey('seller_2_location', $afterReal, 'a first-time (no stored value) blank is still set');
+    }
 }
