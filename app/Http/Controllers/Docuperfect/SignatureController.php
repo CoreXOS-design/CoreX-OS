@@ -3155,6 +3155,18 @@ class SignatureController extends Controller
             metadata: ['condition_id' => $condition->id, 'party_key' => $partyKey],
         );
 
+        // BUG 1 (AT-373) — bake the agent's per-condition initial into the STORED canonical, exactly as the
+        // recipient's external initialCondition does (SigningController → refreshInsertableBlocks). The agent
+        // review page serves forDisplay(), which for a signed doc (version >= 1) returns the stored canonical
+        // VERBATIM — so writing only signed_initials + the ConditionInitial row (as this endpoint did) left the
+        // agent's OC initial invisible on the document body while the recipient's, baked at signing, showed.
+        // refreshInsertableBlocks re-renders each insertable-block region from the CURRENT ConditionInitial +
+        // signed_initials (CONTEXT_PDF_RENDER: filled ink only, no chrome) and swaps it into the stored canonical
+        // by block-id, so the agent's initial now renders on the body AND prints. Non-fatal. Mirrors the clause
+        // amendment path where initialChange mutates the stored cir-slots directly.
+        app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)
+            ->refreshInsertableBlocks($template);
+
         return response()->json(['ok' => true, 'condition_id' => $condition->id, 'party_key' => $partyKey]);
     }
 

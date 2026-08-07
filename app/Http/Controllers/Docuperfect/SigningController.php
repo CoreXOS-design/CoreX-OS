@@ -449,6 +449,30 @@ class SigningController extends Controller
             } // ── end LEGACY SERVING PATH (AT-177/WS6 dual-path) ──
         }
 
+        // BUG 2 (AT-373) — carry a RETURNING signer's already-captured ceremony fields (location, date,
+        // time) forward into the changes-signing round. On the re-initial cascade (amendment_initialing) and
+        // the editor re-acceptance round, rec 1 has ALREADY completed her full signing — her place/date/time
+        // live in web_template_data['ceremony_values'] — but the serve path re-renders her ceremony fields as
+        // fresh EDITABLE inputs (applyViewerEditabilityOverlay), so her captured location showed BLANK. The
+        // save path (completeWeb) and the PDF render already re-apply ceremony_values onto the document; the
+        // serve path did not. Paint the accumulated values back here so a returning signer sees her prior
+        // location as a filled span (it is proof of her earlier ceremony, not re-enterable in this round).
+        // Gated to the returning-signer states ONLY (already-completed request, or re-initial / re-acceptance),
+        // so a first-time signer's blank ceremony inputs — the recipient-view cc6 owns — are untouched. A
+        // not-yet-completed party has no ceremony_values, so this is a no-op for them regardless. Party-scoped
+        // + idempotent inside applyCeremonyValues; fail-safe (returns HTML unchanged on any DOM error).
+        $ceremonyCarry = $webTemplateData['ceremony_values'] ?? [];
+        $isReturningSigner = ($signingRequest->status === SignatureRequest::STATUS_COMPLETED
+                || $signingRequest->completed_at !== null)
+            || in_array($template->status, [
+                SignatureTemplate::STATUS_AMENDMENT_INITIALING,
+                SignatureTemplate::STATUS_EDITOR_REACCEPTANCE,
+            ], true);
+        if ($isWebTemplate && trim($webTemplateHtml) !== '' && ! empty($ceremonyCarry) && $isReturningSigner) {
+            $webTemplateHtml = app(\App\Services\Docuperfect\CanonicalInkComposer::class)
+                ->applyCeremonyValues($webTemplateHtml, $ceremonyCarry);
+        }
+
         // Build page image URLs — use flattened images when available (PDF path)
         $flattenedPages = $template->flattened_pages_json ?? [];
         $hasFlattened = !empty($flattenedPages);
