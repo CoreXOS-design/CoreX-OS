@@ -1766,11 +1766,26 @@ class SigningController extends Controller
         // merged_html embed (kept below for backward-compat / pre-canonical docs),
         // which structurally cannot represent >1 same-party signer (gap audit (b)).
         $canonicalHtml = (string) ($webData['canonical_html'] ?? '');
-        if (trim($canonicalHtml) === '') {
-            // Back-fill for a document sent before this build so the first
-            // post-deploy signer still accumulates into a canonical artifact.
-            $canonicalHtml = app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)
-                ->resolveOrCompose($template);
+        // AT-373 (Issue D) — RE-DERIVE the canonical from merged_html before baking when the doc is
+        // NOT YET BAKED (canonical_version < 1). While v0, amendSource picks merged_html, so any
+        // amendment this signer authored on their turn — the strike marks AND the per-party
+        // change-initial rows (with their captured initial ink) — was written to merged_html, NOT to
+        // the stored canonical_html (a stale v0 snapshot). completeWeb bakes the STORED canonical and
+        // freezes it at v>=1; without re-deriving, the ENTIRE amendment (not just its ink) is dropped
+        // from the served/completed document — the recipient's initials render empty (—) even though
+        // the attribution survives. compose() carries merged_html's change rows + fills faithfully
+        // (side-effect-free); only the v0 → first-bake transition recomposes, so a later baked signer
+        // (v>=1, whose amend already lands in canonical) is untouched.
+        $notYetBaked = (int) ($webData['canonical_version'] ?? 0) < 1;
+        if (trim($canonicalHtml) === '' || $notYetBaked) {
+            $rederived = app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)->compose($template);
+            if (trim($rederived) === '' && trim($canonicalHtml) === '') {
+                // No composable body yet — fall back to the resolver's back-fill path (unchanged behaviour).
+                $rederived = app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)->resolveOrCompose($template);
+            }
+            if (trim($rederived) !== '') {
+                $canonicalHtml = $rederived;
+            }
         }
         // The frontend folds page-break initials INTO the signatures array under
         // "-init-" keys (see $initials assembly above), so the true signature
