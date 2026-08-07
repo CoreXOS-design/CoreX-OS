@@ -2374,16 +2374,22 @@ class SignatureController extends Controller
 
         $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
 
-        // Accept pending_agent_approval (normal flow) AND supervisor statuses (candidate flow)
+        // Accept pending_agent_approval (normal flow) AND supervisor statuses (candidate flow) AND
+        // AT-373 amendment_chain_review (a recipient's amendment returned to the agent/chain node
+        // for approval — the agent initials the change here, then Approve Amendment).
         $reviewableStatuses = [
             SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL,
             SignatureTemplate::STATUS_AWAITING_SUPERVISOR,
             SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL,
+            SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW,
         ];
         if (!in_array($template->status, $reviewableStatuses)) {
             return redirect()->route('docuperfect.rental')
                 ->with('error', 'This document is not pending approval.');
         }
+        // AT-373 — flag the amendment-approval mode so the review blade renders Approve/Reject
+        // Amendment (the chain-node approve, distinct from the final Approve & Advance gate).
+        $isAmendmentApproval = $template->status === SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW;
 
         $template->loadMissing(['requests', 'markers.signatures', 'signatures']);
 
@@ -2536,6 +2542,7 @@ class SignatureController extends Controller
             'allMarkers' => $allMarkers,
             'hasFlattened' => $hasFlattened,
             'user' => $user,
+            'isAmendmentApproval' => $isAmendmentApproval,   // AT-373 — recipient amendment awaiting agent approval
             'isCandidateFlow' => $isCandidateFlow,
             'candidateName' => $candidateName,
             'isWebTemplate' => $isWebTemplate,

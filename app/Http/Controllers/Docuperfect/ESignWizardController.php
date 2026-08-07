@@ -5485,6 +5485,21 @@ class ESignWizardController extends Controller
             // Same defect class as the AT-299 flagged-doc gap. Surface it FIRST as
             // "Returned — needs fixing", deep-linking to the sign screen to fix + re-sign.
             'returned'         => $allTemplates->where('status', SignatureTemplate::STATUS_RETURNED_TO_CANDIDATE)->values(),
+            // AT-373 (Issue C surfacing) — a recipient's amendment RETURNED to the agent for approval
+            // (STATUS_AMENDMENT_CHAIN_REVIEW) was in NO bucket, so — exactly like the AT-299 flagged-doc
+            // gap above — it fell out of the list entirely: the agent had no entry point to see or approve
+            // it while the ceremony sat held. Surface it FIRST as an actionable "Amendment approval"
+            // bucket (Review & Approve deep-links to the agent amendment-approval surface). Only the docs
+            // whose CURRENT chain node is the agent/prep (the creator's turn) belong here; a candidate
+            // flow whose current node is a supervisor surfaces in Needs Authorisation below.
+            'amendment_approval' => $allTemplates->where('status', SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW)
+                ->each(function ($tpl) {
+                    $tpl->amendment_node_role = optional(
+                        app(SignatureService::class)->currentAmendmentChainNode($tpl)
+                    )->party_role;
+                })
+                ->filter(fn ($tpl) => ($tpl->amendment_node_role ?? 'agent') === 'agent')
+                ->values(),
             'pending_approval' => $allTemplates->where('status', SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL)->values(),
             'draft'            => $allTemplates->where('status', SignatureTemplate::STATUS_DRAFT)->values(),
             'ready_to_sign'    => $allTemplates->where('status', SignatureTemplate::STATUS_READY)->values(),
@@ -5503,9 +5518,22 @@ class ESignWizardController extends Controller
                 ->whereIn('status', [
                     SignatureTemplate::STATUS_AWAITING_SUPERVISOR,
                     SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL,
+                    // AT-373 — a candidate-flow recipient amendment whose CURRENT chain node is a
+                    // supervisor authoriser belongs in the authoriser queue too (the agent-node docs
+                    // surface on the creator's Amendment approval bucket above).
+                    SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW,
                 ])
                 ->orderByDesc('created_at')
-                ->get();
+                ->get()
+                ->filter(function ($tpl) {
+                    if ($tpl->status !== SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW) {
+                        return true;
+                    }
+                    return app(SignatureService::class)->isAuthoriserRole(
+                        optional(app(SignatureService::class)->currentAmendmentChainNode($tpl))->party_role
+                    );
+                })
+                ->values();
         }
 
         $groups['needs_authorisation'] = $needsAuthorisation;
@@ -5513,6 +5541,7 @@ class ESignWizardController extends Controller
         $counts = [
             'flagged'             => $groups['flagged']->count(), // AT-299
             'returned'            => $groups['returned']->count(), // BUG 2 — returned-to-candidate
+            'amendment_approval'  => $groups['amendment_approval']->count(), // AT-373 — recipient amendment returned to agent
             'needs_authorisation' => $groups['needs_authorisation']->count(),
             'pending_approval'    => $groups['pending_approval']->count(),
             'draft'               => $groups['draft']->count(),

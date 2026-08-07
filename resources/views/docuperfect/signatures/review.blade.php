@@ -476,7 +476,7 @@
     @include('docuperfect.signatures.partials._change-initial-affordance')
 
     {{-- ACTION BUTTONS --}}
-    <div class="rounded-sm border border-slate-200 bg-white p-5" x-data="{ showReturnModal: false, showRejectModal: false }">
+    <div class="rounded-sm border border-slate-200 bg-white p-5" x-data="{ showReturnModal: false, showRejectModal: false, showRejectAmendmentModal: false }">
         <h4 class="font-semibold text-slate-800 mb-4">Review Actions</h4>
 
         <div class="flex flex-wrap items-center gap-3">
@@ -485,7 +485,23 @@
                 $nextPartyName = $nextParty && isset($progress[$nextParty]) ? $progress[$nextParty]['name'] : $nextPartyLabel;
             @endphp
 
-            @if(!empty($isCandidateFlow) && in_array($template->status, [\App\Models\Docuperfect\SignatureTemplate::STATUS_AWAITING_SUPERVISOR, \App\Models\Docuperfect\SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL]))
+            @if(!empty($isAmendmentApproval))
+                {{-- AT-373 — a recipient's amendment returned for approval. The agent initials the
+                     change above (the change-initial affordance), then Approve Amendment: it advances
+                     the chain / kicks off the prior-recipient re-initial cascade. Reject reverts it. --}}
+                <form method="POST" action="{{ route('docuperfect.signatures.amendment.approve', $document) }}">
+                    @csrf
+                    <button type="submit"
+                            class="px-6 py-2.5 text-sm font-semibold rounded-lg text-white transition-colors bg-emerald-600 hover:bg-emerald-700 shadow"
+                            onclick="return confirm('Approve this amendment? Make sure you have initialled the change above first — the earlier signers will then be asked to initial it.')">
+                        Approve Amendment
+                    </button>
+                </form>
+                <button @click="showRejectAmendmentModal = true"
+                        class="px-5 py-2.5 text-sm font-medium text-red-700 border border-red-300 rounded-lg hover:bg-red-50 transition-colors">
+                    Reject Amendment
+                </button>
+            @elseif(!empty($isCandidateFlow) && in_array($template->status, [\App\Models\Docuperfect\SignatureTemplate::STATUS_AWAITING_SUPERVISOR, \App\Models\Docuperfect\SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL]))
                 {{-- Candidate flow: supervisor must SIGN, not just approve --}}
                 <a href="{{ route('docuperfect.signatures.authoriseSigning', $document) }}"
                    class="inline-flex items-center gap-2 px-6 py-2.5 text-sm font-semibold rounded-lg text-white transition-colors shadow"
@@ -514,7 +530,8 @@
                 </form>
             @endif
 
-            {{-- Return to Signer with Notes --}}
+            @unless(!empty($isAmendmentApproval))
+            {{-- Return to Signer with Notes (final-gate actions — not shown during amendment approval) --}}
             <button @click="showReturnModal = true"
                     class="px-5 py-2.5 text-sm font-medium text-amber-700 border border-amber-300 rounded-lg hover:bg-amber-50 transition-colors">
                 Return to {{ $completedRequest ? $completedRoleLabel : 'Signer' }} with Notes
@@ -525,6 +542,7 @@
                     class="px-5 py-2.5 text-sm font-medium text-red-700 border border-red-300 rounded-lg hover:bg-red-50 transition-colors">
                 Reject Document
             </button>
+            @endunless
 
             <a href="{{ $dashboardRoute }}"
                class="px-4 py-2.5 text-sm text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors ml-auto">
@@ -591,6 +609,36 @@
                                 class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700"
                                 onclick="return confirm('Are you sure? This will void all signatures and cancel the signing flow.')">
                             Reject &amp; Cancel Signing
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        {{-- AT-373 — Reject Amendment Modal (reverts the recipient's change; the signer re-accepts) --}}
+        <div x-show="showRejectAmendmentModal" x-cloak
+             class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+             @keydown.escape.window="showRejectAmendmentModal = false">
+            <div class="bg-white rounded-sm shadow-xl p-6 w-full max-w-md mx-4" @click.away="showRejectAmendmentModal = false">
+                <h3 class="text-lg font-semibold text-red-800 mb-2">Reject Amendment</h3>
+                <p class="text-sm text-slate-600 mb-4">
+                    The proposed change will be removed and the document restored to its agreed wording.
+                    The signer who proposed it will be asked to re-accept the document without their change.
+                    Existing signatures are preserved.
+                </p>
+                <form method="POST" action="{{ route('docuperfect.signatures.amendment.reject', $document) }}">
+                    @csrf
+                    <textarea name="reason" rows="4"
+                              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                              placeholder="Optional: reason for rejecting the amendment (shown to the signer)..."></textarea>
+                    <div class="flex justify-end gap-3 mt-4">
+                        <button type="button" @click="showRejectAmendmentModal = false"
+                                class="px-4 py-2 text-sm text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50">
+                            Cancel
+                        </button>
+                        <button type="submit"
+                                class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700">
+                            Reject Amendment
                         </button>
                     </div>
                 </form>

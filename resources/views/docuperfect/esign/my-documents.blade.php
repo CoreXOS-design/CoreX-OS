@@ -74,6 +74,14 @@
          width evenly at every breakpoint (2-up on mobile). --}}
     <div class="grid gap-4" data-tour="dp-esign-my-docs-tiles"
          style="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));">
+        @if(($counts['amendment_approval'] ?? 0) > 0)
+        <a href="#section-amendment-approval" onclick="event.preventDefault(); scrollToSection('section-amendment-approval')"
+           class="rounded-md p-4 text-center cursor-pointer block transition-all duration-300 hover:opacity-90"
+           style="border: 2px solid var(--ds-amber); background: color-mix(in srgb, var(--ds-amber) 10%, transparent);">
+            <div class="text-[1.625rem] font-semibold" style="color: var(--ds-amber);">{{ number_format($counts['amendment_approval']) }}</div>
+            <div class="text-xs mt-1 font-semibold" style="color: var(--ds-amber);">Amendment Approval</div>
+        </a>
+        @endif
         @if(($counts['needs_authorisation'] ?? 0) > 0)
         <a href="#section-needs-authorisation" onclick="event.preventDefault(); scrollToSection('section-needs-authorisation')"
            class="rounded-md p-4 text-center cursor-pointer block transition-all duration-300 hover:opacity-90"
@@ -137,6 +145,51 @@
     @endif
 
     {{-- ===== CANDIDATE DOCUMENTS — NEEDS AUTHORISATION ===== --}}
+    {{-- ===== AT-373 — AMENDMENT APPROVAL (a recipient's amendment returned to the agent) ===== --}}
+    {{-- A recipient amended the document on their turn; it is HELD and returned to the agent for
+         approval before the next recipient receives it. Was in no bucket → invisible. Surfaced here
+         with a Review & Approve deep-link to the agent amendment-approval surface. --}}
+    @if(($groups['amendment_approval'] ?? collect())->isNotEmpty())
+    <div id="section-amendment-approval" class="space-y-3 scroll-mt-4">
+        <h3 class="text-sm font-semibold uppercase tracking-wider flex items-center gap-2" style="color: var(--ds-amber);">
+            <span class="inline-flex items-center justify-center w-5 h-5 text-white text-[0.6875rem] font-bold rounded-full" style="background: var(--ds-amber);">{{ number_format($groups['amendment_approval']->count()) }}</span>
+            Amendment Approval &mdash; Recipient Changed the Document
+        </h3>
+        <div class="space-y-3">
+            @foreach($groups['amendment_approval'] as $tpl)
+                @php $doc = $tpl->document; @endphp
+                <div class="rounded-md p-4" style="border: 2px solid var(--ds-amber); background: color-mix(in srgb, var(--ds-amber) 8%, transparent);">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="flex-1 min-w-0">
+                            <div class="font-semibold" style="color: var(--text-primary);">
+                                {{ $doc->name ?? 'Untitled' }}
+                                <span class="ds-badge ml-2" style="background: var(--ds-amber); color: #fff;">AMENDMENT — APPROVAL REQUIRED</span>
+                            </div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="text-xs" style="color: var(--text-muted);">
+                                    A recipient proposed a change — approve it (initial the change) to send it to the earlier signers, or reject it.
+                                    Created {{ $tpl->created_at->format('d M Y H:i') }}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="flex flex-col gap-2">
+                            @if($doc)
+                            <a href="{{ route('docuperfect.signatures.review', $doc) }}"
+                               class="corex-btn-primary inline-flex items-center gap-1.5 whitespace-nowrap">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                                </svg>
+                                Review &amp; Approve
+                            </a>
+                            @endif
+                        </div>
+                    </div>
+                </div>
+            @endforeach
+        </div>
+    </div>
+    @endif
+
     @if(($groups['needs_authorisation'] ?? collect())->isNotEmpty())
     <div id="section-needs-authorisation" class="space-y-3 scroll-mt-4">
         <h3 class="text-sm font-semibold uppercase tracking-wider flex items-center gap-2" style="color: var(--ds-amber);">

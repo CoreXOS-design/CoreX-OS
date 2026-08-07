@@ -2361,8 +2361,12 @@ class SignatureService
             // Authoriser node — notify the shared branch pool (in-app), exactly like the initial review.
             $this->notifyEligibleAuthorisers($template, 'amendment_review');
         } else {
-            // Prep node (candidate/agent) — the document creator reviews from "Needs Your Approval".
+            // Prep node (candidate/agent) — the document creator reviews from "Amendment approval".
+            // In-app notification (dashboard bell) + an EMAIL so the return is never missed: the recipient
+            // changed the doc and it is HELD until the agent approves (Issue C — Johan got no email/no
+            // dashboard entry, so the ceremony sat stuck + invisible).
             $this->sendAgentApprovalNotification($template, $node->party_role, $node);
+            $this->emailAgentAmendmentReturned($template, $node);
         }
 
         SignatureAuditLog::log(
@@ -2372,6 +2376,43 @@ class SignatureService
             'System',
             metadata: ['node_role' => $node->party_role, 'node_name' => $node->signer_name],
         );
+    }
+
+    /**
+     * Issue C — email the agent (document creator) that a recipient's amendment has RETURNED for
+     * approval, with a deep link to the review/approve surface. In-app-only was not enough (Johan
+     * missed it entirely). Best-effort — a mail failure never blocks the routing.
+     */
+    private function emailAgentAmendmentReturned(SignatureTemplate $template, SignatureRequest $node): void
+    {
+        try {
+            $template->loadMissing(['document', 'creator']);
+            $agent = $template->creator;
+            if (! $agent || empty($agent->email)) {
+                return;
+            }
+            $editor = $template->requests()->find($this->amendmentCycle($template)['editor_request_id'] ?? 0);
+            $reviewUrl = url("/docuperfect/documents/{$template->document_id}/signatures/review");
+            Mail::to($agent->email)->send(new \App\Mail\Signatures\PartySignedNotificationMail(
+                agentName:    $agent->name ?? 'Agent',
+                partyRole:    $editor?->party_role ?? 'recipient',
+                partyName:    $editor?->signer_name ?? 'A recipient',
+                documentName: $template->document->name ?? 'Document',
+                reviewUrl:    $reviewUrl,
+            ));
+            SignatureAuditLog::log(
+                $template,
+                'amendment_return_email_sent',
+                SignatureAuditLog::ACTOR_SYSTEM,
+                'System',
+                metadata: ['to' => $agent->email],
+            );
+        } catch (\Throwable $e) {
+            Log::warning('AT-373 amendment-return agent email failed', [
+                'template_id' => $template->id,
+                'error'       => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
