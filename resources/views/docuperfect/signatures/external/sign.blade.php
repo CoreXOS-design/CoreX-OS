@@ -417,19 +417,9 @@
     <template x-if="signingMethod === 'electronic'">
         <div class="space-y-4">
 
-            {{-- Progress bar --}}
-            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
-                <div class="flex items-center justify-between mb-2">
-                    <span class="text-sm font-medium text-slate-700">Signing Progress</span>
-                    <span class="text-sm text-slate-500">
-                        <span x-text="signedCount"></span> / <span x-text="totalRequired"></span> <span x-text="isWebTemplate ? 'items completed' : 'markers completed'"></span>
-                    </span>
-                </div>
-                <div class="w-full bg-slate-200 rounded-full h-2.5">
-                    <div class="bg-emerald-500 h-2.5 rounded-full transition-all duration-500"
-                         :style="'width:' + (totalRequired > 0 ? Math.round((signedCount / totalRequired) * 100) : 0) + '%'"></div>
-                </div>
-            </div>
+            {{-- Top "Signing Progress" bar REMOVED (Johan 2026-08-07) — the right-hand Amendments panel
+                 plus the bottom "Ready to submit / N items remaining" bar already convey progress; the
+                 top bar was redundant. signedCount/totalRequired are still computed for the bottom bar. --}}
 
             {{-- Completion overlay — prevents Alpine re-render issues --}}
             <div x-show="completionDone" x-cloak class="bg-white rounded-2xl shadow-sm border border-emerald-200 p-8 text-center" style="min-height:300px;">
@@ -499,9 +489,8 @@
                                 <div class="amend-empty" x-show="amendments.length === 0">
                                     No amendments yet — highlight any word, phrase or clause below to propose a change.
                                 </div>
-                                <template x-for="a in amendments" :key="a.id">
-                                    <button type="button" class="amend-item" @click="scrollToChange(a.id)"
-                                            :title="'Go to this change'">
+                                <template x-for="a in amendments" :key="a.key">
+                                    <div class="amend-item">
                                         <div class="amend-item-top">
                                             <span class="amend-badge" x-text="a.badge"></span>
                                             <span class="amend-pill" :class="a.pillClass" x-text="a.status"></span>
@@ -511,7 +500,11 @@
                                             <span class="amend-old" x-text="a.oldText"></span>
                                             <span class="amend-new" x-show="a.newText" x-text="a.newText"></span>
                                         </div>
-                                    </button>
+                                        <div class="amend-item-actions">
+                                            <button type="button" class="amend-btn-view" @click="scrollToChange(a.id, a.kind)">View</button>
+                                            <button type="button" class="amend-btn-initial" x-show="a.canInitial" @click="initialItem(a)">✎ Initial</button>
+                                        </div>
+                                    </div>
                                 </template>
                             </div>
                         </div>
@@ -617,51 +610,100 @@
                             // with a type badge, one-line location + summary, and this recipient's status pill.
                             rebuildList() {
                                 try {
+                                    const vk = this._cssEsc(this.viewerKey || '');
                                     const seen = new Set(); const out = [];
+                                    // (a) BODY clause amendments — each .change-del[data-change-id].
                                     document.querySelectorAll('.change-del[data-change-id]').forEach((del) => {
                                         const id = del.getAttribute('data-change-id');
-                                        if (!id || seen.has(id)) return; seen.add(id);
+                                        if (!id || seen.has('b:' + id)) return; seen.add('b:' + id);
                                         const e = this._cssEsc(id);
                                         const wrap = del.closest('.change-inline') || del.parentElement;
                                         const ins  = document.querySelector('.change-ins[data-change-id="' + e + '"]');
                                         const xref = document.querySelector('.change-xref[data-change-id="' + e + '"]');
-                                        const isOc = !!xref || del.hasAttribute('data-oc-ref');
+                                        const isXref = !!xref || del.hasAttribute('data-oc-ref');
                                         const oldText = (del.textContent || '').replace(/\s+/g, ' ').trim();
                                         let newText = '';
-                                        if (isOc) newText = '→ Other Conditions';
+                                        if (isXref) newText = '→ Other Conditions';
                                         else if (ins && (ins.textContent || '').trim()) newText = (ins.textContent || '').replace(/\s+/g, ' ').trim();
                                         else newText = 'Struck out (removed)';
                                         // status — from THIS recipient's own initial slot for the change.
-                                        let status = 'Pending', pillClass = 'amend-pill--pending';
                                         const mySlot = this.viewerKey
-                                            ? document.querySelector('.cir-slot[data-change-id="' + e + '"][data-party-key="' + this._cssEsc(this.viewerKey) + '"]')
+                                            ? document.querySelector('.cir-slot[data-change-id="' + e + '"][data-party-key="' + vk + '"]')
                                             : null;
                                         const myInk = mySlot ? mySlot.querySelector('.cir-ink') : null;
                                         const myFilled = !!mySlot && (mySlot.classList.contains('cir-filled') || (myInk && !myInk.hasAttribute('data-empty') && !!myInk.querySelector('img')));
+                                        let status = 'Pending', pillClass = 'amend-pill--pending';
                                         if (myFilled) { status = 'Initialed'; pillClass = 'amend-pill--done'; }
                                         else if (this.pendingReview) { status = 'Amendment pending agent review'; pillClass = 'amend-pill--review'; }
                                         out.push({
-                                            id,
-                                            badge: isOc ? 'Other Condition' : 'Clause amendment',
+                                            key: 'b:' + id, id, kind: 'body', badge: 'Clause amendment',
                                             location: this._changeLocation(wrap),
-                                            oldText: oldText.slice(0, 90),
-                                            newText: newText.slice(0, 90),
+                                            oldText: oldText.slice(0, 90), newText: newText.slice(0, 90),
                                             status, pillClass,
+                                            canInitial: !!mySlot && !myFilled,   // this recipient owns an un-filled slot
+                                        });
+                                    });
+                                    // (b) OTHER CONDITIONS — each .condition-row[data-condition-id] (mirrors the agent
+                                    // review panel, which lists conditions as items too). Status from THIS recipient's
+                                    // own .btn-add-initial / initial-slot for the condition.
+                                    document.querySelectorAll('.condition-row[data-condition-id]').forEach((row) => {
+                                        const id = row.getAttribute('data-condition-id');
+                                        if (!id || seen.has('c:' + id)) return; seen.add('c:' + id);
+                                        const e = this._cssEsc(id);
+                                        const content = (row.querySelector('.condition-content')?.textContent || '').replace(/\s+/g, ' ').trim();
+                                        // my slot: an active (un-filled) button = can initial; a filled slot = done.
+                                        const myBtn = this.viewerKey
+                                            ? row.querySelector('.btn-add-initial[data-condition-id="' + e + '"][data-party-key="' + vk + '"]')
+                                            : row.querySelector('.btn-add-initial[data-condition-id="' + e + '"]');
+                                        const myFilledSlot = row.querySelector('[data-condition-id="' + e + '"][data-party-key="' + vk + '"].initial-filled, [data-condition-id="' + e + '"][data-party-key="' + vk + '"][data-signed="true"]');
+                                        const canInitial = !!myBtn && !myBtn.classList.contains('initial-filled');
+                                        let status = 'Pending', pillClass = 'amend-pill--pending';
+                                        if (myFilledSlot || (myBtn && myBtn.classList.contains('initial-filled'))) { status = 'Initialed'; pillClass = 'amend-pill--done'; }
+                                        else if (this.pendingReview) { status = 'Amendment pending agent review'; pillClass = 'amend-pill--review'; }
+                                        out.push({
+                                            key: 'c:' + id, id, kind: 'condition', badge: 'Other Condition',
+                                            location: 'Other Conditions',
+                                            oldText: content.slice(0, 110), newText: '',
+                                            status, pillClass, canInitial,
                                         });
                                     });
                                     this.amendments = out;
                                 } catch (e) { /* list is a convenience; never break the signing surface */ }
                             },
-                            // Scroll the document to a change and flash it.
-                            scrollToChange(id) {
+                            // Scroll the document to a change/condition and flash it (the "View" action).
+                            scrollToChange(id, kind) {
                                 try {
                                     const e = this._cssEsc(id);
-                                    const el = document.querySelector('.change-inline[data-change-id="' + e + '"]')
-                                            || document.querySelector('.change-del[data-change-id="' + e + '"]');
+                                    const sel = (kind === 'condition')
+                                        ? '.condition-row[data-condition-id="' + e + '"]'
+                                        : '.change-inline[data-change-id="' + e + '"], .change-del[data-change-id="' + e + '"]';
+                                    const el = document.querySelector(sel);
                                     if (!el) return;
                                     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
                                     el.classList.add('amend-flash');
                                     setTimeout(() => el.classList.remove('amend-flash'), 1700);
+                                } catch (e) {}
+                            },
+                            // Initial THIS change/condition straight from the panel — opens the SAME draw/type capture
+                            // modal the in-document slots use (never a reload). Body → corex-open-change-initial;
+                            // Other Condition → click its own .btn-add-initial (its delegated handler dispatches
+                            // corex-open-condition-initial). On apply, applySignature persists + paints, then
+                            // dispatches corex-change-initialed which rebuilds this list.
+                            initialItem(item) {
+                                try {
+                                    const e = this._cssEsc(item.id);
+                                    if (item.kind === 'condition') {
+                                        const vk = this._cssEsc(this.viewerKey || '');
+                                        const btn = document.querySelector('.condition-row[data-condition-id="' + e + '"] .btn-add-initial[data-condition-id="' + e + '"][data-party-key="' + vk + '"]')
+                                                 || document.querySelector('.btn-add-initial[data-condition-id="' + e + '"]');
+                                        if (btn) { this.scrollToChange(item.id, 'condition'); btn.click(); }
+                                        return;
+                                    }
+                                    // body change — open the change-initial modal for this recipient's own slot.
+                                    this.scrollToChange(item.id, 'body');
+                                    document.dispatchEvent(new CustomEvent('corex-open-change-initial', {
+                                        detail: { changeId: item.id, partyKey: this.viewerKey },
+                                    }));
                                 } catch (e) {}
                             },
                             inOwnUi(node) {
@@ -853,6 +895,18 @@
                     .sel-sticky-bar .amend-item-sum { font-size: 12px; line-height: 1.35; }
                     .sel-sticky-bar .amend-old { color: #b91c1c; text-decoration: line-through; }
                     .sel-sticky-bar .amend-new { color: #166534; margin-left: 4px; }
+                    /* per-item actions — View (jump) + Initial (capture), matching the agent review panel */
+                    .sel-sticky-bar .amend-item-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+                    .sel-sticky-bar .amend-btn-view {
+                        font-size: 12px; color: #475569; border: 1px solid #cbd5e1; background: #fff;
+                        border-radius: 7px; padding: 4px 10px; cursor: pointer;
+                    }
+                    .sel-sticky-bar .amend-btn-view:hover { background: #f8fafc; }
+                    .sel-sticky-bar .amend-btn-initial {
+                        font-size: 12px; font-weight: 600; color: #fff; background: #0369a1; border: 1px solid #0369a1;
+                        border-radius: 7px; padding: 4px 10px; cursor: pointer;
+                    }
+                    .sel-sticky-bar .amend-btn-initial:hover { background: #075985; }
                     /* flash the change when a list item is clicked */
                     .amend-flash { animation: amendFlash 1.7s ease; border-radius: 3px; }
                     @keyframes amendFlash {

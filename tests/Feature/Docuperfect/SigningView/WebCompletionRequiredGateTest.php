@@ -79,6 +79,52 @@ final class WebCompletionRequiredGateTest extends TestCase
         $this->assertNotSame(422, $response->getStatusCode(), 'Mandatory floor must pass when signature + field present.');
     }
 
+    /**
+     * P0 (Johan 2026-08-07) — a recipient whose signatures are positioned DB MARKERS captures each one
+     * through a SEPARATE earlier request (POST /capture/{id} → a persisted Signature row). Those marks
+     * never enter the completeWeb POST body, so the floor used to false-positive 422 even though the
+     * document is fully signed. With a persisted signature for this signing request, the floor must PASS
+     * on an otherwise-empty completeWeb body.
+     */
+    public function test_complete_web_passes_when_marker_signature_already_persisted(): void
+    {
+        $session = $this->buildCanonicalTemplate111Session(sellerCount: 1, includeAgent: false);
+        $seller1 = $this->recipient($session['recipients'], 'seller', 1);
+
+        // Persist a marker signature for this signing request (mirrors POST /capture/{id}).
+        $marker = \App\Models\Docuperfect\SignatureMarker::create([
+            'signature_template_id' => $session['signatureTemplate']->id,
+            'assigned_party'        => $seller1->party_role,
+            'type'                  => 'signature',
+            'page_number'           => 1,
+            'x_position'            => 10, 'y_position' => 10, 'width' => 20, 'height' => 8,
+        ]);
+        \App\Models\Docuperfect\Signature::create([
+            'signature_template_id' => $session['signatureTemplate']->id,
+            'signature_marker_id'   => $marker->id,
+            'signature_request_id'  => $seller1->id,
+            'signer_name'           => $seller1->signer_name,
+            'signer_email'          => $seller1->signer_email,
+            'signer_ip_address'     => '127.0.0.1',
+            'signature_data'        => 'data:image/png;base64,iVBORw0KGgo=',
+            'signature_type'        => 'drawn',
+            'signed_at'             => now(),
+        ]);
+
+        $response = $this->postJson('/sign/' . $seller1->token . '/complete-web', [
+            'consented'    => true,
+            'signatures'   => [],   // empty body — the marks live server-side, not in this POST
+            'initials'     => [],
+            'field_values' => [],
+        ]);
+
+        // The no-signature floor must NOT fire (it now sees the persisted marker signature). Any later
+        // gate is out of scope — we assert only that the false-positive "no signature" 422 is gone.
+        $error = (string) $response->json('error');
+        $this->assertStringNotContainsString('no signature was captured', $error,
+            'The floor must accept a recipient whose signature is already persisted via the marker path.');
+    }
+
     /** Consent remains enforced (unchanged, but pinned alongside the new floor). */
     public function test_complete_web_still_requires_consent(): void
     {

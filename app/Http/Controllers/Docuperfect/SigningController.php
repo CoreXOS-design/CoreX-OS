@@ -1537,6 +1537,18 @@ class SigningController extends Controller
         $nonEmpty = static fn ($v): bool => is_array($v) ? $v !== [] : trim((string) $v) !== '';
         $capturedAnyMark = collect((array) $request->input('signatures', []))->contains($nonEmpty)
             || collect((array) $request->input('initials', []))->contains($nonEmpty);
+        // P0 (Johan 2026-08-07) — the floor read ONLY the completeWeb POST body, which carries just the
+        // INLINE capture-pad marks (webSignatures / webInitialElements). A recipient whose signature places
+        // are positioned DB MARKERS signs each one through a SEPARATE earlier request (POST /capture/{id} →
+        // a persisted Signature row for this signing request); those marks never enter the completeWeb body.
+        // The enable-gate counts them as signed (so the button enables + "Ready to submit"), but this floor
+        // saw signatures:{}+initials:{} → false-positive 422 "no signature was captured". OR in the
+        // authoritative, non-bypassable persisted-evidence check: this party already has ≥1 captured
+        // signature server-side. Still rejects a truly empty completion (a party who never signed has no
+        // persisted Signature and sends an empty body).
+        if (!$capturedAnyMark && $signingRequest->signatures()->exists()) {
+            $capturedAnyMark = true;
+        }
         // The authorising practitioner signs their FULL parity set ONCE — at the
         // initial-review checkpoint right after the candidate (Johan 2026-08). The
         // post-external `supervisor_final` checkpoint is the completion/distribution
