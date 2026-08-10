@@ -457,6 +457,10 @@
                     'viewerKey'        => $request->canonicalPartyKey() ?? $request->party_role,
                     'pendingReview'    => (bool) ($wetInkPendingReview ?? false),
                     'wrapperClass'     => 'recipient-amend-col',
+                    // BOUNDED edit model: once the doc re-circulates for signatures (amendment_initialing), a
+                    // recipient can only accept-and-initial or decline — NO third edit. Hide the amend tool.
+                    // Matches cc2's server guard in editSelection (422 when template is amendment_initialing).
+                    'allowEdit'        => empty($inAmendmentInitialing),
                 ])
                 {{-- Recipient-only styles: the 3-column layout that positions the amend column, plus
                      the change-margin display (NOT part of the shared tool). --}}

@@ -40,18 +40,27 @@
     $viewerKey        = $viewerKey ?? '';
     $pendingReview    = $pendingReview ?? false;
     $wrapperClass     = $wrapperClass ?? '';
+    // BOUNDED edit model (Johan 2026-08-10): once the agent has re-edited and the doc re-circulates for
+    // signatures (STATUS_AMENDMENT_INITIALING), there is NO third edit — a recipient can only accept-and-
+    // initial or decline. The host passes allowEdit=false in that round to HIDE the amend affordances
+    // (float ✎ button + "Amend highlighted text" control + the amend modal) while the navigable list and
+    // its View/Initial actions stay. Mirrors cc2's server guard in editSelection (422 when closed).
+    $allowEdit        = $allowEdit ?? true;
 @endphp
-<div x-data="selectionEditor({ url: @js($editSelectionUrl), viewerKey: @js($viewerKey), pendingReview: @js((bool) $pendingReview) })" class="{{ $wrapperClass }}">
+<div x-data="selectionEditor({ url: @js($editSelectionUrl), viewerKey: @js($viewerKey), pendingReview: @js((bool) $pendingReview), allowEdit: @js((bool) $allowEdit) })" class="{{ $wrapperClass }}">
 
                     {{-- The float ✎ button + the amend modal are true overlays → stay teleported to <body> so
                          position:fixed resolves to the VIEWPORT. The Amendments PANEL itself is NOT teleported:
                          it is a real flow element in its own column beside the document (Johan 2026-08-07). --}}
-                    {{-- Floating edit button — positioned by JS right at the current selection. --}}
+                    {{-- Floating edit button — positioned by JS right at the current selection. Omitted when
+                         edits are closed (re-initial round) so a recipient cannot start a third edit. --}}
+                    @if($allowEdit)
                     <template x-teleport="body">
                         <button type="button" x-ref="floatBtn" @click="openFromSelection()"
                                 class="items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg text-white shadow-lg"
                                 style="display:none; position:fixed; z-index:9500; background:#b45309;">✎ Amend this</button>
                     </template>
+                    @endif
 
                     {{-- "Amendments" panel — a real column beside the document (position:sticky within its own
                          column so it stays in view while scrolling; NOT a fixed overlay over the document).
@@ -65,6 +74,7 @@
                                 <span class="sel-amend-count" x-text="amendments.length"></span>
                             </div>
 
+                            @if($allowEdit)
                             {{-- amend controls — highlighted text + Amend button --}}
                             <div class="sel-amend-controls">
                                 <div class="sel-amend-info">
@@ -75,11 +85,22 @@
                                 <button type="button" @click="openFromSelection()" :disabled="!selected"
                                         class="sel-amend-btn">✎ Amend highlighted text</button>
                             </div>
+                            @else
+                            {{-- Edits are CLOSED for this round (bounded model). No more amending — accept each
+                                 change by initialing it below, or decline to request a new document. --}}
+                            <div class="sel-amend-closed">
+                                Changes are closed for this round. Please initial each change below to accept it, or decline to request a new document.
+                            </div>
+                            @endif
 
                             {{-- navigable list of changes on this document --}}
                             <div class="amend-list">
                                 <div class="amend-empty" x-show="amendments.length === 0">
+                                    @if($allowEdit)
                                     No amendments yet — highlight any word, phrase or clause below to propose a change.
+                                    @else
+                                    No changes to initial.
+                                    @endif
                                 </div>
                                 <template x-for="a in amendments" :key="a.key">
                                     <div class="amend-item">
@@ -101,7 +122,9 @@
                             </div>
                         </div>
 
-                    {{-- Modal — a proper CENTERED overlay with backdrop, teleported to body, above the top nav. --}}
+                    {{-- Modal — a proper CENTERED overlay with backdrop, teleported to body, above the top nav.
+                         Omitted when edits are closed (re-initial round) — no way to author a third edit. --}}
+                    @if($allowEdit)
                     <template x-teleport="body">
                     <div x-show="open" x-cloak class="sel-modal-overlay" @keydown.escape.window="open=false" @click="open=false">
                         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden" @click.stop>
@@ -154,6 +177,7 @@
                         </div>
                     </div>
                     </template>
+                    @endif
 </div>
 
 @once
@@ -162,6 +186,10 @@
                         return {
                             open: false, selected: '', prefix: '', suffix: '', replacement: '', mode: 'inline', busy: false, err: '', _cap: null,
                             amendments: [], viewerKey: (cfg.viewerKey || ''), pendingReview: !!cfg.pendingReview,
+                            // BOUNDED edit model — false in the re-initial round: NO new/third edit. The amend
+                            // markup (float ✎ / controls / modal) is omitted server-side; these JS guards are
+                            // belt-and-braces so a stray selection or a programmatic open can never author one.
+                            allowEdit: (cfg.allowEdit !== false),
                             init() {
                                 const handler = () => setTimeout(() => this.onSelect(), 10);
                                 document.addEventListener('mouseup', handler);
@@ -324,6 +352,8 @@
                                 return { text, prefix, suffix, rect: range.getBoundingClientRect(), range: range.cloneRange() };
                             },
                             onSelect() {
+                                // Bounded edit model — no amend affordance when edits are closed (re-initial round).
+                                if (!this.allowEdit) return;
                                 // While the amend modal is OPEN, the selection has already been captured into
                                 // _cap. Opening the modal (clicking the ✎ button / sticky bar) fires the button's
                                 // own document 'mouseup', and clicking collapses the text selection — so this
@@ -343,6 +373,8 @@
                                 }
                             },
                             openFromSelection() {
+                                // Bounded edit model — closed round can never open the amend modal.
+                                if (!this.allowEdit) return;
                                 const cap = this._cap || this.capture();
                                 // PERSIST the capture (incl. its live Range) onto _cap. Without this, a capture
                                 // taken fresh here (when _cap was null/stale — e.g. opening from the sticky-bar
@@ -429,6 +461,9 @@
                     }
                     /* amend controls */
                     .sel-sticky-bar .sel-amend-controls { display: flex; flex-direction: column; gap: .4rem; flex-shrink: 0; }
+                    /* closed-round notice (bounded edit model — replaces the amend controls) */
+                    .sel-sticky-bar .sel-amend-closed { font-size: 12px; line-height: 1.45; color: #92400e;
+                        background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 8px 10px; flex-shrink: 0; }
                     .sel-sticky-bar .sel-amend-info { display: flex; flex-direction: column; align-items: flex-start; gap: .2rem; min-width: 0; }
                     .sel-sticky-bar .sel-amend-label { font-size: .62rem; text-transform: uppercase; letter-spacing: .06em; color: #64748b; font-weight: 600; }
                     .sel-sticky-bar .sel-amend-text { font-size: .78rem; font-weight: 500; line-height: 1.4; max-width: 100%;
