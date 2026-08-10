@@ -74,31 +74,35 @@
     </a>
 @endif
 
-{{-- Instant optimistic feedback. Additive only — navigation is the <a href>; this
-     just flips the glyph + shows "updating…" so the slow reload doesn't read as a
-     dead click. addEventListener (not an inline handler), attached once. --}}
+{{-- Click feedback. IMPORTANT: this must NEVER touch the tick glyph — the glyph is
+     server-rendered truth (filled iff the filter's query param is present). A prior
+     version optimistically FLIPPED the glyph on click; when the slow reload or the
+     browser's back/forward cache restored the DOM, that flipped "filled" glyph got
+     left stuck, so a tick looked checked whether the filter was on or off. Now the
+     only feedback is a "updating…" cue + a dim while the real <a href> navigates;
+     the glyph always reflects the true state. addEventListener, attached once. --}}
 <script>
 (function () {
-    var BOX_ON  = { background: '#fff', borderColor: '#fff', color: 'var(--brand-default,#0b2a4a)' };
-    var BOX_OFF = { background: 'transparent', borderColor: 'rgba(255,255,255,0.5)', color: 'transparent' };
+    function resetFeedback(a) {
+        a.style.opacity = '';
+        var spin = a.querySelector('.mic-tick-spin');
+        if (spin) spin.style.display = 'none';
+    }
     document.querySelectorAll('a.mic-tick').forEach(function (a) {
         if (a.dataset.fbBound) return;      // idempotent
         a.dataset.fbBound = '1';
         a.addEventListener('click', function () {
-            var on  = a.getAttribute('data-active') === '1';
-            var box = a.querySelector('.mic-tick-box');
-            if (box) {
-                var s = on ? BOX_OFF : BOX_ON;         // optimistic flip to the NEW state
-                box.style.background  = s.background;
-                box.style.borderColor = s.borderColor;
-                box.style.color       = s.color;
-            }
+            // Feedback ONLY — do not mutate the glyph. Navigation proceeds; on the
+            // fresh page the blade renders the correct glyph state.
             var spin = a.querySelector('.mic-tick-spin');
             if (spin) spin.style.display = 'inline';
             a.style.opacity = '0.65';
-            a.style.pointerEvents = 'none';            // stop the re-click spam while it reloads
-            // No preventDefault — the real <a href> navigation proceeds.
         });
+    });
+    // Back/forward-cache restore hands back the pre-click DOM (dimmed + "updating…")
+    // — clear the transient feedback so ticks show their true state, clickable.
+    window.addEventListener('pageshow', function () {
+        document.querySelectorAll('a.mic-tick').forEach(resetFeedback);
     });
 })();
 </script>
