@@ -187,7 +187,9 @@
 
     try { const el = card.querySelector('.p24_location'); if (el) listing.suburb = el.textContent.trim(); } catch (e) { /* */ }
     try { const el = card.querySelector('.p24_address'); if (el) { const a = el.textContent.trim(); if (a) listing.address = a; } } catch (e) { /* */ }
-    if (!listing.address) listing.address = 'Address not available';
+    // PULL-ALL (v3.1.4): leave address null when the tile has no .p24_address — do
+    // NOT stamp a placeholder. Address-less listings are captured (importer accepts
+    // null); the MIC "with address only" toggle filters them when wanted.
 
     if (!listing.suburb && listing.portal_url) {
       try {
@@ -233,7 +235,10 @@
       } catch (e) { /* skip */ }
     });
 
-    return listings.filter(l => l.address && l.address !== 'Address not available' && l.address.trim().length > 0);
+    // PULL-ALL (v3.1.4): capture EVERY listing with a portal identity, addressed or
+    // not. Previously this dropped address-less tiles here (the real bug behind
+    // "0 address-less captured"); now they survive with a null address.
+    return listings.filter(l => l.portal_ref || l.portal_url);
   }
 
   // ══════════════════════════════════════════════════════════
