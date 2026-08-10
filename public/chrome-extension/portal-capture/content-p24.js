@@ -102,6 +102,52 @@
     };
   }
 
+  // ── Robust P24 asking-price extraction ────────────────────────────
+  // Fixes two concrete defects in the old one-liner that let bad prices
+  // overwrite good MIC data (dropped-zero / wrong-figure grabs):
+  //   (1) card.querySelector('.p24_price') took the FIRST match. A tile can hold
+  //       more than one .p24_price (price RANGE "From/To", a reduced-price badge,
+  //       a per-m² figure) — first-match sometimes IS a secondary/small figure,
+  //       so the asking price was replaced by e.g. R180k / R275k / R900k.
+  //   (2) textContent.replace(/[^\d]/g,'') CONCATENATED every digit in the
+  //       element, so any element holding two numbers produced a garbage (often
+  //       huge) value — the R1.995m → R10.8m class of error.
+  // Strategy: prefer the authoritative numeric `content` attribute (never
+  // concatenated); parse text only as DISTINCT number groups; keep only values
+  // in a plausible SA asking-price band; the asking price is the headline figure
+  // (secondary levy/deposit/per-m² figures are always much smaller) so take the
+  // max of the plausible candidates.
+  function extractP24Price(card) {
+    const PLAUSIBLE = (v) => Number.isFinite(v) && v >= 100000 && v <= 500000000;
+    const els = Array.from(card.querySelectorAll('.p24_price'));
+    if (els.length === 0) return null;
+
+    // Authoritative: numeric content attributes (a single clean integer each).
+    const byContent = [];
+    els.forEach((el) => {
+      const ca = (el.getAttribute('content') || '').trim();
+      if (/^\d{4,12}$/.test(ca)) {
+        const v = parseInt(ca, 10);
+        if (PLAUSIBLE(v)) byContent.push(v);
+      }
+    });
+    if (byContent.length > 0) return Math.max(...byContent);
+
+    // Fallback: parse the text as SEPARATE number groups — never concatenate.
+    const groups = [];
+    els.forEach((el) => {
+      const matches = (el.textContent || '').match(/\d[\d\s .,]*\d|\d/g) || [];
+      matches.forEach((g) => {
+        const digits = g.replace(/[^\d]/g, '');
+        if (digits.length >= 4 && digits.length <= 12) {
+          const v = parseInt(digits, 10);
+          if (PLAUSIBLE(v)) groups.push(v);
+        }
+      });
+    });
+    return groups.length > 0 ? Math.max(...groups) : null;
+  }
+
   // ── Extract data from a single listing card ──────────────────────
   // Card structure:
   //   div.p24_regularTile[data-listing-number="116833781"]
@@ -169,18 +215,9 @@
       } catch (e) { /* ignore */ }
     }
 
-    // ── Price — from .p24_price content attribute or text ──────────
+    // ── Price — robust extraction (see extractP24Price) ────────────
     try {
-      const priceEl = card.querySelector('.p24_price');
-      if (priceEl) {
-        const contentAttr = priceEl.getAttribute('content');
-        if (contentAttr) {
-          listing.price = parseInt(contentAttr, 10);
-        } else {
-          const cleaned = priceEl.textContent.replace(/[^\d]/g, '');
-          if (cleaned && cleaned.length >= 4) listing.price = parseInt(cleaned, 10);
-        }
-      }
+      listing.price = extractP24Price(card);
     } catch (e) { /* ignore */ }
 
     // ── Title — from .p24_title ("8 Bedroom House") ───────────────

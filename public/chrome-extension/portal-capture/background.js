@@ -7,9 +7,13 @@
  * 3. Batch API sends (every 5 pages / 100 listings)
  * 4. State persistence for resume after popup close / Chrome restart
  * 5. Chrome notifications on capture complete
- * 6. Error handling: rate limits, network issues, API failures, local queue
+ * 6. Error handling: rate limits, network issues, API failures, durable queue
  * 7. Pull Property — send scraped listing detail to CoreX API to create a Property
  */
+
+// Durable IndexedDB send-queue (self.CoreXQueue). Replaces the old
+// chrome.storage.local array queue that silently dropped batches on quota.
+importScripts('queue-idb.js');
 
 // ── Capture state (in-memory, persisted to chrome.storage) ───
 let capture = defaultCaptureState();
@@ -39,6 +43,7 @@ function defaultCaptureState() {
     apiUrl:           null,
     apiToken:         null,
     tabId:            null,
+    authError:        false, // set when CoreX rejected our token — capture paused, not "offline"
   };
 }
 
@@ -100,6 +105,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.action === 'healthCheck') {
+    healthCheck(msg.apiUrl, msg.apiToken)
+      .then(result => sendResponse(result))
+      .catch(() => sendResponse({ state: 'unreachable' }));
+    return true;
+  }
+
+  if (msg.action === 'getQueueStatus') {
+    getQueueStatus()
+      .then(result => sendResponse(result))
+      .catch(() => sendResponse({ count: 0, storageRatio: 0 }));
+    return true;
+  }
+
   if (msg.action === 'checkDuplicateSearch') {
     checkDuplicateSearch(msg.apiUrl, msg.apiToken, msg.searchUrl)
       .then(result => sendResponse(result))
@@ -133,6 +152,7 @@ function getCaptureStatus() {
     startTime:        capture.startTime,
     avgTimePerPage:   capture.avgTimePerPage,
     error:            capture.error,
+    authError:        capture.authError,
     parseWarnings:    capture.parseWarnings,
     rateLimitPauses:  capture.rateLimitPauses,
     batchesSent:      capture.batchesSent,
@@ -257,56 +277,144 @@ async function saveLastCapture(count, portal) {
   });
 }
 
-// ── Local queue for when API is unreachable ────────────────
+// ── Durable send-queue (IndexedDB) ─────────────────────────
+// Fixes the "disappearing batches": every queued batch is a committed IDB
+// record, so a save either succeeds or throws — it is never silently dropped.
+
+const STORAGE_STOP_RATIO = 0.97;   // hard stop: refuse to queue past this, don't drop
+const FLUSH_CHUNK        = 8;      // batches per drain pass — finishes within the SW's life
+let queueMigrated = false;
+
+// One-time move of any legacy chrome.storage.local.localQueue array (e.g. the
+// 228 batches already stuck) into IndexedDB. Atomic: the localStorage copy is
+// removed ONLY after every row is committed to IDB, so nothing is lost if it fails.
+async function ensureQueueReady() {
+  if (queueMigrated) return;
+  const data = await new Promise(r =>
+    chrome.storage.local.get(['localQueue', 'queueMigratedToIdb'], r));
+
+  const legacy = data.localQueue || [];
+  if (data.queueMigratedToIdb && legacy.length === 0) {
+    queueMigrated = true;
+    return;
+  }
+  if (legacy.length === 0) {
+    await new Promise(r => chrome.storage.local.set({ queueMigratedToIdb: true }, r));
+    queueMigrated = true;
+    return;
+  }
+
+  try {
+    await CoreXQueue.addMany(legacy);                                   // all-or-nothing
+    await new Promise(r => chrome.storage.local.remove('localQueue', r));
+    await new Promise(r => chrome.storage.local.set({ queueMigratedToIdb: true }, r));
+    queueMigrated = true;
+    console.log('[CoreX] Migrated ' + legacy.length + ' queued batch(es) to IndexedDB (recoverable).');
+  } catch (e) {
+    // Leave the localStorage queue untouched so the batches survive; retry next call.
+    console.warn('[CoreX] Queue migration deferred (kept localStorage queue intact):', e && e.message);
+  }
+}
+
+// Persist one batch durably. THROWS on storage pressure / quota so the caller
+// can STOP capturing rather than silently lose listings.
 async function queueLocally(payload) {
-  return new Promise(resolve => {
-    chrome.storage.local.get('localQueue', data => {
-      const queue = data.localQueue || [];
-      queue.push(payload);
-      chrome.storage.local.set({ localQueue: queue }, resolve);
-    });
-  });
+  await ensureQueueReady();
+
+  const p = await CoreXQueue.pressure();
+  if (p.ratio >= STORAGE_STOP_RATIO) {
+    const err = new Error('Local storage is full'); err.kind = 'storage_full';
+    throw err;
+  }
+  try {
+    await CoreXQueue.add(payload);
+  } catch (e) {
+    const err = new Error('Could not save batch locally: ' + (e && e.message));
+    err.kind = 'storage_full';
+    throw err;
+  }
 }
 
-async function getLocalQueue() {
-  return new Promise(resolve => {
-    chrome.storage.local.get('localQueue', data => {
-      resolve(data.localQueue || []);
-    });
-  });
+async function getQueueStatus() {
+  await ensureQueueReady();
+  const count = await CoreXQueue.count();
+  const p = await CoreXQueue.pressure();
+  return { count: count, storageRatio: p.ratio };
 }
 
-async function clearLocalQueue() {
-  return new Promise(resolve => {
-    chrome.storage.local.remove('localQueue', resolve);
-  });
-}
-
+// Gentle chunked drain. Deletes a batch ONLY after CoreX confirms the import,
+// so an interrupted drain never loses data (server de-dupes by portal_ref, so a
+// re-sent batch is harmless). Stops early — and says why — on auth/validation/
+// network/server errors instead of masking them all as "offline".
 async function flushLocalQueue(apiUrl, apiToken) {
-  const queue = await getLocalQueue();
-  if (queue.length === 0) return { flushed: 0 };
+  await ensureQueueReady();
 
+  const total = await CoreXQueue.count();
+  if (total === 0) return { flushed: 0, remaining: 0, done: true, stop: null };
+
+  const chunk = await CoreXQueue.peek(FLUSH_CHUNK);
   let flushed = 0;
-  const remaining = [];
+  let stop = null;
 
-  for (const payload of queue) {
+  for (const item of chunk) {
     try {
-      await handleSendToCorex(apiUrl, apiToken, payload);
+      await handleSendToCorex(apiUrl, apiToken, item.payload);
+      await CoreXQueue.remove(item.id);   // delete only after a confirmed 2xx import
       flushed++;
-    } catch (e) {
-      remaining.push(payload);
+    } catch (err) {
+      stop = err.kind || 'server';        // keep the batch; report the real reason
+      break;
     }
   }
 
-  if (remaining.length > 0) {
-    await new Promise(resolve => {
-      chrome.storage.local.set({ localQueue: remaining }, resolve);
+  const remaining = await CoreXQueue.count();
+
+  // More to go and nothing blocking → schedule the next chunk unattended.
+  if (remaining > 0 && !stop) scheduleDrain();
+
+  return { flushed: flushed, remaining: remaining, done: remaining === 0, stop: stop };
+}
+
+// Unattended continuation of the drain (works even if the popup is closed).
+function scheduleDrain() {
+  try { chrome.alarms.create('coreXQueueDrain', { delayInMinutes: 0.5 }); } catch (e) { /* */ }
+}
+
+if (chrome.alarms && chrome.alarms.onAlarm) {
+  chrome.alarms.onAlarm.addListener(async (alarm) => {
+    if (alarm.name !== 'coreXQueueDrain') return;
+    const s = await new Promise(r => chrome.storage.local.get(['apiUrl', 'apiToken'], r));
+    if (!s.apiToken) return;
+    try {
+      await flushLocalQueue(s.apiUrl || 'https://corex.hfcoastal.co.za', s.apiToken);
+    } catch (e) { /* next alarm retries */ }
+  });
+}
+
+// ── Lightweight auth/health probe ──────────────────────────
+// Reuses the read-only check-search endpoint so it authenticates EXACTLY like
+// the import call. Distinguishes token-expired (401/419) from no-agency (422)
+// from server error from truly-unreachable — so "token expired" stops looking
+// identical to "offline".
+async function healthCheck(apiUrl, apiToken) {
+  if (!apiToken) return { state: 'no_token' };
+  const url = apiUrl.replace(/\/+$/, '') +
+    '/api/prospecting/check-search?search_url=' + encodeURIComponent('corex-extension-healthcheck');
+
+  let resp;
+  try {
+    resp = await fetch(url, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json', 'Authorization': 'Bearer ' + apiToken },
     });
-  } else {
-    await clearLocalQueue();
+  } catch (e) {
+    return { state: 'unreachable' };          // network / DNS / TLS — server not reached
   }
 
-  return { flushed, remaining: remaining.length };
+  if (resp.ok) return { state: 'connected' };
+  if (resp.status === 401 || resp.status === 419) return { state: 'auth', status: resp.status };
+  if (resp.status === 422) return { state: 'no_agency', status: resp.status };
+  return { state: 'server_error', status: resp.status };
 }
 
 // ── Check for duplicate search today ───────────────────────
@@ -388,7 +496,7 @@ async function fetchPageWithRetry(url, portal) {
   }
 }
 
-// ── Send batch to API with queue fallback ──────────────────
+// ── Send batch to API with durable queue fallback ──────────
 async function sendBatchToApi(listings, context) {
   const payload = {
     source: capture.portal,
@@ -404,16 +512,42 @@ async function sendBatchToApi(listings, context) {
       capture.importedCount += (result.imported || 0);
       capture.updatedCount += (result.updated || 0);
       capture.batchesSent++;
+      capture.error = null;
       return true;
     }
+    return false;
   } catch (err) {
-    // API unreachable — queue locally
-    await queueLocally(payload);
-    capture.error = 'CoreX offline — ' + listings.length + ' listings queued locally';
+    // ALWAYS preserve the batch first (never drop stock)...
+    try {
+      await queueLocally(payload);
+    } catch (storageErr) {
+      // Durable queue itself is full — STOP rather than silently lose listings.
+      capture.cancelled = true;
+      capture.error = 'STORAGE FULL — capture stopped so nothing is lost. Open CoreX to send the ' +
+                      'queued batches, then capture again.';
+      return false;
+    }
+
+    // ...then react to the ERROR KIND honestly, not a blanket "offline".
+    if (err.kind === 'auth') {
+      capture.cancelled = true;        // a bad token won't fix itself — stop hammering
+      capture.authError = true;
+      capture.error = 'Login rejected (token expired) — re-authenticate in Settings. Capture paused; ' +
+                      listings.length + ' listings safely queued (nothing lost).';
+    } else if (err.kind === 'validation') {
+      capture.cancelled = true;
+      capture.authError = true;
+      capture.error = 'CoreX rejected the batch (no agency context) — fix your login/agency. ' +
+                      listings.length + ' listings safely queued (nothing lost).';
+    } else if (err.kind === 'network') {
+      capture.error = 'CoreX unreachable — ' + listings.length +
+                      ' listings safely queued; will send when back online.';
+    } else {
+      capture.error = 'CoreX server error (' + (err.status || '5xx') + ') — ' + listings.length +
+                      ' listings safely queued; will retry.';
+    }
     return false;
   }
-
-  return false;
 }
 
 // ── Main capture loop ──────────────────────────────────────
@@ -591,11 +725,16 @@ async function runCaptureLoop(startPage) {
         pages_captured: capture.currentPage,
         captured_at: new Date().toISOString(),
       };
-      await queueLocally({
-        source: capture.portal,
-        search_context: context,
-        listings: capture.pendingListings.splice(0),
-      });
+      try {
+        await queueLocally({
+          source: capture.portal,
+          search_context: context,
+          listings: capture.pendingListings.splice(0),
+        });
+      } catch (queueErr) {
+        capture.error = (capture.error ? capture.error + ' ' : '') +
+                        '(Could not queue trailing listings — storage full.)';
+      }
     }
   }
 }
@@ -785,22 +924,31 @@ function extractMeta(tile, listing) {
 async function handleSendToCorex(apiUrl, apiToken, payload) {
   const url = apiUrl.replace(/\/+$/, '') + '/api/prospecting/import';
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type':  'application/json',
-      'Accept':        'application/json',
-      'Authorization': 'Bearer ' + apiToken,
-    },
-    body: JSON.stringify(payload),
-  });
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Accept':        'application/json',
+        'Authorization': 'Bearer ' + apiToken,
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (e) {
+    // fetch() only rejects on a genuine network failure (DNS/TLS/offline).
+    const err = new Error('CoreX unreachable'); err.kind = 'network';
+    throw err;
+  }
 
   if (!response.ok) {
     const text = await response.text().catch(() => '');
-    if (response.status === 401) {
-      throw new Error('Invalid API token. Check your settings.');
-    }
-    throw new Error('API error ' + response.status + ': ' + (text || 'Unknown error'));
+    const err = new Error('API ' + response.status + ': ' + (text || 'Unknown error').slice(0, 200));
+    err.status = response.status;
+    if (response.status === 401 || response.status === 419) err.kind = 'auth';        // token expired
+    else if (response.status === 422) err.kind = 'validation';                        // no agency context
+    else err.kind = 'server';                                                         // 5xx / other
+    throw err;
   }
 
   return await response.json();
