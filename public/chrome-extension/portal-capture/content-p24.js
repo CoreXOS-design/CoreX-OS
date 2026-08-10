@@ -253,7 +253,9 @@
         if (addr) listing.address = addr;
       }
     } catch (e) { /* ignore */ }
-    if (!listing.address) listing.address = 'Address not available';
+    // PULL-ALL (v3.1.2): leave address null when the tile shows none — do NOT
+    // stamp a placeholder. Address-less listings are now captured (importer
+    // accepts null); the MIC "with address" toggle filters them when wanted.
 
     // Suburb fallback from URL
     if (!listing.suburb && listing.portal_url) {
@@ -349,9 +351,10 @@
     });
 
     // Only return listings that have a real address
-    return listings.filter(l =>
-      l.address && l.address !== 'Address not available' && l.address.trim().length > 0
-    );
+    // PULL-ALL (v3.1.2): capture EVERY listing that has a portal identity, with
+    // or without a street address. Previously address-less tiles were dropped
+    // here; now they import with a null address and can be filtered in MIC.
+    return listings.filter(l => l.portal_ref || l.portal_url);
   }
 
   // ── Message handler ────────────────────────────────────────

@@ -44,6 +44,7 @@
     $activeCapturedBy = request('captured_by');
     $activeDateFrom = request('date_from');
     $activeAgencyName = request('agency_name');
+    $activeAddressFilter = request('address_filter');
 
     $urlWith = function (array $params) {
         $merged = array_merge(request()->except(['page']), $params);
@@ -90,6 +91,7 @@
         $activePills[] = ['label' => $lo . ' – ' . $hi,                                                                          'remove' => $urlWithout(['price_min','price_max'])];
     }
     if (in_array($activeStatus, ['0', 0], true))         $activePills[] = ['label' => 'Status · removed',                        'remove' => $urlWithout('is_active')];
+    if ($activeAddressFilter === 'with_address')         $activePills[] = ['label' => 'With address only',                       'remove' => $urlWithout('address_filter')];
     if ($activeCapturedBy) {
         $u = $captureUsers->firstWhere('id', (int) $activeCapturedBy);
         $activePills[] = ['label' => 'Captured · ' . ($u->name ?? '?'),                                                          'remove' => $urlWithout('captured_by')];
@@ -362,6 +364,22 @@
                     <span>{{ $lbl }}</span>
                 </a>
             @endforeach
+        </div>
+    </div>
+
+    {{-- By address (pull-all toggle) --}}
+    <div x-data="{ open: false }" style="border-bottom: 1px solid var(--border);">
+        <button @click="open = !open" type="button" style="{{ $sectionTitleStyle }}; width: 100%; text-align: left; background: none; border: none; cursor: pointer; padding: 8px 12px;">
+            <span x-text="open ? '▾' : '▸'" style="display: inline-block; width: 12px;"></span> By address
+        </button>
+        <div x-show="open" x-cloak>
+            @php $withAddressActive = $activeAddressFilter === 'with_address'; @endphp
+            <a href="{{ $urlWithout('address_filter') }}" style="{{ ! $withAddressActive ? $activeRowStyle : $rowStyle }}">
+                <span>Show all properties</span>
+            </a>
+            <a href="{{ $urlWith(['address_filter' => 'with_address']) }}" style="{{ $withAddressActive ? $activeRowStyle : $rowStyle }}">
+                <span>Show only with an address</span>
+            </a>
         </div>
     </div>
 
