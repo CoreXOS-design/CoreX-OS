@@ -127,34 +127,55 @@ class ProspectingListing extends Model
     /**
      * Company stock (Johan's model) — this scraped listing IS one of the agency's
      * OWN portal listings: its portal_ref exactly matches a property's P24/PP
-     * listing number (properties.p24_ref / pp_ref). This is the EXACT identity
-     * match, deliberately distinct from the fuzzy address-based matched_property_id
-     * (which over-matches address collisions and other agencies' listings).
+     * listing number (properties.p24_ref / pp_ref). The EXACT identity match,
+     * deliberately distinct from the fuzzy address-based matched_property_id.
      *
-     * portal_ref is stored prefixed ('P24-<num>' / 'PP-<ref>'); the property refs
-     * are unprefixed, so we compare against SUBSTRING(portal_ref, 5|4). The
-     * subquery correlates on the OUTER prospecting_listings row, so these scopes
-     * must be used on an UNALIASED prospecting_listings query.
+     * portal_ref is stored PREFIXED ('P24-<num>' / 'PP-<ref>'); the property refs
+     * are unprefixed. Rather than a per-row correlated SUBSTRING subquery (which
+     * is non-sargable and scans properties for every listing — it made the MIC
+     * page time out), we precompute the agency's set of prefixed company-stock
+     * refs ONCE and filter with an indexed whereIn/whereNotIn on portal_ref.
+     * Memoised per agency per request.
      */
-    protected static function companyStockExistsSubquery($s): void
+    protected static array $companyStockRefMapCache = [];
+
+    /** ['P24-<num>' | 'PP-<ref>' => property id] for the agency. One query, chunked. */
+    public static function companyStockRefMapFor(int $agencyId): array
     {
-        $s->selectRaw('1')->from('properties as p')
-          ->whereColumn('p.agency_id', 'prospecting_listings.agency_id')
-          ->whereNull('p.deleted_at')
-          ->where(function ($w) {
-              $w->whereRaw("(prospecting_listings.portal_source = 'p24' AND p.p24_ref IS NOT NULL AND p.p24_ref <> '' AND p.p24_ref = SUBSTRING(prospecting_listings.portal_ref, 5))")
-                ->orWhereRaw("(prospecting_listings.portal_source = 'pp' AND p.pp_ref IS NOT NULL AND p.pp_ref <> '' AND p.pp_ref = SUBSTRING(prospecting_listings.portal_ref, 4))");
-          });
+        if (!array_key_exists($agencyId, static::$companyStockRefMapCache)) {
+            $map = [];
+            \DB::table('properties')
+                ->where('agency_id', $agencyId)
+                ->whereNull('deleted_at')
+                ->select('id', 'p24_ref', 'pp_ref')
+                ->orderBy('id')
+                ->chunk(2000, function ($rows) use (&$map) {
+                    foreach ($rows as $r) {
+                        if (!empty($r->p24_ref)) $map['P24-' . $r->p24_ref] = (int) $r->id;
+                        if (!empty($r->pp_ref))  $map['PP-' . $r->pp_ref]   = (int) $r->id;
+                    }
+                });
+            static::$companyStockRefMapCache[$agencyId] = $map;
+        }
+        return static::$companyStockRefMapCache[$agencyId];
     }
 
-    public function scopeWhereCompanyStock($query)
+    /** Prefixed portal_refs of the agency's own stock. */
+    public static function companyStockRefsFor(int $agencyId): array
     {
-        return $query->whereExists(fn ($s) => static::companyStockExistsSubquery($s));
+        return array_keys(static::companyStockRefMapFor($agencyId));
     }
 
-    public function scopeWhereNotCompanyStock($query)
+    public function scopeWhereCompanyStock($query, int $agencyId)
     {
-        return $query->whereNotExists(fn ($s) => static::companyStockExistsSubquery($s));
+        $refs = static::companyStockRefsFor($agencyId);
+        return empty($refs) ? $query->whereRaw('1 = 0') : $query->whereIn('portal_ref', $refs);
+    }
+
+    public function scopeWhereNotCompanyStock($query, int $agencyId)
+    {
+        $refs = static::companyStockRefsFor($agencyId);
+        return empty($refs) ? $query : $query->whereNotIn('portal_ref', $refs);
     }
 
     /**
