@@ -47,6 +47,13 @@
         'not_interested' => ['label' => 'Not for me', 'variant' => 'ds-badge-warning'],
     ];
     $fbMeta = $fb && isset($reactionMeta[$fb->reaction]) ? $reactionMeta[$fb->reaction] : null;
+
+    // Own vs communal/complex pool — Property::poolTokens() is the single
+    // source both this badge and the matching engine read, so they can never
+    // disagree about which kind of pool a property has.
+    $poolTokens = $property->poolTokens();
+    $poolLabel  = in_array('pool_communal', $poolTokens, true) ? 'Communal Pool'
+        : (in_array('pool_own', $poolTokens, true) ? 'Pool' : null);
 @endphp
 
 <div class="rounded-md overflow-hidden flex items-stretch flex-wrap md:flex-nowrap transition-opacity"
@@ -124,6 +131,14 @@
             <div class="text-sm font-semibold leading-snug mb-1" style="color: var(--text-primary);">
                 {{ $property->title ?: 'Untitled Property' }}
             </div>
+            {{-- Agent-facing ONLY — the full street address. The client-facing wishlist
+                 share link (resources/views/shared/match.blade.php) and the buyer portal
+                 (resources/views/buyer-portal/_property-card.blade.php) are separate blade
+                 files with their own markup and must NEVER be given this component or this
+                 field; both intentionally show suburb/city only. --}}
+            @if($property->address)
+            <div class="text-xs mb-1" style="color: var(--text-secondary);">{{ $property->address }}</div>
+            @endif
             <div class="flex items-center gap-3 text-xs flex-wrap" style="color: var(--text-muted);">
                 <span class="font-semibold text-sm" style="color: var(--brand-icon);">{{ $property->formattedPrice() }}</span>
                 @if($property->suburb)<span>{{ $property->suburb }}</span>@endif
@@ -132,6 +147,12 @@
                 @endforeach
                 @if($property->size_m2)
                 <span>{{ number_format($property->size_m2) }} m²</span>
+                @endif
+                @if($poolLabel)
+                <span class="inline-flex items-center gap-1" title="{{ $poolLabel === 'Communal Pool' ? 'Communal/complex pool — not exclusive to this unit' : 'Own pool on this property' }}">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M2 15c2.5 0 2.5-3 5-3s2.5 3 5 3 2.5-3 5-3 2.5 3 5 3M2 19c2.5 0 2.5-3 5-3s2.5 3 5 3 2.5-3 5-3 2.5 3 5 3" /><circle cx="12" cy="7" r="1.5" /></svg>
+                    {{ $poolLabel }}
+                </span>
                 @endif
             </div>
             @if($property->agent)

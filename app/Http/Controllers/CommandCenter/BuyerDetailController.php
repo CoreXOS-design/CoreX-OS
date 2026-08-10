@@ -72,7 +72,10 @@ class BuyerDetailController extends Controller
         // and chip options. Same source as the contact-page Core Matches tab.
         $matchCategories = \App\Models\PropertySettingItem::group('category')->get();
         $matchTypes      = \App\Models\PropertySettingItem::group('property_type')->where('active', true)->get();
-        $featureOptions  = \App\Http\Controllers\CoreX\ContactMatchController::FEATURE_OPTIONS;
+        $featureOptions  = array_merge(
+            \App\Http\Controllers\CoreX\ContactMatchController::FEATURE_OPTIONS,
+            \App\Http\Controllers\CoreX\ContactMatchController::POOL_TYPE_OPTIONS
+        );
 
         return view('command-center.buyers.detail', [
             'buyer'                   => $contact,

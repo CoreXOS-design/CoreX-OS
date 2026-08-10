@@ -313,7 +313,10 @@ class ContactController extends Controller
         $sellerPast = $sellerViewings->filter(fn ($v) => \Carbon\Carbon::parse($v['event_date'])->lt($now))->sortByDesc('event_date')->values();
         $viewingsCount = $buyerViewings->count() + $sellerViewings->count();
 
-        $featureOptions = \App\Http\Controllers\CoreX\ContactMatchController::FEATURE_OPTIONS;
+        $featureOptions = array_merge(
+            \App\Http\Controllers\CoreX\ContactMatchController::FEATURE_OPTIONS,
+            \App\Http\Controllers\CoreX\ContactMatchController::POOL_TYPE_OPTIONS
+        );
 
         // Seller-outreach timeline (Prompt 07). Only fetched when the viewer
         // has the composer permission — gated tab.
