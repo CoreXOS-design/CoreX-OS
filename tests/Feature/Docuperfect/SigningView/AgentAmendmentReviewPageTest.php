@@ -194,6 +194,11 @@ final class AgentAmendmentReviewPageTest extends TestCase
         $this->assertStringNotContainsString('AgentReject', $html, 'the reject handler is retired');
         $this->assertStringNotContainsString('reject(it)', $html, 'there is no per-item Reject control — disagreeing is editing');
         $this->assertStringContainsString('agentCiModal', $html, 'the self-contained capture modal (both change types) is included');
+        // The SHARED amend tool (cc6's _selection-edit-tool) is mounted for the agent EDIT action, posting to
+        // the agent edit-selection endpoint — reused, not forked.
+        $this->assertStringContainsString('selectionEditor(', $html, 'cc6 shared amend tool is mounted on the review page');
+        $this->assertStringContainsString('edit-selection', $html, 'the tool posts to the agent edit-selection endpoint');
+        $this->assertStringContainsString('agent-edit-tool-host', $html, 'the tool is mounted in its host wrapper (duplicate list suppressed)');
         // The next recipient exists → the label must say "send", never "Finalise".
         $this->assertStringContainsString('Approve &amp; Send to', $html, 'label reflects the real next step (send to next recipient)');
         $this->assertStringNotContainsString('Approve &amp; Finalise', $html, 'not mislabelled as Finalise when a next recipient exists');

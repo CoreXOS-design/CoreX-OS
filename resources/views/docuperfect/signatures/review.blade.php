@@ -347,6 +347,22 @@
                     // §20 — restore the seller's stored YES/NO/N/A disclosure
                     // answers (read-only) so the reviewing agent sees them.
                     restoreStoredDisclosure(container, @json($disclosureAnswers ?? []));
+
+                    @if($isAmendmentApproval ?? false)
+                    // SYMMETRIC edit model (Johan 2026-08-10) — the shared amend tool (cc6's
+                    // _selection-edit-tool) is mounted on this page. Host-page contract:
+                    //  • the document above renders the change-marks server-side (forDisplay canonical) —
+                    //    the tool's selection→strike works against them;
+                    //  • emit corex-doc-ready now that the body has painted so the tool binds;
+                    //  • an agent strike dispatches corex-amendment-created — reload so the new mark + its
+                    //    per-party initial row render from the server (the edit also joined the amendment
+                    //    cycle server-side via addEditToActiveCycle) and the panel rebuilds. A reload here is
+                    //    safe: this is the review surface, not a live signing ceremony.
+                    document.dispatchEvent(new CustomEvent('corex-doc-ready'));
+                    document.addEventListener('corex-amendment-created', function () {
+                        setTimeout(function () { window.location.reload(); }, 250);
+                    });
+                    @endif
                 });
             </script>
         @else
@@ -654,6 +670,19 @@
     {{-- AT-373 — close review-main + the Amendments panel's OWN column (a real flex column beside the
          document, not a floating overlay). The panel is position:sticky WITHIN this column. --}}
     @if($isAmendmentApproval ?? false)
+        {{-- SYMMETRIC edit model (Johan 2026-08-10) — mount cc6's SHARED amend tool (do NOT fork). It gives
+             the reviewing agent the SAME strike/reword tool recipients use: its teleported "✎ Amend this"
+             float appears when the agent highlights text in the document above, and its amend modal posts to
+             the AGENT edit-selection endpoint (same {ok, change_id, oc_ref} contract as the recipient route),
+             which folds the edit into the amendment cycle server-side. Our own _agent-amendments-panel remains
+             the list + Accept & Initial + Approve surface, so the tool's duplicate sticky-bar list is hidden
+             (CSS below); only its ✎ float + modal are used. Edit REPLACES reject. --}}
+        @include('docuperfect.signatures.partials._selection-edit-tool', [
+            'editSelectionUrl' => route('docuperfect.signatures.editSelection', $document),
+            'viewerKey'        => 'agent',
+            'pendingReview'    => false,
+            'wrapperClass'     => 'agent-edit-tool-host',
+        ])
     </div>{{-- /review-main --}}
     {{-- 260px column matching cc6's recipient panel (022c377a .recipient-amend-col: flex 0 0 260px + align-self:stretch).
          align-self:stretch is LOAD-BEARING: the row is align-items:flex-start (so the document column is not forced to
@@ -678,6 +707,11 @@
        sticky panel has no travel and scrolls off with the page. */
     .review-aside { align-self: stretch; }
     #agentAmendPanel { position: sticky; top: 16px; width: 100%; max-height: calc(100vh - 32px); overflow: hidden; }
+    /* The shared amend tool is mounted only for its ✎ float + amend modal (both teleported to <body>).
+       Our _agent-amendments-panel is the list/Accept/Approve surface, so hide the tool's duplicate
+       in-flow sticky-bar list. The teleported float + modal are unaffected (they live on <body>). */
+    .agent-edit-tool-host .sel-sticky-bar { display: none !important; }
+    .agent-edit-tool-host { display: contents; }
     @media (max-width: 1279px) {
         .review-aside { align-self: auto !important; }
         .review-columns { flex-direction: column !important; }
