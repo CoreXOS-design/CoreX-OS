@@ -89,6 +89,7 @@ class ProspectingApiController extends Controller
 
         $imported = 0;
         $updated = 0;
+        $skippedBadRows = 0;
 
         // GEO-SCRAPE — collect TP ids touched by this batch so we can dispatch
         // ONE async geocode job at the end (not N jobs). Filtering down to
@@ -101,6 +102,10 @@ class ProspectingApiController extends Controller
                 continue;
             }
 
+            // Batch resilience: process each listing in its own try so ONE bad row
+            // (e.g. a null/oversized column) can never abort the whole batch and drop
+            // the good listings with it. See the catch at the end of the loop.
+            try {
             // Truncate strings to column max lengths — defence in depth.
             // Address: store a true NULL when the tile has no street address (blank
             // or the legacy "Address not available" placeholder) so address-less
@@ -232,6 +237,15 @@ class ProspectingApiController extends Controller
 
                 $imported++;
             }
+            } catch (\Throwable $e) {
+                // One listing failed — skip it, keep the rest of the batch.
+                $skippedBadRows++;
+                \Log::warning('Prospecting import: skipped a listing that failed to persist — batch continues', [
+                    'portal_ref' => $data['portal_ref'] ?? null,
+                    'portal_url' => $data['portal_url'] ?? null,
+                    'error'      => $e->getMessage(),
+                ]);
+            }
         }
 
         $search->update([
@@ -262,6 +276,7 @@ class ProspectingApiController extends Controller
             'success'  => true,
             'imported' => $imported,
             'updated'  => $updated,
+            'skipped'  => $skippedBadRows,
             'total'    => $imported + $updated,
         ]);
     }
