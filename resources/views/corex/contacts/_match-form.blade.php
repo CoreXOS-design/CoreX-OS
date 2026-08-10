@@ -28,18 +28,23 @@
             ->whereIn('id', $match->p24_suburb_ids)
             ->get()
             ->map(fn ($s) => [
-                'id'          => $s->id,
-                'name'        => $s->name,
-                'city_id'     => $s->city?->id,
-                'city_name'   => $s->city?->name,
-                'province_id' => $s->city?->province?->id,
+                'id'            => $s->id,
+                'name'          => $s->name,
+                'city_id'       => $s->city?->id,
+                'city_name'     => $s->city?->name,
+                'province_id'   => $s->city?->province?->id,
+                'province_name' => $s->city?->province?->name,
             ])->all();
     }
     $selectedMustHaves      = old('must_have_features',       $isEdit ? ($match->must_have_features ?? []) : []);
     $selectedNiceToHaves    = old('nice_to_have_features',    $isEdit ? ($match->nice_to_have_features ?? []) : []);
     $selectedDealBreakers   = old('deal_breakers',            $isEdit ? ($match->deal_breakers ?? [])     : []);
     $initialListingType     = old('listing_type', $isEdit ? $match->listing_type : 'sale');
-    $featureLabel = fn (string $token) => \Illuminate\Support\Str::headline(str_replace('_', ' ', $token));
+    // Str::headline('pool_own') reads "Pool Own" — override the two pool-type
+    // tokens with proper copy; every other token keeps the generic headline.
+    $featureLabelOverrides = ['pool_own' => 'Own Pool', 'pool_communal' => 'Communal Pool'];
+    $featureLabel = fn (string $token) => $featureLabelOverrides[$token]
+        ?? \Illuminate\Support\Str::headline(str_replace('_', ' ', $token));
 
     // Caller may override the form-submit URL by passing $formAction. Default
     // routes to the corex.contacts.matches.* endpoints (the Contact-page surface).

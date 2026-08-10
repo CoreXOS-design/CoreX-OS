@@ -1867,6 +1867,55 @@ class Property extends Model
     }
 
     /**
+     * Pool feature tokens derived from the property's `spaces_json` Pool
+     * space entry. Reused by both the matching engine (MatchingService) and
+     * agent-facing display (match-card badge) so the two can never disagree
+     * about whether a property has its OWN pool vs a COMMUNAL/complex pool.
+     *
+     * The Spaces editor already lets an agent add a "Pool" space and tag its
+     * "Type" — one of the options is literally "Communal Pool" (the same
+     * vocabulary P24 imports use), the other Type options (Fibreglass in
+     * Ground, Indoor Pool, Portapool, Rock Pool, Splash Pool, or simply a
+     * Pool space with no Type set) all mean the property has its OWN pool.
+     * No new UI, no new column — this reads the existing capture surface.
+     *
+     * @return string[] zero, one, or two of: 'pool', 'pool_own', 'pool_communal'
+     */
+    public function poolTokens(): array
+    {
+        $spacesData = $this->spaces_json ?? [];
+        if (is_string($spacesData)) {
+            $spacesData = json_decode($spacesData, true) ?? [];
+        }
+        $spacesList = $spacesData['spaces'] ?? [];
+        if (empty($spacesList) && !empty($spacesData) && isset($spacesData[0]['type'])) {
+            $spacesList = $spacesData; // legacy flat shape (mirrors derivedGalleryTags())
+        }
+
+        foreach ($spacesList as $sp) {
+            if (($sp['type'] ?? '') !== 'Pool' || (int) ($sp['count'] ?? 0) < 1) {
+                continue;
+            }
+
+            $isCommunal = false;
+            $allFeatures = array_merge(
+                $sp['featuresAll'] ?? [],
+                ...array_map(fn ($u) => $u['features'] ?? [], $sp['units'] ?? [])
+            );
+            foreach ($allFeatures as $feat) {
+                if (strcasecmp(trim((string) $feat), 'Communal Pool') === 0) {
+                    $isCommunal = true;
+                    break;
+                }
+            }
+
+            return ['pool', $isCommunal ? 'pool_communal' : 'pool_own'];
+        }
+
+        return [];
+    }
+
+    /**
      * The gallery tags DERIVED from the property's rooms — `spaces_json`
      * (preferred) or the legacy beds/baths/garages columns. ONLY spaces the
      * user has actually added (count >= 1) produce tags. This is the room-based

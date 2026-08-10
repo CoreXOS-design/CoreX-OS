@@ -41,6 +41,22 @@ class ContactMatchController extends Controller
         'borehole',
     ];
 
+    /**
+     * Pool-ownership chip options for the wishlist criteria form — separate
+     * from FEATURE_OPTIONS on purpose. FEATURE_OPTIONS is also read by the AI
+     * photo-vision suggestion services (PropertyAiSuggestionService,
+     * VisionRecognitionService) as the vocabulary a single photo may be
+     * classified against; "own pool" vs "communal/complex pool" is a
+     * structural fact (which Spaces "Type" the agent tagged), never something
+     * a photo alone can tell apart, so it must never enter that AI vocabulary.
+     * Property::poolTokens() is the actual source of truth these tokens are
+     * matched against — see MatchingService::propertyFeatureTokens().
+     */
+    public const POOL_TYPE_OPTIONS = [
+        'pool_own',
+        'pool_communal',
+    ];
+
     public function __construct(protected MatchingService $matching) {}
 
     public function index()
@@ -203,7 +219,7 @@ class ContactMatchController extends Controller
 
         $matchCategories = PropertySettingItem::group('category')->get();
         $matchTypes      = PropertySettingItem::group('property_type')->where('active', true)->get();
-        $featureOptions  = self::FEATURE_OPTIONS;
+        $featureOptions  = array_merge(self::FEATURE_OPTIONS, self::POOL_TYPE_OPTIONS);
 
         return view('corex.contacts.match-edit', compact(
             'contact', 'match', 'matchCategories', 'matchTypes', 'featureOptions'
