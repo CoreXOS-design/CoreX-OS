@@ -24,6 +24,21 @@
            })(this)">
     Show sole/exclusive mandates
 </label>
+{{-- Address presence toggle (pull-all). Peer tick styled like the others: some
+     captured listings have no street address; this restricts to those that do. --}}
+<label class="inline-flex items-center gap-2 text-xs cursor-pointer"
+       style="color: rgba(255,255,255,0.8);"
+       title="Some captured listings have no street address yet. Check to show only listings that have an address.">
+    <input type="checkbox"
+           {{ request('address_filter') === 'with_address' ? 'checked' : '' }}
+           onchange="(function(cb){
+               const url = new URL(window.location.href);
+               if (cb.checked) { url.searchParams.set('address_filter','with_address'); }
+               else { url.searchParams.delete('address_filter'); }
+               window.location.href = url.toString();
+           })(this)">
+    With address only
+</label>
 @if($isManager)
     <label class="inline-flex items-center gap-2 text-xs cursor-pointer"
            style="color: rgba(255,255,255,0.8);"
