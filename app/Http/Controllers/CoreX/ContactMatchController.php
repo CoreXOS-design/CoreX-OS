@@ -263,6 +263,9 @@ class ContactMatchController extends Controller
      * list — same wishlist filters, same match_score sort). Streams inline by
      * default so the browser's print dialog is one click away; ?dl=1 forces a
      * file download.
+     *
+     * ?photos=0 → compact text-only sheet (no photos: faster to print, saves
+     * ink, denser). Default (photos absent or =1) embeds each property's photo.
      */
     public function printList(Request $request, Contact $contact, ContactMatch $match, \App\Services\Matching\CoreMatchListPdfService $pdfService)
     {
@@ -271,9 +274,11 @@ class ContactMatchController extends Controller
         // Default: only the properties still in play (hidden excluded), matching
         // the visible tiles. ?include_hidden=1 keeps hidden ones (flagged).
         $includeHidden = $request->boolean('include_hidden');
+        // With-photos by default; ?photos=0 for the text-only variant.
+        $withPhotos    = $request->boolean('photos', true);
 
-        $pdf      = $pdfService->pdf($contact, $match, $includeHidden);
-        $filename = $pdfService->filename($contact, $match);
+        $pdf      = $pdfService->pdf($contact, $match, $includeHidden, $withPhotos);
+        $filename = $pdfService->filename($contact, $match, $withPhotos);
 
         return $request->boolean('dl')
             ? $pdf->download($filename)

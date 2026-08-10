@@ -9,6 +9,7 @@ use App\Models\ContactMatch;
 use App\Models\Property;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * Core-Match / Buyer-Pipeline wishlist list → printable A4 PDF.
@@ -57,16 +58,23 @@ class CoreMatchListPdfService
         'access',
     ];
 
+    /** Embedded photo width (px). Displays ~54px in the table; embed larger so
+     *  it stays crisp at print DPI while keeping the PDF light. */
+    private const PHOTO_MAX_W = 130;
+
     /**
      * Build the dompdf instance for the given match's property list.
      *
      * @param  bool  $includeHidden  Include properties the agent hid from this
      *         match. Default false — a working appointment sheet lists only the
      *         properties still in play, mirroring the visible tiles on screen.
+     * @param  bool  $withPhotos  Embed each property's photo per row (default).
+     *         false → compact text-only sheet (faster to print, saves ink,
+     *         denser). Johan's with-photo / without-photo choice.
      */
-    public function pdf(Contact $contact, ContactMatch $match, bool $includeHidden = false)
+    public function pdf(Contact $contact, ContactMatch $match, bool $includeHidden = false, bool $withPhotos = true)
     {
-        $data = $this->data($contact, $match, $includeHidden);
+        $data = $this->data($contact, $match, $includeHidden, $withPhotos);
 
         // Options MUST precede loadView (dompdf reads fontDir/fontCache at
         // construction — ViewingPackPdfSupport gotcha). isRemoteEnabled=false:
@@ -84,13 +92,14 @@ class CoreMatchListPdfService
     /**
      * A safe, print-friendly filename for the sheet.
      */
-    public function filename(Contact $contact, ContactMatch $match): string
+    public function filename(Contact $contact, ContactMatch $match, bool $withPhotos = true): string
     {
         $buyer = trim((string) ($contact->full_name ?? 'buyer'));
         $slug  = preg_replace('/[^A-Za-z0-9]+/', '-', $buyer) ?: 'buyer';
         $slug  = trim((string) $slug, '-') ?: 'buyer';
+        $variant = $withPhotos ? 'with-photos' : 'text-only';
 
-        return 'core-match-list-' . strtolower($slug) . '-' . $match->id . '.pdf';
+        return 'core-match-list-' . strtolower($slug) . '-' . $match->id . '-' . $variant . '.pdf';
     }
 
     /**
@@ -98,7 +107,7 @@ class CoreMatchListPdfService
      *
      * @return array<string,mixed>
      */
-    public function data(Contact $contact, ContactMatch $match, bool $includeHidden): array
+    public function data(Contact $contact, ContactMatch $match, bool $includeHidden, bool $withPhotos = true): array
     {
         $properties = app(ClientMatchResolver::class)->resolve($match, includeHidden: $includeHidden);
 
@@ -118,10 +127,11 @@ class CoreMatchListPdfService
 
         $accessColumn = $this->resolveAccessColumn();
 
-        $rows = $properties->map(function (Property $p) use ($match, $accessColumn) {
+        $rows = $properties->map(function (Property $p) use ($match, $accessColumn, $withPhotos) {
             $seller = $this->sellerFor($p);
 
             return [
+                'photo'       => $withPhotos ? $this->photoDataUri($p) : null,
                 'address'     => $p->buildDisplayAddress(),
                 'suburb'      => trim((string) ($p->suburb ?? '')),
                 'status'      => ucwords(str_replace('_', ' ', (string) $p->status)),
@@ -154,6 +164,7 @@ class CoreMatchListPdfService
             'generated_by'   => auth()->user()?->name,
             'total'          => count($rows),
             'access_shown'   => $accessColumn !== null,
+            'with_photos'    => $withPhotos,
         ];
     }
 
@@ -227,6 +238,135 @@ class CoreMatchListPdfService
         }
         $cell = trim((string) ($agent->cell ?? ''));
         return $cell !== '' ? $cell : null;
+    }
+
+    /**
+     * A small, self-contained JPEG data-URI thumbnail for the property's
+     * primary photo — embedded (isRemoteEnabled=false), downscaled to keep the
+     * PDF light and dompdf fast. Best-effort: a missing/undecodable photo
+     * returns null and the row simply shows the no-photo placeholder.
+     *
+     * Mirrors the on-screen tile's image selection (gallery → dawn → noon →
+     * dusk) so the paper photo matches what the agent sees.
+     */
+    private function photoDataUri(Property $p): ?string
+    {
+        $url = $this->primaryImageUrl($p);
+        if ($url === null) {
+            return null;
+        }
+        $bytes = $this->readImageBytes($url);
+        if ($bytes === null || $bytes === '') {
+            return null;
+        }
+        return $this->scaledJpegDataUri($bytes, self::PHOTO_MAX_W);
+    }
+
+    /** The property's first usable image URL, mirroring the results tile chain. */
+    private function primaryImageUrl(Property $p): ?string
+    {
+        foreach (['gallery_images_json', 'dawn_images_json', 'noon_images_json', 'dusk_images_json'] as $col) {
+            $arr = $p->{$col} ?? null;
+            if (is_array($arr) && ! empty($arr[0]) && trim((string) $arr[0]) !== '') {
+                return (string) $arr[0];
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Read raw image bytes — local public disk first, then (only for a genuinely
+     * external host) a short best-effort HTTP fetch. NEVER fetches our own host
+     * (a missing local file returns null instantly rather than hanging on a
+     * round-trip back into the app). Same discipline as PropertyBrochureService.
+     */
+    private function readImageBytes(string $url): ?string
+    {
+        $path = parse_url($url, PHP_URL_PATH) ?: '';
+        if ($path !== '' && str_contains($path, '/storage/')) {
+            $rel = ltrim(substr($path, strpos($path, '/storage/') + 9), '/');
+            try {
+                $disk = Storage::disk('public');
+                if ($disk->exists($rel)) {
+                    return $disk->get($rel);
+                }
+            } catch (\Throwable) {
+                // fall through
+            }
+        }
+
+        // Own host with no local file → skip (do not fetch ourselves).
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+        $appHost = strtolower((string) parse_url((string) config('app.url'), PHP_URL_HOST));
+        $isOwn = $host === '' || in_array($host, ['localhost', '127.0.0.1', '0.0.0.0', '::1'], true)
+            || ($appHost !== '' && $host === $appHost);
+        if ($isOwn) {
+            return null;
+        }
+
+        if (preg_match('#^https?://#i', $url)) {
+            try {
+                $ctx = stream_context_create([
+                    'http'  => ['timeout' => 4],
+                    'https' => ['timeout' => 4],
+                    'ssl'   => ['verify_peer' => false, 'verify_peer_name' => false],
+                ]);
+                $bytes = @file_get_contents($url, false, $ctx);
+                return $bytes !== false && $bytes !== '' ? $bytes : null;
+            } catch (\Throwable) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    /** GD-downscale to maxW and return a JPEG data-URI; raw-embed on decode fail. */
+    private function scaledJpegDataUri(string $bytes, int $maxW): ?string
+    {
+        if (! function_exists('imagecreatefromstring')) {
+            return $this->rawImageDataUri($bytes);
+        }
+        $src = @imagecreatefromstring($bytes);
+        if ($src === false) {
+            // dompdf renders webp/png/jpeg natively — embed raw rather than drop.
+            return $this->rawImageDataUri($bytes);
+        }
+
+        $w = imagesx($src);
+        $h = imagesy($src);
+        if ($maxW > 0 && $w > $maxW && $w > 0) {
+            $nh  = max(1, (int) round($h * $maxW / $w));
+            $dst = imagecreatetruecolor($maxW, $nh);
+            $white = imagecolorallocate($dst, 255, 255, 255);
+            imagefilledrectangle($dst, 0, 0, $maxW, $nh, $white);
+            imagecopyresampled($dst, $src, 0, 0, 0, 0, $maxW, $nh, $w, $h);
+            imagedestroy($src);
+            $src = $dst;
+        }
+
+        ob_start();
+        imagejpeg($src, null, 72);
+        $out = (string) ob_get_clean();
+        imagedestroy($src);
+
+        return 'data:image/jpeg;base64,' . base64_encode($out);
+    }
+
+    /** Embed bytes verbatim as a data-URI, sniffing the mime. */
+    private function rawImageDataUri(string $bytes): ?string
+    {
+        $mime = 'image/jpeg';
+        if (function_exists('finfo_open')) {
+            $f = finfo_open(FILEINFO_MIME_TYPE);
+            $detected = $f ? finfo_buffer($f, $bytes) : false;
+            if ($f) {
+                finfo_close($f);
+            }
+            if (is_string($detected) && str_starts_with($detected, 'image/')) {
+                $mime = $detected;
+            }
+        }
+        return 'data:' . $mime . ';base64,' . base64_encode($bytes);
     }
 
     /**

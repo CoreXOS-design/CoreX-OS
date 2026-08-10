@@ -87,6 +87,14 @@
         .b-status { background: #64748b; }
         .b-hidden { background: #9ca3af; }
         .num { color: #94a3b8; font-size: 8px; }
+        /* Per-row photo (with-photos variant) */
+        .photo-cell { width: 60px; padding: 3px; text-align: center; }
+        .photo-cell img { width: 54px; height: 40px; border-radius: 2px; border: 1px solid #e2e8f0; }
+        .photo-none {
+            width: 54px; height: 40px; border-radius: 2px; border: 1px solid #e2e8f0;
+            background: #f1f5f9; color: #cbd5e1; font-size: 6.5px; line-height: 40px;
+            text-align: center; display: inline-block;
+        }
         .empty-note {
             padding: 16px; text-align: center; color: #64748b;
             border: 1px dashed #cbd5e1; border-radius: 4px; font-size: 10px;
@@ -103,7 +111,7 @@
                 <div class="sub">{{ $d['agency_name'] }} · Internal working list</div>
             </td>
             <td style="vertical-align:top;" class="meta">
-                {{ $d['listing_type'] }} · {{ $d['total'] }} {{ \Illuminate\Support\Str::plural('property', $d['total']) }}<br>
+                {{ $d['listing_type'] }} · {{ $d['total'] }} {{ \Illuminate\Support\Str::plural('property', $d['total']) }} · {{ ($d['with_photos'] ?? true) ? 'With photos' : 'Text only' }}<br>
                 Generated {{ $d['generated_at'] }}@if(!empty($d['generated_by'])) · {{ $d['generated_by'] }}@endif
             </td>
         </tr></table>
@@ -143,6 +151,7 @@
     <table class="list">
         <thead>
             <tr>
+                @if($d['with_photos'])<th class="photo-cell">Photo</th>@endif
                 <th style="width:20px;">#</th>
                 <th style="width:26%;">Property address</th>
                 <th style="width:74px;">Price</th>
@@ -155,6 +164,15 @@
         <tbody>
             @foreach($d['rows'] as $i => $r)
             <tr>
+                @if($d['with_photos'])
+                <td class="photo-cell">
+                    @if(!empty($r['photo']))
+                        <img src="{{ $r['photo'] }}" alt="">
+                    @else
+                        <span class="photo-none">no photo</span>
+                    @endif
+                </td>
+                @endif
                 <td class="num">{{ $i + 1 }}</td>
                 <td>
                     <div class="addr">{{ $r['address'] ?: '—' }}</div>

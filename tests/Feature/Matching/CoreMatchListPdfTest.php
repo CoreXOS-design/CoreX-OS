@@ -89,18 +89,55 @@ final class CoreMatchListPdfTest extends TestCase
         $this->assertSame('0821112222', $row['seller_phone']);
     }
 
-    public function test_access_column_is_resolved_defensively_when_absent(): void
+    public function test_access_column_is_detected_and_populated(): void
     {
-        // The test schema has no dedicated access column yet (cc3 adds it). The
-        // service must simply report access_shown=false and still render.
+        // cc3's dedicated `access_notes` column is now present on QA1. The
+        // resolver must detect it (access_shown=true) and populate the cell;
+        // the assertion is written to also hold if the column is ever absent.
         [$agencyId, $agent, $suburbId] = $this->fixture();
-        $this->matchingProperty($agencyId, $agent->id, $suburbId);
+        $property = $this->matchingProperty($agencyId, $agent->id, $suburbId);
+        $hasCol = \Schema::hasColumn('properties', 'access_notes');
+        if ($hasCol) {
+            \DB::table('properties')->where('id', $property->id)
+                ->update(['access_notes' => 'Key at reception; gate 4821#']);
+        }
         $match = $this->wishlist($agencyId, $suburbId);
 
         $contact = Contact::withoutGlobalScopes()->find($match->contact_id);
         $data = app(CoreMatchListPdfService::class)->data($contact, $match, includeHidden: false);
 
-        $this->assertFalse($data['access_shown']);
+        $this->assertSame($hasCol, $data['access_shown']);
+        if ($hasCol) {
+            $row = collect($data['rows'])->firstWhere('address', $property->buildDisplayAddress());
+            $this->assertNotNull($row);
+            $this->assertStringContainsString('gate 4821#', (string) $row['access']);
+        }
+    }
+
+    public function test_photos_variant_toggles_embedded_photo_and_flag(): void
+    {
+        [$agencyId, $agent, $suburbId] = $this->fixture();
+        $this->matchingProperty($agencyId, $agent->id, $suburbId);
+        $match = $this->wishlist($agencyId, $suburbId);
+        $contact = Contact::withoutGlobalScopes()->find($match->contact_id);
+
+        $svc  = app(CoreMatchListPdfService::class);
+        $with = $svc->data($contact, $match, false, true);
+        $text = $svc->data($contact, $match, false, false);
+
+        $this->assertTrue($with['with_photos']);
+        $this->assertFalse($text['with_photos']);
+        // Text-only rows never carry a photo; with-photos rows expose the key
+        // (null here because the fixture property has no image on disk).
+        foreach ($text['rows'] as $r) {
+            $this->assertNull($r['photo']);
+        }
+        $this->assertArrayHasKey('photo', $with['rows'][0]);
+
+        // The route honours ?photos=0 (text-only) and returns a PDF.
+        $this->actingAs($agent)
+            ->get(route('corex.contacts.matches.print', [$match->contact_id, $match->id]) . '?photos=0')
+            ->assertOk();
     }
 
     public function test_a_match_that_does_not_belong_to_the_contact_is_rejected(): void
