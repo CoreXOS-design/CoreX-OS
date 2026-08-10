@@ -21,6 +21,16 @@
 (function () {
   'use strict';
 
+  // Show the REAL manifest version in the popup header, so the popup and
+  // chrome://extensions always agree (the old hardcoded "v3.0.0" string made a
+  // correctly-packaged build look stale and misled a live diagnosis).
+  try {
+    var _vEl = document.getElementById('extVersion') || document.querySelector('.version');
+    if (_vEl && chrome.runtime && chrome.runtime.getManifest) {
+      _vEl.textContent = 'v' + chrome.runtime.getManifest().version;
+    }
+  } catch (e) { /* keep the fallback text */ }
+
   // ── DOM refs ───────────────────────────────────────────────
   const states = {
     notOnPortal:  document.getElementById('stateNotOnPortal'),
