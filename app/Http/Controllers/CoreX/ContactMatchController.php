@@ -249,6 +249,33 @@ class ContactMatchController extends Controller
         ));
     }
 
+    /**
+     * Print / Download PDF — the buyer's resolved wishlist property list as a
+     * clean, compact A4 (landscape) sheet for working on paper during
+     * appointment rounds. INTERNAL document (seller PII + addresses).
+     *
+     * Mirrors results() exactly: same match/contact ownership guard, same
+     * ClientMatchResolver list (so the sheet reflects the active on-screen
+     * list — same wishlist filters, same match_score sort). Streams inline by
+     * default so the browser's print dialog is one click away; ?dl=1 forces a
+     * file download.
+     */
+    public function printList(Request $request, Contact $contact, ContactMatch $match, \App\Services\Matching\CoreMatchListPdfService $pdfService)
+    {
+        abort_if($match->contact_id !== $contact->id, 403);
+
+        // Default: only the properties still in play (hidden excluded), matching
+        // the visible tiles. ?include_hidden=1 keeps hidden ones (flagged).
+        $includeHidden = $request->boolean('include_hidden');
+
+        $pdf      = $pdfService->pdf($contact, $match, $includeHidden);
+        $filename = $pdfService->filename($contact, $match);
+
+        return $request->boolean('dl')
+            ? $pdf->download($filename)
+            : $pdf->stream($filename);
+    }
+
     public function toggleHide(Request $request, Contact $contact, ContactMatch $match, int $property)
     {
         $this->authorizeContact($contact);
