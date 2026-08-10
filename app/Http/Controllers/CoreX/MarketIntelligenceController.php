@@ -176,6 +176,16 @@ class MarketIntelligenceController extends Controller
             });
         }
 
+        // Address presence toggle (pull-all). Default (absent / 'all') shows every
+        // row, addressed or not. 'with_address' restricts to rows carrying a real
+        // street address. Legacy rows may still hold the old "Address not available"
+        // placeholder — treat that as no address so the filter is honest.
+        if ($request->input('address_filter') === 'with_address') {
+            $query->whereNotNull('address')
+                  ->where('address', '<>', '')
+                  ->where('address', '<>', 'Address not available');
+        }
+
         // Stock match filter (legacy ?stock_filter= explicit override — still honoured
         // when the manager wants to inspect just the in-stock or out-of-stock subset).
         if ($request->filled('stock_filter')) {
