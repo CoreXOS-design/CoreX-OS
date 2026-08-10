@@ -29,7 +29,12 @@ class SanctionsListImport extends Model
         return $this->hasMany(SanctionsListEntry::class, 'import_id');
     }
 
-    /** Newest SUCCESSFUL import for a feed (the version screening consults). */
+    /**
+     * Newest import that actually parsed + stored entries for a feed (status='success').
+     * Used ONLY for ingest-time content-diffing (SanctionsListIngestService) — entries are
+     * owned by this row, never by an 'unchanged' row. NOT the freshness gate for screening;
+     * see TfsScreeningService::freshestImport(), which also accepts 'unchanged'.
+     */
     public static function latestSuccessful(string $sourceFeed): ?self
     {
         return static::where('source_feed', $sourceFeed)
