@@ -10490,7 +10490,7 @@ CREATE TABLE `prospecting_listings` (
   `latitude` decimal(10,7) DEFAULT NULL COMMENT 'Resolved by AddressResolverService — building-level when street parts present, suburb_centroid as last resort. Indexed for radius queries.',
   `longitude` decimal(10,7) DEFAULT NULL,
   `district` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `price` int NOT NULL,
+  `price` int DEFAULT NULL,
   `bedrooms` smallint DEFAULT NULL,
   `bathrooms` smallint DEFAULT NULL,
   `garages` smallint DEFAULT NULL,
@@ -10563,8 +10563,8 @@ DROP TABLE IF EXISTS `prospecting_price_history`;
 CREATE TABLE `prospecting_price_history` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `prospecting_listing_id` bigint unsigned NOT NULL,
-  `old_price` int NOT NULL,
-  `new_price` int NOT NULL,
+  `old_price` int DEFAULT NULL,
+  `new_price` int DEFAULT NULL,
   `changed_at` datetime NOT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -14281,3 +14281,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1062,'2026_08_14_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1063,'2026_08_15_000001_create_contact_identifier_labels_table',223);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1064,'2026_08_16_000001_add_whatsapp_flags_to_contact_phones',223);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1065,'2026_08_17_000001_add_send_status_to_communications',223);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1066,'2026_08_10_112307_make_prospecting_price_columns_nullable',224);
