@@ -313,111 +313,66 @@
                 <button type="button" @click="openAddDrawer()" class="corex-btn-primary">Add first wishlist</button>
             </div>
         @else
-            <div class="grid gap-2">
+            <div class="grid gap-3">
                 @foreach($buyer->matches as $wishlist)
-                @php
-                    // AT-363 — condensed detail bits, one tight line instead of
-                    // the old badges-row + text-row + 4-cell grid.
-                    $detailBits = [];
-                    if ($wishlist->name) $detailBits[] = $wishlist->name;
-                    if ($wishlist->category) $detailBits[] = $wishlist->category;
-                    $types = $wishlist->propertyTypeList();
-                    if (!empty($types)) $detailBits[] = implode('/', $types);
-                    $suburbs = $wishlist->suburbList();
-                    if (!empty($suburbs)) $detailBits[] = implode(', ', $suburbs);
-                    if ($wishlist->beds_min !== null || $wishlist->bedrooms_max !== null) {
-                        $detailBits[] = 'Beds ' . ($wishlist->beds_min ?? '—') . '–' . ($wishlist->bedrooms_max ?? '—');
-                    }
-                    if (!empty($wishlist->must_have_features)) $detailBits[] = count($wishlist->must_have_features) . ' must-have';
-                    if (!empty($wishlist->deal_breakers)) $detailBits[] = count($wishlist->deal_breakers) . ' deal-breaker';
-                    $wishlistCount = $wishlistMatchCounts[$wishlist->id] ?? 0;
-                @endphp
-                <div class="rounded-md"
+                <div class="rounded-md p-4"
                      style="background: var(--surface); border: 1px solid {{ $wishlist->is_primary ? 'var(--ds-amber, #f59e0b)' : 'var(--border)' }};">
-                    {{-- Compact row: badges + price on line 1, condensed details + updated on line 2 --}}
-                    <div class="flex items-center gap-3 px-4 py-2.5 flex-wrap">
-                        <div class="min-w-0 flex-1">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="flex-1 min-w-0 space-y-2">
                             <div class="flex items-center gap-2 flex-wrap">
                                 @if($wishlist->is_primary)
                                     <span class="ds-badge ds-badge-warning">Primary</span>
                                 @endif
                                 <span class="ds-badge ds-badge-default">{{ $wishlist->listingTypeLabel() }}</span>
                                 @if($wishlist->price_min || $wishlist->price_max)
-                                    <span class="text-sm font-bold whitespace-nowrap" style="color: var(--text-primary);">{{ $wishlist->priceRangeLabel() }}</span>
+                                    <span class="text-sm font-bold" style="color: var(--text-primary);">{{ $wishlist->priceRangeLabel() }}</span>
                                 @endif
-                                <span class="text-[10px]" style="color: var(--text-muted);">{{ str_replace('_', ' ', $wishlist->status) }}</span>
+                                <span class="text-[10px]" style="color: var(--text-muted);">Status: {{ str_replace('_', ' ', $wishlist->status) }}</span>
                             </div>
-                            <div class="text-[11px] mt-0.5 truncate" style="color: var(--text-secondary);">
-                                @if(!empty($detailBits)){{ implode(' · ', $detailBits) }} · @endif
-                                <span style="color: var(--text-muted);">Updated {{ $wishlist->updated_at->diffForHumans() }}</span>
+
+                            <div class="text-xs" style="color: var(--text-secondary);">
+                                @if($wishlist->name)<span class="font-semibold">{{ $wishlist->name }}</span> · @endif
+                                @if($wishlist->category){{ $wishlist->category }} · @endif
+                                @php $types = $wishlist->propertyTypeList(); @endphp
+                                @if(!empty($types))Types: {{ implode(', ', $types) }} · @endif
+                                @php $suburbs = $wishlist->suburbList(); @endphp
+                                @if(!empty($suburbs))Suburbs: {{ implode(', ', $suburbs) }}@endif
+                            </div>
+
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1 text-[10px]" style="color: var(--text-muted);">
+                                @if($wishlist->beds_min !== null || $wishlist->bedrooms_max !== null)
+                                    <div>Beds: {{ $wishlist->beds_min ?? '—' }}–{{ $wishlist->bedrooms_max ?? '—' }}</div>
+                                @endif
+                                @if(!empty($wishlist->must_have_features))
+                                    <div>Must-have: {{ number_format(count($wishlist->must_have_features)) }}</div>
+                                @endif
+                                @if(!empty($wishlist->deal_breakers))
+                                    <div>Deal-breakers: {{ number_format(count($wishlist->deal_breakers)) }}</div>
+                                @endif
+                                <div>Updated {{ $wishlist->updated_at->diffForHumans() }}</div>
                             </div>
                         </div>
 
-                        {{-- Actions: horizontal row + overflow menu for the rarer actions --}}
-                        <div class="flex items-center gap-1.5 flex-shrink-0">
-                            <span class="ds-badge {{ $wishlistCount > 0 ? 'ds-badge-success' : 'ds-badge-default' }}" title="Current core matches for this wishlist">
-                                {{ number_format($wishlistCount) }} {{ Str::plural('match', $wishlistCount) }}
-                            </span>
-                            <button type="button" @click="openEditDrawer({{ $wishlist->id }})" class="corex-btn-outline text-xs">Edit</button>
-                            <button type="button" @click="toggleWishlistMatches({{ $wishlist->id }})"
-                                    class="corex-btn-outline text-xs inline-flex items-center gap-1">
-                                <span x-text="wishlistOpen[{{ $wishlist->id }}] ? 'Hide Matches' : 'View Matches'"></span>
-                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 transition-transform" :class="{ 'rotate-180': wishlistOpen[{{ $wishlist->id }}] }" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
-                            </button>
-                            <div class="relative" @click.outside="wishlistMenuOpen === {{ $wishlist->id }} && (wishlistMenuOpen = null)">
-                                <button type="button" @click="wishlistMenuOpen = (wishlistMenuOpen === {{ $wishlist->id }} ? null : {{ $wishlist->id }})"
-                                        class="corex-btn-outline text-xs px-2" title="More actions" aria-label="More actions">⋮</button>
-                                <div x-show="wishlistMenuOpen === {{ $wishlist->id }}" x-cloak
-                                     class="absolute right-0 mt-1 rounded-md z-10 py-1 w-40 shadow-lg"
-                                     style="background: var(--surface); border: 1px solid var(--border);">
-                                    @if(!$wishlist->is_primary)
-                                    <form method="POST" action="{{ route('command-center.buyers.wishlists.primary', [$buyer, $wishlist]) }}"
-                                          onsubmit="return confirm('Make this the primary wishlist? The current primary will be demoted.');">
-                                        @csrf
-                                        <button type="submit" class="block w-full text-left px-3 py-1.5 text-xs hover:opacity-80" style="color: var(--ds-amber, #f59e0b);">Make Primary</button>
-                                    </form>
-                                    @endif
-                                    <form method="POST" action="{{ route('command-center.buyers.wishlists.archive', [$buyer, $wishlist]) }}"
-                                          onsubmit="return confirm('Archive this wishlist? It can be restored by an admin.');">
-                                        @csrf
-                                        <button type="submit" class="block w-full text-left px-3 py-1.5 text-xs hover:opacity-80" style="color: var(--ds-crimson, #c41e3a);">Archive</button>
-                                    </form>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {{-- Inline accordion: this wishlist's matches, ALL of them, in
-                         place — no cap, no navigate-away link (Johan's review). Rich
-                         cards — the SAME <x-match-card> component Core Matches results
-                         uses — so this is a vertical stack (space-y-3), not a grid; the
-                         card's own layout is a horizontal photo+content+actions row.
-                         The wrapper is STATIC (never replaced, only appended into) so
-                         "Load more" can insertAdjacentHTML without disturbing what's
-                         already rendered. Default-expanded wishlist's page 1 is
-                         server-rendered directly; every other wishlist's page 1 (and
-                         every wishlist's page 2+) is fetched as JSON and appended. --}}
-                    <div x-show="wishlistOpen[{{ $wishlist->id }}]" x-cloak x-collapse style="border-top: 1px solid var(--border);">
-                        <div class="p-3">
-                            <div class="space-y-3 overflow-y-auto"
-                                 style="max-height: 600px;" x-ref="wlMatches{{ $wishlist->id }}">
-                                @if($wishlist->id === $defaultExpandedWishlistId)
-                                    @include('command-center.buyers._wishlist-match-cards', [
-                                        'matches'  => $expandedWishlistMatches,
-                                        'match'    => $wishlist,
-                                        'contact'  => $buyer,
-                                        'feedback' => $expandedWishlistFeedback,
-                                    ])
-                                @endif
-                            </div>
-                            <div class="text-center mt-2" x-show="wishlistHasMore[{{ $wishlist->id }}]" x-cloak>
-                                <button type="button" class="corex-btn-outline text-xs"
-                                        @click="loadMoreWishlistMatches({{ $wishlist->id }})"
-                                        :disabled="wishlistLoadingMore[{{ $wishlist->id }}]">
-                                    <span x-show="!wishlistLoadingMore[{{ $wishlist->id }}]">Load more matches</span>
-                                    <span x-show="wishlistLoadingMore[{{ $wishlist->id }}]">Loading…</span>
+                        <div class="flex flex-col gap-1.5 flex-shrink-0">
+                            <button type="button" @click="openEditDrawer({{ $wishlist->id }})" class="corex-btn-outline">Edit</button>
+                            @if(!$wishlist->is_primary)
+                            <form method="POST" action="{{ route('command-center.buyers.wishlists.primary', [$buyer, $wishlist]) }}"
+                                  onsubmit="return confirm('Make this the primary wishlist? The current primary will be demoted.');">
+                                @csrf
+                                <button type="submit" class="corex-btn-outline w-full"
+                                        style="border-color: color-mix(in srgb, var(--ds-amber, #f59e0b) 40%, transparent); color: var(--ds-amber, #f59e0b);">
+                                    Make Primary
                                 </button>
-                            </div>
+                            </form>
+                            @endif
+                            <form method="POST" action="{{ route('command-center.buyers.wishlists.archive', [$buyer, $wishlist]) }}"
+                                  onsubmit="return confirm('Archive this wishlist? It can be restored by an admin.');">
+                                @csrf
+                                <button type="submit" class="corex-btn-outline"
+                                        style="border-color: color-mix(in srgb, var(--ds-crimson, #c41e3a) 40%, transparent); color: var(--ds-crimson, #c41e3a);">
+                                    Archive
+                                </button>
+                            </form>
                         </div>
                     </div>
                 </div>
