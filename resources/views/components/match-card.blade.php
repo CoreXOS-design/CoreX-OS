@@ -128,16 +128,18 @@
                 <div class="whitespace-pre-wrap leading-relaxed">{{ $fb->note }}</div>
             </div>
             @endif
-            <div class="text-sm font-semibold leading-snug mb-1" style="color: var(--text-primary);">
-                {{ $property->title ?: 'Untitled Property' }}
-            </div>
-            {{-- Agent-facing ONLY — the full street address. The client-facing wishlist
-                 share link (resources/views/shared/match.blade.php) and the buyer portal
+            {{-- Agent-facing ONLY — the full street address, as the PRIMARY header (agents
+                 recognise the real address far better than the generic portal title —
+                 Johan's call 2026-08-10). The client-facing wishlist share link
+                 (resources/views/shared/match.blade.php) and the buyer portal
                  (resources/views/buyer-portal/_property-card.blade.php) are separate blade
                  files with their own markup and must NEVER be given this component or this
                  field; both intentionally show suburb/city only. --}}
-            @if($property->address)
-            <div class="text-xs mb-1" style="color: var(--text-secondary);">{{ $property->address }}</div>
+            <div class="text-sm font-semibold leading-snug mb-1" style="color: var(--text-primary);">
+                {{ $property->address ?: ($property->title ?: 'Untitled Property') }}
+            </div>
+            @if($property->address && $property->title)
+            <div class="text-xs mb-1" style="color: var(--text-secondary);">{{ $property->title }}</div>
             @endif
             <div class="flex items-center gap-3 text-xs flex-wrap" style="color: var(--text-muted);">
                 <span class="font-semibold text-sm" style="color: var(--brand-icon);">{{ $property->formattedPrice() }}</span>
