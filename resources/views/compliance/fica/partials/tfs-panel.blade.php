@@ -100,6 +100,10 @@
                 @csrf
                 <button type="submit" class="corex-btn-outline text-sm">Run TFS screening</button>
             </form>
+            <form method="POST" action="{{ route('compliance.fica.tfs-force-download', $submission) }}">
+                @csrf
+                <button type="submit" class="corex-btn-outline text-sm" title="Force re-fetch the sanctions list now, then re-screen this submission. Use only when the daily auto-update has genuinely failed — this can take up to a minute.">Force download &amp; re-screen</button>
+            </form>
         @endif
         <a href="https://tfs.fic.gov.za/Pages/Search" target="_blank" rel="noopener"
            class="inline-flex items-center gap-1.5 text-xs font-semibold transition" style="color:var(--text-secondary);">

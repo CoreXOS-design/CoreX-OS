@@ -15,6 +15,7 @@ use App\Models\Compliance\FicaTfsScreening;
 use App\Models\FicaSubmission;
 use App\Models\User;
 use App\Services\Compliance\FicaReferralService;
+use App\Services\Compliance\Tfs\SanctionsListIngestService;
 use App\Services\Compliance\Tfs\TfsScreeningService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -316,6 +317,35 @@ class FicaController extends Controller
         $screening = $svc->screen($submission, Auth::user());
 
         return redirect()->back()->with('success', 'TFS screening run — result: ' . $screening->badge() . '.');
+    }
+
+    /**
+     * Manual fallback for when the daily `tfs:ingest` cron has genuinely stopped
+     * succeeding — force re-fetches every operative feed (bypassing the SHA
+     * short-circuit that normally records same-content days as `unchanged`), then
+     * immediately re-screens this submission so the panel shows a live result in
+     * one click. Never part of the happy path — the daily cron is the primary path.
+     */
+    public function tfsForceDownload(FicaSubmission $submission, SanctionsListIngestService $ingestSvc, TfsScreeningService $screenSvc)
+    {
+        $this->authorizeAgency($submission);
+
+        $feeds = collect(config('tfs.feeds', []))->filter(fn ($c) => $c['operative'] ?? false)->keys();
+        $summaries = [];
+        foreach ($feeds as $feed) {
+            try {
+                $import = $ingestSvc->ingest($feed, null, true);
+                $summaries[] = "$feed: {$import->status} ({$import->record_count} records)";
+            } catch (\Throwable $e) {
+                $summaries[] = "$feed: FAILED — {$e->getMessage()}";
+                Log::error("TFS force-download failed [$feed]", ['submission_id' => $submission->id, 'error' => $e->getMessage()]);
+            }
+        }
+
+        $screening = $screenSvc->screen($submission, Auth::user());
+
+        return redirect()->back()->with('success',
+            'Force download — ' . implode('; ', $summaries) . '. Re-screened: ' . $screening->badge() . '.');
     }
 
     /**
