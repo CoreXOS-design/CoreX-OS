@@ -90,6 +90,7 @@ function p24MultiSuburbPicker(init) {
             city_id: s.city_id || 0,
             city_name: s.city_name || '',
             province_id: s.province_id || 0,
+            province_name: s.province_name || '',
         })),
         queries:  { province: '', city: '', suburb: '' },
         options:  { province: [], city: [], suburb: [] },
@@ -101,7 +102,27 @@ function p24MultiSuburbPicker(init) {
             suburb:   'Pick a city first',
         },
 
-        async init() { await this._load('province'); },
+        async init() {
+            await this._load('province');
+            // Edit mode — the picker previously always mounted blank, so on re-opening
+            // an existing wishlist the Province/City fields showed empty even though the
+            // suburb chips below them were intact ("province + town dropped" symptom).
+            // Rehydrate the breadcrumb from whichever suburb was picked first, so editing
+            // shows exactly what was last chosen instead of forcing a re-navigation.
+            const first = this.selected[0];
+            if (first && first.city_id) {
+                this.provinceId = first.province_id || 0;
+                this.provinceName = first.province_name || '';
+                this.queries.province = first.province_name || '';
+                this.cityId = first.city_id;
+                this.cityName = first.city_name || '';
+                this.queries.city = first.city_name || '';
+                this.placeholders.city = 'Type a city / town…';
+                this.placeholders.suburb = 'Type a suburb…';
+                await this._load('city');
+                await this._load('suburb');
+            }
+        },
 
         async _load(level) {
             this.loading[level] = true;

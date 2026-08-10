@@ -678,8 +678,9 @@ class MatchingService
 
     /**
      * True when the listing carries any structured feature data (a non-empty
-     * features_json). Used to decide whether a must-have failure is a genuine
-     * mismatch (data present, feature absent) or merely unknown (no data).
+     * features_json, OR a Pool space tagged in spaces_json). Used to decide
+     * whether a must-have failure is a genuine mismatch (data present,
+     * feature absent) or merely unknown (no data).
      */
     protected function propertyHasStructuredFeatures(Property $property): bool
     {
@@ -687,7 +688,11 @@ class MatchingService
         if (is_string($raw)) {
             $raw = json_decode($raw, true);
         }
-        return is_array($raw) && !empty($raw);
+        if (is_array($raw) && !empty($raw)) return true;
+
+        // A tagged Pool space is itself structured data for pool_own/
+        // pool_communal must-haves, even when features_json is empty.
+        return !empty($property->poolTokens());
     }
 
     /**
@@ -698,6 +703,10 @@ class MatchingService
      *   • dict {"pool": true, "pets_allowed": false, "listing_visibility": "Public"}
      *     — only truthy boolean/"yes"/"1" flags count; meta strings are skipped.
      *
+     * Also merges 'pool'/'pool_own'/'pool_communal' derived from the Pool
+     * space in spaces_json (Property::poolTokens()) — the canonical own-vs-
+     * communal signal, independent of whatever features_json separately says.
+     *
      * @return string[]
      */
     protected function propertyFeatureTokens(Property $property): array
@@ -706,25 +715,27 @@ class MatchingService
         if (is_string($raw)) {
             $raw = json_decode($raw, true);
         }
-        if (!is_array($raw)) return [];
 
         $out = [];
-        foreach ($raw as $k => $v) {
-            if (is_int($k)) {
-                // array-of-strings form: the value IS the feature label
-                $tok = self::canonicalFeature((string) $v);
-            } else {
-                // dict form: key is the label, value is the on/off flag. Skip
-                // anything that isn't an affirmative flag so meta keys like
-                // listing_visibility:"Public" never register as a feature.
-                $truthy = $v === true || $v === 1 || $v === '1'
-                    || (is_string($v) && in_array(strtolower(trim($v)), ['yes', 'true', 'y'], true));
-                if (!$truthy) continue;
-                $tok = self::canonicalFeature((string) $k);
+        if (is_array($raw)) {
+            foreach ($raw as $k => $v) {
+                if (is_int($k)) {
+                    // array-of-strings form: the value IS the feature label
+                    $tok = self::canonicalFeature((string) $v);
+                } else {
+                    // dict form: key is the label, value is the on/off flag. Skip
+                    // anything that isn't an affirmative flag so meta keys like
+                    // listing_visibility:"Public" never register as a feature.
+                    $truthy = $v === true || $v === 1 || $v === '1'
+                        || (is_string($v) && in_array(strtolower(trim($v)), ['yes', 'true', 'y'], true));
+                    if (!$truthy) continue;
+                    $tok = self::canonicalFeature((string) $k);
+                }
+                if ($tok !== '') $out[] = $tok;
             }
-            if ($tok !== '') $out[] = $tok;
         }
-        return $out;
+
+        return array_values(array_unique(array_merge($out, $property->poolTokens())));
     }
 
     /**
@@ -759,6 +770,14 @@ class MatchingService
             'fiber_ready'       => 'fibre',
             'swimming_pool'     => 'pool',
             'splash_pool'       => 'pool',
+            // NOT collapsed to plain 'pool' — own vs communal is the whole
+            // point of these two tokens (Property::poolTokens()).
+            'own_pool'          => 'pool_own',
+            'private_pool'      => 'pool_own',
+            'private_swimming_pool' => 'pool_own',
+            'communal_pool'     => 'pool_communal',
+            'shared_pool'       => 'pool_communal',
+            'complex_pool'      => 'pool_communal',
             'solar_power'       => 'solar',
             'solar_panels'      => 'solar',
             'solar_panel'       => 'solar',
