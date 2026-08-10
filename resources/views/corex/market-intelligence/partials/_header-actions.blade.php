@@ -40,7 +40,10 @@
    class="mic-tick" data-active="{{ $mandOn ? '1' : '0' }}"
    style="{{ $tickBase }}"
    title="Sole/exclusive-mandated listings are excluded by default — another agency already holds the mandate. Toggle to include them.">
-    <span class="mic-tick-box" style="{{ $mandOn ? $boxOn : $boxOff }}">✓</span>
+    {{-- Render the ✓ ONLY when ON. OFF must be a genuinely empty box — no glyph in
+         the DOM — not a persistent ✓ hidden by color:transparent (which still read as
+         ticked under the navy/white header + forced-colors/high-contrast). --}}
+    <span class="mic-tick-box" style="{{ $mandOn ? $boxOn : $boxOff }}">@if($mandOn)✓@endif</span>
     Show sole/exclusive mandates
     <span class="mic-tick-spin" style="{{ $spin }}">updating…</span>
 </a>
@@ -50,7 +53,7 @@
    class="mic-tick" data-active="{{ $addrOn ? '1' : '0' }}"
    style="{{ $tickBase }}"
    title="Some captured listings have no street address yet. Toggle to show only listings that have an address.">
-    <span class="mic-tick-box" style="{{ $addrOn ? $boxOn : $boxOff }}">✓</span>
+    <span class="mic-tick-box" style="{{ $addrOn ? $boxOn : $boxOff }}">@if($addrOn)✓@endif</span>
     With address only
     <span class="mic-tick-spin" style="{{ $spin }}">updating…</span>
 </a>
@@ -61,7 +64,7 @@
        class="mic-tick" data-active="{{ $stockOn ? '1' : '0' }}"
        style="{{ $tickBase }}"
        title="Audit-only: include our own listings (portal reference matches our stock), which are hidden from the canvass pool by default.">
-        <span class="mic-tick-box" style="{{ $stockOn ? $boxOn : $boxOff }}">✓</span>
+        <span class="mic-tick-box" style="{{ $stockOn ? $boxOn : $boxOff }}">@if($stockOn)✓@endif</span>
         Show in-stock too
         <span class="mic-tick-spin" style="{{ $spin }}">updating…</span>
     </a>
