@@ -94,6 +94,43 @@ class ProspectingApiController extends Controller
         // "needs GPS" happens inside the job to keep this hot path query-free.
         $touchedTrackedPropertyIds = [];
 
+        // Importer speedup — bulk-preload the cheap TrackedProperty match
+        // lookups (Strategy 1 source-ref, plus the suburb-scoped candidate
+        // pool shared by Strategies 3/4/5) for the WHOLE page in a handful of
+        // queries, instead of ~15 queries per listing. Facts here mirror
+        // buildTrackedPropertyFacts() exactly; linkToTrackedProperty() below
+        // recomputes the same facts from the saved model. They can drift only
+        // when an EXISTING listing's incoming field is null and falls back to
+        // its previously-stored value — resolveMatchWithCache()'s per-suburb
+        // live fallback (in TrackedPropertyMatchOrCreateService) covers that
+        // without any correctness cost, just a smaller batching win for those
+        // specific listings.
+        $batchItems = [];
+        foreach ($validated['listings'] as $data) {
+            if (empty($data['portal_ref'])) {
+                continue;
+            }
+            $batchItems[] = [
+                'facts' => $this->buildTrackedPropertyFacts(
+                    substr($data['address'] ?? '', 0, 255),
+                    substr($data['suburb'] ?? '', 0, 100),
+                    substr($data['property_type'] ?? '', 0, 50),
+                    $data['bedrooms'] ?? null,
+                    $data['bathrooms'] ?? null,
+                    $data['garages'] ?? null,
+                    $data['property_size_m2'] ?? null,
+                    $data['erf_size_m2'] ?? null,
+                    $data['price'] ?? null,
+                ),
+                'source' => [
+                    'type' => $portalSource,
+                    'ref'  => (string) $data['portal_ref'],
+                ],
+            ];
+        }
+        $matchCache = app(\App\Services\Prospecting\TrackedPropertyMatchOrCreateService::class)
+            ->primeCacheForBatch($agencyId, $batchItems);
+
         foreach ($validated['listings'] as $data) {
             if (empty($data['portal_ref'])) {
                 \Log::debug('Skipped listing with no portal_ref', ['data' => $data]);
@@ -162,7 +199,7 @@ class ProspectingApiController extends Controller
                 }
 
                 $this->assignPropertyGroup($existing, $agencyId);
-                $tpId = $this->linkToTrackedProperty($existing, $agencyId, $user->id);
+                $tpId = $this->linkToTrackedProperty($existing, $agencyId, $user->id, $matchCache);
                 if ($tpId !== null) {
                     $touchedTrackedPropertyIds[$tpId] = true;
                 }
@@ -193,7 +230,7 @@ class ProspectingApiController extends Controller
                 ]);
 
                 $this->assignPropertyGroup($listing, $agencyId);
-                $tpId = $this->linkToTrackedProperty($listing, $agencyId, $user->id);
+                $tpId = $this->linkToTrackedProperty($listing, $agencyId, $user->id, $matchCache);
                 if ($tpId !== null) {
                     $touchedTrackedPropertyIds[$tpId] = true;
                 }
@@ -291,44 +328,37 @@ class ProspectingApiController extends Controller
      *
      * Spec: CLAUDE.md HARD RULE #10 (Universal Match-or-Create Rule, 2026-05-14).
      */
-    private function linkToTrackedProperty(ProspectingListing $listing, int $agencyId, ?int $actorUserId): ?int
-    {
+    private function linkToTrackedProperty(
+        ProspectingListing $listing,
+        int $agencyId,
+        ?int $actorUserId,
+        ?\App\Services\Prospecting\BatchMatchCache $cache = null,
+    ): ?int {
         try {
             $service = app(\App\Services\Prospecting\TrackedPropertyMatchOrCreateService::class);
 
-            // Street parsing best-effort. The matcher tolerates nulls — when a P24
-            // alert hides the address, source-ref matching (portal_source + portal_ref)
-            // is the dominant signal anyway.
-            $streetNumber = null;
-            $streetName   = null;
-            $addr = trim((string) ($listing->address ?? ''));
-            if ($addr !== '' && $addr !== 'Address not available'
-                && preg_match('/^(\d+\w*)\s+(.+)$/', $addr, $m)) {
-                $streetNumber = $m[1];
-                $streetName   = $m[2];
-            }
+            $facts = $this->buildTrackedPropertyFacts(
+                $listing->address,
+                $listing->suburb,
+                $listing->property_type,
+                $listing->bedrooms,
+                $listing->bathrooms,
+                $listing->garages,
+                $listing->property_size_m2,
+                $listing->erf_size_m2,
+                $listing->price,
+            );
 
             $tp = $service->matchOrCreate(
                 agencyId: $agencyId,
-                facts: array_filter([
-                    'address'                 => $addr !== '' && $addr !== 'Address not available' ? $addr : null,
-                    'street_number'           => $streetNumber,
-                    'street_name'             => $streetName,
-                    'suburb'                  => $listing->suburb !== '' ? $listing->suburb : null,
-                    'property_type'           => $listing->property_type,
-                    'bedrooms'                => $listing->bedrooms,
-                    'bathrooms'               => $listing->bathrooms,
-                    'garages'                 => $listing->garages,
-                    'floor_size_m2'           => $listing->property_size_m2,
-                    'erf_size_m2'             => $listing->erf_size_m2,
-                    'last_known_asking_price' => $listing->price,
-                ], fn ($v) => $v !== null && $v !== ''),
+                facts: $facts,
                 source: [
                     'type'    => (string) $listing->portal_source,
                     'ref'     => (string) $listing->portal_ref,
                     'payload' => ['prospecting_listing_id' => $listing->id],
                 ],
                 actorUserId: $actorUserId,
+                cache: $cache,
             );
 
             if ($tp && (int) ($listing->tracked_property_id ?? 0) !== (int) $tp->id) {
@@ -344,6 +374,48 @@ class ProspectingApiController extends Controller
             ]);
             return null;
         }
+    }
+
+    /**
+     * Canonical TrackedProperty "facts" shape shared by the per-listing match
+     * call and the batch cache pre-pass (ProspectingApiController::import) so
+     * the two can never drift. Street parsing is best-effort — the matcher
+     * tolerates nulls; when a portal hides the address, source-ref matching
+     * (portal_source + portal_ref) is the dominant signal anyway.
+     */
+    private function buildTrackedPropertyFacts(
+        ?string $address,
+        ?string $suburb,
+        ?string $propertyType,
+        $bedrooms,
+        $bathrooms,
+        $garages,
+        $propertySizeM2,
+        $erfSizeM2,
+        $price,
+    ): array {
+        $streetNumber = null;
+        $streetName   = null;
+        $addr = trim((string) ($address ?? ''));
+        if ($addr !== '' && $addr !== 'Address not available'
+            && preg_match('/^(\d+\w*)\s+(.+)$/', $addr, $m)) {
+            $streetNumber = $m[1];
+            $streetName   = $m[2];
+        }
+
+        return array_filter([
+            'address'                 => $addr !== '' && $addr !== 'Address not available' ? $addr : null,
+            'street_number'           => $streetNumber,
+            'street_name'             => $streetName,
+            'suburb'                  => ($suburb ?? '') !== '' ? $suburb : null,
+            'property_type'           => $propertyType,
+            'bedrooms'                => $bedrooms,
+            'bathrooms'               => $bathrooms,
+            'garages'                 => $garages,
+            'floor_size_m2'           => $propertySizeM2,
+            'erf_size_m2'             => $erfSizeM2,
+            'last_known_asking_price' => $price,
+        ], fn ($v) => $v !== null && $v !== '');
     }
 
     /**

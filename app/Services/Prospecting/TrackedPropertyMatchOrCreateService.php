@@ -85,9 +85,15 @@ final class TrackedPropertyMatchOrCreateService
         array $facts,
         array $source,
         ?int $actorUserId = null,
+        ?BatchMatchCache $cache = null,
     ): TrackedProperty {
-        return DB::transaction(function () use ($agencyId, $facts, $source, $actorUserId) {
-            $matched = $this->resolveMatch($agencyId, $facts, $source);
+        return DB::transaction(function () use ($agencyId, $facts, $source, $actorUserId, $cache) {
+            // $cache is null for every caller except the batched prospecting-import
+            // entry point (see primeCacheForBatch()) — when null this is byte-identical
+            // to the pre-existing code path.
+            $matched = $cache !== null
+                ? $this->resolveMatchWithCache($agencyId, $facts, $source, $cache)
+                : $this->resolveMatch($agencyId, $facts, $source);
 
             $tp = $matched
                 ? $this->enrich($matched, $facts, $source, $actorUserId)
@@ -96,10 +102,119 @@ final class TrackedPropertyMatchOrCreateService
             // Phase C2 — append (or bump) the ingested address in the TP's
             // address history. Failure-isolated: the underlying match-or-create
             // operation MUST succeed even if the history append blows up.
-            $this->appendIngestedAddressToHistory($tp, $facts, $source);
+            $this->appendIngestedAddressToHistory($tp, $facts, $source, $cache);
+
+            if ($cache !== null) {
+                $cache->rememberTp($tp);
+                if (!empty($source['type']) && !empty($source['ref'])) {
+                    $cache->primeRef((string) $source['type'], (string) $source['ref'], (int) $tp->id);
+                }
+            }
 
             return $tp;
         });
+    }
+
+    /**
+     * Bulk-preload the cheap, unambiguous lookups (Strategy 1 source-ref,
+     * and the suburb-scoped candidate pool shared by Strategies 3/4/5) for an
+     * entire batch of prospective matchOrCreate() calls, replacing what would
+     * otherwise be N per-listing queries with a handful of bulk queries.
+     *
+     * Strategy 0 (address-history) and Strategy 2 (GPS) are intentionally NOT
+     * preloaded here — see BatchMatchCache's class doc for why.
+     *
+     * @param array<int, array{facts: array, source: array}> $items
+     */
+    public function primeCacheForBatch(int $agencyId, array $items): BatchMatchCache
+    {
+        $cache = new BatchMatchCache($agencyId);
+
+        $refsByType = [];
+        $suburbs = [];
+        foreach ($items as $item) {
+            $facts = $item['facts'] ?? [];
+            $source = $item['source'] ?? [];
+            if (!empty($source['type']) && !empty($source['ref'])) {
+                $refsByType[(string) $source['type']][(string) $source['ref']] = true;
+            }
+            if (!empty($facts['suburb'])) {
+                $norm = TrackedProperty::normaliseSuburb($facts['suburb']);
+                if ($norm) {
+                    $suburbs[$norm] = true;
+                }
+            }
+        }
+
+        // Strategy 1 preload — one query per distinct source_type in the batch
+        // (a single import call always shares one portal_source, so normally 1).
+        $tpIdsNeeded = [];
+        foreach ($refsByType as $type => $refs) {
+            $rows = TrackedPropertyExternalRef::queryWithoutAgencyScope()
+                ->where('agency_id', $agencyId)
+                ->where('source_type', $type)
+                ->whereIn('source_ref', array_keys($refs))
+                ->whereNull('deleted_at')
+                ->get(['source_type', 'source_ref', 'tracked_property_id']);
+            foreach ($rows as $row) {
+                $cache->primeRef($row->source_type, $row->source_ref, (int) $row->tracked_property_id);
+                $tpIdsNeeded[(int) $row->tracked_property_id] = true;
+            }
+        }
+
+        // Strategies 3/4/5 preload — one query per unique suburb in the batch.
+        if (!empty($suburbs)) {
+            $rows = TrackedProperty::queryWithoutAgencyScope()
+                ->where('agency_id', $agencyId)
+                ->whereNull('deleted_at')
+                ->whereIn('suburb_normalised', array_keys($suburbs))
+                ->orderBy('id')
+                ->get();
+            $bySuburb = [];
+            foreach ($rows as $tp) {
+                $bySuburb[(string) $tp->suburb_normalised][] = $tp;
+                unset($tpIdsNeeded[(int) $tp->id]);
+            }
+            foreach (array_keys($suburbs) as $suburbNorm) {
+                $cache->primeSuburbPool($suburbNorm, $bySuburb[$suburbNorm] ?? []);
+            }
+
+            // Strategy 0 Match A preload — one more query, same suburb set.
+            $addrRows = DB::table('tracked_property_addresses')
+                ->where('agency_id', $agencyId)
+                ->whereNull('deleted_at')
+                ->whereIn('suburb_normalised', array_keys($suburbs))
+                ->get(['tracked_property_id', 'street_number', 'street_name', 'suburb_normalised', 'confidence', 'is_primary']);
+            $addrBySuburb = [];
+            foreach ($addrRows as $row) {
+                $addrBySuburb[(string) $row->suburb_normalised][] = [
+                    'tp_id'         => (int) $row->tracked_property_id,
+                    'street_number' => $row->street_number,
+                    'street_name'   => $row->street_name,
+                    'confidence'    => $row->confidence,
+                    'is_primary'    => (bool) $row->is_primary,
+                ];
+            }
+            foreach (array_keys($suburbs) as $suburbNorm) {
+                $cache->primeAddress($suburbNorm, $addrBySuburb[$suburbNorm] ?? []);
+            }
+        }
+
+        // Any ref-referenced TP not already pulled in by the suburb preload
+        // (different/no suburb on the current fact set) — one more bulk fetch
+        // so Strategy 1 never needs a live find() for an in-batch listing.
+        if (!empty($tpIdsNeeded)) {
+            $rows = TrackedProperty::queryWithoutAgencyScope()
+                ->where('agency_id', $agencyId)
+                ->whereNull('deleted_at')
+                ->whereIn('id', array_keys($tpIdsNeeded))
+                ->get();
+            foreach ($rows as $tp) {
+                $cache->rememberTp($tp);
+            }
+        }
+
+        return $cache;
     }
 
     /**
@@ -273,6 +388,194 @@ final class TrackedPropertyMatchOrCreateService
     }
 
     /**
+     * Cache-aware mirror of resolveMatch(). Strategy 0 (address-history) and
+     * Strategy 2 (GPS) are IDENTICAL to resolveMatch() — always live, never
+     * cached (see BatchMatchCache class doc). Strategies 1, 3, 4 and 5 are
+     * served from the preloaded BatchMatchCache instead of a per-listing
+     * query, falling back to an equivalent live query (which also primes the
+     * cache) if a suburb wasn't covered by the preload.
+     *
+     * Kept as a separate method rather than branching inside resolveMatch()
+     * so the original method stays byte-for-byte untouched for every caller
+     * that doesn't pass a cache. Any change here MUST preserve identical
+     * match/create decisions to resolveMatch() — see
+     * tests/Feature/Prospecting/TrackedPropertyBatchCacheParityTest.php.
+     */
+    private function resolveMatchWithCache(int $agencyId, array $facts, array $source, BatchMatchCache $cache): ?TrackedProperty
+    {
+        // Multi-tenancy guard — a cache built for one agency must never be
+        // consulted for another (STANDARDS agency-context-assumption class).
+        if ($cache->agencyId !== $agencyId) {
+            throw new \DomainException(
+                "BatchMatchCache agency mismatch: cache built for agency #{$cache->agencyId}, matchOrCreate() called with agency #{$agencyId}."
+            );
+        }
+
+        // Strategy 0: Match A served from the cache; Match B (GPS) always live — see resolveByAddressHistoryWithCache().
+        $historyHit = $this->resolveByAddressHistoryWithCache($agencyId, $facts, $cache);
+        if ($historyHit) {
+            Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch matched via strategy=0_address_history', [
+                'agency_id'           => $agencyId,
+                'tracked_property_id' => $historyHit->id,
+            ]);
+            return $historyHit;
+        }
+
+        // Strategy 1: source-ref exact match — served from the batch cache.
+        if (!empty($source['type']) && !empty($source['ref'])) {
+            $tpId = $cache->lookupRef((string) $source['type'], (string) $source['ref']);
+            if ($tpId !== null) {
+                $tp = $cache->getTp($tpId) ?? TrackedProperty::queryWithoutAgencyScope()
+                    ->where('agency_id', $agencyId)
+                    ->whereNull('deleted_at')
+                    ->find($tpId);
+                if ($tp) {
+                    Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch matched via strategy=1_source_ref', [
+                        'agency_id' => $agencyId, 'tracked_property_id' => $tp->id,
+                    ]);
+                    return $tp;
+                }
+            }
+        }
+
+        // Strategy 2: identical to resolveMatch() — always live (this caller
+        // never supplies GPS facts, so this block never actually executes for
+        // the batched prospecting-import path in practice).
+        $lat = $facts['cma_gps_lat'] ?? $facts['latitude'] ?? null;
+        $lng = $facts['cma_gps_lng'] ?? $facts['longitude'] ?? null;
+        if ($lat !== null && $lng !== null) {
+            $tol = self::GPS_TOLERANCE_DEGREES;
+            $byCmaGps = TrackedProperty::queryWithoutAgencyScope()
+                ->where('agency_id', $agencyId)
+                ->whereNull('deleted_at')
+                ->whereBetween('cma_gps_lat', [$lat - $tol, $lat + $tol])
+                ->whereBetween('cma_gps_lng', [$lng - $tol, $lng + $tol])
+                ->first();
+            if ($byCmaGps && ! $this->numbersConflict($facts, $byCmaGps)) {
+                Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch matched via strategy=2_gps_cma', [
+                    'agency_id' => $agencyId, 'tracked_property_id' => $byCmaGps->id,
+                ]);
+                return $byCmaGps;
+            }
+
+            $byGps = TrackedProperty::queryWithoutAgencyScope()
+                ->where('agency_id', $agencyId)
+                ->whereNull('deleted_at')
+                ->whereBetween('latitude', [$lat - $tol, $lat + $tol])
+                ->whereBetween('longitude', [$lng - $tol, $lng + $tol])
+                ->first();
+            if ($byGps && ! $this->numbersConflict($facts, $byGps)) {
+                Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch matched via strategy=2_gps_latlng', [
+                    'agency_id' => $agencyId, 'tracked_property_id' => $byGps->id,
+                ]);
+                return $byGps;
+            }
+        }
+
+        // Strategy 3: erf + suburb — served from the cached suburb pool.
+        // Mirrors ->first() semantics: return on the first tuple match, no
+        // numbersConflict gate (the original strategy has none either).
+        if (!empty($facts['erf_number']) && !empty($facts['suburb'])) {
+            $suburbNorm = TrackedProperty::normaliseSuburb($facts['suburb']);
+            $wantErf = mb_strtolower(trim((string) $facts['erf_number']));
+            foreach ($this->suburbCandidates($agencyId, $suburbNorm, $cache) as $cand) {
+                if (mb_strtolower(trim((string) $cand->erf_number)) === $wantErf) {
+                    Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch matched via strategy=3_erf_suburb', [
+                        'agency_id' => $agencyId, 'tracked_property_id' => $cand->id,
+                    ]);
+                    return $cand;
+                }
+            }
+        }
+
+        // Strategy 4: normalised structured address — served from the cached
+        // suburb pool. Mirrors ->first() semantics precisely: find the FIRST
+        // tuple match, THEN gate it on numbersConflict — do NOT try a second
+        // candidate if the first one conflicts (the original query has no
+        // second row to fall back to either).
+        if (!empty($facts['street_number']) && !empty($facts['street_name']) && !empty($facts['suburb'])) {
+            $suburbNorm = TrackedProperty::normaliseSuburb($facts['suburb']);
+            $wantNumber = mb_strtolower(trim((string) $facts['street_number']));
+            $wantName = mb_strtolower($this->normaliseStreetName($facts['street_name']));
+            $addressMatch = null;
+            foreach ($this->suburbCandidates($agencyId, $suburbNorm, $cache) as $cand) {
+                if (mb_strtolower(trim((string) $cand->street_number)) === $wantNumber
+                    && mb_strtolower((string) $cand->street_name) === $wantName) {
+                    $addressMatch = $cand;
+                    break;
+                }
+            }
+            if ($addressMatch && ! $this->numbersConflict($facts, $addressMatch)) {
+                Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch matched via strategy=4_normalised_address', [
+                    'agency_id' => $agencyId, 'tracked_property_id' => $addressMatch->id,
+                ]);
+                return $addressMatch;
+            }
+        }
+
+        // Strategy 5: token-overlap — served from the same cached suburb pool,
+        // sliced to the first 50 (id-ascending) to mirror the original
+        // per-listing ->limit(50) query's InnoDB scan order on the
+        // (agency_id, suburb_normalised) secondary index.
+        if (!empty($facts['suburb']) && (!empty($facts['street_name']) || !empty($facts['address']))) {
+            $suburbNorm = TrackedProperty::normaliseSuburb($facts['suburb']);
+            $candidates = array_slice($this->suburbCandidates($agencyId, $suburbNorm, $cache), 0, 50);
+
+            $factTokens = $this->extractAddressTokens(
+                ($facts['street_number'] ?? '') . ' ' . ($facts['street_name'] ?? $facts['address'] ?? '')
+            );
+
+            if (!empty($factTokens)) {
+                foreach ($candidates as $cand) {
+                    if ($this->numbersConflict($facts, $cand)) {
+                        continue;
+                    }
+                    $candTokens = $this->extractAddressTokens(
+                        ($cand->street_number ?? '') . ' ' . ($cand->street_name ?? '')
+                    );
+                    $overlap = array_intersect($factTokens, $candTokens);
+                    if (count($overlap) >= 2) {
+                        Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch matched via strategy=5_token_overlap', [
+                            'agency_id' => $agencyId, 'tracked_property_id' => $cand->id,
+                        ]);
+                        return $cand;
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Suburb-scoped candidate pool shared by Strategies 3/4/5 in the cached
+     * path. Falls back to a live, id-ascending query (and primes the cache
+     * with the result) if the batch preload didn't cover this suburb —
+     * defensive: should not happen when the cache was built from the same
+     * batch via primeCacheForBatch(), but keeps this method correct even if
+     * called with a partially-primed cache.
+     *
+     * @return TrackedProperty[] id-ascending
+     */
+    private function suburbCandidates(int $agencyId, ?string $suburbNormalised, BatchMatchCache $cache): array
+    {
+        if ($suburbNormalised === null || $suburbNormalised === '') {
+            return [];
+        }
+        if (! $cache->suburbPreloaded($suburbNormalised)) {
+            $rows = TrackedProperty::queryWithoutAgencyScope()
+                ->where('agency_id', $agencyId)
+                ->whereNull('deleted_at')
+                ->where('suburb_normalised', $suburbNormalised)
+                ->orderBy('id')
+                ->get();
+            $cache->primeSuburbPool($suburbNormalised, $rows->all());
+        }
+
+        return $cache->suburbPool($suburbNormalised);
+    }
+
+    /**
      * Street/unit number as a HARD discriminator (SA address reality).
      *
      * "1 The Oval" and "2 The Oval" on the same street are DIFFERENT properties;
@@ -425,6 +728,82 @@ final class TrackedPropertyMatchOrCreateService
     }
 
     /**
+     * Cache-aware mirror of resolveByAddressHistory(). Match A (structured
+     * address) is served from the batch cache when the suburb was preloaded,
+     * falling back to a live query (which primes the cache) otherwise. Match
+     * B (GPS) is IDENTICAL to resolveByAddressHistory() — always live; this
+     * caller never supplies GPS facts, so batching it has no payoff.
+     *
+     * Kept separate from resolveByAddressHistory() so that method stays
+     * byte-for-byte untouched for every caller that doesn't pass a cache.
+     */
+    private function resolveByAddressHistoryWithCache(int $agencyId, array $facts, BatchMatchCache $cache): ?TrackedProperty
+    {
+        $streetName = TrackedPropertyAddress::normaliseStreet($facts['street_name'] ?? null);
+        $streetNumber = isset($facts['street_number']) ? trim((string) $facts['street_number']) : '';
+        $suburbNormalised = TrackedPropertyAddress::normaliseSuburb($facts['suburb'] ?? null);
+        $lat = $facts['cma_gps_lat'] ?? $facts['latitude'] ?? null;
+        $lng = $facts['cma_gps_lng'] ?? $facts['longitude'] ?? null;
+
+        $hasStreet = $streetNumber !== '' && !empty($streetName) && !empty($suburbNormalised);
+        $hasGps    = $lat !== null && $lng !== null;
+        if (!$hasStreet && !$hasGps) {
+            return null;
+        }
+
+        // Match A — exact structured address, served from the cache.
+        if ($hasStreet) {
+            if (! $cache->addressSuburbPreloaded($suburbNormalised)) {
+                $rows = DB::table('tracked_property_addresses')
+                    ->where('agency_id', $agencyId)
+                    ->whereNull('deleted_at')
+                    ->where('suburb_normalised', $suburbNormalised)
+                    ->get(['tracked_property_id', 'street_number', 'street_name', 'confidence', 'is_primary']);
+                $cache->primeAddress($suburbNormalised, $rows->map(fn ($r) => [
+                    'tp_id' => (int) $r->tracked_property_id,
+                    'street_number' => $r->street_number,
+                    'street_name' => $r->street_name,
+                    'confidence' => $r->confidence,
+                    'is_primary' => (bool) $r->is_primary,
+                ])->all());
+            }
+
+            $tpId = $cache->bestAddressMatch($streetNumber, $streetName, $suburbNormalised);
+            if ($tpId !== null) {
+                $tp = $cache->getTp($tpId) ?? TrackedProperty::queryWithoutAgencyScope()
+                    ->where('agency_id', $agencyId)
+                    ->whereNull('deleted_at')
+                    ->find($tpId);
+                if ($tp && ! $this->numbersConflict($facts, $tp)) return $tp;
+            }
+        }
+
+        // Match B — GPS proximity — identical to resolveByAddressHistory(), always live.
+        if ($hasGps) {
+            $tol = self::GPS_TOLERANCE_DEGREES;
+            $hit = DB::table('tracked_property_addresses')
+                ->where('agency_id', $agencyId)
+                ->whereNull('deleted_at')
+                ->whereNotNull('latitude')
+                ->whereNotNull('longitude')
+                ->whereBetween('latitude', [$lat - $tol, $lat + $tol])
+                ->whereBetween('longitude', [$lng - $tol, $lng + $tol])
+                ->orderByRaw("FIELD(confidence, 'verified', 'high', 'medium', 'low')")
+                ->orderByDesc('is_primary')
+                ->first(['tracked_property_id']);
+            if ($hit) {
+                $tp = TrackedProperty::queryWithoutAgencyScope()
+                    ->where('agency_id', $agencyId)
+                    ->whereNull('deleted_at')
+                    ->find((int) $hit->tracked_property_id);
+                if ($tp && ! $this->numbersConflict($facts, $tp)) return $tp;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Phase C2 — append (or bump) the incoming address in the TP's address
      * history. Deduplicates on (street_number + street_name + suburb_normalised)
      * when a street is present, else on GPS proximity. Bumps last_seen_at on
@@ -432,8 +811,13 @@ final class TrackedPropertyMatchOrCreateService
      *
      * NEVER throws — wrapped in try/catch + Log::warning so the underlying
      * matchOrCreate operation cannot be broken by a history-append hiccup.
+     *
+     * $cache, when supplied, is written-through after an insert/bump so a
+     * LATER listing in the same batch's Strategy 0 Match A sees it without a
+     * fresh query. Purely additive — omitting $cache is byte-identical to the
+     * pre-existing behaviour.
      */
-    private function appendIngestedAddressToHistory(TrackedProperty $tp, array $facts, array $source): void
+    private function appendIngestedAddressToHistory(TrackedProperty $tp, array $facts, array $source, ?BatchMatchCache $cache = null): void
     {
         try {
             $streetName = TrackedPropertyAddress::normaliseStreet($facts['street_name'] ?? null);
@@ -487,6 +871,10 @@ final class TrackedPropertyMatchOrCreateService
             // (suburb_normalised auto-set, street_name normalised, first/last
             // _seen_at defaulted). is_primary stays false — only manual edits
             // via Phase C3 can promote.
+            $confidence = TrackedPropertyAddress::confidenceForSource(
+                (string) ($source['type'] ?? 'unknown'),
+                $streetName,
+            );
             TrackedPropertyAddress::create([
                 'agency_id'           => $tp->agency_id,
                 'tracked_property_id' => $tp->id,
@@ -503,14 +891,21 @@ final class TrackedPropertyMatchOrCreateService
                 'longitude'           => $lng,
                 'source_type'         => (string) ($source['type'] ?? 'unknown'),
                 'source_ref'          => isset($source['ref']) ? (string) $source['ref'] : null,
-                'confidence'          => TrackedPropertyAddress::confidenceForSource(
-                    (string) ($source['type'] ?? 'unknown'),
-                    $streetName,
-                ),
+                'confidence'          => $confidence,
                 'is_primary'          => false,
                 'first_seen_at'       => now(),
                 'last_seen_at'        => now(),
             ]);
+
+            // Write-through — this is a BRAND NEW row the cache can't already
+            // know about (an existing/bumped row is either already covered by
+            // the batch preload, or was just live-loaded — and defensively
+            // primed — by this same listing's own Strategy 0 check moments
+            // earlier in matchOrCreate(), since Strategy 0 always runs first).
+            // Only meaningful when hasStreet — Match A never queries on GPS alone.
+            if ($cache !== null && $hasStreet) {
+                $cache->rememberAddressRow($streetNumber, $streetName, $suburbNormalised, (int) $tp->id, $confidence, false);
+            }
         } catch (Throwable $e) {
             Log::warning('TrackedPropertyMatchOrCreateService::appendIngestedAddressToHistory failed', [
                 'agency_id'           => $tp->agency_id ?? null,
