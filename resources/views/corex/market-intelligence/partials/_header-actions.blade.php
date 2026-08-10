@@ -1,58 +1,63 @@
-{{-- MIC Work / Analyse header actions — folded from the legacy _top-bar into
-     the branded page header. White-on-navy styling. Manager-only.
-     UI only; behaviour (in-stock toggle, Setup link) is identical to the
-     former _top-bar controls. UI_DESIGN_SYSTEM.md §2.4. --}}
+{{-- MIC Work / Analyse header actions — filter TICKS + Setup link (white-on-navy).
+
+     BUGFIX (Johan): these were <input type="checkbox" onchange="…navigate…"> — the
+     tick relied on inline JS to apply the filter. In the browser the onchange did
+     not navigate, so clicking a tick did NOTHING (no param entered the URL, the
+     count never changed) and paging showed them unchecked. The filter-RAIL filters
+     work because they are plain <a href> links. So these ticks are now plain
+     <a href> toggle links too — zero JS dependency — carrying the FULL current
+     query string (minus page, so a filter change returns to page 1). Same params
+     the controller already reads: include_mandated / include_in_stock / address_filter.
+     UI_DESIGN_SYSTEM.md §2.4. --}}
 @php
     $isManager = auth()->user()?->hasPermission('prospecting_setup.manage') ?? false;
-    $includeInStockToggle = (bool) request()->boolean('include_in_stock');
-    $includeMandatedToggle = (bool) request()->boolean('include_mandated');
+
+    // Current query minus page — toggling a filter returns to page 1.
+    $baseQ   = request()->except('page');
+    $mandOn  = request()->boolean('include_mandated');
+    $stockOn = request()->boolean('include_in_stock');
+    $addrOn  = request('address_filter') === 'with_address';
+
+    $toggleUrl = function (string $key, $onValue, bool $isOn) use ($baseQ) {
+        $q = $baseQ;
+        if ($isOn) {
+            unset($q[$key]);          // currently ON  → link turns it OFF
+        } else {
+            $q[$key] = $onValue;      // currently OFF → link turns it ON
+        }
+        return route('market-intelligence.work', $q);
+    };
+
+    $tickBase = 'display:inline-flex; align-items:center; gap:6px; text-decoration:none; font-size:0.75rem; color:rgba(255,255,255,0.85); cursor:pointer; white-space:nowrap;';
+    $boxOff = 'width:14px; height:14px; border-radius:3px; border:1px solid rgba(255,255,255,0.5); display:inline-flex; align-items:center; justify-content:center; font-size:10px; line-height:1; color:transparent;';
+    $boxOn  = 'width:14px; height:14px; border-radius:3px; border:1px solid #fff; background:#fff; color:var(--brand-default,#0b2a4a); display:inline-flex; align-items:center; justify-content:center; font-size:10px; line-height:1; font-weight:900;';
 @endphp
-{{-- Tour "?" launcher is now rendered by the x-mic-page-header component itself,
-     so it appears on every MIC page (not just the ones passing these actions). --}}
-{{-- BUG 3 — every agent (not manager-gated): sole/exclusive-mandated listings
-     are excluded from the canvassing pool by default; this reveals them. --}}
-<label class="inline-flex items-center gap-2 text-xs cursor-pointer"
-       style="color: rgba(255,255,255,0.8);"
-       title="Sole/exclusive-mandated listings are excluded by default — another agency already holds the mandate. Check to include them anyway.">
-    <input type="checkbox"
-           {{ $includeMandatedToggle ? 'checked' : '' }}
-           onchange="(function(cb){
-               const url = new URL(window.location.href);
-               if (cb.checked) { url.searchParams.set('include_mandated','1'); }
-               else { url.searchParams.delete('include_mandated'); }
-               window.location.href = url.toString();
-           })(this)">
+
+{{-- Sole/exclusive mandates — every agent. Excluded from the pool by default. --}}
+<a href="{{ $toggleUrl('include_mandated', '1', $mandOn) }}"
+   style="{{ $tickBase }}"
+   title="Sole/exclusive-mandated listings are excluded by default — another agency already holds the mandate. Toggle to include them.">
+    <span style="{{ $mandOn ? $boxOn : $boxOff }}">✓</span>
     Show sole/exclusive mandates
-</label>
-{{-- Address presence toggle (pull-all). Peer tick styled like the others: some
-     captured listings have no street address; this restricts to those that do. --}}
-<label class="inline-flex items-center gap-2 text-xs cursor-pointer"
-       style="color: rgba(255,255,255,0.8);"
-       title="Some captured listings have no street address yet. Check to show only listings that have an address.">
-    <input type="checkbox"
-           {{ request('address_filter') === 'with_address' ? 'checked' : '' }}
-           onchange="(function(cb){
-               const url = new URL(window.location.href);
-               if (cb.checked) { url.searchParams.set('address_filter','with_address'); }
-               else { url.searchParams.delete('address_filter'); }
-               window.location.href = url.toString();
-           })(this)">
+</a>
+
+{{-- With-address (pull-all): restrict to listings that have a street address. --}}
+<a href="{{ $toggleUrl('address_filter', 'with_address', $addrOn) }}"
+   style="{{ $tickBase }}"
+   title="Some captured listings have no street address yet. Toggle to show only listings that have an address.">
+    <span style="{{ $addrOn ? $boxOn : $boxOff }}">✓</span>
     With address only
-</label>
+</a>
+
 @if($isManager)
-    <label class="inline-flex items-center gap-2 text-xs cursor-pointer"
-           style="color: rgba(255,255,255,0.8);"
-           title="Audit-only: include listings already promoted to agency stock">
-        <input type="checkbox"
-               {{ $includeInStockToggle ? 'checked' : '' }}
-               onchange="(function(cb){
-                   const url = new URL(window.location.href);
-                   if (cb.checked) { url.searchParams.set('include_in_stock','1'); }
-                   else { url.searchParams.delete('include_in_stock'); }
-                   window.location.href = url.toString();
-               })(this)">
+    {{-- In-stock (our own portal listings, exact ref match) — manager-only audit. --}}
+    <a href="{{ $toggleUrl('include_in_stock', '1', $stockOn) }}"
+       style="{{ $tickBase }}"
+       title="Audit-only: include our own listings (portal reference matches our stock), which are hidden from the canvass pool by default.">
+        <span style="{{ $stockOn ? $boxOn : $boxOff }}">✓</span>
         Show in-stock too
-    </label>
+    </a>
+
     <a href="{{ route('settings.prospecting.index') }}"
        class="corex-btn-outline text-sm"
        style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);"
