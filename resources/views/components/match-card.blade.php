@@ -55,9 +55,10 @@
     $poolLabel  = in_array('pool_communal', $poolTokens, true) ? 'Communal Pool'
         : (in_array('pool_own', $poolTokens, true) ? 'Pool' : null);
 
-    // Match-card v2 — Seller + Access popover. AGENT-ONLY: this whole block
-    // (seller identity, phone, access_notes) must NEVER reach the client-
-    // facing wishlist link (shared/match.blade.php) or the buyer portal
+    // Match-card v2 — Seller + Access, shown INLINE in the card (not behind a
+    // popover). AGENT-ONLY: this whole block (seller identity, phone,
+    // access_notes) must NEVER reach the client-facing wishlist link
+    // (shared/match.blade.php) or the buyer portal
     // (buyer-portal/_property-card.blade.php) — neither file includes this
     // component or reads these fields; see the privacy proof in the commit.
     // Property::sellerOwnerContact() is the SAME canonical seller-resolution
@@ -71,7 +72,7 @@
 @endphp
 
 <div class="rounded-md overflow-hidden flex items-stretch flex-wrap md:flex-nowrap transition-opacity"
-     x-data="{ noteOpen: false, hideModalOpen: false, hideReason: '', sellerPopoverOpen: false, addressCopied: false }"
+     x-data="{ noteOpen: false, hideModalOpen: false, hideReason: '', addressCopied: false }"
      style="background: var(--surface); border: 1px solid var(--border); {{ $isHidden ? 'opacity:.45; filter:grayscale(.85);' : '' }}"
      @if($isHidden) title="Hidden from this match — click Unhide to restore" @endif>
 
@@ -94,7 +95,8 @@
     {{-- Main content --}}
     <div class="flex-1 min-w-0 px-5 py-4 flex flex-col gap-2 justify-between">
 
-        <div>
+        <div class="flex flex-col md:flex-row md:items-start gap-2 md:gap-5">
+        <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2 flex-wrap mb-1.5">
                 @if($score > 0)
                 <span class="ds-badge {{ $scoreVariant }}" title="{{ $scoreLabel }} match">
@@ -165,53 +167,6 @@
                     <svg x-show="addressCopied" x-cloak xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color: var(--brand-icon);"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
                 </button>
                 @endif
-
-                {{-- Seller + Access popover trigger — INTERNAL/agent-only. Compact icon
-                     + small anchored popover so the tile never grows; see the @php
-                     block above for the privacy boundary this data must stay behind. --}}
-                @if($seller || $property->access_notes)
-                <div class="relative flex-shrink-0" @click.outside="sellerPopoverOpen = false">
-                    <button type="button" @click.stop="sellerPopoverOpen = !sellerPopoverOpen"
-                            class="p-0.5 rounded" style="color: var(--text-muted);"
-                            title="Seller + access details (internal only)">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z" /></svg>
-                    </button>
-
-                    <div x-show="sellerPopoverOpen" x-cloak x-transition.opacity
-                         class="absolute left-0 mt-1 z-50 w-64 rounded-md p-3 text-xs"
-                         style="background:var(--surface); border:1px solid var(--border); box-shadow:0 8px 30px rgba(0,0,0,0.18);">
-                        <div class="mb-2 pb-2" style="border-bottom: 1px solid var(--border);">
-                            <div class="text-[0.6875rem] font-semibold uppercase tracking-wider mb-1" style="color: var(--text-muted);">Seller</div>
-                            @if($seller)
-                            <div class="font-semibold mb-1" style="color: var(--text-primary);">{{ $seller->full_name }}</div>
-                            @if($seller->phone)
-                            <div class="flex items-center gap-2">
-                                <a href="{{ $sellerTelLink }}" class="inline-flex items-center gap-1 no-underline" style="color: var(--brand-icon);" title="Call {{ $seller->phone }}">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h.75a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z" /></svg>
-                                    Call
-                                </a>
-                                @if($sellerWaLink)
-                                <a href="{{ $sellerWaLink }}" target="_blank" rel="noopener" class="inline-flex items-center gap-1 no-underline" style="color: var(--brand-icon);" title="WhatsApp {{ $seller->phone }}">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.625 9.75a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" /></svg>
-                                    WhatsApp
-                                </a>
-                                @endif
-                                <span style="color: var(--text-muted);">{{ $seller->phone }}</span>
-                            </div>
-                            @else
-                            <div style="color: var(--text-muted);">No phone on file</div>
-                            @endif
-                            @else
-                            <div style="color: var(--text-muted);">No seller linked to this property</div>
-                            @endif
-                        </div>
-                        <div>
-                            <div class="text-[0.6875rem] font-semibold uppercase tracking-wider mb-1" style="color: var(--text-muted);">Access</div>
-                            <div class="whitespace-pre-wrap leading-relaxed" style="color: var(--text-primary);">{{ $property->access_notes ?: 'No access notes captured.' }}</div>
-                        </div>
-                    </div>
-                </div>
-                @endif
             </div>
             @if($property->address && $property->title)
             <div class="text-xs mb-1" style="color: var(--text-secondary);">{{ $property->title }}</div>
@@ -235,6 +190,46 @@
             @if($property->agent)
             <div class="text-xs mt-1" style="color: var(--text-muted);">Agent: {{ $property->agent->name }}</div>
             @endif
+        </div>
+
+        {{-- Seller + Access — INLINE in the horizontal whitespace next to the
+             action-button column, AGENT-ONLY (Johan's call 2026-08-1x: a
+             button/popover hid data that had plenty of room to just show).
+             Uses the existing horizontal gap, never adds tile height — each
+             field is single-line/clamped. This data must NEVER reach the
+             client-facing wishlist link (shared/match.blade.php) or the buyer
+             portal (buyer-portal/_property-card.blade.php) — neither file
+             includes this component or reads these fields; see the privacy
+             proof in MatchCardPrivacyBoundaryTest. --}}
+        <div class="flex-shrink-0 w-full md:w-52 text-xs" style="color: var(--text-secondary);">
+            <div class="mb-2">
+                <div class="text-[0.6875rem] font-semibold uppercase tracking-wider mb-0.5" style="color: var(--text-muted);">Seller</div>
+                @if($seller)
+                <div class="font-semibold truncate" style="color: var(--text-primary);">{{ $seller->full_name }}</div>
+                @if($seller->phone)
+                <div class="flex items-center gap-1.5 mt-0.5 truncate">
+                    <a href="{{ $sellerTelLink }}" class="inline-flex flex-shrink-0" style="color: var(--brand-icon);" title="Call {{ $seller->phone }}">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h.75a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z" /></svg>
+                    </a>
+                    @if($sellerWaLink)
+                    <a href="{{ $sellerWaLink }}" target="_blank" rel="noopener" class="inline-flex flex-shrink-0" style="color: var(--brand-icon);" title="WhatsApp {{ $seller->phone }}">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.625 9.75a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" /></svg>
+                    </a>
+                    @endif
+                    <a href="{{ $sellerTelLink }}" class="truncate no-underline" style="color: var(--text-secondary);" title="{{ $seller->phone }}">{{ $seller->phone }}</a>
+                </div>
+                @else
+                <div style="color: var(--text-muted);">&mdash;</div>
+                @endif
+                @else
+                <div style="color: var(--text-muted);">&mdash;</div>
+                @endif
+            </div>
+            <div>
+                <div class="text-[0.6875rem] font-semibold uppercase tracking-wider mb-0.5" style="color: var(--text-muted);">Keys / Access</div>
+                <div class="line-clamp-2 leading-snug" style="color: {{ $property->access_notes ? 'var(--text-primary)' : 'var(--text-muted)' }};">{{ $property->access_notes ?: '—' }}</div>
+            </div>
+        </div>
         </div>
 
         {{-- Bottom: client view counter --}}
