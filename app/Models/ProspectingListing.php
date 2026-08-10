@@ -125,6 +125,39 @@ class ProspectingListing extends Model
     }
 
     /**
+     * Company stock (Johan's model) — this scraped listing IS one of the agency's
+     * OWN portal listings: its portal_ref exactly matches a property's P24/PP
+     * listing number (properties.p24_ref / pp_ref). This is the EXACT identity
+     * match, deliberately distinct from the fuzzy address-based matched_property_id
+     * (which over-matches address collisions and other agencies' listings).
+     *
+     * portal_ref is stored prefixed ('P24-<num>' / 'PP-<ref>'); the property refs
+     * are unprefixed, so we compare against SUBSTRING(portal_ref, 5|4). The
+     * subquery correlates on the OUTER prospecting_listings row, so these scopes
+     * must be used on an UNALIASED prospecting_listings query.
+     */
+    protected static function companyStockExistsSubquery($s): void
+    {
+        $s->selectRaw('1')->from('properties as p')
+          ->whereColumn('p.agency_id', 'prospecting_listings.agency_id')
+          ->whereNull('p.deleted_at')
+          ->where(function ($w) {
+              $w->whereRaw("(prospecting_listings.portal_source = 'p24' AND p.p24_ref IS NOT NULL AND p.p24_ref <> '' AND p.p24_ref = SUBSTRING(prospecting_listings.portal_ref, 5))")
+                ->orWhereRaw("(prospecting_listings.portal_source = 'pp' AND p.pp_ref IS NOT NULL AND p.pp_ref <> '' AND p.pp_ref = SUBSTRING(prospecting_listings.portal_ref, 4))");
+          });
+    }
+
+    public function scopeWhereCompanyStock($query)
+    {
+        return $query->whereExists(fn ($s) => static::companyStockExistsSubquery($s));
+    }
+
+    public function scopeWhereNotCompanyStock($query)
+    {
+        return $query->whereNotExists(fn ($s) => static::companyStockExistsSubquery($s));
+    }
+
+    /**
      * Normalize an address for cross-portal matching.
      * Strips punctuation, lowercases, collapses whitespace, appends suburb.
      */
