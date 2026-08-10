@@ -126,9 +126,77 @@
     els.errorMsg.style.display = 'none';
   }
 
-  function setConnection(connected) {
-    els.connectionDot.className = 'dot' + (connected ? '' : ' disconnected');
-    els.connectionText.textContent = connected ? 'Connected to CoreX' : 'Not connected';
+  // Honest, multi-state connection indicator. "Token expired" is no longer
+  // shown the same as "offline".
+  const CONNECTION_STATES = {
+    checking:     { cls: 'checking',     text: 'Checking connection…' },
+    connected:    { cls: '',             text: 'Connected to CoreX' },
+    auth:         { cls: 'disconnected', text: 'Login rejected — token expired. Re-authenticate in Settings.' },
+    no_agency:    { cls: 'warning',      text: 'Logged in, but no agency selected — imports are rejected.' },
+    server_error: { cls: 'warning',      text: 'CoreX reachable but erroring — imports may fail.' },
+    unreachable:  { cls: 'disconnected', text: 'CoreX unreachable — check your network.' },
+    no_token:     { cls: 'disconnected', text: 'Not connected — add your API token in Settings.' },
+  };
+
+  function setConnection(state) {
+    const m = CONNECTION_STATES[state] || CONNECTION_STATES.unreachable;
+    els.connectionDot.className = ('dot ' + m.cls).trim();
+    els.connectionText.textContent = m.text;
+  }
+
+  // Ask the background worker to actually probe CoreX (same auth path as import),
+  // then reflect the real result on the dot. Returns the health object.
+  async function refreshConnection() {
+    setConnection('checking');
+    try {
+      const res = await chrome.runtime.sendMessage({
+        action: 'healthCheck',
+        apiUrl: settings.apiUrl,
+        apiToken: settings.apiToken,
+      });
+      setConnection(res && res.state ? res.state : 'unreachable');
+      return res || { state: 'unreachable' };
+    } catch (e) {
+      setConnection('unreachable');
+      return { state: 'unreachable' };
+    }
+  }
+
+  // Drain the durable queue in gentle chunks while the popup is open, showing
+  // honest progress. The background alarm continues any remainder after close.
+  async function drainQueueLoop() {
+    let guard = 0;
+    while (guard++ < 300) {
+      let res;
+      try {
+        res = await chrome.runtime.sendMessage({
+          action: 'flushLocalQueue',
+          apiUrl: settings.apiUrl,
+          apiToken: settings.apiToken,
+        });
+      } catch (e) { break; }
+      if (!res) break;
+
+      const qs = await chrome.runtime.sendMessage({ action: 'getQueueStatus' });
+      const remaining = (qs && qs.count) || 0;
+
+      if (res.stop) {
+        if (res.stop === 'auth' || res.stop === 'validation') {
+          await refreshConnection();
+          showError(remaining + ' batches still queued — re-authenticate to send them (nothing lost).');
+        } else {
+          showError(remaining + ' batches still queued — CoreX unreachable/erroring; will retry automatically.');
+        }
+        break;
+      }
+      if (res.done || remaining === 0) {
+        showError('All queued batches sent to CoreX.');
+        await refreshConnection();
+        break;
+      }
+      showError('Sending queued batches… ' + remaining + ' remaining.');
+      await new Promise(r => setTimeout(r, 300));
+    }
   }
 
   function formatTime(ms) {
@@ -170,9 +238,15 @@
     settings.apiToken = token;
 
     return new Promise(resolve => {
-      chrome.storage.local.set({ apiUrl: url, apiToken: token }, () => {
+      chrome.storage.local.set({ apiUrl: url, apiToken: token }, async () => {
         els.settingsMsg.innerHTML = '<div class="success-msg">Settings saved!</div>';
-        setConnection(true);
+        // Verify the new token actually works, rather than assuming it does.
+        const health = await refreshConnection();
+        if (health.state === 'connected') {
+          // A freshly-fixed token — try to send anything that was stuck.
+          const qs = await chrome.runtime.sendMessage({ action: 'getQueueStatus' });
+          if (qs && qs.count > 0) drainQueueLoop();
+        }
         setTimeout(() => { els.settingsMsg.innerHTML = ''; }, 2000);
         resolve();
       });
@@ -352,6 +426,8 @@
       } else if (status.error && !status.active) {
         stopStatusPolling();
         showError(status.error);
+        // If CoreX rejected our token/agency, reflect it honestly on the dot.
+        if (status.authError) refreshConnection();
         showState('ready');
       }
     } catch (e) {
@@ -637,11 +713,13 @@
     // No token → show settings
     if (!settings.apiToken) {
       showState('settings');
-      setConnection(false);
+      setConnection('no_token');
       return;
     }
 
-    setConnection(true);
+    // Real connectivity probe (honest dot: connected / token-expired / no-agency /
+    // server-error / unreachable), instead of assuming green because a token exists.
+    const health = await refreshConnection();
 
     // Check if a capture is already running
     try {
@@ -666,18 +744,25 @@
       }
     } catch (e) { /* ignore */ }
 
-    // Flush queued data
+    // Durable queue: send it if we can, otherwise say honestly why not (and that
+    // nothing is lost). No more "offline" when the real problem is an expired token.
     try {
-      const queueResult = await chrome.runtime.sendMessage({
-        action: 'flushLocalQueue',
-        apiUrl: settings.apiUrl,
-        apiToken: settings.apiToken,
-      });
-      if (queueResult && queueResult.flushed > 0) {
-        showError(queueResult.flushed + ' queued batches sent to CoreX successfully.');
+      const qs = await chrome.runtime.sendMessage({ action: 'getQueueStatus' });
+      const queued = (qs && qs.count) || 0;
+
+      if (qs && qs.storageRatio >= 0.85) {
+        showError('Local storage ' + Math.round(qs.storageRatio * 100) +
+                  '% full — send the queued batches to CoreX soon to avoid pausing capture.');
       }
-      if (queueResult && queueResult.remaining > 0) {
-        showError(queueResult.remaining + ' batches still queued (CoreX offline).');
+
+      if (queued > 0) {
+        if (health.state === 'connected') {
+          drainQueueLoop();                                  // start sending + show progress
+        } else if (health.state === 'auth' || health.state === 'no_agency') {
+          showError(queued + ' batches safely queued — re-authenticate in Settings to send them (nothing lost).');
+        } else {
+          showError(queued + ' batches safely queued — will send when CoreX is reachable (nothing lost).');
+        }
       }
     } catch (e) { /* ignore */ }
 

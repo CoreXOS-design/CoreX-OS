@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Jobs\DownloadListingThumbnail;
 use App\Jobs\Prospecting\GeocodeTrackedPropertyAddressesJob;
 use App\Models\ProspectingListing;
+use App\Models\ProspectingPriceAnomaly;
 use App\Models\ProspectingPriceHistory;
 use App\Models\ProspectingSearch;
 use Carbon\Carbon;
@@ -123,15 +124,25 @@ class ProspectingApiController extends Controller
                 $newPrice = $data['price'] !== null ? (int) $data['price'] : null;
 
                 if ($newPrice !== $existing->price) {
-                    ProspectingPriceHistory::create([
-                        'prospecting_listing_id' => $existing->id,
-                        'old_price'              => $existing->price,
-                        'new_price'              => $newPrice,
-                        'changed_at'             => $now,
-                    ]);
+                    if ($newPrice !== null && $existing->price !== null
+                        && $this->isImplausiblePriceJump((int) $existing->price, $newPrice)) {
+                        // MIC PRICE GUARD — an order-of-magnitude jump vs the stored
+                        // price is a misparse (dropped zero / wrong figure grabbed),
+                        // not a real market move. Quarantine it for review and KEEP
+                        // the good price. A misparse can never silently overwrite MIC.
+                        $this->flagPriceAnomaly($existing, (int) $existing->price, $newPrice, $portalSource, $context);
+                        // Leave $existing->price and price_changed_at untouched.
+                    } else {
+                        ProspectingPriceHistory::create([
+                            'prospecting_listing_id' => $existing->id,
+                            'old_price'              => $existing->price,
+                            'new_price'              => $newPrice,
+                            'changed_at'             => $now,
+                        ]);
 
-                    $existing->price = $newPrice;
-                    $existing->price_changed_at = $now;
+                        $existing->price = $newPrice;
+                        $existing->price_changed_at = $now;
+                    }
                 }
 
                 $existing->address          = $data['address'];
@@ -247,6 +258,81 @@ class ProspectingApiController extends Controller
             'updated'  => $updated,
             'total'    => $imported + $updated,
         ]);
+    }
+
+    /**
+     * MIC price guard threshold. A capture whose price is >= this factor times the
+     * stored price (or <= stored / factor) vs the SAME listing ref is treated as a
+     * misparse and quarantined, not applied.
+     *
+     * Factor 4 chosen from the live corruption of 2026-08-10: every bad overwrite
+     * was >= ~4.1x (dropped-zero = 10x; wrong-figure grabs = 5x–44x), while every
+     * credible market move that day was <= ~2x and the normal cluster was within
+     * ±20%. So 4 cleanly catches order-of-magnitude misparses yet leaves real price
+     * changes — even a hefty ~3x relist — to import normally.
+     */
+    private const PRICE_JUMP_FACTOR = 4;
+
+    /**
+     * True when moving from $old to $new is an implausible order-of-magnitude jump.
+     * Only judged when BOTH sides are positive (a first sighting has no baseline).
+     */
+    private function isImplausiblePriceJump(int $old, int $new): bool
+    {
+        if ($old <= 0 || $new <= 0) {
+            return false;
+        }
+        return $new >= $old * self::PRICE_JUMP_FACTOR
+            || $new * self::PRICE_JUMP_FACTOR <= $old;
+    }
+
+    /**
+     * Record a quarantined price write for review and log it. The good stored price
+     * is deliberately left untouched by the caller.
+     */
+    private function flagPriceAnomaly(
+        ProspectingListing $listing,
+        int $old,
+        int $new,
+        string $portalSource,
+        array $context
+    ): void {
+        $factor = $new >= $old
+            ? round($new / max(1, $old), 2)
+            : -1 * round($old / max(1, $new), 2);
+
+        try {
+            ProspectingPriceAnomaly::create([
+                'prospecting_listing_id' => $listing->id,
+                'agency_id'              => $listing->agency_id,
+                'portal_source'          => $portalSource,
+                'portal_ref'             => $listing->portal_ref,
+                'stored_price'           => $old,
+                'rejected_price'         => $new,
+                'jump_factor'            => $factor,
+                'search_url'             => $context['url'] ?? null,
+                'status'                 => 'pending',
+            ]);
+        } catch (\Throwable $e) {
+            // Never let flagging break ingestion — the log line below is the backstop.
+            \Log::warning('Price-anomaly flag insert failed', [
+                'prospecting_listing_id' => $listing->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        Log::channel('property24')->warning(
+            'MIC PRICE GUARD — implausible jump QUARANTINED (stored price kept, not overwritten)',
+            [
+                'prospecting_listing_id' => $listing->id,
+                'portal_source'          => $portalSource,
+                'portal_ref'             => $listing->portal_ref,
+                'stored_price'           => $old,
+                'rejected_price'         => $new,
+                'jump_factor'            => $factor,
+                'threshold_factor'       => self::PRICE_JUMP_FACTOR,
+            ]
+        );
     }
 
     /**

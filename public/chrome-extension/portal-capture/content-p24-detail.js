@@ -15,6 +15,32 @@
 (function () {
   'use strict';
 
+  // Robust price read from one-or-more .p24_price elements. Prefers the numeric
+  // `content` attribute; parses text as DISTINCT number groups (never concatenates
+  // digits across two numbers); keeps only plausible SA asking prices; returns the
+  // headline (max) figure. Mirrors extractP24Price in content-p24.js — fixes the
+  // dropped-zero / wrong-figure / concatenation misparses.
+  function p24PriceFrom(scope) {
+    const PLAUSIBLE = (v) => Number.isFinite(v) && v >= 100000 && v <= 500000000;
+    const els = Array.from((scope || document).querySelectorAll('.p24_price'));
+    if (els.length === 0) return null;
+    const byContent = [];
+    els.forEach((el) => {
+      const ca = (el.getAttribute('content') || '').trim();
+      if (/^\d{4,12}$/.test(ca)) { const v = parseInt(ca, 10); if (PLAUSIBLE(v)) byContent.push(v); }
+    });
+    if (byContent.length > 0) return Math.max(...byContent);
+    const groups = [];
+    els.forEach((el) => {
+      const matches = (el.textContent || '').match(/\d[\d\s .,]*\d|\d/g) || [];
+      matches.forEach((g) => {
+        const d = g.replace(/[^\d]/g, '');
+        if (d.length >= 4 && d.length <= 12) { const v = parseInt(d, 10); if (PLAUSIBLE(v)) groups.push(v); }
+      });
+    });
+    return groups.length > 0 ? Math.max(...groups) : null;
+  }
+
   // ══════════════════════════════════════════════════════════
   // ── SHARED CONSTANTS ──────────────────────────────────────
   // ══════════════════════════════════════════════════════════
@@ -145,12 +171,7 @@
     }
 
     try {
-      const priceEl = card.querySelector('.p24_price');
-      if (priceEl) {
-        const ca = priceEl.getAttribute('content');
-        if (ca) listing.price = parseInt(ca, 10);
-        else { const c = priceEl.textContent.replace(/[^\d]/g, ''); if (c.length >= 4) listing.price = parseInt(c, 10); }
-      }
+      listing.price = p24PriceFrom(card);
     } catch (e) { /* */ }
 
     try {
@@ -313,12 +334,7 @@
     if (!property.title) { const el = document.querySelector('meta[property="og:title"]'); if (el) property.title = el.getAttribute('content'); }
 
     if (!property.price) {
-      const priceEl = document.querySelector('.p24_price');
-      if (priceEl) {
-        const ca = priceEl.getAttribute('content');
-        if (ca) property.price = parseInt(ca, 10);
-        else { const c = priceEl.textContent.replace(/[^\d]/g, ''); if (c.length >= 4) property.price = parseInt(c, 10); }
-      }
+      property.price = p24PriceFrom(document);
     }
 
     // Description — try multiple sources (P24 renders description dynamically)
