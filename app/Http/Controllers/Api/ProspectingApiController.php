@@ -113,15 +113,20 @@ class ProspectingApiController extends Controller
                 $existing->last_seen_at = $now;
                 $existing->is_active = true;
 
-                if ((int) $data['price'] !== (int) $existing->price) {
+                // Price-on-application / vacant land: portals send no price at all.
+                // Normalise here rather than casting to (int), which would coerce a
+                // null (POA) to 0 and either mask a real change or wrongly log one.
+                $newPrice = $data['price'] !== null ? (int) $data['price'] : null;
+
+                if ($newPrice !== $existing->price) {
                     ProspectingPriceHistory::create([
                         'prospecting_listing_id' => $existing->id,
                         'old_price'              => $existing->price,
-                        'new_price'              => $data['price'],
+                        'new_price'              => $newPrice,
                         'changed_at'             => $now,
                     ]);
 
-                    $existing->price = $data['price'];
+                    $existing->price = $newPrice;
                     $existing->price_changed_at = $now;
                 }
 
