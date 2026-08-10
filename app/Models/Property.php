@@ -340,6 +340,7 @@ class Property extends Model
         'suburb',
         'suburb_normalised',
         'address',
+        'access_notes',
         'region',
         'district',
         'beds',
