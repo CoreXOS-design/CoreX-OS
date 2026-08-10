@@ -669,6 +669,9 @@ class PropertyController extends Controller
             'title'            => 'required|string|max:200',
             'excerpt'          => 'nullable|string|max:500',
             'description'      => 'nullable|string',
+            // Match-card v2 — "Access / key arrangements" (agent-only free text).
+            // Mirrors the update() validation below; never client-facing.
+            'access_notes'     => 'nullable|string|max:1000',
             'price'            => 'required|integer|min:0',
             'price_on_application' => 'nullable|boolean',
             'has_deposit'      => 'nullable|boolean',
@@ -1047,6 +1050,11 @@ class PropertyController extends Controller
             'title'            => 'required|string|max:200',
             'excerpt'          => 'nullable|string|max:500',
             'description'      => 'nullable|string',
+            // Match-card v2 — "Access / key arrangements" (agent-only free text,
+            // e.g. "Keys kept with managing agency — contact Steve 011 011
+            // 0110"). Surfaced ONLY on the agent-facing Seller + Access popover
+            // (match-card.blade.php) — never on any client-facing surface.
+            'access_notes'     => 'nullable|string|max:1000',
             'price'            => $reqIf($priceRequired, '|integer|min:0'),
             'price_on_application' => 'nullable|boolean',
             'has_deposit'      => 'nullable|boolean',

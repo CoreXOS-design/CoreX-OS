@@ -2407,6 +2407,15 @@
                     <textarea name="description" rows="6" class="prop-textarea" placeholder="Full property description...">{{ old('description', $property->description) }}</textarea>
                 </div>
 
+                {{-- Access / key arrangements — AGENT-ONLY. Surfaced on the Core Matches /
+                     Buyer Pipeline match-card's Seller + Access popover; never shown on any
+                     client-facing surface (the shared wishlist link, buyer portal). --}}
+                <div>
+                    <p class="prop-subsection-heading">Access / Key Arrangements</p>
+                    <p class="text-xs mb-2" style="color: var(--text-muted);">Internal only — never shown to a client. e.g. "Keys kept with managing agency — contact Steve 011 011 0110".</p>
+                    <textarea name="access_notes" rows="3" class="prop-textarea" placeholder="How does an agent get in? Who holds the keys?">{{ old('access_notes', $property->access_notes) }}</textarea>
+                </div>
+
                 {{-- Property Address --}}
                 <div x-data="propertyAddress({{ Js::from([
                     'streetNumber' => old('street_number', $property->street_number ?? ''),
