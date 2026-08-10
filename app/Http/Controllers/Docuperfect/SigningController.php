@@ -4106,6 +4106,18 @@ CSS;
             return response()->json(['ok' => false, 'error' => 'It is not your turn to sign yet.'], 403);
         }
 
+        // BOUNDED edit model v1 (Johan 2026-08-10) — a recipient edits ONCE (their initial turn). After the
+        // agent has re-edited and the document re-circulates for signatures (STATUS_AMENDMENT_INITIALING),
+        // there is NO third edit: the recipient can only accept-and-initial or DECLINE (decline → new
+        // document off-ramp). Blocking here enforces the bound server-side so a stray edit can never create
+        // an un-initialed mark that stalls the completion gate with no resolution path.
+        if (optional($signingRequest->template)->status === SignatureTemplate::STATUS_AMENDMENT_INITIALING) {
+            return response()->json([
+                'ok'    => false,
+                'error' => 'Changes are closed for this round — please initial the change to accept, or decline to request a new document.',
+            ], 422);
+        }
+
         $validated = $request->validate([
             'selected'    => ['required', 'string', 'max:8000'],
             // replacement is required for inline/reference; a pure strike-out ('strike') has none.

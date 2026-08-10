@@ -1299,6 +1299,11 @@ class SignatureService
             if ($request
                 && $template->status === SignatureTemplate::STATUS_AMENDMENT_INITIALING
                 && ($cyc['phase'] ?? null) === 'recipient_cascade') {
+                // BOUNDED edit model v1 (Johan 2026-08-10) — at most ONE recipient edit + ONE agent re-edit
+                // per document. During the re-initial cascade a recipient can ONLY accept-and-initial or
+                // DECLINE — there is NO third edit (the edit tool is closed for this round; a disagreement
+                // takes the decline → new-document off-ramp). So a completing party here simply advances the
+                // sequential cascade; there is no loop back to the agent.
                 $this->advanceSequentialInitialing($template, $request);
                 return;
             }
@@ -2342,6 +2347,39 @@ class SignatureService
         $this->activateAmendmentChainNode($template, $chain->first());
     }
 
+    /**
+     * SYMMETRIC edit-upon-edit (Johan 2026-08-10) — record a change made by the CURRENT REVIEWER
+     * (the agent / an authoriser) DURING chain review into the active cycle, so the cascade later
+     * re-circulates it to every party that owes an initial on it. The reviewer edits with the SAME
+     * amend tool a recipient uses; their edit is not a "reject" — it is another mark on the document
+     * face that everyone must initial. No routing change here: the reviewer stays on the review page
+     * and keeps actioning items; they initial their own new mark (Accept & Initial on it) and the
+     * approve gate (outstandingForPartyOnChanges) already blocks approval until they have. Idempotent.
+     */
+    public function addEditToActiveCycle(SignatureTemplate $template, string $changeId, bool $isCondition = false): void
+    {
+        $cycle = $this->amendmentCycle($template);
+        if ($cycle === null || $template->status !== SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW) {
+            return; // only meaningful while a reviewer holds the doc for chain review
+        }
+        $wtd = $this->docWtd($template);
+        $ids = array_values(array_map('strval', $wtd['amendment_cycle']['change_ids'] ?? []));
+        if ($changeId !== '' && ! in_array($changeId, $ids, true)) {
+            $ids[] = $changeId;
+        }
+        $wtd['amendment_cycle']['change_ids']    = $ids;
+        $wtd['amendment_cycle']['has_condition'] = ($wtd['amendment_cycle']['has_condition'] ?? false) || $isCondition;
+        $this->writeDocWtd($template, $wtd);
+
+        SignatureAuditLog::log(
+            $template,
+            'amendment_reviewer_edit_added',
+            SignatureAuditLog::ACTOR_USER,
+            'Reviewer',
+            metadata: ['change_id' => $changeId, 'is_condition' => $isCondition],
+        );
+    }
+
     /** The approval node currently reviewing the active cycle (approvalChain[chain_pos]), or null. */
     public function currentAmendmentChainNode(SignatureTemplate $template): ?SignatureRequest
     {
@@ -2577,7 +2615,16 @@ class SignatureService
      * amendment — the sequential cascade worklist. A prior recipient owes when they have an unfilled
      * wet-ink cir-slot on a cycle change, OR (Issue C) the cycle added an Other Condition they have
      * not yet initialed (a live DocumentCondition with no ConditionInitial for their party key).
-     * Excludes the editor (already initialed at edit time) and not-yet-reached recipients (WAITING).
+     * Excludes not-yet-reached recipients (WAITING).
+     *
+     * SYMMETRIC edit-upon-edit model (Johan 2026-08-10): authorship is decided PER CHANGE, not
+     * per cycle. A party owes a change iff they hold an UNFILLED cir-slot on it — and the author
+     * of a change fills their own slot at edit time, so the author is naturally excluded from their
+     * OWN change while still owing every OTHER party's change. This is why the old per-cycle
+     * `editor_key` exclusion is gone: a cycle can now carry changes from MORE THAN ONE editor (the
+     * recipient's original edit AND the agent's counter-edit), and the original editor MUST come back
+     * to initial the agent's new mark. The per-change slot check already models exactly that, so the
+     * blanket editor exclusion would have WRONGLY skipped a party who owes a later co-editor's change.
      */
     private function orderedRecipientsOwingInitial(SignatureTemplate $template, array $cycle): \Illuminate\Support\Collection
     {
@@ -2606,9 +2653,8 @@ class SignatureService
                 if (! $this->isRecipientRole($r->party_role)) {
                     return false;
                 }
-                if ($r->canonicalPartyKey() === ($cycle['editor_key'] ?? null)) {
-                    return false;
-                }
+                // NOTE: no per-cycle editor exclusion — authorship is per-change (see doc-comment). A party
+                // who authored one change but owes a co-editor's change on the SAME cycle must still return.
                 // (a) owes a wet-ink cir-slot initial on a cycle change?
                 if ($html !== '') {
                     foreach (($cycle['change_ids'] ?? []) as $cid) {
@@ -3219,6 +3265,11 @@ class SignatureService
         return in_array($template->status, [
             SignatureTemplate::STATUS_RETURNED_TO_CANDIDATE,
             SignatureTemplate::STATUS_AMENDMENT_REVIEW,
+            // SYMMETRIC edit-upon-edit (Johan 2026-08-10) — the reviewing agent uses the SAME amend tool
+            // as recipients on the review page (edit replaces reject). So chain review is an editable state
+            // for the current reviewer; the controller still authorises the acting user, and the acting
+            // party can only edit while they hold the doc for review.
+            SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW,
         ], true);
     }
 

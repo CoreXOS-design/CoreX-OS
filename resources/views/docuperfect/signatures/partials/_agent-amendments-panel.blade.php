@@ -51,29 +51,29 @@
                             : 'font-size:10px;font-weight:700;text-transform:uppercase;color:#0369a1;background:#f0f9ff;border-radius:6px;padding:1px 6px;'"
                           x-text="it.badge"></span>
                     <span style="margin-left:auto; font-size:11px; font-weight:600; border-radius:999px; padding:1px 8px;"
-                          :style="it.state==='accepted' ? 'color:#166534;background:#f0fdf4;' : (it.state==='rejected' ? 'color:#b91c1c;background:#fef2f2;' : 'color:#92400e;background:#fffbeb;')"
-                          x-text="it.state==='accepted' ? 'Accepted ✓' : (it.state==='rejected' ? 'Rejected' : 'Pending')"></span>
+                          :style="it.state==='accepted' ? 'color:#166534;background:#f0fdf4;' : 'color:#92400e;background:#fffbeb;'"
+                          x-text="it.state==='accepted' ? 'Initialed ✓' : 'Needs your initial'"></span>
                 </div>
-                <div style="font-size:12.5px; font-weight:600; color:#0f172a;" :style="it.state==='rejected' ? 'text-decoration:line-through; color:#94a3b8;' : ''" x-text="it.location"></div>
+                <div style="font-size:12.5px; font-weight:600; color:#0f172a;" x-text="it.location"></div>
                 <div style="font-size:12px; color:#475569; margin-top:2px;" x-text="it.summary"></div>
                 <div x-show="it.author" style="font-size:11px; color:#64748b; margin-top:3px;" x-text="'Added by ' + (it.author||'')"></div>
-                {{-- PER-ITEM actions: the agent Accepts (places their initial) OR Rejects (reverts) EACH change
-                     individually. No accept-all / reject-all. --}}
-                <div @click.stop style="display:flex; flex-wrap:wrap; gap:8px; margin-top:8px;" x-show="it.state!=='rejected'">
+                {{-- SYMMETRIC edit-upon-edit (Johan 2026-08-10): the agent AGREES (Accept & Initial) OR EDITS
+                     the change with the SAME amend tool a recipient uses — a strike / reword, itself a new
+                     initialed mark. There is NO "reject": disagreeing IS editing. Nothing is ever removed. --}}
+                <div @click.stop style="display:flex; flex-wrap:wrap; gap:8px; margin-top:8px;">
                     <button type="button" @click="accept(it)"
                             :style="it.state==='accepted' ? 'color:#166534;background:#f0fdf4;' : 'color:#fff;background:#059669;'"
                             style="font-size:12px; font-weight:600; border-radius:7px; padding:5px 12px;"
                             x-text="it.state==='accepted' ? 'Re-initial' : 'Accept &amp; Initial'"></button>
-                    <button type="button" @click="reject(it)"
-                            style="font-size:12px; color:#b91c1c; border:1px solid #fecaca; border-radius:7px; padding:5px 12px;">
-                        Reject
+                    <button type="button" @click="edit(it)"
+                            style="font-size:12px; color:#b45309; border:1px solid #fed7aa; border-radius:7px; padding:5px 12px;">
+                        Edit
                     </button>
                     <button type="button" @click="scrollTo(it)"
                             style="font-size:12px; color:#475569; border:1px solid #cbd5e1; border-radius:7px; padding:5px 10px;">
                         View
                     </button>
                 </div>
-                <div x-show="it.state==='rejected'" style="margin-top:8px; font-size:11px; color:#94a3b8;">This change was removed from the document.</div>
             </div>
         </template>
     </div>
@@ -83,7 +83,7 @@
              (accepted+initialled, or rejected) — nothing outstanding. No accept-all / reject-all. --}}
         <div style="font-size:12px; margin-bottom:8px;"
              :style="outstanding>0 ? 'color:#92400e;' : 'color:#166534;'"
-             x-text="outstanding>0 ? (outstanding + ' change' + (outstanding===1?'':'s') + ' still need a decision (Accept or Reject each above)') : 'Every change actioned — ready to approve.'"></div>
+             x-text="outstanding>0 ? (outstanding + ' change' + (outstanding===1?'':'s') + ' still need your initial (Accept &amp; Initial, or Edit each above)') : 'Every change actioned — ready to send on.'"></div>
         <form method="POST" action="{{ route('docuperfect.signatures.amendment.approve', $document) }}">
             @csrf
             <button type="submit" :disabled="outstanding>0"
@@ -133,19 +133,6 @@
     window.__corexApplyConditionInitial = async function (conditionId, img) {
         try { const r = await fetch(COND_URL_BASE + '/' + conditionId + '/initial', { method:'POST', headers:{'Content-Type':'application/json','X-CSRF-TOKEN':CSRF,'X-Requested-With':'XMLHttpRequest'}, body:JSON.stringify({initial_image:img}) }); const d=await r.json().catch(()=>({})); return r.ok && !!d.ok; } catch(e){ return false; }
     };
-    // PER-ITEM reject: revert one body change (reject-change) or supersede one Other Condition
-    // (condition/{id}/reject); the other changes are untouched.
-    const REJECT_CHANGE_URL = @json(route('docuperfect.signatures.amendment.rejectChange', $document));
-    const REJECT_COND_BASE  = @json(url('/docuperfect/documents/' . $document->id . '/signatures/amendment/condition'));
-    window.AgentReject = async function (it) {
-        try {
-            const url  = it.kind==='condition' ? (REJECT_COND_BASE + '/' + it.id + '/reject') : REJECT_CHANGE_URL;
-            const body = it.kind==='condition' ? {} : { change_id: it.id };
-            const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json','X-CSRF-TOKEN':CSRF,'X-Requested-With':'XMLHttpRequest'}, body:JSON.stringify(body) });
-            const d = await r.json().catch(()=>({})); return r.ok && !!d.ok;
-        } catch(e){ return false; }
-    };
-
     const modal=document.getElementById('agentCiModal'), canvas=document.getElementById('agentCiCanvas'), ctx=canvas.getContext('2d');
     let drawing=false, hasInk=false, mode='draw', pending=null; // pending = {item, resolve}
     function resetCanvas(){ ctx.clearRect(0,0,canvas.width,canvas.height); ctx.lineWidth=2.5; ctx.lineCap='round'; ctx.strokeStyle='#0f172a'; hasInk=false; }
@@ -188,11 +175,15 @@ function agentAmendmentPanel(items){
         scrollTo(it){ const sel = it.kind==='body' ? '[data-change-id="'+it.id+'"]' : '[data-condition-id="'+it.id+'"]'; const el=document.querySelector(sel); if(el){ el.scrollIntoView({behavior:'smooth',block:'center'}); el.classList.add('amend-flash'); setTimeout(()=>el.classList.remove('amend-flash'),1600); } },
         // Accept = place the agent's initial on this change (accept IS the initial — decision i).
         async accept(it){ const ok = await window.AgentCI.capture(it); if(ok){ it.state='accepted'; } },
-        // Reject = revert JUST this change; the others are unaffected.
-        async reject(it){
-            if(!confirm('Reject this change? It is removed from the document. The other changes are unaffected.')) return;
-            const ok = await window.AgentReject(it);
-            if(ok){ it.state='rejected'; }
+        // Edit = open the SHARED amend tool (cc6's selectionEditor, ported onto this page) focused on this
+        // change so the agent can strike / reword it — itself a new initialed mark. This REPLACES "reject":
+        // disagreeing is just editing; nothing is removed. cc6's partial exposes window.CoreXAgentEdit(it);
+        // until it is wired, fall back to scrolling to the change and prompting the agent to highlight it and
+        // use the "✎ Amend" tool. The page reloads after an edit so the new mark + initial row render.
+        edit(it){
+            this.scrollTo(it);
+            if (typeof window.CoreXAgentEdit === 'function') { window.CoreXAgentEdit(it); return; }
+            alert('Highlight the text in the document to change, then click “✎ Amend” to strike or reword it. Your edit becomes a new mark everyone re-initials.');
         },
     };
 }

@@ -3047,6 +3047,7 @@ class SignatureController extends Controller
             return response()->json(['ok' => false, 'error' => 'This document is not in an editable state.'], 422);
         }
 
+        $mode   = $validated['mode'] ?? 'inline';
         $result = app(\App\Services\Docuperfect\SelectionEditService::class)->strikeSelection(
             $template,
             $validated['selected'],
@@ -3054,8 +3055,19 @@ class SignatureController extends Controller
             $validated['suffix'] ?? '',
             $validated['replacement'] ?? '',
             $user,
-            $validated['mode'] ?? 'inline',
+            $mode,
         );
+
+        // SYMMETRIC edit-upon-edit — when the AGENT edits while REVIEWING (chain_review), fold the new mark
+        // into the active cycle so the cascade re-circulates it to every party that owes an initial on it
+        // (reference mode also creates an Other Condition → flag has_condition). No-op outside chain review.
+        if (! empty($result['ok']) && ! empty($result['change_id'])) {
+            $this->signatureService->addEditToActiveCycle(
+                $template,
+                (string) $result['change_id'],
+                $mode === 'reference',
+            );
+        }
 
         return response()->json($result, empty($result['ok']) ? 422 : 200);
     }

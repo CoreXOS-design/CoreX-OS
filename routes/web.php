@@ -3739,10 +3739,13 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     // (two-stage edit-approval gate). Approve = the node placed its initial (initial-change) then
     // advances the chain; reject reverts the change and routes the editor to re-acceptance.
     Route::post('/documents/{document}/signatures/amendment/approve', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'approveAmendmentNode'])->name('docuperfect.signatures.amendment.approve');
-    // AT-373 — PER-ITEM reject (agent curates the recipient's changes one at a time; others proceed).
-    Route::post('/documents/{document}/signatures/amendment/reject-change', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'rejectAmendmentChange'])->name('docuperfect.signatures.amendment.rejectChange');
-    Route::post('/documents/{document}/signatures/amendment/condition/{condition}/reject', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'rejectAmendmentCondition'])->whereNumber('condition')->name('docuperfect.signatures.amendment.rejectCondition');
-    Route::post('/documents/{document}/signatures/amendment/reject', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'rejectAmendmentNode'])->name('docuperfect.signatures.amendment.reject');
+    // SYMMETRIC edit-upon-edit (Johan 2026-08-10) — "reject" is RETIRED as a distinct action/state. A
+    // rejection is now just an EDIT (a strike, optionally with replacement), authored with the shared amend
+    // tool on the review page and routed like any other edit. The three reject endpoints
+    // (rejectAmendmentChange / rejectAmendmentCondition / rejectAmendmentNode) and the editor-reacceptance
+    // status they drove are removed from the surface. `SelectionEditService::revertChange` survives as an
+    // internal helper (audit/undo), no longer reachable as an agent "reject" HTTP action. The external
+    // re-acceptance route stays for any doc already mid-reacceptance; nothing new can enter that state.
 
     // Dashboard polling
     Route::get('/rental/status-check', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'statusCheck'])->name('docuperfect.rental.statusCheck');

@@ -644,35 +644,10 @@
             </div>
         </div>
 
-        {{-- AT-373 — Reject Amendment Modal (reverts the recipient's change; the signer re-accepts) --}}
-        <div x-show="showRejectAmendmentModal" x-cloak
-             class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-             @keydown.escape.window="showRejectAmendmentModal = false">
-            <div class="bg-white rounded-sm shadow-xl p-6 w-full max-w-md mx-4" @click.away="showRejectAmendmentModal = false">
-                <h3 class="text-lg font-semibold text-red-800 mb-2">Reject Amendment</h3>
-                <p class="text-sm text-slate-600 mb-4">
-                    The proposed change will be removed and the document restored to its agreed wording.
-                    The signer who proposed it will be asked to re-accept the document without their change.
-                    Existing signatures are preserved.
-                </p>
-                <form method="POST" action="{{ route('docuperfect.signatures.amendment.reject', $document) }}">
-                    @csrf
-                    <textarea name="reason" rows="4"
-                              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                              placeholder="Optional: reason for rejecting the amendment (shown to the signer)..."></textarea>
-                    <div class="flex justify-end gap-3 mt-4">
-                        <button type="button" @click="showRejectAmendmentModal = false"
-                                class="px-4 py-2 text-sm text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50">
-                            Cancel
-                        </button>
-                        <button type="submit"
-                                class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700">
-                            Reject Amendment
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
+        {{-- SYMMETRIC edit-upon-edit (Johan 2026-08-10): the "Reject Amendment" modal is RETIRED — there is
+             no reject. The agent disagrees by EDITING (strike/reword with the shared amend tool), which is a
+             new initialed mark, never a removal. Amendment approval now lives entirely in the right-rail
+             panel (Accept & Initial / Edit per item + the single "send on" action). --}}
     </div>
     @endunless
 
