@@ -101,8 +101,14 @@ class ProspectingApiController extends Controller
                 continue;
             }
 
-            // Truncate strings to column max lengths — defence in depth
-            $data['address']       = substr($data['address'] ?? '', 0, 255);
+            // Truncate strings to column max lengths — defence in depth.
+            // Address: store a true NULL when the tile has no street address (blank
+            // or the legacy "Address not available" placeholder) so address-less
+            // listings land as NULL. The MIC "with address only" filter treats NULL
+            // and '' the same, but NULL is the honest value. (Column made nullable.)
+            $addrRaw = trim((string) ($data['address'] ?? ''));
+            $data['address']       = ($addrRaw === '' || $addrRaw === 'Address not available')
+                                     ? null : substr($addrRaw, 0, 255);
             $data['suburb']        = substr($data['suburb'] ?? '', 0, 100);
             $data['district']      = substr($data['district'] ?? '', 0, 100);
             $data['property_type'] = substr($data['property_type'] ?? '', 0, 50);
