@@ -177,12 +177,20 @@
         </div>
     </div>
 
-    {{-- Action buttons — View Property + Hide/Unhide ONLY. --}}
+    {{-- Action buttons — View Property + Share (public listing link) + Hide/Unhide. --}}
     <div class="flex flex-col gap-2 justify-center px-4 py-4 flex-shrink-0 w-full md:w-auto" style="border-left: 1px solid var(--border);">
         <a href="{{ route('corex.properties.show', $property) }}" target="_blank" rel="noopener noreferrer" class="corex-btn-outline">
             <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
             View Property
         </a>
+
+        {{-- Reuses the property page's OWN share mechanism verbatim (copy link /
+             WhatsApp / email, Property::public_url) — no new URL scheme, no new
+             share logic. Self-gated inside the partial by the properties.share
+             permission + a shareable status, so it silently renders nothing for
+             an agent without that permission or a non-shareable listing, exactly
+             like the property page itself. --}}
+        @include('corex.properties.partials.share-actions', ['property' => $property])
 
         <form method="POST" action="{{ route('corex.contacts.matches.toggleHide', [$contact, $match, $property]) }}" x-ref="hideForm">
             @csrf
