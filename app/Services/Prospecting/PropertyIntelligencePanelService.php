@@ -31,6 +31,7 @@ final class PropertyIntelligencePanelService
 {
     public function __construct(
         private readonly BuyerMatchTierService $tierService,
+        private readonly OnMarketStockService $onMarketStock,
     ) {}
 
     public function load(ProspectingListing $listing, int $agencyId, ?User $viewer): array
@@ -38,7 +39,7 @@ final class PropertyIntelligencePanelService
         $viewerId = $viewer?->id !== null ? (int) $viewer->id : null;
 
         // Header — derived purely from the listing row + small joins.
-        $header = $this->buildHeader($listing);
+        $header = $this->buildHeader($listing, $agencyId);
 
         // Buyers (used in Overview top-5 AND Buyers tab full list).
         $allBuyers = $this->tierService->buyersForListing((int) $listing->id, $agencyId, 1000);
@@ -114,11 +115,23 @@ final class PropertyIntelligencePanelService
         ];
     }
 
-    protected function buildHeader(ProspectingListing $listing): array
+    protected function buildHeader(ProspectingListing $listing, int $agencyId): array
     {
         $primaryPhoto = $listing->thumbnail_path
             ? route('market-intelligence.thumbnail', $listing)
             : null;
+
+        // 2026-08-11 fix — was `$listing->matched_property_id !== null`: the
+        // OLD fuzzy address matcher's link, completely ungated on the linked
+        // property's market status. A listing could be flagged "IN STOCK" and
+        // link straight to a property withdrawn/off-market for years (46
+        // Taylor Road → 46 Marine Drive, an off-market rental withdrawn ~3
+        // years, confirmed live). companyStockMap on the Work-tab list was
+        // already correctly gated via OnMarketStockService; this panel was
+        // the one surface never migrated. Same canonical ref/normalized-
+        // address identity, on-market only — a listing matching an off-market
+        // property now correctly shows NOT in stock.
+        $companyStockId = $this->onMarketStock->stockMapForListings([$listing], $agencyId)[(int) $listing->id] ?? null;
 
         return [
             'photo_url'    => $primaryPhoto,
@@ -132,8 +145,8 @@ final class PropertyIntelligencePanelService
             'portal_ref'   => $listing->portal_ref,
             'portal_url'   => $listing->portal_url,
             'price'        => $listing->price,
-            'in_stock'     => $listing->matched_property_id !== null,
-            'matched_property_id' => $listing->matched_property_id,
+            'in_stock'     => $companyStockId !== null,
+            'matched_property_id' => $companyStockId,
             'tracked_property_id' => $listing->tracked_property_id,
             'is_active'    => $listing->is_active,
             'first_seen_at'=> $listing->first_seen_at,

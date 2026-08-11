@@ -476,6 +476,49 @@ class MatchingService
             }
         }
 
+        // Suburb hard gate (Johan's ruling, 2026-08-11 — Caroline King matched
+        // 100% on a Ramsgate property against her Southbroom wishlist). Reuses
+        // suburbCompatible() — AT-289's existing single source of truth for the
+        // suburb rule, already a hard gate in canonicalBestAcross() and the
+        // demand-claim count — so score() itself is authoritative for every
+        // caller, not just the ones that remember to pre-gate suburb before
+        // calling in. Open wishlist (no suburbs specified) still matches
+        // anywhere — unchanged, never a false-negative exclusion.
+        if (!$this->suburbCompatible($property, $match)) {
+            return 0;
+        }
+
+        // Bedrooms hard gate (Johan's ruling — Vian Lourens's 4-bed-minimum
+        // wishlist matched 95% on a 3-bed property). Only gates when the
+        // PROPERTY actually reports a bed count: 0/null beds means the
+        // listing's data is incomplete, not a mismatch — the same
+        // "incomplete listings shouldn't be penalised" rule used throughout
+        // this method, never a false-negative exclusion on missing data.
+        if ($match->beds_min && (int) $property->beds > 0 && (int) $property->beds < (int) $match->beds_min) {
+            return 0;
+        }
+
+        // Price hard gate (Johan's ruling — Lucille Maxwell's R951,501 ceiling
+        // matched 88-91% on a property ~R130k over budget). Gate boundary is
+        // the SAME tolerance-widened band priceFitRatio() below decays from
+        // (the agency-configurable $priceBandPct — Johan's price-band-width
+        // setting), so a listing just outside the stated range but still
+        // inside the tolerated band keeps matching exactly as before; only a
+        // property genuinely outside the band now excludes instead of merely
+        // losing points. Only gates when the PROPERTY reports a price: 0/null
+        // price is incomplete data, not a mismatch.
+        if (($match->price_min || $match->price_max) && (int) $property->price > 0) {
+            $price   = (int) $property->price;
+            $bandPct = max(0.0, $priceBandPct);
+            $min     = (int) ($match->price_min ?: 0);
+            $max     = (int) ($match->price_max ?: 0);
+            $minFull = $min ? (int) floor($min * (1 - $bandPct)) : 0;
+            $maxFull = $max ? (int) ceil($max * (1 + $bandPct)) : 0;
+            if (($minFull && $price < $minFull) || ($maxFull && $price > $maxFull)) {
+                return 0;
+            }
+        }
+
         $mustHaves = $match->must_have_features ?? [];
         if (!empty($mustHaves)) {
             // A must-have is a HARD gate — but only against a listing that
@@ -544,11 +587,23 @@ class MatchingService
 
         if (empty($components)) {
             // AT-71 — belt-and-braces against the empty-wishlist inflation bug.
-            // No scorable component means either (a) the wishlist is uncountable
-            // (no criteria at all) → must NOT inflate to a full match → 0; or
-            // (b) it specified ONLY must-have features, which were already
-            // verified above → a genuine full match → 100.
-            return $match->isCountable() ? 100 : 0;
+            // 2026-08-11 fix: was `$match->isCountable() ? 100 : 0`, but
+            // isCountable() only requires ONE criteria group present anywhere
+            // on the wishlist — a wishlist with ONLY a property_type selected
+            // (already gated above, separately, and not itself a $components
+            // entry) and nothing else satisfied it, so a near-blank wishlist
+            // scored a flat 100. Via canonicalBestAcross()'s best-across-all-
+            // wishlists selection, that blank wishlist could then outrank a
+            // buyer's real, fully-specified one and surface a wrong-suburb
+            // property at 100% (confirmed: Caroline King's Southbroom+budget
+            // wishlists correctly scored low against a Ramsgate listing, but
+            // a separate blank wishlist of hers — no suburb, no price, no
+            // beds — won the "best" comparison at 100 every time). No
+            // scorable component now means either (a) it specified ONLY
+            // must-have features, which were already verified above → a
+            // genuine full match → 100; or (b) it specified nothing scorable
+            // at all → no real signal → 0, never inflated.
+            return !empty($mustHaves) ? 100 : 0;
         }
 
         $totalWeight = 0;
