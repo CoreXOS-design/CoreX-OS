@@ -115,6 +115,20 @@
     letter-spacing: normal;
     font-size: 0.6875rem;
 }
+
+/* Selected-files list */
+#pdf-splitter-root .file-list {
+    list-style: none;
+    margin: 8px 0 0 0;
+    padding: 0;
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+#pdf-splitter-root .file-list li {
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+}
+#pdf-splitter-root .file-list li:last-child { border-bottom: none; }
 </style>
 
 <div class="space-y-5">
@@ -177,37 +191,37 @@
             </div>
         @endif
 
-        {{-- AT-105 — post-"Link to CoreX" state: the agent has FINISHED this pack,
-             so the upload form is hidden and a Finish panel closes the loop. The
+        {{-- AT-105 — post-"Link" state: the agent has FINISHED this batch, so
+             the upload form is hidden and a Finish panel closes the loop. The
              ZIP-download path does NOT set splitter_linked, so it keeps the
              uploader visible. --}}
         @if(session('splitter_linked'))
         <div class="upload-card">
-            <h3>All done with this pack</h3>
-            <p class="subtitle">The documents above have been filed{{ session('splitter_fica_results') ? ' and the FICA verification(s) opened' : '' }}. You can return to the property or split another pack.</p>
+            <h3>All done with this batch</h3>
+            <p class="subtitle">The documents above have been filed{{ session('splitter_fica_results') ? ' and the FICA verification(s) opened' : '' }}. You can return to the property or split another batch.</p>
             <div class="flex flex-wrap items-center gap-3" style="margin-top:8px;">
                 @if(session('splitter_property_url'))
                     <a href="{{ session('splitter_property_url') }}" class="corex-btn-primary text-sm">
                         Finish &mdash; back to {{ session('splitter_property_label') ?: 'the property' }}
                     </a>
                 @endif
-                <a href="{{ route('tools.pdf_splitter.index') }}" class="corex-btn-outline text-sm">Split another pack</a>
+                <a href="{{ route('tools.pdf_splitter.index') }}" class="corex-btn-outline text-sm">Split another batch</a>
             </div>
         </div>
         @else
         <div class="upload-card">
-            <h3>Upload PDF</h3>
-            <p class="subtitle">OCR runs automatically &mdash; you'll review and correct labels before the ZIP is generated.</p>
+            <h3>Upload PDF <span style="font-weight:400;">(s)</span></h3>
+            <p class="subtitle">OCR runs automatically &mdash; you'll review and correct labels for every file on one screen before anything is generated or filed.</p>
 
             <form id="pdf-upload-form"
                   method="POST"
                   action="{{ route('tools.pdf_splitter.run') }}"
                   enctype="multipart/form-data"
-                  x-data="{ hasFile: false }">
+                  x-data="{ files: [] }">
                 @csrf
 
                 <div class="field" data-tour="splitter-base-name">
-                    <label for="base_name">Base Name</label>
+                    <label for="base_name">Base Name <span class="label-hint">(optional &mdash; defaults to each file's own name; becomes a shared prefix when uploading several)</span></label>
                     <input type="text"
                            id="base_name"
                            name="base_name"
@@ -220,20 +234,32 @@
                 </div>
 
                 <div class="field" data-tour="splitter-file">
-                    <label for="pdf">PDF File <span class="label-hint">(max 50 MB)</span></label>
+                    <label for="pdf">PDF File(s) <span class="label-hint">(max 50 MB each, up to 20 at once)</span></label>
                     <input type="file"
                            id="pdf"
-                           name="pdf"
+                           name="pdf[]"
                            accept="application/pdf"
-                           @change="hasFile = $event.target.files.length > 0">
+                           multiple
+                           @change="files = Array.from($event.target.files)">
                     @error('pdf')
                         <div class="field-error">{{ $message }}</div>
                     @enderror
+                    @error('pdf.*')
+                        <div class="field-error">{{ $message }}</div>
+                    @enderror
+
+                    <ul class="file-list" x-show="files.length > 0" x-cloak>
+                        <template x-for="(f, i) in files" :key="i">
+                            <li x-text="f.name"></li>
+                        </template>
+                    </ul>
                 </div>
 
-                <button type="submit" :disabled="!hasFile" data-tour="splitter-upload-btn"
-                        :class="hasFile ? 'corex-btn-primary' : 'opacity-50 cursor-not-allowed corex-btn-primary'"
-                        class="text-sm w-full">Upload &amp; Split</button>
+                <button type="submit" :disabled="files.length === 0" data-tour="splitter-upload-btn"
+                        :class="files.length > 0 ? 'corex-btn-primary' : 'opacity-50 cursor-not-allowed corex-btn-primary'"
+                        class="text-sm w-full">
+                    <span x-text="files.length > 1 ? ('Upload & Split ' + files.length + ' files') : 'Upload & Split'"></span>
+                </button>
             </form>
         </div>
         @endif

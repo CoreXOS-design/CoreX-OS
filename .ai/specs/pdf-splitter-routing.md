@@ -287,3 +287,353 @@ touching page 3 leaves page 4's buyer intact.
 - EDIT `resources/views/admin/splitter/doc-types.blade.php`
 - EDIT `resources/views/tools/pdf_splitter_review.blade.php`
 - EDIT `resources/views/tools/pdf_splitter.blade.php`
+
+---
+
+# AT-278-follow — Multi-file upload (2026-08-11, reworked same day after live QA)
+
+## Business requirement
+
+The Splitter accepted exactly one PDF per upload. An agent splitting several
+packs back-to-back (e.g. a batch of signed OTPs handed over at once) had to
+re-visit `/tools/pdf-splitter` and re-upload for every single file. This
+extends the upload to accept multiple PDFs at once.
+
+**Design history (both iterations shipped the same day, first was replaced
+after live QA on `qatesting2`):**
+
+1. **First cut — queue, one file reviewed at a time.** Each uploaded PDF got
+   its own manifest, but only the first was OCR'd immediately; the rest sat
+   queued and the agent stepped through them one screen at a time via a
+   "Continue to next file" button. Rationale at the time: reuse the
+   single-file review/confirm/link pipeline verbatim, bound each request to
+   one file's OCR cost.
+2. **Final — one stacked review screen, one combined action.** Live QA
+   feedback: "it should show all pdfs underneath each other... with clear
+   [dividers]... names of the pdfs", and confirmed explicitly that Download
+   ZIP / Link should be **one combined action for the whole batch, all
+   against the same property** — not per-file actions. Every file in the
+   batch is still split and OCR'd into its own manifest (so page provenance,
+   qpdf extraction, and per-page labels/contacts stay file-scoped — this was
+   NEVER a request to literally merge pages from different PDFs), but the
+   review screen renders every file's table on ONE page, one property/deal/
+   FICA-toggle picker for the whole batch, and ONE "Download ZIP" / "Link"
+   submission that acts on every file at once. The queue/"Continue" UI is
+   gone entirely — there is no "one file at a time" state anymore.
+
+## Pillars
+
+No pillar change. Same targets as the existing splitter (Property, Contact,
+Compliance via FICA) — this only changes how many source PDFs one visit to
+the tool can carry through that pipeline, and how many at once land on the
+review screen / in a single Download ZIP or Link submission.
+
+## Design
+
+**Upload (`run()`)** accepts `pdf[]` (array, 1–20 files, `mimes:pdf|max:51200`
+each). `base_name` is optional: blank → each file's own filename (slugified)
+becomes its base; supplied → used as a shared prefix (`{base_name}_1`,
+`{base_name}_2`, …) when more than one file is posted. Every file's storage
+base is additionally namespaced with the uploader's user ID (`_u{userId}`) so
+two different agents uploading identically-named files (a blank Base Name on
+a file their scanner both happened to call `OTP.pdf`) in the same second can
+never collide onto the same storage path/manifest ID and cross-file each
+other's documents.
+
+Every file is OCR'd in `run()`, in upload order, into its own
+`buildManifestForFile()` manifest — `set_time_limit(300)` is called inside
+that method, which RESETS PHP's execution timer on every call, so each file
+gets its own fresh window rather than the whole batch sharing one countdown.
+A file that fails (corrupt / 0 pages / empty upload) is skipped (recorded in
+`splitter_skipped`, rendered as a banner) rather than aborting the rest of
+the batch; if every file fails, `run()` redirects back to the upload page
+with an error naming them. Session holds `splitter_batch` — the ordered list
+of manifest IDs for the batch — and `splitter_skipped`.
+
+**Review (`review()`)** loads every manifest in `splitter_batch` and renders
+them ALL on one page (`loadBatchManifests()`), each in its own clearly
+divided section headed by the original filename + page count. ONE property
+picker, ONE optional deal picker, ONE FICA toggle apply to the whole batch.
+A "Bulk (all files)" doc-type toolbar (Set ALL pages / Reset to
+auto-detected) also spans every file. The Alpine component holds `files: [{
+manifestId, base, originalName, pCount, pages: [...] }]` instead of a flat
+`pages` array; `forwardFill()` (the per-type "next page inherits the last
+tick" convenience) is scoped to `file.pages`, so one file's contact ticks
+never bleed into the next file's same-labelled pages — the batch is reviewed
+together but each file's page sequence stays independent.
+
+**Download ZIP / Link (`confirm()`/`link()`)** iterate every manifest in the
+batch. `confirm()` extracts each file's labelled ranges from ITS OWN source
+PDF (qpdf only ever operates on one source file at a time) and drops all the
+resulting output PDFs into ONE shared ZIP — filenames stay collision-free
+because each file's storage base is already unique. `link()` builds groups
+PER FILE (same reason — one extraction call per source PDF) then flattens
+every file's groups into one list before the single
+`fileGroupsToDestinations()` / `kickoffMultiFica()` pass — so a contact who
+appears in two different uploaded packs still gets ONE wet-ink verification
+covering pages from both, and every group files against the ONE property
+picked for the batch. Two files that coincidentally produce the same
+(label, contact-set) are never pdfunite'd together — they stay two distinct
+filed Documents, so a page from file A can never physically merge into a
+page from file B.
+
+**Batch-binding defense.** The review form posts `manifest_ids[]` (the exact
+set the page was rendered for) alongside the nested `labels[manifestId][page]`
+/ `contacts[manifestId][page][]` fields. `confirm()`/`link()` call
+`rejectIfStaleBatch()` first — if a NEW upload replaced the session's batch
+in another tab since this page loaded, the stale tab's submission is rejected
+(redirect to `review()` with an error) instead of silently applying its
+labels/contacts to whatever batch is now active. `serveThumb()` takes an
+explicit `?manifest=` (there is no single "current" manifest anymore — a
+batch has several open on the same page) and checks it against
+`session('splitter_batch')` membership, not just a shape regex, so a
+thumbnail can never be pulled from a manifest outside the agent's own batch.
+`manifest_ids` is optional server-side (omitted ⇒ no check), so the existing
+`PdfSplitterDestinationRoutingTest` real-HTTP tests — updated to
+`session(['splitter_batch' => [$id]])` + nested `labels[$id]`/`contacts[$id]`
+— still work without posting it.
+
+**"Link"** — renamed from "Link to CoreX" per live QA feedback; the 🔗 emoji
+was dropped too. "Download ZIP" is unchanged.
+
+## Robustness (input space)
+
+- 1 file uploaded → `splitter_batch` has one entry; review shows one section,
+  Download ZIP/Link behave the same as the original single-file flow.
+- Two files with the same/blank original name in one batch → base-name
+  collision resolved with a numeric suffix (`_2`, `_3`, …) before OCR runs.
+- Two different agents' concurrent uploads with the same blank-name file →
+  resolved by the `_u{userId}` storage namespace, not just intra-batch dedup.
+- A file that fails OCR — first in the batch or last — is skipped; the rest
+  of the batch still lands on the review screen. If EVERY file fails, the
+  agent stays on the upload page with a clear error (nothing to review).
+- A stale review tab (a new upload replaced the batch elsewhere) submitting
+  Download ZIP/Link, or lazy-loading a thumbnail for a manifest outside the
+  current batch → rejected server-side, never silently applied/rendered.
+- Contacts ticked on one file's pages never forward-fill onto another file's
+  pages (`forwardFill()` is scoped per `file.pages`, not the whole batch).
+- No new scheduled cleanup was added for `private/splitter/*` — matches
+  existing behaviour (originals/outputs were never swept before either).
+
+**Fixed after a second audit pass (2026-08-11, same day):**
+
+- **Cross-tenant ZIP collision (real regression, now fixed).** The combined
+  batch ZIP's path was originally keyed only by the shared per-second
+  timestamp (`batch_{ts}__split_pack.zip`) with no per-user component, unlike
+  every other storage path in this file. Two different agents finishing a
+  split within the same wall-clock second could overwrite each other's ZIP —
+  `downloadLastZip()` performs no ownership check, so one agent's browser
+  could download another's FICA/ID/proof-of-residence documents. Fixed by a
+  random per-REQUEST token (`$batchToken`, 6 chars) folded into every file's
+  storage `base` in `run()` (on top of the existing `_u{userId}` namespace),
+  and the ZIP path now keys off `$manifests[0]['base']` instead of the bare
+  timestamp — closing both this leak and a same-user double-submit race
+  (double-click / browser retry landing on identical paths) in one fix.
+- **Silent partial-batch processing (real gap, now fixed).** If a manifest's
+  `manifest.json` went missing between upload and confirm/link (a long review
+  session, a tmp-cleanup, a deploy), `loadBatchManifests()` used to silently
+  drop it and proceed with the surviving subset — the agent would see a
+  normal "Documents linked" / "ZIP generated" success banner with no
+  indication a file (and any FICA pages on it) was never processed. Fixed:
+  `loadBatchManifests()` now reports which IDs failed to load;
+  `confirm()`/`link()` refuse to run at all (`loadCompleteBatchOrFail()`)
+  unless every manifest in the batch loaded, and `review()` shows a blocking
+  banner naming the count so the agent sees it before attempting either
+  action.
+- **Deactivated doc-type silently drops a page (edge case, now fixed).** If
+  an admin deactivated a `SplitterDocType` while an unrelated batch sat in
+  review, a page still carrying that now-inactive auto-label as its
+  untouched-by-the-agent label would vanish from the ZIP with zero error
+  (confirm()'s output loop only iterates currently-active slugs).
+  `resolveFinalLabels()` now falls back such a page to `other` so it still
+  lands somewhere visible instead of disappearing.
+- **FICA double-kickoff on a double-click (partial mitigation).** The FICA
+  dedupe check (`existingActiveFica()`) runs as an unlocked SELECT before the
+  submission-creating transaction — a genuine race pre-dating this rework,
+  not introduced by it, and not fully closed here (would need a DB-level
+  lock/unique constraint in `FicaWetInkService`, shared by other callers,
+  out of scope for a same-day fix). Mitigated at the UI layer: the review
+  form's Link/Download ZIP buttons disable themselves on submit
+  (`submitting` Alpine state), closing the common trigger (an impatient
+  double-click) without touching the shared service.
+- **Flagged, not fixed — pre-existing, out of scope.** `searchProperties()`
+  and `propertyContacts()` are JSON endpoints under `/tools/pdf-splitter/
+  properties/*` instead of `/api/v1/*`, so they're invisible to the Admin →
+  API catalog — a violation of CLAUDE.md non-negotiable #7. These predate
+  this batch rework (part of the original AT-105 build) and the pattern
+  likely repeats across the PDF Suite's sibling tools; moving them is a
+  separate, deliberately-scoped piece of work, not bundled into this fix.
+
+**Known limitation, accepted (not silently patched over) — batch OCR time.**
+`run()` now OCRs every file in the batch, sequentially, inside ONE HTTP
+request before any of it reaches session; `set_time_limit(300)` resets PHP's
+own timer per file, but the front-end web server's own request timeout is a
+separate ceiling PHP cannot override, and nothing is persisted until the
+whole loop finishes — a batch that runs long enough to hit that ceiling
+loses the request (and every already-OCR'd file in it) with no partial save.
+This is the direct cost of the "one page, one combined action" redesign
+(explicitly chosen over the queue/JIT-OCR design, which bounded each request
+to one file's cost but was confusing in practice). Acceptable for the batch
+sizes this feature is actually used for (a handful of packs); the 20-file cap
+in `run()`'s validation is a blunt backstop, not a real guarantee against a
+large/slow batch. Flagged to Johan rather than re-architected unilaterally —
+if large batches become routine, the fix is incremental/resumable OCR, not a
+bigger request timeout.
+
+**Fixed after a fourth audit pass (2026-08-11, same day) — multi-tenancy
+lens.** First pass to specifically trace agency/authorization boundaries
+rather than batch-combination logic. Found no exploitable cross-agency IDOR
+(`Property::query()->visibleTo($request->user())` is used at every
+property-resolution point; session-derived manifest paths are always checked
+against the current session's own batch), but did find one real access-scope
+defect and several data-integrity gaps in the batch rework:
+
+- **ContactScope wrongly hides legitimately-attached contacts (real bug,
+  now fixed).** `propertyContacts()` and `link()`'s `$attached` resolution
+  both read `$property->contacts()` under the default `ContactScope`
+  ('own'/'branch' role-based visibility) on top of `AgencyScope`. A contact
+  properly attached to the property but captured by a *different* agent or
+  branch was invisible to the splitter — the contact picker wouldn't show
+  them, `$attached->has($cid)` would reject their ticked pages, and AT-167
+  would block the whole Link with "assign a contact" for a page that
+  genuinely had one. `PropertyContactController::search()` already patched
+  around this exact defect on the identical relation, with the comment
+  *"otherwise ... contacts captured by others [wrongly] come back empty"* —
+  the splitter never adopted that fix. Both usages now
+  `->withoutGlobalScope(ContactScope::class)`, matching the established
+  pattern (AgencyScope + SoftDeletes still apply — only the role-based
+  visibility filter is bypassed).
+- **An uncaught OCR-pipeline exception could abort an entire batch (real
+  bug, now fixed).** `buildManifestForFile()`'s already-caught "0 pages"
+  case only covers a clean qpdf failure; a genuinely corrupt *page* inside
+  an otherwise-fine PDF can make `pdftoppm` throw a `RuntimeException`
+  mid-classification. Uncaught, that would 500 the whole `run()` request —
+  losing every already-OCR'd file in the loop, since nothing reaches session
+  until the loop finishes. Now wrapped in try/catch, logged, and treated
+  exactly like the null-return skip path.
+- **Stale-batch check misfired on a missing manifest, trapping the agent in
+  an unrecoverable reload loop (real bug, now fixed).** `rejectIfStaleBatch()`
+  compared the posted `manifest_ids[]` (built only from the manifests that
+  actually LOADED) against the full, unpruned session batch using exact
+  array equality — so the "one file went missing mid-review" case (which
+  `loadCompleteBatchOrFail()` is supposed to catch with an accurate message)
+  was instead misdiagnosed as "you started a new upload in another tab,"
+  and reloading never fixed it since the same manifest stayed missing. Now a
+  subset check (every posted ID must be IN the session batch; the session
+  batch is allowed to have more) — the genuine "batch replaced elsewhere"
+  case is still caught, the "batch shrank because a file expired" case now
+  falls through to the correct message.
+- **Missing-manifest banner said the actions were "blocked" but didn't
+  actually disable them (real bug, now fixed).** The warning banner added
+  in the previous audit pass claimed "Download ZIP and Link are blocked,"
+  but the buttons' `:disabled` bindings never checked the missing-file
+  count — only `submitting`/`!property`. Added `hasMissing` to the Alpine
+  state, wired into both buttons.
+- **`@copy()`/`ZipArchive::addFile()` failures were silently ignored (real
+  gap, now fixed).** A failed single-part copy (disk pressure, permissions)
+  or a failed ZIP add would still let `confirm()` report "ZIP generated"
+  success with a document quietly absent from the archive. Now both are
+  checked: a missing/empty extracted output is logged and skipped before it
+  reaches the ZIP list; any `addFile()` failure aborts the whole ZIP with an
+  explicit error rather than shipping a silently-incomplete archive.
+- **0-byte extracted file masked as `size: null` instead of `0` (minor,
+  now fixed).** `@filesize($abs) ?: null` collapsed a genuinely empty/
+  truncated output the same way as a real stat() failure, hiding a corrupt
+  filed document behind "size unknown." Now only an actual `false` return
+  becomes `null`.
+- **`bulkType` hardcoded to `'other'` regardless of the dropdown's actual
+  first option (minor, now fixed).** If `'other'` were ever deactivated for
+  an agency, the Bulk dropdown would visually show a different first option
+  while the underlying Alpine state silently stayed `'other'` — "Set ALL
+  pages" would then mislabel everything to an option the dropdown never
+  offered. Now seeded from the doc-type list's own first entry.
+- **Flagged, not fixed — qpdf error string never logged.** Added
+  (`Log::warning` in `buildManifestForFile()` and the wrapped-exception
+  path) so production support can distinguish "this one file is corrupt"
+  from "qpdf is misconfigured for every upload" without reproducing
+  manually.
+- **Flagged, not fixed — deeper architectural items.** (1) No transaction/
+  idempotency wrapping around `fileGroupsToDestinations()`'s per-group
+  filing loop — a mid-batch failure leaves a partial commit, and a natural
+  agent retry re-files the already-committed groups as duplicates. Fixing
+  this touches `DealDocumentService::fileClassifiedDocument`'s transaction
+  contract, shared by DR2/e-sign callers — out of scope for a same-day
+  splitter-only pass. (2) The FICA dedupe race (`existingActiveFica()` is
+  an unlocked SELECT before the submission-creating transaction) is
+  unchanged from the previous audit's assessment — the client-side
+  submit-disable mitigates the common trigger (a double-click) but the
+  underlying race needs a DB-level lock/unique constraint in
+  `FicaWetInkService`, shared by other callers. (3) `destinationForSlug()`
+  is called per-group (not batched via the service's own
+  `destinationMapFor()`) in both the AT-167 pre-flight check and
+  `fileGroupsToDestinations()` — a real N+1 that scales with batch size (a
+  40-group batch issues on the order of 160 queries for destination
+  resolution alone), but fixing it touches the core filing-destination
+  logic twice; deferred rather than risk a subtle behavioural change to
+  compliance filing this late in the pass. (4) `resolveFinalLabels()`'s
+  `'other'` fallback (added to stop a deactivated-doc-type page from
+  vanishing) only works if `'other'` itself stays active — an admin
+  deactivating the universal catch-all is an extreme, self-inflicted edge
+  case not further hardened against. (5) `pdf.*` MIME validation is a hard
+  whole-request 422 before the loop, inconsistent with every other
+  per-file failure (empty/corrupt PDF) being a soft in-loop skip — a UX
+  papercut (one bad file forces re-selecting the whole batch), not a
+  correctness bug.
+
+## Permissions
+
+Unchanged: `access_pdf_splitter`, already required on every splitter route
+(`index`, `run`, `review`, `confirm`, `link`, `thumb`, `download`,
+`properties.search`, `properties.contacts`). The multi-file batch introduces
+no new permission surface — FICA kickoff stays gated on `access_compliance`,
+the deal picker on `access_deal_register_v2`, exactly as before.
+
+## Acceptance criteria
+
+- Uploading 2+ PDFs lands on ONE review screen showing every file, each in
+  its own divided section (filename + page count), not a queue/one-at-a-time
+  flow.
+- One property/deal/FICA-toggle selection applies to the whole batch.
+- Download ZIP produces ONE archive containing every file's split output,
+  correctly labelled per file, with no filename collisions.
+- Link files every page from every file against the ONE selected property;
+  a contact assigned FICA-relevant pages in more than one file gets exactly
+  ONE wet-ink verification carrying slots from every file it appears in
+  (proven by `test_real_link_submit_two_file_batch_combines_into_one_property_and_one_fica_per_contact`).
+  qpdf-extracted pages never physically merge across two different source
+  PDFs, even when they share a label and contact set — each keeps the
+  destination it inherits from its own type's default.
+- A file that fails to OCR is skipped, named in a banner, and never silently
+  drops the rest of the batch.
+- A stale browser tab (batch replaced by a newer upload elsewhere) is
+  rejected server-side on submit, not silently misfiled.
+- "Link" button text has no emoji; "Download ZIP" unchanged.
+- php -l clean; both Blade views render with 1-file and multi-file fixtures
+  (verified via Tinker — the local test DB could not be bootstrapped in this
+  environment, see the session's manual QA/audit notes).
+
+## Files
+
+- EDIT `app/Http/Controllers/Tools/PdfSplitterController.php` — `run()`
+  OCRs every file inline (no queue deferral); `buildManifestForFile()`
+  (renamed from the queue-era `buildManifestForQueueItem()`); new
+  `loadBatchManifests()`, `rejectIfStaleBatch()`; `index()` back to trivial;
+  `review()` loads/renders every manifest in the batch; `serveThumb()`
+  requires `?manifest=` and checks batch membership; `confirm()`/`link()`
+  rewritten to loop every manifest, combine into one ZIP / one filing+FICA
+  pass. Removed: `continueQueue()`, `cancelQueue()`, `popNextQueuedManifest()`,
+  `rejectIfStaleManifest()` (single-manifest version) — the queue no longer
+  exists. `resolveFinalLabels()` now takes a plain posted-array slice instead
+  of the whole `Request` (called once per manifest).
+- EDIT `routes/web.php` — removed `tools.pdf_splitter.continue_queue` /
+  `tools.pdf_splitter.cancel_queue` (queue-era only).
+- EDIT `resources/views/tools/pdf_splitter.blade.php` — multi-file input,
+  optional base name, skipped-files banner; queue/"continue batch" panel
+  removed entirely (`index()` no longer needs queue state).
+- EDIT `resources/views/tools/pdf_splitter_review.blade.php` — rebuilt for
+  the stacked multi-file layout: per-file divider + table sections, shared
+  property/deal/FICA panel, nested hidden inputs, `files[]`-based Alpine
+  state, "Link" button (renamed, no emoji).
+- EDIT `tests/Feature/Tools/PdfSplitterDestinationRoutingTest.php` — the 3
+  real-HTTP `link()` tests updated to `session(['splitter_batch' => [$id]])`
+  and nested `labels[$id][page]` / `contacts[$id][page][]`.
