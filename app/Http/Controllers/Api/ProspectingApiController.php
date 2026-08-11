@@ -11,6 +11,7 @@ use App\Models\ProspectingPriceHistory;
 use App\Models\ProspectingSearch;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -45,6 +46,10 @@ class ProspectingApiController extends Controller
             // extension reads it off the P24 listing page itself (see report);
             // absent for every capture until that extension change ships.
             'listings.*.mandate_type'      => 'nullable|string|in:sole,exclusive,open,joint',
+            // MIC SOLD / OFF-MARKET — portal lifecycle status read off the P24 card.
+            // Absent for every capture until the extension status change ships; when
+            // absent the listing keeps the existing is_active=true behaviour.
+            'listings.*.portal_status'     => 'nullable|string|in:active,under_offer,sold,withdrawn',
         ]);
 
         // AT-253 (STANDARDS Rule 17) — prospecting_searches.agency_id is NOT NULL and this is a
@@ -96,6 +101,11 @@ class ProspectingApiController extends Controller
         // "needs GPS" happens inside the job to keep this hot path query-free.
         $touchedTrackedPropertyIds = [];
 
+        // MIC SOLD / OFF-MARKET — existing listings flipped off-market this batch,
+        // so we can purge their now-stale cached buyer-match scores in ONE query at
+        // the end (same purge the FlagStaleProspectingListings sweep applies).
+        $offMarketListingIds = [];
+
         foreach ($validated['listings'] as $data) {
             if (empty($data['portal_ref'])) {
                 \Log::debug('Skipped listing with no portal_ref', ['data' => $data]);
@@ -120,6 +130,14 @@ class ProspectingApiController extends Controller
             $data['agent_name']    = substr($data['agent_name'] ?? '', 0, 100);
             $data['agency_name']   = substr($data['agency_name'] ?? '', 0, 100);
 
+            // MIC SOLD / OFF-MARKET — normalise the portal lifecycle status.
+            // NULL when the extension didn't send one (old build) → legacy behaviour
+            // (is_active stays true). under_offer/sold/withdrawn take it off-market.
+            $portalStatus = in_array($data['portal_status'] ?? null, ProspectingListing::PORTAL_STATUSES, true)
+                ? $data['portal_status']
+                : null;
+            $isOffMarket = in_array($portalStatus, ProspectingListing::OFF_MARKET_STATUSES, true);
+
             $existing = ProspectingListing::where('agency_id', $agencyId)
                 ->where('portal_source', $portalSource)
                 ->where('portal_ref', $data['portal_ref'])
@@ -127,7 +145,29 @@ class ProspectingApiController extends Controller
 
             if ($existing) {
                 $existing->last_seen_at = $now;
-                $existing->is_active = true;
+
+                // MIC SOLD / OFF-MARKET — drive is_active off the portal status when the
+                // extension reports one. Off-market (sold/under-offer/withdrawn) drops it
+                // from the pool + stamps off_market_at once; a later capture showing it
+                // active again revives it. No status (old extension) = legacy: stay active.
+                if ($portalStatus !== null) {
+                    if ($existing->portal_status !== $portalStatus) {
+                        $existing->portal_status = $portalStatus;
+                        $existing->portal_status_changed_at = $now;
+                    }
+                    if ($isOffMarket) {
+                        $existing->is_active = false;
+                        if ($existing->off_market_at === null) {
+                            $existing->off_market_at = $now;
+                        }
+                        $offMarketListingIds[$existing->id] = true;
+                    } else {
+                        $existing->is_active = true;
+                        $existing->off_market_at = null;
+                    }
+                } else {
+                    $existing->is_active = true;
+                }
 
                 $newPrice = $data['price'] !== null ? (int) $data['price'] : null;
                 $oldPrice = (int) $existing->price;
@@ -213,7 +253,13 @@ class ProspectingApiController extends Controller
                     'mandate_type'        => $data['mandate_type'] ?? null,
                     'first_seen_at'       => $now,
                     'last_seen_at'        => $now,
-                    'is_active'           => true,
+                    // MIC SOLD / OFF-MARKET — a listing first seen already off-market
+                    // (badged sold/under-offer) never enters the pool. No cache to purge
+                    // on a brand-new row. NULL status = legacy active.
+                    'is_active'           => ! $isOffMarket,
+                    'portal_status'       => $portalStatus,
+                    'portal_status_changed_at' => $portalStatus !== null ? $now : null,
+                    'off_market_at'       => $isOffMarket ? $now : null,
                 ]);
 
                 $this->assignPropertyGroup($listing, $agencyId);
@@ -248,6 +294,24 @@ class ProspectingApiController extends Controller
         $search->update([
             'listing_count' => $search->listing_count + $imported + $updated,
         ]);
+
+        // MIC SOLD / OFF-MARKET — purge the cached buyer-match scores of every listing
+        // flipped off-market this batch, in one query. Mirrors the purge the
+        // FlagStaleProspectingListings sweep applies so an off-market listing never
+        // lingers at the top of MIC on a stale score. Failure-isolated: a purge blip
+        // must not break the capture response.
+        if (! empty($offMarketListingIds)) {
+            try {
+                DB::table('prospecting_buyer_matches')
+                    ->whereIn('prospecting_listing_id', array_keys($offMarketListingIds))
+                    ->delete();
+            } catch (\Throwable $e) {
+                Log::warning('Off-market buyer-match cache purge failed (swallowed)', [
+                    'listing_ids' => array_keys($offMarketListingIds),
+                    'message'     => $e->getMessage(),
+                ]);
+            }
+        }
 
         // GEO-SCRAPE — dispatch ONE async geocode job for the batch. The job
         // filters down to TPs that actually need GPS, then resolves up to the

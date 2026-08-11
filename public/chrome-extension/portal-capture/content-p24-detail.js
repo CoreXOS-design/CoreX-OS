@@ -140,12 +140,36 @@
     };
   }
 
+  // Portal lifecycle status off a search card. P24 overlays a ribbon/badge on
+  // under-offer / sold tiles (no single stable class), so gather candidate
+  // ribbon/badge text and keyword-match. A normally-listed card carries no such
+  // ribbon → 'active'. Sold/withdrawn listings usually VANISH from for-sale search
+  // (caught by the absence sweep); under-offer typically stays visible WITH a badge
+  // (caught here). Values mirror ProspectingListing::PORTAL_STATUSES.
+  function extractP24Status(card) {
+    try {
+      const parts = [];
+      card.querySelectorAll(
+        '.p24_badge, .p24_ribbon, .p24_ribbonWrapper, [class*="ribbon"], [class*="badge"], [class*="Status"], [class*="status"]'
+      ).forEach(el => {
+        const t = (el.textContent || '').trim();
+        if (t) parts.push(t);
+      });
+      const hay = parts.join(' ').toLowerCase();
+      if (/\bsold\b/.test(hay)) return 'sold';
+      if (/under\s*offer|offer\s*pending|sale\s*pending|now\s*sold/.test(hay)) return 'under_offer';
+      if (/withdrawn|delisted|no longer available/.test(hay)) return 'withdrawn';
+      return 'active';
+    } catch (e) { return 'active'; }
+  }
+
   function extractListing(card) {
     const listing = {
       portal_ref: null, portal_url: null, address: null, suburb: null,
       price: null, bedrooms: null, bathrooms: null, garages: null,
       property_size_m2: null, erf_size_m2: null, property_type: null,
-      agent_name: null, agency_name: null, thumbnail_url: null, source: 'p24',
+      agent_name: null, agency_name: null, thumbnail_url: null,
+      portal_status: 'active', source: 'p24',
     };
 
     // portal_url — prefer the standard content link, but fall back to ANY for-sale/
@@ -230,6 +254,9 @@
       if (thumb) listing.thumbnail_url = thumb.getAttribute('src') || thumb.getAttribute('data-original') || thumb.getAttribute('lazy-src') || null;
       if (!listing.thumbnail_url) { const el = card.querySelector('.p24_image img[src]'); if (el) listing.thumbnail_url = el.getAttribute('src'); }
     } catch (e) { /* */ }
+
+    // MIC SOLD / OFF-MARKET — portal lifecycle status (active/under_offer/sold/withdrawn).
+    listing.portal_status = extractP24Status(card);
 
     return listing;
   }
