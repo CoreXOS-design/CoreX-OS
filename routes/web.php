@@ -1071,6 +1071,11 @@ Route::middleware(['auth'])->group(function () {
     // PDF Pack Splitter
     Route::get('/tools/pdf-splitter', [PdfSplitterController::class, 'index'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.index');
     Route::post('/tools/pdf-splitter/run', [PdfSplitterController::class, 'run'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.run');
+    // ADDITIVE — batch intake by reference (SignedDocumentVersion ids), parallel
+    // to /run's direct-upload path. Lands the batch in the SAME session shape
+    // run() uses, then redirects to the SAME review() below. See
+    // PdfSplitterController::intakeSupporting().
+    Route::post('/tools/pdf-splitter/intake-supporting', [PdfSplitterController::class, 'intakeSupporting'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.intake_supporting');
     Route::get('/tools/pdf-splitter/review', [PdfSplitterController::class, 'review'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.review');
     Route::post('/tools/pdf-splitter/confirm', [PdfSplitterController::class, 'confirm'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.confirm');
     Route::get('/tools/pdf-splitter/thumb/{page}', [PdfSplitterController::class, 'serveThumb'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.thumb')->where('page', '[0-9]+');
