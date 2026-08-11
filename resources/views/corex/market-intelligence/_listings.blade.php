@@ -38,6 +38,30 @@
         'suburb'        => 'Suburb',
         'buyer_matches' => 'Buyer demand',
     ];
+
+    // ── Trust strip (display-only) ───────────────────────────────────────
+    // Two numbers on this page can legitimately disagree because they dedupe
+    // differently: the filter-rail suburb badge counts DISTINCT ADDRESSES
+    // (rotating-ref re-scrapes of the same property collapse to one); this
+    // "rows shown" total is grouped by matched development (property_group_id,
+    // the cross-portal P24⇄PP consolidation key) and, with "Show in-stock too"
+    // on, also has synthetic rows appended for our own on-market stock that
+    // was never scraped at all. Neither number is wrong — they're different,
+    // both-correct counting bases. This strip states the relationship instead
+    // of leaving it to look like a bug. No new counting logic: every value
+    // here is already computed by the controller (filterRailAggregates,
+    // $listings->total(), injectedStockCountBySuburb) — just surfaced.
+    $micActiveSuburb = request('suburb');
+    $micLeftFilterCount = null;
+    if ($micActiveSuburb) {
+        $micRailRow = ($filterRailAggregates['by_suburb'] ?? collect())->firstWhere('suburb', $micActiveSuburb);
+        $micLeftFilterCount = $micRailRow->c ?? null;
+    }
+    $micRowsShown = $listings->total();
+    $micInjectedTotal = array_sum($injectedStockCountBySuburb ?? []);
+    $micScrapedTotal = max(0, $micRowsShown - $micInjectedTotal);
+    $micAddressGap = $micLeftFilterCount !== null && (int) $micLeftFilterCount !== (int) $micRowsShown;
+    $micShowTrustLine = $micAddressGap || $micInjectedTotal > 0;
 @endphp
 
 <div x-data="{
@@ -96,18 +120,39 @@
     </div>
 
     {{-- Result-count + sort header strip --}}
-    <div style="display: flex; align-items: center; justify-content: space-between; padding: 4px 0 10px; gap: 12px; flex-wrap: wrap;">
-        <div style="font-size: 0.8125rem; color: var(--text-secondary);">
-            <strong style="color: var(--text-primary);">{{ number_format($listings->total()) }}</strong>
-            {{ \Illuminate\Support\Str::plural('listing', $listings->total()) }}
-            @if(request('action_preset'))
-                · preset <em>{{ str_replace('_', ' ', request('action_preset')) }}</em>
-            @endif
-            @if(request('suburb'))
-                · {{ request('suburb') }}
-            @endif
-            @if(request('search'))
-                · matching "{{ request('search') }}"
+    <div style="display: flex; align-items: flex-start; justify-content: space-between; padding: 4px 0 10px; gap: 12px; flex-wrap: wrap;">
+        <div style="min-width: 0;">
+            <div style="font-size: 0.8125rem; color: var(--text-secondary);"
+                 title="Rows shown: the actual list below, grouped by matched development — not the same dedupe basis as the suburb filter badge on the left (that counts distinct addresses). See the line below when they differ.">
+                <strong style="color: var(--text-primary);">{{ number_format($micRowsShown) }}</strong>
+                rows shown
+                @if(request('action_preset'))
+                    · preset <em>{{ str_replace('_', ' ', request('action_preset')) }}</em>
+                @endif
+                @if(request('suburb'))
+                    · {{ request('suburb') }}
+                @endif
+                @if(request('search'))
+                    · matching "{{ request('search') }}"
+                @endif
+            </div>
+            {{-- Trust strip — states the relationship instead of leaving it to look
+                 like a bug. Only rendered when there's actually something to explain. --}}
+            @if($micShowTrustLine)
+                <div style="font-size: 0.6875rem; color: var(--text-muted); margin-top: 2px;">
+                    @if($micAddressGap)
+                        {{ number_format($micLeftFilterCount) }} distinct {{ \Illuminate\Support\Str::plural('address', $micLeftFilterCount) }}
+                        → {{ number_format($micRowsShown) }} rows shown
+                        @if($micInjectedTotal > 0)
+                            ({{ number_format($micScrapedTotal) }} scraped + {{ number_format($micInjectedTotal) }} our own stock, unlisted)
+                        @else
+                            (grouped by matched development)
+                        @endif
+                    @else
+                        {{ number_format($micRowsShown) }} rows shown
+                        ({{ number_format($micScrapedTotal) }} scraped + {{ number_format($micInjectedTotal) }} our own stock, unlisted)
+                    @endif
+                </div>
             @endif
         </div>
         <div style="display: flex; align-items: center; gap: 8px; font-size: 0.75rem; color: var(--text-muted);">

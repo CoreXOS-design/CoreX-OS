@@ -51,7 +51,11 @@
         ['type'=>'buyer_matched', 'label'=>'Properties matched', 'accent'=>'var(--ds-green, #10b981)',
          'buyers'=>(int)($kpis['buyers_matched'] ?? 0), 'properties'=>(int)($kpis['properties_matched'] ?? 0),
          'threshold'=>$micThreshold, 'href'=>$urlBuyerMatched,
-         'tip'=>'Canvass listings matched to a buyer at '.$micThreshold.'%+ (the headline number) · and the distinct buyers behind those matches. Click to filter the worklist to this band.'],
+         // Counted per LISTING ROW (raw, pre-dedupe) — a property scraped under two
+         // rotating refs can rack up matches on each, so this can legitimately exceed
+         // "rows shown" (which dedupes). The "(raw)" suffix on the tile makes that
+         // visible at a glance, not just on hover.
+         'tip'=>'Canvass listings matched to a buyer at '.$micThreshold.'%+ (the headline number) · and the distinct buyers behind those matches. Counted per listing row, RAW (pre-dedupe) — a property scraped under two rotating refs can count twice, so this can be higher than "rows shown". Click to filter the worklist to this band.'],
         ['type'=>'preset',   'key'=>'pitch_now_high',   'label'=>'Pitch now · high',            'value'=>$presets['pitch_now_high'], 'accent'=>'var(--ds-green, #10b981)','tip'=>'Listings with 3+ strong-tier buyers and no recent pitch — your highest-conversion opportunities. Click to filter.'],
         ['type'=>'preset',   'key'=>'my_claims',        'label'=>'My claims',                    'value'=>$presets['my_claims'],      'accent'=>'var(--brand-icon, #0ea5e9)','tip'=>'Listings you have claimed and are working. Click to filter.'],
         ['type'=>'preset',   'key'=>'expiring',         'label'=>'Expiring',                     'value'=>$presets['expiring'],       'accent'=>'var(--ds-amber, #f59e0b)','tip'=>'Your claims that auto-release in under 6 hours unless you log feedback. Click to filter.'],
@@ -74,7 +78,7 @@
                     {{-- Headline = properties_matched (matched canvass listings); buyers is the
                          secondary context so the number never reads as a buyer count. --}}
                     <span style="{{ $valueStyle }}; color: {{ $tile['properties'] > 0 ? $tile['accent'] : 'var(--text-muted)' }};">{{ number_format($tile['properties']) }}</span>
-                    <span style="font-size:0.625rem; font-weight:600; color: var(--text-muted, #9ca3af);">{{ \Illuminate\Support\Str::plural('property', $tile['properties']) }}</span>
+                    <span style="font-size:0.625rem; font-weight:600; color: var(--text-muted, #9ca3af);">{{ \Illuminate\Support\Str::plural('property', $tile['properties']) }} (raw)</span>
                     <span style="font-size:0.625rem; color: var(--text-muted, #9ca3af);">·</span>
                     <span style="font-size:0.8125rem; font-weight:600; color: var(--text-primary, #111827);">{{ number_format($tile['buyers']) }}</span>
                     <span style="font-size:0.625rem; font-weight:600; color: var(--text-muted, #9ca3af);">{{ \Illuminate\Support\Str::plural('buyer', $tile['buyers']) }}</span>

@@ -227,17 +227,23 @@
     </div>
 
     {{-- By suburb --}}
+    @php
+        $micSuburbCountTip = 'Properties (by address) — distinct addresses in this suburb, honouring your other active filters. Rotating-ref re-scrapes of the same address count once. This may differ from the "rows shown" total below the list, which is grouped by matched development instead.';
+    @endphp
     @if($agg['by_suburb']->count() > 0)
     <div x-data="{ open: true, showAll: false }" data-tour="mic-by-town" style="border-bottom: 1px solid var(--border);">
         <button @click="open = !open" type="button" style="{{ $sectionTitleStyle }}; width: 100%; text-align: left; background: none; border: none; cursor: pointer; padding: 8px 12px;">
             <span x-text="open ? '▾' : '▸'" style="display: inline-block; width: 12px;"></span> By suburb
         </button>
+        <div style="padding: 0 12px 4px; font-size: 0.625rem; color: var(--text-muted);" title="{{ $micSuburbCountTip }}">
+            Properties (by address)
+        </div>
         <div x-show="open">
             @foreach($agg['by_suburb']->take(8) as $row)
             <a href="{{ $activeSuburb === $row->suburb ? $urlWithout('suburb') : $urlWith(['suburb' => $row->suburb]) }}"
                style="{{ $activeSuburb === $row->suburb ? $activeRowStyle : $rowStyle }}">
                 <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ $row->suburb }}</span>
-                <span style="color: var(--text-muted); font-size: 0.6875rem; flex-shrink: 0;">{{ number_format($row->c) }}</span>
+                <span style="color: var(--text-muted); font-size: 0.6875rem; flex-shrink: 0;" title="{{ $micSuburbCountTip }}">{{ number_format($row->c) }}</span>
             </a>
             @endforeach
             @if($agg['by_suburb']->count() > 8)
@@ -251,7 +257,7 @@
                     <a href="{{ $activeSuburb === $row->suburb ? $urlWithout('suburb') : $urlWith(['suburb' => $row->suburb]) }}"
                        style="{{ $activeSuburb === $row->suburb ? $activeRowStyle : $rowStyle }}">
                         <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ $row->suburb }}</span>
-                        <span style="color: var(--text-muted); font-size: 0.6875rem;">{{ number_format($row->c) }}</span>
+                        <span style="color: var(--text-muted); font-size: 0.6875rem;" title="{{ $micSuburbCountTip }}">{{ number_format($row->c) }}</span>
                     </a>
                     @endforeach
                 </div>

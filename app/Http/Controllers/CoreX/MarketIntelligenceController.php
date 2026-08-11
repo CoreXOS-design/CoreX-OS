@@ -1051,7 +1051,10 @@ class MarketIntelligenceController extends Controller
             // Phase D2 — This Week hero
             'tiles', 'tilesGeneratedAt',
             // Company stock (exact portal_ref) — IN STOCK badge + company logo tile
-            'companyStockMap', 'agencyLogoUrl'
+            'companyStockMap', 'agencyLogoUrl',
+            // Trust-strip (display-only) — already-computed synthetic-row breakdown,
+            // just wired through so the list header can show its composition.
+            'injectedStockCountBySuburb',
         ));
     }
 
