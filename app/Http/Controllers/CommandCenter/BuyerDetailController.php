@@ -14,6 +14,13 @@ use Illuminate\Support\Facades\Validator;
 
 class BuyerDetailController extends Controller
 {
+    /**
+     * AT-363 — inline accordion page size. The agent sees the matches in
+     * place, capped per fetch with a "Load more" append rather than one
+     * unbounded render (some wishlists run 200+) or a navigate-away link.
+     */
+    private const MATCHES_PER_PAGE = 50;
+
     public function show(Request $request, Contact $contact)
     {
         if (!$contact->is_buyer) {
@@ -31,25 +38,115 @@ class BuyerDetailController extends Controller
             $contact->matches()->orderByDesc('is_primary')->orderByDesc('updated_at')->get()
         );
 
+        // AT-363 — per-wishlist match count badge + the default-expanded
+        // wishlist's (first in the primary-first ordering above) FIRST PAGE
+        // of matches, now rendered with the SAME rich match-card component
+        // Core Matches results uses (Johan's review) — so resolve WITH
+        // hidden properties included (matching that screen's convention:
+        // visible first, hidden grouped at the bottom, still viewable/
+        // un-hideable inline) and derive the visible-only badge count by
+        // filtering in PHP rather than a second resolve() call. One
+        // resolve() per wishlist (bounded to this buyer's own handful of
+        // wishlists), reused for both the count AND, for the default-
+        // expanded one, the ordered property list — never resolved twice.
+        // Every OTHER wishlist's full property set is intentionally NOT
+        // built here; it's fetched lazily via wishlistMatches() only if the
+        // agent expands it (page 1, then "Load more" appends further pages).
+        $resolver = app(\App\Services\Matching\ClientMatchResolver::class);
+        $defaultExpandedId = $contact->matches->first()?->id;
+        $wishlistMatchCounts = [];
+        $expandedWishlistMatches = collect();
+        $expandedWishlistFeedback = collect();
+        $defaultExpandedHasMore = false;
+        foreach ($contact->matches as $wishlist) {
+            $ordered = $this->orderedPropertiesFor($resolver, $wishlist);
+            $wishlistMatchCounts[$wishlist->id] = $ordered->reject(fn ($p) => $wishlist->isPropertyHidden($p->id))->count();
+            if ($wishlist->id === $defaultExpandedId) {
+                $expandedWishlistMatches = $ordered->forPage(1, self::MATCHES_PER_PAGE)->values();
+                $expandedWishlistFeedback = $wishlist->feedback()->get()->keyBy('property_id');
+                $defaultExpandedHasMore = $ordered->count() > self::MATCHES_PER_PAGE;
+            }
+        }
+
         // The match-form partial needs these collections to render its dropdowns
         // and chip options. Same source as the contact-page Core Matches tab.
         $matchCategories = \App\Models\PropertySettingItem::group('category')->get();
         $matchTypes      = \App\Models\PropertySettingItem::group('property_type')->where('active', true)->get();
-        $featureOptions  = \App\Http\Controllers\CoreX\ContactMatchController::FEATURE_OPTIONS;
+        $featureOptions  = array_merge(
+            \App\Http\Controllers\CoreX\ContactMatchController::FEATURE_OPTIONS,
+            \App\Http\Controllers\CoreX\ContactMatchController::POOL_TYPE_OPTIONS
+        );
 
         return view('command-center.buyers.detail', [
-            'buyer'            => $contact,
-            'tab'              => $tab,
-            'risk'             => $service->getLostRiskScore($contact->id),
-            'propertiesViewed' => $service->getPropertiesViewed($contact->id),
-            'matched'          => $service->getMatchedProperties($contact->id),
-            'preferences'      => $service->getPreferencePatterns($contact->id),
-            'timeline'         => $service->getActivityTimeline($contact->id),
-            'playbook'         => $service->getRetentionPlaybook($contact->id),
-            'matchCategories'  => $matchCategories,
-            'matchTypes'       => $matchTypes,
-            'featureOptions'   => $featureOptions,
+            'buyer'                   => $contact,
+            'tab'                     => $tab,
+            'risk'                    => $service->getLostRiskScore($contact->id),
+            'propertiesViewed'        => $service->getPropertiesViewed($contact->id),
+            'matched'                 => $service->getMatchedProperties($contact->id),
+            'preferences'             => $service->getPreferencePatterns($contact->id),
+            'timeline'                => $service->getActivityTimeline($contact->id),
+            'playbook'                => $service->getRetentionPlaybook($contact->id),
+            'matchCategories'         => $matchCategories,
+            'matchTypes'              => $matchTypes,
+            'featureOptions'          => $featureOptions,
+            'wishlistMatchCounts'     => $wishlistMatchCounts,
+            'defaultExpandedWishlistId' => $defaultExpandedId,
+            'expandedWishlistMatches' => $expandedWishlistMatches,
+            'expandedWishlistFeedback' => $expandedWishlistFeedback,
+            'defaultExpandedHasMore'  => $defaultExpandedHasMore,
         ]);
+    }
+
+    /**
+     * AT-363 — paginated per-wishlist matches for the Wishlists tab's inline
+     * accordion (page 1 on first expand, further pages via "Load more" —
+     * appended in place client-side; the agent never leaves this page).
+     * Reuses the exact same resolver as the show() count above and the
+     * AT-360 "View Matches" route's underlying data (ClientMatchResolver)
+     * — display only, no matching-logic change. Always JSON: the cards HTML
+     * (rendered server-side) plus pagination metadata, so the client can
+     * either fill the (empty, static) grid on first expand or append to it
+     * on "Load more" — one response shape for both.
+     */
+    public function wishlistMatches(Request $request, Contact $contact, ContactMatch $match)
+    {
+        abort_if($match->contact_id !== $contact->id, 403);
+
+        $page = max(1, (int) $request->query('page', 1));
+        $ordered = $this->orderedPropertiesFor(app(\App\Services\Matching\ClientMatchResolver::class), $match);
+        $total = $ordered->count();
+        $pageItems = $ordered->forPage($page, self::MATCHES_PER_PAGE)->values();
+        $feedback = $match->feedback()->get()->keyBy('property_id');
+
+        return response()->json([
+            'html'     => view('command-center.buyers._wishlist-match-cards', [
+                'matches'  => $pageItems,
+                'match'    => $match,
+                'contact'  => $contact,
+                'feedback' => $feedback,
+            ])->render(),
+            'hasMore'  => ($page * self::MATCHES_PER_PAGE) < $total,
+            'nextPage' => $page + 1,
+            'total'    => $total,
+        ]);
+    }
+
+    /**
+     * Resolve a wishlist's matching properties — INCLUDING hidden ones,
+     * visible first then hidden grouped at the end — matching the exact
+     * ordering convention the Core Matches results screen uses (so the
+     * shared <x-match-card> component renders identically and an agent can
+     * still see/un-hide a hidden property inline). Display only: this is
+     * the same ClientMatchResolver call every other Core Matches / AT-360
+     * surface uses, just with includeHidden=true and a stable sort.
+     */
+    private function orderedPropertiesFor(\App\Services\Matching\ClientMatchResolver $resolver, ContactMatch $wishlist): \Illuminate\Support\Collection
+    {
+        $resolved = $resolver->resolve($wishlist, true);
+        $visible = $resolved->reject(fn ($p) => $wishlist->isPropertyHidden($p->id))->values();
+        $hidden  = $resolved->filter(fn ($p) => $wishlist->isPropertyHidden($p->id))->values();
+
+        return $visible->concat($hidden);
     }
 
     /**

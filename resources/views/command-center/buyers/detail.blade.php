@@ -19,56 +19,33 @@
         'price'       => data_get($mp, 'price'),
         'match_score' => data_get($mp, 'match_score'),
     ])->filter(fn ($p) => $p['id'] !== null)->values();
-@endphp
-<div class="w-full space-y-5"
-     x-data="{
-        activeTab: '{{ $tab }}',
-        wishlistDrawerOpen: false,
-        wishlistEditingId: null,
-        openAddDrawer() { this.wishlistEditingId = null; this.wishlistDrawerOpen = true; },
-        openEditDrawer(id) { this.wishlistEditingId = id; this.wishlistDrawerOpen = true; },
-        closeDrawer() { this.wishlistDrawerOpen = false; this.wishlistEditingId = null; },
 
-        showViewingPicker: false,
-        pickerProperties: @js($viewingPickerProps),
-        pickerSelected: @js($viewingPickerProps->pluck('id')->values()),
-        togglePickerProperty(id) {
-            const i = this.pickerSelected.indexOf(id);
-            if (i === -1) this.pickerSelected.push(id);
-            else this.pickerSelected.splice(i, 1);
-        },
-        pickerAllChecked() { return this.pickerProperties.length > 0 && this.pickerSelected.length === this.pickerProperties.length; },
-        pickerToggleAll() {
-            this.pickerSelected = this.pickerAllChecked() ? [] : this.pickerProperties.map(p => p.id);
-        },
-        continueToSchedule() {
-            // Derive chosen FROM the ticked ids (pickerSelected), not by
-            // filtering pickerProperties — so a selected id is ALWAYS carried
-            // into prefill_properties even if its address/label is missing.
-            const byId = new Map(this.pickerProperties.map(p => [p.id, p]));
-            const chosen = this.pickerSelected
-                .filter(id => id !== null && id !== undefined)
-                .map(id => { const p = byId.get(id); return { id: id, address: (p && p.address) ? p.address : '' }; });
-            // Pass the buyer as a prefill_attendees handoff so the calendar
-            // chips render immediately — no fetch, no name lookup roundtrip.
-            const attendees = [{
-                id: {{ $buyer->id }},
-                name: @js(trim(($buyer->first_name ?? '') . ' ' . ($buyer->last_name ?? '')) ?: ('Contact #' . $buyer->id)),
-                type: 'contact',
-                role: 'buyer_contact',
-                phone: @js($buyer->phone),
-                email: @js($buyer->email),
-            }];
-            const base = '{{ route('command-center.calendar') }}';
-            const params = new URLSearchParams();
-            params.set('view', 'day');
-            params.set('prefill_class', 'viewing');
-            params.set('prefill_contact_id', '{{ $buyer->id }}');
-            params.set('prefill_attendees', JSON.stringify(attendees));
-            if (chosen.length) params.set('prefill_properties', JSON.stringify(chosen));
-            window.location.href = base + '?' + params.toString();
-        },
-     }">
+    // AT-363 hotfix — the whole component used to live inline in the x-data
+    // HTML attribute. The card-grid loading-state HTML strings inside it
+    // (e.g. '<div class="text-xs …">Loading matches…</div>') carry their OWN
+    // double quotes, which collide with x-data="..."'s own double-quote
+    // delimiter — the browser closes the attribute at the FIRST one of those
+    // and dumps the rest of the script as visible page text. Fix: the
+    // component now lives in a registered Alpine.data() component (a <script>
+    // block, where JS string quoting is unambiguous), and x-data here carries
+    // ONLY data — passed through @js(), which is the safe, purpose-built tool
+    // for embedding JSON inside an HTML attribute (unlike hand-interpolated
+    // strings). Build the matches URL server-side via route() (not url()) so
+    // it always carries the real corex/command-center/... prefix.
+    $wishlistsConfig = [
+        'initialTab'                => $tab,
+        'defaultExpandedWishlistId' => $defaultExpandedWishlistId,
+        'defaultExpandedHasMore'    => $defaultExpandedHasMore,
+        'buyerId'                   => $buyer->id,
+        'buyerName'                 => trim(($buyer->first_name ?? '') . ' ' . ($buyer->last_name ?? '')) ?: ('Contact #' . $buyer->id),
+        'buyerPhone'                => $buyer->phone,
+        'buyerEmail'                => $buyer->email,
+        'matchesUrlTemplate'        => route('command-center.buyers.wishlists.matches', [$buyer->id, '__MATCH_ID__']),
+        'calendarBaseUrl'           => route('command-center.calendar'),
+        'pickerProperties'          => $viewingPickerProps,
+    ];
+@endphp
+<div class="w-full space-y-5" x-data="buyerWishlists(@js($wishlistsConfig))">
 
     {{-- Back to Buyer Pipeline --}}
     <div>
@@ -276,7 +253,13 @@
     {{-- Wishlists Tab --}}
     <div x-show="activeTab === 'wishlists'" x-cloak class="space-y-4">
 
-        {{-- Auto-derived patterns --}}
+        {{-- Auto-derived patterns — AT-363: de-emphasised to a single muted line
+             when there's nothing derived yet (all-zero), instead of a full band. --}}
+        @php
+            $autoDerivedHasData = !empty($preferences['avg_price']) || !empty($preferences['properties_viewed_count'])
+                || !empty($preferences['viewing_intensity']) || !empty($preferences['top_areas']);
+        @endphp
+        @if($autoDerivedHasData)
         <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
             <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">Auto-Derived from Viewing History</h3>
             <div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-xs">
@@ -293,6 +276,11 @@
                 </div>
             @endif
         </div>
+        @else
+        <div class="px-1 text-[11px]" style="color: var(--text-muted);">
+            No viewing history yet to auto-derive preferences from.
+        </div>
+        @endif
 
         {{-- Wishlists header + Add --}}
         <div class="flex items-center justify-between">
@@ -313,97 +301,116 @@
                 <button type="button" @click="openAddDrawer()" class="corex-btn-primary">Add first wishlist</button>
             </div>
         @else
-            <div class="grid gap-3">
+            <div class="grid gap-2">
                 @foreach($buyer->matches as $wishlist)
-                <div class="rounded-md p-4"
+                @php
+                    // AT-363 — condensed detail bits, one tight line instead of
+                    // the old badges-row + text-row + 4-cell grid.
+                    $detailBits = [];
+                    if ($wishlist->name) $detailBits[] = $wishlist->name;
+                    if ($wishlist->category) $detailBits[] = $wishlist->category;
+                    $types = $wishlist->propertyTypeList();
+                    if (!empty($types)) $detailBits[] = implode('/', $types);
+                    $suburbs = $wishlist->suburbList();
+                    if (!empty($suburbs)) $detailBits[] = implode(', ', $suburbs);
+                    if ($wishlist->beds_min !== null || $wishlist->bedrooms_max !== null) {
+                        $detailBits[] = 'Beds ' . ($wishlist->beds_min ?? '—') . '–' . ($wishlist->bedrooms_max ?? '—');
+                    }
+                    if (!empty($wishlist->must_have_features)) $detailBits[] = count($wishlist->must_have_features) . ' must-have';
+                    if (!empty($wishlist->deal_breakers)) $detailBits[] = count($wishlist->deal_breakers) . ' deal-breaker';
+                    $wishlistCount = $wishlistMatchCounts[$wishlist->id] ?? 0;
+                @endphp
+                <div class="rounded-md"
                      style="background: var(--surface); border: 1px solid {{ $wishlist->is_primary ? 'var(--ds-amber, #f59e0b)' : 'var(--border)' }};">
-                    <div class="flex items-start justify-between gap-3">
-                        <div class="flex-1 min-w-0 space-y-2">
+                    {{-- Compact row: badges + price on line 1, condensed details + updated on line 2 --}}
+                    <div class="flex items-center gap-3 px-4 py-2.5 flex-wrap">
+                        <div class="min-w-0 flex-1">
                             <div class="flex items-center gap-2 flex-wrap">
                                 @if($wishlist->is_primary)
                                     <span class="ds-badge ds-badge-warning">Primary</span>
                                 @endif
                                 <span class="ds-badge ds-badge-default">{{ $wishlist->listingTypeLabel() }}</span>
                                 @if($wishlist->price_min || $wishlist->price_max)
-                                    <span class="text-sm font-bold" style="color: var(--text-primary);">{{ $wishlist->priceRangeLabel() }}</span>
+                                    <span class="text-sm font-bold whitespace-nowrap" style="color: var(--text-primary);">{{ $wishlist->priceRangeLabel() }}</span>
                                 @endif
-                                <span class="text-[10px]" style="color: var(--text-muted);">Status: {{ str_replace('_', ' ', $wishlist->status) }}</span>
+                                <span class="text-[10px]" style="color: var(--text-muted);">{{ str_replace('_', ' ', $wishlist->status) }}</span>
                             </div>
-
-                            <div class="text-xs" style="color: var(--text-secondary);">
-                                @if($wishlist->name)<span class="font-semibold">{{ $wishlist->name }}</span> · @endif
-                                @if($wishlist->category){{ $wishlist->category }} · @endif
-                                @php $types = $wishlist->propertyTypeList(); @endphp
-                                @if(!empty($types))Types: {{ implode(', ', $types) }} · @endif
-                                @php $suburbs = $wishlist->suburbList(); @endphp
-                                @if(!empty($suburbs))Suburbs: {{ implode(', ', $suburbs) }}@endif
-                            </div>
-
-                            <div class="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1 text-[10px]" style="color: var(--text-muted);">
-                                @if($wishlist->beds_min !== null || $wishlist->bedrooms_max !== null)
-                                    <div>Beds: {{ $wishlist->beds_min ?? '—' }}–{{ $wishlist->bedrooms_max ?? '—' }}</div>
-                                @endif
-                                @if(!empty($wishlist->must_have_features))
-                                    <div>Must-have: {{ number_format(count($wishlist->must_have_features)) }}</div>
-                                @endif
-                                @if(!empty($wishlist->deal_breakers))
-                                    <div>Deal-breakers: {{ number_format(count($wishlist->deal_breakers)) }}</div>
-                                @endif
-                                <div>Updated {{ $wishlist->updated_at->diffForHumans() }}</div>
+                            <div class="text-[11px] mt-0.5 truncate" style="color: var(--text-secondary);">
+                                @if(!empty($detailBits)){{ implode(' · ', $detailBits) }} · @endif
+                                <span style="color: var(--text-muted);">Updated {{ $wishlist->updated_at->diffForHumans() }}</span>
                             </div>
                         </div>
 
-                        <div class="flex flex-col gap-1.5 flex-shrink-0">
-                            <button type="button" @click="openEditDrawer({{ $wishlist->id }})" class="corex-btn-outline">Edit</button>
-                            @if(!$wishlist->is_primary)
-                            <form method="POST" action="{{ route('command-center.buyers.wishlists.primary', [$buyer, $wishlist]) }}"
-                                  onsubmit="return confirm('Make this the primary wishlist? The current primary will be demoted.');">
-                                @csrf
-                                <button type="submit" class="corex-btn-outline w-full"
-                                        style="border-color: color-mix(in srgb, var(--ds-amber, #f59e0b) 40%, transparent); color: var(--ds-amber, #f59e0b);">
-                                    Make Primary
+                        {{-- Actions: horizontal row + overflow menu for the rarer actions --}}
+                        <div class="flex items-center gap-1.5 flex-shrink-0">
+                            <span class="ds-badge {{ $wishlistCount > 0 ? 'ds-badge-success' : 'ds-badge-default' }}" title="Current core matches for this wishlist">
+                                {{ number_format($wishlistCount) }} {{ Str::plural('match', $wishlistCount) }}
+                            </span>
+                            <button type="button" @click="openEditDrawer({{ $wishlist->id }})" class="corex-btn-outline text-xs">Edit</button>
+                            <button type="button" @click="toggleWishlistMatches({{ $wishlist->id }})"
+                                    class="corex-btn-outline text-xs inline-flex items-center gap-1">
+                                <span x-text="wishlistOpen[{{ $wishlist->id }}] ? 'Hide Matches' : 'View Matches'"></span>
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 transition-transform" :class="{ 'rotate-180': wishlistOpen[{{ $wishlist->id }}] }" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
+                            </button>
+                            <div class="relative" @click.outside="wishlistMenuOpen === {{ $wishlist->id }} && (wishlistMenuOpen = null)">
+                                <button type="button" @click="wishlistMenuOpen = (wishlistMenuOpen === {{ $wishlist->id }} ? null : {{ $wishlist->id }})"
+                                        class="corex-btn-outline text-xs px-2" title="More actions" aria-label="More actions">⋮</button>
+                                <div x-show="wishlistMenuOpen === {{ $wishlist->id }}" x-cloak
+                                     class="absolute right-0 mt-1 rounded-md z-10 py-1 w-40 shadow-lg"
+                                     style="background: var(--surface); border: 1px solid var(--border);">
+                                    @if(!$wishlist->is_primary)
+                                    <form method="POST" action="{{ route('command-center.buyers.wishlists.primary', [$buyer, $wishlist]) }}"
+                                          onsubmit="return confirm('Make this the primary wishlist? The current primary will be demoted.');">
+                                        @csrf
+                                        <button type="submit" class="block w-full text-left px-3 py-1.5 text-xs hover:opacity-80" style="color: var(--ds-amber, #f59e0b);">Make Primary</button>
+                                    </form>
+                                    @endif
+                                    <form method="POST" action="{{ route('command-center.buyers.wishlists.archive', [$buyer, $wishlist]) }}"
+                                          onsubmit="return confirm('Archive this wishlist? It can be restored by an admin.');">
+                                        @csrf
+                                        <button type="submit" class="block w-full text-left px-3 py-1.5 text-xs hover:opacity-80" style="color: var(--ds-crimson, #c41e3a);">Archive</button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {{-- Inline accordion: this wishlist's matches, ALL of them, in
+                         place — no cap, no navigate-away link (Johan's review). Rich
+                         cards — the SAME <x-match-card> component Core Matches results
+                         uses — so this is a vertical stack (space-y-3), not a grid; the
+                         card's own layout is a horizontal photo+content+actions row.
+                         The wrapper is STATIC (never replaced, only appended into) so
+                         "Load more" can insertAdjacentHTML without disturbing what's
+                         already rendered. Default-expanded wishlist's page 1 is
+                         server-rendered directly; every other wishlist's page 1 (and
+                         every wishlist's page 2+) is fetched as JSON and appended. --}}
+                    <div x-show="wishlistOpen[{{ $wishlist->id }}]" x-cloak x-collapse style="border-top: 1px solid var(--border);">
+                        <div class="p-3">
+                            <div class="space-y-3 overflow-y-auto"
+                                 style="max-height: 600px;" x-ref="wlMatches{{ $wishlist->id }}">
+                                @if($wishlist->id === $defaultExpandedWishlistId)
+                                    @include('command-center.buyers._wishlist-match-cards', [
+                                        'matches'  => $expandedWishlistMatches,
+                                        'match'    => $wishlist,
+                                        'contact'  => $buyer,
+                                        'feedback' => $expandedWishlistFeedback,
+                                    ])
+                                @endif
+                            </div>
+                            <div class="text-center mt-2" x-show="wishlistHasMore[{{ $wishlist->id }}]" x-cloak>
+                                <button type="button" class="corex-btn-outline text-xs"
+                                        @click="loadMoreWishlistMatches({{ $wishlist->id }})"
+                                        :disabled="wishlistLoadingMore[{{ $wishlist->id }}]">
+                                    <span x-show="!wishlistLoadingMore[{{ $wishlist->id }}]">Load more matches</span>
+                                    <span x-show="wishlistLoadingMore[{{ $wishlist->id }}]">Loading…</span>
                                 </button>
-                            </form>
-                            @endif
-                            <form method="POST" action="{{ route('command-center.buyers.wishlists.archive', [$buyer, $wishlist]) }}"
-                                  onsubmit="return confirm('Archive this wishlist? It can be restored by an admin.');">
-                                @csrf
-                                <button type="submit" class="corex-btn-outline"
-                                        style="border-color: color-mix(in srgb, var(--ds-crimson, #c41e3a) 40%, transparent); color: var(--ds-crimson, #c41e3a);">
-                                    Archive
-                                </button>
-                            </form>
+                            </div>
                         </div>
                     </div>
                 </div>
                 @endforeach
             </div>
-
-            {{-- Matched properties for primary wishlist --}}
-            @if($matched->isNotEmpty())
-            <div class="mt-4">
-                <div class="flex items-center justify-between mb-2">
-                    <h3 class="text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Top Matches for Primary Wishlist</h3>
-                    <button type="button" @click="showViewingPicker = true" class="corex-btn-primary">Schedule Viewing</button>
-                </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                    @foreach($matched->take(6) as $mp)
-                        @php
-                            // Spec §3.13: never use red for a neutral score. Use green/amber/brand.
-                            $score = (int) ($mp['match_score'] ?? 0);
-                            $scoreBadgeClass = $score >= 90 ? 'ds-badge-success' : ($score >= 75 ? 'ds-badge-warning' : 'ds-badge-info');
-                        @endphp
-                        <div class="rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
-                            <div class="flex items-center justify-between mb-1 gap-2">
-                                <span class="text-xs font-semibold truncate" style="color: var(--text-primary);">{{ $mp['address'] }}</span>
-                                <span class="ds-badge {{ $scoreBadgeClass }}">{{ number_format($score) }}%</span>
-                            </div>
-                            <div class="text-[10px]" style="color: var(--text-muted);">{{ $mp['suburb'] }} · R {{ number_format($mp['price'] ?? 0) }} · {{ isset($mp['days_on_market']) ? number_format((int) $mp['days_on_market']) . 'd' : '—' }}</div>
-                        </div>
-                    @endforeach
-                </div>
-            </div>
-            @endif
         @endif
     </div>
 
@@ -634,4 +641,118 @@
     </dialog>
     @endif
 </div>
+
+<script>
+document.addEventListener('alpine:init', () => {
+    Alpine.data('buyerWishlists', (cfg) => ({
+        activeTab: cfg.initialTab,
+        wishlistDrawerOpen: false,
+        wishlistEditingId: null,
+        openAddDrawer() { this.wishlistEditingId = null; this.wishlistDrawerOpen = true; },
+        openEditDrawer(id) { this.wishlistEditingId = id; this.wishlistDrawerOpen = true; },
+        closeDrawer() { this.wishlistDrawerOpen = false; this.wishlistEditingId = null; },
+
+        // AT-363 — Wishlists tab inline accordion. NEVER navigates away: the
+        // default-expanded wishlist's page 1 is already server-rendered (no
+        // fetch needed); every other wishlist's page 1 is fetched on first
+        // expand; every wishlist's page 2+ is fetched and APPENDED in place
+        // via "Load more" — the grid element itself is never replaced, only
+        // grown, so nothing already rendered is ever lost or re-flowed.
+        wishlistOpen: cfg.defaultExpandedWishlistId !== null ? { [cfg.defaultExpandedWishlistId]: true } : {},
+        wishlistLoaded: cfg.defaultExpandedWishlistId !== null ? { [cfg.defaultExpandedWishlistId]: true } : {},
+        wishlistHasMore: cfg.defaultExpandedWishlistId !== null ? { [cfg.defaultExpandedWishlistId]: cfg.defaultExpandedHasMore } : {},
+        wishlistNextPage: cfg.defaultExpandedWishlistId !== null ? { [cfg.defaultExpandedWishlistId]: 2 } : {},
+        wishlistLoadingMore: {},
+        wishlistMenuOpen: null,
+        matchesUrlFor(id, page) {
+            return cfg.matchesUrlTemplate.replace('__MATCH_ID__', id) + '?page=' + page;
+        },
+        async toggleWishlistMatches(id) {
+            this.wishlistOpen[id] = !this.wishlistOpen[id];
+            if (this.wishlistOpen[id] && !this.wishlistLoaded[id]) {
+                const el = this.$refs['wlMatches' + id];
+                if (!el) return;
+                el.innerHTML = '<div class="col-span-full text-xs py-4 text-center" style="color: var(--text-muted);">Loading matches…</div>';
+                try {
+                    const res = await fetch(this.matchesUrlFor(id, 1), {
+                        headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+                    });
+                    const json = res.ok ? await res.json() : null;
+                    el.innerHTML = json
+                        ? json.html
+                        : '<div class="col-span-full text-xs py-4 text-center" style="color: var(--ds-crimson, #c41e3a);">Could not load matches.</div>';
+                    this.wishlistHasMore[id] = json ? json.hasMore : false;
+                    this.wishlistNextPage[id] = json ? json.nextPage : 2;
+                    this.wishlistLoaded[id] = true;
+                } catch (e) {
+                    el.innerHTML = '<div class="col-span-full text-xs py-4 text-center" style="color: var(--ds-crimson, #c41e3a);">Could not load matches.</div>';
+                }
+            }
+        },
+        async loadMoreWishlistMatches(id) {
+            if (this.wishlistLoadingMore[id]) return;
+            const el = this.$refs['wlMatches' + id];
+            if (!el) return;
+            this.wishlistLoadingMore[id] = true;
+            try {
+                const res = await fetch(this.matchesUrlFor(id, this.wishlistNextPage[id] || 2), {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+                });
+                if (res.ok) {
+                    const json = await res.json();
+                    // Append — never replace — what's already rendered.
+                    el.insertAdjacentHTML('beforeend', json.html);
+                    this.wishlistHasMore[id] = json.hasMore;
+                    this.wishlistNextPage[id] = json.nextPage;
+                } else {
+                    this.wishlistHasMore[id] = false;
+                }
+            } catch (e) {
+                this.wishlistHasMore[id] = false;
+            } finally {
+                this.wishlistLoadingMore[id] = false;
+            }
+        },
+
+        showViewingPicker: false,
+        pickerProperties: cfg.pickerProperties,
+        pickerSelected: cfg.pickerProperties.map(p => p.id),
+        togglePickerProperty(id) {
+            const i = this.pickerSelected.indexOf(id);
+            if (i === -1) this.pickerSelected.push(id);
+            else this.pickerSelected.splice(i, 1);
+        },
+        pickerAllChecked() { return this.pickerProperties.length > 0 && this.pickerSelected.length === this.pickerProperties.length; },
+        pickerToggleAll() {
+            this.pickerSelected = this.pickerAllChecked() ? [] : this.pickerProperties.map(p => p.id);
+        },
+        continueToSchedule() {
+            // Derive chosen FROM the ticked ids (pickerSelected), not by
+            // filtering pickerProperties — so a selected id is ALWAYS carried
+            // into prefill_properties even if its address/label is missing.
+            const byId = new Map(this.pickerProperties.map(p => [p.id, p]));
+            const chosen = this.pickerSelected
+                .filter(id => id !== null && id !== undefined)
+                .map(id => { const p = byId.get(id); return { id: id, address: (p && p.address) ? p.address : '' }; });
+            // Pass the buyer as a prefill_attendees handoff so the calendar
+            // chips render immediately — no fetch, no name lookup roundtrip.
+            const attendees = [{
+                id: cfg.buyerId,
+                name: cfg.buyerName,
+                type: 'contact',
+                role: 'buyer_contact',
+                phone: cfg.buyerPhone,
+                email: cfg.buyerEmail,
+            }];
+            const params = new URLSearchParams();
+            params.set('view', 'day');
+            params.set('prefill_class', 'viewing');
+            params.set('prefill_contact_id', String(cfg.buyerId));
+            params.set('prefill_attendees', JSON.stringify(attendees));
+            if (chosen.length) params.set('prefill_properties', JSON.stringify(chosen));
+            window.location.href = cfg.calendarBaseUrl + '?' + params.toString();
+        },
+    }));
+});
+</script>
 @endsection

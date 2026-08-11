@@ -41,6 +41,22 @@ class ContactMatchController extends Controller
         'borehole',
     ];
 
+    /**
+     * Pool-ownership chip options for the wishlist criteria form — separate
+     * from FEATURE_OPTIONS on purpose. FEATURE_OPTIONS is also read by the AI
+     * photo-vision suggestion services (PropertyAiSuggestionService,
+     * VisionRecognitionService) as the vocabulary a single photo may be
+     * classified against; "own pool" vs "communal/complex pool" is a
+     * structural fact (which Spaces "Type" the agent tagged), never something
+     * a photo alone can tell apart, so it must never enter that AI vocabulary.
+     * Property::poolTokens() is the actual source of truth these tokens are
+     * matched against — see MatchingService::propertyFeatureTokens().
+     */
+    public const POOL_TYPE_OPTIONS = [
+        'pool_own',
+        'pool_communal',
+    ];
+
     public function __construct(protected MatchingService $matching) {}
 
     public function index()
@@ -203,7 +219,7 @@ class ContactMatchController extends Controller
 
         $matchCategories = PropertySettingItem::group('category')->get();
         $matchTypes      = PropertySettingItem::group('property_type')->where('active', true)->get();
-        $featureOptions  = self::FEATURE_OPTIONS;
+        $featureOptions  = array_merge(self::FEATURE_OPTIONS, self::POOL_TYPE_OPTIONS);
 
         return view('corex.contacts.match-edit', compact(
             'contact', 'match', 'matchCategories', 'matchTypes', 'featureOptions'
@@ -247,6 +263,38 @@ class ContactMatchController extends Controller
         return view('corex.contacts.match-results', compact(
             'contact', 'match', 'properties', 'feedback'
         ));
+    }
+
+    /**
+     * Print / Download PDF — the buyer's resolved wishlist property list as a
+     * clean, compact A4 (landscape) sheet for working on paper during
+     * appointment rounds. INTERNAL document (seller PII + addresses).
+     *
+     * Mirrors results() exactly: same match/contact ownership guard, same
+     * ClientMatchResolver list (so the sheet reflects the active on-screen
+     * list — same wishlist filters, same match_score sort). Streams inline by
+     * default so the browser's print dialog is one click away; ?dl=1 forces a
+     * file download.
+     *
+     * ?photos=0 → compact text-only sheet (no photos: faster to print, saves
+     * ink, denser). Default (photos absent or =1) embeds each property's photo.
+     */
+    public function printList(Request $request, Contact $contact, ContactMatch $match, \App\Services\Matching\CoreMatchListPdfService $pdfService)
+    {
+        abort_if($match->contact_id !== $contact->id, 403);
+
+        // Default: only the properties still in play (hidden excluded), matching
+        // the visible tiles. ?include_hidden=1 keeps hidden ones (flagged).
+        $includeHidden = $request->boolean('include_hidden');
+        // With-photos by default; ?photos=0 for the text-only variant.
+        $withPhotos    = $request->boolean('photos', true);
+
+        $pdf      = $pdfService->pdf($contact, $match, $includeHidden, $withPhotos);
+        $filename = $pdfService->filename($contact, $match, $withPhotos);
+
+        return $request->boolean('dl')
+            ? $pdf->download($filename)
+            : $pdf->stream($filename);
     }
 
     public function toggleHide(Request $request, Contact $contact, ContactMatch $match, int $property)
