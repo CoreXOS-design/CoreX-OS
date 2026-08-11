@@ -15,9 +15,9 @@
             </p>
         </div>
         <div class="flex items-center gap-2 shrink-0">
-            <a href="{{ route('signatures.supporting.downloadAll', ['document' => $document->id, 'request' => $signingRequest->id]) }}"
+            <a href="{{ route('signatures.supporting.downloadAll', ['document' => $document->id, 'signingRequest' => $signingRequest->id]) }}"
                class="corex-btn-outline text-sm">Download all</a>
-            <form method="POST" action="{{ route('signatures.supporting.processBatch', ['document' => $document->id, 'request' => $signingRequest->id]) }}">
+            <form method="POST" action="{{ route('signatures.supporting.processBatch', ['document' => $document->id, 'signingRequest' => $signingRequest->id]) }}">
                 @csrf
                 <button type="submit" class="corex-btn-primary text-sm" title="Hand the whole batch off to the document splitter (coming soon)">Send to splitter</button>
             </form>

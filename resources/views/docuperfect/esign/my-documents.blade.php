@@ -769,10 +769,10 @@
                         <td class="px-4 py-3"><span class="text-xs" style="color: var(--text-muted);">{{ $batch->latest_at?->format('d M Y H:i') ?? '—' }}</span></td>
                         <td class="px-4 py-3 text-right">
                             <div class="inline-flex items-center gap-4">
-                                <a href="{{ route('signatures.supporting.view', ['document' => $batch->document->id, 'request' => $batch->request_id]) }}" target="_blank" class="text-xs font-semibold hover:underline" style="color: var(--brand-icon);">View documents</a>
-                                <a href="{{ route('signatures.supporting.downloadAll', ['document' => $batch->document->id, 'request' => $batch->request_id]) }}" class="text-xs font-semibold hover:underline" style="color: var(--ds-green);">Download all</a>
+                                <a href="{{ route('signatures.supporting.view', ['document' => $batch->document->id, 'signingRequest' => $batch->request_id]) }}" target="_blank" class="text-xs font-semibold hover:underline" style="color: var(--brand-icon);">View documents</a>
+                                <a href="{{ route('signatures.supporting.downloadAll', ['document' => $batch->document->id, 'signingRequest' => $batch->request_id]) }}" class="text-xs font-semibold hover:underline" style="color: var(--ds-green);">Download all</a>
                                 {{-- HOOK — batch hand-off to Andre's multi-doc splitter (1-to-many intake). Stub route for now. --}}
-                                <form method="POST" action="{{ route('signatures.supporting.processBatch', ['document' => $batch->document->id, 'request' => $batch->request_id]) }}" class="inline">
+                                <form method="POST" action="{{ route('signatures.supporting.processBatch', ['document' => $batch->document->id, 'signingRequest' => $batch->request_id]) }}" class="inline">
                                     @csrf
                                     <button type="submit" class="text-xs font-semibold hover:underline" style="color: var(--text-secondary);" title="Hand the whole batch off to the document splitter (coming soon)">Send to splitter</button>
                                 </form>
