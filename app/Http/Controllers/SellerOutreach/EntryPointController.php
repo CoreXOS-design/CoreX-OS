@@ -48,10 +48,13 @@ final class EntryPointController extends Controller
 
         $sellers = $this->loadSellerContactsForProperty($agencyId, $property);
 
+        // #2 In-stock row with no seller linked: DON'T dead-end on the property
+        // page. Route straight into seller capture for this existing property so
+        // the agent can pitch in one flow (capture/dedupe seller → link → composer).
         if ($sellers->isEmpty()) {
-            return redirect()
-                ->route('corex.properties.show', $property)
-                ->with('error', 'No seller contact linked to this property. Link a seller contact before composing a pitch.');
+            return view('seller-outreach.entry.prospecting-create-contact', [
+                'property' => $property,
+            ]);
         }
 
         if ($sellers->count() === 1) {
@@ -65,6 +68,99 @@ final class EntryPointController extends Controller
             'property' => $property,
             'sellers'  => $sellers,
         ]);
+    }
+
+    /**
+     * #2 — Capture (or link) a seller contact for an EXISTING in-stock property
+     * that had no seller, then open the composer. Mirrors the contact half of
+     * storeFromProspecting (search-or-create + blocking duplicate gate + POPIA
+     * ID capture), but the property already exists so there is no promotion,
+     * TrackedProperty match, or pitch-claim here (claim is owned elsewhere).
+     */
+    public function storeFromProperty(Request $request, Property $property)
+    {
+        $agencyId = $this->resolveAgencyId($request);
+        if ((int) $property->agency_id !== $agencyId) {
+            abort(404);
+        }
+
+        $linked = $this->resolveLinkedExistingContact($request, $agencyId);
+        if ($linked !== null) {
+            $contact = $linked;
+            $isNew   = false;
+        } else {
+            $validated = $request->validate([
+                'first_name' => 'required|string|max:100',
+                'last_name'  => 'nullable|string|max:100',
+                'phone'      => 'nullable|string|max:30',
+                'email'      => 'nullable|email|max:255',
+                'id_number'  => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
+            ]);
+
+            $idNumber = isset($validated['id_number']) ? preg_replace('/\s+/', '', (string) $validated['id_number']) : null;
+
+            if (empty($validated['phone']) && empty($validated['email'])) {
+                return back()
+                    ->withErrors(['contact_required' => 'Provide a phone or email so we can dedupe and reach the seller.'])
+                    ->withInput();
+            }
+
+            $gate = $this->duplicateGate(
+                $request,
+                $agencyId,
+                $validated,
+                $idNumber,
+                route('seller-outreach.entry.from-property', ['property' => $property->id]),
+            );
+            if ($gate instanceof \Illuminate\Http\RedirectResponse) {
+                return $gate;
+            }
+            $existing = $gate;
+            $isNew = $existing === null;
+
+            $branchId = $request->user()->branch_id;
+            $contact = $existing ?: Contact::create(array_merge(
+                array_filter([
+                    'agency_id'             => $agencyId,
+                    'branch_id'             => $branchId,
+                    'first_name'            => $validated['first_name'],
+                    'email'                 => $validated['email'] ?? null,
+                    'created_by_user_id'    => $request->user()->id,
+                    'id_number'             => $idNumber,
+                    'id_number_captured_at' => $idNumber ? now() : null,
+                    'id_number_source'      => $idNumber ? 'seller_outreach_entry' : null,
+                ], static fn ($v) => $v !== null && $v !== ''),
+                [
+                    'last_name' => $validated['last_name'] ?? '',
+                    'phone'     => $validated['phone'] ?? '',
+                ],
+            ));
+
+            if ($existing && $idNumber && empty($existing->id_number)) {
+                $existing->update([
+                    'id_number'             => $idNumber,
+                    'id_number_captured_at' => now(),
+                    'id_number_source'      => 'seller_outreach_entry',
+                ]);
+            }
+        }
+
+        // Link contact ↔ existing property via the seller pivot. Idempotent.
+        DB::table('contact_property')->updateOrInsert(
+            ['contact_id' => $contact->id, 'property_id' => $property->id],
+            ['role' => 'seller', 'updated_at' => now(), 'created_at' => now()],
+        );
+
+        $name = trim($contact->first_name . ' ' . (string) $contact->last_name);
+
+        return redirect()
+            ->route('seller-outreach.composer.show', [
+                'contact'     => $contact->id,
+                'property_id' => $property->id,
+            ])
+            ->with('status', $isNew
+                ? "Created new contact: {$name}"
+                : "Linked to existing contact: {$name}");
     }
 
     public function fromProspecting(Request $request, int $prospectingListingId)
@@ -107,7 +203,11 @@ final class EntryPointController extends Controller
         }
 
         return view('seller-outreach.entry.prospecting-create-contact', [
-            'listing' => $listing,
+            'listing'      => $listing,
+            // #3 Address-first: when the listing carries no street address, the
+            // capture form shows a required address field so we land one before
+            // creating the Property.
+            'needsAddress' => trim((string) ($listing->address ?? '')) === '',
         ]);
     }
 
@@ -120,6 +220,39 @@ final class EntryPointController extends Controller
             ->where('agency_id', $agencyId)
             ->whereNull('deleted_at')
             ->firstOrFail();
+
+        // #3 Address-first — the address-less (pull-all) listing must land a real address
+        // BEFORE we create the Property. The capture reuses the Contact screen's "Property
+        // Address" modal, so instead of one blank line we receive the SAME structured
+        // fields. Compose a display address and carry the structured parts onto the
+        // promoted Property. A listing that already carries an address skips this.
+        $captureAddress    = null;
+        $structuredAddress = null;
+        if (trim((string) ($listing->address ?? '')) === '') {
+            $sa = $request->validate([
+                'street_number'          => 'nullable|string|max:100',
+                'street_name'            => 'nullable|string|max:255',
+                'unit_number'            => 'nullable|string|max:100',
+                'floor_number'           => 'nullable|string|max:50',
+                'unit_section_block'     => 'nullable|string|max:255',
+                'complex_name'           => 'nullable|string|max:255',
+                'suburb'                 => 'nullable|string|max:255',
+                'city'                   => 'nullable|string|max:255',
+                'province'               => 'nullable|string|max:255',
+                'pitch_addr_province_id' => 'nullable|integer',
+                'pitch_addr_city_id'     => 'nullable|integer',
+                'pitch_addr_suburb_id'   => 'nullable|integer',
+            ]);
+            $sa = array_map(fn ($v) => is_string($v) ? trim($v) : $v, $sa);
+            // A real address needs at least a street name or a complex/estate name.
+            if (($sa['street_name'] ?? '') === '' && ($sa['complex_name'] ?? '') === '') {
+                return back()
+                    ->withErrors(['street_name' => 'Set a property address (street or complex/estate) before continuing.'])
+                    ->withInput();
+            }
+            $structuredAddress = $sa;
+            $captureAddress = $this->composeAddress($sa);
+        }
 
         // The agent may either PICK an existing contact (search) or CAPTURE a new
         // one. A chosen contact_id short-circuits the new-contact validation.
@@ -166,7 +299,7 @@ final class EntryPointController extends Controller
             $isNew = $existing === null;
         }
 
-        $result = DB::transaction(function () use ($request, $agencyId, $listing, $validated, $existing, $idNumber) {
+        $result = DB::transaction(function () use ($request, $agencyId, $listing, $validated, $existing, $idNumber, $captureAddress, $structuredAddress) {
             // Branch context is mandatory on Contact rows in CoreX schema.
             $branchId = $request->user()->branch_id;
 
@@ -209,7 +342,7 @@ final class EntryPointController extends Controller
                 ]);
             }
 
-            $property = $this->promoteListingToProperty($agencyId, $listing, $request->user());
+            $property = $this->promoteListingToProperty($agencyId, $listing, $request->user(), $captureAddress, $structuredAddress);
 
             // Universal Match-or-Create: ensure a TrackedProperty exists for this
             // address and link it to both the prospecting listing AND the newly
@@ -602,24 +735,52 @@ final class EntryPointController extends Controller
      * promoted Property can be traced back to its source listing. The
      * listing's `matched_property_id` is set in the caller's transaction.
      */
-    private function promoteListingToProperty(int $agencyId, $listing, $actor): Property
+    private function promoteListingToProperty(int $agencyId, $listing, $actor, ?string $overrideAddress = null, ?array $structuredAddress = null): Property
     {
+        // #3 Address-first: an address-less import (pull-all) reaches here with a
+        // blank listing address. The capture step collects one and passes it as
+        // $overrideAddress so a real street address always lands on the promoted
+        // Property (never the "Prospecting listing N" placeholder). A non-empty
+        // listing address always wins — the override only fills the gap.
         $address = trim((string) ($listing->address ?? ''));
+        if ($address === '' && $overrideAddress !== null) {
+            $address = trim($overrideAddress);
+        }
+        // The legacy "Address not available" placeholder is NOT an address — fold
+        // it to empty so it can never dedupe against, nor be stored on, a property.
+        if (strtolower($address) === 'address not available') {
+            $address = '';
+        }
         $suburb  = trim((string) ($listing->suburb ?? ''));
         $normalised = trim(strtolower((string) ($listing->normalized_address ?? $address)));
 
+        // Ramsgate bug fix — disambiguate by the listing's OWN source-ref FIRST.
+        // 'prospecting:{id}' is unique per listing, so re-promoting the same listing
+        // reuses ITS property and two DIFFERENT listings never collide.
         $existing = Property::withoutGlobalScopes()
             ->where('agency_id', $agencyId)
             ->whereNull('deleted_at')
-            ->where(function ($q) use ($address, $normalised, $listing) {
-                $q->where('external_id', 'prospecting:' . $listing->id)
-                  ->orWhere('address', $address)
-                  ->orWhereRaw('LOWER(TRIM(address)) = ?', [$normalised]);
-            })
-            ->when($suburb !== '', fn ($q) => $q->where(function ($qq) use ($suburb) {
-                $qq->where('suburb', $suburb)->orWhereNull('suburb');
-            }))
+            ->where('external_id', 'prospecting:' . $listing->id)
             ->first();
+
+        // Only when there is NO source-ref match AND we hold a REAL address may we
+        // dedupe by address. An empty address must NEVER match — that empty-address
+        // collapse is what landed a no-address Pitch Now on the wrong property.
+        // Addressless listings therefore always create their OWN property (keyed
+        // by external_id), never collapsing onto an existing addressless one.
+        if (!$existing && $address !== '') {
+            $existing = Property::withoutGlobalScopes()
+                ->where('agency_id', $agencyId)
+                ->whereNull('deleted_at')
+                ->where(function ($q) use ($address, $normalised) {
+                    $q->where('address', $address)
+                      ->orWhereRaw('LOWER(TRIM(address)) = ?', [$normalised]);
+                })
+                ->when($suburb !== '', fn ($q) => $q->where(function ($qq) use ($suburb) {
+                    $qq->where('suburb', $suburb)->orWhereNull('suburb');
+                }))
+                ->first();
+        }
         if ($existing) {
             // Heal a property promoted before this fix (or any reuse) that
             // has no structured street — only when BOTH are empty, so a
@@ -654,10 +815,38 @@ final class EntryPointController extends Controller
         [$streetNumber, $streetName] = $this->parseStreet($address, $suburb);
         $district = trim((string) ($listing->district ?? ''));
 
+        // When the address came from the shared "Property Address" modal (structured
+        // capture on the pitch flow), prefer its EXACT parts over parsing the composed
+        // string, and carry the richer columns (complex/unit/city/province + P24 ids)
+        // onto the new property so it is pre-filled exactly like a contact-started one.
+        $extra = [];
+        if (is_array($structuredAddress)) {
+            if (($structuredAddress['street_number'] ?? '') !== '') { $streetNumber = $structuredAddress['street_number']; }
+            if (($structuredAddress['street_name'] ?? '') !== '')   { $streetName   = $structuredAddress['street_name']; }
+            if (($structuredAddress['suburb'] ?? '') !== '')        { $suburb       = $structuredAddress['suburb']; }
+            foreach ([
+                'complex_name'       => 'complex_name',
+                'unit_number'        => 'unit_number',
+                'floor_number'       => 'floor_number',
+                'unit_section_block' => 'unit_section_block',
+                'city'               => 'city',
+                'province'           => 'province',
+            ] as $src => $col) {
+                if (($structuredAddress[$src] ?? '') !== '') { $extra[$col] = $structuredAddress[$src]; }
+            }
+            foreach ([
+                'pitch_addr_province_id' => 'p24_province_id',
+                'pitch_addr_city_id'     => 'p24_city_id',
+                'pitch_addr_suburb_id'   => 'p24_suburb_id',
+            ] as $src => $col) {
+                if (!empty($structuredAddress[$src])) { $extra[$col] = (int) $structuredAddress[$src]; }
+            }
+        }
+
         // properties.beds/baths/garages/price/suburb/property_type/status are
         // NOT NULL — fall back to the schema defaults (0 / empty / 'house' /
         // 'draft') when the prospecting row doesn't carry the value.
-        return Property::create([
+        return Property::create(array_merge([
             'agency_id'     => $agencyId,
             'branch_id'     => $propertyBranchId,
             'agent_id'      => $propertyAgentId,
@@ -676,7 +865,36 @@ final class EntryPointController extends Controller
             // No listing_type on prospecting_listings — default to 'sale'.
             'listing_type'  => 'sale',
             'status'        => 'draft',
-        ]);
+        ], $extra));
+    }
+
+    /**
+     * Compose a one-line display address from the structured "Property Address" modal
+     * fields (unit / section / complex / street / suburb / city / province), mirroring
+     * the contact component's summary. Used as the promoted property's address string.
+     */
+    private function composeAddress(array $a): string
+    {
+        $parts = [];
+        $unit    = trim((string) ($a['unit_number'] ?? ''));
+        $section = trim((string) ($a['unit_section_block'] ?? ''));
+        $complex = trim((string) ($a['complex_name'] ?? ''));
+        $sNo     = trim((string) ($a['street_number'] ?? ''));
+        $sName   = trim((string) ($a['street_name'] ?? ''));
+        $suburb  = trim((string) ($a['suburb'] ?? ''));
+        $city    = trim((string) ($a['city'] ?? ''));
+        $prov    = trim((string) ($a['province'] ?? ''));
+
+        if ($unit !== '')    { $parts[] = 'Unit ' . $unit; }
+        if ($section !== '') { $parts[] = $section; }
+        if ($complex !== '') { $parts[] = $complex; }
+        if ($sNo !== '' && $sName !== '') { $parts[] = trim($sNo . ' ' . $sName); }
+        elseif ($sName !== '')            { $parts[] = $sName; }
+        if ($suburb !== '') { $parts[] = $suburb; }
+        if ($city !== '' && strtolower($city) !== strtolower($suburb)) { $parts[] = $city; }
+        if ($prov !== '') { $parts[] = $prov; }
+
+        return implode(', ', array_filter($parts));
     }
 
     /**
@@ -774,6 +992,21 @@ final class EntryPointController extends Controller
                 $lat = $tpGps->latitude !== null ? (float) $tpGps->latitude : null;
                 $lng = $tpGps->longitude !== null ? (float) $tpGps->longitude : null;
             }
+        }
+
+        // Ramsgate bug fix — addressless collision guard. A listing with NO usable
+        // locating key (no real street address AND no GPS) cannot be safely matched
+        // to an existing property: the map resolver falls back to empty-address /
+        // suburb-only matching and collapses DIFFERENT addressless listings onto the
+        // same wrong property (Johan's test: a no-address Pitch Now "opened" property
+        // 2427 "6 Kerk Street"). With nothing to collide on, skip collision resolution
+        // and proceed straight to capture, so THIS listing gets its own correct property.
+        $addr = trim((string) ($listing->address ?? ''));
+        $hasRealAddress = $addr !== '' && strtolower($addr) !== 'address not available';
+        $hasGps = $lat !== null && $lng !== null;
+        if (!$hasRealAddress && !$hasGps) {
+            $this->fireMicProspectLaunched($listing, $agencyId, $currentUserId);
+            return null;
         }
 
         $facts = [

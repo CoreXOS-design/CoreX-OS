@@ -228,7 +228,7 @@
   async function loadSettings() {
     return new Promise(resolve => {
       chrome.storage.local.get(['apiUrl', 'apiToken'], data => {
-        settings.apiUrl   = data.apiUrl   || 'https://corex.hfcoastal.co.za';
+        settings.apiUrl   = data.apiUrl   || 'https://www.corexos.co.za';
         settings.apiToken = data.apiToken || '';
         resolve(settings);
       });

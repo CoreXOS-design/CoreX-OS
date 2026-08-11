@@ -36,6 +36,44 @@ class ProformaController extends Controller
             ->with('proforma_generated_id', $invoice->id);
     }
 
+    /**
+     * GET — admin/agent-facing proforma invoice LIST. Scoped via
+     * ProformaInvoice::scopeVisibleTo() (own/branch/all, same shape as
+     * Deal::scopeVisibleTo) — never a raw agency-wide query. View/Download
+     * links reuse the existing show()/download() routes below; no PDF logic here.
+     */
+    public function index(Request $request)
+    {
+        $user = $request->user();
+        abort_unless($user?->hasPermission('proforma.view'), 403);
+
+        $status = $request->get('status', 'all');
+        $search = trim((string) $request->get('q', ''));
+
+        $query = ProformaInvoice::visibleTo($user)
+            ->with(['creator:id,name', 'agency:id,name'])
+            ->latest('id');
+
+        if (in_array($status, [ProformaInvoice::STATUS_ISSUED, ProformaInvoice::STATUS_VOIDED], true)) {
+            $query->where('status', $status);
+        }
+
+        if ($search !== '') {
+            $query->where(function ($q) use ($search) {
+                $q->where('number', 'like', "%{$search}%")
+                  ->orWhere('reference', 'like', "%{$search}%");
+            });
+        }
+
+        $invoices = $query->paginate(30)->withQueryString();
+
+        // Agency column only makes sense for the one role that can legitimately cross
+        // agencies (AgencyScope's owner-role bypass) — everyone else is single-agency.
+        $showAgencyColumn = (bool) $user->isOwnerRole();
+
+        return view('proforma.index', compact('invoices', 'status', 'search', 'showAgencyColumn'));
+    }
+
     /** GET — view a proforma record. */
     public function show(ProformaInvoice $invoice, Request $request)
     {

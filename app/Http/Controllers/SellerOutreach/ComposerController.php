@@ -441,13 +441,22 @@ final class ComposerController extends Controller
             }
         }
 
-        // A pitch that never delivered never asked for consent. markOutreachPending()
-        // (AT-81) is stamped optimistically at send-click — before this confirmation
-        // exists — so a not_sent outcome must release the clock it started, or the
-        // contact is permanently stuck "pending" and every future compose is hard-
-        // blocked (isSendable() -> pendingBlocks) even after the agent fixes whatever
-        // was wrong (e.g. the number) and is ready to actually send.
-        $contact->clearOutreachPending();
+        // AT-323 regression fix — the send() call stamped the AT-81 "pending / awaiting
+        // reply" latch (markOutreachPending → outreach_permission_asked_at) at pitch time,
+        // which hard-blocks re-sending (isOutreachPending → pendingBlocks → not sendable).
+        // A pitch that never actually went out must not freeze the contact: if this
+        // contact now has NO genuinely-sent outreach (every send is not_sent), roll the
+        // latch back so the agent can re-send immediately. A prior GENUINE send still
+        // keeps the contact pending (we only clear when nothing real ever went out).
+        $hasGenuineSend = SellerOutreachSend::withoutGlobalScopes()
+            ->where('agency_id', $agencyId)
+            ->where('contact_id', $contact->id)
+            ->whereNull('deleted_at')
+            ->where('outcome', '!=', SellerOutreachSend::OUTCOME_NOT_SENT)
+            ->exists();
+        if (! $hasGenuineSend) {
+            $contact->clearOutreachPending();
+        }
 
         return $request->wantsJson()
             ? response()->json([

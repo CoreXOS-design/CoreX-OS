@@ -11,6 +11,7 @@ use App\Models\ProspectingPriceHistory;
 use App\Models\ProspectingSearch;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -25,6 +26,9 @@ class ProspectingApiController extends Controller
             'search_context.search_term'   => 'required|string',
             'search_context.total_results' => 'required|integer',
             'search_context.pages_captured'=> 'required|integer',
+            // MIC SUBURB RECONCILE — true ONLY on the extension's final batch when the WHOLE
+            // suburb was captured (all pages, none skipped). Absent/false on partial batches.
+            'search_context.capture_complete' => 'nullable|boolean',
             'listings'                     => 'required|array|min:1',
             'listings.*.portal_ref' => 'nullable|string',
             'listings.*.address'           => 'nullable|string',
@@ -45,6 +49,10 @@ class ProspectingApiController extends Controller
             // extension reads it off the P24 listing page itself (see report);
             // absent for every capture until that extension change ships.
             'listings.*.mandate_type'      => 'nullable|string|in:sole,exclusive,open,joint',
+            // MIC SOLD / OFF-MARKET — portal lifecycle status read off the P24 card.
+            // Absent for every capture until the extension status change ships; when
+            // absent the listing keeps the existing is_active=true behaviour.
+            'listings.*.portal_status'     => 'nullable|string|in:active,under_offer,sold,withdrawn',
         ]);
 
         // AT-253 (STANDARDS Rule 17) — prospecting_searches.agency_id is NOT NULL and this is a
@@ -96,6 +104,11 @@ class ProspectingApiController extends Controller
         // "needs GPS" happens inside the job to keep this hot path query-free.
         $touchedTrackedPropertyIds = [];
 
+        // MIC SOLD / OFF-MARKET — existing listings flipped off-market this batch,
+        // so we can purge their now-stale cached buyer-match scores in ONE query at
+        // the end (same purge the FlagStaleProspectingListings sweep applies).
+        $offMarketListingIds = [];
+
         foreach ($validated['listings'] as $data) {
             if (empty($data['portal_ref'])) {
                 \Log::debug('Skipped listing with no portal_ref', ['data' => $data]);
@@ -120,6 +133,14 @@ class ProspectingApiController extends Controller
             $data['agent_name']    = substr($data['agent_name'] ?? '', 0, 100);
             $data['agency_name']   = substr($data['agency_name'] ?? '', 0, 100);
 
+            // MIC SOLD / OFF-MARKET — normalise the portal lifecycle status.
+            // NULL when the extension didn't send one (old build) → legacy behaviour
+            // (is_active stays true). under_offer/sold/withdrawn take it off-market.
+            $portalStatus = in_array($data['portal_status'] ?? null, ProspectingListing::PORTAL_STATUSES, true)
+                ? $data['portal_status']
+                : null;
+            $isOffMarket = in_array($portalStatus, ProspectingListing::OFF_MARKET_STATUSES, true);
+
             $existing = ProspectingListing::where('agency_id', $agencyId)
                 ->where('portal_source', $portalSource)
                 ->where('portal_ref', $data['portal_ref'])
@@ -127,26 +148,47 @@ class ProspectingApiController extends Controller
 
             if ($existing) {
                 $existing->last_seen_at = $now;
-                $existing->is_active = true;
+                // MIC SUBURB RECONCILE — stamp the capture session that saw it (cross-batch marker).
+                $existing->last_search_id = $search->id;
 
-                // Price-on-application / vacant land: portals send no price at all.
-                // Normalise here rather than casting to (int), which would coerce a
-                // null (POA) to 0 and either mask a real change or wrongly log one.
+                // MIC SOLD / OFF-MARKET — drive is_active off the portal status when the
+                // extension reports one. Off-market (sold/under-offer/withdrawn) drops it
+                // from the pool + stamps off_market_at once; a later capture showing it
+                // active again revives it. No status (old extension) = legacy: stay active.
+                if ($portalStatus !== null) {
+                    if ($existing->portal_status !== $portalStatus) {
+                        $existing->portal_status = $portalStatus;
+                        $existing->portal_status_changed_at = $now;
+                    }
+                    if ($isOffMarket) {
+                        $existing->is_active = false;
+                        if ($existing->off_market_at === null) {
+                            $existing->off_market_at = $now;
+                        }
+                        $offMarketListingIds[$existing->id] = true;
+                    } else {
+                        $existing->is_active = true;
+                        $existing->off_market_at = null;
+                    }
+                } else {
+                    $existing->is_active = true;
+                }
+
                 $newPrice = $data['price'] !== null ? (int) $data['price'] : null;
+                $oldPrice = (int) $existing->price;
 
-                if ($newPrice !== $existing->price) {
-                    if ($newPrice !== null && $existing->price !== null
-                        && $this->isImplausiblePriceJump((int) $existing->price, $newPrice)) {
+                if ($newPrice !== null && $newPrice !== $oldPrice) {
+                    if ($this->isImplausiblePriceJump($oldPrice, $newPrice)) {
                         // MIC PRICE GUARD — an order-of-magnitude jump vs the stored
                         // price is a misparse (dropped zero / wrong figure grabbed),
                         // not a real market move. Quarantine it for review and KEEP
                         // the good price. A misparse can never silently overwrite MIC.
-                        $this->flagPriceAnomaly($existing, (int) $existing->price, $newPrice, $portalSource, $context);
+                        $this->flagPriceAnomaly($existing, $oldPrice, $newPrice, $portalSource, $context);
                         // Leave $existing->price and price_changed_at untouched.
                     } else {
                         ProspectingPriceHistory::create([
                             'prospecting_listing_id' => $existing->id,
-                            'old_price'              => $existing->price,
+                            'old_price'              => $oldPrice,
                             'new_price'              => $newPrice,
                             'changed_at'             => $now,
                         ]);
@@ -216,7 +258,15 @@ class ProspectingApiController extends Controller
                     'mandate_type'        => $data['mandate_type'] ?? null,
                     'first_seen_at'       => $now,
                     'last_seen_at'        => $now,
-                    'is_active'           => true,
+                    // MIC SUBURB RECONCILE — capture session that first saw it.
+                    'last_search_id'      => $search->id,
+                    // MIC SOLD / OFF-MARKET — a listing first seen already off-market
+                    // (badged sold/under-offer) never enters the pool. No cache to purge
+                    // on a brand-new row. NULL status = legacy active.
+                    'is_active'           => ! $isOffMarket,
+                    'portal_status'       => $portalStatus,
+                    'portal_status_changed_at' => $portalStatus !== null ? $now : null,
+                    'off_market_at'       => $isOffMarket ? $now : null,
                 ]);
 
                 $this->assignPropertyGroup($listing, $agencyId);
@@ -248,9 +298,51 @@ class ProspectingApiController extends Controller
             }
         }
 
-        $search->update([
-            'listing_count' => $search->listing_count + $imported + $updated,
-        ]);
+        // ATOMIC increment — the extension fires batches concurrently, so a
+        // read-modify-write (listing_count = listing_count + N) loses updates between
+        // overlapping batches and undercounts. `increment()` issues a single
+        // `SET listing_count = listing_count + N` the DB serialises per row.
+        if ($imported + $updated > 0) {
+            $search->increment('listing_count', $imported + $updated);
+        }
+
+        // MIC SOLD / OFF-MARKET — purge the cached buyer-match scores of every listing
+        // flipped off-market this batch, in one query. Mirrors the purge the
+        // FlagStaleProspectingListings sweep applies so an off-market listing never
+        // lingers at the top of MIC on a stale score. Failure-isolated: a purge blip
+        // must not break the capture response.
+        if (! empty($offMarketListingIds)) {
+            try {
+                DB::table('prospecting_buyer_matches')
+                    ->whereIn('prospecting_listing_id', array_keys($offMarketListingIds))
+                    ->delete();
+            } catch (\Throwable $e) {
+                Log::warning('Off-market buyer-match cache purge failed (swallowed)', [
+                    'listing_ids' => array_keys($offMarketListingIds),
+                    'message'     => $e->getMessage(),
+                ]);
+            }
+        }
+
+        // MIC SUBURB RECONCILE — when this is the FINAL batch of a COMPLETE suburb capture
+        // (all pages, none skipped — the extension's `capture_complete` flag), mark any
+        // still-active listing in the captured suburb(s) that this fresh capture did NOT
+        // include as no-longer-available (SOFT: is_active=false + portal_status=withdrawn,
+        // row kept). NEVER runs on a partial/paginated batch — the flag is only set once the
+        // extension has walked every page cleanly. Failure-isolated: reconcile must never
+        // break the ingest response.
+        $reconcile = null;
+        if (! empty($context['capture_complete'])) {
+            try {
+                $reconcile = app(\App\Services\Prospecting\SuburbReconcileService::class)
+                    ->reconcile($agencyId, $portalSource, $search);
+            } catch (\Throwable $e) {
+                Log::warning('MIC suburb reconcile failed (swallowed)', [
+                    'search_id' => $search->id,
+                    'message'   => $e->getMessage(),
+                ]);
+            }
+        }
 
         // GEO-SCRAPE — dispatch ONE async geocode job for the batch. The job
         // filters down to TPs that actually need GPS, then resolves up to the
@@ -278,6 +370,12 @@ class ProspectingApiController extends Controller
             'updated'  => $updated,
             'skipped'  => $skippedBadRows,
             'total'    => $imported + $updated,
+            // Non-null only on the final batch of a complete suburb capture.
+            'reconcile' => $reconcile ? [
+                'suburbs' => $reconcile['suburbs'],
+                'present' => $reconcile['present'],
+                'retired' => $reconcile['retired'],
+            ] : null,
         ]);
     }
 

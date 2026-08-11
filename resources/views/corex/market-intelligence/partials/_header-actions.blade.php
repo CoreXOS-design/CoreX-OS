@@ -3,7 +3,7 @@
      Ticks are plain <a href> toggle links (NOT JS-onchange checkboxes — that was
      the bug: the onchange never navigated, so clicking did nothing). Each link
      carries the full current query minus page (a filter change returns to page 1)
-     and toggles its own param: include_mandated / include_in_stock / address_filter.
+     and toggles its own param: include_in_stock / address_filter.
 
      UX (Johan): the reload is slow, so users re-click thinking nothing happened.
      A small additive script gives INSTANT optimistic feedback — flip the tick glyph
@@ -15,7 +15,6 @@
 
     // Current query minus page — toggling a filter returns to page 1.
     $baseQ   = request()->except('page');
-    $mandOn  = request()->boolean('include_mandated');
     $stockOn = request()->boolean('include_in_stock');
     $addrOn  = request('address_filter') === 'with_address';
 
@@ -34,19 +33,6 @@
     $boxOn  = 'width:14px; height:14px; border-radius:3px; border:1px solid #fff; background:#fff; color:var(--brand-default,#0b2a4a); display:inline-flex; align-items:center; justify-content:center; font-size:10px; line-height:1; font-weight:900; transition:background 100ms,border-color 100ms,color 100ms;';
     $spin   = 'display:none; font-size:0.625rem; color:rgba(255,255,255,0.7); font-style:italic;';
 @endphp
-
-{{-- Sole/exclusive mandates — every agent. Excluded from the pool by default. --}}
-<a href="{{ $toggleUrl('include_mandated', '1', $mandOn) }}"
-   class="mic-tick" data-active="{{ $mandOn ? '1' : '0' }}"
-   style="{{ $tickBase }}"
-   title="Sole/exclusive-mandated listings are excluded by default — another agency already holds the mandate. Toggle to include them.">
-    {{-- Render the ✓ ONLY when ON. OFF must be a genuinely empty box — no glyph in
-         the DOM — not a persistent ✓ hidden by color:transparent (which still read as
-         ticked under the navy/white header + forced-colors/high-contrast). --}}
-    <span class="mic-tick-box" style="{{ $mandOn ? $boxOn : $boxOff }}">@if($mandOn)✓@endif</span>
-    Show sole/exclusive mandates
-    <span class="mic-tick-spin" style="{{ $spin }}">updating…</span>
-</a>
 
 {{-- With-address (pull-all): restrict to listings that have a street address. --}}
 <a href="{{ $toggleUrl('address_filter', 'with_address', $addrOn) }}"

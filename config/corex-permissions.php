@@ -59,6 +59,11 @@ return [
         ['key' => 'settle_deals',            'label' => 'Settle Deals',                    'section' => 'agency-tracker',   'type' => 'access',  'module' => 'deals',            'sort_order' => 14],
         ['key' => 'proforma.generate',       'label' => 'Generate Proforma Invoices',      'section' => 'agency-tracker',   'type' => 'action',  'module' => 'deals',            'sort_order' => 15],
         ['key' => 'proforma.manage',         'label' => 'Manage Proforma Invoices (admin)', 'section' => 'agency-tracker',  'type' => 'action',  'module' => 'deals',            'sort_order' => 16],
+        // proforma.view — the admin/agent-facing LIST page (view + download, no admin overrides).
+        // module='proforma' (NOT 'deals') so getDataScope('proforma') reads its own scope row —
+        // 'deals.view' already means something else (general deal-register visibility).
+        // scope_defaults apply: admin=all, branch_manager=branch, agent=own.
+        ['key' => 'proforma.view',           'label' => 'View Proforma Invoice List',      'section' => 'agency-tracker',   'type' => 'action',  'module' => 'proforma',         'sort_order' => 17],
         ['key' => 'view_listings',           'label' => 'View Listing Stock',              'section' => 'agency-tracker',   'type' => 'access',  'module' => 'listings',         'sort_order' => 15],
         ['key' => 'import_listings',         'label' => 'Import Listings',                 'section' => 'agency-tracker',   'type' => 'access',  'module' => 'listings',         'sort_order' => 16],
         ['key' => 'view_performance',        'label' => 'View Performance',                'section' => 'agency-tracker',   'type' => 'access',  'module' => 'agency_tracker',   'sort_order' => 17],
@@ -693,7 +698,7 @@ return [
                 'access_rental_signatures',
                 // AT-283 (Johan's ruling): settlement is admin-only — "not even bm can
                 // access settlements". BM keeps the deal register, loses settle_deals.
-                'view_worksheet', 'edit_worksheet', 'view_deals', 'create_deals', 'proforma.generate',
+                'view_worksheet', 'edit_worksheet', 'view_deals', 'create_deals', 'proforma.generate', 'proforma.view',
                 'calendar.tile.my_deals', // AT-216 R3 — deal-pipeline deck tile
                 'view_listings', 'view_performance', 'manage_targets',
                 'view_rentals', 'manage_rentals', 'view_daily_activity', 'manage_tv_messages',
@@ -800,7 +805,7 @@ return [
             'include' => [
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts',
                 'access_agency_tracker', 'access_daily_activity', 'access_rental_signatures',
-                'view_worksheet', 'edit_worksheet', 'view_deals', 'proforma.generate',
+                'view_worksheet', 'edit_worksheet', 'view_deals', 'proforma.generate', 'proforma.view',
                 'view_listings', 'view_performance',
                 'view_rentals', 'manage_rentals', 'view_daily_activity',
                 'deals.view', 'deals.create',
