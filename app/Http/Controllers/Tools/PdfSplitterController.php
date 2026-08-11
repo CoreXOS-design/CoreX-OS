@@ -8,12 +8,14 @@ use App\Models\DealV2\DealV2;
 use App\Models\DocumentType;
 use App\Models\FicaSubmission;
 use App\Models\Property;
+use App\Models\Scopes\ContactScope;
 use App\Models\SplitterDocType;
 use App\Services\Compliance\AgencyComplianceDocTypeService;
 use App\Services\Compliance\FicaWetInkService;
 use App\Services\DealV2\DealDocumentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Symfony\Component\Process\Process;
@@ -107,7 +109,14 @@ class PdfSplitterController extends Controller
      * and own FICA state. Drives the per-page contact selector + sticky
      * auto-resolution on the review screen. Scoped to the user's visible
      * properties; soft-deleted / cross-agency contacts never appear (the
-     * contacts() relation respects SoftDeletes + ContactScope).
+     * contacts() relation still respects SoftDeletes + AgencyScope).
+     *
+     * ContactScope ('own'/'branch' visibility) is deliberately bypassed —
+     * same fix and same rationale as PropertyContactController::search():
+     * a contact legitimately attached to THIS property but captured by a
+     * different agent/branch must still show up here, or the splitter's
+     * AT-167 guard blocks Link for a page that actually has a valid contact,
+     * just one the acting agent's personal/branch scope can't see.
      */
     public function propertyContacts(Request $request, int $property)
     {
@@ -116,7 +125,7 @@ class PdfSplitterController extends Controller
             return response()->json(['contacts' => []], 404);
         }
 
-        $contacts = $prop->contacts()->get()->map(function ($c) {
+        $contacts = $prop->contacts()->withoutGlobalScope(ContactScope::class)->get()->map(function ($c) {
             $name = trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? ''));
             return [
                 'id'          => $c->id,
@@ -192,12 +201,28 @@ class PdfSplitterController extends Controller
                 continue;
             }
 
-            $manifestId = $this->buildManifestForFile([
-                'base'          => $base,
-                'ts'            => $batchTs,
-                'origRel'       => $origRel,
-                'original_name' => $uploaded->getClientOriginalName(),
-            ]);
+            // Wrapped: a genuinely corrupt PAGE inside an otherwise-fine PDF
+            // can make pdftoppm/qpdf throw mid-classification (not just
+            // return "0 pages", which buildManifestForFile() already handles
+            // as a clean skip). Uncaught, that exception would abort the
+            // WHOLE request — losing every already-OCR'd file in this loop,
+            // since nothing reaches session until the loop finishes. Treat it
+            // exactly like a null return: skip this one file, keep the batch.
+            try {
+                $manifestId = $this->buildManifestForFile([
+                    'base'          => $base,
+                    'ts'            => $batchTs,
+                    'origRel'       => $origRel,
+                    'original_name' => $uploaded->getClientOriginalName(),
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning('PDF Splitter: file OCR pipeline threw, skipping', [
+                    'file' => $uploaded->getClientOriginalName(),
+                    'base' => $base,
+                    'error' => $e->getMessage(),
+                ]);
+                $manifestId = null;
+            }
 
             if ($manifestId === null) {
                 $skipped[] = $uploaded->getClientOriginalName();
@@ -277,6 +302,14 @@ class PdfSplitterController extends Controller
 
         [$pCount, $pErr] = $this->qpdfPageCount($origAbsNorm);
         if ($pCount < 1) {
+            // Surfaced to the log (not to the agent — they just see the file
+            // skipped) so production support can tell "this one file is
+            // corrupt" from "qpdf is misconfigured/broken for every upload"
+            // without having to reproduce manually.
+            Log::warning('PDF Splitter: could not read page count', [
+                'base' => $base, 'error' => $pErr ?: '(no qpdf output)',
+            ]);
+
             return null;
         }
 
@@ -517,10 +550,21 @@ class PdfSplitterController extends Controller
 
     /**
      * Defense against a stale review tab. The review form carries the exact
-     * set of manifest IDs it was rendered for; if it no longer matches the
-     * session's current batch, a NEW upload has since replaced it in another
-     * tab. Reject rather than silently applying this page's posted
-     * labels/contacts to whatever batch happens to be active now.
+     * set of manifest IDs it was rendered for; if any of them are no longer
+     * part of the session's current batch, a NEW upload has since replaced it
+     * in another tab. Reject rather than silently applying this page's
+     * posted labels/contacts to whatever batch happens to be active now.
+     *
+     * Deliberately a SUBSET check (every posted ID must be IN the session
+     * batch), not exact-array equality. review() only ever seeds the form
+     * from the manifests that actually loaded (loadBatchManifests()) — if one
+     * went missing mid-review, the posted set is legitimately SMALLER than
+     * the (unpruned) session batch. Exact equality would misdiagnose that as
+     * "a new upload replaced the batch" and, since the mismatch recurs on
+     * every reload, trap the agent in a loop with no way forward except
+     * abandoning the batch — loadCompleteBatchOrFail() gives the accurate
+     * "re-upload the whole batch" message for that case; this check must let
+     * the request through to reach it.
      */
     private function rejectIfStaleBatch(Request $request): ?\Illuminate\Http\RedirectResponse
     {
@@ -529,10 +573,10 @@ class PdfSplitterController extends Controller
             return null; // nothing posted to check against — skip (keeps direct/test posts working)
         }
 
-        $posted  = array_values((array) $posted);
-        $current = array_values(session('splitter_batch', []));
+        $posted  = (array) $posted;
+        $current = session('splitter_batch', []);
 
-        if ($posted !== $current) {
+        if (!empty(array_diff($posted, $current))) {
             return redirect()->route('tools.pdf_splitter.review')->withErrors([
                 'pdf' => 'This review page was for a different batch than the one currently active — you likely started a new upload in a different tab. Reload this page and try again.',
             ]);
@@ -609,6 +653,19 @@ class PdfSplitterController extends Controller
                 }
 
                 count($parts) === 1 ? @copy($parts[0], $outAbs) : $this->pdfUnite($parts, $outAbs);
+
+                // @copy()'s failure return was previously ignored — a silently
+                // failed copy (disk pressure, permissions) would still push
+                // $outAbs into the ZIP list, and ZipArchive::addFile() also
+                // no-ops on a missing source, so the agent would see a normal
+                // "ZIP generated" success with a document quietly missing.
+                if (!is_file($outAbs) || filesize($outAbs) === 0) {
+                    Log::warning('PDF Splitter: extracted output missing or empty, skipping', [
+                        'base' => $base, 'label' => $label, 'out' => $outAbs,
+                    ]);
+                    continue;
+                }
+
                 $fileOutFiles[] = $outAbs;
             }
 
@@ -641,8 +698,23 @@ class PdfSplitterController extends Controller
                 ->withErrors(['pdf' => 'Could not create ZIP file.']);
         }
 
+        // addFile() returning false was previously ignored — a failed add
+        // would still produce a "ZIP generated" success banner with that
+        // document silently absent from the archive. Fail loudly instead:
+        // no partial ZIP, no false confidence.
+        $zipFailures = [];
         foreach ($allOutFiles as $abs) {
-            $zip->addFile($abs, basename($abs));
+            if (!$zip->addFile($abs, basename($abs))) {
+                $zipFailures[] = basename($abs);
+            }
+        }
+        if (!empty($zipFailures)) {
+            $zip->close();
+            @unlink($zipAbsNorm);
+
+            return redirect()->route('tools.pdf_splitter.review')->withErrors([
+                'pdf' => 'Could not build the ZIP — failed to add: ' . implode(', ', $zipFailures) . '. Nothing was downloaded.',
+            ]);
         }
 
         $zip->addFromString(
@@ -712,8 +784,12 @@ class PdfSplitterController extends Controller
 
         // Contacts are resolved once against THIS property and shared by every
         // file's per-page assignments (only contacts actually attached to this
-        // property are honoured — no orphan, no cross-property leak).
-        $attached       = $property->contacts()->get()->keyBy('id');
+        // property are honoured — no orphan, no cross-property leak). Bypasses
+        // ContactScope for the same reason as propertyContacts() above — a
+        // legitimately attached contact captured by a different agent/branch
+        // must still resolve here, or every page ticked for them gets dropped
+        // by the `$attached->has($cid)` filter below and blocked by AT-167.
+        $attached       = $property->contacts()->withoutGlobalScope(ContactScope::class)->get()->keyBy('id');
         $postedLabels   = (array) $request->input('labels', []);
         $postedContacts = (array) $request->input('contacts', []);
 
@@ -1055,7 +1131,11 @@ class PdfSplitterController extends Controller
                     'storage_path'     => $relPath,
                     'disk'             => 'public',
                     'mime_type'        => 'application/pdf',
-                    'size'             => @filesize($abs) ?: null,
+                    // ?: would collapse a genuinely truncated/empty (0-byte)
+                    // extracted PDF to null ("size unknown") instead of 0
+                    // ("file is empty") — only a real stat() failure (false)
+                    // should become null.
+                    'size'             => (($__sz = @filesize($abs)) !== false ? $__sz : null),
                     'document_type_id' => $typeMap[$labelSlug] ?? null,
                     'source_type'      => 'pdf_splitter',
                     'source_id'        => $property->id,

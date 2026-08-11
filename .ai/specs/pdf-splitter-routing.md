@@ -480,6 +480,106 @@ large/slow batch. Flagged to Johan rather than re-architected unilaterally —
 if large batches become routine, the fix is incremental/resumable OCR, not a
 bigger request timeout.
 
+**Fixed after a fourth audit pass (2026-08-11, same day) — multi-tenancy
+lens.** First pass to specifically trace agency/authorization boundaries
+rather than batch-combination logic. Found no exploitable cross-agency IDOR
+(`Property::query()->visibleTo($request->user())` is used at every
+property-resolution point; session-derived manifest paths are always checked
+against the current session's own batch), but did find one real access-scope
+defect and several data-integrity gaps in the batch rework:
+
+- **ContactScope wrongly hides legitimately-attached contacts (real bug,
+  now fixed).** `propertyContacts()` and `link()`'s `$attached` resolution
+  both read `$property->contacts()` under the default `ContactScope`
+  ('own'/'branch' role-based visibility) on top of `AgencyScope`. A contact
+  properly attached to the property but captured by a *different* agent or
+  branch was invisible to the splitter — the contact picker wouldn't show
+  them, `$attached->has($cid)` would reject their ticked pages, and AT-167
+  would block the whole Link with "assign a contact" for a page that
+  genuinely had one. `PropertyContactController::search()` already patched
+  around this exact defect on the identical relation, with the comment
+  *"otherwise ... contacts captured by others [wrongly] come back empty"* —
+  the splitter never adopted that fix. Both usages now
+  `->withoutGlobalScope(ContactScope::class)`, matching the established
+  pattern (AgencyScope + SoftDeletes still apply — only the role-based
+  visibility filter is bypassed).
+- **An uncaught OCR-pipeline exception could abort an entire batch (real
+  bug, now fixed).** `buildManifestForFile()`'s already-caught "0 pages"
+  case only covers a clean qpdf failure; a genuinely corrupt *page* inside
+  an otherwise-fine PDF can make `pdftoppm` throw a `RuntimeException`
+  mid-classification. Uncaught, that would 500 the whole `run()` request —
+  losing every already-OCR'd file in the loop, since nothing reaches session
+  until the loop finishes. Now wrapped in try/catch, logged, and treated
+  exactly like the null-return skip path.
+- **Stale-batch check misfired on a missing manifest, trapping the agent in
+  an unrecoverable reload loop (real bug, now fixed).** `rejectIfStaleBatch()`
+  compared the posted `manifest_ids[]` (built only from the manifests that
+  actually LOADED) against the full, unpruned session batch using exact
+  array equality — so the "one file went missing mid-review" case (which
+  `loadCompleteBatchOrFail()` is supposed to catch with an accurate message)
+  was instead misdiagnosed as "you started a new upload in another tab,"
+  and reloading never fixed it since the same manifest stayed missing. Now a
+  subset check (every posted ID must be IN the session batch; the session
+  batch is allowed to have more) — the genuine "batch replaced elsewhere"
+  case is still caught, the "batch shrank because a file expired" case now
+  falls through to the correct message.
+- **Missing-manifest banner said the actions were "blocked" but didn't
+  actually disable them (real bug, now fixed).** The warning banner added
+  in the previous audit pass claimed "Download ZIP and Link are blocked,"
+  but the buttons' `:disabled` bindings never checked the missing-file
+  count — only `submitting`/`!property`. Added `hasMissing` to the Alpine
+  state, wired into both buttons.
+- **`@copy()`/`ZipArchive::addFile()` failures were silently ignored (real
+  gap, now fixed).** A failed single-part copy (disk pressure, permissions)
+  or a failed ZIP add would still let `confirm()` report "ZIP generated"
+  success with a document quietly absent from the archive. Now both are
+  checked: a missing/empty extracted output is logged and skipped before it
+  reaches the ZIP list; any `addFile()` failure aborts the whole ZIP with an
+  explicit error rather than shipping a silently-incomplete archive.
+- **0-byte extracted file masked as `size: null` instead of `0` (minor,
+  now fixed).** `@filesize($abs) ?: null` collapsed a genuinely empty/
+  truncated output the same way as a real stat() failure, hiding a corrupt
+  filed document behind "size unknown." Now only an actual `false` return
+  becomes `null`.
+- **`bulkType` hardcoded to `'other'` regardless of the dropdown's actual
+  first option (minor, now fixed).** If `'other'` were ever deactivated for
+  an agency, the Bulk dropdown would visually show a different first option
+  while the underlying Alpine state silently stayed `'other'` — "Set ALL
+  pages" would then mislabel everything to an option the dropdown never
+  offered. Now seeded from the doc-type list's own first entry.
+- **Flagged, not fixed — qpdf error string never logged.** Added
+  (`Log::warning` in `buildManifestForFile()` and the wrapped-exception
+  path) so production support can distinguish "this one file is corrupt"
+  from "qpdf is misconfigured for every upload" without reproducing
+  manually.
+- **Flagged, not fixed — deeper architectural items.** (1) No transaction/
+  idempotency wrapping around `fileGroupsToDestinations()`'s per-group
+  filing loop — a mid-batch failure leaves a partial commit, and a natural
+  agent retry re-files the already-committed groups as duplicates. Fixing
+  this touches `DealDocumentService::fileClassifiedDocument`'s transaction
+  contract, shared by DR2/e-sign callers — out of scope for a same-day
+  splitter-only pass. (2) The FICA dedupe race (`existingActiveFica()` is
+  an unlocked SELECT before the submission-creating transaction) is
+  unchanged from the previous audit's assessment — the client-side
+  submit-disable mitigates the common trigger (a double-click) but the
+  underlying race needs a DB-level lock/unique constraint in
+  `FicaWetInkService`, shared by other callers. (3) `destinationForSlug()`
+  is called per-group (not batched via the service's own
+  `destinationMapFor()`) in both the AT-167 pre-flight check and
+  `fileGroupsToDestinations()` — a real N+1 that scales with batch size (a
+  40-group batch issues on the order of 160 queries for destination
+  resolution alone), but fixing it touches the core filing-destination
+  logic twice; deferred rather than risk a subtle behavioural change to
+  compliance filing this late in the pass. (4) `resolveFinalLabels()`'s
+  `'other'` fallback (added to stop a deactivated-doc-type page from
+  vanishing) only works if `'other'` itself stays active — an admin
+  deactivating the universal catch-all is an extreme, self-inflicted edge
+  case not further hardened against. (5) `pdf.*` MIME validation is a hard
+  whole-request 422 before the loop, inconsistent with every other
+  per-file failure (empty/corrupt PDF) being a soft in-loop skip — a UX
+  papercut (one bad file forces re-selecting the whole batch), not a
+  correctness bug.
+
 ## Permissions
 
 Unchanged: `access_pdf_splitter`, already required on every splitter route
