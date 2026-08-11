@@ -165,16 +165,8 @@ class ProspectingListing extends Model
      */
     public function scopeWhereCompanyStock($query, int $agencyId)
     {
-        $sets = app(\App\Services\Prospecting\OnMarketStockService::class)->identitySets($agencyId);
-        $refs = array_keys($sets['refs']);
-        $norms = array_keys($sets['normAddrs']);
-        if (empty($refs) && empty($norms)) {
-            return $query->whereRaw('1 = 0');
-        }
-        return $query->where(function ($q) use ($refs, $norms) {
-            if (!empty($refs))  $q->whereIn('portal_ref', $refs);
-            if (!empty($norms)) $q->orWhereIn('normalized_address', $norms);
-        });
+        return app(\App\Services\Prospecting\OnMarketStockService::class)
+            ->applyIsStock($query, $agencyId);
     }
 
     /**
@@ -185,19 +177,8 @@ class ProspectingListing extends Model
      */
     public function scopeWhereNotCompanyStock($query, int $agencyId)
     {
-        $sets = app(\App\Services\Prospecting\OnMarketStockService::class)->identitySets($agencyId);
-        $refs = array_keys($sets['refs']);
-        $norms = array_keys($sets['normAddrs']);
-        if (!empty($refs)) {
-            $query->whereNotIn('portal_ref', $refs);
-        }
-        if (!empty($norms)) {
-            $query->where(function ($q) use ($norms) {
-                $q->whereNull('normalized_address')
-                  ->orWhereNotIn('normalized_address', $norms);
-            });
-        }
-        return $query;
+        return app(\App\Services\Prospecting\OnMarketStockService::class)
+            ->applyNotStock($query, $agencyId);
     }
 
     /**

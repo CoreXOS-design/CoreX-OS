@@ -36,7 +36,8 @@ final class CompetitiveLandscapeService
         $rows = DB::table('prospecting_listings')
             ->where('agency_id', $agencyId)
             ->where('is_active', true)
-            ->whereNull('matched_property_id')
+            // Canonical "our on-market stock" exclusion — Work-tab-consistent pool.
+            ->where(fn ($q) => app(\App\Services\Prospecting\OnMarketStockService::class)->applyNotStock($q, $agencyId))
             ->whereNull('deleted_at')
             ->where('suburb', $suburb)
             ->whereNotNull('agency_name')

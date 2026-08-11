@@ -166,6 +166,74 @@ class OnMarketStockService
             ->count();
     }
 
+    /**
+     * Exclude our own on-market stock from a builder (the canvass pool) — the
+     * canonical "our stock" filter EVERY MIC surface shares. Works on Eloquent AND
+     * raw DB::table builders; pass qualified columns for aliased/joined queries
+     * (e.g. 'pl.portal_ref', 'pl.normalized_address').
+     *
+     * NULL-safe: a listing with a NULL normalized_address that isn't ref-matched
+     * STAYS in the pool (a bare NOT IN would drop it on the NULL).
+     *
+     * @template T
+     * @param  T  $query
+     * @return T
+     */
+    public function applyNotStock($query, int $agencyId, string $refCol = 'portal_ref', string $normCol = 'normalized_address')
+    {
+        $sets = $this->identitySets($agencyId);
+        $refs = array_keys($sets['refs']);
+        $norms = array_keys($sets['normAddrs']);
+        if (!empty($refs)) {
+            $query->whereNotIn($refCol, $refs);
+        }
+        if (!empty($norms)) {
+            $query->where(function ($q) use ($norms, $normCol) {
+                $q->whereNull($normCol)->orWhereNotIn($normCol, $norms);
+            });
+        }
+        return $query;
+    }
+
+    /**
+     * Inverse of applyNotStock — restrict a builder to our own on-market stock
+     * (ref OR normalized_address). Same canonical identity.
+     *
+     * @template T
+     * @param  T  $query
+     * @return T
+     */
+    public function applyIsStock($query, int $agencyId, string $refCol = 'portal_ref', string $normCol = 'normalized_address')
+    {
+        $sets = $this->identitySets($agencyId);
+        $refs = array_keys($sets['refs']);
+        $norms = array_keys($sets['normAddrs']);
+        if (empty($refs) && empty($norms)) {
+            return $query->whereRaw('1 = 0');
+        }
+        return $query->where(function ($q) use ($refs, $norms, $refCol, $normCol) {
+            if (!empty($refs))  $q->whereIn($refCol, $refs);
+            if (!empty($norms)) $q->orWhereIn($normCol, $norms);
+        });
+    }
+
+    /**
+     * De-dup expression for counting DISTINCT properties in the canvass pool.
+     * The same real property is re-scraped under ROTATING portal_refs; a pool
+     * COUNT(*) therefore inflates. The canonical group is agency + portal_source +
+     * normalized_address (queries are already agency-scoped, so the key is
+     * portal_source|normalized_address). Rows with no normalized_address can't be
+     * collapsed, so they are counted individually by id.
+     *
+     * Returns a raw SQL fragment for use in ->selectRaw(...). Pass qualified
+     * columns for aliased queries (e.g. 'pl.id', 'pl.portal_source').
+     */
+    public function distinctPropertyCountSql(string $idCol = 'id', string $sourceCol = 'portal_source', string $normCol = 'normalized_address'): string
+    {
+        return "COUNT(DISTINCT CASE WHEN {$normCol} IS NULL OR {$normCol} = '' "
+            . "THEN CONCAT('id:', {$idCol}) ELSE CONCAT({$sourceCol}, '|', {$normCol}) END)";
+    }
+
     /** Test/maintenance hook — drop the per-request memo. */
     public static function flushCache(): void
     {

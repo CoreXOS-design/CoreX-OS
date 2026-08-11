@@ -590,7 +590,11 @@ class MarketIntelligenceController extends Controller
             ->count('prospecting_buyer_matches.prospecting_listing_id');
 
         $stats = [
-            'total'            => (clone $statsBase)->count(),
+            // Pool total as DISTINCT properties (rotating-ref de-dup) — consistent
+            // with the $active KPI + the per-suburb facet counts.
+            'total'            => (int) (clone $statsBase)->selectRaw(
+                                    app(\App\Services\Prospecting\OnMarketStockService::class)->distinctPropertyCountSql() . ' as c'
+                                  )->value('c'),
             'avg_price'        => (int) (clone $statsBase)->avg('price'),
             'new_this_week'    => (clone $statsBase)->where('first_seen_at', '>=', $weekAgo)->count(),
             'price_reductions' => ProspectingListing::where('agency_id', $agencyId)
@@ -2010,22 +2014,10 @@ class MarketIntelligenceController extends Controller
      */
     private function applyNotCompanyStockRaw($query, int $agencyId)
     {
-        // Same canvass-pool exclusion as ProspectingListing::scopeWhereNotCompanyStock
-        // (on-market stock by ref OR normalized_address), for RAW DB::table builders.
-        // NULL-safe on normalized_address so a NULL-address listing isn't dropped.
-        $sets = app(\App\Services\Prospecting\OnMarketStockService::class)->identitySets($agencyId);
-        $refs = array_keys($sets['refs']);
-        $norms = array_keys($sets['normAddrs']);
-        if (!empty($refs)) {
-            $query->whereNotIn('portal_ref', $refs);
-        }
-        if (!empty($norms)) {
-            $query->where(function ($q) use ($norms) {
-                $q->whereNull('normalized_address')
-                  ->orWhereNotIn('normalized_address', $norms);
-            });
-        }
-        return $query;
+        // Canonical canvass-pool exclusion (on-market stock by ref OR normalized_address,
+        // NULL-safe) for RAW DB::table builders — same source of truth as the scope.
+        return app(\App\Services\Prospecting\OnMarketStockService::class)
+            ->applyNotStock($query, $agencyId);
     }
 
     /**
@@ -2086,12 +2078,15 @@ class MarketIntelligenceController extends Controller
         }
 
         // Perf (cc6): the pool scalars ($active + $new_today) share ONE base query,
-        // so compute them in a single conditional-SUM pass instead of two separate
-        // full-pool COUNT scans. Identical numbers — COUNT(*) and a CASE-guarded
-        // SUM over the same rows.
+        // so compute them in a single pass instead of two separate scans.
+        // De-dup: $active is the pool TOTAL, counted as DISTINCT properties (canonical
+        // group = portal_source + normalized_address) so rotating-ref re-scrapes of the
+        // same property don't inflate it. $new_today stays a raw row count (it's a
+        // "new since midnight" signal, not the headline total).
+        $onMarketStock = app(\App\Services\Prospecting\OnMarketStockService::class);
         $poolScalars = (clone $baseQuery)
             ->selectRaw(
-                'COUNT(*) as active_count, '
+                $onMarketStock->distinctPropertyCountSql() . ' as active_count, '
                 . 'SUM(CASE WHEN first_seen_at >= ? THEN 1 ELSE 0 END) as new_today_count',
                 [now()->startOfDay()->toDateTimeString()]
             )
@@ -2272,9 +2267,14 @@ class MarketIntelligenceController extends Controller
             return $q;
         };
 
+        // De-dup rotating-ref duplicates: per-suburb (and type/beds) counts reflect
+        // DISTINCT properties, not raw rows (canonical group = portal_source +
+        // normalized_address, agency-scoped). Uvongo de-inflates ~204 → ~183.
+        $distinctCount = app(\App\Services\Prospecting\OnMarketStockService::class)->distinctPropertyCountSql();
+
         $bySuburb = $base()
             ->whereNotNull('suburb')->where('suburb', '!=', '')
-            ->select('suburb', DB::raw('COUNT(*) as c'))
+            ->select('suburb', DB::raw($distinctCount . ' as c'))
             ->groupBy('suburb')
             ->orderByDesc('c')
             ->limit(20)
@@ -2282,14 +2282,14 @@ class MarketIntelligenceController extends Controller
 
         $byType = $base()
             ->whereNotNull('property_type')->where('property_type', '!=', '')
-            ->select('property_type', DB::raw('COUNT(*) as c'))
+            ->select('property_type', DB::raw($distinctCount . ' as c'))
             ->groupBy('property_type')
             ->orderByDesc('c')
             ->get();
 
         $byBeds = $base()
             ->whereNotNull('bedrooms')
-            ->select('bedrooms', DB::raw('COUNT(*) as c'))
+            ->select('bedrooms', DB::raw($distinctCount . ' as c'))
             ->groupBy('bedrooms')
             ->orderBy('bedrooms')
             ->get();
