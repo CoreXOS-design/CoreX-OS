@@ -71,6 +71,13 @@ class MarketIntelligenceController extends Controller
         // requests (that is the whole speed win); the fragment branch returns just
         // after the shared shell data (KPIs / rail counts / suggested actions) is built.
         $isFragment = $request->boolean('_fragments');
+        // Now that $isFragment is captured, strip _fragments from the query bag so it
+        // never leaks into any URL this request builds — the paginator's baked query
+        // (LengthAwarePaginator options['query']), the filter-rail/sort links, and the
+        // canonical push-state URL. Previously stripped only inside the fragment branch,
+        // AFTER the paginator was built, so page links carried _fragments=1 and a
+        // full-navigation "next page" click hit the JSON branch → raw JSON dump.
+        $request->query->remove('_fragments');
 
         // F.3 — the legacy ->with('activeClaim.user') eager-load is gone.
         // All claim state for the row is now read from $listingStates['claims']
@@ -573,6 +580,24 @@ class MarketIntelligenceController extends Controller
         // rows matching an off-market property correctly lose it.
         $companyStockMap = app(\App\Services\Prospecting\OnMarketStockService::class)
             ->stockMapForListings($listings->items(), $agencyId);
+
+        // #3 — a company-stock listing scraped WITHOUT an address renders a blank
+        // row even though we hold the matched property (which has an address). Since
+        // it IS our stock, show the MATCHED PROPERTY's address: hydrate the row's
+        // address from the property when the listing's own address is blank. Only
+        // touches company-stock rows; prospecting rows keep their own address.
+        if (! empty($companyStockMap)) {
+            $companyPropAddresses = \App\Models\Property::withoutGlobalScopes()
+                ->whereIn('id', array_values($companyStockMap))
+                ->pluck('address', 'id');
+            foreach ($listings->items() as $__it) {
+                $__pid = $companyStockMap[$__it->id] ?? null;
+                if ($__pid && blank($__it->address) && filled($companyPropAddresses[$__pid] ?? null)) {
+                    $__it->address = $companyPropAddresses[$__pid];
+                }
+            }
+        }
+
         $agencyRecord = \App\Models\Agency::find($agencyId);
         $agencyLogoUrl = ($agencyRecord && $agencyRecord->logo_path)
             ? asset('storage/' . $agencyRecord->logo_path)
@@ -821,6 +846,10 @@ class MarketIntelligenceController extends Controller
             $agencyId,
             $user?->id !== null ? (int) $user->id : null,
             $thresholdsForPreset,
+            // Suburb-scope the preset tiles (Pitch now·high / My claims / Expiring) so
+            // they honour the active LITERAL suburb filter like the rest of the strip,
+            // instead of leaking agency-wide counts (e.g. Pitch now·high 2,537).
+            $request->filled('suburb') ? (string) $request->get('suburb') : null,
         );
         $filterRailAggregates = $this->computeFilterRailAggregates($agencyId, $includeInStock, $railCountBase);
         $demandPockets = $this->computeDemandPockets($agencyId, $thresholdsForPreset);
@@ -831,11 +860,10 @@ class MarketIntelligenceController extends Controller
         // flag first so the links the partials render (and the pushState URL) carry
         // only real filter params.
         if ($isFragment) {
-            // Drop the flag from the input bag so the links the partials render
-            // (request()->except('page')) don't carry _fragments…
-            $request->query->remove('_fragments');
-            // …and build the canonical push-state URL explicitly (fullUrl() reads
-            // the raw QUERY_STRING, which the bag mutation above does not touch).
+            // _fragments was already stripped from the query bag right after capture
+            // (see top of work()), so the partial links are clean. Build the canonical
+            // push-state URL explicitly — fullUrl() reads the raw QUERY_STRING, which
+            // the bag mutation does not touch.
             $canonicalParams = $request->except('_fragments');
             $canonicalUrl = $request->url()
                 . (empty($canonicalParams) ? '' : ('?' . http_build_query($canonicalParams)));
@@ -2175,8 +2203,10 @@ class MarketIntelligenceController extends Controller
         int $agencyId,
         ?int $viewerId,
         SuggestedActionThresholds $thresholds,
+        ?string $suburbFilter = null,
     ): array {
         $strongMin = (int) $thresholds->high_value_strong_min;
+        $hasSuburb = $suburbFilter !== null && trim($suburbFilter) !== '';
 
         // Listing IDs with at least one strong-tier match
         $strongMatches = DB::table('prospecting_buyer_matches')
@@ -2204,6 +2234,8 @@ class MarketIntelligenceController extends Controller
             ->where('is_active', true)
             ->whereNull('matched_property_id')
             ->whereNull('deleted_at')
+            // Suburb-scope so Pitch now·high / Pitch now honour the active filter.
+            ->when($hasSuburb, fn ($q) => $q->where('suburb', $suburbFilter))
             ->pluck('id')->all();
 
         $pitchHigh = count(array_intersect($pitchHighIds, $canvassPool)) -
@@ -2225,6 +2257,7 @@ class MarketIntelligenceController extends Controller
                     $q->whereNull('s.outcome')->orWhere('s.outcome', 'sent');
                 })
                 ->whereBetween('s.sent_at', [$stale, $overdue])
+                ->when($hasSuburb, fn ($q) => $q->where('pl.suburb', $suburbFilter))
                 ->distinct()->count(DB::raw('pl.id'));
         }
 
@@ -2232,21 +2265,28 @@ class MarketIntelligenceController extends Controller
         $myClaims = 0;
         $expiring = 0;
         if ($viewerId !== null) {
-            $myClaims = DB::table('prospecting_claims')
-                ->where('agency_id', $agencyId)
-                ->where('user_id', $viewerId)
-                ->where('is_active', true)
-                ->whereNull('released_at')
+            // Suburb-scope owner claim tiles via the claim's listing suburb.
+            $myClaims = DB::table('prospecting_claims as c')
+                ->where('c.agency_id', $agencyId)
+                ->where('c.user_id', $viewerId)
+                ->where('c.is_active', true)
+                ->whereNull('c.released_at')
+                ->when($hasSuburb, fn ($q) => $q
+                    ->join('prospecting_listings as pl', 'pl.id', '=', 'c.prospecting_listing_id')
+                    ->where('pl.suburb', $suburbFilter))
                 ->count();
 
             $hoursOlderThan = 48 - (int) $thresholds->expiry_warning_hours;
-            $expiring = DB::table('prospecting_claims')
-                ->where('agency_id', $agencyId)
-                ->where('user_id', $viewerId)
-                ->where('is_active', true)
-                ->whereNull('released_at')
-                ->whereNull('feedback_at')
-                ->where('last_updated_at', '<=', now()->subHours($hoursOlderThan))
+            $expiring = DB::table('prospecting_claims as c')
+                ->where('c.agency_id', $agencyId)
+                ->where('c.user_id', $viewerId)
+                ->where('c.is_active', true)
+                ->whereNull('c.released_at')
+                ->whereNull('c.feedback_at')
+                ->where('c.last_updated_at', '<=', now()->subHours($hoursOlderThan))
+                ->when($hasSuburb, fn ($q) => $q
+                    ->join('prospecting_listings as pl', 'pl.id', '=', 'c.prospecting_listing_id')
+                    ->where('pl.suburb', $suburbFilter))
                 ->count();
         }
 

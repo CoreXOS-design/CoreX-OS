@@ -7,7 +7,7 @@
 
     Sections (top → bottom):
       search, active filter pills,
-      By town, By type, By beds, Demand pockets,
+      By suburb, By type, By beds, Demand pockets,
       By price band, By status, By captured by (manager-only),
       By date, By agency
 
@@ -226,11 +226,11 @@
         </div>
     </div>
 
-    {{-- By town --}}
+    {{-- By suburb --}}
     @if($agg['by_suburb']->count() > 0)
     <div x-data="{ open: true, showAll: false }" data-tour="mic-by-town" style="border-bottom: 1px solid var(--border);">
         <button @click="open = !open" type="button" style="{{ $sectionTitleStyle }}; width: 100%; text-align: left; background: none; border: none; cursor: pointer; padding: 8px 12px;">
-            <span x-text="open ? '▾' : '▸'" style="display: inline-block; width: 12px;"></span> By town
+            <span x-text="open ? '▾' : '▸'" style="display: inline-block; width: 12px;"></span> By suburb
         </button>
         <div x-show="open">
             @foreach($agg['by_suburb']->take(8) as $row)
