@@ -569,10 +569,6 @@ class PropertyMatchScoringService
             ->get()
             ->groupBy('contact_id');
 
-        if ($matchesByContact->isEmpty()) {
-            return 0;
-        }
-
         $bandPct = AgencyContactSettings::forAgency((int) $listing->agency_id)->micPriceBandFraction();
         $target  = $this->wrapCaptureAsProperty($listing);
 
@@ -600,18 +596,35 @@ class PropertyMatchScoringService
             ];
         }
 
-        if (empty($rows)) {
-            return 0;
-        }
+        // Stale-row eviction — mirror recomputeProspectingMatchesForBuyer()'s
+        // BUG 2 fix. This listing's cache must exactly reflect the current
+        // qualifying set, so a buyer who dropped out (family/suburb gate,
+        // wishlist deactivated, score decayed) doesn't keep an old cached
+        // match forever. Previously this method only ever upserted, so a
+        // stale row could outlive the wishlist (or type mismatch) that
+        // produced it — exactly what left wrong buyers showing on 358
+        // Sutherland Crescent after the property-type family gate was fixed.
+        DB::transaction(function () use ($listingId, $listing, $rows) {
+            $keepContactIds = array_column($rows, 'contact_id');
+            $stale = DB::table('prospecting_buyer_matches')
+                ->where('prospecting_listing_id', $listingId)
+                ->where('agency_id', $listing->agency_id);
+            if (!empty($keepContactIds)) {
+                $stale->whereNotIn('contact_id', $keepContactIds);
+            }
+            $stale->delete();
 
-        // Raw DB::table upsert for consistency with property_buyer_matches write path.
-        // Reads still go through ProspectingBuyerMatch (BelongsToAgency scope applies).
-        $this->chunkedUpsert(
-            'prospecting_buyer_matches',
-            $rows,
-            ['prospecting_listing_id', 'contact_id'],
-            ['agency_id', 'score', 'tier', 'source', 'matched_features', 'missing_features', 'last_recompute_at', 'updated_at']
-        );
+            if (!empty($rows)) {
+                // Raw DB::table upsert for consistency with property_buyer_matches write path.
+                // Reads still go through ProspectingBuyerMatch (BelongsToAgency scope applies).
+                $this->chunkedUpsert(
+                    'prospecting_buyer_matches',
+                    $rows,
+                    ['prospecting_listing_id', 'contact_id'],
+                    ['agency_id', 'score', 'tier', 'source', 'matched_features', 'missing_features', 'last_recompute_at', 'updated_at']
+                );
+            }
+        });
 
         return count($rows);
     }
