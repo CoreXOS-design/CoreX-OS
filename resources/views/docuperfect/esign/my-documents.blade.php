@@ -730,18 +730,25 @@
     </div>
     @endif
 
-    {{-- ===== RECIPIENT ADDITIONAL DOCS (optional supporting uploads) ===== --}}
-    @if(($supportingRows ?? collect())->isNotEmpty())
+    {{-- ===== RECIPIENT ADDITIONAL DOCS (optional supporting uploads) =====
+         ALWAYS rendered (even with zero uploads) so the agent can find the place —
+         with an empty-state line when nothing has been uploaded yet. --}}
+    @php $supportingRows = $supportingRows ?? collect(); @endphp
     <div id="recipient-additional-docs" class="space-y-3 scroll-mt-4 mt-6">
         <h3 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--brand-icon);">
             Recipient additional docs ({{ number_format($supportingRows->count()) }})
         </h3>
-        <p class="text-xs" style="color: var(--text-muted);">Optional supporting documents recipients attached while signing (or after). View, download, or hand off to the document splitter.</p>
+        <p class="text-xs" style="color: var(--text-muted);">Optional supporting documents a signer attaches on their signing screen (during or after signing) show up here — for you to view, download, or hand off to the document splitter.</p>
 
         @if(session('supporting_process_notice'))
             <div class="rounded-md px-4 py-2 text-sm" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--text-primary); border: 1px solid var(--border);">{{ session('supporting_process_notice') }}</div>
         @endif
 
+        @if($supportingRows->isEmpty())
+            <div class="rounded-md px-4 py-6 text-sm text-center" style="background: var(--surface); border: 1px dashed var(--border); color: var(--text-muted);">
+                No recipient uploads yet. When a signer attaches a supporting document on their signing screen, it will appear here.
+            </div>
+        @else
         <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="overflow-x-auto">
             <table class="min-w-full text-sm ds-table">
@@ -778,8 +785,8 @@
             </table>
             </div>
         </div>
+        @endif
     </div>
-    @endif
 
     {{-- ===== CANCELLED (collapsed by default) ===== --}}
     @if($groups['cancelled']->isNotEmpty())
