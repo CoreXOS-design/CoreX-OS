@@ -442,13 +442,13 @@
 
         <div class="flex items-center gap-3 flex-wrap" style="margin-top:4px;">
             <button type="submit" class="btn-gen" formaction="{{ route('tools.pdf_splitter.link') }}" data-tour="spr-link"
-                    :disabled="submitting || !property"
-                    :title="property ? 'File every page (across all files above) to its destination(s) and assigned contact(s)' : 'Pick a property first'">
+                    :disabled="submitting || hasMissing || !property"
+                    :title="hasMissing ? 'A file in this batch could not be loaded — re-upload the whole batch' : (property ? 'File every page (across all files above) to its destination(s) and assigned contact(s)' : 'Pick a property first')">
                 <span x-text="submitting ? 'Working…' : 'Link'"></span>
             </button>
             <button type="submit" class="btn-gen secondary" formaction="{{ route('tools.pdf_splitter.confirm') }}" data-tour="spr-zip"
-                    :disabled="submitting"
-                    title="Produce one combined ZIP for every file above — no filing, no FICA">
+                    :disabled="submitting || hasMissing"
+                    :title="hasMissing ? 'A file in this batch could not be loaded — re-upload the whole batch' : 'Produce one combined ZIP for every file above — no filing, no FICA'">
                 <span x-show="!submitting">&#x2913;&nbsp; Download ZIP</span>
                 <span x-show="submitting">Working…</span>
             </button>
@@ -478,7 +478,12 @@ document.addEventListener('alpine:init', () => {
         // ── state ─────────────────────────────────────────────────────────
         files:      @json($fileSeed),    // [{manifestId, base, originalName, pCount, pages:[...]}]
         submitting: false,                // true once Link/Download ZIP is submitted — blocks a double-click resubmit
-        bulkType:   'other',
+        hasMissing: @json(!empty($missingCount)), // a manifest failed to load — Link/ZIP must actually be blocked, not just warned about
+        // Seeded from whatever the dropdown's own FIRST option actually is —
+        // not hardcoded to 'other', which may not be active for this agency
+        // (nothing prevents deactivating it) and would otherwise leave
+        // bulkType silently pointing at an option the <select> never offers.
+        bulkType:   @json(array_key_first($docTypes) ?? 'other'),
         q: '', propResults: [],
         property: null,
         dealQ: '', dealResults: [], deal: null,
