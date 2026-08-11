@@ -116,10 +116,10 @@ final class MisfiledDocumentsTest extends TestCase
         $p = $this->makeProperty();
         $id = $this->seedManifest(['1' => 'ids']); // one contact-only page
 
-        $resp = $this->withSession(['splitter_manifest_id' => $id])
+        $resp = $this->withSession(['splitter_batch' => [$id]])
             ->post(route('tools.pdf_splitter.link'), [
                 'property_id' => $p->id,
-                'labels'      => [1 => 'ids'],
+                'labels'      => [$id => [1 => 'ids']],
                 'contacts'    => [], // NO contact assigned on the ID page
             ]);
 

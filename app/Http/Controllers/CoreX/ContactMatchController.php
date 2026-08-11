@@ -142,12 +142,25 @@ class ContactMatchController extends Controller
         $allMatches  = $query->get();
         $matchCounts = $this->propertyCountsFor($allMatches);
 
-        // Group by owning agent for the oversight view.
+        // Group by owning agent for the oversight view, then by contact within
+        // each agent — a contact with several saved wishlists (AT-266) reads as
+        // one sub-group instead of scattering as repeated flat rows.
         $byAgent = $allMatches->groupBy('created_by_user_id')
-            ->map(fn ($items) => [
-                'agent'   => $items->first()->createdBy,
-                'matches' => $items,
-            ])
+            ->map(function ($items) {
+                $contacts = $items->groupBy('contact_id')
+                    ->map(fn ($m) => [
+                        'contact' => $m->first()->contact,
+                        'matches' => $m,
+                    ])
+                    ->sortBy(fn ($row) => $row['contact']?->full_name ?? 'zzz')
+                    ->values();
+
+                return [
+                    'agent'    => $items->first()->createdBy,
+                    'matches'  => $items,
+                    'contacts' => $contacts,
+                ];
+            })
             ->sortBy(fn ($row) => $row['agent']?->name ?? 'zzz')
             ->values();
 

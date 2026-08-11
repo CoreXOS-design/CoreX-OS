@@ -3,12 +3,7 @@
 
 @section('corex-content')
 @php
-    $base       = $manifest['base'];
-    $pCount     = (int)$manifest['pCount'];
-    $labels     = $manifest['labels'];      // string-keyed
-    $snippets   = $manifest['snippets'];
-    $pageScores = $manifest['pageScores'];
-    $docTypes   = $manifest['docTypes'];    // ['mandate' => 'Mandate', ...]
+    $docTypes = $manifests[0]['docTypes'] ?? [];    // catalogue is agency-global — same across every file in this batch
 
     // AT-105 small fix — the doc-type picker on THIS review screen lists
     // alphabetically by label (case-insensitive); the list outgrew sort_order
@@ -16,21 +11,40 @@
     // keeps its deliberate sort_order arrangement (separate query/view).
     uasort($docTypes, fn ($a, $b) => strcasecmp((string) $a, (string) $b));
 
-    // Pre-build per-page seed data for the Alpine component (contacts resolve
-    // client-side once a property is picked).
-    $pageSeed = [];
-    for ($p = 1; $p <= $pCount; $p++) {
-        $sc   = $pageScores[(string)$p] ?? [];
-        $nonZ = array_filter($sc, fn($v) => $v > 0);
-        $pageSeed[] = [
-            'page'    => $p,
-            'label'   => $labels[(string)$p] ?? 'other',
-            'snippet' => $snippets[(string)$p] ?? '',
-            'scores'  => !empty($nonZ)
-                ? implode(' ', array_map(fn($k,$v)=>"{$k}={$v}", array_keys($nonZ), $nonZ))
-                : 'no hits',
-            'contactIds' => [],
-            'touched'    => false,
+    // Pre-build per-file, per-page seed data for the Alpine component (contacts
+    // resolve client-side once a property is picked). One entry per uploaded
+    // PDF, each carrying its own manifest ID + pages — the stacked-batch model.
+    $fileSeed = [];
+    $totalPages = 0;
+    foreach ($manifests as $m) {
+        $pCount     = (int) $m['pCount'];
+        $labels     = $m['labels'];
+        $snippets   = $m['snippets'];
+        $pageScores = $m['pageScores'];
+        $totalPages += $pCount;
+
+        $pages = [];
+        for ($p = 1; $p <= $pCount; $p++) {
+            $sc   = $pageScores[(string) $p] ?? [];
+            $nonZ = array_filter($sc, fn ($v) => $v > 0);
+            $pages[] = [
+                'page'    => $p,
+                'label'   => $labels[(string) $p] ?? 'other',
+                'snippet' => $snippets[(string) $p] ?? '',
+                'scores'  => !empty($nonZ)
+                    ? implode(' ', array_map(fn ($k, $v) => "{$k}={$v}", array_keys($nonZ), $nonZ))
+                    : 'no hits',
+                'contactIds' => [],
+                'touched'    => false,
+            ];
+        }
+
+        $fileSeed[] = [
+            'manifestId'   => $m['manifestId'],
+            'base'         => $m['base'],
+            'originalName' => $m['original_name'] ?? $m['base'],
+            'pCount'       => $pCount,
+            'pages'        => $pages,
         ];
     }
 @endphp
@@ -43,6 +57,11 @@
     background: color-mix(in srgb, var(--ds-crimson, #ef4444) 12%, var(--surface));
     border:1px solid color-mix(in srgb, var(--ds-crimson, #ef4444) 25%, var(--border));
     color:var(--ds-crimson);
+}
+#spr .alert-warn {
+    background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, var(--surface));
+    border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, var(--border));
+    color:var(--text-primary);
 }
 #spr .card { background: var(--surface); border: 1px solid var(--border); border-radius:6px; box-shadow: var(--pv2-shadow); }
 #spr .toolbar {
@@ -64,6 +83,15 @@
     transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease; white-space:nowrap;
 }
 #spr button.tb-btn:hover { background:var(--surface-2); border-color:var(--border-hover); color:var(--text-primary); }
+#spr .file-divider {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+    margin: 22px 0 8px 0; padding: 10px 14px;
+    background: var(--surface-2, var(--surface)); border: 1px solid var(--border);
+    border-left: 3px solid var(--ds-teal, #14b8a6); border-radius: 6px;
+}
+#spr .file-divider:first-of-type { margin-top: 0; }
+#spr .file-divider .name { font-size: .875rem; font-weight: 700; color: var(--text-primary); word-break: break-all; }
+#spr .file-divider .meta { font-size: .72rem; color: var(--text-muted); white-space: nowrap; }
 #spr .tbl-wrap { background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden; margin-bottom:16px; box-shadow: var(--pv2-shadow); }
 #spr table { width:100%; border-collapse:collapse; }
 #spr thead th {
@@ -133,11 +161,24 @@
         </div>
         <div class="flex flex-wrap items-center gap-2">
             <span class="text-xs font-medium" style="color: var(--text-muted);">
-                <strong style="color: var(--text-secondary);">{{ $base }}</strong> &middot; {{ $pCount }} pages
+                <strong style="color: var(--text-secondary);">{{ count($manifests) }}</strong> file{{ count($manifests) === 1 ? '' : 's' }}
+                &middot; {{ $totalPages }} page{{ $totalPages === 1 ? '' : 's' }} total
             </span>
         </div>
     </div>
 </div>
+
+@if(!empty($skipped))
+<div class="alert alert-warn" style="max-width: 1240px; margin-left:auto; margin-right:auto;">
+    Could not split {{ count($skipped) === 1 ? 'this file' : 'these files' }} from the batch (unreadable / no pages): <strong>{{ implode(', ', $skipped) }}</strong>
+</div>
+@endif
+
+@if(!empty($missingCount))
+<div class="alert alert-error" style="max-width: 1240px; margin-left:auto; margin-right:auto;">
+    {{ $missingCount }} file{{ $missingCount === 1 ? '' : 's' }} in this batch could no longer be loaded (they may have expired). <strong>Download ZIP and Link are blocked</strong> until you re-upload the whole batch — nothing below can be safely processed while a file is missing.
+</div>
+@endif
 
 <div id="spr" x-data="splitterReview()" x-cloak>
 <div class="wrap">
@@ -150,7 +191,7 @@
         </div>
     @endif
 
-    {{-- Property picker --}}
+    {{-- Property picker — ONE property for the whole batch --}}
     <div class="card p-4 mb-4" data-tour="spr-property" style="border-left: 3px solid var(--brand-icon, #0ea5e9);">
         <div class="flex items-center justify-between mb-2">
             <label class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">
@@ -190,7 +231,7 @@
             </span>
         </div>
         <p x-show="!property" class="text-xs mt-2" style="color: var(--text-muted);">
-            Pick a property to enable per-page contact assignment and the “Link to CoreX” action. You can still “Download ZIP” without one.
+            Pick a property to enable per-page contact assignment and the “Link” action — it applies to every file below. You can still “Download ZIP” without one.
         </p>
     </div>
 
@@ -226,21 +267,21 @@
             </div>
         </div>
         <p class="text-xs mt-2" style="color: var(--text-muted);">
-            Filed documents are anchored to this deal too; a doc type that matches an active document step auto-completes it.
+            Filed documents (every file below) are anchored to this deal too; a doc type that matches an active document step auto-completes it.
         </p>
     </div>
     @endif
 
-    {{-- FICA toggle (compliance users only) --}}
+    {{-- FICA toggle (compliance users only) — spans every file in the batch --}}
     @if(!empty($canFica))
     <div class="card p-4 mb-4" data-tour="spr-fica" style="border-left: 3px solid var(--ds-purple, #7c3aed);" x-show="property">
         <label class="flex items-start gap-3" :class="ficaHasTargets ? 'cursor-pointer' : 'cursor-not-allowed opacity-70'">
             <input type="checkbox" :checked="ficaChecked" @change="ficaOverride = $event.target.checked" :disabled="!ficaHasTargets"
                    class="mt-0.5 rounded w-4 h-4" style="accent-color: var(--ds-purple, #7c3aed);">
             <span>
-                <span class="text-sm font-semibold" style="color: var(--text-primary);">Start wet-ink FICA verification(s) from this pack</span>
+                <span class="text-sm font-semibold" style="color: var(--text-primary);">Start wet-ink FICA verification(s) from this batch</span>
                 <span x-show="ficaHasTargets" class="block text-xs mt-1" style="color: var(--text-muted);">
-                    One verification per distinct contact who has a FICA / ID / Proof-of-Residence page assigned
+                    One verification per distinct contact who has a FICA / ID / Proof-of-Residence page assigned, across every file below
                     (<strong x-text="ficaTargetCount"></strong> will be started or reused). Each party FICAs individually.
                     The assigned pages auto-attach to the right slots; you finish the rest.
                 </span>
@@ -252,9 +293,9 @@
     </div>
     @endif
 
-    {{-- Bulk doc-type tools --}}
+    {{-- Bulk doc-type tools — applies across EVERY file below --}}
     <div class="toolbar" data-tour="spr-doctype">
-        <span class="tb-label">Bulk:</span>
+        <span class="tb-label">Bulk (all files):</span>
         <select class="tb-select" x-model="bulkType">
             @foreach($docTypes as $key => $label)
                 <option value="{{ $key }}">{{ $label }}</option>
@@ -263,13 +304,25 @@
         <button type="button" class="tb-btn" @click="setAll(bulkType)">Set ALL pages →</button>
         <button type="button" class="tb-btn" @click="resetAuto()">Reset to auto-detected</button>
         <span class="tb-label" style="margin-left:auto;" x-show="property">
-            Tip: the first page of each type pre-ticks its role contacts; later pages inherit your last choice.
+            Tip: the first page of each type pre-ticks its role contacts; later pages in the SAME file inherit your last choice.
         </span>
     </div>
 
-    {{-- The form. Two distinct submit actions (formaction). --}}
-    <form method="POST" action="{{ route('tools.pdf_splitter.confirm') }}" id="spr-form">
+    {{-- The form. Two distinct submit actions (formaction), covering every file.
+         @submit disables both buttons so a double-click/double-tap can't fire
+         two overlapping Link submissions (kickoffMultiFica's dedupe check runs
+         outside a lock, so two near-simultaneous requests could otherwise both
+         see "no existing FICA" and create two verifications for one contact). --}}
+    <form method="POST" action="{{ route('tools.pdf_splitter.confirm') }}" id="spr-form" @submit="submitting = true">
         @csrf
+        {{-- Binds this submission to the exact batch this page was rendered
+             for. If the agent started a new upload in another tab since this
+             page loaded, confirm()/link() reject the mismatch instead of
+             silently applying these labels/contacts to whatever batch is now
+             active in the session. --}}
+        <template x-for="file in files" :key="'mid-' + file.manifestId">
+            <input type="hidden" name="manifest_ids[]" :value="file.manifestId">
+        </template>
         <input type="hidden" name="property_id" :value="property ? property.id : ''">
         @if(!empty($canFica))
             <input type="hidden" name="trigger_fica" :value="ficaChecked ? '1' : '0'">
@@ -279,110 +332,127 @@
         @endif
 
         {{-- Deterministic submission: hidden inputs mirror Alpine state, so the
-             posted labels/contacts never depend on a checkbox :checked quirk. --}}
-        <template x-for="pg in pages" :key="pg.page">
+             posted labels/contacts never depend on a checkbox :checked quirk.
+             Nested per manifest ID so each file's pages post independently. --}}
+        <template x-for="file in files" :key="file.manifestId">
             <div>
-                <input type="hidden" :name="`labels[${pg.page}]`" :value="pg.label">
-                <template x-for="cid in pg.contactIds" :key="cid">
-                    <input type="hidden" :name="`contacts[${pg.page}][]`" :value="cid">
+                <template x-for="pg in file.pages" :key="pg.page">
+                    <div>
+                        <input type="hidden" :name="`labels[${file.manifestId}][${pg.page}]`" :value="pg.label">
+                        <template x-for="cid in pg.contactIds" :key="cid">
+                            <input type="hidden" :name="`contacts[${file.manifestId}][${pg.page}][]`" :value="cid">
+                        </template>
+                    </div>
                 </template>
             </div>
         </template>
 
-        <div class="tbl-wrap">
-            <table>
-                <thead>
-                    <tr>
-                        <th style="width:230px">Page</th>
-                        <th style="width:170px">Document type</th>
-                        <th data-tour="spr-assign">Assign to contact(s)</th>
-                        <th style="width:230px">OCR snippet</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <template x-for="pg in pages" :key="pg.page">
-                        <tr>
-                            {{-- Thumbnail --}}
-                            <td class="thumb-cell">
-                                <img :src="thumbTpl.replace('__PAGE__', pg.page)" :alt="`p${pg.page}`" loading="lazy">
-                                <span class="pg-num" x-text="`Page ${pg.page}`"></span>
-                            </td>
+        {{-- One clearly-divided section per uploaded PDF. --}}
+        <template x-for="file in files" :key="'section-' + file.manifestId">
+            <div>
+                <div class="file-divider">
+                    <span class="name" x-text="file.originalName"></span>
+                    <span class="meta" x-text="file.pCount + ' page' + (file.pCount === 1 ? '' : 's')"></span>
+                </div>
 
-                            {{-- Doc type --}}
-                            <td>
-                                <select class="lbl-select" x-model="pg.label" @change="onLabelChange(pg)">
-                                    @foreach($docTypes as $key => $dtLabel)
-                                        <option value="{{ $key }}">{{ $dtLabel }}</option>
-                                    @endforeach
-                                </select>
-                            </td>
+                <div class="tbl-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width:230px">Page</th>
+                                <th style="width:170px">Document type</th>
+                                <th data-tour="spr-assign">Assign to contact(s)</th>
+                                <th style="width:230px">OCR snippet</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="pg in file.pages" :key="pg.page">
+                                <tr>
+                                    {{-- Thumbnail --}}
+                                    <td class="thumb-cell">
+                                        <img :src="thumbUrl(file.manifestId, pg.page)" :alt="`p${pg.page}`" loading="lazy">
+                                        <span class="pg-num" x-text="`Page ${pg.page}`"></span>
+                                    </td>
 
-                            {{-- Contact assignment (many-to-many across roles) --}}
-                            <td>
-                                <template x-if="!property">
-                                    <span class="text-xs" style="color: var(--text-muted);">Pick a property above to assign contacts.</span>
-                                </template>
-                                <template x-if="property">
-                                    <div>
-                                        <template x-if="docRoles(pg.label).length === 0">
-                                            <span class="text-xs" style="color: var(--text-muted);">This type isn’t routed to a contact (files to the property).</span>
+                                    {{-- Doc type --}}
+                                    <td>
+                                        <select class="lbl-select" x-model="pg.label" @change="onLabelChange(pg)">
+                                            @foreach($docTypes as $key => $dtLabel)
+                                                <option value="{{ $key }}">{{ $dtLabel }}</option>
+                                            @endforeach
+                                        </select>
+                                    </td>
+
+                                    {{-- Contact assignment (many-to-many across roles) --}}
+                                    <td>
+                                        <template x-if="!property">
+                                            <span class="text-xs" style="color: var(--text-muted);">Pick a property above to assign contacts.</span>
                                         </template>
-
-                                        <template x-for="role in docRoles(pg.label)" :key="role">
-                                            <div class="role-group">
-                                                <div class="role-title" x-text="roleLabels[role] || role"></div>
-                                                <template x-for="c in roleCandidates(role)" :key="c.id">
-                                                    <label class="chip" :class="isChecked(pg, c.id) ? 'checked' : ''">
-                                                        <input type="checkbox" :checked="isChecked(pg, c.id)" @change="toggleContact(pg, c.id)">
-                                                        <span x-text="c.name"></span>
-                                                        <span x-show="c.fica_status !== 'complete'" title="Not FICA-verified" style="color: var(--ds-crimson, #ef4444);">•</span>
-                                                    </label>
+                                        <template x-if="property">
+                                            <div>
+                                                <template x-if="docRoles(pg.label).length === 0">
+                                                    <span class="text-xs" style="color: var(--text-muted);">This type isn’t routed to a contact (files to the property).</span>
                                                 </template>
-                                                <span x-show="roleCandidates(role).length === 0" class="text-xs" style="color: var(--text-muted);">No <span x-text="(roleLabels[role]||role).toLowerCase()"></span> linked. </span>
-                                                <span class="add-link" @click="openAdd(pg.page, role)">+ Add <span x-text="roleLabels[role] || role"></span></span>
 
-                                                {{-- Inline add: search existing OR create new --}}
-                                                <div class="mini" x-show="addKey === (pg.page + ':' + role)" @click.outside="closeAdd()">
-                                                    <input type="text" x-model="addQ" @input.debounce.250="searchContacts()" placeholder="Search existing contact…">
-                                                    <template x-for="r in addResults" :key="r.id">
-                                                        <div class="res" @click="linkExisting(r, role)" x-text="r.name + (r.phone ? (' · ' + r.phone) : '')"></div>
-                                                    </template>
-                                                    <div class="text-xs mt-1 mb-1" style="color: var(--text-muted);">— or create new —</div>
-                                                    <input type="text" x-model="newC.first_name" placeholder="First name">
-                                                    <input type="text" x-model="newC.last_name" placeholder="Last name">
-                                                    <input type="text" x-model="newC.phone" placeholder="Phone">
-                                                    <input type="text" x-model="newC.email" placeholder="Email (optional)">
-                                                    <button type="button" class="tb-btn" @click="createNew(role)" :disabled="addBusy">Create &amp; link</button>
-                                                    <span x-show="addError" class="text-xs" style="color: var(--ds-crimson);" x-text="addError"></span>
-                                                </div>
+                                                <template x-for="role in docRoles(pg.label)" :key="role">
+                                                    <div class="role-group">
+                                                        <div class="role-title" x-text="roleLabels[role] || role"></div>
+                                                        <template x-for="c in roleCandidates(role)" :key="c.id">
+                                                            <label class="chip" :class="isChecked(pg, c.id) ? 'checked' : ''">
+                                                                <input type="checkbox" :checked="isChecked(pg, c.id)" @change="toggleContact(pg, c.id)">
+                                                                <span x-text="c.name"></span>
+                                                                <span x-show="c.fica_status !== 'complete'" title="Not FICA-verified" style="color: var(--ds-crimson, #ef4444);">•</span>
+                                                            </label>
+                                                        </template>
+                                                        <span x-show="roleCandidates(role).length === 0" class="text-xs" style="color: var(--text-muted);">No <span x-text="(roleLabels[role]||role).toLowerCase()"></span> linked. </span>
+                                                        <span class="add-link" @click="openAdd(file.manifestId, pg.page, role)">+ Add <span x-text="roleLabels[role] || role"></span></span>
+
+                                                        {{-- Inline add: search existing OR create new --}}
+                                                        <div class="mini" x-show="addKey === (file.manifestId + ':' + pg.page + ':' + role)" @click.outside="closeAdd()">
+                                                            <input type="text" x-model="addQ" @input.debounce.250="searchContacts()" placeholder="Search existing contact…">
+                                                            <template x-for="r in addResults" :key="r.id">
+                                                                <div class="res" @click="linkExisting(r, role)" x-text="r.name + (r.phone ? (' · ' + r.phone) : '')"></div>
+                                                            </template>
+                                                            <div class="text-xs mt-1 mb-1" style="color: var(--text-muted);">— or create new —</div>
+                                                            <input type="text" x-model="newC.first_name" placeholder="First name">
+                                                            <input type="text" x-model="newC.last_name" placeholder="Last name">
+                                                            <input type="text" x-model="newC.phone" placeholder="Phone">
+                                                            <input type="text" x-model="newC.email" placeholder="Email (optional)">
+                                                            <button type="button" class="tb-btn" @click="createNew(role)" :disabled="addBusy">Create &amp; link</button>
+                                                            <span x-show="addError" class="text-xs" style="color: var(--ds-crimson);" x-text="addError"></span>
+                                                        </div>
+                                                    </div>
+                                                </template>
                                             </div>
                                         </template>
-                                    </div>
-                                </template>
-                            </td>
+                                    </td>
 
-                            {{-- Snippet + scores --}}
-                            <td>
-                                <div class="snippet" :class="pg.snippet ? '' : 'empty'" x-text="pg.snippet || '(no OCR text)'"></div>
-                                <div class="score-tip" x-text="pg.scores"></div>
-                            </td>
-                        </tr>
-                    </template>
-                </tbody>
-            </table>
-        </div>
+                                    {{-- Snippet + scores --}}
+                                    <td>
+                                        <div class="snippet" :class="pg.snippet ? '' : 'empty'" x-text="pg.snippet || '(no OCR text)'"></div>
+                                        <div class="score-tip" x-text="pg.scores"></div>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </template>
 
         <div class="flex items-center gap-3 flex-wrap" style="margin-top:4px;">
             <button type="submit" class="btn-gen" formaction="{{ route('tools.pdf_splitter.link') }}" data-tour="spr-link"
-                    :disabled="!property"
-                    :title="property ? 'File each page to its destination(s) and assigned contact(s)' : 'Pick a property first'">
-                &#x1F517;&nbsp; Link to CoreX
+                    :disabled="submitting || hasMissing || !property"
+                    :title="hasMissing ? 'A file in this batch could not be loaded — re-upload the whole batch' : (property ? 'File every page (across all files above) to its destination(s) and assigned contact(s)' : 'Pick a property first')">
+                <span x-text="submitting ? 'Working…' : 'Link'"></span>
             </button>
             <button type="submit" class="btn-gen secondary" formaction="{{ route('tools.pdf_splitter.confirm') }}" data-tour="spr-zip"
-                    title="Produce the split ZIP only — no filing, no FICA">
-                &#x2913;&nbsp; Download ZIP
+                    :disabled="submitting || hasMissing"
+                    :title="hasMissing ? 'A file in this batch could not be loaded — re-upload the whole batch' : 'Produce one combined ZIP for every file above — no filing, no FICA'">
+                <span x-show="!submitting">&#x2913;&nbsp; Download ZIP</span>
+                <span x-show="submitting">Working…</span>
             </button>
-            <a href="{{ route('tools.pdf_splitter.index') }}" class="btn-back">&larr; Upload a different PDF</a>
+            <a href="{{ route('tools.pdf_splitter.index') }}" class="btn-back">&larr; Upload different PDF(s)</a>
         </div>
     </form>
 </div>
@@ -399,23 +469,34 @@ document.addEventListener('alpine:init', () => {
         searchUrl:       '{{ route('tools.pdf_splitter.properties.search') }}',
         dealSearchUrl:   '{{ route('deals-v2.search.deals') }}',
         contactsTpl:     '{{ route('tools.pdf_splitter.properties.contacts', ['property' => '__ID__']) }}',
-        thumbTpl:        '{{ route('tools.pdf_splitter.thumb', ['page' => '__PAGE__']) }}',
+        thumbTpl:        '{{ route('tools.pdf_splitter.thumb', ['page' => '__PAGE__', 'manifest' => '__MANIFEST__']) }}',
         contactSearchTpl:'{{ route('corex.properties.contacts.search', ['property' => '__PID__']) }}',
         contactLinkTpl:  '{{ route('corex.properties.contacts.link', ['property' => '__PID__']) }}',
         contactCreateTpl:'{{ route('corex.properties.contacts.createAndLink', ['property' => '__PID__']) }}',
         csrf:            '{{ csrf_token() }}',
 
         // ── state ─────────────────────────────────────────────────────────
-        pages:      @json($pageSeed),
-        bulkType:   'other',
+        files:      @json($fileSeed),    // [{manifestId, base, originalName, pCount, pages:[...]}]
+        submitting: false,                // true once Link/Download ZIP is submitted — blocks a double-click resubmit
+        hasMissing: @json(!empty($missingCount)), // a manifest failed to load — Link/ZIP must actually be blocked, not just warned about
+        // Seeded from whatever the dropdown's own FIRST option actually is —
+        // not hardcoded to 'other', which may not be active for this agency
+        // (nothing prevents deactivating it) and would otherwise leave
+        // bulkType silently pointing at an option the <select> never offers.
+        bulkType:   @json(array_key_first($docTypes) ?? 'other'),
         q: '', propResults: [],
         property: null,
         dealQ: '', dealResults: [], deal: null,
         contacts: [], contactsById: {}, loadingContacts: false,
         ficaOverride: null,
         // inline add-contact panel
-        addKey: null, addRole: null, addPage: null, addQ: '', addResults: [], addBusy: false, addError: '',
+        addKey: null, addRole: null, addManifestId: null, addPage: null, addQ: '', addResults: [], addBusy: false, addError: '',
         newC: { first_name:'', last_name:'', phone:'', email:'' },
+
+        // ── helpers over the file/page tree ─────────────────────────────────
+        allPages() { return this.files.flatMap(f => f.pages); },
+        findFile(manifestId) { return this.files.find(f => f.manifestId === manifestId); },
+        thumbUrl(manifestId, page) { return this.thumbTpl.replace('__PAGE__', page).replace('__MANIFEST__', manifestId); },
 
         // ── property search ───────────────────────────────────────────────
         async searchProps() {
@@ -432,8 +513,8 @@ document.addEventListener('alpine:init', () => {
         clearProperty() {
             this.property = null; this.contacts = []; this.contactsById = {};
             this.deal = null; this.dealQ = ''; this.dealResults = [];
-            // Back to a clean slate: no contacts, nothing touched.
-            this.pages.forEach(p => { p.contactIds = []; p.touched = false; });
+            // Back to a clean slate: no contacts, nothing touched, in every file.
+            this.allPages().forEach(p => { p.contactIds = []; p.touched = false; });
         },
 
         // ── deal search (WS3 · D4) ────────────────────────────────────────
@@ -481,21 +562,25 @@ document.addEventListener('alpine:init', () => {
         // No default (pages start empty), no reassign-on-click, no per-doc-type
         // sticky. A page the agent has TOUCHED is theirs forever. The only
         // convenience is forwardFill(): when a page is set, its set carries as
-        // the STARTING value of the following UNTOUCHED pages — it stops dead at
-        // the first touched page and never overrides one. So the screen (and the
-        // POST, which mirrors it) can only ever be what the agent actually ticked.
+        // the STARTING value of the following UNTOUCHED pages IN THE SAME FILE
+        // — it stops dead at the first touched page (or the file boundary) and
+        // never overrides one, so one file's contacts never bleed into the
+        // next file's pages. The screen (and the POST, which mirrors it) can
+        // only ever be what the agent actually ticked.
         isChecked(pg, cid) { return pg.contactIds.includes(cid); },
         toggleContact(pg, cid) {
             const i = pg.contactIds.indexOf(cid);
             if (i >= 0) pg.contactIds.splice(i, 1); else pg.contactIds.push(cid);
             pg.touched = true;                 // the agent owns this page now
-            this.forwardFill(pg);              // pre-fill the next UNTOUCHED run only
+            this.forwardFill(pg);              // pre-fill the next UNTOUCHED run, same file only
         },
         forwardFill(fromPg) {
-            const from = this.pages.indexOf(fromPg);
+            const file = this.files.find(f => f.pages.includes(fromPg));
+            if (!file) return;
+            const from = file.pages.indexOf(fromPg);
             const src  = fromPg.contactIds.slice();
-            for (let i = from + 1; i < this.pages.length; i++) {
-                const pg = this.pages[i];
+            for (let i = from + 1; i < file.pages.length; i++) {
+                const pg = file.pages[i];
                 if (pg.touched) break;         // locked to the agent's choice — never override
                 pg.contactIds = src.filter(id => this.allCandidateIds(pg.label).includes(id));
             }
@@ -506,17 +591,23 @@ document.addEventListener('alpine:init', () => {
             pg.contactIds = pg.contactIds.filter(id => this.allCandidateIds(pg.label).includes(id));
         },
         setAll(slug) {
-            this.pages.forEach(p => { p.label = slug; p.contactIds = p.contactIds.filter(id => this.allCandidateIds(slug).includes(id)); });
+            this.allPages().forEach(p => { p.label = slug; p.contactIds = p.contactIds.filter(id => this.allCandidateIds(slug).includes(id)); });
         },
         resetAuto() {
-            const seed = @json(array_values($pageSeed));
-            this.pages.forEach((p, i) => { p.label = seed[i].label; p.contactIds = p.contactIds.filter(id => this.allCandidateIds(p.label).includes(id)); });
+            const seedFiles = @json($fileSeed);
+            this.files.forEach((f, fi) => {
+                f.pages.forEach((p, pi) => {
+                    const seedLabel = seedFiles[fi].pages[pi].label;
+                    p.label = seedLabel;
+                    p.contactIds = p.contactIds.filter(id => this.allCandidateIds(p.label).includes(id));
+                });
+            });
         },
 
-        // ── FICA toggle (reactive) ────────────────────────────────────────
+        // ── FICA toggle (reactive, across every file) ──────────────────────
         ficaTargetIds() {
             const ids = new Set();
-            for (const pg of this.pages) {
+            for (const pg of this.allPages()) {
                 const slot = this.routing[pg.label] && this.routing[pg.label].fica_slot;
                 if (slot && slot !== 'none') pg.contactIds.forEach(id => ids.add(id));
             }
@@ -534,8 +625,9 @@ document.addEventListener('alpine:init', () => {
 
         // ── inline add contact (reuses the property-contact endpoints) ────
         pivotRoleFor(role) { return (this.roleSets[role] || ['seller'])[0]; },
-        openAdd(page, role) {
-            this.addKey = page + ':' + role; this.addPage = page; this.addRole = role;
+        openAdd(manifestId, page, role) {
+            this.addKey = manifestId + ':' + page + ':' + role;
+            this.addManifestId = manifestId; this.addPage = page; this.addRole = role;
             this.addQ = ''; this.addResults = []; this.addError = '';
             this.newC = { first_name:'', last_name:'', phone:'', email:'' };
         },
@@ -592,7 +684,8 @@ document.addEventListener('alpine:init', () => {
         // Tick the just-added contact on the page that requested it — the agent
         // chose to add them here, so this counts as touching that page.
         tickNewContact(cid, role) {
-            const pg = this.pages.find(p => p.page === this.addPage);
+            const file = this.findFile(this.addManifestId);
+            const pg = file && file.pages.find(p => p.page === this.addPage);
             if (pg && this.contactsById[cid] && !pg.contactIds.includes(cid)) {
                 pg.contactIds.push(cid); pg.touched = true; this.forwardFill(pg);
             }

@@ -108,7 +108,13 @@ return [
         'description' => 'See every buyer/renter search you\'ve saved against a contact, and how many properties match each one right now.',
         'route'       => 'corex.core-matches.index',
         'permission'  => 'access_core_matches',
-        'setup'       => [['action' => 'scrollTop']],
+        // Contact cards collapse to a closed dropdown by default (AT-266) — the
+        // tour opens the first one itself so the counts/view-matches steps
+        // below still have a visible anchor to highlight.
+        'setup'       => [
+            ['action' => 'scrollTop'],
+            ['action' => 'click', 'selector' => '[data-tour="re-core-matches-card"] summary'],
+        ],
         'steps' => [
             [
                 'element' => '[data-tour="re-core-matches-intro"]',
