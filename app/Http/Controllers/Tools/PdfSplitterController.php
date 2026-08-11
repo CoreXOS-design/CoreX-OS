@@ -63,36 +63,7 @@ class PdfSplitterController extends Controller
 
     public function index()
     {
-        // Multi-file upload queue — when a batch has files still waiting behind
-        // the currently-active manifest, the upload form is replaced with a
-        // "continue this batch" prompt so a fresh upload never silently
-        // orphans the queued files.
-        $queue = session('splitter_queue', []);
-        $queueNextName = $queue[0]['original_name'] ?? null;
-
-        return view('tools.pdf_splitter', [
-            'queuePending'   => !empty($queue),
-            'queueNextName'  => $queueNextName,
-            'queueRemaining' => count($queue),
-            'queueTotal'     => (int) session('splitter_queue_total', 0),
-            'queueSkipped'   => session('splitter_queue_skipped', []),
-        ]);
-    }
-
-    /**
-     * Advance to the next file in the upload batch — pops + OCRs it and takes
-     * the agent straight to its review screen. The prior file's manifest and
-     * outputs are left untouched on disk (only the session pointer moves).
-     */
-    public function continueQueue()
-    {
-        $manifestId = $this->popNextQueuedManifest();
-        if ($manifestId === null) {
-            return redirect()->route('tools.pdf_splitter.index')
-                ->withErrors(['pdf' => 'No more files queued in this batch.']);
-        }
-
-        return redirect()->route('tools.pdf_splitter.review');
+        return view('tools.pdf_splitter');
     }
 
     /**
@@ -159,17 +130,14 @@ class PdfSplitterController extends Controller
     }
 
     /**
-     * Accepts one or many PDFs. Every upload is stored immediately (cheap I/O)
-     * and the FULL batch is committed to the session queue BEFORE any OCR runs
-     * — so a corrupt/unreadable file anywhere in the batch (including the
-     * first) never orphans the rest. Activation (OCR + manifest build) then
-     * runs through the exact same popNextQueuedManifest() path used for every
-     * later file, one at a time, skipping unreadable files rather than
-     * aborting. This keeps one request bounded to one file's OCR cost
-     * regardless of how many PDFs were selected, instead of blocking on the
-     * whole batch upfront. confirm()/link() themselves are unchanged — Download
-     * ZIP and Link to CoreX behave exactly as they did pre-batch; the queue
-     * only advances on an explicit agent action (continueQueue()).
+     * Accepts one or many PDFs and splits/reviews/files them TOGETHER as one
+     * batch — every file is OCR'd here, in order, and the whole batch lands on
+     * ONE review screen where each source file is its own clearly-labelled
+     * section. Property, deal, and the FICA toggle are picked ONCE for the
+     * whole batch; Download ZIP / Link act on every file's pages in a single
+     * combined submission. (An earlier "queue, review one file at a time"
+     * design was replaced after live QA — this is simpler and matches how
+     * agents actually work through a batch of packs for the same property.)
      */
     public function run(Request $request)
     {
@@ -188,8 +156,10 @@ class PdfSplitterController extends Controller
         // storage path / manifest ID and cross-file each other's documents.
         $userId = (int) (auth()->id() ?? 0);
 
-        $queueItems = [];
-        $usedBases  = [];
+        $manifestIds = [];
+        $skipped     = [];
+        $usedBases   = [];
+
         foreach ($files as $i => $uploaded) {
             $base = $this->deriveBase($baseRaw, $uploaded, $i, count($files) > 1) . '_u' . $userId;
 
@@ -209,33 +179,35 @@ class PdfSplitterController extends Controller
             $origAbs = Storage::disk('local')->path($origRel);
 
             if (!file_exists($origAbs) || filesize($origAbs) === 0) {
-                return redirect()->route('tools.pdf_splitter.index')
-                    ->withErrors(['pdf' => 'Stored PDF not found or empty: ' . $uploaded->getClientOriginalName()]);
+                $skipped[] = $uploaded->getClientOriginalName() . ' (empty upload)';
+                continue;
             }
 
-            $queueItems[] = [
+            $manifestId = $this->buildManifestForFile([
                 'base'          => $base,
                 'ts'            => $batchTs,
                 'origRel'       => $origRel,
                 'original_name' => $uploaded->getClientOriginalName(),
-            ];
+            ]);
+
+            if ($manifestId === null) {
+                $skipped[] = $uploaded->getClientOriginalName();
+                continue;
+            }
+
+            $manifestIds[] = $manifestId;
+        }
+
+        if (empty($manifestIds)) {
+            return redirect()->route('tools.pdf_splitter.index')->withErrors([
+                'pdf' => 'None of the uploaded file(s) could be split: ' . implode(', ', $skipped ?: ['(unknown)']),
+            ]);
         }
 
         session([
-            'splitter_queue'          => $queueItems,
-            'splitter_queue_total'    => count($files),
-            'splitter_queue_position' => 0,
+            'splitter_batch'   => $manifestIds,
+            'splitter_skipped' => $skipped,
         ]);
-        session()->forget(['splitter_queue_skipped']);
-
-        $manifestId = $this->popNextQueuedManifest();
-        if ($manifestId === null) {
-            $skipped = session('splitter_queue_skipped', []);
-            return redirect()->route('tools.pdf_splitter.index')->withErrors([
-                'pdf' => 'None of the uploaded file(s) could be split — could not read page count for: '
-                    . implode(', ', $skipped ?: ['(unknown)']),
-            ]);
-        }
 
         return redirect()->route('tools.pdf_splitter.review');
     }
@@ -268,12 +240,12 @@ class PdfSplitterController extends Controller
     }
 
     /**
-     * OCR/classify one queued file into a manifest.json — the work previously
-     * done inline in run(). Called once per file, either immediately (the first
-     * file of a batch) or just-in-time (popNextQueuedManifest(), when the agent
-     * finishes the current file and the queue has more).
+     * OCR/classify one uploaded file into a manifest.json. Called once per
+     * file in run(), in upload order. set_time_limit resets PHP's execution
+     * timer on every call, so each file gets its own fresh window rather than
+     * the whole batch sharing one countdown.
      */
-    private function buildManifestForQueueItem(array $item): ?string
+    private function buildManifestForFile(array $item): ?string
     {
         set_time_limit(300);
         @ini_set('max_execution_time', '300');
@@ -332,67 +304,6 @@ class PdfSplitterController extends Controller
         return $manifestId;
     }
 
-    /**
-     * Advance the multi-file queue: pop + OCR the next file, make it the active
-     * manifest. Called from run() (activating the first file) and
-     * continueQueue() (every file after). A file that fails to OCR (corrupt
-     * upload, 0 pages) is skipped — noted in splitter_queue_skipped — rather
-     * than silently dropped or aborting the rest of the batch. Position is
-     * incremented on EVERY dequeue, skipped or not, so
-     * count(splitter_queue) + splitter_queue_position === splitter_queue_total
-     * always holds and "File X of N" stays accurate even when files were
-     * skipped along the way. Returns the new manifest ID, or null once the
-     * queue is exhausted with nothing left that could be activated.
-     */
-    private function popNextQueuedManifest(): ?string
-    {
-        $queue = session('splitter_queue', []);
-
-        while (!empty($queue)) {
-            $next  = array_shift($queue);
-            $queue = array_values($queue);
-            session([
-                'splitter_queue'          => $queue,
-                'splitter_queue_position' => (int) session('splitter_queue_position', 0) + 1,
-            ]);
-
-            $manifestId = $this->buildManifestForQueueItem($next);
-            if ($manifestId !== null) {
-                session(['splitter_manifest_id' => $manifestId]);
-
-                return $manifestId;
-            }
-
-            session(['splitter_queue_skipped' => array_merge(
-                session('splitter_queue_skipped', []),
-                [$next['original_name'] ?? $next['base']]
-            )]);
-        }
-
-        // Nothing left to advance TO — leave splitter_manifest_id exactly as it
-        // was (it still points at the last file the agent was reviewing). Only
-        // the queue bookkeeping is cleared. Without this, a double-submitted
-        // "Continue" click (queue already drained by the first request) would
-        // wipe the session pointer to the file the agent just navigated to.
-        session()->forget(['splitter_queue', 'splitter_queue_total', 'splitter_queue_position']);
-
-        return null;
-    }
-
-    /**
-     * Abandon the remaining not-yet-reviewed files in this batch. The current
-     * (already-processed) file is untouched — only pending queue items are
-     * dropped. Their originals stay on disk (no scheduled cleanup sweeps
-     * private/splitter/*) but are simply never surfaced again.
-     */
-    public function cancelQueue()
-    {
-        session()->forget(['splitter_queue', 'splitter_queue_total', 'splitter_queue_position', 'splitter_queue_skipped']);
-
-        return redirect()->route('tools.pdf_splitter.index')
-            ->with('status', 'Remaining files in this batch were skipped.');
-    }
-
     // =========================================================================
     // Review + Confirm (two-step flow)
     // =========================================================================
@@ -400,26 +311,22 @@ class PdfSplitterController extends Controller
     /**
      * Serve a page thumbnail from private storage.
      * Generated on first request (lazy) — never during run().
-     * Manifest ID is validated against the session value; URL param is only the page number.
      *
-     * Multi-file queue — the review page passes the manifest ID it was
-     * RENDERED for as ?manifest=. If the agent advanced the queue in another
-     * tab (or a second tab) since that page loaded, the session's "current"
-     * manifest has moved on to a different file; without this check a
-     * not-yet-cached thumbnail request from the stale tab would silently
-     * render the NEW file's page under the OLD file's page-number slot. Abort
-     * instead of guessing which one the caller actually wants.
+     * A batch has multiple manifests open on the SAME review page at once, so
+     * there is no single "current" manifest — the request must name which one
+     * it wants (?manifest=), and that ID is checked against the batch actually
+     * in session (not just a shape regex) so a caller can never fish a
+     * thumbnail out of a manifest that isn't part of the agent's own batch.
      */
     public function serveThumb(Request $request, int $page)
     {
-        $manifestId = session('splitter_manifest_id');
+        $manifestId = $request->query('manifest');
         if (!$manifestId || !preg_match('/^[a-z0-9_-]+__\d{8}_\d{6}$/', $manifestId)) {
             abort(403);
         }
 
-        $requested = $request->query('manifest');
-        if ($requested !== null && $requested !== $manifestId) {
-            abort(409, 'This review page is for a different file than the one currently active. Reload the page.');
+        if (!in_array($manifestId, session('splitter_batch', []), true)) {
+            abort(403);
         }
 
         $padded   = str_pad((string)$page, 3, '0', STR_PAD_LEFT);
@@ -493,16 +400,37 @@ class PdfSplitterController extends Controller
     }
 
     /**
-     * Show the review table.
-     * Manifest path is derived from the session — never from user input.
+     * Load every manifest in the current batch, in upload order. Skips (rather
+     * than fails on) any manifest that no longer exists on disk — defensive
+     * only; nothing in the normal flow removes one mid-batch.
+     *
+     * @return array<int,array> each entry is the decoded manifest + 'manifestId'
+     */
+    private function loadBatchManifests(): array
+    {
+        $manifests = [];
+        foreach (session('splitter_batch', []) as $id) {
+            $m = $this->loadManifestArrayOrNull($id);
+            if ($m) {
+                $m['manifestId'] = $id;
+                $manifests[]     = $m;
+            }
+        }
+
+        return $manifests;
+    }
+
+    /**
+     * Show the review table — every file in the batch, stacked, each its own
+     * clearly-divided section. Batch is derived from the session — never from
+     * user input.
      */
     public function review()
     {
-        $manifestId = session('splitter_manifest_id');
-        $manifest   = $this->loadManifestArrayOrNull($manifestId);
-        if (! $manifest) {
+        $manifests = $this->loadBatchManifests();
+        if (empty($manifests)) {
             return redirect()->route('tools.pdf_splitter.index')
-                ->withErrors(['pdf' => 'No active session, or it expired. Please upload a PDF first.']);
+                ->withErrors(['pdf' => 'No active session, or it expired. Please upload PDF(s) first.']);
         }
 
         // AT-105 — the FICA auto-kickoff toggle is only offered to users who
@@ -533,35 +461,33 @@ class PdfSplitterController extends Controller
             'lessor'       => 'Lessor',
         ];
 
-        // Multi-file upload queue — surfaced so the review screen can show
-        // "File X of N: name.pdf" and offer to cancel the remaining batch.
-        $queueTotal    = (int) session('splitter_queue_total', 1);
-        $queuePosition = (int) session('splitter_queue_position', 1);
-        $queueRemaining = count(session('splitter_queue', []));
-        $queueSkipped   = session('splitter_queue_skipped', []);
+        $skipped = session('splitter_skipped', []);
 
         return view('tools.pdf_splitter_review', compact(
-            'manifest', 'manifestId', 'canFica', 'canLinkDeal', 'routing', 'roleSets', 'roleLabels',
-            'queueTotal', 'queuePosition', 'queueRemaining', 'queueSkipped'
+            'manifests', 'canFica', 'canLinkDeal', 'routing', 'roleSets', 'roleLabels', 'skipped'
         ));
     }
 
     /**
-     * Multi-file queue — defense against a stale review tab. The review form
-     * carries the manifest ID it was rendered for; if it no longer matches the
-     * session's current manifest, the queue has moved on since the page
-     * loaded (e.g. "Continue to next file" clicked in another tab). Reject
-     * rather than silently applying this page's posted labels/contacts to
-     * whichever file happens to be active now.
+     * Defense against a stale review tab. The review form carries the exact
+     * set of manifest IDs it was rendered for; if it no longer matches the
+     * session's current batch, a NEW upload has since replaced it in another
+     * tab. Reject rather than silently applying this page's posted
+     * labels/contacts to whatever batch happens to be active now.
      */
-    private function rejectIfStaleManifest(Request $request): ?\Illuminate\Http\RedirectResponse
+    private function rejectIfStaleBatch(Request $request): ?\Illuminate\Http\RedirectResponse
     {
-        $posted  = $request->input('manifest_id');
-        $current = session('splitter_manifest_id');
+        $posted = $request->input('manifest_ids');
+        if ($posted === null) {
+            return null; // nothing posted to check against — skip (keeps direct/test posts working)
+        }
 
-        if ($posted && $posted !== $current) {
+        $posted  = array_values((array) $posted);
+        $current = array_values(session('splitter_batch', []));
+
+        if ($posted !== $current) {
             return redirect()->route('tools.pdf_splitter.review')->withErrors([
-                'pdf' => 'This review page was for a different file than the one currently active — you likely advanced to another file in a different tab. Reload this page and try again.',
+                'pdf' => 'This review page was for a different batch than the one currently active — you likely started a new upload in a different tab. Reload this page and try again.',
             ]);
         }
 
@@ -569,83 +495,99 @@ class PdfSplitterController extends Controller
     }
 
     /**
-     * Accept label overrides → group ranges → extract bucket PDFs → ZIP → download.
-     * OCR is NOT re-run. Only labels that have at least one page are included in the ZIP.
+     * Accept label overrides for EVERY file in the batch → group ranges per
+     * file → extract bucket PDFs per file → ONE combined ZIP → download. OCR
+     * is NOT re-run. Only labels that have at least one page are included.
+     * Filing to the property/contacts and any FICA kickoff are the SEPARATE
+     * "Link" action (link()) — the two intents are never conflated. The batch
+     * is retained in the session so the agent can still run Link afterwards
+     * from the same split.
      */
     public function confirm(Request $request)
     {
-        if ($stale = $this->rejectIfStaleManifest($request)) {
+        if ($stale = $this->rejectIfStaleBatch($request)) {
             return $stale;
         }
 
-        $manifest = $this->loadManifestArrayOrNull(session('splitter_manifest_id'));
-        if (! $manifest) {
+        $manifests = $this->loadBatchManifests();
+        if (empty($manifests)) {
             return redirect()->route('tools.pdf_splitter.index')
                 ->withErrors(['pdf' => 'Session expired or manifest not found. Please re-upload.']);
         }
 
-        $base        = $manifest['base'];
-        $ts          = $manifest['ts'];
-        $origRel     = $manifest['origRel'];
-        $origAbsNorm = str_replace('\\', '/', Storage::disk('local')->path($origRel));
-        $outDirRel   = $manifest['outDirRel'];
-        $tmpRel      = $manifest['tmpRel'];
-        $pCount      = (int)$manifest['pCount'];
-        $snippets    = $manifest['snippets'];
-        $pageScores  = $manifest['pageScores'];
+        $postedLabels = (array) $request->input('labels', []);
+        $allOutFiles  = [];
+        $summaryParts = [];
 
-        // Apply posted overrides — whitelist against active doc types.
-        [$finalLabels, $overrides] = $this->resolveFinalLabels($request, $manifest['labels'], $pCount);
+        foreach ($manifests as $manifest) {
+            $manifestId  = $manifest['manifestId'];
+            $base        = $manifest['base'];
+            $origRel     = $manifest['origRel'];
+            $origAbsNorm = str_replace('\\', '/', Storage::disk('local')->path($origRel));
+            $outDirRel   = $manifest['outDirRel'];
+            $tmpRel      = $manifest['tmpRel'];
+            $pCount      = (int) $manifest['pCount'];
+            $snippets    = $manifest['snippets'];
+            $pageScores  = $manifest['pageScores'];
 
-        // Log overrides as feedback and incrementally update learned phrases
-        if (!empty($overrides)) {
-            $this->logFeedback($base, $overrides, $snippets, $pageScores);
-        }
+            // Apply posted overrides — whitelist against active doc types.
+            $manifestPosted = (array) ($postedLabels[$manifestId] ?? []);
+            [$finalLabels, $overrides] = $this->resolveFinalLabels($manifestPosted, $manifest['labels'], $pCount);
 
-        // Ensure output directory exists
-        Storage::disk('local')->makeDirectory($outDirRel);
-        $outDirAbs     = Storage::disk('local')->path($outDirRel);
-        $outDirAbsNorm = str_replace('\\', '/', $outDirAbs);
-
-        $tmpAbs     = Storage::disk('local')->path($tmpRel);
-        $tmpAbsNorm = str_replace('\\', '/', $tmpAbs);
-
-        $ranges       = $this->groupRanges($finalLabels);
-        $bucketOrder  = array_keys($this->docTypes());
-        $bucketRanges = array_fill_keys($bucketOrder, []);
-        foreach ($ranges as $r) {
-            $bucketRanges[$r['label']][] = $r;
-        }
-
-        // Only produce PDFs for labels that appear at least once — no placeholders
-        $outFiles = [];
-        foreach ($bucketOrder as $label) {
-            if (count($bucketRanges[$label]) === 0) continue;
-
-            $outName = $base . '__' . $label . '.pdf';
-            $outAbs  = $outDirAbsNorm . '/' . $outName;
-
-            $parts = [];
-            $idx   = 0;
-            foreach ($bucketRanges[$label] as $r) {
-                $idx++;
-                $part = $tmpAbsNorm . '/' . $base . '__' . $label
-                    . '__part' . str_pad((string)$idx, 2, '0', STR_PAD_LEFT) . '.pdf';
-                $this->qpdfExtractRange($origAbsNorm, $r['from'], $r['to'], $part);
-                $parts[] = $part;
+            if (!empty($overrides)) {
+                $this->logFeedback($base, $overrides, $snippets, $pageScores);
             }
 
-            count($parts) === 1 ? @copy($parts[0], $outAbs) : $this->pdfUnite($parts, $outAbs);
-            $outFiles[] = $outAbs;
+            Storage::disk('local')->makeDirectory($outDirRel);
+            $outDirAbsNorm = str_replace('\\', '/', Storage::disk('local')->path($outDirRel));
+            $tmpAbsNorm    = str_replace('\\', '/', Storage::disk('local')->path($tmpRel));
+
+            $ranges       = $this->groupRanges($finalLabels);
+            $bucketOrder  = array_keys($this->docTypes());
+            $bucketRanges = array_fill_keys($bucketOrder, []);
+            foreach ($ranges as $r) {
+                $bucketRanges[$r['label']][] = $r;
+            }
+
+            // Only produce PDFs for labels that appear at least once — no placeholders
+            $fileOutFiles = [];
+            foreach ($bucketOrder as $label) {
+                if (count($bucketRanges[$label]) === 0) continue;
+
+                $outName = $base . '__' . $label . '.pdf';
+                $outAbs  = $outDirAbsNorm . '/' . $outName;
+
+                $parts = [];
+                $idx   = 0;
+                foreach ($bucketRanges[$label] as $r) {
+                    $idx++;
+                    $part = $tmpAbsNorm . '/' . $base . '__' . $label
+                        . '__part' . str_pad((string)$idx, 2, '0', STR_PAD_LEFT) . '.pdf';
+                    $this->qpdfExtractRange($origAbsNorm, $r['from'], $r['to'], $part);
+                    $parts[] = $part;
+                }
+
+                count($parts) === 1 ? @copy($parts[0], $outAbs) : $this->pdfUnite($parts, $outAbs);
+                $fileOutFiles[] = $outAbs;
+            }
+
+            if (!empty($fileOutFiles)) {
+                $allOutFiles    = array_merge($allOutFiles, $fileOutFiles);
+                $summaryParts[] = ($manifest['original_name'] ?? $base) . ':' . "\r\n"
+                    . $this->buildSummary($finalLabels, $snippets, $pageScores, $ranges, $pCount, $overrides);
+            }
         }
 
-        if (empty($outFiles)) {
+        if (empty($allOutFiles)) {
             return redirect()->route('tools.pdf_splitter.review')
                 ->withErrors(['pdf' => 'No pages were assigned to any label.']);
         }
 
-        // ZIP
-        $zipRel     = 'private/splitter/zips/' . $base . '__' . $ts . '__split_pack.zip';
+        // ONE ZIP for the whole batch — output filenames are already unique
+        // across files (each source file's storage base is unique), so they
+        // never collide inside the shared archive.
+        $batchStamp = $manifests[0]['ts'];
+        $zipRel     = 'private/splitter/zips/batch_' . $batchStamp . '__split_pack.zip';
         Storage::disk('local')->makeDirectory('private/splitter/zips');
         $zipAbs     = Storage::disk('local')->path($zipRel);
         $zipAbsNorm = str_replace('\\', '/', $zipAbs);
@@ -656,18 +598,16 @@ class PdfSplitterController extends Controller
                 ->withErrors(['pdf' => 'Could not create ZIP file.']);
         }
 
-        foreach ($outFiles as $abs) {
+        foreach ($allOutFiles as $abs) {
             $zip->addFile($abs, basename($abs));
         }
 
-        $summary = $this->buildSummary($finalLabels, $snippets, $pageScores, $ranges, $pCount, $overrides);
-        $zip->addFromString($base . '__summary.txt', $summary);
+        $zip->addFromString(
+            'summary.txt',
+            implode("\r\n" . str_repeat('=', 40) . "\r\n\r\n", $summaryParts)
+        );
         $zip->close();
 
-        // ZIP-ONLY action ("Download ZIP"). Filing to the property/contacts and
-        // any FICA kickoff are the SEPARATE "Link to CoreX" action (link()) —
-        // the two intents are never conflated. The manifest is retained in the
-        // session so the agent can still run Link afterwards from the same split.
         session([
             'splitter_last_zip'      => $zipAbsNorm,
             'splitter_last_zip_name' => basename($zipAbsNorm),
@@ -680,32 +620,25 @@ class PdfSplitterController extends Controller
     }
 
     /**
-     * AT-105 enhancement — "Link to CoreX" action. Files each page to its
-     * configured destination(s) keyed to its PER-PAGE assigned contact, and
-     * (toggle) kicks off ONE wet-ink FICA per distinct contact that has FICA
-     * pages assigned. Produces NO ZIP. The agent's per-page contact choices
-     * arrive in contacts[page]; doc-type overrides in labels[page].
+     * AT-105 enhancement — "Link" action, batch-aware. Files EVERY file's
+     * pages to their configured destination(s) keyed to each page's assigned
+     * contact, all against the ONE property/deal picked for the whole batch,
+     * and (toggle) kicks off ONE wet-ink FICA per distinct contact that has a
+     * FICA page assigned ANYWHERE in the batch. Produces NO ZIP. Per-file
+     * posted contact choices arrive in contacts[manifestId][page]; doc-type
+     * overrides in labels[manifestId][page].
      */
     public function link(Request $request)
     {
-        if ($stale = $this->rejectIfStaleManifest($request)) {
+        if ($stale = $this->rejectIfStaleBatch($request)) {
             return $stale;
         }
 
-        $manifest = $this->loadManifestArrayOrNull(session('splitter_manifest_id'));
-        if (! $manifest) {
+        $manifests = $this->loadBatchManifests();
+        if (empty($manifests)) {
             return redirect()->route('tools.pdf_splitter.index')
                 ->withErrors(['pdf' => 'Session expired or manifest not found. Please re-upload.']);
         }
-
-        $base        = $manifest['base'];
-        $origRel     = $manifest['origRel'];
-        $origAbsNorm = str_replace('\\', '/', Storage::disk('local')->path($origRel));
-        $outDirRel   = $manifest['outDirRel'];
-        $pCount      = (int) $manifest['pCount'];
-        $autoLabels  = $manifest['labels'];
-        $snippets    = $manifest['snippets'];
-        $pageScores  = $manifest['pageScores'];
 
         // A property is mandatory for filing — Download ZIP is the no-property path.
         $propertyId = (int) $request->input('property_id');
@@ -715,17 +648,17 @@ class PdfSplitterController extends Controller
 
         if (! $property) {
             return redirect()->route('tools.pdf_splitter.review')
-                ->withErrors(['pdf' => 'Select a property above before linking — "Link to CoreX" files the documents to that property. Use "Download ZIP" if you only want the files.']);
+                ->withErrors(['pdf' => 'Select a property above before linking — "Link" files the documents to that property. Use "Download ZIP" if you only want the files.']);
         }
 
         $agencyId = (int) ($request->user()?->effectiveAgencyId() ?? $property->agency_id ?? 0);
 
         // WS3 (D4) — optional DR2 deal target. When the agent picks a deal in the
-        // review screen, every split page-group is also anchored to that deal (in
-        // addition to the property/contacts), and a filed doc-type that matches an
-        // active document step auto-completes it. Guarded: only an ACTIVE deal on
-        // THIS property, only for users who can reach the register. No deal → the
-        // splitter behaves exactly as before (feature is purely additive).
+        // review screen, every split page-group (across the whole batch) is also
+        // anchored to that deal (in addition to the property/contacts), and a
+        // filed doc-type that matches an active document step auto-completes it.
+        // Guarded: only an ACTIVE deal on THIS property, only for users who can
+        // reach the register. No deal → the splitter behaves exactly as before.
         $deal = null;
         $dealId = (int) $request->input('deal_id');
         if ($dealId > 0 && $request->user()?->hasPermission('access_deal_register_v2')) {
@@ -735,62 +668,99 @@ class PdfSplitterController extends Controller
                 ->first();
         }
 
-        // Resolve final labels (apply whitelisted overrides) — same as confirm().
-        [$finalLabels, $overrides] = $this->resolveFinalLabels($request, $autoLabels, $pCount);
-        if (! empty($overrides)) {
-            $this->logFeedback($base, $overrides, $snippets, $pageScores);
-        }
+        // Contacts are resolved once against THIS property and shared by every
+        // file's per-page assignments (only contacts actually attached to this
+        // property are honoured — no orphan, no cross-property leak).
+        $attached       = $property->contacts()->get()->keyBy('id');
+        $postedLabels   = (array) $request->input('labels', []);
+        $postedContacts = (array) $request->input('contacts', []);
 
-        // Per-page assigned contacts — MANY-TO-MANY. Each page carries a SET of
-        // contacts across any/all of the doc-type's allowed roles (the OTP links
-        // to all sellers AND all buyers at once). Only contacts actually attached
-        // to THIS property are honoured (the page selector + link/create flow keep
-        // the pivot current); anything else is dropped (no orphan, no cross-
-        // property leak).
-        $attached     = $property->contacts()->get()->keyBy('id');
-        $postedC      = (array) $request->input('contacts', []);
-        $pageContacts = [];                       // page => int[] (attached ids)
-        for ($p = 1; $p <= $pCount; $p++) {
-            $raw = $postedC[(string) $p] ?? [];
-            $ids = collect(is_array($raw) ? $raw : [$raw])
-                ->map(fn ($v) => (int) $v)
-                ->filter(fn ($cid) => $cid > 0 && $attached->has($cid))
-                ->unique()->sort()->values()->all();
-            $pageContacts[$p] = $ids;
-        }
+        // Groups are built PER FILE (extraction always operates on one source
+        // PDF at a time) then flattened into one list for filing/FICA — so two
+        // files that coincidentally produce the same (label, contact-set) stay
+        // as two distinct filed Documents, never pdfunite'd together.
+        $allGroups = [];
+        foreach ($manifests as $manifest) {
+            $manifestId  = $manifest['manifestId'];
+            $base        = $manifest['base'];
+            $origRel     = $manifest['origRel'];
+            $origAbsNorm = str_replace('\\', '/', Storage::disk('local')->path($origRel));
+            $outDirRel   = $manifest['outDirRel'];
+            $pCount      = (int) $manifest['pCount'];
+            $autoLabels  = $manifest['labels'];
+            $snippets    = $manifest['snippets'];
+            $pageScores  = $manifest['pageScores'];
 
-        // Group pages by (label, exact-contact-SET). Pages sharing a label and the
-        // same set of ticked contacts merge into one output. Non-contiguous pages
-        // are fine — extractPageSet handles arbitrary page lists.
-        $groups = [];   // key => ['label'=>, 'contact_ids'=>int[], 'pages'=>int[]]
-        for ($p = 1; $p <= $pCount; $p++) {
-            $label = $finalLabels[$p];
-            $ids   = $pageContacts[$p];
-            $key   = $label . '|' . (empty($ids) ? 'none' : implode(',', $ids));
-            if (! isset($groups[$key])) {
-                $groups[$key] = ['label' => $label, 'contact_ids' => $ids, 'pages' => []];
+            $manifestLabelsPosted   = (array) ($postedLabels[$manifestId] ?? []);
+            $manifestContactsPosted = (array) ($postedContacts[$manifestId] ?? []);
+
+            [$finalLabels, $overrides] = $this->resolveFinalLabels($manifestLabelsPosted, $autoLabels, $pCount);
+            if (! empty($overrides)) {
+                $this->logFeedback($base, $overrides, $snippets, $pageScores);
             }
-            $groups[$key]['pages'][] = $p;
+
+            // Per-page assigned contacts — MANY-TO-MANY. Each page carries a SET
+            // of contacts across any/all of the doc-type's allowed roles (the OTP
+            // links to all sellers AND all buyers at once).
+            $pageContacts = [];
+            for ($p = 1; $p <= $pCount; $p++) {
+                $raw = $manifestContactsPosted[(string) $p] ?? [];
+                $ids = collect(is_array($raw) ? $raw : [$raw])
+                    ->map(fn ($v) => (int) $v)
+                    ->filter(fn ($cid) => $cid > 0 && $attached->has($cid))
+                    ->unique()->sort()->values()->all();
+                $pageContacts[$p] = $ids;
+            }
+
+            // Group THIS file's pages by (label, exact-contact-SET). Pages
+            // sharing a label and the same set of ticked contacts merge into one
+            // output. Non-contiguous pages are fine — extractPageSet handles
+            // arbitrary page lists.
+            $fileGroups = [];
+            for ($p = 1; $p <= $pCount; $p++) {
+                $label = $finalLabels[$p];
+                $ids   = $pageContacts[$p];
+                $key   = $label . '|' . (empty($ids) ? 'none' : implode(',', $ids));
+                if (! isset($fileGroups[$key])) {
+                    $fileGroups[$key] = ['label' => $label, 'contact_ids' => $ids, 'pages' => []];
+                }
+                $fileGroups[$key]['pages'][] = $p;
+            }
+
+            if (empty($fileGroups)) continue;
+
+            Storage::disk('local')->makeDirectory($outDirRel);
+            $outDirAbsNorm = str_replace('\\', '/', Storage::disk('local')->path($outDirRel));
+
+            $gi = 0;
+            foreach ($fileGroups as $g) {
+                $gi++;
+                $idsPart = empty($g['contact_ids']) ? 'unassigned' : ('c' . implode('-', $g['contact_ids']));
+                $outAbs  = $outDirAbsNorm . '/' . $base . '__' . $g['label'] . '__' . $idsPart . '__g' . $gi . '.pdf';
+                $this->extractPageSet($origAbsNorm, $g['pages'], $outAbs);
+                $g['file'] = $outAbs;
+                $allGroups[] = $g;
+            }
         }
 
-        if (empty($groups)) {
+        if (empty($allGroups)) {
             return redirect()->route('tools.pdf_splitter.review')
                 ->withErrors(['pdf' => 'No pages were assigned to any label.']);
         }
 
-        // AT-167 — PREVENT AT SOURCE. A contact-only document type (Save-to =
-        // Contact, not Property) filed with NO contact assigned would otherwise
-        // fall back to the property — a misfile (an ID under the property's
-        // folder instead of the person's). Block the whole link and name exactly
-        // which pages need a contact, by document-type label. Data-driven: the
-        // contact-only decision comes from each agency's Save-to config, never a
-        // hardcoded slug list.
+        // AT-167 — PREVENT AT SOURCE, across the WHOLE batch. A contact-only
+        // document type (Save-to = Contact, not Property) filed with NO contact
+        // assigned would otherwise fall back to the property — a misfile (an ID
+        // under the property's folder instead of the person's). Block the whole
+        // link and name exactly which pages need a contact, by document-type
+        // label. Data-driven: the contact-only decision comes from each
+        // agency's Save-to config, never a hardcoded slug list.
         $destSvc    = app(AgencyComplianceDocTypeService::class);
         $typeLabels = DocumentType::query()
-            ->whereIn('slug', collect($groups)->pluck('label')->filter()->unique()->all())
+            ->whereIn('slug', collect($allGroups)->pluck('label')->filter()->unique()->all())
             ->pluck('label', 'slug')->toArray();
         $needsContact = [];
-        foreach ($groups as $g) {
+        foreach ($allGroups as $g) {
             $slug = $g['label'] ?? null;
             if (! $slug) continue;
             $dest = $destSvc->destinationForSlug($agencyId, $slug);
@@ -807,38 +777,25 @@ class PdfSplitterController extends Controller
             ]);
         }
 
-        Storage::disk('local')->makeDirectory($outDirRel);
-        $outDirAbsNorm = str_replace('\\', '/', Storage::disk('local')->path($outDirRel));
+        $routing = $destSvc->routingMapBySlugFor($agencyId);
 
-        // Extract one PDF per group from the original.
-        $gi = 0;
-        foreach ($groups as $key => &$g) {
-            $gi++;
-            $idsPart = empty($g['contact_ids']) ? 'unassigned' : ('c' . implode('-', $g['contact_ids']));
-            $outAbs  = $outDirAbsNorm . '/' . $base . '__' . $g['label'] . '__' . $idsPart . '__g' . $gi . '.pdf';
-            $this->extractPageSet($origAbsNorm, $g['pages'], $outAbs);
-            $g['file'] = $outAbs;
-        }
-        unset($g);
+        // File every group (from every file) to its destination(s) + assigned contact (+ deal).
+        $filed = $this->fileGroupsToDestinations($property, $allGroups, $agencyId, $attached, $deal);
 
-        $routing = app(AgencyComplianceDocTypeService::class)->routingMapBySlugFor($agencyId);
-
-        // File every group to its destination(s) + assigned contact (+ deal).
-        $filed = $this->fileGroupsToDestinations($property, array_values($groups), $agencyId, $attached, $deal);
-
-        // FICA — group the FICA-relevant pages by assigned contact; one wet-ink
-        // verification per distinct contact. Agent TOGGLE, never silent.
+        // FICA — group the FICA-relevant pages (from every file) by assigned
+        // contact; one wet-ink verification per distinct contact. Agent TOGGLE,
+        // never silent.
         $ficaResults = [];
         $ficaNote    = null;
         if ($request->boolean('trigger_fica')) {
             $ficaResults = $this->kickoffMultiFica(
-                array_values($groups), $routing, $agencyId, $attached, $request->user(), $ficaNote
+                $allGroups, $routing, $agencyId, $attached, $request->user(), $ficaNote
             );
         }
 
-        // Post-link state: the agent has FINISHED this pack — the index hides the
-        // uploader and shows a Finish panel that returns to the property. (The ZIP
-        // path does NOT set this, so it keeps the uploader.)
+        // Post-link state: the agent has FINISHED this batch — the index hides
+        // the uploader and shows a Finish panel that returns to the property.
+        // (The ZIP path does NOT set this, so it keeps the uploader.)
         $propLabel = trim((string) ($property->address ?: $property->title ?: ''));
         $redirect = redirect()->route('tools.pdf_splitter.index')
             ->with('splitter_linked', true)
@@ -887,20 +844,21 @@ class PdfSplitterController extends Controller
 
     /**
      * Apply posted label overrides (whitelisted against active doc types) over
-     * the OCR auto-labels. Returns [finalLabels (int-keyed), overrides].
+     * the OCR auto-labels for ONE file's pages. $posted is that file's own
+     * slice of the request's labels[manifestId] array. Returns [finalLabels
+     * (int-keyed), overrides].
      *
      * @return array{0: array<int,string>, 1: array<int,array{from:string,to:string}>}
      */
-    private function resolveFinalLabels(Request $request, array $autoLabels, int $pCount): array
+    private function resolveFinalLabels(array $posted, array $autoLabels, int $pCount): array
     {
-        $posted       = $request->input('labels', []);
         $validBuckets = array_keys($this->docTypes());
         $finalLabels  = [];
         $overrides    = [];
 
         for ($p = 1; $p <= $pCount; $p++) {
             $auto     = $autoLabels[(string) $p] ?? 'other';
-            $override = isset($posted[(string) $p]) ? trim($posted[(string) $p]) : null;
+            $override = isset($posted[(string) $p]) ? trim((string) $posted[(string) $p]) : null;
 
             if ($override !== null && in_array($override, $validBuckets, true) && $override !== $auto) {
                 $finalLabels[$p] = $override;

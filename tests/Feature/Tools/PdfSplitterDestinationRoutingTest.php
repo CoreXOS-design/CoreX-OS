@@ -496,16 +496,17 @@ final class PdfSplitterDestinationRoutingTest extends TestCase
 
         $id = $this->seedSplitterManifest(6);
 
-        // The exact shape the review screen submits: per-page label + contact(s).
+        // The exact shape the review screen submits: per-page label + contact(s),
+        // nested under the file's own manifest ID (the batch/stacked-review model).
         // p1-3 → seller (FICA, ID, POR); p4-6 → buyer (FICA, ID, POR).
-        $resp = $this->withSession(['splitter_manifest_id' => $id])->post(route('tools.pdf_splitter.link'), [
+        $resp = $this->withSession(['splitter_batch' => [$id]])->post(route('tools.pdf_splitter.link'), [
             'property_id'  => $p->id,
             'trigger_fica' => '1',
-            'labels'   => [1 => 'fica', 2 => 'ids', 3 => 'por', 4 => 'fica', 5 => 'ids', 6 => 'por'],
-            'contacts' => [
+            'labels'   => [$id => [1 => 'fica', 2 => 'ids', 3 => 'por', 4 => 'fica', 5 => 'ids', 6 => 'por']],
+            'contacts' => [$id => [
                 1 => [$seller->id], 2 => [$seller->id], 3 => [$seller->id],
                 4 => [$buyer->id],  5 => [$buyer->id],  6 => [$buyer->id],
-            ],
+            ]],
         ]);
         $resp->assertRedirect();
 
@@ -536,11 +537,11 @@ final class PdfSplitterDestinationRoutingTest extends TestCase
         $c = $this->makeContact($p, 'seller', 'Sipho', '0721111111');
         $id = $this->seedSplitterManifest(3);
 
-        $resp = $this->withSession(['splitter_manifest_id' => $id])->post(route('tools.pdf_splitter.link'), [
+        $resp = $this->withSession(['splitter_batch' => [$id]])->post(route('tools.pdf_splitter.link'), [
             'property_id'  => $p->id,
             'trigger_fica' => '1',
-            'labels'   => [1 => 'fica', 2 => 'ids', 3 => 'por'],
-            'contacts' => [1 => [$c->id], 2 => [$c->id], 3 => [$c->id]],
+            'labels'   => [$id => [1 => 'fica', 2 => 'ids', 3 => 'por']],
+            'contacts' => [$id => [1 => [$c->id], 2 => [$c->id], 3 => [$c->id]]],
         ]);
         $resp->assertRedirect();
 
@@ -566,11 +567,11 @@ final class PdfSplitterDestinationRoutingTest extends TestCase
         $c = $this->makeContact($p, 'seller', 'Sipho', '0721111111');
         $id = $this->seedSplitterManifest(3);
 
-        $resp = $this->withSession(['splitter_manifest_id' => $id])->post(route('tools.pdf_splitter.link'), [
+        $resp = $this->withSession(['splitter_batch' => [$id]])->post(route('tools.pdf_splitter.link'), [
             'property_id'  => $p->id,
             'trigger_fica' => '1',
-            'labels'   => [1 => 'fica', 2 => 'ids', 3 => 'ids'], // page 3 mislabelled IDs
-            'contacts' => [1 => [$c->id], 2 => [$c->id], 3 => [$c->id]],
+            'labels'   => [$id => [1 => 'fica', 2 => 'ids', 3 => 'ids']], // page 3 mislabelled IDs
+            'contacts' => [$id => [1 => [$c->id], 2 => [$c->id], 3 => [$c->id]]],
         ]);
         $resp->assertRedirect();
 

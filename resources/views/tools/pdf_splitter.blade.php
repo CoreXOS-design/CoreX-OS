@@ -131,17 +131,6 @@
     border-bottom: 1px solid var(--border);
 }
 #pdf-splitter-root .file-list li:last-child { border-bottom: none; }
-
-/* Batch-in-progress panel */
-#pdf-splitter-root .batch-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 1.5rem;
-    border-left: 3px solid var(--ds-teal, #14b8a6);
-    box-shadow: var(--pv2-shadow);
-    margin-bottom: 1.25rem;
-}
 </style>
 
 <div class="space-y-5">
@@ -206,62 +195,33 @@
 
         {{-- Files in this batch that failed to OCR (unreadable / 0 pages) — the
              batch continues without them rather than aborting silently. --}}
-        @if(!empty($queueSkipped))
+        @if(!empty($skipped ?? []))
             <div class="alert-error">
-                Could not split {{ count($queueSkipped) === 1 ? 'this file' : 'these files' }} from the batch (unreadable / no pages): <strong>{{ implode(', ', $queueSkipped) }}</strong>
+                Could not split {{ count($skipped) === 1 ? 'this file' : 'these files' }} from the batch (unreadable / no pages): <strong>{{ implode(', ', $skipped) }}</strong>
             </div>
         @endif
 
-        {{-- AT-105 — post-"Link to CoreX" state: the agent has FINISHED this pack,
-             so the upload form is hidden and a Finish panel closes the loop. The
+        {{-- AT-105 — post-"Link" state: the agent has FINISHED this batch, so
+             the upload form is hidden and a Finish panel closes the loop. The
              ZIP-download path does NOT set splitter_linked, so it keeps the
              uploader visible. --}}
         @if(session('splitter_linked'))
         <div class="upload-card">
-            <h3>All done with this pack</h3>
-            <p class="subtitle">The documents above have been filed{{ session('splitter_fica_results') ? ' and the FICA verification(s) opened' : '' }}. You can return to the property or split another pack.</p>
+            <h3>All done with this batch</h3>
+            <p class="subtitle">The documents above have been filed{{ session('splitter_fica_results') ? ' and the FICA verification(s) opened' : '' }}. You can return to the property or split another batch.</p>
             <div class="flex flex-wrap items-center gap-3" style="margin-top:8px;">
                 @if(session('splitter_property_url'))
                     <a href="{{ session('splitter_property_url') }}" class="corex-btn-primary text-sm">
                         Finish &mdash; back to {{ session('splitter_property_label') ?: 'the property' }}
                     </a>
                 @endif
-                @if(!$queuePending)
-                    <a href="{{ route('tools.pdf_splitter.index') }}" class="corex-btn-outline text-sm">Split another pack</a>
-                @endif
+                <a href="{{ route('tools.pdf_splitter.index') }}" class="corex-btn-outline text-sm">Split another batch</a>
             </div>
         </div>
-        @endif
-
-        {{-- Multi-file batch — files behind the one just reviewed are queued
-             here rather than OCR'd upfront, so each review request stays as
-             fast as a single-file split regardless of batch size. --}}
-        @if($queuePending)
-        <div class="batch-card">
-            <h3 style="margin:0 0 0.5rem 0; font-size:1.125rem; font-weight:600; color: var(--text-primary);">Batch upload in progress</h3>
-            <p class="subtitle" style="margin-bottom:1rem;">
-                {{ $queueRemaining }} more file{{ $queueRemaining === 1 ? '' : 's' }} queued
-                (file {{ (int) session('splitter_queue_position', 1) + 1 }} of {{ $queueTotal }}@if($queueNextName): <strong>{{ $queueNextName }}</strong>@endif).
-                Finish or download the current pack first, then continue.
-            </p>
-            <div class="flex flex-wrap items-center gap-3">
-                <form method="POST" action="{{ route('tools.pdf_splitter.continue_queue') }}">
-                    @csrf
-                    <button type="submit" class="corex-btn-primary text-sm">Continue to next file &rarr;</button>
-                </form>
-                <form method="POST" action="{{ route('tools.pdf_splitter.cancel_queue') }}"
-                      onsubmit="return confirm('Skip the remaining {{ $queueRemaining }} file(s) in this batch? The current file is not affected.');">
-                    @csrf
-                    <button type="submit" class="corex-btn-outline text-sm">Cancel remaining {{ $queueRemaining }}</button>
-                </form>
-            </div>
-        </div>
-        @endif
-
-        @if(!session('splitter_linked') && !$queuePending)
+        @else
         <div class="upload-card">
             <h3>Upload PDF <span style="font-weight:400;">(s)</span></h3>
-            <p class="subtitle">OCR runs automatically &mdash; you'll review and correct labels before each ZIP is generated. Upload several packs at once and the splitter walks you through them one at a time, the same way as a single upload.</p>
+            <p class="subtitle">OCR runs automatically &mdash; you'll review and correct labels for every file on one screen before anything is generated or filed.</p>
 
             <form id="pdf-upload-form"
                   method="POST"
