@@ -240,11 +240,17 @@ class MarketIntelligenceController extends Controller
 
         // Stock match filter (legacy ?stock_filter= explicit override — still honoured
         // when the manager wants to inspect just the in-stock or out-of-stock subset).
+        // 2026-08-11 fix — was whereNotNull/whereNull('matched_property_id'), the raw
+        // ungated column (same bug class as the buyer-matches panel / suggested-action
+        // chips): a listing matched to an off-market/withdrawn property showed under
+        // ?stock_filter=in_stock and was wrongly excluded from not_in_stock. Routed
+        // through the canonical on-market-gated identity instead.
         if ($request->filled('stock_filter')) {
+            $onMarketStock = app(\App\Services\Prospecting\OnMarketStockService::class);
             if ($request->stock_filter === 'in_stock') {
-                $query->whereNotNull('matched_property_id');
+                $onMarketStock->applyIsStock($query, $agencyId);
             } elseif ($request->stock_filter === 'not_in_stock') {
-                $query->whereNull('matched_property_id');
+                $onMarketStock->applyNotStock($query, $agencyId);
             }
         }
 
@@ -899,6 +905,11 @@ class MarketIntelligenceController extends Controller
                                      && isset($listingStates['promotions'][(int) $listingItem->matched_property_id]),
                 'needs_reminder'  => $listingStates['claims'][$listingItem->id]['needs_reminder'] ?? false,
                 'needs_bm_flag'   => $listingStates['claims'][$listingItem->id]['needs_bm_flag']  ?? false,
+                // 2026-08-11 fix — on-market-gated stock identity (same
+                // $companyStockMap the IN STOCK badge uses), NOT the raw
+                // matched_property_id column. Feeds SuggestedActionResolver's
+                // R5/R6/R7/R10 in-stock gate + property links.
+                'company_stock_property_id' => $companyStockMap[$listingItem->id] ?? null,
             ];
             $tierSlice = [
                 'strong'    => $buyerTiers[$listingItem->id]['strong']    ?? 0,

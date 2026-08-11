@@ -281,9 +281,13 @@ final class PropertyIntelligencePanelService
 
     protected function loadPitchHistory(ProspectingListing $listing, int $agencyId): Collection
     {
-        // Pitches join via property_id (= matched_property_id). For non-stock
-        // listings (matched_property_id IS NULL) there is no pitch history yet.
-        if (!$listing->matched_property_id) {
+        // 2026-08-11 fix — was $listing->matched_property_id: the raw column is
+        // ungated on the linked property's market status (same bug class as the
+        // header badge above), so a listing fuzzy-matched to an off-market
+        // property pulled up that WRONG property's pitch history in the
+        // slideover's Activity tab. Same canonical on-market-gated identity.
+        $companyStockId = $this->onMarketStock->stockMapForListings([$listing], $agencyId)[(int) $listing->id] ?? null;
+        if (!$companyStockId) {
             return collect();
         }
 
@@ -291,7 +295,7 @@ final class PropertyIntelligencePanelService
             ->leftJoin('seller_outreach_templates as t', 't.id', '=', 's.template_id')
             ->leftJoin('users as u', 'u.id', '=', 's.agent_id')
             ->where('s.agency_id', $agencyId)
-            ->where('s.property_id', $listing->matched_property_id)
+            ->where('s.property_id', $companyStockId)
             ->whereNull('s.deleted_at')
             ->select(
                 's.id',
