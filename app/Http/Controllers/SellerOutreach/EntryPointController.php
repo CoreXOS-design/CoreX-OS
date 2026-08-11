@@ -221,17 +221,37 @@ final class EntryPointController extends Controller
             ->whereNull('deleted_at')
             ->firstOrFail();
 
-        // #3 Address-first: an address-less (pull-all) listing must land a real
-        // street address BEFORE we create the Property. When the listing has no
-        // address of its own, the capture form supplied one — require + capture it
-        // here (independent of contact search/create mode). A listing that already
-        // carries an address skips this entirely.
-        $captureAddress = null;
+        // #3 Address-first — the address-less (pull-all) listing must land a real address
+        // BEFORE we create the Property. The capture reuses the Contact screen's "Property
+        // Address" modal, so instead of one blank line we receive the SAME structured
+        // fields. Compose a display address and carry the structured parts onto the
+        // promoted Property. A listing that already carries an address skips this.
+        $captureAddress    = null;
+        $structuredAddress = null;
         if (trim((string) ($listing->address ?? '')) === '') {
-            $addr = $request->validate([
-                'address' => 'required|string|max:255',
+            $sa = $request->validate([
+                'street_number'          => 'nullable|string|max:100',
+                'street_name'            => 'nullable|string|max:255',
+                'unit_number'            => 'nullable|string|max:100',
+                'floor_number'           => 'nullable|string|max:50',
+                'unit_section_block'     => 'nullable|string|max:255',
+                'complex_name'           => 'nullable|string|max:255',
+                'suburb'                 => 'nullable|string|max:255',
+                'city'                   => 'nullable|string|max:255',
+                'province'               => 'nullable|string|max:255',
+                'pitch_addr_province_id' => 'nullable|integer',
+                'pitch_addr_city_id'     => 'nullable|integer',
+                'pitch_addr_suburb_id'   => 'nullable|integer',
             ]);
-            $captureAddress = trim($addr['address']);
+            $sa = array_map(fn ($v) => is_string($v) ? trim($v) : $v, $sa);
+            // A real address needs at least a street name or a complex/estate name.
+            if (($sa['street_name'] ?? '') === '' && ($sa['complex_name'] ?? '') === '') {
+                return back()
+                    ->withErrors(['street_name' => 'Set a property address (street or complex/estate) before continuing.'])
+                    ->withInput();
+            }
+            $structuredAddress = $sa;
+            $captureAddress = $this->composeAddress($sa);
         }
 
         // The agent may either PICK an existing contact (search) or CAPTURE a new
@@ -279,7 +299,7 @@ final class EntryPointController extends Controller
             $isNew = $existing === null;
         }
 
-        $result = DB::transaction(function () use ($request, $agencyId, $listing, $validated, $existing, $idNumber, $captureAddress) {
+        $result = DB::transaction(function () use ($request, $agencyId, $listing, $validated, $existing, $idNumber, $captureAddress, $structuredAddress) {
             // Branch context is mandatory on Contact rows in CoreX schema.
             $branchId = $request->user()->branch_id;
 
@@ -322,7 +342,7 @@ final class EntryPointController extends Controller
                 ]);
             }
 
-            $property = $this->promoteListingToProperty($agencyId, $listing, $request->user(), $captureAddress);
+            $property = $this->promoteListingToProperty($agencyId, $listing, $request->user(), $captureAddress, $structuredAddress);
 
             // Universal Match-or-Create: ensure a TrackedProperty exists for this
             // address and link it to both the prospecting listing AND the newly
@@ -715,7 +735,7 @@ final class EntryPointController extends Controller
      * promoted Property can be traced back to its source listing. The
      * listing's `matched_property_id` is set in the caller's transaction.
      */
-    private function promoteListingToProperty(int $agencyId, $listing, $actor, ?string $overrideAddress = null): Property
+    private function promoteListingToProperty(int $agencyId, $listing, $actor, ?string $overrideAddress = null, ?array $structuredAddress = null): Property
     {
         // #3 Address-first: an address-less import (pull-all) reaches here with a
         // blank listing address. The capture step collects one and passes it as
@@ -795,10 +815,38 @@ final class EntryPointController extends Controller
         [$streetNumber, $streetName] = $this->parseStreet($address, $suburb);
         $district = trim((string) ($listing->district ?? ''));
 
+        // When the address came from the shared "Property Address" modal (structured
+        // capture on the pitch flow), prefer its EXACT parts over parsing the composed
+        // string, and carry the richer columns (complex/unit/city/province + P24 ids)
+        // onto the new property so it is pre-filled exactly like a contact-started one.
+        $extra = [];
+        if (is_array($structuredAddress)) {
+            if (($structuredAddress['street_number'] ?? '') !== '') { $streetNumber = $structuredAddress['street_number']; }
+            if (($structuredAddress['street_name'] ?? '') !== '')   { $streetName   = $structuredAddress['street_name']; }
+            if (($structuredAddress['suburb'] ?? '') !== '')        { $suburb       = $structuredAddress['suburb']; }
+            foreach ([
+                'complex_name'       => 'complex_name',
+                'unit_number'        => 'unit_number',
+                'floor_number'       => 'floor_number',
+                'unit_section_block' => 'unit_section_block',
+                'city'               => 'city',
+                'province'           => 'province',
+            ] as $src => $col) {
+                if (($structuredAddress[$src] ?? '') !== '') { $extra[$col] = $structuredAddress[$src]; }
+            }
+            foreach ([
+                'pitch_addr_province_id' => 'p24_province_id',
+                'pitch_addr_city_id'     => 'p24_city_id',
+                'pitch_addr_suburb_id'   => 'p24_suburb_id',
+            ] as $src => $col) {
+                if (!empty($structuredAddress[$src])) { $extra[$col] = (int) $structuredAddress[$src]; }
+            }
+        }
+
         // properties.beds/baths/garages/price/suburb/property_type/status are
         // NOT NULL — fall back to the schema defaults (0 / empty / 'house' /
         // 'draft') when the prospecting row doesn't carry the value.
-        return Property::create([
+        return Property::create(array_merge([
             'agency_id'     => $agencyId,
             'branch_id'     => $propertyBranchId,
             'agent_id'      => $propertyAgentId,
@@ -817,7 +865,36 @@ final class EntryPointController extends Controller
             // No listing_type on prospecting_listings — default to 'sale'.
             'listing_type'  => 'sale',
             'status'        => 'draft',
-        ]);
+        ], $extra));
+    }
+
+    /**
+     * Compose a one-line display address from the structured "Property Address" modal
+     * fields (unit / section / complex / street / suburb / city / province), mirroring
+     * the contact component's summary. Used as the promoted property's address string.
+     */
+    private function composeAddress(array $a): string
+    {
+        $parts = [];
+        $unit    = trim((string) ($a['unit_number'] ?? ''));
+        $section = trim((string) ($a['unit_section_block'] ?? ''));
+        $complex = trim((string) ($a['complex_name'] ?? ''));
+        $sNo     = trim((string) ($a['street_number'] ?? ''));
+        $sName   = trim((string) ($a['street_name'] ?? ''));
+        $suburb  = trim((string) ($a['suburb'] ?? ''));
+        $city    = trim((string) ($a['city'] ?? ''));
+        $prov    = trim((string) ($a['province'] ?? ''));
+
+        if ($unit !== '')    { $parts[] = 'Unit ' . $unit; }
+        if ($section !== '') { $parts[] = $section; }
+        if ($complex !== '') { $parts[] = $complex; }
+        if ($sNo !== '' && $sName !== '') { $parts[] = trim($sNo . ' ' . $sName); }
+        elseif ($sName !== '')            { $parts[] = $sName; }
+        if ($suburb !== '') { $parts[] = $suburb; }
+        if ($city !== '' && strtolower($city) !== strtolower($suburb)) { $parts[] = $city; }
+        if ($prov !== '') { $parts[] = $prov; }
+
+        return implode(', ', array_filter($parts));
     }
 
     /**

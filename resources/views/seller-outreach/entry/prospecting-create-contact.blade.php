@@ -120,21 +120,43 @@
                   : route('seller-outreach.entry.store-from-prospecting', $listing->id)) }}">
         @csrf
 
-        {{-- #3 Address-first: when the source listing carries no street address,
-             capture one here BEFORE the seller. The controller requires it and
-             lands it on the promoted Property (never a placeholder address). --}}
+        {{-- #3 Address-first: when the source listing carries no street address, capture
+             one BEFORE the seller. Reuses the SAME "Property Address" modal + component as
+             the Contact screen's "Start a Property from an Address" (Johan 2026-08-11), so
+             the agent works exactly as they do from contacts. The structured fields submit
+             with THIS form; storeFromProspecting composes the address and lands it on the
+             listing's OWN promoted property (external_id-tied). --}}
         @if(!empty($needsAddress) && $needsAddress)
             <div class="rounded-md p-4 mb-4" style="background: var(--surface); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 45%, var(--border));">
                 <h2 class="text-base font-semibold mb-1" style="color: var(--text-primary);">
                     Property address <span style="color: var(--ds-crimson);">*</span>
                 </h2>
-                <p class="text-xs mb-2" style="color: var(--text-muted);">
-                    This listing was captured without a street address. Enter it so the pitch lands on a real property record.
+                <p class="text-xs mb-3" style="color: var(--text-muted);">
+                    This listing was captured without a street address. Set it here to create the property, then continue.
                 </p>
-                <input type="text" name="address" value="{{ old('address') }}" required maxlength="255"
-                       placeholder="e.g. 12 Marine Drive, Uvongo"
-                       class="w-full px-3 py-2 text-sm rounded-md"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                @include('corex._partials.property-address-capture', [
+                    'fieldPrefix'  => 'pitch_addr',
+                    'heldCheckUrl' => route('corex.contacts.check-held-address'),
+                    'initial'      => [
+                        'unitNumber'       => old('unit_number', ''),
+                        'floorNumber'      => old('floor_number', ''),
+                        'unitSectionBlock' => old('unit_section_block', ''),
+                        'complexName'      => old('complex_name', ''),
+                        'streetNumber'     => old('street_number', ''),
+                        'streetName'       => old('street_name', ''),
+                        'suburb'           => old('suburb', ''),
+                        'city'             => old('city', ''),
+                        'province'         => old('province', ''),
+                    ],
+                    'initialP24'   => [
+                        'provinceId'   => old('pitch_addr_province_id', 0),
+                        'cityId'       => old('pitch_addr_city_id', 0),
+                        'suburbId'     => old('pitch_addr_suburb_id', 0),
+                        'provinceName' => old('province', ''),
+                        'cityName'     => old('city', ''),
+                        'suburbName'   => old('suburb', ''),
+                    ],
+                ])
             </div>
         @endif
 
