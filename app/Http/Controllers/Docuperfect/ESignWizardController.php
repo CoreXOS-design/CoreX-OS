@@ -5561,33 +5561,38 @@ class ESignWizardController extends Controller
                 ->orderByDesc('id')
                 ->get();
         }
-        // document_id => Collection<SignedDocumentVersion> (for the per-document badge).
-        $supportingByDoc = $supporting->groupBy('document_id');
         $templatesByDocId = $allTemplates->keyBy(fn ($t) => $t->document?->id);
-        // BATCH BY RECIPIENT (Johan item 5) — collapse a recipient's uploads into ONE row per
-        // signing request. The splitter takes 1-to-many at once, so we present one row + one batch
-        // action per recipient, not one per uploaded file.
-        $supportingBatches = $supporting
+        // Badge counts only UNFILED uploads (the ones still needing to be worked / filed).
+        $supportingByDoc = $supporting->whereNull('filed_at')->groupBy('document_id');
+
+        // BATCH BY RECIPIENT (Johan item 5) — one row per signing request. FILED state (Part A): a
+        // batch is "filed" once EVERY upload in it carries filed_at; those drop off the working
+        // "to file" list into the "Filed additional docs" archive. A later re-upload (an unfiled
+        // version on a filed request) flips the whole batch back to "to file" until re-filed.
+        $buildBatch = function ($versions, $requestId) use ($templatesByDocId) {
+            $first = $versions->first();
+            $tpl = $templatesByDocId->get($first->document_id);
+            if (! $tpl || ! $tpl->document) {
+                return null;
+            }
+            return (object) [
+                'request_id'  => (int) $requestId,
+                'document'    => $tpl->document,
+                'template'    => $tpl,
+                'signer_name' => $first->uploaded_by_name ?: 'Recipient',
+                'count'       => $versions->count(),
+                'latest_at'   => $versions->pluck('uploaded_at')->filter()->max(),
+                'filed'       => $versions->whereNull('filed_at')->isEmpty(),
+                'filed_at'    => $versions->pluck('filed_at')->filter()->max(),
+            ];
+        };
+        $batches = $supporting
             ->filter(fn ($v) => $v->signature_request_id !== null)
             ->groupBy('signature_request_id')
-            ->map(function ($versions, $requestId) use ($templatesByDocId) {
-                $first = $versions->first();
-                $tpl = $templatesByDocId->get($first->document_id);
-                if (! $tpl || ! $tpl->document) {
-                    return null;
-                }
-                return (object) [
-                    'request_id'  => (int) $requestId,
-                    'document'    => $tpl->document,
-                    'template'    => $tpl,
-                    'signer_name' => $first->uploaded_by_name ?: 'Recipient',
-                    'count'       => $versions->count(),
-                    'latest_at'   => $versions->pluck('uploaded_at')->filter()->max(),
-                ];
-            })
-            ->filter()
-            ->sortByDesc('latest_at')
-            ->values();
+            ->map(fn ($versions, $requestId) => $buildBatch($versions, $requestId))
+            ->filter();
+        $supportingToFile = $batches->reject(fn ($b) => $b->filed)->sortByDesc('latest_at')->values();
+        $supportingFiled  = $batches->filter(fn ($b) => $b->filed)->sortByDesc('filed_at')->values();
 
         $counts = [
             'flagged'             => $groups['flagged']->count(), // AT-299
@@ -5608,7 +5613,8 @@ class ESignWizardController extends Controller
             'user'   => $user,
             'showOnlyAuthorisation' => $request->query('filter') === 'authorisation',
             'supportingByDoc'   => $supportingByDoc,
-            'supportingBatches' => $supportingBatches,
+            'supportingToFile'  => $supportingToFile,
+            'supportingFiled'   => $supportingFiled,
         ]);
     }
 

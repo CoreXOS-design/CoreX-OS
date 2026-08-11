@@ -13,6 +13,8 @@ class SignedDocumentVersion extends Model
         'document_id',
         'signature_request_id',
         'kind',
+        'filed_at',
+        'filed_by_user_id',
         'version_number',
         'file_path',
         'file_type',
@@ -44,7 +46,14 @@ class SignedDocumentVersion extends Model
         'agent_approved' => 'boolean',
         'uploaded_at' => 'datetime',
         'agent_approved_at' => 'datetime',
+        'filed_at' => 'datetime',
     ];
+
+    /** True when this supporting upload has been filed (off the working "to file" list). */
+    public function isFiled(): bool
+    {
+        return $this->filed_at !== null;
+    }
 
     public function document()
     {

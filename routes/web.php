@@ -3742,6 +3742,8 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::get('/documents/{document}/supporting/request/{signingRequest}/view',         [\App\Http\Controllers\Docuperfect\SignatureController::class, 'viewSupportingBatch'])->name('signatures.supporting.view');
     Route::get('/documents/{document}/supporting/request/{signingRequest}/download-all', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'downloadSupportingBatch'])->name('signatures.supporting.downloadAll');
     Route::post('/documents/{document}/supporting/request/{signingRequest}/process',     [\App\Http\Controllers\Docuperfect\SignatureController::class, 'processSupportingBatch'])->name('signatures.supporting.processBatch');
+    // FILED state (Part A) — mark a recipient's batch filed → moves it to the "Filed additional docs" archive.
+    Route::post('/documents/{document}/supporting/request/{signingRequest}/file',        [\App\Http\Controllers\Docuperfect\SignatureController::class, 'markSupportingBatchFiled'])->name('signatures.supporting.file');
     // Inline per-file stream used by the batch viewer to render each doc full-page (like the FICA viewer).
     Route::get('/documents/{document}/supporting/version/{version}/stream',       [\App\Http\Controllers\Docuperfect\SignatureController::class, 'streamSupportingFile'])->name('signatures.supporting.stream');
     // AT-352 item 2 — agent live "View document" (READ-ONLY recipient mirror; no write path)

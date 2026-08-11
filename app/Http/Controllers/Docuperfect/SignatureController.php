@@ -2402,6 +2402,29 @@ class SignatureController extends Controller
     }
 
     /**
+     * FILED state (Johan Part A) — mark a recipient's WHOLE upload batch as filed. Stamps filed_at
+     * on every supporting version for the request so the batch drops off the "Recipient additional
+     * docs to file" working list and appears under "Filed additional docs". (Part B will call this
+     * same flip when the multi-doc splitter signals it filed the batch.)
+     */
+    public function markSupportingBatchFiled(Request $request, Document $document, SignatureRequest $signingRequest)
+    {
+        $this->authorizeDocument($request->user(), $document);
+
+        $versions = $this->supportingVersionsFor($document, $signingRequest);
+        if ($versions->isEmpty()) {
+            abort(404);
+        }
+
+        \App\Models\Docuperfect\SignedDocumentVersion::whereIn('id', $versions->pluck('id')->all())
+            ->update(['filed_at' => now(), 'filed_by_user_id' => (int) $request->user()->id]);
+
+        $n = $versions->count();
+        return back()->with('supporting_process_notice',
+            'Filed ' . $n . ' document' . ($n === 1 ? '' : 's') . ' — moved to Filed additional docs.');
+    }
+
+    /**
      * Agent uploads a signed document on behalf of a party.
      */
     public function uploadOnBehalf(Request $request, Document $document, SignatureRequest $signingRequest)
