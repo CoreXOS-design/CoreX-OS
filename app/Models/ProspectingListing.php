@@ -155,16 +155,49 @@ class ProspectingListing extends Model
         return array_keys(static::companyStockRefMapFor($agencyId));
     }
 
+    /**
+     * This listing IS our own on-market stock — its portal_ref exactly matches an
+     * ON-MARKET property's P24/PP ref OR its normalized_address exactly matches an
+     * on-market property's normalized address. Identity comes from the canonical
+     * App\Services\Prospecting\OnMarketStockService (single source of truth, gated
+     * to Property::scopeOnMarket()); an off-market property no longer suppresses
+     * its matching listing — that listing is a legitimate canvass target again.
+     */
     public function scopeWhereCompanyStock($query, int $agencyId)
     {
-        $refs = static::companyStockRefsFor($agencyId);
-        return empty($refs) ? $query->whereRaw('1 = 0') : $query->whereIn('portal_ref', $refs);
+        $sets = app(\App\Services\Prospecting\OnMarketStockService::class)->identitySets($agencyId);
+        $refs = array_keys($sets['refs']);
+        $norms = array_keys($sets['normAddrs']);
+        if (empty($refs) && empty($norms)) {
+            return $query->whereRaw('1 = 0');
+        }
+        return $query->where(function ($q) use ($refs, $norms) {
+            if (!empty($refs))  $q->whereIn('portal_ref', $refs);
+            if (!empty($norms)) $q->orWhereIn('normalized_address', $norms);
+        });
     }
 
+    /**
+     * Inverse of scopeWhereCompanyStock — the canvass pool: exclude listings that
+     * are our own on-market stock (ref OR normalized_address). NULL-safe: a listing
+     * with a NULL normalized_address that isn't ref-matched STAYS in the pool
+     * (a bare NOT IN would drop it on the NULL).
+     */
     public function scopeWhereNotCompanyStock($query, int $agencyId)
     {
-        $refs = static::companyStockRefsFor($agencyId);
-        return empty($refs) ? $query : $query->whereNotIn('portal_ref', $refs);
+        $sets = app(\App\Services\Prospecting\OnMarketStockService::class)->identitySets($agencyId);
+        $refs = array_keys($sets['refs']);
+        $norms = array_keys($sets['normAddrs']);
+        if (!empty($refs)) {
+            $query->whereNotIn('portal_ref', $refs);
+        }
+        if (!empty($norms)) {
+            $query->where(function ($q) use ($norms) {
+                $q->whereNull('normalized_address')
+                  ->orWhereNotIn('normalized_address', $norms);
+            });
+        }
+        return $query;
     }
 
     /**

@@ -545,17 +545,13 @@ class MarketIntelligenceController extends Controller
         );
 
         // Company-stock map for the visible page (Johan's model): listing_id →
-        // agency Property id, by EXACT portal_ref match. Powers the IN STOCK badge
-        // and the company-logo-in-place-of-pitch treatment on the tile. One join.
-        $companyStockMap = [];
-        $companyStockRefMap = ProspectingListing::companyStockRefMapFor($agencyId);
-        if (!empty($companyStockRefMap)) {
-            foreach ($listings->items() as $it) {
-                if (isset($companyStockRefMap[$it->portal_ref])) {
-                    $companyStockMap[(int) $it->id] = $companyStockRefMap[$it->portal_ref];
-                }
-            }
-        }
+        // agency Property id, by exact portal_ref OR exact normalized_address match
+        // to an ON-MARKET owned property (canonical OnMarketStockService). Powers the
+        // IN STOCK badge + the company-logo-in-place-of-pitch tile. Some rows that the
+        // old exact-ref-only map missed now correctly gain the tile (address match);
+        // rows matching an off-market property correctly lose it.
+        $companyStockMap = app(\App\Services\Prospecting\OnMarketStockService::class)
+            ->stockMapForListings($listings->items(), $agencyId);
         $agencyRecord = \App\Models\Agency::find($agencyId);
         $agencyLogoUrl = ($agencyRecord && $agencyRecord->logo_path)
             ? asset('storage/' . $agencyRecord->logo_path)
@@ -601,10 +597,10 @@ class MarketIntelligenceController extends Controller
                                     ->where('price_changed_at', '>=', $weekAgo)->count(),
             'cross_listed'     => $crossListed,
             'buyer_matched'    => $matchedListingCount,
-            'in_stock'         => ProspectingListing::where('agency_id', $agencyId)
-                                    ->where('is_active', true)
-                                    ->whereCompanyStock($agencyId)
-                                    ->count(),
+            // TRUE in-stock = count of our ON-MARKET owned properties (canonical
+            // OnMarketStockService), not the exact-ref listing match that undercounts.
+            'in_stock'         => app(\App\Services\Prospecting\OnMarketStockService::class)
+                                    ->totalCount($agencyId),
         ];
 
         $suburbs = ProspectingListing::where('agency_id', $agencyId)
@@ -788,7 +784,14 @@ class MarketIntelligenceController extends Controller
         $includeInStock = $request->boolean('include_in_stock') && $isProspectingManager;
         // BUG B — pass the filtered count bases captured above so the KPI tiles and
         // filter-rail counts move with the same filters as the list.
-        $snapshotKpis = $this->computeSnapshotKpis($agencyId, $includeInStock, $kpiCountBase);
+        // Pass the active LITERAL suburb filter so the in-stock KPI reflects that
+        // suburb's real on-market owned-property count (canonical OnMarketStockService).
+        $snapshotKpis = $this->computeSnapshotKpis(
+            $agencyId,
+            $includeInStock,
+            $kpiCountBase,
+            $request->filled('suburb') ? (string) $request->get('suburb') : null,
+        );
         $actionPresetCounts = $this->computeActionPresetCounts(
             $agencyId,
             $user?->id !== null ? (int) $user->id : null,
@@ -2007,8 +2010,22 @@ class MarketIntelligenceController extends Controller
      */
     private function applyNotCompanyStockRaw($query, int $agencyId)
     {
-        $refs = ProspectingListing::companyStockRefsFor($agencyId);
-        return empty($refs) ? $query : $query->whereNotIn('portal_ref', $refs);
+        // Same canvass-pool exclusion as ProspectingListing::scopeWhereNotCompanyStock
+        // (on-market stock by ref OR normalized_address), for RAW DB::table builders.
+        // NULL-safe on normalized_address so a NULL-address listing isn't dropped.
+        $sets = app(\App\Services\Prospecting\OnMarketStockService::class)->identitySets($agencyId);
+        $refs = array_keys($sets['refs']);
+        $norms = array_keys($sets['normAddrs']);
+        if (!empty($refs)) {
+            $query->whereNotIn('portal_ref', $refs);
+        }
+        if (!empty($norms)) {
+            $query->where(function ($q) use ($norms) {
+                $q->whereNull('normalized_address')
+                  ->orWhereNotIn('normalized_address', $norms);
+            });
+        }
+        return $query;
     }
 
     /**
@@ -2050,7 +2067,7 @@ class MarketIntelligenceController extends Controller
      * canvass pool (or full set when audit toggle is on) plus a tiny aggregate
      * for cross-listed groups.
      */
-    protected function computeSnapshotKpis(int $agencyId, bool $includeInStock, $scopedBase = null): array
+    protected function computeSnapshotKpis(int $agencyId, bool $includeInStock, $scopedBase = null, ?string $suburbFilter = null): array
     {
         // BUG B — when the caller (Work mode) hands us the filtered list query, the
         // pool metrics count from THAT exact query so the KPI tiles move with every
@@ -2101,13 +2118,13 @@ class MarketIntelligenceController extends Controller
         $buyersMatched     = (int) ($matchAgg->bm ?? 0);
         $propertiesMatched = (int) ($matchAgg->pm ?? 0);
 
-        // In-stock counts a DIFFERENT population (company-stock, not the canvass
-        // pool the base query excludes) — kept as its own query.
-        $inStock = ProspectingListing::where('agency_id', $agencyId)
-            ->where('is_active', true)
-            ->whereCompanyStock($agencyId)
-            ->whereNull('deleted_at')
-            ->count();
+        // In-stock = the TRUE count of our ON-MARKET owned PROPERTIES (canonical
+        // OnMarketStockService), driven from the properties table — NOT the
+        // exact-ref listing match that undercounts. A DIFFERENT population from the
+        // canvass pool. Honours the active LITERAL suburb filter so a suburb-filtered
+        // view shows that suburb's real on-market stock (Uvongo → 14, not 6).
+        $inStock = app(\App\Services\Prospecting\OnMarketStockService::class)
+            ->totalCount($agencyId, $suburbFilter);
 
         // Cross-listed: same property_group_id appearing on >1 portal_source.
         // Derived from $baseQuery so it honours the SAME canvass-pool + active
