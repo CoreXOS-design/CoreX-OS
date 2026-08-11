@@ -2570,10 +2570,22 @@ class MarketIntelligenceController extends Controller
         $tierConfig = app(\App\Services\Prospecting\ProspectingConfigurationService::class)
             ->buyerMatchTiers($agencyId);
 
+        // 2026-08-11 fix — this legacy panel's "IN STOCK · view property" badge
+        // read $listing->matched_property_id directly, completely ungated on
+        // the linked property's market status (the same class of bug already
+        // fixed on PropertyIntelligencePanelService's slideover header — this
+        // is the THIRD, separate surface it turned up on: 46 Taylor Road badged
+        // IN STOCK and linked to 46 Marine Drive, a rental withdrawn ~3 years).
+        // Same canonical, on-market-gated identity via OnMarketStockService —
+        // a listing matching an off-market property now correctly shows no badge.
+        $companyStockPropertyId = app(\App\Services\Prospecting\OnMarketStockService::class)
+            ->stockMapForListings([$listing], $agencyId)[(int) $listing->id] ?? null;
+
         return view('prospecting._buyer-matches-panel', [
-            'listing'    => $listing,
-            'buyers'     => $buyers,
-            'tierConfig' => $tierConfig,
+            'listing'                => $listing,
+            'buyers'                 => $buyers,
+            'tierConfig'             => $tierConfig,
+            'companyStockPropertyId' => $companyStockPropertyId,
         ]);
     }
 
