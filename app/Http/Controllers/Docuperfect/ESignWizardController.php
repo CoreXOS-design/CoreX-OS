@@ -5549,6 +5549,31 @@ class ESignWizardController extends Controller
 
         $groups['needs_authorisation'] = $needsAuthorisation;
 
+        // Recipient supporting-document uploads (SignedDocumentVersion kind='supporting') —
+        // the optional docs recipients attach on the signing screen. Surface them to the
+        // agent HERE (badge on the doc + a dedicated section), not just in the audit log.
+        $docIds = $allTemplates->pluck('document.id')->filter()->values();
+        $supporting = collect();
+        if ($docIds->isNotEmpty()) {
+            $supporting = \App\Models\Docuperfect\SignedDocumentVersion::whereIn('document_id', $docIds->all())
+                ->where('kind', \App\Models\Docuperfect\SignedDocumentVersion::KIND_SUPPORTING)
+                ->orderByDesc('uploaded_at')
+                ->orderByDesc('id')
+                ->get();
+        }
+        // document_id => Collection<SignedDocumentVersion> (for the per-document badge).
+        $supportingByDoc = $supporting->groupBy('document_id');
+        // Flat rows with document/template context (for the "Recipient additional docs" section).
+        $templatesByDocId = $allTemplates->keyBy(fn ($t) => $t->document?->id);
+        $supportingRows = $supporting->map(function ($v) use ($templatesByDocId) {
+            $tpl = $templatesByDocId->get($v->document_id);
+            return (object) [
+                'version'  => $v,
+                'document' => $tpl?->document,
+                'template' => $tpl,
+            ];
+        })->filter(fn ($r) => $r->document !== null)->values();
+
         $counts = [
             'flagged'             => $groups['flagged']->count(), // AT-299
             'returned'            => $groups['returned']->count(), // BUG 2 — returned-to-candidate
@@ -5567,6 +5592,8 @@ class ESignWizardController extends Controller
             'counts' => $counts,
             'user'   => $user,
             'showOnlyAuthorisation' => $request->query('filter') === 'authorisation',
+            'supportingByDoc' => $supportingByDoc,
+            'supportingRows'  => $supportingRows,
         ]);
     }
 

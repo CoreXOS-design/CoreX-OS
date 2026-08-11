@@ -2279,6 +2279,29 @@ class SignatureController extends Controller
     }
 
     /**
+     * HOOK — hand off a recipient's supporting document to the multi-doc splitter.
+     *
+     * Intentionally a STUB. Andre is building the document splitter; this is the landing
+     * spot + button where that hand-off attaches. Do NOT wire the splitter here — when it
+     * lands, replace the notice below with the dispatch into the splitter/classifier
+     * (the SignedDocumentVersion $version is the file to feed it).
+     */
+    public function processSupportingDocument(Request $request, Document $document, \App\Models\Docuperfect\SignedDocumentVersion $version)
+    {
+        $this->authorizeDocument($request->user(), $document);
+
+        if ((int) $version->document_id !== (int) $document->id || ! $version->isSupporting()) {
+            abort(404);
+        }
+
+        // ── SPLITTER HAND-OFF ATTACHES HERE (Andre) ────────────────────────────────
+        // e.g. app(\App\Services\...\SplitterService::class)->intake($version, $request->user());
+
+        return back()->with('supporting_process_notice',
+            'Sending to the document splitter is coming soon — this is the hand-off point.');
+    }
+
+    /**
      * Agent uploads a signed document on behalf of a party.
      */
     public function uploadOnBehalf(Request $request, Document $document, SignatureRequest $signingRequest)

@@ -50,6 +50,18 @@ the `!signingMethod` choice card). Also surfaced on the post-signing screen
 - `resources/views/docuperfect/signatures/audit-log.blade.php` (label + download)
 - `tests/Feature/Docuperfect/SigningView/RecipientSupportingUploadTest.php`
 
+## Agent-side landing (Johan-approved follow-up — in the E-Sign Documents area, NOT deals)
+Surfaced in **My eSign Documents** (`ESignWizardController::myDocuments` → `esign/my-documents.blade.php`):
+1. **Flag/badge** — every document with recipient supporting uploads shows a "＋ N additional doc(s)"
+   badge on its row (Awaiting + Completed tables), linking to the section below.
+2. **"Recipient additional docs" section** — a table (id `recipient-additional-docs`) listing each
+   `SignedDocumentVersion kind='supporting'` for the agent's documents: document + template, uploaded-by,
+   when, with **Download** (`signatures.supporting.download`) and **Send to splitter** actions.
+3. **Splitter hand-off HOOK (stub)** — `POST signatures.supporting.process` →
+   `SignatureController::processSupportingDocument` is a deliberate STUB (flashes a "coming soon" notice).
+   The button + route + controller landing spot exist; Andre's document-splitter wiring attaches at the
+   marked `SPLITTER HAND-OFF ATTACHES HERE` line. Do NOT build the splitter integration.
+
 ## Acceptance
 - Recipient can upload before signing; signing still proceeds with or without an upload.
 - After signing, the token link lands on `already-completed` and the upload card is still there.

@@ -430,6 +430,11 @@
                             @if($doc && $doc->template)
                                 <div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $doc->template->name }}</div>
                             @endif
+                            {{-- Recipient supporting-document flag --}}
+                            @php $sup = $doc ? ($supportingByDoc->get($doc->id) ?? collect()) : collect(); @endphp
+                            @if($sup->isNotEmpty())
+                                <a href="#recipient-additional-docs" class="ds-badge mt-1 inline-block no-underline" style="background: var(--brand-icon); color:#fff;" title="Recipient uploaded supporting documents">&#43; {{ $sup->count() }} additional doc{{ $sup->count() === 1 ? '' : 's' }}</a>
+                            @endif
                             {{-- AT-373 — a doc that re-circulated after an approved amendment reads as a normal
                                  "awaiting" row; this badge tells the agent it is a post-amendment re-initial /
                                  re-acceptance round, not a first-time signing, so the state is legible. --}}
@@ -688,6 +693,11 @@
                                 @if($doc && $doc->property_address)
                                     <div class="text-xs mt-0.5" style="color: var(--text-secondary);">{{ $doc->property_address }}</div>
                                 @endif
+                                {{-- Recipient supporting-document flag --}}
+                                @php $sup = $doc ? ($supportingByDoc->get($doc->id) ?? collect()) : collect(); @endphp
+                                @if($sup->isNotEmpty())
+                                    <a href="#recipient-additional-docs" class="ds-badge mt-1 inline-block no-underline" style="background: var(--brand-icon); color:#fff;" title="Recipient uploaded supporting documents">&#43; {{ $sup->count() }} additional doc{{ $sup->count() === 1 ? '' : 's' }}</a>
+                                @endif
                                 @if($completedSigners->isNotEmpty())
                                     <div class="text-xs mt-0.5" style="color: var(--text-muted);">Signed by: {{ $completedSigners->implode(', ') }}</div>
                                 @endif
@@ -715,6 +725,57 @@
                     </tbody>
                 </table>
                 </div>
+            </div>
+        </div>
+    </div>
+    @endif
+
+    {{-- ===== RECIPIENT ADDITIONAL DOCS (optional supporting uploads) ===== --}}
+    @if(($supportingRows ?? collect())->isNotEmpty())
+    <div id="recipient-additional-docs" class="space-y-3 scroll-mt-4 mt-6">
+        <h3 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--brand-icon);">
+            Recipient additional docs ({{ number_format($supportingRows->count()) }})
+        </h3>
+        <p class="text-xs" style="color: var(--text-muted);">Optional supporting documents recipients attached while signing (or after). View, download, or hand off to the document splitter.</p>
+
+        @if(session('supporting_process_notice'))
+            <div class="rounded-md px-4 py-2 text-sm" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--text-primary); border: 1px solid var(--border);">{{ session('supporting_process_notice') }}</div>
+        @endif
+
+        <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="overflow-x-auto">
+            <table class="min-w-full text-sm ds-table">
+                <thead>
+                    <tr style="background: var(--surface-2);">
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Document</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Uploaded by</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">When</th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach($supportingRows as $row)
+                    <tr class="transition-colors" style="border-top: 1px solid var(--border);">
+                        <td class="px-4 py-3">
+                            <div class="font-medium" style="color: var(--text-primary);">{{ $row->document->name ?? 'Untitled' }}</div>
+                            <div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ strtoupper($row->version->file_type) }} &middot; {{ $row->document->template->name ?? '—' }}</div>
+                        </td>
+                        <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $row->version->uploaded_by_name ?? 'Recipient' }}</td>
+                        <td class="px-4 py-3"><span class="text-xs" style="color: var(--text-muted);">{{ $row->version->uploaded_at?->format('d M Y H:i') ?? '—' }}</span></td>
+                        <td class="px-4 py-3 text-right">
+                            <div class="inline-flex items-center gap-3">
+                                <a href="{{ route('signatures.supporting.download', ['document' => $row->document->id, 'version' => $row->version->id]) }}" class="text-xs font-semibold hover:underline" style="color: var(--ds-green);">Download</a>
+                                {{-- HOOK — send to multi-doc splitter (Andre). Stub route for now. --}}
+                                <form method="POST" action="{{ route('signatures.supporting.process', ['document' => $row->document->id, 'version' => $row->version->id]) }}" class="inline">
+                                    @csrf
+                                    <button type="submit" class="text-xs font-semibold hover:underline" style="color: var(--brand-icon);" title="Hand off to the document splitter (coming soon)">Send to splitter</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                @endforeach
+                </tbody>
+            </table>
             </div>
         </div>
     </div>

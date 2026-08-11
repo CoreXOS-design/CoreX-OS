@@ -3731,6 +3731,9 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::get('/documents/{document}/signatures/review', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'review'])->name('docuperfect.signatures.review');
     // Office/agent download of a recipient's optional supporting document.
     Route::get('/documents/{document}/supporting/{version}/download', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'downloadSupportingFile'])->name('signatures.supporting.download');
+    // HOOK — hand-off of a recipient's supporting document to the multi-doc splitter (Andre).
+    // Stub for now; the button + landing spot exist, the splitter wiring attaches here later.
+    Route::post('/documents/{document}/supporting/{version}/process', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'processSupportingDocument'])->name('signatures.supporting.process');
     // AT-352 item 2 — agent live "View document" (READ-ONLY recipient mirror; no write path)
     Route::get('/documents/{document}/signatures/view-live', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'viewLive'])->name('docuperfect.signatures.viewLive');
     Route::post('/documents/{document}/signatures/approve-and-advance', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'approveAndAdvance'])->name('docuperfect.signatures.approveAndAdvance');
