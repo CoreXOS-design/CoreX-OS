@@ -2325,11 +2325,16 @@ class SignatureController extends Controller
             abort(404);
         }
 
+        $prefill = app(\App\Services\Docuperfect\SupportingBatchPrefillResolver::class)->forDocument($document);
+
         return view('docuperfect.esign.supporting-viewer', [
-            'document'       => $document,
-            'signingRequest' => $signingRequest,
-            'versions'       => $versions,
-            'signerName'     => $versions->first()->uploaded_by_name ?: ($signingRequest->signer_name ?: 'Recipient'),
+            'document'          => $document,
+            'signingRequest'    => $signingRequest,
+            'versions'          => $versions,
+            'signerName'        => $versions->first()->uploaded_by_name ?: ($signingRequest->signer_name ?: 'Recipient'),
+            // Splitter hand-off payload: the UNFILED uploads to intake + the resolved property.
+            'versionIds'        => $versions->whereNull('filed_at')->pluck('id')->all(),
+            'prefillPropertyId' => $prefill['property_id'] ?? null,
         ]);
     }
 

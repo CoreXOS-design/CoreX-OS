@@ -17,9 +17,16 @@
         <div class="flex items-center gap-2 shrink-0">
             <a href="{{ route('signatures.supporting.downloadAll', ['document' => $document->id, 'signingRequest' => $signingRequest->id]) }}"
                class="corex-btn-outline text-sm">Download all</a>
-            <form method="POST" action="{{ route('signatures.supporting.processBatch', ['document' => $document->id, 'signingRequest' => $signingRequest->id]) }}">
+            <form method="POST" action="{{ route('tools.pdf_splitter.intake_supporting') }}">
                 @csrf
-                <button type="submit" class="corex-btn-primary text-sm" title="Hand the whole batch off to the document splitter (coming soon)">Send to splitter</button>
+                <input type="hidden" name="signature_request_id" value="{{ $signingRequest->id }}">
+                @foreach(($versionIds ?? []) as $vid)
+                    <input type="hidden" name="version_ids[]" value="{{ $vid }}">
+                @endforeach
+                @if($prefillPropertyId ?? null)
+                    <input type="hidden" name="property_id" value="{{ $prefillPropertyId }}">
+                @endif
+                <button type="submit" class="corex-btn-primary text-sm" title="Open this batch in the document splitter with the address pre-filled">Send to splitter</button>
             </form>
         </div>
     </div>

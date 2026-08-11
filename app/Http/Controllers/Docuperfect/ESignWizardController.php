@@ -5569,21 +5569,29 @@ class ESignWizardController extends Controller
         // batch is "filed" once EVERY upload in it carries filed_at; those drop off the working
         // "to file" list into the "Filed additional docs" archive. A later re-upload (an unfiled
         // version on a filed request) flips the whole batch back to "to file" until re-filed.
-        $buildBatch = function ($versions, $requestId) use ($templatesByDocId) {
+        // Part B — resolve the property prefill once per batch so "Send to splitter" hands the
+        // splitter what CoreX already knows (property_id + the batch's unfiled version ids).
+        $prefillResolver = app(\App\Services\Docuperfect\SupportingBatchPrefillResolver::class);
+        $buildBatch = function ($versions, $requestId) use ($templatesByDocId, $prefillResolver) {
             $first = $versions->first();
             $tpl = $templatesByDocId->get($first->document_id);
             if (! $tpl || ! $tpl->document) {
                 return null;
             }
+            $unfiled = $versions->whereNull('filed_at');
+            $prefill = $prefillResolver->forDocument($tpl->document);
             return (object) [
-                'request_id'  => (int) $requestId,
-                'document'    => $tpl->document,
-                'template'    => $tpl,
-                'signer_name' => $first->uploaded_by_name ?: 'Recipient',
-                'count'       => $versions->count(),
-                'latest_at'   => $versions->pluck('uploaded_at')->filter()->max(),
-                'filed'       => $versions->whereNull('filed_at')->isEmpty(),
-                'filed_at'    => $versions->pluck('filed_at')->filter()->max(),
+                'request_id'   => (int) $requestId,
+                'document'     => $tpl->document,
+                'template'     => $tpl,
+                'signer_name'  => $first->uploaded_by_name ?: 'Recipient',
+                'count'        => $versions->count(),
+                'latest_at'    => $versions->pluck('uploaded_at')->filter()->max(),
+                'filed'        => $unfiled->isEmpty(),
+                'filed_at'     => $versions->pluck('filed_at')->filter()->max(),
+                // Splitter hand-off payload: the UNFILED uploads to intake + the resolved property.
+                'version_ids'  => $unfiled->pluck('id')->all(),
+                'prefill_property_id' => $prefill['property_id'] ?? null,
             ];
         };
         $batches = $supporting

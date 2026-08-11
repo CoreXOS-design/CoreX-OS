@@ -773,10 +773,18 @@
                             <div class="inline-flex items-center gap-4">
                                 <a href="{{ route('signatures.supporting.view', ['document' => $batch->document->id, 'signingRequest' => $batch->request_id]) }}" target="_blank" class="text-xs font-semibold hover:underline" style="color: var(--brand-icon);">View documents</a>
                                 <a href="{{ route('signatures.supporting.downloadAll', ['document' => $batch->document->id, 'signingRequest' => $batch->request_id]) }}" class="text-xs font-semibold hover:underline" style="color: var(--ds-green);">Download all</a>
-                                {{-- HOOK — batch hand-off to Andre's multi-doc splitter (1-to-many intake). Stub route for now. --}}
-                                <form method="POST" action="{{ route('signatures.supporting.processBatch', ['document' => $batch->document->id, 'signingRequest' => $batch->request_id]) }}" class="inline">
+                                {{-- Batch hand-off to the multi-doc splitter (cc5 intake-by-reference): opens the
+                                     splitter with this batch's files + the property/address pre-filled. --}}
+                                <form method="POST" action="{{ route('tools.pdf_splitter.intake_supporting') }}" class="inline">
                                     @csrf
-                                    <button type="submit" class="text-xs font-semibold hover:underline" style="color: var(--text-secondary);" title="Hand the whole batch off to the document splitter (coming soon)">Send to splitter</button>
+                                    <input type="hidden" name="signature_request_id" value="{{ $batch->request_id }}">
+                                    @foreach($batch->version_ids as $vid)
+                                        <input type="hidden" name="version_ids[]" value="{{ $vid }}">
+                                    @endforeach
+                                    @if($batch->prefill_property_id)
+                                        <input type="hidden" name="property_id" value="{{ $batch->prefill_property_id }}">
+                                    @endif
+                                    <button type="submit" class="text-xs font-semibold hover:underline" style="color: var(--brand-icon);" title="Open this batch in the document splitter with the address pre-filled">Send to splitter</button>
                                 </form>
                                 <form method="POST" action="{{ route('signatures.supporting.file', ['document' => $batch->document->id, 'signingRequest' => $batch->request_id]) }}" class="inline"
                                       onsubmit="return confirm('Mark {{ $batch->signer_name }}\'s {{ $batch->count }} document(s) as filed? They move to Filed additional docs.');">

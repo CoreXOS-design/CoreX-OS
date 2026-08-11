@@ -307,6 +307,12 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Demo\DemoAccessGranted::class,
             \App\Listeners\Demo\SendDemoAccessGrantEmail::class,
         );
+        // E-sign supporting docs (Part B) — the PDF splitter filed a recipient batch it pulled in
+        // via intake-by-reference; flip those SignedDocumentVersion rows to filed (subset-safe).
+        Event::listen(
+            \App\Events\Docuperfect\SupportingBatchFiled::class,
+            \App\Listeners\Document\FileSupportingBatchOnSplitterCompletion::class,
+        );
 
         // The domain-event logging family — every one of these was discovery-only.
         Event::listen(\App\Events\AbstractDomainEvent::class, \App\Listeners\Agent\LogAgentEvent::class);
