@@ -200,11 +200,17 @@ final class MapProspectStatusService
 
     /**
      * True when a coordinate cannot disambiguate one property from another —
-     * an obvious default (0,0) or a point shared by SHARED_COORD_THRESHOLD+
-     * tracked properties (a geocode default / suburb-centroid). Exact 7-dp
-     * equality: a real per-property GPS is unique to sub-metre precision, so a
-     * coordinate that dozens/hundreds of tracked properties report identically
-     * is a placeholder, never a real location.
+     * an obvious default (0,0), or a point that SHARED_COORD_THRESHOLD+ tracked
+     * properties OR active listings report identically. Exact 7-dp equality: a
+     * real per-property GPS is unique to sub-metre precision, so a coordinate
+     * that many rows share is a placeholder (geocode default / suburb-centroid)
+     * or a whole-building point — either way, proximity on it collapses
+     * DISTINCT addressless listings onto one property. Two signals:
+     *   - many tracked_properties at the point (e.g. the 391-way Ramsgate
+     *     centroid on property #2427 "6 Kerk St"); and
+     *   - many active listings at the point (e.g. 10 addressless listings on the
+     *     single tracked property at Marlin Flats, promoted to the #4140 rental) —
+     *     the tracked count alone is 1 there, so the listing count catches it.
      */
     private function isNonDisambiguatingCoordinate(float $lat, float $lng, int $agencyId): bool
     {
@@ -212,15 +218,28 @@ final class MapProspectStatusService
             return true;
         }
 
-        $shared = DB::table('tracked_properties')
+        $sharedTracked = DB::table('tracked_properties')
             ->where('agency_id', $agencyId)
             ->whereNull('deleted_at')
             ->where('latitude', $lat)
             ->where('longitude', $lng)
             ->limit(self::SHARED_COORD_THRESHOLD)
             ->count();
+        if ($sharedTracked >= self::SHARED_COORD_THRESHOLD) {
+            return true;
+        }
 
-        return $shared >= self::SHARED_COORD_THRESHOLD;
+        $sharedListings = DB::table('prospecting_listings as pl')
+            ->join('tracked_properties as tp', 'tp.id', '=', 'pl.tracked_property_id')
+            ->where('pl.agency_id', $agencyId)
+            ->where('pl.is_active', true)
+            ->whereNull('pl.deleted_at')
+            ->where('tp.latitude', $lat)
+            ->where('tp.longitude', $lng)
+            ->limit(self::SHARED_COORD_THRESHOLD)
+            ->count();
+
+        return $sharedListings >= self::SHARED_COORD_THRESHOLD;
     }
 
     private function resolveAgentName(?int $agentId): ?string
