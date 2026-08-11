@@ -117,6 +117,31 @@
     letter-spacing: normal;
     font-size: 0.6875rem;
 }
+
+/* Selected-files list */
+#pdf-splitter-root .file-list {
+    list-style: none;
+    margin: 8px 0 0 0;
+    padding: 0;
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+#pdf-splitter-root .file-list li {
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+}
+#pdf-splitter-root .file-list li:last-child { border-bottom: none; }
+
+/* Batch-in-progress panel */
+#pdf-splitter-root .batch-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+    border-left: 3px solid var(--ds-teal, #14b8a6);
+    box-shadow: var(--pv2-shadow);
+    margin-bottom: 1.25rem;
+}
 </style>
 
 <div class="space-y-5">
@@ -179,6 +204,14 @@
             </div>
         @endif
 
+        {{-- Files in this batch that failed to OCR (unreadable / 0 pages) — the
+             batch continues without them rather than aborting silently. --}}
+        @if(!empty($queueSkipped))
+            <div class="alert-error">
+                Could not split {{ count($queueSkipped) === 1 ? 'this file' : 'these files' }} from the batch (unreadable / no pages): <strong>{{ implode(', ', $queueSkipped) }}</strong>
+            </div>
+        @endif
+
         {{-- AT-105 — post-"Link to CoreX" state: the agent has FINISHED this pack,
              so the upload form is hidden and a Finish panel closes the loop. The
              ZIP-download path does NOT set splitter_linked, so it keeps the
@@ -193,23 +226,52 @@
                         Finish &mdash; back to {{ session('splitter_property_label') ?: 'the property' }}
                     </a>
                 @endif
-                <a href="{{ route('tools.pdf_splitter.index') }}" class="corex-btn-outline text-sm">Split another pack</a>
+                @if(!$queuePending)
+                    <a href="{{ route('tools.pdf_splitter.index') }}" class="corex-btn-outline text-sm">Split another pack</a>
+                @endif
             </div>
         </div>
-        @else
+        @endif
+
+        {{-- Multi-file batch — files behind the one just reviewed are queued
+             here rather than OCR'd upfront, so each review request stays as
+             fast as a single-file split regardless of batch size. --}}
+        @if($queuePending)
+        <div class="batch-card">
+            <h3 style="margin:0 0 0.5rem 0; font-size:1.125rem; font-weight:600; color: var(--text-primary);">Batch upload in progress</h3>
+            <p class="subtitle" style="margin-bottom:1rem;">
+                {{ $queueRemaining }} more file{{ $queueRemaining === 1 ? '' : 's' }} queued
+                (file {{ (int) session('splitter_queue_position', 1) + 1 }} of {{ $queueTotal }}@if($queueNextName): <strong>{{ $queueNextName }}</strong>@endif).
+                Finish or download the current pack first, then continue.
+            </p>
+            <div class="flex flex-wrap items-center gap-3">
+                <form method="POST" action="{{ route('tools.pdf_splitter.continue_queue') }}">
+                    @csrf
+                    <button type="submit" class="corex-btn-primary text-sm">Continue to next file &rarr;</button>
+                </form>
+                <form method="POST" action="{{ route('tools.pdf_splitter.cancel_queue') }}"
+                      onsubmit="return confirm('Skip the remaining {{ $queueRemaining }} file(s) in this batch? The current file is not affected.');">
+                    @csrf
+                    <button type="submit" class="corex-btn-outline text-sm">Cancel remaining {{ $queueRemaining }}</button>
+                </form>
+            </div>
+        </div>
+        @endif
+
+        @if(!session('splitter_linked') && !$queuePending)
         <div class="upload-card">
-            <h3>Upload PDF</h3>
-            <p class="subtitle">OCR runs automatically &mdash; you'll review and correct labels before the ZIP is generated.</p>
+            <h3>Upload PDF <span style="font-weight:400;">(s)</span></h3>
+            <p class="subtitle">OCR runs automatically &mdash; you'll review and correct labels before each ZIP is generated. Upload several packs at once and the splitter walks you through them one at a time, the same way as a single upload.</p>
 
             <form id="pdf-upload-form"
                   method="POST"
                   action="{{ route('tools.pdf_splitter.run') }}"
                   enctype="multipart/form-data"
-                  x-data="{ hasFile: false }">
+                  x-data="{ files: [] }">
                 @csrf
 
                 <div class="field" data-tour="splitter-base-name">
-                    <label for="base_name">Base Name</label>
+                    <label for="base_name">Base Name <span class="label-hint">(optional &mdash; defaults to each file's own name; becomes a shared prefix when uploading several)</span></label>
                     <input type="text"
                            id="base_name"
                            name="base_name"
@@ -222,20 +284,32 @@
                 </div>
 
                 <div class="field" data-tour="splitter-file">
-                    <label for="pdf">PDF File <span class="label-hint">(max 50 MB)</span></label>
+                    <label for="pdf">PDF File(s) <span class="label-hint">(max 50 MB each, up to 20 at once)</span></label>
                     <input type="file"
                            id="pdf"
-                           name="pdf"
+                           name="pdf[]"
                            accept="application/pdf"
-                           @change="hasFile = $event.target.files.length > 0">
+                           multiple
+                           @change="files = Array.from($event.target.files)">
                     @error('pdf')
                         <div class="field-error">{{ $message }}</div>
                     @enderror
+                    @error('pdf.*')
+                        <div class="field-error">{{ $message }}</div>
+                    @enderror
+
+                    <ul class="file-list" x-show="files.length > 0" x-cloak>
+                        <template x-for="(f, i) in files" :key="i">
+                            <li x-text="f.name"></li>
+                        </template>
+                    </ul>
                 </div>
 
-                <button type="submit" :disabled="!hasFile" data-tour="splitter-upload-btn"
-                        :class="hasFile ? 'corex-btn-primary' : 'opacity-50 cursor-not-allowed corex-btn-primary'"
-                        class="text-sm w-full">Upload &amp; Split</button>
+                <button type="submit" :disabled="files.length === 0" data-tour="splitter-upload-btn"
+                        :class="files.length > 0 ? 'corex-btn-primary' : 'opacity-50 cursor-not-allowed corex-btn-primary'"
+                        class="text-sm w-full">
+                    <span x-text="files.length > 1 ? ('Upload & Split ' + files.length + ' files') : 'Upload & Split'"></span>
+                </button>
             </form>
         </div>
         @endif

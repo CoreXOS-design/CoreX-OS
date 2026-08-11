@@ -1130,6 +1130,9 @@ Route::middleware(['auth'])->group(function () {
     // AT-105 enh — per-page "Link to CoreX" (file + multi-FICA) is a distinct
     // action from the ZIP download. Both submit the per-page assignments.
     Route::post('/tools/pdf-splitter/link', [PdfSplitterController::class, 'link'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.link');
+    // Multi-file upload queue — abandon, or advance to, the remaining not-yet-reviewed files in this batch.
+    Route::post('/tools/pdf-splitter/cancel-queue', [PdfSplitterController::class, 'cancelQueue'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.cancel_queue');
+    Route::post('/tools/pdf-splitter/continue-queue', [PdfSplitterController::class, 'continueQueue'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.continue_queue');
 
     // PDF Suite — hub + 7 sibling tools (Splitter is reachable from the hub)
     Route::middleware(['permission:access_pdf_suite', 'feature:pdf-suite'])->prefix('tools/pdf-suite')->name('tools.pdf_suite.')->group(function () {

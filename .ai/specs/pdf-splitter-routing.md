@@ -287,3 +287,131 @@ touching page 3 leaves page 4's buyer intact.
 - EDIT `resources/views/admin/splitter/doc-types.blade.php`
 - EDIT `resources/views/tools/pdf_splitter_review.blade.php`
 - EDIT `resources/views/tools/pdf_splitter.blade.php`
+
+---
+
+# AT-278-follow — Multi-file upload (queue, not merge) (2026-08-11)
+
+## Business requirement
+
+The Splitter accepted exactly one PDF per upload. An agent splitting several
+packs back-to-back (e.g. a batch of signed OTPs handed over at once) had to
+re-visit `/tools/pdf-splitter` and re-upload for every single file. This
+extends the upload to accept multiple PDFs at once; each file is still split,
+reviewed, and filed **independently**, one at a time, through the existing
+single-file review/confirm/link screens — nothing about the per-file
+experience changes. Decision (confirmed with Johan): **queue, not merge** — a
+batch of N files becomes N independent manifests processed in sequence, not
+one manifest with pages from N documents mixed together. This was the
+lower-risk option: it reuses the review/confirm/link pipeline verbatim (no
+per-page "which source file" bookkeeping) and matches how these packs
+actually arrive — as N unrelated documents, not one long one.
+
+## Pillars
+
+No pillar change. Same targets as the existing splitter (Property, Contact,
+Compliance via FICA) — this only changes how many source PDFs one visit to
+the tool can carry through that pipeline.
+
+## Design
+
+**Upload (`run()`)** accepts `pdf[]` (array, 1–20 files, `mimes:pdf|max:51200`
+each). `base_name` is now optional: blank → each file's own filename
+(slugified) becomes its base; supplied → used as a shared prefix
+(`{base_name}_1`, `{base_name}_2`, …) when more than one file is posted. Every
+file's storage base is additionally namespaced with the uploader's user ID
+(`_u{userId}`) so two different agents uploading identically-named files (a
+blank Base Name on a file their scanner both happened to call `OTP.pdf`) in
+the same second can never collide onto the same storage path/manifest ID and
+cross-file each other's documents.
+
+Every file is stored to `private/splitter/originals` immediately (cheap
+I/O) and the **entire batch is committed to the session queue before any
+OCR runs** — so a corrupt/unreadable file anywhere in the batch, including
+the first, never orphans the rest. Activation (OCR + manifest build) then
+runs through `popNextQueuedManifest()` — the SAME code path for every file
+in the batch, first or last — one at a time: `run()` calls it once to
+activate file 1, `continueQueue()` calls it again for every file after.
+This keeps one HTTP request bounded to one file's OCR cost regardless of
+batch size — a 10-file batch never risks a single request timing out the
+way upfront-OCR-everything would.
+
+**Session state**: `splitter_manifest_id` (unchanged — the active manifest),
+`splitter_queue` (remaining un-OCR'd items), `splitter_queue_total`,
+`splitter_queue_position` (incremented on every dequeue, skipped or not, so
+`count(splitter_queue) + splitter_queue_position === splitter_queue_total`
+always holds). A file that fails to OCR (0 pages / corrupt) is skipped —
+recorded in `splitter_queue_skipped` and rendered as a banner on both the
+upload page and the review page — rather than aborting the rest of the batch.
+
+**Progression is explicit, not automatic.** `confirm()` (Download ZIP) and
+`link()` (Link to CoreX) keep the same redirect to `index()` and the same
+"Download ZIP still lets you Link the same file afterwards" behaviour the
+AT-105 enhancement established — the queue never auto-advances underneath
+either action. `index()` additionally shows a "Batch upload in progress — N
+more files queued, next: {name}" panel with a **Continue to next file**
+button (`continueQueue()` — pops + OCRs the next queued item, redirects to
+`review()`) and a **Cancel remaining** button (`cancelQueue()` — drops the
+queue only; the already-processed file is untouched). The upload form itself
+is hidden while a queue is pending, so a fresh upload can never silently
+orphan queued files. The review screen shows a small "File X of N" chip plus
+its own Cancel-remaining link.
+
+**Stale-tab defense.** The review page renders a hidden `manifest_id` field
+(the manifest it was built from) and passes the same ID as a `?manifest=`
+query param on every thumbnail request. `confirm()`/`link()` reject (redirect
+back to `review()` with an error) if the posted `manifest_id` no longer
+matches the session's current manifest; `serveThumb()` `abort(409)`s on the
+same mismatch. Without this, an agent who leaves a review tab open, advances
+the queue in another tab, then submits (or lazy-loads a thumbnail in) the
+stale tab would silently apply/render the WRONG file's labels, contacts, and
+property/FICA destination — a real misfiling risk in a compliance system, not
+a cosmetic one. `manifest_id` is optional server-side (omitted ⇒ no check),
+so the two existing `PdfSplitterDestinationRoutingTest` real-HTTP tests that
+POST directly to `confirm()`/`link()` without it are unaffected.
+
+## Robustness (input space)
+
+- 1 file uploaded → `splitter_queue` ends up empty; behaviour is byte-for-byte
+  identical to the pre-existing single-file flow (no regression surface).
+- Two files with the same/blank original name in one batch → base-name
+  collision resolved with a numeric suffix (`_2`, `_3`, …) before OCR runs.
+- Two different agents' concurrent uploads with the same blank-name file →
+  resolved by the `_u{userId}` storage namespace (see Design), not just
+  intra-batch dedup.
+- A file that fails page-count/OCR — first in the batch or last — is skipped,
+  batch continues; the full remaining queue is already committed to session
+  before OCR ever runs, so a first-file failure cannot orphan the rest.
+  Skipped files are named in a banner on the upload and review pages.
+- Agent starts a **second** fresh upload while a queue is still pending →
+  blocked at the UI (upload form hidden behind the batch panel); the prior
+  queue is not touched by any other action still on the page.
+- A stale review tab (queue advanced elsewhere) submitting Download
+  ZIP/Link, or lazy-loading a thumbnail → rejected server-side (manifest ID
+  mismatch), never silently applied to the wrong file.
+- A double-submitted "Continue to next file" click (queue already drained by
+  the first request) → the second call's exhaustion branch leaves
+  `splitter_manifest_id` untouched, never wiping the file the first request
+  just activated.
+- Cancelling the queue never touches the currently-active/already-processed
+  file's manifest, outputs, or ZIP — only pending, not-yet-OCR'd items.
+- No new scheduled cleanup was added for `private/splitter/*` — matches
+  existing behaviour (originals/outputs were never swept before either).
+
+## Files
+
+- EDIT `app/Http/Controllers/Tools/PdfSplitterController.php` (`run()`
+  reworked for `pdf[]`, delegates activation to `popNextQueuedManifest()`;
+  new `deriveBase()`, `buildManifestForQueueItem()`,
+  `popNextQueuedManifest()`, `continueQueue()`, `cancelQueue()`,
+  `rejectIfStaleManifest()`; `index()`/`review()` pass queue + skipped-file
+  state to the views; `serveThumb()` takes `Request` and checks `?manifest=`;
+  `confirm()`/`link()` gain a `rejectIfStaleManifest()` guard as their first
+  line, otherwise unchanged.)
+- EDIT `routes/web.php` (`tools.pdf_splitter.continue_queue`,
+  `tools.pdf_splitter.cancel_queue`)
+- EDIT `resources/views/tools/pdf_splitter.blade.php` (multi-file input,
+  optional base name, batch-in-progress panel, skipped-files banner)
+- EDIT `resources/views/tools/pdf_splitter_review.blade.php` (File X of N
+  chip + cancel-remaining, hidden `manifest_id` field, `?manifest=` on thumb
+  URLs, skipped-files banner)

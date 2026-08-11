@@ -63,7 +63,36 @@ class PdfSplitterController extends Controller
 
     public function index()
     {
-        return view('tools.pdf_splitter');
+        // Multi-file upload queue — when a batch has files still waiting behind
+        // the currently-active manifest, the upload form is replaced with a
+        // "continue this batch" prompt so a fresh upload never silently
+        // orphans the queued files.
+        $queue = session('splitter_queue', []);
+        $queueNextName = $queue[0]['original_name'] ?? null;
+
+        return view('tools.pdf_splitter', [
+            'queuePending'   => !empty($queue),
+            'queueNextName'  => $queueNextName,
+            'queueRemaining' => count($queue),
+            'queueTotal'     => (int) session('splitter_queue_total', 0),
+            'queueSkipped'   => session('splitter_queue_skipped', []),
+        ]);
+    }
+
+    /**
+     * Advance to the next file in the upload batch — pops + OCRs it and takes
+     * the agent straight to its review screen. The prior file's manifest and
+     * outputs are left untouched on disk (only the session pointer moves).
+     */
+    public function continueQueue()
+    {
+        $manifestId = $this->popNextQueuedManifest();
+        if ($manifestId === null) {
+            return redirect()->route('tools.pdf_splitter.index')
+                ->withErrors(['pdf' => 'No more files queued in this batch.']);
+        }
+
+        return redirect()->route('tools.pdf_splitter.review');
     }
 
     /**
@@ -129,17 +158,105 @@ class PdfSplitterController extends Controller
         return response()->json(['contacts' => $contacts]);
     }
 
+    /**
+     * Accepts one or many PDFs. Every upload is stored immediately (cheap I/O)
+     * and the FULL batch is committed to the session queue BEFORE any OCR runs
+     * — so a corrupt/unreadable file anywhere in the batch (including the
+     * first) never orphans the rest. Activation (OCR + manifest build) then
+     * runs through the exact same popNextQueuedManifest() path used for every
+     * later file, one at a time, skipping unreadable files rather than
+     * aborting. This keeps one request bounded to one file's OCR cost
+     * regardless of how many PDFs were selected, instead of blocking on the
+     * whole batch upfront. confirm()/link() themselves are unchanged — Download
+     * ZIP and Link to CoreX behave exactly as they did pre-batch; the queue
+     * only advances on an explicit agent action (continueQueue()).
+     */
     public function run(Request $request)
     {
-        set_time_limit(300);
-        @ini_set('max_execution_time', '300');
         $validated = $request->validate([
-            'base_name' => 'required|string|min:2|max:120',
-            'pdf'       => 'required|file|mimes:pdf|max:51200', // 50MB
+            'base_name' => 'nullable|string|max:120',
+            'pdf'       => 'required|array|min:1|max:20',
+            'pdf.*'     => 'file|mimes:pdf|max:51200', // 50MB per file
         ]);
 
-        $baseRaw = trim($validated['base_name']);
-        $base = Str::of($baseRaw)
+        $files   = $request->file('pdf');
+        $baseRaw = trim((string) ($validated['base_name'] ?? ''));
+        $batchTs = now()->format('Ymd_His');
+        // Namespaced by uploader so two agents uploading identically-named
+        // files (e.g. both leave Base Name blank on a file their scanner
+        // named "OTP.pdf") in the same second can never collide onto the same
+        // storage path / manifest ID and cross-file each other's documents.
+        $userId = (int) (auth()->id() ?? 0);
+
+        $queueItems = [];
+        $usedBases  = [];
+        foreach ($files as $i => $uploaded) {
+            $base = $this->deriveBase($baseRaw, $uploaded, $i, count($files) > 1) . '_u' . $userId;
+
+            // Guarantee uniqueness within this batch (e.g. two same-named files).
+            $unique = $base;
+            $n      = 1;
+            while (isset($usedBases[$unique])) {
+                $n++;
+                $unique = $base . '_' . $n;
+            }
+            $usedBases[$unique] = true;
+            $base = $unique;
+
+            $fileName = $base . '__' . $batchTs . '.pdf';
+            $origRel  = 'private/splitter/originals/' . $fileName;
+            Storage::disk('local')->putFileAs('private/splitter/originals', $uploaded, $fileName);
+            $origAbs = Storage::disk('local')->path($origRel);
+
+            if (!file_exists($origAbs) || filesize($origAbs) === 0) {
+                return redirect()->route('tools.pdf_splitter.index')
+                    ->withErrors(['pdf' => 'Stored PDF not found or empty: ' . $uploaded->getClientOriginalName()]);
+            }
+
+            $queueItems[] = [
+                'base'          => $base,
+                'ts'            => $batchTs,
+                'origRel'       => $origRel,
+                'original_name' => $uploaded->getClientOriginalName(),
+            ];
+        }
+
+        session([
+            'splitter_queue'          => $queueItems,
+            'splitter_queue_total'    => count($files),
+            'splitter_queue_position' => 0,
+        ]);
+        session()->forget(['splitter_queue_skipped']);
+
+        $manifestId = $this->popNextQueuedManifest();
+        if ($manifestId === null) {
+            $skipped = session('splitter_queue_skipped', []);
+            return redirect()->route('tools.pdf_splitter.index')->withErrors([
+                'pdf' => 'None of the uploaded file(s) could be split — could not read page count for: '
+                    . implode(', ', $skipped ?: ['(unknown)']),
+            ]);
+        }
+
+        return redirect()->route('tools.pdf_splitter.review');
+    }
+
+    /**
+     * Slugify a base name for one file in the upload batch. A single file keeps
+     * the historical behaviour (explicit base_name required client-side, though
+     * server-side it's optional so a stray blank never 500s). Multiple files
+     * default to each file's own name so a batch upload doesn't collide/blend
+     * distinct packs under one shared label; an explicit base_name becomes a
+     * shared prefix (base_name_1, base_name_2, …) when supplied for a batch.
+     */
+    private function deriveBase(string $baseRaw, \Illuminate\Http\UploadedFile $uploaded, int $index, bool $multiple): string
+    {
+        if ($baseRaw !== '') {
+            $raw = $multiple ? ($baseRaw . '_' . ($index + 1)) : $baseRaw;
+        } else {
+            $raw = pathinfo($uploaded->getClientOriginalName(), PATHINFO_FILENAME);
+        }
+
+        $slug = Str::of($raw)
             ->lower()
             ->replaceMatches('/[^a-z0-9\s\-_]+/', '')
             ->replaceMatches('/\s+/', '_')
@@ -147,39 +264,41 @@ class PdfSplitterController extends Controller
             ->trim('_')
             ->toString();
 
-        $ts = now()->format('Ymd_His');
+        return $slug !== '' ? $slug : 'pack_' . ($index + 1);
+    }
 
-        // All splitter paths under private/
-        $fileName = $base . '__' . $ts . '.pdf';
-        $origRel  = 'private/splitter/originals/' . $fileName;
-        Storage::disk('local')->putFileAs('private/splitter/originals', $request->file('pdf'), $fileName);
-        $origAbs     = Storage::disk('local')->path($origRel);
-        $origAbsNorm = str_replace('\\', '/', $origAbs);
+    /**
+     * OCR/classify one queued file into a manifest.json — the work previously
+     * done inline in run(). Called once per file, either immediately (the first
+     * file of a batch) or just-in-time (popNextQueuedManifest(), when the agent
+     * finishes the current file and the queue has more).
+     */
+    private function buildManifestForQueueItem(array $item): ?string
+    {
+        set_time_limit(300);
+        @ini_set('max_execution_time', '300');
 
-        if (!file_exists($origAbs) || filesize($origAbs) === 0) {
-            return redirect()->route('tools.pdf_splitter.index')
-                ->withErrors(['pdf' => 'Stored PDF not found or empty: ' . $origAbsNorm]);
+        $base    = $item['base'];
+        $ts      = $item['ts'];
+        $origRel = $item['origRel'];
+
+        $origAbsNorm = str_replace('\\', '/', Storage::disk('local')->path($origRel));
+        if (!Storage::disk('local')->exists($origRel)) {
+            return null;
         }
 
-        // Output folder (created now so confirm() can write into it)
-        $outDirRel     = 'private/splitter/output/' . $base . '__' . $ts;
+        $outDirRel = 'private/splitter/output/' . $base . '__' . $ts;
         Storage::disk('local')->makeDirectory($outDirRel);
 
-        // Temp OCR + thumbnail folder
         $tmpRel     = 'private/splitter/tmp/' . $base . '__' . $ts;
         Storage::disk('local')->makeDirectory($tmpRel);
-        $tmpAbs     = Storage::disk('local')->path($tmpRel);
-        $tmpAbsNorm = str_replace('\\', '/', $tmpAbs);
+        $tmpAbsNorm = str_replace('\\', '/', Storage::disk('local')->path($tmpRel));
 
-        // Page count
         [$pCount, $pErr] = $this->qpdfPageCount($origAbsNorm);
         if ($pCount < 1) {
-            return redirect()->route('tools.pdf_splitter.index')->withErrors([
-                'pdf' => 'Could not read page count. qpdf: ' . ($pErr ?: '(none)'),
-            ]);
+            return null;
         }
 
-        // Classify each page (thumbnails generated lazily in serveThumb)
         $labels     = [];
         $snippets   = [];
         $pageScores = [];
@@ -190,19 +309,18 @@ class PdfSplitterController extends Controller
             $pageScores[$page] = $scores;
         }
 
-        // Save manifest for review step — no ZIP yet
-        // Store relative storage path (not absolute) to avoid path disclosure
         $manifest = [
-            'base'        => $base,
-            'ts'          => $ts,
-            'origRel'     => $origRel,
-            'outDirRel'   => $outDirRel,
-            'tmpRel'      => $tmpRel,
-            'pCount'      => $pCount,
-            'labels'      => $labels,
-            'snippets'    => $snippets,
-            'pageScores'  => $pageScores,
-            'docTypes'    => $this->docTypes(),
+            'base'          => $base,
+            'ts'            => $ts,
+            'origRel'       => $origRel,
+            'outDirRel'     => $outDirRel,
+            'tmpRel'        => $tmpRel,
+            'pCount'        => $pCount,
+            'labels'        => $labels,
+            'snippets'      => $snippets,
+            'pageScores'    => $pageScores,
+            'docTypes'      => $this->docTypes(),
+            'original_name' => $item['original_name'] ?? null,
         ];
 
         $manifestId = $base . '__' . $ts;
@@ -211,10 +329,68 @@ class PdfSplitterController extends Controller
             json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
         );
 
-        // Manifest ID in session — review/confirm read it; path is never user-controlled
-        session(['splitter_manifest_id' => $manifestId]);
+        return $manifestId;
+    }
 
-        return redirect()->route('tools.pdf_splitter.review');
+    /**
+     * Advance the multi-file queue: pop + OCR the next file, make it the active
+     * manifest. Called from run() (activating the first file) and
+     * continueQueue() (every file after). A file that fails to OCR (corrupt
+     * upload, 0 pages) is skipped — noted in splitter_queue_skipped — rather
+     * than silently dropped or aborting the rest of the batch. Position is
+     * incremented on EVERY dequeue, skipped or not, so
+     * count(splitter_queue) + splitter_queue_position === splitter_queue_total
+     * always holds and "File X of N" stays accurate even when files were
+     * skipped along the way. Returns the new manifest ID, or null once the
+     * queue is exhausted with nothing left that could be activated.
+     */
+    private function popNextQueuedManifest(): ?string
+    {
+        $queue = session('splitter_queue', []);
+
+        while (!empty($queue)) {
+            $next  = array_shift($queue);
+            $queue = array_values($queue);
+            session([
+                'splitter_queue'          => $queue,
+                'splitter_queue_position' => (int) session('splitter_queue_position', 0) + 1,
+            ]);
+
+            $manifestId = $this->buildManifestForQueueItem($next);
+            if ($manifestId !== null) {
+                session(['splitter_manifest_id' => $manifestId]);
+
+                return $manifestId;
+            }
+
+            session(['splitter_queue_skipped' => array_merge(
+                session('splitter_queue_skipped', []),
+                [$next['original_name'] ?? $next['base']]
+            )]);
+        }
+
+        // Nothing left to advance TO — leave splitter_manifest_id exactly as it
+        // was (it still points at the last file the agent was reviewing). Only
+        // the queue bookkeeping is cleared. Without this, a double-submitted
+        // "Continue" click (queue already drained by the first request) would
+        // wipe the session pointer to the file the agent just navigated to.
+        session()->forget(['splitter_queue', 'splitter_queue_total', 'splitter_queue_position']);
+
+        return null;
+    }
+
+    /**
+     * Abandon the remaining not-yet-reviewed files in this batch. The current
+     * (already-processed) file is untouched — only pending queue items are
+     * dropped. Their originals stay on disk (no scheduled cleanup sweeps
+     * private/splitter/*) but are simply never surfaced again.
+     */
+    public function cancelQueue()
+    {
+        session()->forget(['splitter_queue', 'splitter_queue_total', 'splitter_queue_position', 'splitter_queue_skipped']);
+
+        return redirect()->route('tools.pdf_splitter.index')
+            ->with('status', 'Remaining files in this batch were skipped.');
     }
 
     // =========================================================================
@@ -225,12 +401,25 @@ class PdfSplitterController extends Controller
      * Serve a page thumbnail from private storage.
      * Generated on first request (lazy) — never during run().
      * Manifest ID is validated against the session value; URL param is only the page number.
+     *
+     * Multi-file queue — the review page passes the manifest ID it was
+     * RENDERED for as ?manifest=. If the agent advanced the queue in another
+     * tab (or a second tab) since that page loaded, the session's "current"
+     * manifest has moved on to a different file; without this check a
+     * not-yet-cached thumbnail request from the stale tab would silently
+     * render the NEW file's page under the OLD file's page-number slot. Abort
+     * instead of guessing which one the caller actually wants.
      */
-    public function serveThumb(int $page)
+    public function serveThumb(Request $request, int $page)
     {
         $manifestId = session('splitter_manifest_id');
         if (!$manifestId || !preg_match('/^[a-z0-9_-]+__\d{8}_\d{6}$/', $manifestId)) {
             abort(403);
+        }
+
+        $requested = $request->query('manifest');
+        if ($requested !== null && $requested !== $manifestId) {
+            abort(409, 'This review page is for a different file than the one currently active. Reload the page.');
         }
 
         $padded   = str_pad((string)$page, 3, '0', STR_PAD_LEFT);
@@ -309,7 +498,8 @@ class PdfSplitterController extends Controller
      */
     public function review()
     {
-        $manifest = $this->loadManifestArrayOrNull(session('splitter_manifest_id'));
+        $manifestId = session('splitter_manifest_id');
+        $manifest   = $this->loadManifestArrayOrNull($manifestId);
         if (! $manifest) {
             return redirect()->route('tools.pdf_splitter.index')
                 ->withErrors(['pdf' => 'No active session, or it expired. Please upload a PDF first.']);
@@ -343,7 +533,39 @@ class PdfSplitterController extends Controller
             'lessor'       => 'Lessor',
         ];
 
-        return view('tools.pdf_splitter_review', compact('manifest', 'canFica', 'canLinkDeal', 'routing', 'roleSets', 'roleLabels'));
+        // Multi-file upload queue — surfaced so the review screen can show
+        // "File X of N: name.pdf" and offer to cancel the remaining batch.
+        $queueTotal    = (int) session('splitter_queue_total', 1);
+        $queuePosition = (int) session('splitter_queue_position', 1);
+        $queueRemaining = count(session('splitter_queue', []));
+        $queueSkipped   = session('splitter_queue_skipped', []);
+
+        return view('tools.pdf_splitter_review', compact(
+            'manifest', 'manifestId', 'canFica', 'canLinkDeal', 'routing', 'roleSets', 'roleLabels',
+            'queueTotal', 'queuePosition', 'queueRemaining', 'queueSkipped'
+        ));
+    }
+
+    /**
+     * Multi-file queue — defense against a stale review tab. The review form
+     * carries the manifest ID it was rendered for; if it no longer matches the
+     * session's current manifest, the queue has moved on since the page
+     * loaded (e.g. "Continue to next file" clicked in another tab). Reject
+     * rather than silently applying this page's posted labels/contacts to
+     * whichever file happens to be active now.
+     */
+    private function rejectIfStaleManifest(Request $request): ?\Illuminate\Http\RedirectResponse
+    {
+        $posted  = $request->input('manifest_id');
+        $current = session('splitter_manifest_id');
+
+        if ($posted && $posted !== $current) {
+            return redirect()->route('tools.pdf_splitter.review')->withErrors([
+                'pdf' => 'This review page was for a different file than the one currently active — you likely advanced to another file in a different tab. Reload this page and try again.',
+            ]);
+        }
+
+        return null;
     }
 
     /**
@@ -352,6 +574,10 @@ class PdfSplitterController extends Controller
      */
     public function confirm(Request $request)
     {
+        if ($stale = $this->rejectIfStaleManifest($request)) {
+            return $stale;
+        }
+
         $manifest = $this->loadManifestArrayOrNull(session('splitter_manifest_id'));
         if (! $manifest) {
             return redirect()->route('tools.pdf_splitter.index')
@@ -462,6 +688,10 @@ class PdfSplitterController extends Controller
      */
     public function link(Request $request)
     {
+        if ($stale = $this->rejectIfStaleManifest($request)) {
+            return $stale;
+        }
+
         $manifest = $this->loadManifestArrayOrNull(session('splitter_manifest_id'));
         if (! $manifest) {
             return redirect()->route('tools.pdf_splitter.index')

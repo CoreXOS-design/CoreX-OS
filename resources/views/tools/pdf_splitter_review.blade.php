@@ -132,12 +132,32 @@
             <p class="text-xs" style="color: var(--text-muted);">Set each page's document type, then tick the contact(s) it belongs to.</p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
+            @if($queueTotal > 1)
+                <span class="text-xs font-medium px-2 py-1 rounded" style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">
+                    File {{ $queuePosition }} of {{ $queueTotal }}
+                </span>
+            @endif
             <span class="text-xs font-medium" style="color: var(--text-muted);">
                 <strong style="color: var(--text-secondary);">{{ $base }}</strong> &middot; {{ $pCount }} pages
             </span>
+            @if($queueRemaining > 0)
+                <form method="POST" action="{{ route('tools.pdf_splitter.cancel_queue') }}"
+                      onsubmit="return confirm('Skip the remaining {{ $queueRemaining }} file(s) in this batch? This file is not affected.');">
+                    @csrf
+                    <button type="submit" class="text-xs underline" style="color: var(--text-muted); background:none; border:none; cursor:pointer;">
+                        Cancel remaining {{ $queueRemaining }}
+                    </button>
+                </form>
+            @endif
         </div>
     </div>
 </div>
+
+@if(!empty($queueSkipped))
+<div class="rounded-md px-4 py-3 mb-4 text-xs" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, var(--surface)); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, var(--border)); color: var(--text-primary); max-width: 1240px; margin-left:auto; margin-right:auto;">
+    Could not split {{ count($queueSkipped) === 1 ? 'this file' : 'these files' }} from the batch (unreadable / no pages): <strong>{{ implode(', ', $queueSkipped) }}</strong>
+</div>
+@endif
 
 <div id="spr" x-data="splitterReview()" x-cloak>
 <div class="wrap">
@@ -270,6 +290,12 @@
     {{-- The form. Two distinct submit actions (formaction). --}}
     <form method="POST" action="{{ route('tools.pdf_splitter.confirm') }}" id="spr-form">
         @csrf
+        {{-- Binds this submission to the exact file this page was rendered for.
+             If the agent advanced the batch queue in another tab since this
+             page loaded, confirm()/link() reject the mismatch instead of
+             silently applying these labels/contacts to whichever file is now
+             active in the session. --}}
+        <input type="hidden" name="manifest_id" value="{{ $manifestId }}">
         <input type="hidden" name="property_id" :value="property ? property.id : ''">
         @if(!empty($canFica))
             <input type="hidden" name="trigger_fica" :value="ficaChecked ? '1' : '0'">
@@ -399,7 +425,7 @@ document.addEventListener('alpine:init', () => {
         searchUrl:       '{{ route('tools.pdf_splitter.properties.search') }}',
         dealSearchUrl:   '{{ route('deals-v2.search.deals') }}',
         contactsTpl:     '{{ route('tools.pdf_splitter.properties.contacts', ['property' => '__ID__']) }}',
-        thumbTpl:        '{{ route('tools.pdf_splitter.thumb', ['page' => '__PAGE__']) }}',
+        thumbTpl:        '{{ route('tools.pdf_splitter.thumb', ['page' => '__PAGE__', 'manifest' => $manifestId]) }}',
         contactSearchTpl:'{{ route('corex.properties.contacts.search', ['property' => '__PID__']) }}',
         contactLinkTpl:  '{{ route('corex.properties.contacts.link', ['property' => '__PID__']) }}',
         contactCreateTpl:'{{ route('corex.properties.contacts.createAndLink', ['property' => '__PID__']) }}',
