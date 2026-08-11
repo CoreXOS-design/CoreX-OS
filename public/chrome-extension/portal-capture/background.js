@@ -386,7 +386,7 @@ if (chrome.alarms && chrome.alarms.onAlarm) {
     const s = await new Promise(r => chrome.storage.local.get(['apiUrl', 'apiToken'], r));
     if (!s.apiToken) return;
     try {
-      await flushLocalQueue(s.apiUrl || 'https://corex.hfcoastal.co.za', s.apiToken);
+      await flushLocalQueue(s.apiUrl || 'https://www.corexos.co.za', s.apiToken);
     } catch (e) { /* next alarm retries */ }
   });
 }
@@ -607,6 +607,14 @@ async function runCaptureLoop(startPage) {
     capture_complete: false,
   };
 
+  // Track every mid-loop batch send so we can await them ALL before we compute the
+  // final "captured" total — otherwise fire-and-forget batches ingest server-side but
+  // their imported/updated counts land after the completion snapshot and the shown
+  // figure undercounts (271 vs the ~480 actually ingested). Awaiting them before the
+  // final capture_complete batch also guarantees the reconcile batch is the LAST to
+  // reach the server, so it never sees a still-in-flight page as "gone".
+  const inFlightBatches = [];
+
   try {
     // Page 1: get from content script if starting fresh
     if (startPage === 1 && capture.tabId) {
@@ -673,7 +681,9 @@ async function runCaptureLoop(startPage) {
       if (capture.pendingListings.length >= 100 && p < capture.totalPages) {
         const batch = capture.pendingListings.splice(0, capture.pendingListings.length);
         if (batch.length > 0) {
-          sendBatchToApi(batch, context);
+          // Overlaps with page navigation (not awaited here), but tracked so it is
+          // awaited before completion — see inFlightBatches / Promise.all below.
+          inFlightBatches.push(sendBatchToApi(batch, context));
         }
       }
 
@@ -684,6 +694,11 @@ async function runCaptureLoop(startPage) {
         await sleep(1500);
       }
     }
+
+    // Await EVERY mid-loop batch before finishing — so the completion total reflects
+    // all ingested rows (not just the awaited final batch) AND the reconcile batch below
+    // is the last to hit the server.
+    await Promise.all(inFlightBatches);
 
     // Send any remaining pending listings (final batch — must await)
     if (capture.pendingListings.length > 0 && !capture.cancelled) {

@@ -98,9 +98,21 @@
     try {
       const pager = document.querySelector('.p24_topPager');
       if (pager) {
-        const bolds = pager.querySelectorAll('.p24_bold');
-        if (bolds.length >= 2) {
-          totalResults = parseInt(bolds[1].textContent.replace(/\s/g, ''), 10);
+        // Canonical P24 pager text: "Showing : 1 - 20 of 481". Parse the number AFTER
+        // "of" — reading the 2nd bold span grabbed the page-range END (e.g. 45), not the
+        // total. Space-separated thousands ("1 481") are stripped to digits.
+        const pagerText = (pager.textContent || '').replace(/\s+/g, ' ');
+        const m = pagerText.match(/\bof\s+([\d][\d\s,]*)/i);
+        if (m) {
+          totalResults = parseInt(m[1].replace(/[^\d]/g, ''), 10) || null;
+        }
+        // Fallback: the total is the LAST bold span in most P24 layouts (not bolds[1]).
+        if (!totalResults) {
+          const bolds = pager.querySelectorAll('.p24_bold');
+          if (bolds.length > 0) {
+            const last = parseInt(bolds[bolds.length - 1].textContent.replace(/[^\d]/g, ''), 10);
+            if (!isNaN(last)) totalResults = last;
+          }
         }
       }
     } catch (e) { /* ignore */ }

@@ -298,9 +298,13 @@ class ProspectingApiController extends Controller
             }
         }
 
-        $search->update([
-            'listing_count' => $search->listing_count + $imported + $updated,
-        ]);
+        // ATOMIC increment — the extension fires batches concurrently, so a
+        // read-modify-write (listing_count = listing_count + N) loses updates between
+        // overlapping batches and undercounts. `increment()` issues a single
+        // `SET listing_count = listing_count + N` the DB serialises per row.
+        if ($imported + $updated > 0) {
+            $search->increment('listing_count', $imported + $updated);
+        }
 
         // MIC SOLD / OFF-MARKET — purge the cached buyer-match scores of every listing
         // flipped off-market this batch, in one query. Mirrors the purge the
