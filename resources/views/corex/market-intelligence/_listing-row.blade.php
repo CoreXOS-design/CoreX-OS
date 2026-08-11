@@ -236,9 +236,10 @@
                  source chain across P24/PP/CMA/captures plus action history. --}}
             @if($listing->tracked_property_id)
             <a href="{{ route('corex.tracked-properties.show', $listing->tracked_property_id) }}"
+               target="_blank" rel="noopener"
                onclick="event.stopPropagation();"
                style="{{ $tagOutline }} text-decoration: none;"
-               title="Open this property's full intelligence record — every source we have for it (P24, PP, CMA, captures), every buyer match, every action history.">
+               title="Open this property's full intelligence record (new tab) — every source we have for it (P24, PP, CMA, captures), every buyer match, every action history.">
                 Property intel →
             </a>
             @endif

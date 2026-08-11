@@ -139,6 +139,32 @@ class MarketIntelligenceController extends Controller
                       ->orWhereNotIn('matched_property_id', $pitchedClaimPropertyIds);
                 });
             }
+
+            // ADDRESS-level pitch lock — the property-level lock above keys on
+            // matched_property_id, which is NEVER set when the pitched property is an
+            // OFF-MARKET DRAFT (the matcher is on-market gated). A "Pitch now" on an
+            // address-less listing creates exactly such a draft, so its cross-portal /
+            // rotating-ref twins (same normalized_address, different ref) stayed
+            // "unclaimed". Hide every listing sharing a pitched-claimed listing's
+            // normalized_address — robust regardless of the property's status.
+            $pitchedClaimNormAddrs = ProspectingClaim::query()
+                ->from('prospecting_claims as c')
+                ->join('prospecting_listings as cl', 'cl.id', '=', 'c.prospecting_listing_id')
+                ->where('c.agency_id', $agencyId)
+                ->where('c.is_active', true)
+                ->whereNull('c.released_at')
+                ->whereNotNull('c.pitched_at')
+                ->whereNotNull('cl.normalized_address')
+                ->where('cl.normalized_address', '<>', '')
+                ->distinct()
+                ->pluck('cl.normalized_address')
+                ->all();
+            if (! empty($pitchedClaimNormAddrs)) {
+                $query->where(function ($q) use ($pitchedClaimNormAddrs) {
+                    $q->whereNull('normalized_address')
+                      ->orWhereNotIn('normalized_address', $pitchedClaimNormAddrs);
+                });
+            }
         }
 
         // Filters

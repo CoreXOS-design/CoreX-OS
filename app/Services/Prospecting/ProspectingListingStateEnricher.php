@@ -37,12 +37,17 @@ final class ProspectingListingStateEnricher
         $listingIds = [];
         $listingByPropertyId = [];      // property_id => ONE listing (loadPitches keeps its existing behaviour)
         $propertyToListingIds = [];     // property_id => [ALL listing ids] — for the rotating-ref claim badge (#4)
+        $normAddrToListingIds = [];     // normalized_address => [ALL listing ids] — badge cross-portal twins of a claimed listing
         foreach ($listings as $l) {
             $listingIds[] = (int) $l->id;
             $mpid = $l->matched_property_id ?? null;
             if ($mpid) {
                 $listingByPropertyId[(int) $mpid] = $l;
                 $propertyToListingIds[(int) $mpid][] = (int) $l->id;
+            }
+            $na = $l->normalized_address ?? null;
+            if ($na !== null && $na !== '') {
+                $normAddrToListingIds[$na][] = (int) $l->id;
             }
         }
 
@@ -58,7 +63,7 @@ final class ProspectingListingStateEnricher
 
         return [
             'pitches' => $this->loadPitches($propertyIds, $agencyId, $listingByPropertyId),
-            'claims' => $this->loadClaims($listingIds, $agencyId, $propertyIds, $propertyToListingIds),
+            'claims' => $this->loadClaims($listingIds, $agencyId, $propertyIds, $propertyToListingIds, $normAddrToListingIds),
             // Worked-and-closed claims (inactive + feedback recorded) — drives the
             // durable "Prospected" badge so a killed listing never reverts to
             // looking never-touched. Read regardless of is_active.
@@ -141,29 +146,37 @@ final class ProspectingListingStateEnricher
      * Active claims keyed by listing_id. Status freshness is per the seller-outreach module:
      * a claim expires 48h after its last_updated_at unless agent provides feedback.
      */
-    private function loadClaims(array $listingIds, int $agencyId, array $propertyIds = [], array $propertyToListingIds = []): array
+    private function loadClaims(array $listingIds, int $agencyId, array $propertyIds = [], array $propertyToListingIds = [], array $normAddrToListingIds = []): array
     {
         if (empty($listingIds)) return [];
 
         $listingIdSet = array_flip($listingIds);
+        $pageNormAddrs = array_keys($normAddrToListingIds);
 
-        // Pitch Now #4 — match a claim to a page listing by its own ref OR by its
-        // property_id (rotating-ref safe): a claim taken under a now-gone ref still
-        // badges the property's current ref as claimed.
+        // Pitch Now #4 — match a claim to a page listing by its own ref OR its
+        // property_id OR its claimed listing's normalized_address (rotating-ref /
+        // cross-portal safe): a claim taken under one ref still badges the twins.
+        // The normalized_address path is what catches an OFF-MARKET draft property
+        // (matched_property_id never set) — the pool exclusion mirrors this.
         $rows = DB::table('prospecting_claims as c')
             ->leftJoin('users as u', 'u.id', '=', 'c.user_id')
+            ->leftJoin('prospecting_listings as cl', 'cl.id', '=', 'c.prospecting_listing_id')
             ->where('c.agency_id', $agencyId)
             ->where('c.is_active', true)
             ->whereNull('c.released_at')
-            ->where(function ($q) use ($listingIds, $propertyIds) {
+            ->where(function ($q) use ($listingIds, $propertyIds, $pageNormAddrs) {
                 $q->whereIn('c.prospecting_listing_id', $listingIds);
                 if (! empty($propertyIds)) {
                     $q->orWhereIn('c.property_id', $propertyIds);
+                }
+                if (! empty($pageNormAddrs)) {
+                    $q->orWhereIn('cl.normalized_address', $pageNormAddrs);
                 }
             })
             ->select(
                 'c.prospecting_listing_id',
                 'c.property_id',
+                'cl.normalized_address as claim_norm',
                 'c.id as claim_id',
                 'c.user_id',
                 'c.status',
@@ -192,6 +205,13 @@ final class ProspectingListingStateEnricher
             if ($r->property_id !== null && isset($propertyToListingIds[(int) $r->property_id])) {
                 // Badge EVERY page ref of the claimed property (rotating-ref safe).
                 foreach ($propertyToListingIds[(int) $r->property_id] as $lid) {
+                    $targets[(int) $lid] = true;
+                }
+            }
+            if (! empty($r->claim_norm) && isset($normAddrToListingIds[$r->claim_norm])) {
+                // Badge cross-portal / rotating-ref twins by shared normalized_address
+                // (catches the off-market-draft case where property_id can't link them).
+                foreach ($normAddrToListingIds[$r->claim_norm] as $lid) {
                     $targets[(int) $lid] = true;
                 }
             }
