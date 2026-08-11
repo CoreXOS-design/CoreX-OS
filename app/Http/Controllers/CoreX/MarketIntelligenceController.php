@@ -111,6 +111,27 @@ class MarketIntelligenceController extends Controller
             $query->whereDoesntHave('activeClaim', function ($q) {
                 $q->whereNotNull('pitched_at');
             });
+
+            // Pitch Now #4 — PROPERTY-level pitch lock (rotating-ref safe). Portal
+            // refs rotate, so the same property returns under a new ref whose OWN
+            // activeClaim is null. Hide EVERY listing that resolves to a property
+            // already held by an active pitched claim (keyed on the claim's
+            // property_id), not just the ref that happened to be pitched.
+            $pitchedClaimPropertyIds = ProspectingClaim::where('agency_id', $agencyId)
+                ->where('is_active', true)
+                ->whereNull('released_at')
+                ->whereNotNull('pitched_at')
+                ->whereNotNull('property_id')
+                ->distinct()
+                ->pluck('property_id')
+                ->all();
+            if (! empty($pitchedClaimPropertyIds)) {
+                // NULL-safe: a listing with no matched property stays in the pool.
+                $query->where(function ($q) use ($pitchedClaimPropertyIds) {
+                    $q->whereNull('matched_property_id')
+                      ->orWhereNotIn('matched_property_id', $pitchedClaimPropertyIds);
+                });
+            }
         }
 
         // Filters

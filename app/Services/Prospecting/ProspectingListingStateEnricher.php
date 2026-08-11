@@ -35,12 +35,14 @@ final class ProspectingListingStateEnricher
     public function enrich(iterable $listings, int $agencyId): array
     {
         $listingIds = [];
-        $listingByPropertyId = [];
+        $listingByPropertyId = [];      // property_id => ONE listing (loadPitches keeps its existing behaviour)
+        $propertyToListingIds = [];     // property_id => [ALL listing ids] — for the rotating-ref claim badge (#4)
         foreach ($listings as $l) {
             $listingIds[] = (int) $l->id;
             $mpid = $l->matched_property_id ?? null;
             if ($mpid) {
                 $listingByPropertyId[(int) $mpid] = $l;
+                $propertyToListingIds[(int) $mpid][] = (int) $l->id;
             }
         }
 
@@ -56,7 +58,7 @@ final class ProspectingListingStateEnricher
 
         return [
             'pitches' => $this->loadPitches($propertyIds, $agencyId, $listingByPropertyId),
-            'claims' => $this->loadClaims($listingIds, $agencyId),
+            'claims' => $this->loadClaims($listingIds, $agencyId, $propertyIds, $propertyToListingIds),
             // Worked-and-closed claims (inactive + feedback recorded) — drives the
             // durable "Prospected" badge so a killed listing never reverts to
             // looking never-touched. Read regardless of is_active.
@@ -139,18 +141,29 @@ final class ProspectingListingStateEnricher
      * Active claims keyed by listing_id. Status freshness is per the seller-outreach module:
      * a claim expires 48h after its last_updated_at unless agent provides feedback.
      */
-    private function loadClaims(array $listingIds, int $agencyId): array
+    private function loadClaims(array $listingIds, int $agencyId, array $propertyIds = [], array $propertyToListingIds = []): array
     {
         if (empty($listingIds)) return [];
 
+        $listingIdSet = array_flip($listingIds);
+
+        // Pitch Now #4 — match a claim to a page listing by its own ref OR by its
+        // property_id (rotating-ref safe): a claim taken under a now-gone ref still
+        // badges the property's current ref as claimed.
         $rows = DB::table('prospecting_claims as c')
             ->leftJoin('users as u', 'u.id', '=', 'c.user_id')
-            ->whereIn('c.prospecting_listing_id', $listingIds)
             ->where('c.agency_id', $agencyId)
             ->where('c.is_active', true)
             ->whereNull('c.released_at')
+            ->where(function ($q) use ($listingIds, $propertyIds) {
+                $q->whereIn('c.prospecting_listing_id', $listingIds);
+                if (! empty($propertyIds)) {
+                    $q->orWhereIn('c.property_id', $propertyIds);
+                }
+            })
             ->select(
                 'c.prospecting_listing_id',
+                'c.property_id',
                 'c.id as claim_id',
                 'c.user_id',
                 'c.status',
@@ -169,8 +182,20 @@ final class ProspectingListingStateEnricher
         $fourteenDaysAgo = $now - 14 * 86400;
         $result = [];
         foreach ($rows as $r) {
-            $key = (int) $r->prospecting_listing_id;
-            if (isset($result[$key])) continue; // first (most recent) wins
+            // The page listing(s) this claim badges: its own ref (if on the page)
+            // and/or the page listing that resolves to the same property.
+            $targets = [];
+            $ownId = (int) $r->prospecting_listing_id;
+            if (isset($listingIdSet[$ownId])) {
+                $targets[$ownId] = true;
+            }
+            if ($r->property_id !== null && isset($propertyToListingIds[(int) $r->property_id])) {
+                // Badge EVERY page ref of the claimed property (rotating-ref safe).
+                foreach ($propertyToListingIds[(int) $r->property_id] as $lid) {
+                    $targets[(int) $lid] = true;
+                }
+            }
+            if (empty($targets)) continue;
 
             $lastUpdatedTs = $r->last_updated_at ? strtotime((string) $r->last_updated_at) : false;
             $expiresAt = $lastUpdatedTs !== false ? $lastUpdatedTs + 48 * 3600 : null;
@@ -191,7 +216,7 @@ final class ProspectingListingStateEnricher
                 && $lastUpdatedTs < $fourteenDaysAgo
                 && $r->flagged_at === null;
 
-            $result[$key] = [
+            $claimData = [
                 'claim_id' => (int) $r->claim_id,
                 'user_id' => (int) $r->user_id,
                 'claimer_name' => $r->claimer_name,
@@ -206,6 +231,11 @@ final class ProspectingListingStateEnricher
                 'needs_reminder' => $needsReminder,
                 'needs_bm_flag' => $needsBmFlag,
             ];
+
+            foreach (array_keys($targets) as $listingKey) {
+                if (isset($result[$listingKey])) continue; // first (most recent) wins
+                $result[$listingKey] = $claimData;
+            }
         }
         return $result;
     }
