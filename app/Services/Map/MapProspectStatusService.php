@@ -9,6 +9,7 @@ use App\Models\Prospecting\TrackedProperty;
 use App\Models\Scopes\AgencyScope;
 use App\Services\Prospecting\TrackedPropertyMatchOrCreateService;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Phase A.2.5 — collision detector for the map's "Prospect Now" button.
@@ -41,6 +42,18 @@ final class MapProspectStatusService
     /** Property.status values that mean "HFC actively has this property right now". */
     private const HELD_STATUSES = ['active', 'available', 'for_sale', 'to_let'];
 
+    /**
+     * A coordinate shared by AT LEAST this many tracked properties is a
+     * geocode default / suburb-centroid, not a real per-property location — it
+     * cannot disambiguate one property from another, so proximity matching on it
+     * is meaningless. (Real properties never share an identical 7-dp coordinate;
+     * on QA1, 391 addressless tracked properties collide on the Ramsgate centroid
+     * that happens to sit on property #2427 "6 Kerk St", so a no-address Pitch Now
+     * on ANY of them resolved to 6 Kerk St.) Set well above any legitimate
+     * same-building coincidence.
+     */
+    private const SHARED_COORD_THRESHOLD = 5;
+
     public function __construct(
         private readonly TrackedPropertyMatchOrCreateService $matcher = new TrackedPropertyMatchOrCreateService(),
     ) {}
@@ -60,6 +73,26 @@ final class MapProspectStatusService
 
         if (empty($factsForLookup)) {
             return ['status' => 'available'];
+        }
+
+        // Non-disambiguating coordinate guard. A GPS coordinate that many tracked
+        // properties share (a geocode default / suburb-centroid) can't tell one
+        // property from another, so BOTH the 5-strategy matcher's GPS strategy and
+        // the direct GPS fallback below would collapse disparate addressless listings
+        // onto whichever property happens to sit at that point. Drop such a coordinate
+        // so we never proximity-match on it; with no usable key left, the caller falls
+        // through to promoting the listing's OWN property (cc1's promote path).
+        if (isset($factsForLookup['latitude'], $factsForLookup['longitude'])
+            && $this->isNonDisambiguatingCoordinate(
+                (float) $factsForLookup['latitude'],
+                (float) $factsForLookup['longitude'],
+                $agencyId,
+            )) {
+            unset($factsForLookup['latitude'], $factsForLookup['longitude']);
+            // With no address either (addressless Pitch Now), nothing left to match on.
+            if (empty($factsForLookup) || !isset($factsForLookup['address'])) {
+                return ['status' => 'available'];
+            }
         }
 
         // A.2.7 — two-layer match. First the TP-based 5-strategy resolver
@@ -163,6 +196,31 @@ final class MapProspectStatusService
             ->whereBetween('longitude', [$lng - $box, $lng + $box])
             ->orderByDesc('updated_at')
             ->first();
+    }
+
+    /**
+     * True when a coordinate cannot disambiguate one property from another —
+     * an obvious default (0,0) or a point shared by SHARED_COORD_THRESHOLD+
+     * tracked properties (a geocode default / suburb-centroid). Exact 7-dp
+     * equality: a real per-property GPS is unique to sub-metre precision, so a
+     * coordinate that dozens/hundreds of tracked properties report identically
+     * is a placeholder, never a real location.
+     */
+    private function isNonDisambiguatingCoordinate(float $lat, float $lng, int $agencyId): bool
+    {
+        if ($lat === 0.0 || $lng === 0.0) {
+            return true;
+        }
+
+        $shared = DB::table('tracked_properties')
+            ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->where('latitude', $lat)
+            ->where('longitude', $lng)
+            ->limit(self::SHARED_COORD_THRESHOLD)
+            ->count();
+
+        return $shared >= self::SHARED_COORD_THRESHOLD;
     }
 
     private function resolveAgentName(?int $agentId): ?string
