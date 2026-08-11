@@ -48,10 +48,13 @@ final class EntryPointController extends Controller
 
         $sellers = $this->loadSellerContactsForProperty($agencyId, $property);
 
+        // #2 In-stock row with no seller linked: DON'T dead-end on the property
+        // page. Route straight into seller capture for this existing property so
+        // the agent can pitch in one flow (capture/dedupe seller → link → composer).
         if ($sellers->isEmpty()) {
-            return redirect()
-                ->route('corex.properties.show', $property)
-                ->with('error', 'No seller contact linked to this property. Link a seller contact before composing a pitch.');
+            return view('seller-outreach.entry.prospecting-create-contact', [
+                'property' => $property,
+            ]);
         }
 
         if ($sellers->count() === 1) {
@@ -65,6 +68,99 @@ final class EntryPointController extends Controller
             'property' => $property,
             'sellers'  => $sellers,
         ]);
+    }
+
+    /**
+     * #2 — Capture (or link) a seller contact for an EXISTING in-stock property
+     * that had no seller, then open the composer. Mirrors the contact half of
+     * storeFromProspecting (search-or-create + blocking duplicate gate + POPIA
+     * ID capture), but the property already exists so there is no promotion,
+     * TrackedProperty match, or pitch-claim here (claim is owned elsewhere).
+     */
+    public function storeFromProperty(Request $request, Property $property)
+    {
+        $agencyId = $this->resolveAgencyId($request);
+        if ((int) $property->agency_id !== $agencyId) {
+            abort(404);
+        }
+
+        $linked = $this->resolveLinkedExistingContact($request, $agencyId);
+        if ($linked !== null) {
+            $contact = $linked;
+            $isNew   = false;
+        } else {
+            $validated = $request->validate([
+                'first_name' => 'required|string|max:100',
+                'last_name'  => 'nullable|string|max:100',
+                'phone'      => 'nullable|string|max:30',
+                'email'      => 'nullable|email|max:255',
+                'id_number'  => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
+            ]);
+
+            $idNumber = isset($validated['id_number']) ? preg_replace('/\s+/', '', (string) $validated['id_number']) : null;
+
+            if (empty($validated['phone']) && empty($validated['email'])) {
+                return back()
+                    ->withErrors(['contact_required' => 'Provide a phone or email so we can dedupe and reach the seller.'])
+                    ->withInput();
+            }
+
+            $gate = $this->duplicateGate(
+                $request,
+                $agencyId,
+                $validated,
+                $idNumber,
+                route('seller-outreach.entry.from-property', ['property' => $property->id]),
+            );
+            if ($gate instanceof \Illuminate\Http\RedirectResponse) {
+                return $gate;
+            }
+            $existing = $gate;
+            $isNew = $existing === null;
+
+            $branchId = $request->user()->branch_id;
+            $contact = $existing ?: Contact::create(array_merge(
+                array_filter([
+                    'agency_id'             => $agencyId,
+                    'branch_id'             => $branchId,
+                    'first_name'            => $validated['first_name'],
+                    'email'                 => $validated['email'] ?? null,
+                    'created_by_user_id'    => $request->user()->id,
+                    'id_number'             => $idNumber,
+                    'id_number_captured_at' => $idNumber ? now() : null,
+                    'id_number_source'      => $idNumber ? 'seller_outreach_entry' : null,
+                ], static fn ($v) => $v !== null && $v !== ''),
+                [
+                    'last_name' => $validated['last_name'] ?? '',
+                    'phone'     => $validated['phone'] ?? '',
+                ],
+            ));
+
+            if ($existing && $idNumber && empty($existing->id_number)) {
+                $existing->update([
+                    'id_number'             => $idNumber,
+                    'id_number_captured_at' => now(),
+                    'id_number_source'      => 'seller_outreach_entry',
+                ]);
+            }
+        }
+
+        // Link contact ↔ existing property via the seller pivot. Idempotent.
+        DB::table('contact_property')->updateOrInsert(
+            ['contact_id' => $contact->id, 'property_id' => $property->id],
+            ['role' => 'seller', 'updated_at' => now(), 'created_at' => now()],
+        );
+
+        $name = trim($contact->first_name . ' ' . (string) $contact->last_name);
+
+        return redirect()
+            ->route('seller-outreach.composer.show', [
+                'contact'     => $contact->id,
+                'property_id' => $property->id,
+            ])
+            ->with('status', $isNew
+                ? "Created new contact: {$name}"
+                : "Linked to existing contact: {$name}");
     }
 
     public function fromProspecting(Request $request, int $prospectingListingId)
@@ -107,7 +203,11 @@ final class EntryPointController extends Controller
         }
 
         return view('seller-outreach.entry.prospecting-create-contact', [
-            'listing' => $listing,
+            'listing'      => $listing,
+            // #3 Address-first: when the listing carries no street address, the
+            // capture form shows a required address field so we land one before
+            // creating the Property.
+            'needsAddress' => trim((string) ($listing->address ?? '')) === '',
         ]);
     }
 
@@ -120,6 +220,19 @@ final class EntryPointController extends Controller
             ->where('agency_id', $agencyId)
             ->whereNull('deleted_at')
             ->firstOrFail();
+
+        // #3 Address-first: an address-less (pull-all) listing must land a real
+        // street address BEFORE we create the Property. When the listing has no
+        // address of its own, the capture form supplied one — require + capture it
+        // here (independent of contact search/create mode). A listing that already
+        // carries an address skips this entirely.
+        $captureAddress = null;
+        if (trim((string) ($listing->address ?? '')) === '') {
+            $addr = $request->validate([
+                'address' => 'required|string|max:255',
+            ]);
+            $captureAddress = trim($addr['address']);
+        }
 
         // The agent may either PICK an existing contact (search) or CAPTURE a new
         // one. A chosen contact_id short-circuits the new-contact validation.
@@ -166,7 +279,7 @@ final class EntryPointController extends Controller
             $isNew = $existing === null;
         }
 
-        $result = DB::transaction(function () use ($request, $agencyId, $listing, $validated, $existing, $idNumber) {
+        $result = DB::transaction(function () use ($request, $agencyId, $listing, $validated, $existing, $idNumber, $captureAddress) {
             // Branch context is mandatory on Contact rows in CoreX schema.
             $branchId = $request->user()->branch_id;
 
@@ -209,7 +322,7 @@ final class EntryPointController extends Controller
                 ]);
             }
 
-            $property = $this->promoteListingToProperty($agencyId, $listing, $request->user());
+            $property = $this->promoteListingToProperty($agencyId, $listing, $request->user(), $captureAddress);
 
             // Universal Match-or-Create: ensure a TrackedProperty exists for this
             // address and link it to both the prospecting listing AND the newly
@@ -602,9 +715,17 @@ final class EntryPointController extends Controller
      * promoted Property can be traced back to its source listing. The
      * listing's `matched_property_id` is set in the caller's transaction.
      */
-    private function promoteListingToProperty(int $agencyId, $listing, $actor): Property
+    private function promoteListingToProperty(int $agencyId, $listing, $actor, ?string $overrideAddress = null): Property
     {
+        // #3 Address-first: an address-less import (pull-all) reaches here with a
+        // blank listing address. The capture step collects one and passes it as
+        // $overrideAddress so a real street address always lands on the promoted
+        // Property (never the "Prospecting listing N" placeholder). A non-empty
+        // listing address always wins — the override only fills the gap.
         $address = trim((string) ($listing->address ?? ''));
+        if ($address === '' && $overrideAddress !== null) {
+            $address = trim($overrideAddress);
+        }
         $suburb  = trim((string) ($listing->suburb ?? ''));
         $normalised = trim(strtolower((string) ($listing->normalized_address ?? $address)));
 

@@ -2537,6 +2537,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::get('/properties/{property}/outreach/compose',
                 [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'fromProperty'])
                 ->name('from-property');
+            Route::post('/properties/{property}/outreach/compose',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'storeFromProperty'])
+                ->name('store-from-property');
             Route::get('/prospecting/{prospectingListingId}/outreach/compose',
                 [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'fromProspecting'])
                 ->where('prospectingListingId', '\d+')

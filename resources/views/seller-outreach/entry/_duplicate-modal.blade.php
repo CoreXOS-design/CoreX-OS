@@ -70,6 +70,11 @@
                 <form method="POST" action="{{ $actionUrl }}" class="shrink-0">
                     @csrf
                     <input type="hidden" name="contact_id" value="{{ $dup['id'] }}">
+                    {{-- #3 Address-first: carry the captured address through the link
+                         path so an address-less listing still lands it on promotion. --}}
+                    @if(old('address') !== null && old('address') !== '')
+                        <input type="hidden" name="address" value="{{ old('address') }}">
+                    @endif
                     <button type="submit" class="text-xs font-semibold px-3 py-1.5 rounded-md"
                             style="background:var(--brand-button,#0ea5e9); color:#fff; border:0; cursor:pointer;">
                         Use &amp; continue →
@@ -85,7 +90,7 @@
     @if($pd['mode'] === 'soft_warn' || ($pd['mode'] === 'hard_block_override' && ($pd['can_override'] ?? false)))
         <form method="POST" action="{{ $actionUrl }}" class="inline">
             @csrf
-            @foreach(['first_name','last_name','phone','email','id_number'] as $f)
+            @foreach(['first_name','last_name','phone','email','id_number','address'] as $f)
                 @if(old($f) !== null && old($f) !== '')
                     <input type="hidden" name="{{ $f }}" value="{{ old($f) }}">
                 @endif

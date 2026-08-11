@@ -28,7 +28,9 @@
     @include('seller-outreach.entry._duplicate-modal', [
         'actionUrl' => !empty($trackedProperty)
             ? route('seller-outreach.entry.store-from-tracked-property', $trackedProperty->id)
-            : route('seller-outreach.entry.store-from-prospecting', $listing->id),
+            : (!empty($property)
+                ? route('seller-outreach.entry.store-from-property', $property->id)
+                : route('seller-outreach.entry.store-from-prospecting', $listing->id)),
     ])
 
     {{-- Source summary — listing OR tracked property. Map Workspace Phase B
@@ -48,6 +50,24 @@
                 @if(!empty($trackedProperty->bedrooms)) · {{ $trackedProperty->bedrooms }} beds @endif
                 @if(!empty($trackedProperty->bathrooms)) · {{ $trackedProperty->bathrooms }} baths @endif
                 @if(!empty($trackedProperty->erf_number)) · Erf {{ $trackedProperty->erf_number }} @endif
+            </div>
+        </div>
+    @elseif(!empty($property))
+        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">
+                Property — in agency stock
+            </div>
+            <div class="font-semibold text-sm" style="color: var(--text-primary);">
+                {{ $property->address ?: $property->title ?: 'Property #' . $property->id }}{{ !empty($property->suburb) ? ', ' . $property->suburb : '' }}
+            </div>
+            <div class="text-xs mt-1" style="color: var(--text-muted);">
+                @if(!empty($property->price))R {{ number_format((float) $property->price, 0, '.', ',') }} · @endif
+                {{ $property->property_type ?? 'property' }}
+                @if(!empty($property->beds)) · {{ $property->beds }} beds @endif
+                @if(!empty($property->baths)) · {{ $property->baths }} baths @endif
+            </div>
+            <div class="text-xs mt-2" style="color: var(--text-muted);">
+                No seller contact is linked yet — capture the seller below to pitch.
             </div>
         </div>
     @elseif(!empty($listing))
@@ -95,8 +115,28 @@
           }"
           action="{{ !empty($trackedProperty)
               ? route('seller-outreach.entry.store-from-tracked-property', $trackedProperty->id)
-              : route('seller-outreach.entry.store-from-prospecting', $listing->id) }}">
+              : (!empty($property)
+                  ? route('seller-outreach.entry.store-from-property', $property->id)
+                  : route('seller-outreach.entry.store-from-prospecting', $listing->id)) }}">
         @csrf
+
+        {{-- #3 Address-first: when the source listing carries no street address,
+             capture one here BEFORE the seller. The controller requires it and
+             lands it on the promoted Property (never a placeholder address). --}}
+        @if(!empty($needsAddress) && $needsAddress)
+            <div class="rounded-md p-4 mb-4" style="background: var(--surface); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 45%, var(--border));">
+                <h2 class="text-base font-semibold mb-1" style="color: var(--text-primary);">
+                    Property address <span style="color: var(--ds-crimson);">*</span>
+                </h2>
+                <p class="text-xs mb-2" style="color: var(--text-muted);">
+                    This listing was captured without a street address. Enter it so the pitch lands on a real property record.
+                </p>
+                <input type="text" name="address" value="{{ old('address') }}" required maxlength="255"
+                       placeholder="e.g. 12 Marine Drive, Uvongo"
+                       class="w-full px-3 py-2 text-sm rounded-md"
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            </div>
+        @endif
 
         <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="flex items-center justify-between gap-3 flex-wrap">
