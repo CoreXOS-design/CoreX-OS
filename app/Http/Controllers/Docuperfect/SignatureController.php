@@ -2259,6 +2259,26 @@ class SignatureController extends Controller
     }
 
     /**
+     * Download a recipient's optional supporting document (e-sign feature).
+     * Office/agent-side retrieval of a SignedDocumentVersion tagged kind='supporting'.
+     */
+    public function downloadSupportingFile(Request $request, Document $document, \App\Models\Docuperfect\SignedDocumentVersion $version)
+    {
+        $this->authorizeDocument($request->user(), $document);
+
+        // The version must belong to this document AND be a supporting upload.
+        if ((int) $version->document_id !== (int) $document->id || ! $version->isSupporting()) {
+            abort(404);
+        }
+
+        if (! $version->file_path || ! Storage::disk('local')->exists($version->file_path)) {
+            abort(404);
+        }
+
+        return response()->download(Storage::disk('local')->path($version->file_path));
+    }
+
+    /**
      * Agent uploads a signed document on behalf of a party.
      */
     public function uploadOnBehalf(Request $request, Document $document, SignatureRequest $signingRequest)

@@ -3729,6 +3729,8 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
 
     // Agent approval gate
     Route::get('/documents/{document}/signatures/review', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'review'])->name('docuperfect.signatures.review');
+    // Office/agent download of a recipient's optional supporting document.
+    Route::get('/documents/{document}/supporting/{version}/download', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'downloadSupportingFile'])->name('signatures.supporting.download');
     // AT-352 item 2 — agent live "View document" (READ-ONLY recipient mirror; no write path)
     Route::get('/documents/{document}/signatures/view-live', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'viewLive'])->name('docuperfect.signatures.viewLive');
     Route::post('/documents/{document}/signatures/approve-and-advance', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'approveAndAdvance'])->name('docuperfect.signatures.approveAndAdvance');
@@ -3908,6 +3910,8 @@ Route::prefix('sign')->group(function () {
     Route::post('/{token}/complete', [\App\Http\Controllers\Docuperfect\SigningController::class, 'complete'])->name('signatures.external.complete');
     Route::get('/{token}/completed', [\App\Http\Controllers\Docuperfect\SigningController::class, 'completed'])->name('signatures.external.completed');
     Route::post('/{token}/upload', [\App\Http\Controllers\Docuperfect\SigningController::class, 'uploadWetInk'])->name('signatures.external.upload');
+    // Optional recipient supporting-document uploads — NEVER a signing gate; available pre- and post-sign.
+    Route::post('/{token}/supporting-documents', [\App\Http\Controllers\Docuperfect\SigningController::class, 'uploadSupportingDocuments'])->name('signatures.external.supportingUpload');
     Route::get('/{token}/download', [\App\Http\Controllers\Docuperfect\SigningController::class, 'downloadForSigning'])->name('signatures.external.download');
     Route::get('/{token}/print', [\App\Http\Controllers\Docuperfect\SigningController::class, 'printView'])->name('signatures.external.print');
     Route::get('/{token}/download-pdf', [\App\Http\Controllers\Docuperfect\SigningController::class, 'downloadWebPdf'])->name('signing.download-pdf');

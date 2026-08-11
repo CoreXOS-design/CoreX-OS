@@ -2407,6 +2407,87 @@ class SigningController extends Controller
     }
 
     /**
+     * OPTIONAL supporting-document upload by the recipient (e-sign feature).
+     *
+     * This is NEVER part of the signing gate: it does not touch signing_method, status,
+     * or any wet-ink field, and it is reachable both BEFORE signing (verified session on
+     * the sign-or-download screen) and AFTER signing (the completed request, via the same
+     * access token — "signed, you can still add supporting documents"). Files are filed
+     * against the signing package through the existing SignedDocumentVersion channel,
+     * tagged kind='supporting' so they are office-visible but never confused with a signed
+     * version or a wet-ink review item.
+     */
+    public function uploadSupportingDocuments(Request $request, $token)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)
+            ->with(['template.document'])
+            ->firstOrFail();
+
+        if ($signingRequest->isSigningBlocked()) {
+            return redirect()->route('signatures.external', $token)
+                ->with('error', 'This link has expired.');
+        }
+
+        // Allowed pre-sign (verified) OR post-sign (already completed) — same trust level
+        // as the pages that render on this token. NEVER a signing prerequisite.
+        $isCompleted = $signingRequest->status === SignatureRequest::STATUS_COMPLETED;
+        if (! $isCompleted && ! session("signing_verified_{$token}")) {
+            return redirect()->route('signatures.external', $token);
+        }
+
+        $request->validate([
+            'supporting_files'   => 'required|array|min:1|max:10',
+            'supporting_files.*' => 'file|mimes:pdf,jpg,jpeg,png,doc,docx|max:15360', // 15 MB each
+        ]);
+
+        $document = $signingRequest->template?->document;
+
+        $filed = 0;
+        foreach ($request->file('supporting_files') as $file) {
+            $path = $file->store("docuperfect/supporting-documents/{$signingRequest->id}", 'local');
+
+            // File it against the signing package through the existing pipeline. version_number
+            // is 0 so a supporting doc never becomes the "latest signed version" anywhere.
+            if ($document) {
+                \App\Models\Docuperfect\SignedDocumentVersion::create([
+                    'document_id'          => $document->id,
+                    'signature_request_id' => $signingRequest->id,
+                    'kind'                 => \App\Models\Docuperfect\SignedDocumentVersion::KIND_SUPPORTING,
+                    'version_number'       => 0,
+                    'file_path'            => $path,
+                    'file_type'            => $file->getClientOriginalExtension() ?: 'bin',
+                    'uploaded_by_name'     => $signingRequest->signer_name,
+                    'uploaded_at'          => now(),
+                    'ip_address'           => $request->ip(),
+                    'notes'                => 'Supporting document uploaded by recipient'
+                                              . ($isCompleted ? ' (after signing)' : ' (during signing)'),
+                ]);
+            }
+            $filed++;
+        }
+
+        SignatureAuditLog::log(
+            $signingRequest->template,
+            'supporting_documents_uploaded',
+            SignatureAuditLog::ACTOR_SIGNER,
+            $signingRequest->signer_name,
+            $signingRequest->signer_email,
+            requestId: $signingRequest->id,
+            ip: $request->ip(),
+            ua: $request->userAgent(),
+            metadata: ['file_count' => $filed, 'after_signing' => $isCompleted],
+        );
+
+        // Best-effort agent nudge — never fail the upload on it.
+        $this->signatureService->notifySupportingDocumentsUploaded($signingRequest, $filed);
+
+        return redirect()->route('signatures.external', $token)
+            ->with('supporting_success', $filed === 1
+                ? 'Your document was uploaded and sent to the office. Thank you.'
+                : "Your {$filed} documents were uploaded and sent to the office. Thank you.");
+    }
+
+    /**
      * Download document for wet ink signing.
      * Generates a PDF on-the-fly from flattened page images (which include
      * document fields + previous signers' entries baked in), with colored

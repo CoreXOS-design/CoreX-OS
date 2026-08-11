@@ -409,6 +409,10 @@
                 </button>
             </div>
         </div>
+
+        {{-- OPTIONAL supporting-document upload — shown on the sign-or-download screen.
+             Explicitly optional; signing is never gated on it. --}}
+        @include('docuperfect.signatures.external._supporting-upload', ['request' => $request])
     </div>
 
     {{-- ══════════════════════════════════════════════

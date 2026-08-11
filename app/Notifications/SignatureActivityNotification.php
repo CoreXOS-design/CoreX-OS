@@ -82,6 +82,18 @@ class SignatureActivityNotification extends Notification
         );
     }
 
+    public static function supportingDocumentsUploaded(string $signerName, string $documentName, int $documentId, int $fileCount, string $inspectUrl): self
+    {
+        $plural = $fileCount === 1 ? 'a supporting document' : "{$fileCount} supporting documents";
+        return new self(
+            type: 'supporting_documents_uploaded',
+            message: "{$signerName} uploaded {$plural} for {$documentName}",
+            url: $inspectUrl,
+            documentId: $documentId,
+            metadata: ['file_count' => $fileCount],
+        );
+    }
+
     public static function documentCompleted(string $documentName, int $documentId, string $viewUrl): self
     {
         return new self(

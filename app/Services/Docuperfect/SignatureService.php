@@ -4713,6 +4713,35 @@ class SignatureService
     }
 
     /**
+     * Notify the agent that a recipient uploaded optional supporting documents.
+     * In-app only, failure-isolated — an upload must never fail on the nudge.
+     */
+    public function notifySupportingDocumentsUploaded(SignatureRequest $request, int $fileCount): void
+    {
+        try {
+            $request->loadMissing(['template.document', 'template.creator']);
+            $template = $request->template;
+            $agent = $template?->creator;
+
+            if (! $agent || ! $template->document) {
+                return;
+            }
+
+            $documentName = $template->document->name ?? 'Document';
+            $inspectUrl = url("/docuperfect/documents/{$template->document_id}/signatures/inspect/{$request->id}");
+
+            $agent->notify(SignatureActivityNotification::supportingDocumentsUploaded(
+                $request->signer_name, $documentName, $template->document_id, $fileCount, $inspectUrl,
+            ));
+        } catch (\Throwable $e) {
+            Log::error('Failed to send supporting-documents uploaded notification', [
+                'request_id' => $request->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
      * Send wet ink uploaded notification to the agent (internal — from system).
      */
     private function sendWetInkUploadedNotification(SignatureRequest $request): void

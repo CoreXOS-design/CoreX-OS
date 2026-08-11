@@ -273,10 +273,11 @@
         </div>
         <div class="divide-y divide-slate-100">
             @foreach($versions as $version)
+                @php $isSupporting = ($version->kind ?? null) === \App\Models\Docuperfect\SignedDocumentVersion::KIND_SUPPORTING; @endphp
                 <div class="px-6 py-4 flex items-center justify-between">
                     <div>
                         <div class="text-sm font-semibold text-slate-800">
-                            Version {{ $version->version_number }}
+                            {{ $isSupporting ? 'Supporting document' : 'Version ' . $version->version_number }}
                             <span class="text-xs font-normal text-slate-500 ml-2">{{ strtoupper($version->file_type) }}</span>
                         </div>
                         <div class="text-xs text-slate-500">
@@ -286,7 +287,12 @@
                         </div>
                     </div>
                     <div>
-                        @if($version->agent_approved)
+                        @if($isSupporting)
+                            <a href="{{ route('signatures.supporting.download', ['document' => $document->id, 'version' => $version->id]) }}"
+                               class="text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-700 font-semibold hover:bg-slate-200 transition-colors">
+                                Download
+                            </a>
+                        @elseif($version->agent_approved)
                             <span class="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-semibold">
                                 Approved {{ $version->agent_approved_at?->format('d M Y') }}
                             </span>
