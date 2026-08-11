@@ -3912,6 +3912,9 @@ Route::prefix('sign')->group(function () {
     Route::post('/{token}/save-web-fields', [\App\Http\Controllers\Docuperfect\SigningController::class, 'saveWebFields'])->name('signatures.external.saveWebFields');
     // AT-373 increment 2 — recipient amends at their turn via the SAME wet-ink selection tool as the agent.
     Route::post('/{token}/edit-selection', [\App\Http\Controllers\Docuperfect\SigningController::class, 'editSelection'])->name('signatures.external.editSelection');
+    // Recipient self-revert (Johan 2026-08-11) — remove one of MY OWN pending edits before signing,
+    // while no other party has signed. Reverts the clause to the agreed original.
+    Route::post('/{token}/revert-change', [\App\Http\Controllers\Docuperfect\SigningController::class, 'revertMyChange'])->name('signatures.external.revertChange');
     Route::post('/{token}/complete-web', [\App\Http\Controllers\Docuperfect\SigningController::class, 'completeWeb'])->name('signatures.external.completeWeb');
     Route::post('/{token}/complete', [\App\Http\Controllers\Docuperfect\SigningController::class, 'complete'])->name('signatures.external.complete');
     Route::get('/{token}/completed', [\App\Http\Controllers\Docuperfect\SigningController::class, 'completed'])->name('signatures.external.completed');

@@ -466,6 +466,34 @@
                     // Matches cc2's server guard in editSelection (422 when template is amendment_initialing).
                     'allowEdit'        => empty($inAmendmentInitialing),
                 ])
+                {{-- Recipient self-revert (Johan 2026-08-11) — the signer can REMOVE their own
+                     pending edits and sign the document as originally agreed, so long as no
+                     other party has signed. Each Remove reverts that clause to the original. --}}
+                @if(!empty($myRemovableChanges))
+                    <div class="rounded-xl border p-4 mb-3" style="background:#fffbeb; border-color:#fde68a;">
+                        <div style="font-size:13px; font-weight:700; color:#92400e;">Your proposed change{{ count($myRemovableChanges) === 1 ? '' : 's' }}</div>
+                        <div style="font-size:12px; color:#92400e; margin-top:2px;">
+                            You edited this document. To sign it as originally agreed, remove your change{{ count($myRemovableChanges) === 1 ? '' : 's' }} below — this reverts the text to the original. Available only until another party signs.
+                        </div>
+                        <div style="margin-top:10px; display:flex; flex-direction:column; gap:8px;">
+                            @foreach($myRemovableChanges as $chg)
+                                <div class="flex items-center justify-between gap-3 rounded-lg" style="background:#fff; border:1px solid #fde68a; padding:8px 10px;">
+                                    <div class="min-w-0" style="font-size:12px; color:#334155;">
+                                        <span style="text-decoration:line-through; color:#b91c1c;">{{ \Illuminate\Support\Str::limit($chg['old'], 120) }}</span>
+                                        @if($chg['new'] !== '')
+                                            <span style="color:#059669;"> &rarr; {{ \Illuminate\Support\Str::limit($chg['new'], 120) }}</span>
+                                        @endif
+                                    </div>
+                                    <button type="button" @click="removeMyEdit(@js($chg['change_id']))"
+                                            :disabled="removingEdit"
+                                            style="flex-shrink:0; font-size:12px; font-weight:600; color:#fff; background:#dc2626; border:0; border-radius:7px; padding:6px 12px; cursor:pointer;">
+                                        Remove
+                                    </button>
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
                 {{-- Recipient-only styles: the 3-column layout that positions the amend column, plus
                      the change-margin display (NOT part of the shared tool). --}}
                 <style>
@@ -1382,6 +1410,7 @@ function externalSign() {
         signedCount: {{ $signedCount }},
         totalRequired: {{ $totalMarkers }},
         token: @json($token),
+        removingEdit: false,
         partyRole: @json($request->party_role),
         signerName: @json($request->signer_name),
         fieldsDirty: false,
@@ -2308,6 +2337,32 @@ function externalSign() {
         },
 
         // Save web template field values back to server
+        // Recipient self-revert — remove one of MY OWN pending edits, then reload to
+        // show the reverted (original) document before signing.
+        async removeMyEdit(changeId) {
+            if (this.removingEdit) return;
+            if (!confirm('Remove this change and revert to the original text?')) return;
+            this.removingEdit = true;
+            try {
+                const resp = await fetch('/sign/' + this.token + '/revert-change', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    },
+                    body: JSON.stringify({ change_id: changeId }),
+                });
+                const data = await resp.json().catch(() => ({}));
+                if (resp.ok && data.ok) { window.location.reload(); return; }
+                this.showNotification(data.error || 'Could not remove the change.', 'error');
+            } catch (e) {
+                this.showNotification('Could not remove the change. Please try again.', 'error');
+            } finally {
+                this.removingEdit = false;
+            }
+        },
+
         async saveWebFields() {
             if (!this.webFieldsDirty) return true;
             const values = this.collectWebFieldValues();

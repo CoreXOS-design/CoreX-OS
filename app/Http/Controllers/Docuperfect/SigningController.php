@@ -595,6 +595,34 @@ class SigningController extends Controller
             && (int) ($amendmentCycle['editor_request_id'] ?? 0) === (int) $signingRequest->id;
         $reacceptanceReason = $reacceptanceMode ? ($amendmentCycle['reject_reason'] ?? null) : null;
 
+        // Recipient self-revert (Johan 2026-08-11) — a signer may REMOVE their OWN
+        // pending edits (strike / reword) and sign the agreed original, so long as
+        // NO OTHER PARTY has signed yet. The moment any other party signs, edits
+        // lock. Only non-reverted, recipient-authored (actor_id === null) changes
+        // are removable, and only on this signer's own turn.
+        $editsLockedByOtherParty = $this->anyOtherPartySigned($signingRequest);
+        $myRemovableChanges = [];
+        if (! $editsLockedByOtherParty && $this->signerCanAct($signingRequest)) {
+            foreach (($webTemplateData['pending_body_changes'] ?? []) as $c) {
+                if (! is_array($c) || ! empty($c['reverted'])) {
+                    continue;
+                }
+                if (($c['actor_id'] ?? null) !== null) {
+                    continue; // agent-authored edit — not the recipient's to remove
+                }
+                $cid = (string) ($c['change_id'] ?? '');
+                if ($cid === '') {
+                    continue;
+                }
+                $myRemovableChanges[] = [
+                    'change_id' => $cid,
+                    'old'       => (string) ($c['old'] ?? ''),
+                    'new'       => (string) ($c['new'] ?? ''),
+                    'mode'      => (string) ($c['mode'] ?? 'selection'),
+                ];
+            }
+        }
+
         return view('docuperfect.signatures.external.sign', [
             'request' => $signingRequest,
             'reacceptanceMode' => $reacceptanceMode,       // AT-373 inc5 — second mandatory ECT-Act tick
@@ -631,6 +659,8 @@ class SigningController extends Controller
             'storedDisclosure' => $webTemplateData['disclosure_answers'] ?? [],
             'disclosureMarksLocked' => $disclosureMarksLocked,   // AT-303 Stage 1
             'disclosureLockInfo' => $disclosureLockInfo,         // AT-303 Stage 1
+            'myRemovableChanges' => $myRemovableChanges,          // recipient self-revert
+            'editsLockedByOtherParty' => $editsLockedByOtherParty,// recipient self-revert lock
         ]);
     }
 
@@ -4205,6 +4235,83 @@ CSS;
      * template being returned-to-candidate). cc2 owns the completion routing that carries the raised amendment
      * into the sequential chain-review cascade; this endpoint only AUTHORS the amendment on the recipient side.
      */
+    /**
+     * Recipient self-revert (Johan 2026-08-11) — has ANY party other than $req signed
+     * this document yet? Edits may only be removed while the answer is NO; the moment
+     * another party signs, the agreed text is locked. Ground truth: another party's
+     * request in partially_signed/completed, OR any captured signature belonging to a
+     * different request on the same template.
+     */
+    private function anyOtherPartySigned(SignatureRequest $req): bool
+    {
+        $templateId = (int) $req->signature_template_id;
+
+        $otherByStatus = SignatureRequest::where('signature_template_id', $templateId)
+            ->where('id', '!=', $req->id)
+            ->whereIn('status', [SignatureRequest::STATUS_PARTIALLY_SIGNED, SignatureRequest::STATUS_COMPLETED])
+            ->exists();
+        if ($otherByStatus) {
+            return true;
+        }
+
+        return \App\Models\Docuperfect\Signature::where('signature_template_id', $templateId)
+            ->where('signature_request_id', '!=', $req->id)
+            ->exists();
+    }
+
+    /**
+     * Recipient self-revert (Johan 2026-08-11) — the current signer REMOVES one of their
+     * OWN pending edits (strike / reword) before signing, reverting the clause to the
+     * agreed original. Allowed only on their own turn, only while NO other party has
+     * signed, and only for a non-reverted, recipient-authored (actor_id null) change on
+     * THIS document. Reuses SelectionEditService::revertChange (audit-retained).
+     */
+    public function revertMyChange(Request $request, string $token): \Illuminate\Http\JsonResponse
+    {
+        $signingRequest = SignatureRequest::where('token', $token)
+            ->with('template.document')
+            ->firstOrFail();
+
+        if ($signingRequest->isSigningBlocked()) {
+            return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
+        }
+        if (! $this->signerCanAct($signingRequest)) {
+            return response()->json(['ok' => false, 'error' => 'It is not your turn.'], 403);
+        }
+        if ($this->anyOtherPartySigned($signingRequest)) {
+            return response()->json([
+                'ok'    => false,
+                'error' => 'Another party has already signed — changes can no longer be removed.',
+            ], 422);
+        }
+
+        $changeId = $request->validate(['change_id' => ['required', 'string', 'max:64']])['change_id'];
+
+        $template = $signingRequest->template;
+        $wtd = $template->document->web_template_data ?? [];
+
+        // The change must be a non-reverted, recipient-authored edit on this document.
+        $own = false;
+        foreach (($wtd['pending_body_changes'] ?? []) as $c) {
+            if (is_array($c)
+                && (string) ($c['change_id'] ?? '') === $changeId
+                && empty($c['reverted'])
+                && ($c['actor_id'] ?? null) === null
+            ) {
+                $own = true;
+                break;
+            }
+        }
+        if (! $own) {
+            return response()->json(['ok' => false, 'error' => 'That change cannot be removed.'], 422);
+        }
+
+        $result = app(\App\Services\Docuperfect\SelectionEditService::class)
+            ->revertChange($template, $changeId, null);
+
+        return response()->json($result, empty($result['ok']) ? 422 : 200);
+    }
+
     public function editSelection(Request $request, string $token): \Illuminate\Http\JsonResponse
     {
         $signingRequest = SignatureRequest::where('token', $token)
