@@ -2981,6 +2981,29 @@ class SignatureController extends Controller
     }
 
     /**
+     * AT-373 (Part 3) — AGENT BOUNCE-BACK. The reviewing node disagrees with a recipient's amendment
+     * and sends the document back to its author so THEY remove their own change (Part 1/2 revert path)
+     * and re-sign clean. The state transition lives in the service (the AT-373 state machine owner).
+     */
+    public function sendBackToRecipient(Request $request, Document $document)
+    {
+        $user = $request->user();
+        $this->authorizeDocument($user, $document);
+
+        $validated = $request->validate(['note' => ['nullable', 'string', 'max:2000']]);
+
+        $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+        $result = $this->signatureService->bounceAmendmentToRecipient($template, $user, $validated['note'] ?? null);
+
+        if (empty($result['ok'])) {
+            return back()->with('error', $result['error'] ?? 'Could not send the document back.');
+        }
+        return redirect()->route('docuperfect.esign.myDocuments')
+            ->with('status', 'Sent back to ' . ($result['editor'] ?? 'the recipient')
+                . ' — they will get a fresh signing link to remove their change and re-sign.');
+    }
+
+    /**
      * Return a document to the candidate practitioner with supervisor notes.
      * Only available in candidate practitioner flows.
      */

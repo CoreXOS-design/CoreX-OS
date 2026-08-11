@@ -3753,6 +3753,9 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     // (two-stage edit-approval gate). Approve = the node placed its initial (initial-change) then
     // advances the chain; reject reverts the change and routes the editor to re-acceptance.
     Route::post('/documents/{document}/signatures/amendment/approve', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'approveAmendmentNode'])->name('docuperfect.signatures.amendment.approve');
+    // AT-373 (Part 3) — agent bounce-back: send the doc back to the amendment author so they remove
+    // their own change and re-sign clean (recipient revert path). Transition lives in the service.
+    Route::post('/documents/{document}/signatures/amendment/send-back', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'sendBackToRecipient'])->name('docuperfect.signatures.amendment.sendBack');
     // SYMMETRIC edit-upon-edit (Johan 2026-08-10) — "reject" is RETIRED as a distinct action/state. A
     // rejection is now just an EDIT (a strike, optionally with replacement), authored with the shared amend
     // tool on the review page and routed like any other edit. The three reject endpoints

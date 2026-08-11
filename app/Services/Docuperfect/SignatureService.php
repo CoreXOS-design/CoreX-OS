@@ -2555,6 +2555,69 @@ class SignatureService
         });
     }
 
+    /**
+     * AT-373 (Part 3) — AGENT BOUNCE-BACK. The reviewing node disagrees with a recipient's
+     * amendment and (after an out-of-band conversation — Johan's flow) sends the document BACK to
+     * the amendment's AUTHOR so THEY remove their own edit (the Part 1/2 recipient revert path) and
+     * re-sign clean. Distinct from rejectAmendmentNode(), which reverts the change server-side and
+     * routes the editor to a re-acceptance screen — here the recipient does the removal themselves.
+     *
+     * Chain-safety (validated against this state machine): at STATUS_AMENDMENT_CHAIN_REVIEW the
+     * signing walk is PAUSED — no party after the editor has signed — so re-opening the editor
+     * disturbs nothing downstream, and earlier signers' signatures stand untouched. We ABANDON the
+     * amendment_cycle (a routing marker only) but LEAVE pending_body_changes in place so the editor
+     * can revert them on their signing screen, then drop the template back to STATUS_SIGNING with the
+     * editor re-opened PENDING — the exact transition ratifyMarkAmendment() uses to hand a completed
+     * party back to finish signing. If the editor re-signs WITHOUT reverting, completeWeb() opens a
+     * fresh cycle (a new amendment) — the machine self-heals either way.
+     */
+    public function bounceAmendmentToRecipient(SignatureTemplate $template, User $agent, ?string $note = null): array
+    {
+        $cycle = $this->amendmentCycle($template);
+        if ($cycle === null || $template->status !== SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW) {
+            return ['ok' => false, 'error' => 'No amendment is awaiting review on this document.'];
+        }
+        // Authoritative author of the amendment (not a "most-recently-completed" heuristic).
+        $editor = $template->requests()->find($cycle['editor_request_id'] ?? 0);
+        if ($editor === null) {
+            return ['ok' => false, 'error' => 'The recipient who proposed the amendment could not be resolved.'];
+        }
+
+        DB::transaction(function () use ($template, $editor, $agent, $cycle) {
+            // Abandon the chain-review routing marker ONLY — pending_body_changes stay so the editor
+            // can revert them on their signing screen.
+            $wtd = $this->docWtd($template);
+            unset($wtd['amendment_cycle']);
+            $this->writeDocWtd($template, $wtd);
+
+            // Back to the signing walk (same proven transition as ratifyMarkAmendment).
+            $template->update(['status' => SignatureTemplate::STATUS_SIGNING]);
+
+            SignatureAuditLog::log(
+                $template,
+                'amendment_bounced_to_recipient',
+                SignatureAuditLog::ACTOR_USER,
+                $agent->name ?? 'Agent',
+                $agent->email,
+                $agent->id,
+                metadata: [
+                    'editor_request_id' => $editor->id,
+                    'editor_name'       => $editor->signer_name,
+                    'change_ids'        => $cycle['change_ids'] ?? [],
+                ],
+            );
+        });
+
+        // Re-open the author PENDING with a fresh token + email (the agent already spoke to them).
+        $this->reactivateRequestForMark(
+            $editor,
+            $template,
+            $note ?: 'Your agent has sent this document back to you. Please open your signing link, remove the change you made, and sign again.',
+        );
+
+        return ['ok' => true, 'editor' => $editor->signer_name];
+    }
+
     /** Stamp chain_approved_at onto each named change in pending_body_changes (audit + gate marker). */
     private function stampChainApproved(SignatureTemplate $template, array $changeIds): void
     {
