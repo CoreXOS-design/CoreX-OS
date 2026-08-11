@@ -508,7 +508,7 @@
     {{-- ACTION BUTTONS — the legacy final-gate/candidate actions. In AT-373 amendment-approval mode the
          action surface is the right-rail panel column (beside the document), so this whole block is suppressed. --}}
     @unless(!empty($isAmendmentApproval))
-    <div class="rounded-sm border border-slate-200 bg-white p-5" x-data="{ showReturnModal: false, showRejectModal: false, showRejectAmendmentModal: false }">
+    <div class="rounded-sm border border-slate-200 bg-white p-5" x-data="{ showReturnModal: false, showRejectModal: false }">
         <h4 class="font-semibold text-slate-800 mb-4">Review Actions</h4>
 
         <div class="flex flex-wrap items-center gap-3">
@@ -540,10 +540,6 @@
                                 {!! $amendNextLabel !!} &rarr;
                             </button>
                         </form>
-                        <button type="button" @click="showRejectAmendmentModal = true"
-                                class="px-5 py-2.5 text-sm font-medium text-red-700 border border-red-300 rounded-lg hover:bg-red-50 transition-colors">
-                            Reject Amendment
-                        </button>
                         {{-- AT-373 (Part 3) — agent bounce-back: send the doc BACK to the amendment's author so
                              they remove their own change and re-sign clean (they get a fresh signing link). --}}
                         <form method="POST" action="{{ route('docuperfect.signatures.amendment.sendBack', $document) }}"
