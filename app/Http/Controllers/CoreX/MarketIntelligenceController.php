@@ -105,17 +105,6 @@ class MarketIntelligenceController extends Controller
             });
         }
 
-        // BUG 3 — a listing flagged sole/exclusive mandate is already spoken
-        // for by another agency; canvassing it is a professional courtesy
-        // issue, not an opportunity. Default-exclude, same shape as the
-        // in-stock/pitch-lock toggles above. ?include_mandated=1 reveals them.
-        if (! $request->boolean('include_mandated')) {
-            $query->where(function ($q) {
-                $q->whereNull('mandate_type')
-                    ->orWhereRaw('LOWER(mandate_type) NOT IN (?, ?)', ['sole', 'exclusive']);
-            });
-        }
-
         // Filters
         if ($request->filled('portal_source') && $request->portal_source !== 'all') {
             $query->where('portal_source', $request->portal_source);
