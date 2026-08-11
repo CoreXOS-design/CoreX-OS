@@ -3734,6 +3734,13 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     // HOOK — hand-off of a recipient's supporting document to the multi-doc splitter (Andre).
     // Stub for now; the button + landing spot exist, the splitter wiring attaches here later.
     Route::post('/documents/{document}/supporting/{version}/process', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'processSupportingDocument'])->name('signatures.supporting.process');
+    // BATCH (per-recipient) supporting-doc surfaces (Johan item 5) — the splitter takes 1-to-many, so
+    // the agent views/downloads/hands off a recipient's WHOLE upload batch at once, not per file.
+    Route::get('/documents/{document}/supporting/request/{request}/view',         [\App\Http\Controllers\Docuperfect\SignatureController::class, 'viewSupportingBatch'])->name('signatures.supporting.view');
+    Route::get('/documents/{document}/supporting/request/{request}/download-all', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'downloadSupportingBatch'])->name('signatures.supporting.downloadAll');
+    Route::post('/documents/{document}/supporting/request/{request}/process',     [\App\Http\Controllers\Docuperfect\SignatureController::class, 'processSupportingBatch'])->name('signatures.supporting.processBatch');
+    // Inline per-file stream used by the batch viewer to render each doc full-page (like the FICA viewer).
+    Route::get('/documents/{document}/supporting/version/{version}/stream',       [\App\Http\Controllers\Docuperfect\SignatureController::class, 'streamSupportingFile'])->name('signatures.supporting.stream');
     // AT-352 item 2 — agent live "View document" (READ-ONLY recipient mirror; no write path)
     Route::get('/documents/{document}/signatures/view-live', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'viewLive'])->name('docuperfect.signatures.viewLive');
     Route::post('/documents/{document}/signatures/approve-and-advance', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'approveAndAdvance'])->name('docuperfect.signatures.approveAndAdvance');

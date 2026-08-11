@@ -5563,16 +5563,31 @@ class ESignWizardController extends Controller
         }
         // document_id => Collection<SignedDocumentVersion> (for the per-document badge).
         $supportingByDoc = $supporting->groupBy('document_id');
-        // Flat rows with document/template context (for the "Recipient additional docs" section).
         $templatesByDocId = $allTemplates->keyBy(fn ($t) => $t->document?->id);
-        $supportingRows = $supporting->map(function ($v) use ($templatesByDocId) {
-            $tpl = $templatesByDocId->get($v->document_id);
-            return (object) [
-                'version'  => $v,
-                'document' => $tpl?->document,
-                'template' => $tpl,
-            ];
-        })->filter(fn ($r) => $r->document !== null)->values();
+        // BATCH BY RECIPIENT (Johan item 5) — collapse a recipient's uploads into ONE row per
+        // signing request. The splitter takes 1-to-many at once, so we present one row + one batch
+        // action per recipient, not one per uploaded file.
+        $supportingBatches = $supporting
+            ->filter(fn ($v) => $v->signature_request_id !== null)
+            ->groupBy('signature_request_id')
+            ->map(function ($versions, $requestId) use ($templatesByDocId) {
+                $first = $versions->first();
+                $tpl = $templatesByDocId->get($first->document_id);
+                if (! $tpl || ! $tpl->document) {
+                    return null;
+                }
+                return (object) [
+                    'request_id'  => (int) $requestId,
+                    'document'    => $tpl->document,
+                    'template'    => $tpl,
+                    'signer_name' => $first->uploaded_by_name ?: 'Recipient',
+                    'count'       => $versions->count(),
+                    'latest_at'   => $versions->pluck('uploaded_at')->filter()->max(),
+                ];
+            })
+            ->filter()
+            ->sortByDesc('latest_at')
+            ->values();
 
         $counts = [
             'flagged'             => $groups['flagged']->count(), // AT-299
@@ -5592,8 +5607,8 @@ class ESignWizardController extends Controller
             'counts' => $counts,
             'user'   => $user,
             'showOnlyAuthorisation' => $request->query('filter') === 'authorisation',
-            'supportingByDoc' => $supportingByDoc,
-            'supportingRows'  => $supportingRows,
+            'supportingByDoc'   => $supportingByDoc,
+            'supportingBatches' => $supportingBatches,
         ]);
     }
 

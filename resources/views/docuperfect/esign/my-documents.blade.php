@@ -733,20 +733,20 @@
     {{-- ===== RECIPIENT ADDITIONAL DOCS (optional supporting uploads) =====
          ALWAYS rendered (even with zero uploads) so the agent can find the place —
          with an empty-state line when nothing has been uploaded yet. --}}
-    @php $supportingRows = $supportingRows ?? collect(); @endphp
+    @php $supportingBatches = $supportingBatches ?? collect(); @endphp
     <div id="recipient-additional-docs" class="space-y-3 scroll-mt-4 mt-6">
         <h3 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--brand-icon);">
-            Recipient additional docs ({{ number_format($supportingRows->count()) }})
+            Recipient additional docs ({{ number_format($supportingBatches->count()) }})
         </h3>
-        <p class="text-xs" style="color: var(--text-muted);">Optional supporting documents a signer attaches on their signing screen (during or after signing) show up here — for you to view, download, or hand off to the document splitter.</p>
+        <p class="text-xs" style="color: var(--text-muted);">Supporting documents a signer attaches while signing arrive as ONE batch per recipient. Open <strong>View documents</strong> to page through everything they sent, then <strong>Send to splitter</strong> hands the whole batch off at once (the splitter names each doc). Files keep the signature document's name until then.</p>
 
         @if(session('supporting_process_notice'))
             <div class="rounded-md px-4 py-2 text-sm" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--text-primary); border: 1px solid var(--border);">{{ session('supporting_process_notice') }}</div>
         @endif
 
-        @if($supportingRows->isEmpty())
+        @if($supportingBatches->isEmpty())
             <div class="rounded-md px-4 py-6 text-sm text-center" style="background: var(--surface); border: 1px dashed var(--border); color: var(--text-muted);">
-                No recipient uploads yet. When a signer attaches a supporting document on their signing screen, it will appear here.
+                No recipient uploads yet. When a signer attaches supporting documents on their signing screen, they will appear here.
             </div>
         @else
         <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
@@ -754,28 +754,27 @@
             <table class="min-w-full text-sm ds-table">
                 <thead>
                     <tr style="background: var(--surface-2);">
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Document</th>
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Uploaded by</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Recipient upload</th>
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">When</th>
                         <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
-                @foreach($supportingRows as $row)
+                @foreach($supportingBatches as $batch)
                     <tr class="transition-colors" style="border-top: 1px solid var(--border);">
                         <td class="px-4 py-3">
-                            <div class="font-medium" style="color: var(--text-primary);">{{ $row->document->name ?? 'Untitled' }}</div>
-                            <div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ strtoupper($row->version->file_type) }} &middot; {{ $row->document->template->name ?? '—' }}</div>
+                            <div class="font-medium" style="color: var(--text-primary);">{{ $batch->signer_name }} uploaded {{ $batch->count }} doc{{ $batch->count === 1 ? '' : 's' }}</div>
+                            <div class="text-xs mt-0.5" style="color: var(--text-muted);">for {{ $batch->document->name ?? 'Untitled' }} &middot; {{ $batch->document->template->name ?? '—' }}</div>
                         </td>
-                        <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $row->version->uploaded_by_name ?? 'Recipient' }}</td>
-                        <td class="px-4 py-3"><span class="text-xs" style="color: var(--text-muted);">{{ $row->version->uploaded_at?->format('d M Y H:i') ?? '—' }}</span></td>
+                        <td class="px-4 py-3"><span class="text-xs" style="color: var(--text-muted);">{{ $batch->latest_at?->format('d M Y H:i') ?? '—' }}</span></td>
                         <td class="px-4 py-3 text-right">
-                            <div class="inline-flex items-center gap-3">
-                                <a href="{{ route('signatures.supporting.download', ['document' => $row->document->id, 'version' => $row->version->id]) }}" class="text-xs font-semibold hover:underline" style="color: var(--ds-green);">Download</a>
-                                {{-- HOOK — send to multi-doc splitter (Andre). Stub route for now. --}}
-                                <form method="POST" action="{{ route('signatures.supporting.process', ['document' => $row->document->id, 'version' => $row->version->id]) }}" class="inline">
+                            <div class="inline-flex items-center gap-4">
+                                <a href="{{ route('signatures.supporting.view', ['document' => $batch->document->id, 'request' => $batch->request_id]) }}" target="_blank" class="text-xs font-semibold hover:underline" style="color: var(--brand-icon);">View documents</a>
+                                <a href="{{ route('signatures.supporting.downloadAll', ['document' => $batch->document->id, 'request' => $batch->request_id]) }}" class="text-xs font-semibold hover:underline" style="color: var(--ds-green);">Download all</a>
+                                {{-- HOOK — batch hand-off to Andre's multi-doc splitter (1-to-many intake). Stub route for now. --}}
+                                <form method="POST" action="{{ route('signatures.supporting.processBatch', ['document' => $batch->document->id, 'request' => $batch->request_id]) }}" class="inline">
                                     @csrf
-                                    <button type="submit" class="text-xs font-semibold hover:underline" style="color: var(--brand-icon);" title="Hand off to the document splitter (coming soon)">Send to splitter</button>
+                                    <button type="submit" class="text-xs font-semibold hover:underline" style="color: var(--text-secondary);" title="Hand the whole batch off to the document splitter (coming soon)">Send to splitter</button>
                                 </form>
                             </div>
                         </td>

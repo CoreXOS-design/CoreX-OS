@@ -2301,6 +2301,106 @@ class SignatureController extends Controller
             'Sending to the document splitter is coming soon — this is the hand-off point.');
     }
 
+    /** A recipient's supporting-doc uploads for THIS document (their whole batch), in upload order. */
+    private function supportingVersionsFor(Document $document, SignatureRequest $signingRequest)
+    {
+        return \App\Models\Docuperfect\SignedDocumentVersion::where('document_id', $document->id)
+            ->where('signature_request_id', $signingRequest->id)
+            ->where('kind', \App\Models\Docuperfect\SignedDocumentVersion::KIND_SUPPORTING)
+            ->orderBy('id')
+            ->get();
+    }
+
+    /**
+     * BATCH VIEWER (Johan item 5) — open ALL of a recipient's uploaded supporting docs on one
+     * scrollable page (full pages, like the FICA viewer) so the agent can see exactly what they
+     * received before handing the batch to the splitter.
+     */
+    public function viewSupportingBatch(Request $request, Document $document, SignatureRequest $signingRequest)
+    {
+        $this->authorizeDocument($request->user(), $document);
+
+        $versions = $this->supportingVersionsFor($document, $signingRequest);
+        if ($versions->isEmpty()) {
+            abort(404);
+        }
+
+        return view('docuperfect.esign.supporting-viewer', [
+            'document'       => $document,
+            'signingRequest' => $signingRequest,
+            'versions'       => $versions,
+            'signerName'     => $versions->first()->uploaded_by_name ?: ($signingRequest->signer_name ?: 'Recipient'),
+        ]);
+    }
+
+    /** Inline stream of ONE supporting file — used by the batch viewer's embeds (renders in-page). */
+    public function streamSupportingFile(Request $request, Document $document, \App\Models\Docuperfect\SignedDocumentVersion $version)
+    {
+        $this->authorizeDocument($request->user(), $document);
+
+        if ((int) $version->document_id !== (int) $document->id || ! $version->isSupporting()) {
+            abort(404);
+        }
+        if (! $version->file_path || ! Storage::disk('local')->exists($version->file_path)) {
+            abort(404);
+        }
+
+        return response()->file(Storage::disk('local')->path($version->file_path));
+    }
+
+    /** Download a recipient's WHOLE upload batch as a single zip (Johan item 5 — one download). */
+    public function downloadSupportingBatch(Request $request, Document $document, SignatureRequest $signingRequest)
+    {
+        $this->authorizeDocument($request->user(), $document);
+
+        $versions = $this->supportingVersionsFor($document, $signingRequest);
+        if ($versions->isEmpty()) {
+            abort(404);
+        }
+        $signerName = $versions->first()->uploaded_by_name ?: ($signingRequest->signer_name ?: 'recipient');
+
+        $zipPath = tempnam(sys_get_temp_dir(), 'sup') . '.zip';
+        $zip = new \ZipArchive();
+        if ($zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
+            abort(500, 'Could not build the download.');
+        }
+        $i = 0;
+        foreach ($versions as $version) {
+            if ($version->file_path && Storage::disk('local')->exists($version->file_path)) {
+                $i++;
+                $ext = $version->file_type ?: (pathinfo($version->file_path, PATHINFO_EXTENSION) ?: 'bin');
+                $zip->addFile(Storage::disk('local')->path($version->file_path), sprintf('%02d-supporting-document.%s', $i, $ext));
+            }
+        }
+        $zip->close();
+
+        return response()->download($zipPath, Str::slug($signerName . ' supporting documents') . '.zip')
+            ->deleteFileAfterSend(true);
+    }
+
+    /**
+     * BATCH HAND-OFF (stub) — hand a recipient's WHOLE upload batch to the multi-doc splitter at
+     * once, matching Andre's 1-to-many intake. Deliberately a stub until the splitter lands; the
+     * real dispatch attaches here batch-shaped (all $versions together), never per file.
+     */
+    public function processSupportingBatch(Request $request, Document $document, SignatureRequest $signingRequest)
+    {
+        $this->authorizeDocument($request->user(), $document);
+
+        $versions = $this->supportingVersionsFor($document, $signingRequest);
+        if ($versions->isEmpty()) {
+            abort(404);
+        }
+
+        // ── SPLITTER BATCH HAND-OFF ATTACHES HERE (Andre) ──────────────────────────────
+        // e.g. app(\App\Services\...\SplitterService::class)->intakeBatch($versions, $request->user());
+
+        $n = $versions->count();
+        return back()->with('supporting_process_notice',
+            'Sending ' . $n . ' document' . ($n === 1 ? '' : 's')
+            . ' to the document splitter is coming soon — this is the batch hand-off point.');
+    }
+
     /**
      * Agent uploads a signed document on behalf of a party.
      */
