@@ -571,6 +571,9 @@ class MarketIntelligenceController extends Controller
         // result, so the in-stock view + count match the KPI (e.g. Uvongo 14, not ~5).
         // Sentinel id = -propertyId; flagged is_property_stock so the row template
         // renders it non-interactively (links to the Property, no listing slideover).
+        // Per-suburb count of injected synthetic rows — fed to the filter rail so its
+        // by-suburb count reflects the surfaced stock too (list total ⇄ rail agree).
+        $injectedStockCountBySuburb = [];
         if ($request->boolean('include_in_stock') && $isProspectingManager) {
             $onMarketStock = app(\App\Services\Prospecting\OnMarketStockService::class);
             // Which on-market properties are ALREADY represented by a company-stock
@@ -585,6 +588,7 @@ class MarketIntelligenceController extends Controller
                 ->when($request->filled('suburb'), fn ($q) => $q->where('suburb', $request->get('suburb')))
                 ->when(! empty($representedPropertyIds), fn ($q) => $q->whereNotIn('id', $representedPropertyIds))
                 ->get(['id', 'address', 'suburb', 'beds', 'baths', 'garages', 'price', 'property_type']);
+            $injectedStockCountBySuburb = $stockProps->groupBy('suburb')->map->count()->toArray();
             foreach ($stockProps as $p) {
                 $syn = new ProspectingListing();
                 $syn->id = -1 * (int) $p->id;      // sentinel — never collides with a real listing id
@@ -908,7 +912,15 @@ class MarketIntelligenceController extends Controller
             // instead of leaking agency-wide counts (e.g. Pitch now·high 2,537).
             $request->filled('suburb') ? (string) $request->get('suburb') : null,
         );
-        $filterRailAggregates = $this->computeFilterRailAggregates($agencyId, $includeInStock, $railCountBase);
+        $filterRailAggregates = $this->computeFilterRailAggregates(
+            $agencyId,
+            $includeInStock,
+            $railCountBase,
+            // #1 — always keep the active suburb in the rail; #2 — add its surfaced
+            // synthetic-stock count so the rail agrees with the (stock-inclusive) list.
+            $request->filled('suburb') ? (string) $request->get('suburb') : null,
+            $injectedStockCountBySuburb,
+        );
         $demandPockets = $this->computeDemandPockets($agencyId, $thresholdsForPreset);
 
         // ── Tick refresh (cc6): AJAX fragment response ──────────────────────────
@@ -2289,7 +2301,11 @@ class MarketIntelligenceController extends Controller
 
         $canvassPool = ProspectingListing::where('agency_id', $agencyId)
             ->where('is_active', true)
-            ->whereNull('matched_property_id')
+            // Canonical canvass pool: exclude our own on-market stock (ref OR
+            // normalized_address, OnMarketStockService) — the SAME definition the
+            // list/KPI use. Was the old fuzzy whereNull('matched_property_id'), which
+            // slightly over-counted pitch_now_high (cc3). NULL-safe via the scope.
+            ->whereNotCompanyStock($agencyId)
             ->whereNull('deleted_at')
             // Suburb-scope so Pitch now·high / Pitch now honour the active filter.
             ->when($hasSuburb, fn ($q) => $q->where('suburb', $suburbFilter))
@@ -2361,8 +2377,13 @@ class MarketIntelligenceController extends Controller
      * pool scope as the listings query so each count matches what clicking
      * would show.
      */
-    protected function computeFilterRailAggregates(int $agencyId, bool $includeInStock, $scopedBase = null): array
-    {
+    protected function computeFilterRailAggregates(
+        int $agencyId,
+        bool $includeInStock,
+        $scopedBase = null,
+        ?string $activeSuburb = null,
+        array $stockCountBySuburb = [],
+    ): array {
         // BUG B — in Work mode the caller hands us $railCountBase: the list query
         // with every filter applied EXCEPT the three rail dimensions (suburb,
         // property_type, bedrooms_exact). Each facet counts from a fresh clone of
@@ -2394,9 +2415,50 @@ class MarketIntelligenceController extends Controller
             ->whereNotNull('suburb')->where('suburb', '!=', '')
             ->select('suburb', DB::raw($distinctCount . ' as c'))
             ->groupBy('suburb')
-            ->orderByDesc('c')
+            // Deterministic tie-break — orderByDesc('c') alone left suburbs tied at
+            // the rank-20 cutoff in arbitrary MySQL order, so the same suburb flipped
+            // in/out of the top-20 as other filters shifted the counts.
+            ->orderByDesc('c')->orderBy('suburb')
             ->limit(20)
             ->get();
+
+        // Normalised lookup for the surfaced synthetic-stock counts (LITERAL suburb).
+        $stockLookup = [];
+        foreach ($stockCountBySuburb as $sName => $n) {
+            $stockLookup[strtolower(trim((string) $sName))] = (int) $n;
+        }
+
+        // #2 — reflect the surfaced synthetic property-stock rows in each suburb's
+        // count so the by-suburb rail agrees with the (stock-inclusive) list total.
+        if (! empty($stockLookup)) {
+            foreach ($bySuburb as $r) {
+                $add = $stockLookup[strtolower(trim((string) $r->suburb))] ?? 0;
+                if ($add) {
+                    $r->c = (int) $r->c + $add;
+                }
+            }
+        }
+
+        // #1 — the ACTIVE (selected) suburb must always be present in the rail. The
+        // top-20 limit can drop it (especially at a tie boundary once in-stock company
+        // stock shifts the counts), which made Shelly Beach vanish from its own rail.
+        if ($activeSuburb !== null && trim($activeSuburb) !== '') {
+            $needle = strtolower(trim($activeSuburb));
+            $present = $bySuburb->first(fn ($r) => strtolower(trim((string) $r->suburb)) === $needle);
+            if (! $present) {
+                $cnt = (int) $base()
+                    ->whereRaw('LOWER(TRIM(suburb)) = ?', [$needle])
+                    ->selectRaw($distinctCount . ' as c')
+                    ->value('c');
+                $bySuburb->push((object) [
+                    'suburb' => $activeSuburb,
+                    'c'      => $cnt + ($stockLookup[$needle] ?? 0),
+                ]);
+            }
+        }
+
+        // Re-order after the boost / active-suburb add so the rail stays count-desc.
+        $bySuburb = $bySuburb->sortByDesc('c')->values();
 
         $byType = $base()
             ->whereNotNull('property_type')->where('property_type', '!=', '')

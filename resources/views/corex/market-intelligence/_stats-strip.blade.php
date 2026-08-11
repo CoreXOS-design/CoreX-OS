@@ -48,10 +48,10 @@
     // The simplified 5-tile cockpit. Each tile is clickable; clicking sets the
     // matching action_preset query param, which the controller honours.
     $tiles = [
-        ['type'=>'buyer_matched', 'label'=>'Buyer matched', 'accent'=>'var(--ds-green, #10b981)',
+        ['type'=>'buyer_matched', 'label'=>'Properties matched', 'accent'=>'var(--ds-green, #10b981)',
          'buyers'=>(int)($kpis['buyers_matched'] ?? 0), 'properties'=>(int)($kpis['properties_matched'] ?? 0),
          'threshold'=>$micThreshold, 'href'=>$urlBuyerMatched,
-         'tip'=>'Distinct buyers with a real match at '.$micThreshold.'%+ · and how many canvass listings they match at that strength. Click to filter the worklist to this band.'],
+         'tip'=>'Canvass listings matched to a buyer at '.$micThreshold.'%+ (the headline number) · and the distinct buyers behind those matches. Click to filter the worklist to this band.'],
         ['type'=>'preset',   'key'=>'pitch_now_high',   'label'=>'Pitch now · high',            'value'=>$presets['pitch_now_high'], 'accent'=>'var(--ds-green, #10b981)','tip'=>'Listings with 3+ strong-tier buyers and no recent pitch — your highest-conversion opportunities. Click to filter.'],
         ['type'=>'preset',   'key'=>'my_claims',        'label'=>'My claims',                    'value'=>$presets['my_claims'],      'accent'=>'var(--brand-icon, #0ea5e9)','tip'=>'Listings you have claimed and are working. Click to filter.'],
         ['type'=>'preset',   'key'=>'expiring',         'label'=>'Expiring',                     'value'=>$presets['expiring'],       'accent'=>'var(--ds-amber, #f59e0b)','tip'=>'Your claims that auto-release in under 6 hours unless you log feedback. Click to filter.'],
@@ -71,11 +71,13 @@
                title="{{ $tip }}">
                 <div style="{{ $labelStyle }}">{{ $tile['label'] }} · {{ $tile['threshold'] }}%+</div>
                 <div style="display:flex; align-items:baseline; gap:6px;">
-                    <span style="{{ $valueStyle }}; color: {{ $tile['buyers'] > 0 ? $tile['accent'] : 'var(--text-muted)' }};">{{ number_format($tile['buyers']) }}</span>
-                    <span style="font-size:0.625rem; font-weight:600; color: var(--text-muted, #9ca3af);">{{ \Illuminate\Support\Str::plural('buyer', $tile['buyers']) }}</span>
-                    <span style="font-size:0.625rem; color: var(--text-muted, #9ca3af);">·</span>
-                    <span style="font-size:0.8125rem; font-weight:600; color: var(--text-primary, #111827);">{{ number_format($tile['properties']) }}</span>
+                    {{-- Headline = properties_matched (matched canvass listings); buyers is the
+                         secondary context so the number never reads as a buyer count. --}}
+                    <span style="{{ $valueStyle }}; color: {{ $tile['properties'] > 0 ? $tile['accent'] : 'var(--text-muted)' }};">{{ number_format($tile['properties']) }}</span>
                     <span style="font-size:0.625rem; font-weight:600; color: var(--text-muted, #9ca3af);">{{ \Illuminate\Support\Str::plural('property', $tile['properties']) }}</span>
+                    <span style="font-size:0.625rem; color: var(--text-muted, #9ca3af);">·</span>
+                    <span style="font-size:0.8125rem; font-weight:600; color: var(--text-primary, #111827);">{{ number_format($tile['buyers']) }}</span>
+                    <span style="font-size:0.625rem; font-weight:600; color: var(--text-muted, #9ca3af);">{{ \Illuminate\Support\Str::plural('buyer', $tile['buyers']) }}</span>
                 </div>
             </a>
         @elseif($tile['type'] === 'snapshot')
