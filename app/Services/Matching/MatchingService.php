@@ -56,6 +56,13 @@ class MatchingService
      * family. A raw value not found here returns null (unmapped, not
      * penalised) rather than being force-classified — an agency-custom type
      * must never silently hard-exclude a buyer (false-negative guardrail).
+     *
+     * 2026-08-11 gap fix: bare "Land" (PrivateProperty's raw property_type,
+     * distinct from P24's "Vacant land") was missing from the land family —
+     * an unmapped type is never gated, so PP land listings silently matched
+     * house/apartment wishlists. Added 'land'. Audited every distinct
+     * property_type currently in `properties` and `prospecting_listings`
+     * against this list before landing the fix — 'land' was the only gap.
      */
     private const PROPERTY_TYPE_FAMILIES = [
         'built' => [
@@ -64,7 +71,7 @@ class MatchingService
             'studio_apartment', 'simplex', 'unit', 'villa',
         ],
         'land' => [
-            'vacant_land', 'vacant_land_plot', 'vacantland', 'plot', 'stand', 'development',
+            'vacant_land', 'vacant_land_plot', 'vacantland', 'plot', 'stand', 'development', 'land',
         ],
         'farm' => [
             'farm', 'agricultural', 'agricultural_holding', 'smallholding',
