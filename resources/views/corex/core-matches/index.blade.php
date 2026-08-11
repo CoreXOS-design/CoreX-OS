@@ -5,6 +5,15 @@
 @php
     $totalMatches = $contacts->sum(fn($row) => $row['matches']->count());
 @endphp
+{{-- The browser's native <details> disclosure triangle renders unstyled and
+     doubles up against our own chevron icon in WebKit (Chrome/Safari/Edge) —
+     list-style:none alone doesn't suppress it there, only ::-webkit-details-marker
+     does (same fix already applied to .analysis-accordion in corex.css). --}}
+<style>
+    details.core-match-accordion > summary { list-style: none; }
+    details.core-match-accordion > summary::-webkit-details-marker { display: none; }
+    details.core-match-accordion > summary::marker { content: ""; }
+</style>
 <div class="w-full space-y-5">
 
     {{-- Page header --}}
@@ -74,11 +83,15 @@
         @endphp
 
         <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);" @if($loop->first) data-tour="re-core-matches-card" @endif>
+        <details class="core-match-accordion">
 
-            {{-- Contact header --}}
-            <div class="flex items-center justify-between gap-3 px-5 py-4"
-                 style="background:var(--surface-2); border-bottom:1px solid var(--border);">
+            {{-- Contact header — closed by default; click to reveal the
+                 saved searches underneath. --}}
+            <summary class="flex items-center justify-between gap-3 px-5 py-4 cursor-pointer select-none"
+                 style="list-style:none; background:var(--surface-2); border-bottom:1px solid var(--border);">
                 <div class="flex items-center gap-3 min-w-0">
+                    {{-- Chevron --}}
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
                     {{-- Avatar --}}
                     <div class="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
                          style="background:var(--brand-icon,#0ea5e9);">
@@ -89,7 +102,8 @@
                         <div class="flex items-center gap-2 flex-wrap">
                             <a href="{{ route('corex.contacts.show', $contact) }}?tab=matches"
                                class="text-sm font-semibold no-underline leading-tight transition-colors duration-150"
-                               style="color:var(--text-primary);">
+                               style="color:var(--text-primary);"
+                               onclick="event.stopPropagation()">
                                 {{ $contact->full_name }}
                             </a>
                             @if($contact->type)
@@ -115,7 +129,7 @@
                         {{ number_format($matches->count()) }} {{ Str::plural('search', $matches->count()) }}
                     </span>
                 </div>
-            </div>
+            </summary>
 
             {{-- Match rows --}}
             <div>
@@ -204,6 +218,7 @@
                 @endforeach
             </div>
 
+        </details>
         </div>
         @endforeach
     </div>
