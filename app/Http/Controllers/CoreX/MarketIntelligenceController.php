@@ -562,6 +562,56 @@ class MarketIntelligenceController extends Controller
             $rows = $rows->sortByDesc('selected_buyer_score')->values();
         }
 
+        // #2 — property-backed in-stock rows. When a manager toggles "show in stock",
+        // the list should reflect our REAL on-market stock for the suburb (from the
+        // properties table via OnMarketStockService), not only the handful of
+        // properties that happen to have a scraped listing. Inject a synthetic,
+        // read-only row for each on-market owned property (honouring the active
+        // LITERAL suburb filter) that has NO representing listing in the current
+        // result, so the in-stock view + count match the KPI (e.g. Uvongo 14, not ~5).
+        // Sentinel id = -propertyId; flagged is_property_stock so the row template
+        // renders it non-interactively (links to the Property, no listing slideover).
+        if ($request->boolean('include_in_stock') && $isProspectingManager) {
+            $onMarketStock = app(\App\Services\Prospecting\OnMarketStockService::class);
+            // Which on-market properties are ALREADY represented by a company-stock
+            // listing in this result — by the canonical ref/normaddr identity (the
+            // same definition the IN STOCK badge uses), NOT the fuzzy matched_property_id.
+            $stockIdentity = $onMarketStock->stockMapForListings($rows, $agencyId); // [listing_id => property_id]
+            $representedPropertyIds = array_values(array_unique(array_map('intval', $stockIdentity)));
+            $stockProps = \App\Models\Property::withoutGlobalScopes()
+                ->onMarket()
+                ->where('agency_id', $agencyId)
+                ->whereNull('deleted_at')
+                ->when($request->filled('suburb'), fn ($q) => $q->where('suburb', $request->get('suburb')))
+                ->when(! empty($representedPropertyIds), fn ($q) => $q->whereNotIn('id', $representedPropertyIds))
+                ->get(['id', 'address', 'suburb', 'beds', 'baths', 'garages', 'price', 'property_type']);
+            foreach ($stockProps as $p) {
+                $syn = new ProspectingListing();
+                $syn->id = -1 * (int) $p->id;      // sentinel — never collides with a real listing id
+                $syn->matched_property_id = (int) $p->id;
+                $syn->is_property_stock = true;    // dynamic flag read by _listing-row
+                $syn->address = $p->address;
+                $syn->suburb = $p->suburb;
+                $syn->bedrooms = $p->beds;
+                $syn->bathrooms = $p->baths;
+                $syn->garages = $p->garages;
+                $syn->price = $p->price;
+                $syn->property_type = $p->property_type;
+                $syn->portal_ref = null;
+                $syn->portal_url = route('corex.properties.show', $p->id);
+                $syn->buyer_match_count = 0;
+                $rows->push($syn);
+            }
+
+            // Surface our stock: float ALL on-market stock rows (the real company-stock
+            // listings identified above + the synthetic property rows) to the TOP so the
+            // manager sees the full per-suburb stock at a glance (matching the KPI), not
+            // buried deep in the pool. Stable within each group (PHP 8 sort).
+            $rows = $rows->sortBy(fn ($r) =>
+                (($r->is_property_stock ?? false) || isset($stockIdentity[$r->id])) ? 0 : 1
+            )->values();
+        }
+
         $page = $request->get('page', 1);
         $perPage = 50;
         $listings = new LengthAwarePaginator(
@@ -580,6 +630,13 @@ class MarketIntelligenceController extends Controller
         // rows matching an off-market property correctly lose it.
         $companyStockMap = app(\App\Services\Prospecting\OnMarketStockService::class)
             ->stockMapForListings($listings->items(), $agencyId);
+        // #2 — synthetic property-backed rows ARE our stock by construction; badge them
+        // IN STOCK / company-tile directly (they carry no portal_ref for stockMapForListings).
+        foreach ($listings->items() as $__row) {
+            if (($__row->is_property_stock ?? false) && $__row->matched_property_id) {
+                $companyStockMap[$__row->id] = (int) $__row->matched_property_id;
+            }
+        }
 
         // #3 — a company-stock listing scraped WITHOUT an address renders a blank
         // row even though we hold the matched property (which has an address). Since
