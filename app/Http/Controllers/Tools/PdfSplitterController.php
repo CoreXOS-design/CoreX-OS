@@ -531,12 +531,7 @@ class PdfSplitterController extends Controller
             $pageScores  = $manifest['pageScores'];
 
             // Apply posted overrides — whitelist against active doc types.
-            $manifestPosted = (array) ($postedLabels[$manifestId] ?? []);
-            [$finalLabels, $overrides] = $this->resolveFinalLabels($manifestPosted, $manifest['labels'], $pCount);
-
-            if (!empty($overrides)) {
-                $this->logFeedback($base, $overrides, $snippets, $pageScores);
-            }
+            [$finalLabels, $overrides] = $this->resolveManifestLabels($postedLabels, $manifest, $pCount);
 
             Storage::disk('local')->makeDirectory($outDirRel);
             $outDirAbsNorm = str_replace('\\', '/', Storage::disk('local')->path($outDirRel));
@@ -687,17 +682,10 @@ class PdfSplitterController extends Controller
             $origAbsNorm = str_replace('\\', '/', Storage::disk('local')->path($origRel));
             $outDirRel   = $manifest['outDirRel'];
             $pCount      = (int) $manifest['pCount'];
-            $autoLabels  = $manifest['labels'];
-            $snippets    = $manifest['snippets'];
-            $pageScores  = $manifest['pageScores'];
 
-            $manifestLabelsPosted   = (array) ($postedLabels[$manifestId] ?? []);
             $manifestContactsPosted = (array) ($postedContacts[$manifestId] ?? []);
 
-            [$finalLabels, $overrides] = $this->resolveFinalLabels($manifestLabelsPosted, $autoLabels, $pCount);
-            if (! empty($overrides)) {
-                $this->logFeedback($base, $overrides, $snippets, $pageScores);
-            }
+            [$finalLabels, $overrides] = $this->resolveManifestLabels($postedLabels, $manifest, $pCount);
 
             // Per-page assigned contacts — MANY-TO-MANY. Each page carries a SET
             // of contacts across any/all of the doc-type's allowed roles (the OTP
@@ -866,6 +854,28 @@ class PdfSplitterController extends Controller
             } else {
                 $finalLabels[$p] = $auto;
             }
+        }
+
+        return [$finalLabels, $overrides];
+    }
+
+    /**
+     * Resolve ONE manifest's final labels from the batch-wide posted `labels`
+     * array (keyed by manifest ID) and log any overrides as feedback. Shared
+     * by confirm() and link() so the two never drift on how a manifest's own
+     * slice of the request is read — they did, briefly, before this was
+     * extracted (one copy read `$manifestPosted`, the other
+     * `$manifestLabelsPosted`, for the identical operation).
+     *
+     * @return array{0: array<int,string>, 1: array<int,array{from:string,to:string}>}
+     */
+    private function resolveManifestLabels(array $postedLabels, array $manifest, int $pCount): array
+    {
+        $manifestPosted = (array) ($postedLabels[$manifest['manifestId']] ?? []);
+        [$finalLabels, $overrides] = $this->resolveFinalLabels($manifestPosted, $manifest['labels'], $pCount);
+
+        if (!empty($overrides)) {
+            $this->logFeedback($manifest['base'], $overrides, $manifest['snippets'], $manifest['pageScores']);
         }
 
         return [$finalLabels, $overrides];

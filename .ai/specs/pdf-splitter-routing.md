@@ -415,6 +415,54 @@ was dropped too. "Download ZIP" is unchanged.
 - No new scheduled cleanup was added for `private/splitter/*` — matches
   existing behaviour (originals/outputs were never swept before either).
 
+**Known limitation, accepted (not silently patched over) — batch OCR time.**
+`run()` now OCRs every file in the batch, sequentially, inside ONE HTTP
+request before any of it reaches session; `set_time_limit(300)` resets PHP's
+own timer per file, but the front-end web server's own request timeout is a
+separate ceiling PHP cannot override, and nothing is persisted until the
+whole loop finishes — a batch that runs long enough to hit that ceiling
+loses the request (and every already-OCR'd file in it) with no partial save.
+This is the direct cost of the "one page, one combined action" redesign
+(explicitly chosen over the queue/JIT-OCR design, which bounded each request
+to one file's cost but was confusing in practice). Acceptable for the batch
+sizes this feature is actually used for (a handful of packs); the 20-file cap
+in `run()`'s validation is a blunt backstop, not a real guarantee against a
+large/slow batch. Flagged to Johan rather than re-architected unilaterally —
+if large batches become routine, the fix is incremental/resumable OCR, not a
+bigger request timeout.
+
+## Permissions
+
+Unchanged: `access_pdf_splitter`, already required on every splitter route
+(`index`, `run`, `review`, `confirm`, `link`, `thumb`, `download`,
+`properties.search`, `properties.contacts`). The multi-file batch introduces
+no new permission surface — FICA kickoff stays gated on `access_compliance`,
+the deal picker on `access_deal_register_v2`, exactly as before.
+
+## Acceptance criteria
+
+- Uploading 2+ PDFs lands on ONE review screen showing every file, each in
+  its own divided section (filename + page count), not a queue/one-at-a-time
+  flow.
+- One property/deal/FICA-toggle selection applies to the whole batch.
+- Download ZIP produces ONE archive containing every file's split output,
+  correctly labelled per file, with no filename collisions.
+- Link files every page from every file against the ONE selected property;
+  a contact assigned FICA-relevant pages in more than one file gets exactly
+  ONE wet-ink verification carrying slots from every file it appears in
+  (proven by `test_real_link_submit_two_file_batch_combines_into_one_property_and_one_fica_per_contact`).
+  qpdf-extracted pages never physically merge across two different source
+  PDFs, even when they share a label and contact set — each keeps the
+  destination it inherits from its own type's default.
+- A file that fails to OCR is skipped, named in a banner, and never silently
+  drops the rest of the batch.
+- A stale browser tab (batch replaced by a newer upload elsewhere) is
+  rejected server-side on submit, not silently misfiled.
+- "Link" button text has no emoji; "Download ZIP" unchanged.
+- php -l clean; both Blade views render with 1-file and multi-file fixtures
+  (verified via Tinker — the local test DB could not be bootstrapped in this
+  environment, see the session's manual QA/audit notes).
+
 ## Files
 
 - EDIT `app/Http/Controllers/Tools/PdfSplitterController.php` — `run()`

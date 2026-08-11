@@ -193,14 +193,6 @@
             </div>
         @endif
 
-        {{-- Files in this batch that failed to OCR (unreadable / 0 pages) — the
-             batch continues without them rather than aborting silently. --}}
-        @if(!empty($skipped ?? []))
-            <div class="alert-error">
-                Could not split {{ count($skipped) === 1 ? 'this file' : 'these files' }} from the batch (unreadable / no pages): <strong>{{ implode(', ', $skipped) }}</strong>
-            </div>
-        @endif
-
         {{-- AT-105 — post-"Link" state: the agent has FINISHED this batch, so
              the upload form is hidden and a Finish panel closes the loop. The
              ZIP-download path does NOT set splitter_linked, so it keeps the

@@ -458,15 +458,20 @@ final class PdfSplitterDestinationRoutingTest extends TestCase
         } catch (\Throwable) { return false; }
     }
 
-    /** Build a real N-page PDF on the local disk + the manifest link() reads. */
-    private function seedSplitterManifest(int $pages): string
+    /**
+     * Build a real N-page PDF on the local disk + the manifest link()/confirm()
+     * read. $suffix distinguishes multiple manifests seeded in the SAME test
+     * (the batch/stacked-review model reads several manifests from
+     * session('splitter_batch') at once) so their storage paths never collide.
+     */
+    private function seedSplitterManifest(int $pages, string $suffix = ''): string
     {
-        $src = $this->tmpDir . '/src.pdf';
+        $src = $this->tmpDir . '/src' . $suffix . '.pdf';
         $gs = new \Symfony\Component\Process\Process(['gs', '-q', '-o', $src, '-sDEVICE=pdfwrite', '-c', "1 1 {$pages} {/Helvetica findfont 40 scalefont setfont showpage} for"]);
         $gs->setTimeout(60); $gs->run();
         $this->assertFileExists($src, 'ghostscript must produce the test PDF');
 
-        $id = 'pack__20260101_000000';
+        $id = 'pack' . $suffix . '__20260101_000000';
         $origRel   = 'private/splitter/originals/' . $id . '.pdf';
         $outDirRel = 'private/splitter/output/' . $id;
         $tmpRel    = 'private/splitter/tmp/' . $id;
@@ -475,9 +480,10 @@ final class PdfSplitterDestinationRoutingTest extends TestCase
         $labels = $snippets = $scores = [];
         for ($i = 1; $i <= $pages; $i++) { $labels[(string)$i] = 'other'; $snippets[(string)$i] = ''; $scores[(string)$i] = []; }
         Storage::disk('local')->put($tmpRel . '/manifest.json', json_encode([
-            'base' => 'pack', 'ts' => '20260101_000000', 'origRel' => $origRel,
+            'base' => 'pack' . $suffix, 'ts' => '20260101_000000', 'origRel' => $origRel,
             'outDirRel' => $outDirRel, 'tmpRel' => $tmpRel, 'pCount' => $pages,
             'labels' => $labels, 'snippets' => $snippets, 'pageScores' => $scores, 'docTypes' => [],
+            'original_name' => "pack{$suffix}.pdf",
         ]));
 
         return $id;
@@ -579,6 +585,66 @@ final class PdfSplitterDestinationRoutingTest extends TestCase
         $slots = FicaDocument::where('fica_submission_id', $sub->id)->pluck('document_type')->sort()->values()->all();
         // fica_form + ONE id_copy (the two 'ids' pages merged) — no proof_of_address.
         $this->assertSame(['fica_form', 'id_copy'], $slots);
+    }
+
+    // ── REAL multi-file BATCH submit — the actual scenario this feature ships
+    //    for. Two SEPARATE uploaded PDFs (two manifests), reviewed together,
+    //    ONE Link submission. Proves: each manifest's own posted labels[$id]/
+    //    contacts[$id] slice is read correctly (not bled from the other
+    //    manifest), pages are extracted from EACH file's own source PDF (never
+    //    merged across files), and a contact assigned FICA-relevant pages in
+    //    BOTH files gets exactly ONE combined wet-ink verification with slots
+    //    pulled from both source PDFs.
+    public function test_real_link_submit_two_file_batch_combines_into_one_property_and_one_fica_per_contact(): void
+    {
+        foreach (['qpdf', 'gs'] as $bin) {
+            if (! $this->binaryAvailable($bin)) { $this->markTestSkipped("{$bin} not on PATH"); }
+        }
+        Storage::fake('local');
+
+        $p      = $this->makeProperty();
+        $seller = $this->makeContact($p, 'seller', 'Sipho', '0721111111');
+
+        // File A: 2 pages (FICA form, ID) for the seller.
+        $idA = $this->seedSplitterManifest(2, '_a');
+        // File B: 1 page (Proof of Residence) for the SAME seller — a second,
+        // unrelated upload that happens to belong to the same person/property.
+        $idB = $this->seedSplitterManifest(1, '_b');
+
+        $resp = $this->withSession(['splitter_batch' => [$idA, $idB]])->post(route('tools.pdf_splitter.link'), [
+            'property_id'   => $p->id,
+            'trigger_fica'  => '1',
+            'manifest_ids'  => [$idA, $idB],
+            'labels'        => [
+                $idA => [1 => 'fica', 2 => 'ids'],
+                $idB => [1 => 'por'],
+            ],
+            'contacts' => [
+                $idA => [1 => [$seller->id], 2 => [$seller->id]],
+                $idB => [1 => [$seller->id]],
+            ],
+        ]);
+        $resp->assertRedirect();
+        $resp->assertSessionHas('splitter_linked', true);
+
+        // Three pages across two source files → three filed Documents. fica/
+        // ids/por are contact-grouping types with no Save-To override in this
+        // test, so per the AT-105 default they file to the CONTACT, not the
+        // property (same default the existing single-file FICA tests rely
+        // on). Never merged into fewer docs just because they share a
+        // contact — each source file's page stays its own extraction.
+        $this->assertSame(3, Document::where('source_type', 'pdf_splitter')->count());
+        $this->assertSame(3, $seller->fresh()->documents()->count());
+
+        // Exactly ONE FICA process for the seller — combining the FICA-tagged
+        // pages from BOTH manifests, not one process per file.
+        $this->assertSame(1, FicaSubmission::where('contact_id', $seller->id)->count());
+        $sub = FicaSubmission::where('contact_id', $seller->id)->firstOrFail();
+        $slots = FicaDocument::where('fica_submission_id', $sub->id)->pluck('document_type')->sort()->values()->all();
+        $this->assertSame(
+            ['fica_form', 'id_copy', 'proof_of_address'], $slots,
+            'the seller\'s one FICA process must carry slots pulled from BOTH uploaded files'
+        );
     }
 
     // ── propertyContacts endpoint (drives the review selector) ──────────
