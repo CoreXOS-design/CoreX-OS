@@ -88,7 +88,7 @@ class MarketIntelligenceController extends Controller
         // F.1: default to canvassing pool only (exclude already-mandated stock).
         // Manager toggle ?include_in_stock=1 bypasses for audit purposes.
         // F.2: also bypassed when an action preset suspends the canvass filter.
-        $query = $this->applyInStockFilter($query, $request, $isProspectingManager, $presetSuspendsCanvassFilter);
+        $query = $this->applyInStockFilter($query, $agencyId, $request, $isProspectingManager, $presetSuspendsCanvassFilter);
 
         // Pitch lock (2026-07-29): a listing an agent has PITCHED (captured +
         // linked a contact via "Pitch now") is permanently claimed to that agent
@@ -120,12 +120,12 @@ class MarketIntelligenceController extends Controller
         if ($request->filled('portal_source') && $request->portal_source !== 'all') {
             $query->where('portal_source', $request->portal_source);
         }
-        if ($request->filled('suburb')) {
-            $query->where('suburb', $request->suburb);
-        }
-        if ($request->filled('property_type')) {
-            $query->where('property_type', $request->property_type);
-        }
+        // BUG B — the three filter-rail dimensions (suburb, property_type,
+        // bedrooms_exact) are applied LAST (see the $railCountBase capture just
+        // before Sorting) rather than here, so the filter-rail facet counts can
+        // honour every OTHER active filter while still listing the sibling options
+        // within the facet the user is currently narrowing by. List results are
+        // unchanged — AND-composed WHEREs are order-independent.
         if ($request->filled('price_min')) {
             $query->where('price', '>=', (int) $request->price_min);
         }
@@ -135,11 +135,9 @@ class MarketIntelligenceController extends Controller
         if ($request->filled('bedrooms_min')) {
             $query->where('bedrooms', '>=', (int) $request->bedrooms_min);
         }
-        // F.2 filter rail "By beds" uses exact-match so the counts on each
-        // segment label match the rows shown. Coexists with bedrooms_min.
-        if ($request->filled('bedrooms_exact')) {
-            $query->where('bedrooms', '=', (int) $request->bedrooms_exact);
-        }
+        // F.2 filter rail "By beds" uses exact-match; applied LAST with the other
+        // rail-dimension filters (suburb/property_type) — see the $railCountBase
+        // capture just before Sorting. Coexists with bedrooms_min.
         if ($request->filled('agent_name')) {
             $query->where('agent_name', 'like', '%' . $request->agent_name . '%');
         }
@@ -174,6 +172,16 @@ class MarketIntelligenceController extends Controller
                   ->orWhere('agent_name', 'like', "%{$search}%")
                   ->orWhere('agency_name', 'like', "%{$search}%");
             });
+        }
+
+        // Address presence toggle (pull-all). Default (absent / 'all') shows every
+        // row, addressed or not. 'with_address' restricts to rows carrying a real
+        // street address. Legacy rows may still hold the old "Address not available"
+        // placeholder — treat that as no address so the filter is honest.
+        if ($request->input('address_filter') === 'with_address') {
+            $query->whereNotNull('address')
+                  ->where('address', '<>', '')
+                  ->where('address', '<>', 'Address not available');
         }
 
         // Stock match filter (legacy ?stock_filter= explicit override — still honoured
@@ -370,6 +378,32 @@ class MarketIntelligenceController extends Controller
             );
         }
 
+        // ── BUG B: filter-consistent count bases ────────────────────────────
+        // The KPI tiles (computeSnapshotKpis) and the filter-rail facet counts
+        // (computeFilterRailAggregates) must move with the SAME filters as the
+        // list — otherwise a tick that narrows the list leaves the headline numbers
+        // frozen and the ticks look dead (a "With address" toggle narrows the list
+        // but the count stays put). Both count bases are derived from THIS built
+        // query — the single source of truth — so they can never drift from the
+        // list again. Two snapshots are taken here, after every WHERE filter and
+        // BEFORE any sort/get (no orderBy on the clone → clean aggregate bases):
+        //   $railCountBase — every filter EXCEPT the three rail dimensions, so each
+        //                    filter-rail facet keeps its sibling options visible
+        //                    while still honouring address/price/mandated/beds-min/…
+        //   $kpiCountBase  — every filter INCLUDING the rail dimensions, so the KPI
+        //                    tiles reflect exactly the filtered pool.
+        $railCountBase = clone $query;
+        if ($request->filled('suburb')) {
+            $query->where('suburb', $request->suburb);
+        }
+        if ($request->filled('property_type')) {
+            $query->where('property_type', $request->property_type);
+        }
+        if ($request->filled('bedrooms_exact')) {
+            $query->where('bedrooms', '=', (int) $request->bedrooms_exact);
+        }
+        $kpiCountBase = clone $query;
+
         // Sorting
         $sortBy = $request->get('sort', 'last_seen_at');
         $sortDir = $request->get('dir', 'desc');
@@ -513,11 +547,28 @@ class MarketIntelligenceController extends Controller
             ['path' => $request->url(), 'query' => $request->query()]
         );
 
+        // Company-stock map for the visible page (Johan's model): listing_id →
+        // agency Property id, by EXACT portal_ref match. Powers the IN STOCK badge
+        // and the company-logo-in-place-of-pitch treatment on the tile. One join.
+        $companyStockMap = [];
+        $companyStockRefMap = ProspectingListing::companyStockRefMapFor($agencyId);
+        if (!empty($companyStockRefMap)) {
+            foreach ($listings->items() as $it) {
+                if (isset($companyStockRefMap[$it->portal_ref])) {
+                    $companyStockMap[(int) $it->id] = $companyStockRefMap[$it->portal_ref];
+                }
+            }
+        }
+        $agencyRecord = \App\Models\Agency::find($agencyId);
+        $agencyLogoUrl = ($agencyRecord && $agencyRecord->logo_path)
+            ? asset('storage/' . $agencyRecord->logo_path)
+            : null;
+
         // Stats — also reflect the same in-stock filter the user has selected so
         // the headline counts agree with the table below them.
         $statsBase = ProspectingListing::where('agency_id', $agencyId)->where('is_active', true);
         if (! ($request->boolean('include_in_stock') && $isProspectingManager)) {
-            $statsBase->whereNull('matched_property_id');
+            $statsBase->whereNotCompanyStock($agencyId);
         }
         $weekAgo = Carbon::now()->subDays(7);
 
@@ -550,7 +601,7 @@ class MarketIntelligenceController extends Controller
             'buyer_matched'    => $matchedListingCount,
             'in_stock'         => ProspectingListing::where('agency_id', $agencyId)
                                     ->where('is_active', true)
-                                    ->whereNotNull('matched_property_id')
+                                    ->whereCompanyStock($agencyId)
                                     ->count(),
         ];
 
@@ -720,13 +771,15 @@ class MarketIntelligenceController extends Controller
         // canvass-pool filter behaviour as the listings query (in-stock filter
         // honoured), so the numbers agree with the table below.
         $includeInStock = $request->boolean('include_in_stock') && $isProspectingManager;
-        $snapshotKpis = $this->computeSnapshotKpis($agencyId, $includeInStock);
+        // BUG B — pass the filtered count bases captured above so the KPI tiles and
+        // filter-rail counts move with the same filters as the list.
+        $snapshotKpis = $this->computeSnapshotKpis($agencyId, $includeInStock, $kpiCountBase);
         $actionPresetCounts = $this->computeActionPresetCounts(
             $agencyId,
             $user?->id !== null ? (int) $user->id : null,
             $thresholdsForPreset,
         );
-        $filterRailAggregates = $this->computeFilterRailAggregates($agencyId, $includeInStock);
+        $filterRailAggregates = $this->computeFilterRailAggregates($agencyId, $includeInStock, $railCountBase);
         $demandPockets = $this->computeDemandPockets($agencyId, $thresholdsForPreset);
 
         // Sidebar count badge — drives V12. Mirrors the sidebar-count precedent
@@ -737,7 +790,7 @@ class MarketIntelligenceController extends Controller
             60,
             fn () => ProspectingListing::where('agency_id', $agencyId)
                 ->where('is_active', true)
-                ->whereNull('matched_property_id')
+                ->whereNotCompanyStock($agencyId)
                 ->whereNull('deleted_at')
                 ->count(),
         );
@@ -778,7 +831,9 @@ class MarketIntelligenceController extends Controller
             'micBuyers', 'activeBuyerId', 'selectedBuyer', 'micRegions',
             'buyerScope', 'buyerScopeOptions',
             // Phase D2 — This Week hero
-            'tiles', 'tilesGeneratedAt'
+            'tiles', 'tilesGeneratedAt',
+            // Company stock (exact portal_ref) — IN STOCK badge + company logo tile
+            'companyStockMap', 'agencyLogoUrl'
         ));
     }
 
@@ -837,7 +892,7 @@ class MarketIntelligenceController extends Controller
             60,
             fn () => ProspectingListing::where('agency_id', $agencyId)
                 ->where('is_active', true)
-                ->whereNull('matched_property_id')
+                ->whereNotCompanyStock($agencyId)
                 ->whereNull('deleted_at')
                 ->count(),
         );
@@ -1868,7 +1923,7 @@ class MarketIntelligenceController extends Controller
      *
      * Spec: build-f-market-intelligence-redesign-spec.md §7, §8.2.
      */
-    protected function applyInStockFilter($query, Request $request, bool $isManager, bool $suspend = false)
+    protected function applyInStockFilter($query, int $agencyId, Request $request, bool $isManager, bool $suspend = false)
     {
         if ($suspend) {
             return $query;
@@ -1876,7 +1931,20 @@ class MarketIntelligenceController extends Controller
         if ($request->boolean('include_in_stock') && $isManager) {
             return $query;
         }
-        return $query->whereNull('matched_property_id');
+        // Company stock = the agency's OWN portal listing (exact portal_ref match),
+        // per Johan's model — NOT the fuzzy address-based matched_property_id.
+        return $query->whereNotCompanyStock($agencyId);
+    }
+
+    /**
+     * Company-stock exclusion for RAW DB::table('prospecting_listings') builders
+     * (the model scope only works on Eloquent). Same exact portal_ref set as
+     * ProspectingListing::scopeWhereNotCompanyStock — indexed whereNotIn.
+     */
+    private function applyNotCompanyStockRaw($query, int $agencyId)
+    {
+        $refs = ProspectingListing::companyStockRefsFor($agencyId);
+        return empty($refs) ? $query : $query->whereNotIn('portal_ref', $refs);
     }
 
     /**
@@ -1918,13 +1986,22 @@ class MarketIntelligenceController extends Controller
      * canvass pool (or full set when audit toggle is on) plus a tiny aggregate
      * for cross-listed groups.
      */
-    protected function computeSnapshotKpis(int $agencyId, bool $includeInStock): array
+    protected function computeSnapshotKpis(int $agencyId, bool $includeInStock, $scopedBase = null): array
     {
-        $baseQuery = ProspectingListing::where('agency_id', $agencyId)
-            ->where('is_active', true)
-            ->whereNull('deleted_at');
-        if (!$includeInStock) {
-            $baseQuery->whereNull('matched_property_id');
+        // BUG B — when the caller (Work mode) hands us the filtered list query, the
+        // pool metrics count from THAT exact query so the KPI tiles move with every
+        // active filter and can never drift from the list. Without it (Analyse mode,
+        // which is intentionally agency-wide) we build the canvass pool from scratch.
+        if ($scopedBase !== null) {
+            $baseQuery = clone $scopedBase;   // already carries agency + is_active +
+                                              // in-stock + all list filters
+        } else {
+            $baseQuery = ProspectingListing::where('agency_id', $agencyId)
+                ->where('is_active', true)
+                ->whereNull('deleted_at');
+            if (!$includeInStock) {
+                $baseQuery->whereNotCompanyStock($agencyId);
+            }
         }
 
         $active = (clone $baseQuery)->count();
@@ -1947,7 +2024,7 @@ class MarketIntelligenceController extends Controller
 
         $inStock = ProspectingListing::where('agency_id', $agencyId)
             ->where('is_active', true)
-            ->whereNotNull('matched_property_id')
+            ->whereCompanyStock($agencyId)
             ->whereNull('deleted_at')
             ->count();
 
@@ -1956,16 +2033,10 @@ class MarketIntelligenceController extends Controller
             ->count();
 
         // Cross-listed: same property_group_id appearing on >1 portal_source.
-        // Same canvass-pool restriction so the headline agrees with the table.
-        $crossListedQuery = DB::table('prospecting_listings')
-            ->where('agency_id', $agencyId)
-            ->where('is_active', true)
-            ->whereNull('deleted_at')
-            ->whereNotNull('property_group_id');
-        if (!$includeInStock) {
-            $crossListedQuery->whereNull('matched_property_id');
-        }
-        $crossListed = $crossListedQuery
+        // Derived from $baseQuery so it honours the SAME canvass-pool + active
+        // filters as the headline above (BUG B) and agrees with the table.
+        $crossListed = (clone $baseQuery)
+            ->whereNotNull('property_group_id')
             ->select('property_group_id')
             ->groupBy('property_group_id')
             ->havingRaw('COUNT(DISTINCT portal_source) > 1')
@@ -2083,15 +2154,26 @@ class MarketIntelligenceController extends Controller
      * pool scope as the listings query so each count matches what clicking
      * would show.
      */
-    protected function computeFilterRailAggregates(int $agencyId, bool $includeInStock): array
+    protected function computeFilterRailAggregates(int $agencyId, bool $includeInStock, $scopedBase = null): array
     {
-        $base = function () use ($agencyId, $includeInStock) {
+        // BUG B — in Work mode the caller hands us $railCountBase: the list query
+        // with every filter applied EXCEPT the three rail dimensions (suburb,
+        // property_type, bedrooms_exact). Each facet counts from a fresh clone of
+        // it, so the counts honour every OTHER active filter (address / price /
+        // mandated / beds-min / …) yet still list the sibling options within the
+        // facet the user is narrowing by. Without it (Analyse mode) we build the
+        // agency-wide base from scratch.
+        $base = function () use ($agencyId, $includeInStock, $scopedBase) {
+            if ($scopedBase !== null) {
+                return clone $scopedBase;   // Eloquent builder; carries agency +
+                                            // is_active + in-stock + non-rail filters
+            }
             $q = DB::table('prospecting_listings')
                 ->where('agency_id', $agencyId)
                 ->where('is_active', true)
                 ->whereNull('deleted_at');
             if (!$includeInStock) {
-                $q->whereNull('matched_property_id');
+                $this->applyNotCompanyStockRaw($q, $agencyId);
             }
             return $q;
         };

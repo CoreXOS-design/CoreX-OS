@@ -177,11 +177,12 @@
       // The <a> tag IS the card — it wraps all listing content (price, type, features, images)
       let card = link;
 
-      // Extract address from URL
+      // Extract address from URL (may be null — PP often omits it)
       const { address, suburb } = extractAddressFromUrl(href);
 
-      // Skip listings without a real address
-      if (!address) return;
+      // PULL-ALL (v3.1.2): capture the listing even when the URL carries no
+      // street address. address stays null; the importer accepts it and the
+      // MIC "with address" toggle filters these when wanted.
 
       // Extract price from card text
       let price = null;
