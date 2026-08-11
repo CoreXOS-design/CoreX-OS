@@ -95,12 +95,26 @@ final class BuyerMatchTierService
     {
         $tiers = $this->config->buyerMatchTiers($agencyId);
 
+        // prospecting_buyer_matches caches ONE row per (listing, contact) — the
+        // best score across the contact's active wishlists (canonicalBestAcross).
+        // It doesn't record WHICH wishlist won (no contact_match_id column yet —
+        // matcher-unification ticket). A plain join to contact_matches therefore
+        // fanned this single cached row out once per active wishlist the contact
+        // has, so a buyer with 3 active wishlists showed up 3 times in this
+        // panel. Join a DEDUPED one-row-per-contact subquery instead — most
+        // recently engaged wishlist wins, tie-broken by id — so each buyer
+        // appears once. The wishlist shown is a display pick, not necessarily
+        // the exact one that produced the cached score.
+        $dedupedWishlists = DB::table('contact_matches')
+            ->select('*')
+            ->selectRaw('ROW_NUMBER() OVER (PARTITION BY contact_id ORDER BY last_engaged_at DESC, id DESC) as rn')
+            ->where('status', 'active')
+            ->whereNull('deleted_at');
+
         $rows = DB::table('prospecting_buyer_matches as pbm')
             ->join('contacts as c', 'c.id', '=', 'pbm.contact_id')
-            ->leftJoin('contact_matches as cm', function ($join) {
-                $join->on('cm.contact_id', '=', 'pbm.contact_id')
-                    ->where('cm.status', '=', 'active')
-                    ->whereNull('cm.deleted_at');
+            ->leftJoinSub($dedupedWishlists, 'cm', function ($join) {
+                $join->on('cm.contact_id', '=', 'pbm.contact_id')->where('cm.rn', '=', 1);
             })
             ->where('pbm.prospecting_listing_id', $listingId)
             ->where('pbm.agency_id', $agencyId)

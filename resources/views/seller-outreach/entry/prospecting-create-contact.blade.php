@@ -34,7 +34,9 @@
     @include('seller-outreach.entry._duplicate-modal', [
         'actionUrl' => !empty($trackedProperty)
             ? route('seller-outreach.entry.store-from-tracked-property', $trackedProperty->id)
-            : route('seller-outreach.entry.store-from-prospecting', $listing->id),
+            : (!empty($property)
+                ? route('seller-outreach.entry.store-from-property', $property->id)
+                : route('seller-outreach.entry.store-from-prospecting', $listing->id)),
     ])
 
     {{-- Source summary — listing OR tracked property. Map Workspace Phase B
@@ -54,6 +56,24 @@
                 @if(!empty($trackedProperty->bedrooms)) · {{ $trackedProperty->bedrooms }} beds @endif
                 @if(!empty($trackedProperty->bathrooms)) · {{ $trackedProperty->bathrooms }} baths @endif
                 @if(!empty($trackedProperty->erf_number)) · Erf {{ $trackedProperty->erf_number }} @endif
+            </div>
+        </div>
+    @elseif(!empty($property))
+        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">
+                Property — in agency stock
+            </div>
+            <div class="font-semibold text-sm" style="color: var(--text-primary);">
+                {{ $property->address ?: $property->title ?: 'Property #' . $property->id }}{{ !empty($property->suburb) ? ', ' . $property->suburb : '' }}
+            </div>
+            <div class="text-xs mt-1" style="color: var(--text-muted);">
+                @if(!empty($property->price))R {{ number_format((float) $property->price, 0, '.', ',') }} · @endif
+                {{ $property->property_type ?? 'property' }}
+                @if(!empty($property->beds)) · {{ $property->beds }} beds @endif
+                @if(!empty($property->baths)) · {{ $property->baths }} baths @endif
+            </div>
+            <div class="text-xs mt-2" style="color: var(--text-muted);">
+                No seller contact is linked yet — capture the seller below to pitch.
             </div>
         </div>
     @elseif(!empty($listing))
@@ -101,8 +121,50 @@
           }"
           action="{{ !empty($trackedProperty)
               ? route('seller-outreach.entry.store-from-tracked-property', $trackedProperty->id)
-              : route('seller-outreach.entry.store-from-prospecting', $listing->id) }}">
+              : (!empty($property)
+                  ? route('seller-outreach.entry.store-from-property', $property->id)
+                  : route('seller-outreach.entry.store-from-prospecting', $listing->id)) }}">
         @csrf
+
+        {{-- #3 Address-first: when the source listing carries no street address, capture
+             one BEFORE the seller. Reuses the SAME "Property Address" modal + component as
+             the Contact screen's "Start a Property from an Address" (Johan 2026-08-11), so
+             the agent works exactly as they do from contacts. The structured fields submit
+             with THIS form; storeFromProspecting composes the address and lands it on the
+             listing's OWN promoted property (external_id-tied). --}}
+        @if(!empty($needsAddress) && $needsAddress)
+            <div class="rounded-md p-4 mb-4" style="background: var(--surface); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 45%, var(--border));">
+                <h2 class="text-base font-semibold mb-1" style="color: var(--text-primary);">
+                    Property address <span style="color: var(--ds-crimson);">*</span>
+                </h2>
+                <p class="text-xs mb-3" style="color: var(--text-muted);">
+                    This listing was captured without a street address. Set it here to create the property, then continue.
+                </p>
+                @include('corex._partials.property-address-capture', [
+                    'fieldPrefix'  => 'pitch_addr',
+                    'heldCheckUrl' => route('corex.contacts.check-held-address'),
+                    'initial'      => [
+                        'unitNumber'       => old('unit_number', ''),
+                        'floorNumber'      => old('floor_number', ''),
+                        'unitSectionBlock' => old('unit_section_block', ''),
+                        'complexName'      => old('complex_name', ''),
+                        'streetNumber'     => old('street_number', ''),
+                        'streetName'       => old('street_name', ''),
+                        'suburb'           => old('suburb', ''),
+                        'city'             => old('city', ''),
+                        'province'         => old('province', ''),
+                    ],
+                    'initialP24'   => [
+                        'provinceId'   => old('pitch_addr_province_id', 0),
+                        'cityId'       => old('pitch_addr_city_id', 0),
+                        'suburbId'     => old('pitch_addr_suburb_id', 0),
+                        'provinceName' => old('province', ''),
+                        'cityName'     => old('city', ''),
+                        'suburbName'   => old('suburb', ''),
+                    ],
+                ])
+            </div>
+        @endif
 
         <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="flex items-center justify-between gap-3 flex-wrap">

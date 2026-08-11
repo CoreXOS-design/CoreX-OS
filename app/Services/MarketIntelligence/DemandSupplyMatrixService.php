@@ -38,7 +38,8 @@ final class DemandSupplyMatrixService
         $supplyRows = DB::table('prospecting_listings')
             ->where('agency_id', $agencyId)
             ->where('is_active', true)
-            ->whereNull('matched_property_id')
+            // Canonical "our on-market stock" exclusion — Work-tab-consistent pool.
+            ->where(fn ($q) => app(\App\Services\Prospecting\OnMarketStockService::class)->applyNotStock($q, $agencyId))
             ->whereNull('deleted_at')
             ->whereNotNull('suburb')
             ->where('suburb', '!=', '')
@@ -59,7 +60,8 @@ final class DemandSupplyMatrixService
             ->whereNull('pbm.dismissed_at')
             ->where('pbm.score', '>=', 80)
             ->where('pl.is_active', true)
-            ->whereNull('pl.matched_property_id')
+            // Canonical "our on-market stock" exclusion (aliased pl.) — same pool.
+            ->where(fn ($q) => app(\App\Services\Prospecting\OnMarketStockService::class)->applyNotStock($q, $agencyId, 'pl.portal_ref', 'pl.normalized_address'))
             ->whereNull('pl.deleted_at')
             ->whereNotNull('pl.suburb')
             ->where('pl.suburb', '!=', '')

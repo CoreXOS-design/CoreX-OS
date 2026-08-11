@@ -51,7 +51,10 @@
     @endphp
 
     @if($s->clickType === 'anchor')
+        {{-- Open the action (Pitch now / capture) in a NEW TAB so the agent keeps
+             their MIC list + filters instead of navigating away and losing them. --}}
         <a href="{{ $s->href }}"
+           target="_blank" rel="noopener"
            class="mi-suggested-chip"
            data-rank="{{ $s->rank }}"
            data-tier="{{ $s->tier }}"

@@ -386,7 +386,7 @@ if (chrome.alarms && chrome.alarms.onAlarm) {
     const s = await new Promise(r => chrome.storage.local.get(['apiUrl', 'apiToken'], r));
     if (!s.apiToken) return;
     try {
-      await flushLocalQueue(s.apiUrl || 'https://corex.hfcoastal.co.za', s.apiToken);
+      await flushLocalQueue(s.apiUrl || 'https://www.corexos.co.za', s.apiToken);
     } catch (e) { /* next alarm retries */ }
   });
 }
@@ -500,7 +500,9 @@ async function fetchPageWithRetry(url, portal) {
 async function sendBatchToApi(listings, context) {
   const payload = {
     source: capture.portal,
-    search_context: context,
+    // Snapshot the context at send time — intermediate (partial) batches must never
+    // pick up a capture_complete flag set later for the final batch (shared-ref race).
+    search_context: { ...context },
     listings: listings,
   };
 
@@ -600,7 +602,18 @@ async function runCaptureLoop(startPage) {
     total_results:  capture.totalResults || 0,
     pages_captured: 0,
     captured_at:    new Date().toISOString(),
+    // MIC SUBURB RECONCILE — false on every partial/intermediate batch; set true ONLY on
+    // the final batch below when the WHOLE suburb was captured (all pages, none skipped).
+    capture_complete: false,
   };
+
+  // Track every mid-loop batch send so we can await them ALL before we compute the
+  // final "captured" total — otherwise fire-and-forget batches ingest server-side but
+  // their imported/updated counts land after the completion snapshot and the shown
+  // figure undercounts (271 vs the ~480 actually ingested). Awaiting them before the
+  // final capture_complete batch also guarantees the reconcile batch is the LAST to
+  // reach the server, so it never sees a still-in-flight page as "gone".
+  const inFlightBatches = [];
 
   try {
     // Page 1: get from content script if starting fresh
@@ -662,11 +675,15 @@ async function runCaptureLoop(startPage) {
 
       context.pages_captured = p;
 
-      // Batch send every 100 listings
-      if (capture.pendingListings.length >= 100) {
+      // Batch send every 100 listings — but NEVER flush on the last page: hold its
+      // listings for the final (capture_complete) batch so a complete capture always
+      // ends with a flagged non-empty send the server can reconcile against.
+      if (capture.pendingListings.length >= 100 && p < capture.totalPages) {
         const batch = capture.pendingListings.splice(0, capture.pendingListings.length);
         if (batch.length > 0) {
-          sendBatchToApi(batch, context);
+          // Overlaps with page navigation (not awaited here), but tracked so it is
+          // awaited before completion — see inFlightBatches / Promise.all below.
+          inFlightBatches.push(sendBatchToApi(batch, context));
         }
       }
 
@@ -678,10 +695,22 @@ async function runCaptureLoop(startPage) {
       }
     }
 
+    // Await EVERY mid-loop batch before finishing — so the completion total reflects
+    // all ingested rows (not just the awaited final batch) AND the reconcile batch below
+    // is the last to hit the server.
+    await Promise.all(inFlightBatches);
+
     // Send any remaining pending listings (final batch — must await)
     if (capture.pendingListings.length > 0 && !capture.cancelled) {
       const batch = capture.pendingListings.splice(0, capture.pendingListings.length);
       context.pages_captured = capture.currentPage;
+      // MIC SUBURB RECONCILE — mark this a COMPLETE suburb capture ONLY when every page was
+      // walked, none was skipped/failed (parseWarnings === 0), and it wasn't cancelled. The
+      // server retires listings gone from the suburb ONLY when this flag is true — a partial
+      // capture (skipped page / cancel) leaves it false so nothing is wrongly retired.
+      context.capture_complete = !capture.cancelled
+        && capture.parseWarnings === 0
+        && capture.currentPage >= capture.totalPages;
       await sendBatchToApi(batch, context);
     }
 

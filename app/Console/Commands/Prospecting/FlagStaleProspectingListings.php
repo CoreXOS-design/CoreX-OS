@@ -46,17 +46,22 @@ class FlagStaleProspectingListings extends Command
             ->where('is_active', true)
             ->whereNull('deleted_at')
             ->where(function ($q) use ($cutoff) {
+                // Signal A — absence: not re-confirmed within the window (presumed off-market).
                 $q->where('last_seen_at', '<', $cutoff)
                     ->orWhere(function ($q2) use ($cutoff) {
                         $q2->whereNull('last_seen_at')->where('first_seen_at', '<', $cutoff);
-                    });
+                    })
+                    // Signal B — explicit portal status: the P24 card reported it
+                    // sold/under-offer/withdrawn but the row is still is_active=true
+                    // (captured before this shipped, or a purge that didn't land).
+                    ->orWhereIn('portal_status', ProspectingListing::OFF_MARKET_STATUSES);
             });
 
         if (!empty($listingIds)) {
             $query->whereIn('id', $listingIds);
         }
 
-        $stale = $query->get(['id', 'address', 'suburb', 'last_seen_at', 'agency_id']);
+        $stale = $query->get(['id', 'address', 'suburb', 'last_seen_at', 'portal_status', 'agency_id']);
 
         if ($stale->isEmpty()) {
             $this->info('No stale listings found.');
@@ -76,14 +81,35 @@ class FlagStaleProspectingListings extends Command
         $ids = $stale->pluck('id')->all();
 
         DB::transaction(function () use ($ids) {
+            $now = now();
+
             ProspectingListing::withoutGlobalScopes()->whereIn('id', $ids)->update(['is_active' => false]);
+
+            // Stamp the exit date once, so days-on-market = off_market_at − first_seen_at
+            // stays meaningful and a re-run never overwrites the true first exit.
+            ProspectingListing::withoutGlobalScopes()->whereIn('id', $ids)
+                ->whereNull('off_market_at')
+                ->update(['off_market_at' => $now]);
+
+            // Absence with no explicit portal status yet = delisted/off-market, cause
+            // unknown → 'withdrawn'. Never overwrite a real sold/under_offer already set
+            // (Signal B), so we only touch NULL/'active' rows — no mislabelling as sold.
+            ProspectingListing::withoutGlobalScopes()->whereIn('id', $ids)
+                ->where(function ($q) {
+                    $q->whereNull('portal_status')
+                        ->orWhere('portal_status', ProspectingListing::PORTAL_STATUS_ACTIVE);
+                })
+                ->update([
+                    'portal_status'            => ProspectingListing::PORTAL_STATUS_WITHDRAWN,
+                    'portal_status_changed_at' => $now,
+                ]);
 
             // The cached score is now for an off-market listing — purge it
             // immediately rather than waiting for the next per-buyer recompute.
             DB::table('prospecting_buyer_matches')->whereIn('prospecting_listing_id', $ids)->delete();
         });
 
-        $this->info("Flagged {$stale->count()} listing(s) inactive and purged their cached buyer matches.");
+        $this->info("Flagged {$stale->count()} listing(s) inactive (absence or off-market portal status), stamped off_market_at, and purged their cached buyer matches.");
 
         Log::info('Flagged stale prospecting listings inactive', [
             'count' => $stale->count(),

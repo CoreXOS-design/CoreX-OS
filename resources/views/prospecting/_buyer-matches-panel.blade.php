@@ -2,10 +2,15 @@
     Tier-grouped buyer-match drill-down panel.
 
     Inputs:
-      $listing    — ProspectingListing model
-      $buyers     — Collection<stdClass> from BuyerMatchTierService::buyersForListing()
-                    each decorated with `tier` and `display_name`
-      $tierConfig — array with strong/mid/weak labels + min scores
+      $listing                — ProspectingListing model
+      $buyers                 — Collection<stdClass> from BuyerMatchTierService::buyersForListing()
+                                 each decorated with `tier` and `display_name`
+      $tierConfig              — array with strong/mid/weak labels + min scores
+      $companyStockPropertyId — nullable int. On-market-gated company-stock
+                                 property id (OnMarketStockService), or null.
+                                 NOT $listing->matched_property_id — that raw
+                                 field is ungated and can point at an
+                                 off-market/withdrawn property (2026-08-11 fix).
 --}}
 
 <div class="p-4">
@@ -24,8 +29,8 @@
             @if($listing->property_type) · {{ $listing->property_type }} @endif
             @if($listing->portal_source) · {{ strtoupper((string) $listing->portal_source) }}/{{ $listing->portal_ref }} @endif
         </div>
-        @if($listing->matched_property_id)
-            <a href="{{ route('corex.properties.show', $listing->matched_property_id) }}" target="_blank"
+        @if(!empty($companyStockPropertyId))
+            <a href="{{ route('corex.properties.show', $companyStockPropertyId) }}" target="_blank"
                class="inline-block text-[10px] font-semibold mt-2 px-1.5 py-0.5 rounded no-underline"
                style="background: var(--brand-default); color: #fff;">
                 IN STOCK · view property ↗

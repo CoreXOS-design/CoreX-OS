@@ -166,6 +166,16 @@ final class ProspectingClaimService
                     'updated_at'     => now(),
                 ]);
 
+            // Pitch Now #4 — key the claim on the PROPERTY, not just the rotating
+            // ref. The pitch has already linked/promoted the property onto the
+            // listing (matched_property_id) by the time we get here (EntryPoint
+            // sets it before claiming; the composer resolves the listing BY it), so
+            // read it straight off the listing. Nullable when no property is linked.
+            $propertyId = DB::table('prospecting_listings')
+                ->where('id', $listingId)
+                ->value('matched_property_id');
+            $propertyId = $propertyId !== null ? (int) $propertyId : null;
+
             $note = $this->formatPitchNote($pitchContext);
 
             $existing = ProspectingClaim::where('prospecting_listing_id', $listingId)
@@ -187,6 +197,12 @@ final class ProspectingClaimService
                 if ($existing->pitched_at === null) {
                     $existing->pitched_at = now();
                 }
+                // Backfill the property key on a pre-existing claim that lacked it,
+                // so it starts protecting the property under any rotating ref.
+                // Never overwrite an already-set property_id.
+                if ($existing->property_id === null && $propertyId !== null) {
+                    $existing->property_id = $propertyId;
+                }
                 $this->recordActionOnClaim($existing, 'contacted', $note);
                 return $existing->refresh();
             }
@@ -194,6 +210,8 @@ final class ProspectingClaimService
             return ProspectingClaim::create([
                 'agency_id'              => $agencyId,
                 'prospecting_listing_id' => $listingId,
+                // Property key (Pitch Now #4) — protects the property under any ref.
+                'property_id'            => $propertyId,
                 'user_id'                => $userId,
                 'status'                 => 'contacted',
                 'notes'                  => $note,

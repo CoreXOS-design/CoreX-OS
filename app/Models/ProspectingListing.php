@@ -55,6 +55,12 @@ class ProspectingListing extends Model
         'matched_at',
         'tracked_property_id',
         'mandate_type',
+        // MIC SOLD / OFF-MARKET + REF-TRACKING (cc2) — portal lifecycle
+        'portal_status',
+        'portal_status_changed_at',
+        'off_market_at',
+        // MIC SUBURB RECONCILE (cc2) — the capture session that last saw this listing
+        'last_search_id',
     ];
 
     protected $casts = [
@@ -66,7 +72,56 @@ class ProspectingListing extends Model
         'first_seen_email_date' => 'datetime',
         'matched_at'            => 'datetime',
         'tracked_property_id'   => 'integer',
+        'portal_status_changed_at' => 'datetime',
+        'off_market_at'            => 'datetime',
+        'last_search_id'           => 'integer',
     ];
+
+    // ── Portal lifecycle status (MIC SOLD / OFF-MARKET + REF-TRACKING) ──
+    public const PORTAL_STATUS_ACTIVE      = 'active';
+    public const PORTAL_STATUS_UNDER_OFFER = 'under_offer';
+    public const PORTAL_STATUS_SOLD        = 'sold';
+    public const PORTAL_STATUS_WITHDRAWN   = 'withdrawn';
+
+    /** Statuses that take a listing OUT of the active canvass pool. */
+    public const OFF_MARKET_STATUSES = [
+        self::PORTAL_STATUS_UNDER_OFFER,
+        self::PORTAL_STATUS_SOLD,
+        self::PORTAL_STATUS_WITHDRAWN,
+    ];
+
+    /** The full accepted status vocabulary (for validation / normalisation). */
+    public const PORTAL_STATUSES = [
+        self::PORTAL_STATUS_ACTIVE,
+        self::PORTAL_STATUS_UNDER_OFFER,
+        self::PORTAL_STATUS_SOLD,
+        self::PORTAL_STATUS_WITHDRAWN,
+    ];
+
+    /** True when the last portal-reported status means the listing is off-market. */
+    public function isOffMarketStatus(): bool
+    {
+        return in_array((string) $this->portal_status, self::OFF_MARKET_STATUSES, true);
+    }
+
+    /**
+     * Days the listing was (or has been) on-market — from first sighting to its
+     * off-market date, or to now if still live. NULL when we never saw it first.
+     */
+    public function daysOnMarket(): ?int
+    {
+        if (! $this->first_seen_at) {
+            return null;
+        }
+        $end = $this->off_market_at ?? now();
+        return $this->first_seen_at->diffInDays($end);
+    }
+
+    /** Rows whose last portal-reported status is off-market. */
+    public function scopeOffMarket($query)
+    {
+        return $query->whereIn('portal_status', self::OFF_MARKET_STATUSES);
+    }
 
     public function agency()
     {
@@ -166,16 +221,30 @@ class ProspectingListing extends Model
         return array_keys(static::companyStockRefMapFor($agencyId));
     }
 
+    /**
+     * This listing IS our own on-market stock — its portal_ref exactly matches an
+     * ON-MARKET property's P24/PP ref OR its normalized_address exactly matches an
+     * on-market property's normalized address. Identity comes from the canonical
+     * App\Services\Prospecting\OnMarketStockService (single source of truth, gated
+     * to Property::scopeOnMarket()); an off-market property no longer suppresses
+     * its matching listing — that listing is a legitimate canvass target again.
+     */
     public function scopeWhereCompanyStock($query, int $agencyId)
     {
-        $refs = static::companyStockRefsFor($agencyId);
-        return empty($refs) ? $query->whereRaw('1 = 0') : $query->whereIn('portal_ref', $refs);
+        return app(\App\Services\Prospecting\OnMarketStockService::class)
+            ->applyIsStock($query, $agencyId);
     }
 
+    /**
+     * Inverse of scopeWhereCompanyStock — the canvass pool: exclude listings that
+     * are our own on-market stock (ref OR normalized_address). NULL-safe: a listing
+     * with a NULL normalized_address that isn't ref-matched STAYS in the pool
+     * (a bare NOT IN would drop it on the NULL).
+     */
     public function scopeWhereNotCompanyStock($query, int $agencyId)
     {
-        $refs = static::companyStockRefsFor($agencyId);
-        return empty($refs) ? $query : $query->whereNotIn('portal_ref', $refs);
+        return app(\App\Services\Prospecting\OnMarketStockService::class)
+            ->applyNotStock($query, $agencyId);
     }
 
     /**
