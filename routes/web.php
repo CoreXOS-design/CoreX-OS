@@ -3892,6 +3892,9 @@ Route::post('/sales-documents/return/{token}', [\App\Http\Controllers\Docuperfec
 // ===== EXTERNAL SIGNING (no auth, token-based) =====
 Route::prefix('sign')->group(function () {
     Route::get('/{token}', [\App\Http\Controllers\Docuperfect\SigningController::class, 'show'])->name('signatures.external');
+    // Task 1 — session keep-alive: the signing page pings this so a long,
+    // in-progress sign never lapses the session/CSRF token (no forced refresh).
+    Route::get('/{token}/heartbeat', [\App\Http\Controllers\Docuperfect\SigningController::class, 'heartbeat'])->name('signatures.external.heartbeat');
     Route::get('/{token}/gateway', [\App\Http\Controllers\Docuperfect\SigningController::class, 'gateway'])->name('signatures.external.gateway');
     Route::post('/{token}/verify', [\App\Http\Controllers\Docuperfect\SigningController::class, 'verify'])->name('signatures.external.verify');
     Route::get('/{token}/consent', [\App\Http\Controllers\Docuperfect\SigningController::class, 'showConsent'])->name('signatures.external.showConsent');

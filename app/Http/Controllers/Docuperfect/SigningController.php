@@ -994,6 +994,34 @@ class SigningController extends Controller
     }
 
     /**
+     * Task 1 — session keep-alive for the recipient signing page.
+     *
+     * Staff hit "Session expired. Please reload." mid-signing: a recipient can
+     * sit on the signing page for a long time (reading, filling web fields, on
+     * the phone with the agent) with NO request reaching the server, so the web
+     * session — and with it the CSRF token — lapses after SESSION_LIFETIME, and
+     * the next POST returns 419. This is NOT the 13–14 day link TTL; it is the
+     * short session/CSRF clock.
+     *
+     * The signing page pings this endpoint on an interval well under the
+     * shortest SESSION_LIFETIME. The request itself is the fix: StartSession
+     * rewrites the session (and re-sets its cookie with a fresh max-age) on
+     * every response, so the session and CSRF token stay warm for as long as
+     * the page is open. No in-progress sign is ever interrupted by the timeout.
+     *
+     * GET → no CSRF needed. Public + harmless (a browser only keeps its own
+     * session alive). Does NOT gate on isSigningBlocked() — a still-open page
+     * stays pingable; the real signing endpoints enforce their own expiry.
+     */
+    public function heartbeat(Request $request, $token)
+    {
+        // Mark the session dirty so it is written back (last-activity refreshed).
+        $request->session()->put('signing_heartbeat_at', now()->timestamp);
+
+        return response()->noContent(); // 204
+    }
+
+    /**
      * Choose signing method (electronic or wet ink).
      */
     public function chooseMethod(Request $request, $token)

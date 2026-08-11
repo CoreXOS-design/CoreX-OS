@@ -1470,6 +1470,24 @@ function externalSign() {
         init() {
             this.firstSignatureDone = this.markers.some(m => m.is_mine && m.signed);
 
+            // ── Task 1: session keep-alive ──────────────────────────────────
+            // A recipient may sit on this page a long time (reading, on the phone
+            // with the agent) with no request hitting the server — long enough for
+            // the web session + CSRF token to lapse (SESSION_LIFETIME), so the next
+            // POST 419s and shows "Session expired. Please reload." Ping a tiny
+            // endpoint every few minutes — well under the shortest SESSION_LIFETIME
+            // — so the session (and its CSRF token) stays warm while the page is
+            // open. Best-effort; a missed ping only risks the old timeout.
+            const heartbeat = () => {
+                fetch('/sign/' + this.token + '/heartbeat', {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' },
+                    cache: 'no-store',
+                }).catch(() => {});
+            };
+            heartbeat(); // prime immediately on load
+            this._keepAliveTimer = setInterval(heartbeat, 240000); // every 4 min
+
             // Listen for method reset from wet ink back button
             this.$el.addEventListener('reset-method', () => {
                 this.signingMethod = null;
