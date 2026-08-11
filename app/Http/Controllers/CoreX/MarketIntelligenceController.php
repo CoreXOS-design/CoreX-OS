@@ -64,6 +64,14 @@ class MarketIntelligenceController extends Controller
         $agencyId = $user->effectiveAgencyId() ?? $user->agency_id ?? 1;
         $isProspectingManager = $user?->hasPermission('prospecting_setup.manage') ?? false;
 
+        // Tick refresh (cc6): an AJAX filter toggle requests ?_fragments=1 and is
+        // answered with ONLY the listings + stats-strip + filter-rail + header-actions
+        // fragments (JSON), not a full-page render — so a tick never reloads the page.
+        // Every full-page-only shell computation below is guarded out for these
+        // requests (that is the whole speed win); the fragment branch returns just
+        // after the shared shell data (KPIs / rail counts / suggested actions) is built.
+        $isFragment = $request->boolean('_fragments');
+
         // F.3 — the legacy ->with('activeClaim.user') eager-load is gone.
         // All claim state for the row is now read from $listingStates['claims']
         // (populated by ProspectingListingStateEnricher::loadClaims in one
@@ -553,6 +561,11 @@ class MarketIntelligenceController extends Controller
             ? asset('storage/' . $agencyRecord->logo_path)
             : null;
 
+        // Full-page shell only: the top-bar $stats and the suburb/type dropdown
+        // lists are not rendered by the fragment partials, so the tick path skips
+        // them (the fragment stats-strip reads $snapshotKpis, the rail reads
+        // $filterRailAggregates — both computed below on every path).
+        if (! $isFragment) {
         // Stats — also reflect the same in-stock filter the user has selected so
         // the headline counts agree with the table below them.
         $statsBase = ProspectingListing::where('agency_id', $agencyId)->where('is_active', true);
@@ -601,7 +614,9 @@ class MarketIntelligenceController extends Controller
         $propertyTypes = ProspectingListing::where('agency_id', $agencyId)
             ->whereNotNull('property_type')->where('property_type', '!=', '')
             ->distinct()->orderBy('property_type')->pluck('property_type');
+        } // end !$isFragment (stats + facet lists)
 
+        // $users feeds the filter rail "captured by" list — needed on both paths.
         $users = User::whereIn('id',
             ProspectingListing::where('agency_id', $agencyId)
                 ->distinct()->pluck('captured_by_user_id')
@@ -676,6 +691,8 @@ class MarketIntelligenceController extends Controller
             ->sortBy('label')
             ->values();
 
+        // Claim-stat headline + match regeneration flag — full-page shell only.
+        if (! $isFragment) {
         $claimStats = [
             'my_claims'     => ProspectingClaim::where('user_id', $user->id)->active()->count(),
             'total_claimed' => ProspectingClaim::where('agency_id', $agencyId)->active()->count(),
@@ -687,8 +704,17 @@ class MarketIntelligenceController extends Controller
         ];
 
         $regenerating = app(\App\Services\PropertyMatchScoringService::class)->isRegenerating();
+        } // end !$isFragment (claim stats + regenerating flag)
 
         $setupSvc                          = app(\App\Services\Prospecting\ProspectingConfigurationService::class);
+        // Sale price bands feed the filter rail "By price band" section — both paths.
+        $prospectingSetupPriceBandsSale    = $setupSvc->priceBandsFor($agencyId, 'sale');
+
+        // Setup-wizard datasets + the redundant second listing resolution
+        // ($resolvedListings/$snapshot/$segmentLabels — the double-resolution flagged
+        // as a separate task) are full-page-only. The fragment partials render none
+        // of them, so the tick path skips this whole block (biggest single saving).
+        if (! $isFragment) {
         $prospectingSetupTowns             = \App\Models\Prospecting\Town::withoutGlobalScopes()
                                                 ->where('agency_id', $agencyId)
                                                 ->orderBy('display_order')
@@ -697,7 +723,6 @@ class MarketIntelligenceController extends Controller
                                                 ->get();
         $prospectingSetupPropertyTypes     = $setupSvc->propertyTypes($agencyId, activeOnly: false);
         $prospectingSetupBedroomSegments   = $setupSvc->bedroomSegments($agencyId);
-        $prospectingSetupPriceBandsSale    = $setupSvc->priceBandsFor($agencyId, 'sale');
         $prospectingSetupPriceBandsRental  = $setupSvc->priceBandsFor($agencyId, 'rental');
         $prospectingSetupSuggestionRegions = app(\App\Services\Prospecting\RegionSuggestionService::class)->regions();
         $prospectingSetupUnmappedSuburbs   = $setupSvc->unmappedSuburbsFor($agencyId);
@@ -710,6 +735,7 @@ class MarketIntelligenceController extends Controller
             page:    (int) ($request->query('page') ?: 1),
         );
         $segmentLabels   = $this->buildSegmentLabelMap($config, $agencyId);
+        } // end !$isFragment (setup-wizard data + redundant double-resolution)
 
         $listingStates = app(\App\Services\Prospecting\ProspectingListingStateEnricher::class)
             ->enrich($listings->items(), $agencyId);
@@ -770,6 +796,55 @@ class MarketIntelligenceController extends Controller
         );
         $filterRailAggregates = $this->computeFilterRailAggregates($agencyId, $includeInStock, $railCountBase);
         $demandPockets = $this->computeDemandPockets($agencyId, $thresholdsForPreset);
+
+        // ── Tick refresh (cc6): AJAX fragment response ──────────────────────────
+        // Everything the four swapped partials read is now built. Return just those
+        // fragments as JSON — no full-page shell, no reload. Strip the _fragments
+        // flag first so the links the partials render (and the pushState URL) carry
+        // only real filter params.
+        if ($isFragment) {
+            // Drop the flag from the input bag so the links the partials render
+            // (request()->except('page')) don't carry _fragments…
+            $request->query->remove('_fragments');
+            // …and build the canonical push-state URL explicitly (fullUrl() reads
+            // the raw QUERY_STRING, which the bag mutation above does not touch).
+            $canonicalParams = $request->except('_fragments');
+            $canonicalUrl = $request->url()
+                . (empty($canonicalParams) ? '' : ('?' . http_build_query($canonicalParams)));
+
+            $fragmentData = [
+                'listings'                       => $listings,
+                'listingStates'                  => $listingStates,
+                'buyerTiers'                     => $buyerTiers,
+                'tierConfig'                     => $tierConfig,
+                'suggestedActions'               => $suggestedActions,
+                'selectedBuyer'                  => $selectedBuyer,
+                'isProspectingManager'           => $isProspectingManager,
+                'companyStockMap'                => $companyStockMap,
+                'agencyLogoUrl'                  => $agencyLogoUrl,
+                'snapshotKpis'                   => $snapshotKpis,
+                'actionPresetCounts'             => $actionPresetCounts,
+                'actionPreset'                   => $actionPreset,
+                'filterRailAggregates'           => $filterRailAggregates,
+                'demandPockets'                  => $demandPockets,
+                'micBuyers'                      => $micBuyers,
+                'micRegions'                     => $micRegions,
+                'buyerScope'                     => $buyerScope,
+                'buyerScopeOptions'              => $buyerScopeOptions,
+                'activeBuyerId'                  => $activeBuyerId,
+                'users'                          => $users,
+                'prospectingSetupPriceBandsSale' => $prospectingSetupPriceBandsSale,
+                'includeInStock'                 => $includeInStock,
+            ];
+
+            return response()->json([
+                'listings'      => view('corex.market-intelligence._listings', $fragmentData)->render(),
+                'statsStrip'    => view('corex.market-intelligence._stats-strip', $fragmentData)->render(),
+                'filterRail'    => view('corex.market-intelligence._filter-rail', $fragmentData)->render(),
+                'headerActions' => view('corex.market-intelligence.partials._header-actions', $fragmentData)->render(),
+                'url'           => $canonicalUrl,
+            ]);
+        }
 
         // Sidebar count badge — drives V12. Mirrors the sidebar-count precedent
         // (see corex-sidebar.blade.php pendingVerificationCount / faultNewCount
@@ -1993,7 +2068,19 @@ class MarketIntelligenceController extends Controller
             }
         }
 
-        $active = (clone $baseQuery)->count();
+        // Perf (cc6): the pool scalars ($active + $new_today) share ONE base query,
+        // so compute them in a single conditional-SUM pass instead of two separate
+        // full-pool COUNT scans. Identical numbers — COUNT(*) and a CASE-guarded
+        // SUM over the same rows.
+        $poolScalars = (clone $baseQuery)
+            ->selectRaw(
+                'COUNT(*) as active_count, '
+                . 'SUM(CASE WHEN first_seen_at >= ? THEN 1 ELSE 0 END) as new_today_count',
+                [now()->startOfDay()->toDateTimeString()]
+            )
+            ->first();
+        $active   = (int) ($poolScalars->active_count ?? 0);
+        $newToday = (int) ($poolScalars->new_today_count ?? 0);
 
         // AT-75 — threshold-anchored, two honest units (NOT "any match ≥1%").
         //   buyers_matched     = distinct countable buyers with a real canonical
@@ -2002,23 +2089,24 @@ class MarketIntelligenceController extends Controller
         // Only countable buyers are ever cached (AT-71), so distinct contact_id
         // here is the distinct-countable-buyer truth.
         $threshold = AgencyContactSettings::forAgency($agencyId)->micMatchThreshold();
-        $matchAtThreshold = DB::table('prospecting_buyer_matches')
+        // Perf (cc6): both distinct-counts come from ONE pass over the same match
+        // set rather than two identical scans. Same COUNT(DISTINCT …) semantics.
+        $matchAgg = DB::table('prospecting_buyer_matches')
             ->where('agency_id', $agencyId)
             ->whereNull('dismissed_at')
             ->where('score', '>=', $threshold)
-            ->whereIn('prospecting_listing_id', (clone $baseQuery)->select('id'));
+            ->whereIn('prospecting_listing_id', (clone $baseQuery)->select('id'))
+            ->selectRaw('COUNT(DISTINCT contact_id) as bm, COUNT(DISTINCT prospecting_listing_id) as pm')
+            ->first();
+        $buyersMatched     = (int) ($matchAgg->bm ?? 0);
+        $propertiesMatched = (int) ($matchAgg->pm ?? 0);
 
-        $buyersMatched     = (clone $matchAtThreshold)->distinct()->count('contact_id');
-        $propertiesMatched = (clone $matchAtThreshold)->distinct()->count('prospecting_listing_id');
-
+        // In-stock counts a DIFFERENT population (company-stock, not the canvass
+        // pool the base query excludes) — kept as its own query.
         $inStock = ProspectingListing::where('agency_id', $agencyId)
             ->where('is_active', true)
             ->whereCompanyStock($agencyId)
             ->whereNull('deleted_at')
-            ->count();
-
-        $newToday = (clone $baseQuery)
-            ->where('first_seen_at', '>=', now()->startOfDay())
             ->count();
 
         // Cross-listed: same property_group_id appearing on >1 portal_source.

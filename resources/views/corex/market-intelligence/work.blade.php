@@ -26,7 +26,11 @@
     title="Work"
     subtitle="Your prospecting worklist — listings to action, ranked by suggested next step.">
     <x-slot:actions>
+        {{-- Slot: filter ticks. AJAX swap target (display:contents = no layout box),
+             so a tick toggle refreshes this in place without a full reload. --}}
+        <span id="mic-slot-header-actions" style="display:contents;">
         @include('corex.market-intelligence.partials._header-actions')
+        </span>
     </x-slot:actions>
 </x-mic-page-header>
 
@@ -46,7 +50,7 @@
 @include('corex.market-intelligence.partials.quick-upload-cma')
 </div>
 
-<header class="mi-header"
+<header class="mi-header" id="mic-slot-stats"
         style="position: sticky; top: 0; z-index: 10; background: var(--surface);">
     @include('corex.market-intelligence._stats-strip')
 </header>
@@ -55,9 +59,13 @@
 @include('corex.market-intelligence._intro-banner')
 
 <div class="mi-split" data-tour="mic-list" style="display: grid; grid-template-columns: 200px 1fr; align-items: start;">
+    {{-- display:contents keeps the rail as grid column 1 while giving the swap a
+         stable target — a tick refresh replaces its contents in place. --}}
+    <div id="mic-slot-filter-rail" style="display:contents;">
     @include('corex.market-intelligence._filter-rail')
+    </div>
 
-    <main class="mi-main" style="min-width: 0; overflow-x: hidden; padding: 12px 16px;">
+    <main class="mi-main" id="mic-slot-listings" style="min-width: 0; overflow-x: hidden; padding: 12px 16px;">
         @include('corex.market-intelligence._listings')
     </main>
 </div>
@@ -65,6 +73,83 @@
 </div>{{-- /full-width container --}}
 
 @include('corex.market-intelligence._slideover')
+
+{{-- ─────────────────────────────────────────────────────────────────────────
+     Tick refresh (cc6) — AJAX partial swap, no full-page reload.
+
+     The filter ticks (a.mic-tick, rendered by _header-actions) are plain
+     <a href> toggle links. This handler intercepts them ON THE WORK TAB, flips
+     the clicked glyph optimistically for instant feedback, then fetches the same
+     URL with _fragments=1 and swaps ONLY the four fragments the controller
+     returns (listings, stats-strip, filter-rail, header-actions). The page never
+     reloads; scroll position and the rest of the DOM are preserved.
+
+     Event delegation on document = survives the header-actions swap. Any failure
+     falls back to a normal full navigation, so ticks still work with JS blocked.
+     Facet / sort / pagination links are intentionally NOT hijacked (out of scope).
+────────────────────────────────────────────────────────────────────────── --}}
+<script>
+(function () {
+    var BOX_ON  = { background: '#fff', borderColor: '#fff', color: 'var(--brand-default,#0b2a4a)' };
+    var BOX_OFF = { background: 'transparent', borderColor: 'rgba(255,255,255,0.5)', color: 'transparent' };
+
+    function setGlyph(box, on) {
+        if (!box) return;
+        var s = on ? BOX_ON : BOX_OFF;
+        box.style.background  = s.background;
+        box.style.borderColor = s.borderColor;
+        box.style.color       = s.color;
+        box.textContent       = on ? '✓' : '';
+    }
+    function swap(id, html) {
+        var el = document.getElementById(id);
+        if (el && typeof html === 'string') el.innerHTML = html;
+    }
+
+    document.addEventListener('click', function (e) {
+        var a = e.target.closest ? e.target.closest('a.mic-tick') : null;
+        if (!a) return;
+        // Only hijack on the Work tab (the swap slots exist there). Elsewhere the
+        // link navigates normally.
+        if (!document.getElementById('mic-slot-listings')) return;
+        e.preventDefault();
+
+        var href  = a.getAttribute('href');
+        var wasOn = a.getAttribute('data-active') === '1';
+
+        // Optimistic: flip this tick's glyph + show "updating…" + lock re-clicks.
+        setGlyph(a.querySelector('.mic-tick-box'), !wasOn);
+        var spin = a.querySelector('.mic-tick-spin');
+        if (spin) spin.style.display = 'inline';
+        a.style.opacity = '0.65';
+
+        var url = href + (href.indexOf('?') === -1 ? '?' : '&') + '_fragments=1';
+        fetch(url, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+            credentials: 'same-origin'
+        })
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function (d) {
+            swap('mic-slot-listings',       d.listings);
+            swap('mic-slot-stats',          d.statsStrip);
+            swap('mic-slot-filter-rail',    d.filterRail);
+            swap('mic-slot-header-actions', d.headerActions);
+            if (d.url && window.history && window.history.pushState) {
+                window.history.pushState({ micTick: true }, '', d.url);
+            }
+        })
+        .catch(function () {
+            // Any failure → normal full navigation so a tick is never a dead click.
+            window.location.href = href;
+        });
+    });
+
+    // A back/forward across a tick-swap re-renders server-side truth.
+    window.addEventListener('popstate', function (e) {
+        if (e.state && e.state.micTick) window.location.reload();
+    });
+})();
+</script>
 
 <style>
     .mi-filter-rail {
