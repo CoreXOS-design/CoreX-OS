@@ -147,11 +147,14 @@ class MarketIntelligenceController extends Controller
             // rotating-ref twins (same normalized_address, different ref) stayed
             // "unclaimed". Hide every listing sharing a pitched-claimed listing's
             // normalized_address — robust regardless of the property's status.
-            $pitchedClaimNormAddrs = ProspectingClaim::query()
-                ->from('prospecting_claims as c')
+            // Raw DB::table (NOT the ProspectingClaim model) — the model's SoftDeletes
+            // scope would inject `prospecting_claims.deleted_at` while the table is
+            // aliased `c`, throwing 1054. Filter deleted rows explicitly on the alias.
+            $pitchedClaimNormAddrs = DB::table('prospecting_claims as c')
                 ->join('prospecting_listings as cl', 'cl.id', '=', 'c.prospecting_listing_id')
                 ->where('c.agency_id', $agencyId)
                 ->where('c.is_active', true)
+                ->whereNull('c.deleted_at')
                 ->whereNull('c.released_at')
                 ->whereNotNull('c.pitched_at')
                 ->whereNotNull('cl.normalized_address')
