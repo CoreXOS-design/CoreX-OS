@@ -174,6 +174,12 @@
 </div>
 @endif
 
+@if(!empty($missingCount))
+<div class="alert alert-error" style="max-width: 1240px; margin-left:auto; margin-right:auto;">
+    {{ $missingCount }} file{{ $missingCount === 1 ? '' : 's' }} in this batch could no longer be loaded (they may have expired). <strong>Download ZIP and Link are blocked</strong> until you re-upload the whole batch — nothing below can be safely processed while a file is missing.
+</div>
+@endif
+
 <div id="spr" x-data="splitterReview()" x-cloak>
 <div class="wrap">
 
@@ -302,8 +308,12 @@
         </span>
     </div>
 
-    {{-- The form. Two distinct submit actions (formaction), covering every file. --}}
-    <form method="POST" action="{{ route('tools.pdf_splitter.confirm') }}" id="spr-form">
+    {{-- The form. Two distinct submit actions (formaction), covering every file.
+         @submit disables both buttons so a double-click/double-tap can't fire
+         two overlapping Link submissions (kickoffMultiFica's dedupe check runs
+         outside a lock, so two near-simultaneous requests could otherwise both
+         see "no existing FICA" and create two verifications for one contact). --}}
+    <form method="POST" action="{{ route('tools.pdf_splitter.confirm') }}" id="spr-form" @submit="submitting = true">
         @csrf
         {{-- Binds this submission to the exact batch this page was rendered
              for. If the agent started a new upload in another tab since this
@@ -432,13 +442,15 @@
 
         <div class="flex items-center gap-3 flex-wrap" style="margin-top:4px;">
             <button type="submit" class="btn-gen" formaction="{{ route('tools.pdf_splitter.link') }}" data-tour="spr-link"
-                    :disabled="!property"
+                    :disabled="submitting || !property"
                     :title="property ? 'File every page (across all files above) to its destination(s) and assigned contact(s)' : 'Pick a property first'">
-                Link
+                <span x-text="submitting ? 'Working…' : 'Link'"></span>
             </button>
             <button type="submit" class="btn-gen secondary" formaction="{{ route('tools.pdf_splitter.confirm') }}" data-tour="spr-zip"
+                    :disabled="submitting"
                     title="Produce one combined ZIP for every file above — no filing, no FICA">
-                &#x2913;&nbsp; Download ZIP
+                <span x-show="!submitting">&#x2913;&nbsp; Download ZIP</span>
+                <span x-show="submitting">Working…</span>
             </button>
             <a href="{{ route('tools.pdf_splitter.index') }}" class="btn-back">&larr; Upload different PDF(s)</a>
         </div>
@@ -465,6 +477,7 @@ document.addEventListener('alpine:init', () => {
 
         // ── state ─────────────────────────────────────────────────────────
         files:      @json($fileSeed),    // [{manifestId, base, originalName, pCount, pages:[...]}]
+        submitting: false,                // true once Link/Download ZIP is submitted — blocks a double-click resubmit
         bulkType:   'other',
         q: '', propResults: [],
         property: null,

@@ -155,13 +155,22 @@ class PdfSplitterController extends Controller
         // named "OTP.pdf") in the same second can never collide onto the same
         // storage path / manifest ID and cross-file each other's documents.
         $userId = (int) (auth()->id() ?? 0);
+        // Random per-REQUEST token on top of the user namespace — a double-
+        // submit (double-click, browser retry) from the SAME user in the SAME
+        // second would otherwise still collide on identical paths. This token
+        // is also what confirm() keys the combined ZIP filename off, closing a
+        // real cross-tenant leak the batch rework introduced: the ZIP path
+        // used to be built from the shared per-second timestamp alone, so two
+        // different agents finishing a split within the same second could
+        // silently overwrite each other's compliance documents.
+        $batchToken = Str::lower(Str::random(6));
 
         $manifestIds = [];
         $skipped     = [];
         $usedBases   = [];
 
         foreach ($files as $i => $uploaded) {
-            $base = $this->deriveBase($baseRaw, $uploaded, $i, count($files) > 1) . '_u' . $userId;
+            $base = $this->deriveBase($baseRaw, $uploaded, $i, count($files) > 1) . '_u' . $userId . '_' . $batchToken;
 
             // Guarantee uniqueness within this batch (e.g. two same-named files).
             $unique = $base;
@@ -400,24 +409,57 @@ class PdfSplitterController extends Controller
     }
 
     /**
-     * Load every manifest in the current batch, in upload order. Skips (rather
-     * than fails on) any manifest that no longer exists on disk — defensive
-     * only; nothing in the normal flow removes one mid-batch.
+     * Load every manifest in the current batch, in upload order. A manifest
+     * whose manifest.json no longer exists on disk (tmp cleanup, deploy, disk
+     * hiccup during a long review session) is reported back in $missingIds
+     * rather than silently dropped — confirm()/link() refuse to process a
+     * batch that's missing any file rather than silently filing/zipping a
+     * SUBSET and showing a normal-looking success banner, which would hide
+     * that a file's documents (possibly including FICA pages) were never
+     * split, filed, or zipped at all.
      *
-     * @return array<int,array> each entry is the decoded manifest + 'manifestId'
+     * @return array{0: array<int,array>, 1: array<int,string>} [manifests, missingIds]
      */
     private function loadBatchManifests(): array
     {
         $manifests = [];
+        $missing   = [];
         foreach (session('splitter_batch', []) as $id) {
             $m = $this->loadManifestArrayOrNull($id);
             if ($m) {
                 $m['manifestId'] = $id;
                 $manifests[]     = $m;
+            } else {
+                $missing[] = $id;
             }
         }
 
-        return $manifests;
+        return [$manifests, $missing];
+    }
+
+    /**
+     * confirm()/link() must never silently file/zip a SUBSET of the batch —
+     * either every manifest loads, or nothing gets processed. Returns
+     * [manifests, errorRedirectOrNull]; check the second value first.
+     *
+     * @return array{0: array<int,array>, 1: ?\Illuminate\Http\RedirectResponse}
+     */
+    private function loadCompleteBatchOrFail(): array
+    {
+        [$manifests, $missingIds] = $this->loadBatchManifests();
+
+        if (empty($manifests)) {
+            return [[], redirect()->route('tools.pdf_splitter.index')
+                ->withErrors(['pdf' => 'Session expired or manifest not found. Please re-upload.'])];
+        }
+
+        if (!empty($missingIds)) {
+            return [[], redirect()->route('tools.pdf_splitter.index')->withErrors([
+                'pdf' => 'One or more files in this batch could not be loaded (they may have expired) — nothing was processed. Please re-upload the whole batch.',
+            ])];
+        }
+
+        return [$manifests, null];
     }
 
     /**
@@ -427,7 +469,7 @@ class PdfSplitterController extends Controller
      */
     public function review()
     {
-        $manifests = $this->loadBatchManifests();
+        [$manifests, $missingIds] = $this->loadBatchManifests();
         if (empty($manifests)) {
             return redirect()->route('tools.pdf_splitter.index')
                 ->withErrors(['pdf' => 'No active session, or it expired. Please upload PDF(s) first.']);
@@ -463,8 +505,13 @@ class PdfSplitterController extends Controller
 
         $skipped = session('splitter_skipped', []);
 
+        // Surfaced so the review screen can warn BEFORE the agent clicks
+        // Download ZIP / Link — those two actions refuse to run at all while
+        // any manifest is missing, rather than silently filing a subset.
+        $missingCount = count($missingIds);
+
         return view('tools.pdf_splitter_review', compact(
-            'manifests', 'canFica', 'canLinkDeal', 'routing', 'roleSets', 'roleLabels', 'skipped'
+            'manifests', 'canFica', 'canLinkDeal', 'routing', 'roleSets', 'roleLabels', 'skipped', 'missingCount'
         ));
     }
 
@@ -509,10 +556,9 @@ class PdfSplitterController extends Controller
             return $stale;
         }
 
-        $manifests = $this->loadBatchManifests();
-        if (empty($manifests)) {
-            return redirect()->route('tools.pdf_splitter.index')
-                ->withErrors(['pdf' => 'Session expired or manifest not found. Please re-upload.']);
+        [$manifests, $fail] = $this->loadCompleteBatchOrFail();
+        if ($fail) {
+            return $fail;
         }
 
         $postedLabels = (array) $request->input('labels', []);
@@ -580,9 +626,11 @@ class PdfSplitterController extends Controller
 
         // ONE ZIP for the whole batch — output filenames are already unique
         // across files (each source file's storage base is unique), so they
-        // never collide inside the shared archive.
-        $batchStamp = $manifests[0]['ts'];
-        $zipRel     = 'private/splitter/zips/batch_' . $batchStamp . '__split_pack.zip';
+        // never collide inside the shared archive. The ZIP's own path is keyed
+        // off the first manifest's storage BASE (unique per uploader + random
+        // per-request token, not just the shared per-second timestamp) so two
+        // different agents' batches can never collide onto the same ZIP path.
+        $zipRel = 'private/splitter/zips/' . $manifests[0]['base'] . '__' . $manifests[0]['ts'] . '__split_pack.zip';
         Storage::disk('local')->makeDirectory('private/splitter/zips');
         $zipAbs     = Storage::disk('local')->path($zipRel);
         $zipAbsNorm = str_replace('\\', '/', $zipAbs);
@@ -629,10 +677,9 @@ class PdfSplitterController extends Controller
             return $stale;
         }
 
-        $manifests = $this->loadBatchManifests();
-        if (empty($manifests)) {
-            return redirect()->route('tools.pdf_splitter.index')
-                ->withErrors(['pdf' => 'Session expired or manifest not found. Please re-upload.']);
+        [$manifests, $fail] = $this->loadCompleteBatchOrFail();
+        if ($fail) {
+            return $fail;
         }
 
         // A property is mandatory for filing — Download ZIP is the no-property path.
@@ -845,7 +892,19 @@ class PdfSplitterController extends Controller
         $overrides    = [];
 
         for ($p = 1; $p <= $pCount; $p++) {
-            $auto     = $autoLabels[(string) $p] ?? 'other';
+            $auto = $autoLabels[(string) $p] ?? 'other';
+
+            // A doc type can be deactivated between upload and confirm/link —
+            // a batch can sit in review for minutes. An auto-label that's no
+            // longer active must not silently vanish from the output;
+            // confirm()'s bucket loop only visits currently-active slugs, so
+            // an unrecognised $auto here would drop the page from the ZIP
+            // with zero error. Fall back to 'other' so it still lands
+            // somewhere the agent can see and re-triage.
+            if (!in_array($auto, $validBuckets, true) && in_array('other', $validBuckets, true)) {
+                $auto = 'other';
+            }
+
             $override = isset($posted[(string) $p]) ? trim((string) $posted[(string) $p]) : null;
 
             if ($override !== null && in_array($override, $validBuckets, true) && $override !== $auto) {

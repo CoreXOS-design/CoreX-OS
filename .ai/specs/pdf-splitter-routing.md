@@ -415,6 +415,55 @@ was dropped too. "Download ZIP" is unchanged.
 - No new scheduled cleanup was added for `private/splitter/*` — matches
   existing behaviour (originals/outputs were never swept before either).
 
+**Fixed after a second audit pass (2026-08-11, same day):**
+
+- **Cross-tenant ZIP collision (real regression, now fixed).** The combined
+  batch ZIP's path was originally keyed only by the shared per-second
+  timestamp (`batch_{ts}__split_pack.zip`) with no per-user component, unlike
+  every other storage path in this file. Two different agents finishing a
+  split within the same wall-clock second could overwrite each other's ZIP —
+  `downloadLastZip()` performs no ownership check, so one agent's browser
+  could download another's FICA/ID/proof-of-residence documents. Fixed by a
+  random per-REQUEST token (`$batchToken`, 6 chars) folded into every file's
+  storage `base` in `run()` (on top of the existing `_u{userId}` namespace),
+  and the ZIP path now keys off `$manifests[0]['base']` instead of the bare
+  timestamp — closing both this leak and a same-user double-submit race
+  (double-click / browser retry landing on identical paths) in one fix.
+- **Silent partial-batch processing (real gap, now fixed).** If a manifest's
+  `manifest.json` went missing between upload and confirm/link (a long review
+  session, a tmp-cleanup, a deploy), `loadBatchManifests()` used to silently
+  drop it and proceed with the surviving subset — the agent would see a
+  normal "Documents linked" / "ZIP generated" success banner with no
+  indication a file (and any FICA pages on it) was never processed. Fixed:
+  `loadBatchManifests()` now reports which IDs failed to load;
+  `confirm()`/`link()` refuse to run at all (`loadCompleteBatchOrFail()`)
+  unless every manifest in the batch loaded, and `review()` shows a blocking
+  banner naming the count so the agent sees it before attempting either
+  action.
+- **Deactivated doc-type silently drops a page (edge case, now fixed).** If
+  an admin deactivated a `SplitterDocType` while an unrelated batch sat in
+  review, a page still carrying that now-inactive auto-label as its
+  untouched-by-the-agent label would vanish from the ZIP with zero error
+  (confirm()'s output loop only iterates currently-active slugs).
+  `resolveFinalLabels()` now falls back such a page to `other` so it still
+  lands somewhere visible instead of disappearing.
+- **FICA double-kickoff on a double-click (partial mitigation).** The FICA
+  dedupe check (`existingActiveFica()`) runs as an unlocked SELECT before the
+  submission-creating transaction — a genuine race pre-dating this rework,
+  not introduced by it, and not fully closed here (would need a DB-level
+  lock/unique constraint in `FicaWetInkService`, shared by other callers,
+  out of scope for a same-day fix). Mitigated at the UI layer: the review
+  form's Link/Download ZIP buttons disable themselves on submit
+  (`submitting` Alpine state), closing the common trigger (an impatient
+  double-click) without touching the shared service.
+- **Flagged, not fixed — pre-existing, out of scope.** `searchProperties()`
+  and `propertyContacts()` are JSON endpoints under `/tools/pdf-splitter/
+  properties/*` instead of `/api/v1/*`, so they're invisible to the Admin →
+  API catalog — a violation of CLAUDE.md non-negotiable #7. These predate
+  this batch rework (part of the original AT-105 build) and the pattern
+  likely repeats across the PDF Suite's sibling tools; moving them is a
+  separate, deliberately-scoped piece of work, not bundled into this fix.
+
 **Known limitation, accepted (not silently patched over) — batch OCR time.**
 `run()` now OCRs every file in the batch, sequentially, inside ONE HTTP
 request before any of it reaches session; `set_time_limit(300)` resets PHP's
