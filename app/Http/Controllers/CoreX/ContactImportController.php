@@ -4,7 +4,6 @@ namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
-use App\Models\FicaSubmission;
 use App\Models\ContactNote;
 use App\Models\ContactSource;
 use App\Models\ContactTag;
@@ -118,19 +117,6 @@ class ContactImportController extends Controller
         $request->validate([
             'file' => ['required', 'file', 'mimes:xlsx,xls,csv', 'max:25600'],
         ]);
-
-        $markFicaApproved = $request->boolean('mark_fica_approved');
-
-        // Auto-stamping APPROVED FICA submissions is a compliance action — it must
-        // not be reachable by anyone who merely holds access_contacts. Require the
-        // dedicated FICA-approve permission; reject (not silently drop) if missing.
-        if ($markFicaApproved) {
-            abort_unless(
-                $request->user()?->hasPermission('compliance.fica.approve'),
-                403,
-                'You do not have permission to mark imported contacts as FICA-approved.'
-            );
-        }
 
         $file     = $request->file('file');
         $fullPath = $file->getRealPath();
@@ -331,26 +317,11 @@ class ContactImportController extends Controller
                     $pendingTagEvents[] = [$contact, $tagIds];
                 }
 
-                // Go-live migration: stamp an approved FICA submission so the
-                // contact appears FICA-compliant immediately. Pre-existing
-                // contacts brought over from a prior CRM are treated as
-                // already-verified for go-live.
-                if ($markFicaApproved && $contact->agency_id) {
-                    FicaSubmission::create([
-                        'contact_id'          => $contact->id,
-                        'agency_id'           => $contact->agency_id,
-                        'requested_by'        => $agentId,
-                        'token'               => bin2hex(random_bytes(32)),
-                        'token_expires_at'    => now()->addYear(),
-                        'entity_type'         => 'natural',
-                        'status'              => 'approved',
-                        'verification_method' => ['source' => 'go_live_migration'],
-                        'verified_by'         => auth()->id() ?: $agentId,
-                        'verified_at'         => now(),
-                        'reviewer_notes'      => 'Auto-approved via contact Excel import (agency go-live migration).',
-                    ]);
-                }
-
+                // Policy (post-incident): imported contacts must NEVER be auto-marked
+                // FICA-approved. No special-casing at the compliance gate for imported
+                // vs. non-imported contacts — every contact earns FICA the same way,
+                // and the existing marketing-readiness gate (MarketingReadinessService)
+                // is the one place that's enforced, before a property can go live.
                 $created++;
             }
 

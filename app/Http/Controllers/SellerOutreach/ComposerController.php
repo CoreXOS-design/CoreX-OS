@@ -441,6 +441,14 @@ final class ComposerController extends Controller
             }
         }
 
+        // A pitch that never delivered never asked for consent. markOutreachPending()
+        // (AT-81) is stamped optimistically at send-click — before this confirmation
+        // exists — so a not_sent outcome must release the clock it started, or the
+        // contact is permanently stuck "pending" and every future compose is hard-
+        // blocked (isSendable() -> pendingBlocks) even after the agent fixes whatever
+        // was wrong (e.g. the number) and is ready to actually send.
+        $contact->clearOutreachPending();
+
         return $request->wantsJson()
             ? response()->json([
                 'ok'      => true,

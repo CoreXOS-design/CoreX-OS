@@ -3,6 +3,7 @@
 namespace App\Services\Compliance;
 
 use App\Models\DevSetting;
+use App\Models\FicaSubmission;
 use App\Models\Property;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -115,8 +116,9 @@ class MarketingReadinessService
             'contact_id' => $c->id,
             'name' => trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? '')),
             'role' => $c->pivot->role,
-            'fica_status' => DB::table('fica_submissions')
-                ->where('contact_id', $c->id)
+            'fica_status' => FicaSubmission::applyGenuineRecordFilter(
+                DB::table('fica_submissions')->where('contact_id', $c->id)
+            )
                 ->orderByDesc('id')
                 ->value('status'),
         ])->values()->toArray();
@@ -434,9 +436,9 @@ class MarketingReadinessService
             return [false, 'No sellers linked to property'];
         }
 
-        $approvedIds = DB::table('fica_submissions')
-            ->whereIn('contact_id', $sellerIds)
-            ->where('status', 'approved')
+        $approvedIds = FicaSubmission::applyGenuineApprovalFilter(
+            DB::table('fica_submissions')->whereIn('contact_id', $sellerIds)
+        )
             ->pluck('contact_id')
             ->unique();
 

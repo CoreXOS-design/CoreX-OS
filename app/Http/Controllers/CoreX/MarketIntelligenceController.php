@@ -88,7 +88,7 @@ class MarketIntelligenceController extends Controller
         // F.1: default to canvassing pool only (exclude already-mandated stock).
         // Manager toggle ?include_in_stock=1 bypasses for audit purposes.
         // F.2: also bypassed when an action preset suspends the canvass filter.
-        $query = $this->applyInStockFilter($query, $request, $isProspectingManager, $presetSuspendsCanvassFilter);
+        $query = $this->applyInStockFilter($query, $agencyId, $request, $isProspectingManager, $presetSuspendsCanvassFilter);
 
         // Pitch lock (2026-07-29): a listing an agent has PITCHED (captured +
         // linked a contact via "Pitch now") is permanently claimed to that agent
@@ -174,6 +174,16 @@ class MarketIntelligenceController extends Controller
                   ->orWhere('agent_name', 'like', "%{$search}%")
                   ->orWhere('agency_name', 'like', "%{$search}%");
             });
+        }
+
+        // Address presence toggle (pull-all). Default (absent / 'all') shows every
+        // row, addressed or not. 'with_address' restricts to rows carrying a real
+        // street address. Legacy rows may still hold the old "Address not available"
+        // placeholder — treat that as no address so the filter is honest.
+        if ($request->input('address_filter') === 'with_address') {
+            $query->whereNotNull('address')
+                  ->where('address', '<>', '')
+                  ->where('address', '<>', 'Address not available');
         }
 
         // Stock match filter (legacy ?stock_filter= explicit override — still honoured
@@ -513,11 +523,28 @@ class MarketIntelligenceController extends Controller
             ['path' => $request->url(), 'query' => $request->query()]
         );
 
+        // Company-stock map for the visible page (Johan's model): listing_id →
+        // agency Property id, by EXACT portal_ref match. Powers the IN STOCK badge
+        // and the company-logo-in-place-of-pitch treatment on the tile. One join.
+        $companyStockMap = [];
+        $companyStockRefMap = ProspectingListing::companyStockRefMapFor($agencyId);
+        if (!empty($companyStockRefMap)) {
+            foreach ($listings->items() as $it) {
+                if (isset($companyStockRefMap[$it->portal_ref])) {
+                    $companyStockMap[(int) $it->id] = $companyStockRefMap[$it->portal_ref];
+                }
+            }
+        }
+        $agencyRecord = \App\Models\Agency::find($agencyId);
+        $agencyLogoUrl = ($agencyRecord && $agencyRecord->logo_path)
+            ? asset('storage/' . $agencyRecord->logo_path)
+            : null;
+
         // Stats — also reflect the same in-stock filter the user has selected so
         // the headline counts agree with the table below them.
         $statsBase = ProspectingListing::where('agency_id', $agencyId)->where('is_active', true);
         if (! ($request->boolean('include_in_stock') && $isProspectingManager)) {
-            $statsBase->whereNull('matched_property_id');
+            $statsBase->whereNotCompanyStock($agencyId);
         }
         $weekAgo = Carbon::now()->subDays(7);
 
@@ -550,7 +577,7 @@ class MarketIntelligenceController extends Controller
             'buyer_matched'    => $matchedListingCount,
             'in_stock'         => ProspectingListing::where('agency_id', $agencyId)
                                     ->where('is_active', true)
-                                    ->whereNotNull('matched_property_id')
+                                    ->whereCompanyStock($agencyId)
                                     ->count(),
         ];
 
@@ -737,7 +764,7 @@ class MarketIntelligenceController extends Controller
             60,
             fn () => ProspectingListing::where('agency_id', $agencyId)
                 ->where('is_active', true)
-                ->whereNull('matched_property_id')
+                ->whereNotCompanyStock($agencyId)
                 ->whereNull('deleted_at')
                 ->count(),
         );
@@ -778,7 +805,9 @@ class MarketIntelligenceController extends Controller
             'micBuyers', 'activeBuyerId', 'selectedBuyer', 'micRegions',
             'buyerScope', 'buyerScopeOptions',
             // Phase D2 — This Week hero
-            'tiles', 'tilesGeneratedAt'
+            'tiles', 'tilesGeneratedAt',
+            // Company stock (exact portal_ref) — IN STOCK badge + company logo tile
+            'companyStockMap', 'agencyLogoUrl'
         ));
     }
 
@@ -837,7 +866,7 @@ class MarketIntelligenceController extends Controller
             60,
             fn () => ProspectingListing::where('agency_id', $agencyId)
                 ->where('is_active', true)
-                ->whereNull('matched_property_id')
+                ->whereNotCompanyStock($agencyId)
                 ->whereNull('deleted_at')
                 ->count(),
         );
@@ -1868,7 +1897,7 @@ class MarketIntelligenceController extends Controller
      *
      * Spec: build-f-market-intelligence-redesign-spec.md §7, §8.2.
      */
-    protected function applyInStockFilter($query, Request $request, bool $isManager, bool $suspend = false)
+    protected function applyInStockFilter($query, int $agencyId, Request $request, bool $isManager, bool $suspend = false)
     {
         if ($suspend) {
             return $query;
@@ -1876,7 +1905,20 @@ class MarketIntelligenceController extends Controller
         if ($request->boolean('include_in_stock') && $isManager) {
             return $query;
         }
-        return $query->whereNull('matched_property_id');
+        // Company stock = the agency's OWN portal listing (exact portal_ref match),
+        // per Johan's model — NOT the fuzzy address-based matched_property_id.
+        return $query->whereNotCompanyStock($agencyId);
+    }
+
+    /**
+     * Company-stock exclusion for RAW DB::table('prospecting_listings') builders
+     * (the model scope only works on Eloquent). Same exact portal_ref set as
+     * ProspectingListing::scopeWhereNotCompanyStock — indexed whereNotIn.
+     */
+    private function applyNotCompanyStockRaw($query, int $agencyId)
+    {
+        $refs = ProspectingListing::companyStockRefsFor($agencyId);
+        return empty($refs) ? $query : $query->whereNotIn('portal_ref', $refs);
     }
 
     /**
@@ -1924,7 +1966,7 @@ class MarketIntelligenceController extends Controller
             ->where('is_active', true)
             ->whereNull('deleted_at');
         if (!$includeInStock) {
-            $baseQuery->whereNull('matched_property_id');
+            $baseQuery->whereNotCompanyStock($agencyId);
         }
 
         $active = (clone $baseQuery)->count();
@@ -1947,7 +1989,7 @@ class MarketIntelligenceController extends Controller
 
         $inStock = ProspectingListing::where('agency_id', $agencyId)
             ->where('is_active', true)
-            ->whereNotNull('matched_property_id')
+            ->whereCompanyStock($agencyId)
             ->whereNull('deleted_at')
             ->count();
 
@@ -1963,7 +2005,7 @@ class MarketIntelligenceController extends Controller
             ->whereNull('deleted_at')
             ->whereNotNull('property_group_id');
         if (!$includeInStock) {
-            $crossListedQuery->whereNull('matched_property_id');
+            $this->applyNotCompanyStockRaw($crossListedQuery, $agencyId);
         }
         $crossListed = $crossListedQuery
             ->select('property_group_id')
@@ -2091,7 +2133,7 @@ class MarketIntelligenceController extends Controller
                 ->where('is_active', true)
                 ->whereNull('deleted_at');
             if (!$includeInStock) {
-                $q->whereNull('matched_property_id');
+                $this->applyNotCompanyStockRaw($q, $agencyId);
             }
             return $q;
         };

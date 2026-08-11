@@ -74,6 +74,13 @@
 
     $iconBtnBase = 'display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary); cursor: pointer; text-decoration: none;';
     $iconBtnDisabled = 'display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 4px; background: var(--surface); border: 1px dashed var(--border); color: var(--text-muted); cursor: not-allowed; opacity: 0.55;';
+
+    // Company stock (Johan's model): this scraped listing is the agency's OWN
+    // portal listing (exact portal_ref match) → we already hold it, so there is
+    // nothing to pitch. companyStockMap maps listing id → our Property id.
+    $companyStockPropertyId = ($companyStockMap ?? [])[$listing->id] ?? null;
+    $isCompanyStock = $companyStockPropertyId !== null;
+    $agencyLogoUrl = $agencyLogoUrl ?? null;
 @endphp
 
 <article
@@ -124,12 +131,13 @@
 
         {{-- Line 3: state tags + demand microbar --}}
         <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-            {{-- IN STOCK badge (only when manager has audit toggle on and the listing is in stock) --}}
-            @if($listing->matched_property_id)
-            <a href="{{ route('corex.properties.show', $listing->matched_property_id) }}"
+            {{-- IN STOCK badge — company stock = EXACT portal_ref match to one of
+                 our own properties (Johan's model), not the fuzzy address match. --}}
+            @if($isCompanyStock)
+            <a href="{{ route('corex.properties.show', $companyStockPropertyId) }}"
                onclick="event.stopPropagation();"
                style="{{ $tagTeal }} text-decoration: none;"
-               title="This property is in our agency stock — we already hold the mandate. Click to open the Property record.">
+               title="This is our agency's own listing — the portal reference matches one of our properties. Click to open the Property record.">
                 IN STOCK
             </a>
             @endif
@@ -283,8 +291,23 @@
         </div>
     </div>
 
-    {{-- Right action zone: chip on top, 3 inline icon buttons below --}}
+    {{-- Right action zone: chip on top, 3 inline icon buttons below.
+         Company stock → no pitch: the agency's own logo replaces the whole
+         pitch CTA + action-icon cluster (Johan's model). --}}
     <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 6px;">
+
+        @if($isCompanyStock)
+        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 3px;"
+             title="This is our agency's own listing (portal reference matches our stock) — no pitch needed.">
+            @if($agencyLogoUrl)
+            <img src="{{ $agencyLogoUrl }}" alt="Company stock"
+                 style="max-height: 30px; max-width: 130px; object-fit: contain; display: block;">
+            @else
+            <span style="{{ $tagTeal }}">OUR LISTING</span>
+            @endif
+            <span style="font-size: 0.625rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em;">Company stock</span>
+        </div>
+        @else
 
         @include('corex.market-intelligence._suggested-action-chip', ['suggested' => $suggested, 'listing' => $listing])
 
@@ -393,5 +416,6 @@
             </button>
             @endif
         </div>
+        @endif {{-- /isCompanyStock --}}
     </div>
 </article>

@@ -249,6 +249,36 @@ class FicaSubmission extends Model
         return $query->where('status', 'approved');
     }
 
+    /**
+     * Excludes soft-deleted rows — the shared filter for "does this row reflect a
+     * REAL, current compliance action?". Works on both an Eloquent Builder and a
+     * raw \Illuminate\Database\Query\Builder (DB::table('fica_submissions')),
+     * which is why it's a plain static helper rather than an Eloquent local scope
+     * — most call sites on this table are raw query-builder calls, not Eloquent,
+     * and never benefited from the automatic SoftDeletes exclusion.
+     *
+     * Universal rule (Johan): the gate is contact-agnostic — a valid, non-deleted
+     * 'approved' row counts, same rule for every contact, imported or not. No
+     * special-casing by source/origin here; imported contacts instead simply
+     * never GET an auto-created 'approved' row in the first place (see
+     * ContactImportController — the import path no longer auto-marks FICA).
+     *
+     * Every call site that decides "is this contact FICA-compliant" or displays a
+     * contact's current FICA status MUST route through this (or
+     * applyGenuineApprovalFilter()) — a bare `->where('status', 'approved')` on a
+     * raw query builder silently counts soft-deleted rows.
+     */
+    public static function applyGenuineRecordFilter($query)
+    {
+        return $query->whereNull('deleted_at');
+    }
+
+    /** applyGenuineRecordFilter() + status='approved' — the authoritative "is this contact FICA-approved" filter. */
+    public static function applyGenuineApprovalFilter($query)
+    {
+        return static::applyGenuineRecordFilter($query)->where('status', 'approved');
+    }
+
     // ── Helpers ──
 
     public function isWetInk(): bool

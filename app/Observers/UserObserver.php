@@ -91,6 +91,26 @@ class UserObserver
 
     public function updated(User $user): void
     {
+        // AT-366 (Q4 enabler) — record every branch move with its date so the
+        // Performance & ROI report can attribute activity to the branch the agent
+        // was in AT THE TIME. Runs FIRST and isolated so it fires even when the
+        // same save also flips show_on_website (which returns early below), and
+        // never breaks a user save.
+        if ($user->wasChanged('branch_id')) {
+            try {
+                \App\Models\UserBranchHistory::create([
+                    'user_id'          => $user->id,
+                    'agency_id'        => $user->agency_id,
+                    'from_branch_id'   => $user->getOriginal('branch_id'),
+                    'to_branch_id'     => $user->branch_id,
+                    'moved_at'         => now(),
+                    'moved_by_user_id' => auth()->id(),
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning("AT-366 branch-move history failed for user #{$user->id}: {$e->getMessage()}");
+            }
+        }
+
         try {
             // show_on_website flipped → published / removed.
             if ($user->wasChanged('show_on_website')) {

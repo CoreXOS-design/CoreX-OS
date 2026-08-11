@@ -260,10 +260,18 @@ class TfsScreeningService
             ->keys()->all();
     }
 
+    /**
+     * Freshest import a feed has FETCHED-AND-VERIFIED, for the staleness gate.
+     * `unchanged` counts as a valid re-verification (the daily fetch ran, the content
+     * is byte-identical to what we already hold — that's the list confirmed current,
+     * not a failure). Only `failed` is excluded: if fetches genuinely stop succeeding,
+     * no new success/unchanged row lands, `finished_at` stops advancing, and the
+     * existing max_staleness_days check correctly reports stale.
+     */
     private function freshestImport(array $feeds): ?SanctionsListImport
     {
         return SanctionsListImport::whereIn('source_feed', $feeds)
-            ->where('status', 'success')
+            ->whereIn('status', ['success', 'unchanged'])
             ->orderByDesc('finished_at')
             ->first();
     }

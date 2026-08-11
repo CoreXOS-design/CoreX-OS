@@ -15,6 +15,32 @@
 (function () {
   'use strict';
 
+  // Robust price read from one-or-more .p24_price elements. Prefers the numeric
+  // `content` attribute; parses text as DISTINCT number groups (never concatenates
+  // digits across two numbers); keeps only plausible SA asking prices; returns the
+  // headline (max) figure. Mirrors extractP24Price in content-p24.js — fixes the
+  // dropped-zero / wrong-figure / concatenation misparses.
+  function p24PriceFrom(scope) {
+    const PLAUSIBLE = (v) => Number.isFinite(v) && v >= 100000 && v <= 500000000;
+    const els = Array.from((scope || document).querySelectorAll('.p24_price'));
+    if (els.length === 0) return null;
+    const byContent = [];
+    els.forEach((el) => {
+      const ca = (el.getAttribute('content') || '').trim();
+      if (/^\d{4,12}$/.test(ca)) { const v = parseInt(ca, 10); if (PLAUSIBLE(v)) byContent.push(v); }
+    });
+    if (byContent.length > 0) return Math.max(...byContent);
+    const groups = [];
+    els.forEach((el) => {
+      const matches = (el.textContent || '').match(/\d[\d\s .,]*\d|\d/g) || [];
+      matches.forEach((g) => {
+        const d = g.replace(/[^\d]/g, '');
+        if (d.length >= 4 && d.length <= 12) { const v = parseInt(d, 10); if (PLAUSIBLE(v)) groups.push(v); }
+      });
+    });
+    return groups.length > 0 ? Math.max(...groups) : null;
+  }
+
   // ══════════════════════════════════════════════════════════
   // ── SHARED CONSTANTS ──────────────────────────────────────
   // ══════════════════════════════════════════════════════════
@@ -122,35 +148,44 @@
       agent_name: null, agency_name: null, thumbnail_url: null, source: 'p24',
     };
 
+    // portal_url — prefer the standard content link, but fall back to ANY for-sale/
+    // to-rent link in the tile. Promoted/sponsored tiles (data-listing-number
+    // "P<num>") have no a.p24_content but DO carry the listing URL on another <a>;
+    // without this fallback portal_url was null → NOT-NULL insert 500 → whole batch
+    // aborted (v3.1.5 fix).
     try {
-      const ref = card.getAttribute('data-listing-number');
-      if (ref) listing.portal_ref = 'P24-' + ref;
-    } catch (e) { /* */ }
-
-    try {
+      let href = null;
       const content = card.querySelector('a.p24_content');
-      if (content) {
-        const href = content.getAttribute('href') || content.href;
-        if (href) listing.portal_url = href.startsWith('http') ? href : 'https://www.property24.com' + href;
+      if (content) href = content.getAttribute('href') || content.href;
+      if (!href) {
+        const alt = card.querySelector('a[href*="/for-sale/"], a[href*="/to-rent/"]');
+        if (alt) href = alt.getAttribute('href') || alt.href;
       }
+      if (href) listing.portal_url = href.startsWith('http') ? href : 'https://www.property24.com' + href;
     } catch (e) { /* */ }
 
-    if (!listing.portal_ref && listing.portal_url) {
-      try {
+    // portal_ref — the numeric listing id from the URL is authoritative (e.g.
+    // /for-sale/uvongo/margate/kwazulu-natal/6359/117400105?…). data-listing-number
+    // is unreliable: promoted tiles prefix it ("P117400105") and development banners
+    // use a short project id ("4922"). Derive from the URL first, else strip
+    // non-digits from data-listing-number; require a real 6+ digit listing number.
+    try {
+      let num = null;
+      if (listing.portal_url) {
         const segments = new URL(listing.portal_url).pathname.split('/').filter(Boolean);
         for (let i = segments.length - 1; i >= 0; i--) {
-          if (/^\d{6,}$/.test(segments[i])) { listing.portal_ref = 'P24-' + segments[i]; break; }
+          if (/^\d{6,}$/.test(segments[i])) { num = segments[i]; break; }
         }
-      } catch (e) { /* */ }
-    }
+      }
+      if (!num) {
+        const raw = (card.getAttribute('data-listing-number') || '').replace(/\D/g, '');
+        if (/^\d{6,}$/.test(raw)) num = raw;
+      }
+      if (num) listing.portal_ref = 'P24-' + num;
+    } catch (e) { /* */ }
 
     try {
-      const priceEl = card.querySelector('.p24_price');
-      if (priceEl) {
-        const ca = priceEl.getAttribute('content');
-        if (ca) listing.price = parseInt(ca, 10);
-        else { const c = priceEl.textContent.replace(/[^\d]/g, ''); if (c.length >= 4) listing.price = parseInt(c, 10); }
-      }
+      listing.price = p24PriceFrom(card);
     } catch (e) { /* */ }
 
     try {
@@ -166,7 +201,9 @@
 
     try { const el = card.querySelector('.p24_location'); if (el) listing.suburb = el.textContent.trim(); } catch (e) { /* */ }
     try { const el = card.querySelector('.p24_address'); if (el) { const a = el.textContent.trim(); if (a) listing.address = a; } } catch (e) { /* */ }
-    if (!listing.address) listing.address = 'Address not available';
+    // PULL-ALL (v3.1.4): leave address null when the tile has no .p24_address — do
+    // NOT stamp a placeholder. Address-less listings are captured (importer accepts
+    // null); the MIC "with address only" toggle filters them when wanted.
 
     if (!listing.suburb && listing.portal_url) {
       try {
@@ -204,15 +241,25 @@
 
     allCards.forEach(card => {
       try {
-        const num = card.getAttribute('data-listing-number');
-        if (!num || seen.has(num)) return;
-        seen.add(num);
+        // Skip new-development banners — they are projects, not property listings
+        // (short project id, /new-developments/ URL, no listing to prospect).
+        if (card.classList && card.classList.contains('p24_development')) return;
         const listing = extractListing(card);
-        if (listing.portal_ref || listing.portal_url) listings.push(listing);
+        // Only real listings: a valid numeric ref AND a listing URL. This drops the
+        // developer/sponsored shells that would otherwise POST a null url / malformed
+        // ref and 500 the batch. Dedup by the RESOLVED ref (promoted + regular tile
+        // for the same listing collapse to one).
+        if (!listing.portal_ref || !listing.portal_url) return;
+        if (seen.has(listing.portal_ref)) return;
+        seen.add(listing.portal_ref);
+        listings.push(listing);
       } catch (e) { /* skip */ }
     });
 
-    return listings.filter(l => l.address && l.address !== 'Address not available' && l.address.trim().length > 0);
+    // PULL-ALL (v3.1.4): capture EVERY listing with a portal identity, addressed or
+    // not. Previously this dropped address-less tiles here (the real bug behind
+    // "0 address-less captured"); now they survive with a null address.
+    return listings.filter(l => l.portal_ref || l.portal_url);
   }
 
   // ══════════════════════════════════════════════════════════
@@ -313,12 +360,7 @@
     if (!property.title) { const el = document.querySelector('meta[property="og:title"]'); if (el) property.title = el.getAttribute('content'); }
 
     if (!property.price) {
-      const priceEl = document.querySelector('.p24_price');
-      if (priceEl) {
-        const ca = priceEl.getAttribute('content');
-        if (ca) property.price = parseInt(ca, 10);
-        else { const c = priceEl.textContent.replace(/[^\d]/g, ''); if (c.length >= 4) property.price = parseInt(c, 10); }
-      }
+      property.price = p24PriceFrom(document);
     }
 
     // Description — try multiple sources (P24 renders description dynamically)

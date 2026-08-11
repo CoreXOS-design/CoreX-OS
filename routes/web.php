@@ -1225,6 +1225,17 @@ Route::middleware(['auth'])->group(function () {
 
     Route::get('/admin/performance', [\App\Http\Controllers\Admin\PerformanceController::class, 'index'])->middleware('permission:view_performance')->name('admin.performance');
     Route::get('/admin/branch/{branchId}/performance', [\App\Http\Controllers\Admin\BranchPerformanceController::class, 'index'])->middleware('permission:view_performance')->name('admin.branch.performance');
+
+    // AT-366 — Agency Performance & ROI report (per-agent → branch → company, any period).
+    Route::get('/corex/performance/agency-report', [\App\Http\Controllers\Performance\AgencyPerformanceReportController::class, 'index'])
+        ->middleware('permission:view_performance')->name('performance.agency-report');
+    // AT-366-D — branch drill-down (branch rollup + prior-period trend + its agents).
+    Route::get('/corex/performance/agency-report/branch/{branch}', [\App\Http\Controllers\Performance\AgencyPerformanceReportController::class, 'branch'])
+        ->where('branch', '[0-9]+|unassigned')
+        ->middleware('permission:view_performance')->name('performance.agency-report.branch');
+    // AT-366-C — single-agent journey drill-down (metrics + prior-period trend).
+    Route::get('/corex/performance/agency-report/agent/{user}', [\App\Http\Controllers\Performance\AgencyPerformanceReportController::class, 'agent'])
+        ->middleware('permission:view_performance')->name('performance.agency-report.agent');
           Route::get('/bm/worksheet-market', [\App\Http\Controllers\BM\WorksheetMarketController::class, 'index'])
           ->middleware('permission:access_worksheet_market')->name('bm.worksheet.market');
       Route::post('/bm/worksheet-market', [\App\Http\Controllers\BM\WorksheetMarketController::class, 'save'])
@@ -1743,6 +1754,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::put('/buyers/{contact}/wishlists/{match}', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'updateWishlist'])->name('command-center.buyers.wishlists.update');
         Route::post('/buyers/{contact}/wishlists/{match}/primary', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'setWishlistPrimary'])->name('command-center.buyers.wishlists.primary');
         Route::post('/buyers/{contact}/wishlists/{match}/archive', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'archiveWishlist'])->name('command-center.buyers.wishlists.archive');
+        // AT-363 — lazy per-wishlist match grid for the Wishlists tab's inline accordion.
+        Route::get('/buyers/{contact}/wishlists/{match}/matches', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'wishlistMatches'])->name('command-center.buyers.wishlists.matches');
 
         Route::post('/buyers/{contact}/playbook-action', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'markPlaybookAction'])->name('command-center.buyers.playbook-action');
         Route::post('/buyers/{contact}/mark-lost', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'markLost'])->name('command-center.buyers.mark-lost');
@@ -2104,6 +2117,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{submission}/pdf', [\App\Http\Controllers\Compliance\FicaController::class, 'downloadPdf'])->name('pdf');
         Route::post('/{submission}/agent-approve', [\App\Http\Controllers\Compliance\FicaController::class, 'agentApprove'])->name('agent-approve');
         Route::post('/{submission}/tfs-screen', [\App\Http\Controllers\Compliance\FicaController::class, 'screenTfs'])->name('tfs-screen');
+        Route::post('/{submission}/tfs-force-download', [\App\Http\Controllers\Compliance\FicaController::class, 'tfsForceDownload'])->name('tfs-force-download');
         Route::post('/{submission}/tfs-decision', [\App\Http\Controllers\Compliance\FicaController::class, 'tfsDecision'])->name('tfs-decision');
         Route::post('/{submission}/tfs-report', [\App\Http\Controllers\Compliance\FicaController::class, 'tfsReport'])->name('tfs-report');
         Route::get('/{submission}/compliance-review', [\App\Http\Controllers\Compliance\FicaController::class, 'complianceReview'])->name('compliance-review');
@@ -3298,6 +3312,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::put('/{contact}/matches/{match}',                       [\App\Http\Controllers\CoreX\ContactMatchController::class, 'update'])->name('matches.update');
         Route::post('/{contact}/matches/{match}/status',               [\App\Http\Controllers\CoreX\ContactMatchController::class, 'setStatus'])->name('matches.setStatus');
         Route::get('/{contact}/matches/{match}/results',               [\App\Http\Controllers\CoreX\ContactMatchController::class, 'results'])->name('matches.results');
+        // Print / Download PDF — the resolved wishlist property list as a clean A4 sheet for appointment rounds.
+        Route::get('/{contact}/matches/{match}/print',                 [\App\Http\Controllers\CoreX\ContactMatchController::class, 'printList'])->name('matches.print');
         Route::post('/{contact}/matches/{match}/hide/{property}',      [\App\Http\Controllers\CoreX\ContactMatchController::class, 'toggleHide'])->name('matches.toggleHide');
         Route::post('/{contact}/matches/{match}/convert/{property}',   [\App\Http\Controllers\CoreX\ContactMatchController::class, 'convertToDeal'])->middleware('permission:core_matches.convert_to_deal')->name('matches.convertToDeal');
         Route::delete('/{contact}/matches/{match}',                    [\App\Http\Controllers\CoreX\ContactMatchController::class, 'destroy'])->name('matches.destroy');

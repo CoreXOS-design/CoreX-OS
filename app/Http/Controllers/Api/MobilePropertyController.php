@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\Document;
+use App\Models\FicaSubmission;
 use App\Models\Property;
 use App\Models\PropertySellerLink;
 use App\Models\PropertySettingItem;
@@ -973,8 +974,9 @@ class MobilePropertyController extends Controller
             ->wherePivotIn('role', ['owner', 'seller', 'landlord', 'lessor'])
             ->get()
             ->map(function (Contact $c) {
-                $latest = DB::table('fica_submissions')
-                    ->where('contact_id', $c->id)
+                $latest = FicaSubmission::applyGenuineRecordFilter(
+                    DB::table('fica_submissions')->where('contact_id', $c->id)
+                )
                     ->orderByDesc('id')
                     ->value('status');
 
@@ -1131,8 +1133,9 @@ class MobilePropertyController extends Controller
         $this->authorizeProperty($request->user(), $property);
 
         $contacts = $property->contacts()->get()->map(function (Contact $c) {
-            $fica = DB::table('fica_submissions')
-                ->where('contact_id', $c->id)
+            $fica = FicaSubmission::applyGenuineRecordFilter(
+                DB::table('fica_submissions')->where('contact_id', $c->id)
+            )
                 ->orderByDesc('id')
                 ->value('status');
 
