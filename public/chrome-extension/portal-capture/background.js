@@ -500,7 +500,9 @@ async function fetchPageWithRetry(url, portal) {
 async function sendBatchToApi(listings, context) {
   const payload = {
     source: capture.portal,
-    search_context: context,
+    // Snapshot the context at send time — intermediate (partial) batches must never
+    // pick up a capture_complete flag set later for the final batch (shared-ref race).
+    search_context: { ...context },
     listings: listings,
   };
 
@@ -600,6 +602,9 @@ async function runCaptureLoop(startPage) {
     total_results:  capture.totalResults || 0,
     pages_captured: 0,
     captured_at:    new Date().toISOString(),
+    // MIC SUBURB RECONCILE — false on every partial/intermediate batch; set true ONLY on
+    // the final batch below when the WHOLE suburb was captured (all pages, none skipped).
+    capture_complete: false,
   };
 
   try {
@@ -662,8 +667,10 @@ async function runCaptureLoop(startPage) {
 
       context.pages_captured = p;
 
-      // Batch send every 100 listings
-      if (capture.pendingListings.length >= 100) {
+      // Batch send every 100 listings — but NEVER flush on the last page: hold its
+      // listings for the final (capture_complete) batch so a complete capture always
+      // ends with a flagged non-empty send the server can reconcile against.
+      if (capture.pendingListings.length >= 100 && p < capture.totalPages) {
         const batch = capture.pendingListings.splice(0, capture.pendingListings.length);
         if (batch.length > 0) {
           sendBatchToApi(batch, context);
@@ -682,6 +689,13 @@ async function runCaptureLoop(startPage) {
     if (capture.pendingListings.length > 0 && !capture.cancelled) {
       const batch = capture.pendingListings.splice(0, capture.pendingListings.length);
       context.pages_captured = capture.currentPage;
+      // MIC SUBURB RECONCILE — mark this a COMPLETE suburb capture ONLY when every page was
+      // walked, none was skipped/failed (parseWarnings === 0), and it wasn't cancelled. The
+      // server retires listings gone from the suburb ONLY when this flag is true — a partial
+      // capture (skipped page / cancel) leaves it false so nothing is wrongly retired.
+      context.capture_complete = !capture.cancelled
+        && capture.parseWarnings === 0
+        && capture.currentPage >= capture.totalPages;
       await sendBatchToApi(batch, context);
     }
 

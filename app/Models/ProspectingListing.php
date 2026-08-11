@@ -48,6 +48,8 @@ class ProspectingListing extends Model
         'portal_status',
         'portal_status_changed_at',
         'off_market_at',
+        // MIC SUBURB RECONCILE (cc2) — the capture session that last saw this listing
+        'last_search_id',
     ];
 
     protected $casts = [
@@ -61,6 +63,7 @@ class ProspectingListing extends Model
         'tracked_property_id'   => 'integer',
         'portal_status_changed_at' => 'datetime',
         'off_market_at'            => 'datetime',
+        'last_search_id'           => 'integer',
     ];
 
     // ── Portal lifecycle status (MIC SOLD / OFF-MARKET + REF-TRACKING) ──

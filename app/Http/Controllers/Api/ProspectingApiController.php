@@ -26,6 +26,9 @@ class ProspectingApiController extends Controller
             'search_context.search_term'   => 'required|string',
             'search_context.total_results' => 'required|integer',
             'search_context.pages_captured'=> 'required|integer',
+            // MIC SUBURB RECONCILE — true ONLY on the extension's final batch when the WHOLE
+            // suburb was captured (all pages, none skipped). Absent/false on partial batches.
+            'search_context.capture_complete' => 'nullable|boolean',
             'listings'                     => 'required|array|min:1',
             'listings.*.portal_ref' => 'nullable|string',
             'listings.*.address'           => 'nullable|string',
@@ -145,6 +148,8 @@ class ProspectingApiController extends Controller
 
             if ($existing) {
                 $existing->last_seen_at = $now;
+                // MIC SUBURB RECONCILE — stamp the capture session that saw it (cross-batch marker).
+                $existing->last_search_id = $search->id;
 
                 // MIC SOLD / OFF-MARKET — drive is_active off the portal status when the
                 // extension reports one. Off-market (sold/under-offer/withdrawn) drops it
@@ -253,6 +258,8 @@ class ProspectingApiController extends Controller
                     'mandate_type'        => $data['mandate_type'] ?? null,
                     'first_seen_at'       => $now,
                     'last_seen_at'        => $now,
+                    // MIC SUBURB RECONCILE — capture session that first saw it.
+                    'last_search_id'      => $search->id,
                     // MIC SOLD / OFF-MARKET — a listing first seen already off-market
                     // (badged sold/under-offer) never enters the pool. No cache to purge
                     // on a brand-new row. NULL status = legacy active.
@@ -313,6 +320,26 @@ class ProspectingApiController extends Controller
             }
         }
 
+        // MIC SUBURB RECONCILE — when this is the FINAL batch of a COMPLETE suburb capture
+        // (all pages, none skipped — the extension's `capture_complete` flag), mark any
+        // still-active listing in the captured suburb(s) that this fresh capture did NOT
+        // include as no-longer-available (SOFT: is_active=false + portal_status=withdrawn,
+        // row kept). NEVER runs on a partial/paginated batch — the flag is only set once the
+        // extension has walked every page cleanly. Failure-isolated: reconcile must never
+        // break the ingest response.
+        $reconcile = null;
+        if (! empty($context['capture_complete'])) {
+            try {
+                $reconcile = app(\App\Services\Prospecting\SuburbReconcileService::class)
+                    ->reconcile($agencyId, $portalSource, $search);
+            } catch (\Throwable $e) {
+                Log::warning('MIC suburb reconcile failed (swallowed)', [
+                    'search_id' => $search->id,
+                    'message'   => $e->getMessage(),
+                ]);
+            }
+        }
+
         // GEO-SCRAPE — dispatch ONE async geocode job for the batch. The job
         // filters down to TPs that actually need GPS, then resolves up to the
         // daily cap. Always wrapped in try/catch: a queue-dispatch hiccup
@@ -339,6 +366,12 @@ class ProspectingApiController extends Controller
             'updated'  => $updated,
             'skipped'  => $skippedBadRows,
             'total'    => $imported + $updated,
+            // Non-null only on the final batch of a complete suburb capture.
+            'reconcile' => $reconcile ? [
+                'suburbs' => $reconcile['suburbs'],
+                'present' => $reconcile['present'],
+                'retired' => $reconcile['retired'],
+            ] : null,
         ]);
     }
 
