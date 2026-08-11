@@ -791,6 +791,9 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
 
 // ===== PROFORMA INVOICES — view/download + ADMIN-ONLY overrides + settings =====
 Route::prefix('proforma')->middleware('auth')->name('proforma.')->group(function () {
+    // Admin/agent-facing list — registered before the {invoice} wildcard so
+    // GET /proforma never gets swallowed by the numeric-invoice route below.
+    Route::get('/',                   [\App\Http\Controllers\Proforma\ProformaController::class, 'index'])->middleware('permission:proforma.view')->name('index');
     Route::get('/{invoice}',          [\App\Http\Controllers\Proforma\ProformaController::class, 'show'])->whereNumber('invoice')->middleware('permission:proforma.generate')->name('show');
     Route::get('/{invoice}/download', [\App\Http\Controllers\Proforma\ProformaController::class, 'download'])->whereNumber('invoice')->middleware('permission:proforma.generate')->name('download');
     // Admin-only (permission re-checked in the controller too).

@@ -898,6 +898,11 @@
                 <a href="{{ route('agent.listings') }}" class="corex-nav-subitem {{ request()->routeIs('agent.listings*') ? 'active' : '' }}">My Listing Stock</a>
                 @endpermission
 
+                {{-- Proforma Invoice list — own/branch/all scoped via proforma.view (Role Manager) --}}
+                @permission('proforma.view')
+                <a href="{{ route('proforma.index') }}" class="corex-nav-subitem {{ request()->routeIs('proforma.index') ? 'active' : '' }}">Proforma Invoices</a>
+                @endpermission
+
                 {{-- Agent section (view own stats) --}}
                 @permission('view_own_stats')
                 <div class="corex-nav-sublabel">My Performance</div>

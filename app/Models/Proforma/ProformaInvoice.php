@@ -68,6 +68,43 @@ class ProformaInvoice extends Model
         return $this->status === self::STATUS_VOIDED;
     }
 
+    /**
+     * Admin proforma list scoping — mirrors Deal::scopeVisibleTo() (same own/branch/all
+     * shape, same deal_user pivot join since ProformaInvoice has no direct agent/branch
+     * column of its own). Reads 'proforma.view' via PermissionService::getDataScope().
+     */
+    public function scopeVisibleTo($query, User $user)
+    {
+        $scope = \App\Services\PermissionService::getDataScope($user, 'proforma');
+
+        if ($scope === 'all') {
+            return $query;
+        }
+
+        if ($scope === 'branch') {
+            return $query->whereIn('deal_id', function ($sub) use ($user) {
+                $sub->select('deal_user.deal_id')
+                    ->from('deal_user')
+                    ->join('users', 'users.id', '=', 'deal_user.user_id')
+                    ->where('users.branch_id', $user->effectiveBranchId())
+                    ->distinct();
+            });
+        }
+
+        if ($scope === 'own') {
+            return $query->where(function ($q) use ($user) {
+                $q->where('created_by_id', $user->id)
+                  ->orWhereIn('deal_id', function ($sub) use ($user) {
+                      $sub->select('deal_id')
+                          ->from('deal_user')
+                          ->where('user_id', $user->id);
+                  });
+            });
+        }
+
+        return $query->whereRaw('1 = 0');
+    }
+
     /** Recompute the header totals from the current (non-trashed) lines. */
     public function recalcTotals(): void
     {
