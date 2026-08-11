@@ -106,6 +106,28 @@
         if (el && typeof html === 'string') el.innerHTML = html;
     }
 
+    // Race guard (Johan): only ONE tick refresh may be in flight. Ticking two
+    // filters quickly used to lose the second — it fetched against pre-refresh
+    // state and the last swap won. Now, while a refresh is in flight, every tick
+    // is disabled + greyed so it can't be clicked; the successful swap re-renders
+    // fresh (enabled) ticks the instant it completes, and inFlight is cleared.
+    var inFlight = false;
+
+    function lockTicks(clicked) {
+        document.querySelectorAll('a.mic-tick').forEach(function (t) {
+            t.style.pointerEvents = 'none';          // un-clickable
+            t.setAttribute('aria-disabled', 'true');
+            t.style.opacity = (t === clicked) ? '0.65' : '0.4'; // clicked keeps its cue; others greyed
+        });
+    }
+    function unlockTicks() {
+        document.querySelectorAll('a.mic-tick').forEach(function (t) {
+            t.style.pointerEvents = '';
+            t.removeAttribute('aria-disabled');
+            t.style.opacity = '';
+        });
+    }
+
     document.addEventListener('click', function (e) {
         var a = e.target.closest ? e.target.closest('a.mic-tick') : null;
         if (!a) return;
@@ -114,14 +136,20 @@
         if (!document.getElementById('mic-slot-listings')) return;
         e.preventDefault();
 
+        // A refresh is already running — ignore this click (belt-and-suspenders
+        // alongside the greyed pointer-events:none lock below).
+        if (inFlight) return;
+        inFlight = true;
+
         var href  = a.getAttribute('href');
         var wasOn = a.getAttribute('data-active') === '1';
 
-        // Optimistic: flip this tick's glyph + show "updating…" + lock re-clicks.
+        // Optimistic: flip this tick's glyph + show "updating…", then lock ALL
+        // ticks (disable + grey the others) until the refresh completes.
         setGlyph(a.querySelector('.mic-tick-box'), !wasOn);
         var spin = a.querySelector('.mic-tick-spin');
         if (spin) spin.style.display = 'inline';
-        a.style.opacity = '0.65';
+        lockTicks(a);
 
         var url = href + (href.indexOf('?') === -1 ? '?' : '&') + '_fragments=1';
         fetch(url, {
@@ -134,12 +162,17 @@
             swap('mic-slot-stats',          d.statsStrip);
             swap('mic-slot-filter-rail',    d.filterRail);
             swap('mic-slot-header-actions', d.headerActions);
+            // Fresh header-actions come back enabled; if it wasn't returned for any
+            // reason, re-enable the in-place ticks so they never stay stuck greyed.
+            if (!d.headerActions) unlockTicks();
             if (d.url && window.history && window.history.pushState) {
                 window.history.pushState({ micTick: true }, '', d.url);
             }
+            inFlight = false;
         })
         .catch(function () {
             // Any failure → normal full navigation so a tick is never a dead click.
+            inFlight = false;
             window.location.href = href;
         });
     });
