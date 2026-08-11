@@ -726,21 +726,41 @@ final class EntryPointController extends Controller
         if ($address === '' && $overrideAddress !== null) {
             $address = trim($overrideAddress);
         }
+        // The legacy "Address not available" placeholder is NOT an address — fold
+        // it to empty so it can never dedupe against, nor be stored on, a property.
+        if (strtolower($address) === 'address not available') {
+            $address = '';
+        }
         $suburb  = trim((string) ($listing->suburb ?? ''));
         $normalised = trim(strtolower((string) ($listing->normalized_address ?? $address)));
 
+        // Ramsgate bug fix — disambiguate by the listing's OWN source-ref FIRST.
+        // 'prospecting:{id}' is unique per listing, so re-promoting the same listing
+        // reuses ITS property and two DIFFERENT listings never collide.
         $existing = Property::withoutGlobalScopes()
             ->where('agency_id', $agencyId)
             ->whereNull('deleted_at')
-            ->where(function ($q) use ($address, $normalised, $listing) {
-                $q->where('external_id', 'prospecting:' . $listing->id)
-                  ->orWhere('address', $address)
-                  ->orWhereRaw('LOWER(TRIM(address)) = ?', [$normalised]);
-            })
-            ->when($suburb !== '', fn ($q) => $q->where(function ($qq) use ($suburb) {
-                $qq->where('suburb', $suburb)->orWhereNull('suburb');
-            }))
+            ->where('external_id', 'prospecting:' . $listing->id)
             ->first();
+
+        // Only when there is NO source-ref match AND we hold a REAL address may we
+        // dedupe by address. An empty address must NEVER match — that empty-address
+        // collapse is what landed a no-address Pitch Now on the wrong property.
+        // Addressless listings therefore always create their OWN property (keyed
+        // by external_id), never collapsing onto an existing addressless one.
+        if (!$existing && $address !== '') {
+            $existing = Property::withoutGlobalScopes()
+                ->where('agency_id', $agencyId)
+                ->whereNull('deleted_at')
+                ->where(function ($q) use ($address, $normalised) {
+                    $q->where('address', $address)
+                      ->orWhereRaw('LOWER(TRIM(address)) = ?', [$normalised]);
+                })
+                ->when($suburb !== '', fn ($q) => $q->where(function ($qq) use ($suburb) {
+                    $qq->where('suburb', $suburb)->orWhereNull('suburb');
+                }))
+                ->first();
+        }
         if ($existing) {
             // Heal a property promoted before this fix (or any reuse) that
             // has no structured street — only when BOTH are empty, so a
@@ -895,6 +915,21 @@ final class EntryPointController extends Controller
                 $lat = $tpGps->latitude !== null ? (float) $tpGps->latitude : null;
                 $lng = $tpGps->longitude !== null ? (float) $tpGps->longitude : null;
             }
+        }
+
+        // Ramsgate bug fix — addressless collision guard. A listing with NO usable
+        // locating key (no real street address AND no GPS) cannot be safely matched
+        // to an existing property: the map resolver falls back to empty-address /
+        // suburb-only matching and collapses DIFFERENT addressless listings onto the
+        // same wrong property (Johan's test: a no-address Pitch Now "opened" property
+        // 2427 "6 Kerk Street"). With nothing to collide on, skip collision resolution
+        // and proceed straight to capture, so THIS listing gets its own correct property.
+        $addr = trim((string) ($listing->address ?? ''));
+        $hasRealAddress = $addr !== '' && strtolower($addr) !== 'address not available';
+        $hasGps = $lat !== null && $lng !== null;
+        if (!$hasRealAddress && !$hasGps) {
+            $this->fireMicProspectLaunched($listing, $agencyId, $currentUserId);
+            return null;
         }
 
         $facts = [
