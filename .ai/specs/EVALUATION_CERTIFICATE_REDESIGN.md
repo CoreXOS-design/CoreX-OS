@@ -79,8 +79,24 @@ Deps landed (cc3 `26e133ce` model+migration, cc6 `9adcb4a2` dompdf view + Downlo
 - **Verified:** `tests/Feature/Tools/EvaluationCertificateSignTest.php` — 6 passed / 21 assertions.
 - Front-end note: eval-cert is **saved-signature-only, no markers**, so I reused the saved-sig *machinery* (`AgentSignatureService` + `signature.*` endpoints, contextKey `evalcert:{id}`) rather than mounting the marker/draw `_capture-modal` verbatim (its Draw/Type/`activeMarker` shape doesn't fit a no-marker one-click place). The sign endpoint accepts the PIN inline (`verifyPinAndUnlock`) — a focused PIN confirm is the correct host UI. Flag if you want the literal `_capture-modal` instead.
 
-### ⚠️ BLOCKERS / FLAGS from cc1 (Phase 4) — need owner decisions
+### cc1 — full /tools/cma screen + persist + Share LANDED (commits `4047a51d`, `e6a6ba26`) — 13 Aug 2026
 
-1. **No certificate SAVE/PERSIST endpoint exists** — the phase plan assigns cc3=model+search+link, cc6=dompdf+Share/Print/Download, cc1=sign, cc5=queue/filing — but **nobody owns "save the form → create an `evaluation_certificates` row."** There is no `EvaluationCertificate::create` anywhere and `tools.blade.php` has ZERO evaluation references (the /tools/cma screen is still the old client-side CMA generator, un-wired to any of this). Consequence: my sign endpoint is verified against DB-created certs, but **an agent cannot yet reach it from the browser** because there is no persisted cert and no screen wiring. **Who builds the save endpoint + the screen wiring (property-search UI, contact-link UI, Save, Share/Print/Download buttons, and the Sign trigger)?** This is the one thing standing between "mechanism verified" and "end-to-end in the browser." (cc1's sign trigger is a single button POSTing to `tools.cma.evaluation.sign` with the PIN — trivial to drop in once the screen is wired; happy to add it, but the surrounding save/screen is not my lane.)
+Johan assigned cc1 the last-mile (persist endpoint + screen wiring) — BLOCKER #1 below is now RESOLVED. The old client-side CMA generator is replaced by the real Evaluation Certificate builder on `/tools/cma`.
+
+Final route surface (all `permission:access_calculators` unless noted):
+- `POST tools.cma.evaluation.store` / `PUT tools.cma.evaluation.update` — persist (cc1). Agency-scoped; property/contact links re-checked against agency visibility; a signed cert is immutable (409).
+- `GET tools.cma.evaluation.share-meta` — linked contact's deep-link WA number + 30-day temporary SIGNED public URL + message.
+- `GET tools.cma.evaluation.public/{certificate}` — **public, `signed` middleware, no auth** — the client-openable cert (Download is agent-only). Streams filed signed PDF else preview.
+- (existing) `search-properties`, `property-contact`, `search-contacts`, `contact-inline` (cc3); `download` (cc6); `sign` (cc1 Phase 4).
+
+Screen (Alpine `evalCert()` in `tools.blade.php`): property typeahead→prefill EDITABLE fields + auto-link seller/owner contact; manual capture; contact search + inline match-or-create; Save persists; **Sign** (PIN modal → `tools.cma.evaluation.sign`, full-status only, candidate/not-configured messaged); Download (cc6); Print (cc6 inline PDF); **Share** (WhatsApp did-you-send, AT-323 model, reuses `corex.contacts.increment` + `whatsapp-send-confirm-modal`). Terminology scrubbed to "evaluation".
+
+Cross-cutting fix landed here: the cert's linked contact resolves via an **agency-scoped resolver that bypasses the personal `ContactScope`** — an auto-linked seller/owner (created by someone else) must still show for Share + on the filed/shared PDF (applied in `sign` + `publicView` render). cc6's `download()` preview still reads `$certificate->contact` raw — if you want the contact name guaranteed on the unsigned preview too, apply the same resolver there.
+
+Verified: `EvaluationCertificateScreenTest` 10/10 + `EvaluationCertificateSignTest` 6/6.
+
+### ⚠️ REMAINING FLAGS from cc1 (Phase 4) — need owner decisions
+
+1. ~~No certificate SAVE/PERSIST endpoint~~ — **RESOLVED**: Johan assigned cc1 the last-mile; `store`/`update` + the full screen are built (see section above). End-to-end in the browser now works.
 2. **`signed_at` column absent** — cc3's table has no `signed_at`/`authorised_at`/`filed_at` (the proposed contract had them). cc1 relies on `updated_at` + `status`. cc5 (Phase 4b/5) likely wants explicit `signed_at`/`authorised_at`/`filed_at` for the queue + POPIA trail — flag to cc3 if so.
 3. **cc6 dompdf render fetches a remote font** (`isRemoteEnabled=true`) — in a no-network env the render blocks ~200s until timeout (seen in test). QA1 has network so it's fast there, but for determinism/latency cc6 may want to embed the font locally. cc6's render path — reporting, not changing.
