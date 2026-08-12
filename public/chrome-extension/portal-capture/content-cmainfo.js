@@ -8,18 +8,21 @@
  * OUT OF SCOPE for phase 1) as plain HTML <table> label→value rows. There is
  * no JSON API — everything is read from the rendered DOM.
  *
- * SCAFFOLD STATUS (2026-08-12):
+ * SCAFFOLD STATUS (2026-08-12, updated for cc1's real contract):
  *   - Field extraction is WIRED to Johan's confirmed field labels (label-
  *     driven, not hard selectors — see findValueByLabel()). This should work
  *     against the real page largely as-is.
  *   - Accordion-expand + "view owner's ID" reveal are BEST-EFFORT generic
  *     implementations (no exact selector confirmed yet) — Johan will tune
- *     these against a live page load.
- *   - The POST payload shape (buildDraftPayload()) is a DRAFT — cc1 owns the
- *     real contract for POST /api/deeds-capture. Do not treat field names in
- *     the draft payload as final; only extractPropertyInformation() /
- *     extractSaleInformation()'s OWN keys are meant to be stable, since they
- *     mirror Johan's confirmed label list.
+ *     these against a live page load. STILL OPEN.
+ *   - The POST payload (buildDeedsCapturePayload()) is now ALIGNED to cc1's
+ *     real, shipped contract: POST /api/v1/deeds-capture (Sanctum bearer),
+ *     verified against DeedsCaptureController::store()'s actual validation
+ *     rules, not just the spec doc. See .ai/specs/deeds-capture.md §2 and the
+ *     mapping notes above buildDeedsCapturePayload() for every field that
+ *     needed a judgment call (title_deed_number's placement, complex_name,
+ *     erf_number/street_number/street_name being unavailable from the
+ *     current label list, the source_ref stability fallback chain).
  *
  * Mirrors the existing portal-capture sources' shape (content-p24-detail.js,
  * content-pp.js) as closely as an ASP.NET WebForms accordion tool allows:
@@ -42,8 +45,9 @@
   // ── FIELD LABELS (confirmed by Johan, 2026-08-12) ─────────
   // ══════════════════════════════════════════════════════════
   // Exact label text as shown on the CMA panel. Keys are the snake_case
-  // names the extracted objects use — NOT necessarily the final POST
-  // payload keys (see buildDraftPayload()).
+  // names the extracted objects use — these get MAPPED (renamed/routed,
+  // not always 1:1) onto cc1's actual payload field names inside
+  // buildDeedsCapturePayload() below.
 
   const PROPERTY_INFORMATION_LABELS = [
     ['deeds_office',    'Deeds Office'],
@@ -337,24 +341,176 @@
     return {
       property_information: property,
       sale_information: sale,
-      is_sectional: !!property.section_number,
-      captured_url: window.location.href,
-      captured_at: new Date().toISOString(),
     };
   }
 
   // ══════════════════════════════════════════════════════════
-  // ── DRAFT PAYLOAD (cc1 owns the real contract — see file header) ──
+  // ── VALUE PARSERS (raw CMA text → the typed shape cc1's validator wants) ──
   // ══════════════════════════════════════════════════════════
-  function buildDraftPayload(deed) {
+  // cc1's contract (.ai/specs/deeds-capture.md §2, verified against
+  // DeedsCaptureController::store()'s actual validation rules) wants
+  // numerics/dates/coordinates as real typed values, not the raw display
+  // strings CMA renders. These are best-effort — flagged where the exact
+  // CMA format needs Johan's live-page confirmation.
+
+  function parseCurrency(v) {
+    if (v == null) return null;
+    const digits = String(v).replace(/[^\d.,-]/g, '').replace(/,/g, '');
+    const n = parseFloat(digits);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function parseNumeric(v) {
+    if (v == null) return null;
+    const m = String(v).match(/[\d,.]+/);
+    if (!m) return null;
+    const n = parseFloat(m[0].replace(/,/g, ''));
+    return Number.isFinite(n) ? n : null;
+  }
+
+  // TODO(johan): assumes SA display convention DD/MM/YYYY — confirm against
+  // a live page (CMA may already render ISO, or DD-Mon-YYYY, etc.).
+  function parseSaDate(v) {
+    if (!v) return null;
+    const s = String(v).trim();
+    let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+    if (m) {
+      const [, d, mo, y] = m;
+      return y + '-' + mo.padStart(2, '0') + '-' + d.padStart(2, '0');
+    }
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10); // already ISO
+    return s; // unrecognised shape — pass through and let the server's date
+              // validator reject it loudly rather than silently drop it
+  }
+
+  // TODO(johan): confirm CMA's actual "GPS" field format live — this assumes
+  // "lat, lng" decimal degrees and sanity-bounds to South Africa so a
+  // misparse fails closed (null) instead of sending a wrong coordinate.
+  function parseGps(v) {
+    if (!v) return { lat: null, lng: null };
+    const nums = String(v).match(/-?\d+\.\d+/g);
+    if (!nums || nums.length < 2) return { lat: null, lng: null };
+    const lat = parseFloat(nums[0]);
+    const lng = parseFloat(nums[1]);
+    const validLat = lat >= -35 && lat <= -22;
+    const validLng = lng >= 16 && lng <= 33;
+    return { lat: validLat ? lat : null, lng: validLng ? lng : null };
+  }
+
+  // owner.id_type is "sa_id" | "company_reg" | null per cc1's contract — CMA
+  // has no separate "ID Type" label, so this is inferred from the ID
+  // string's shape: a 13-digit number is an SA ID; a CIPC-style
+  // YYYY/NNNNNN/NN is a company registration. Anything else -> null (the
+  // server accepts null; better than guessing wrong).
+  function classifyOwnerIdType(idNumber) {
+    if (!idNumber) return null;
+    const trimmed = String(idNumber).trim();
+    if (/^\d{13}$/.test(trimmed.replace(/\s+/g, ''))) return 'sa_id';
+    if (/^\d{4}\/\d{6}\/\d{2}$/.test(trimmed)) return 'company_reg';
+    return null;
+  }
+
+  /**
+   * source_ref MUST be stable per property (cc1's idempotency + match-or-
+   * create key) — capturing the same property twice must produce the same
+   * ref. None of Johan's confirmed field labels give us a page-native stable
+   * ID (the CMA URL itself doesn't encode one either — it's a search/click
+   * state, not a per-property URL). Best available fallback chain, in order
+   * of how stable each candidate actually is:
+   *   1. Title Deed number — a genuine deeds-registry identifier.
+   *   2. Scheme number + section number — stable for a sectional unit.
+   *   3. The rendered address / "Situated at" text.
+   *   4. A timestamp — LAST resort; NOT idempotent (each capture creates a
+   *      new tracked_property). Flagged loudly so it's never silently relied on.
+   * TODO(johan): confirm live whether CMA exposes anything more stable (a
+   * hidden deeds reference, a query param, etc.) — would let us drop #3/#4.
+   */
+  function buildSourceRef(deed) {
+    const p = deed.property_information;
+    const s = deed.sale_information;
+    let candidate = s.title_deed
+      || (p.scheme_number && p.section_number ? (p.scheme_number + '-' + p.section_number) : null)
+      || p.address
+      || p.situated_at
+      || null;
+    let stable = true;
+    if (!candidate) {
+      candidate = 'unref-' + Date.now();
+      stable = false;
+    }
+    const ref = 'cmainfo:' + candidate.toString().trim().replace(/\s+/g, '-').toLowerCase();
+    return { ref: ref, stable: stable };
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // ── PAYLOAD — aligned to cc1's contract (.ai/specs/deeds-capture.md §2) ──
+  // ══════════════════════════════════════════════════════════
+  // Field-by-field mapping notes (see the spec addendum for the full list):
+  //   - title_deed_number lives under PROPERTY in cc1's schema, even though
+  //     Johan's page shows "Title Deed" inside the SALE INFORMATION section —
+  //     extraction location on the page vs. payload placement are different
+  //     things; routed correctly here.
+  //   - complex_name has no distinct CMA label — populated from the same
+  //     "Scheme name" value as scheme_name (SA sectional-title convention:
+  //     the scheme name IS the complex name). Flagged for Johan to confirm,
+  //     not a guess I'm otherwise unsure of.
+  //   - erf_number, street_number, street_name: NOT populated — no CMA label
+  //     was given for these. address carries the full combined string
+  //     instead (a valid field in cc1's schema on its own). Flagged as an
+  //     open item, not silently dropped.
+  function buildDeedsCapturePayload(deed) {
+    const p = deed.property_information;
+    const s = deed.sale_information;
+    const gps = parseGps(p.gps);
+    const { ref: sourceRef, stable: sourceRefStable } = buildSourceRef(deed);
+
+    // Diagnostic only — logged, never sent (cc1's contract has no field for
+    // this; smuggling an undocumented key into the payload isn't "matching
+    // the contract"). onCaptureClick() surfaces it in the on-page status too.
+    if (!sourceRefStable) {
+      console.warn('[CoreX] deeds-capture: no stable identifier found on this page — using a timestamp fallback. Re-capturing this property will create a DUPLICATE tracked_property, not update the existing one.');
+    }
+
     return {
       source: 'cmainfo',
-      // TODO(cc1): replace with the confirmed POST /api/deeds-capture
-      // contract. This is a reasonable placeholder shape only —
-      // property_information/sale_information's OWN keys (see the label
-      // maps above) are the stable part; how they nest/rename under the
-      // top-level payload is cc1's call.
-      deed: deed,
+      captures: [
+        {
+          source_ref: sourceRef,
+          property: {
+            deeds_office:      p.deeds_office,
+            scheme_name:       p.scheme_name,
+            scheme_number:     p.scheme_no,
+            section_number:    p.section_number,
+            erf_number:        null, // TODO(johan): no CMA label given yet
+            address:           p.address || p.situated_at || null,
+            street_number:     null, // TODO(johan): CMA gives one combined Address string
+            street_name:       null, // TODO(johan): — split these out if/when needed
+            unit_number:       p.flat_number,
+            complex_name:      p.scheme_name, // see mapping note above
+            suburb:            p.suburb,
+            municipality:      p.municipality,
+            province:          p.province,
+            latitude:          gps.lat,
+            longitude:         gps.lng,
+            section_extent_m2: parseNumeric(p.section_extent),
+            property_type:     p.type,
+            title_deed_number: s.title_deed, // routed from Sale Information — see mapping note above
+          },
+          owner: {
+            name:      s.owner,
+            id_number: s.owner_id_number,
+            id_type:   classifyOwnerIdType(s.owner_id_number),
+          },
+          sale: {
+            sale_price:       parseCurrency(s.sale_price),
+            sale_date:        parseSaDate(s.sale_date),
+            registered_date:  parseSaDate(s.registered_date),
+            bond_holder:      s.bond_holder,
+            bond_amount:      parseCurrency(s.bond_amount),
+            sale_type:        s.sale_type,
+          },
+        },
+      ],
     };
   }
 
@@ -428,7 +584,7 @@
 
     try {
       const deed = await extractDeed();
-      const payload = buildDraftPayload(deed);
+      const payload = buildDeedsCapturePayload(deed);
 
       setStatus('Sending to CoreX…', false);
 
@@ -443,8 +599,19 @@
       if (result && result.error) {
         setStatus('Failed: ' + result.error, true);
       } else {
-        setStatus('Captured ✓', false);
-        setTimeout(() => setStatus(null), 4000);
+        // cc1's contract: a 200 response can still carry a PER-ROW error
+        // (batch never hard-fails on one bad row) — results[0] is ours,
+        // since this extension always sends exactly one capture per click.
+        const row = result && Array.isArray(result.results) ? result.results[0] : null;
+        if (row && row.error) {
+          setStatus('Failed: ' + row.error, true);
+        } else if (row) {
+          setStatus((row.created ? 'Captured ✓ (new)' : 'Captured ✓ (enriched existing)'), false);
+          setTimeout(() => setStatus(null), 4000);
+        } else {
+          // Unexpected shape — surface it rather than claim silent success.
+          setStatus('Sent, but response shape was unexpected — check CoreX.', true);
+        }
       }
     } catch (e) {
       setStatus('Failed: ' + (e && e.message ? e.message : 'unknown error'), true);

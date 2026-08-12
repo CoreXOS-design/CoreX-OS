@@ -1044,16 +1044,24 @@ async function handlePullProperty(apiUrl, apiToken, property) {
 }
 
 // ── CMA Info deeds capture — send to CoreX ─────────────────
-// SCAFFOLD (2026-08-12): mirrors handlePullProperty()'s shape (single-item
-// POST, no durable queue — this is a one-off capture, not a paginated bulk
-// loop) with one deliberate difference: this is the only capture flow with
-// no popup step, so apiUrl/apiToken are read from chrome.storage.local HERE
-// rather than relayed in the message. The payload itself is a DRAFT —
-// /api/deeds-capture doesn't exist yet; cc1 owns the real contract. This
-// function's job is the transport (auth, error-kind distinction, endpoint),
-// not the payload shape — swap the URL/response handling to match cc1's
-// contract once it lands, the auth/error plumbing below should not need to
-// change.
+// Mirrors handlePullProperty()'s shape (single-item POST, no durable queue —
+// this is a one-off capture, not a paginated bulk loop) with one deliberate
+// difference: this is the only capture flow with no popup step, so
+// apiUrl/apiToken are read from chrome.storage.local HERE rather than
+// relayed in the message.
+//
+// Endpoint + auth verified against cc1's actual shipped code (not just the
+// spec doc) — routes/api.php nests deeds-capture inside the
+// auth:sanctum + prefix('v1') group, so the full path is
+// /api/v1/deeds-capture (note the /v1/ — this endpoint is NOT under the
+// same bare /api/... path the older /api/prospecting/import uses). Same
+// Bearer-token flow as every other capture source. The response shape is
+// { ok, results: [{ source_ref, tracked_property_id, owner_contact_id,
+// created, error? }] } — a 200 does NOT guarantee success for every row
+// (batch never hard-fails on one bad row); content-cmainfo.js's
+// onCaptureClick() is what checks results[0].error, not this function —
+// this function's job stays limited to transport (auth, error-kind
+// distinction, endpoint), same separation as every other handler here.
 async function handleCaptureDeed(payload) {
   const settings = await new Promise(resolve => {
     chrome.storage.local.get(['apiUrl', 'apiToken'], resolve);
@@ -1064,7 +1072,7 @@ async function handleCaptureDeed(payload) {
   }
 
   const apiUrl = (settings.apiUrl || 'https://www.corexos.co.za').replace(/\/+$/, '');
-  const url = apiUrl + '/api/deeds-capture'; // TODO(cc1): confirm final path
+  const url = apiUrl + '/api/v1/deeds-capture';
 
   let response;
   try {
