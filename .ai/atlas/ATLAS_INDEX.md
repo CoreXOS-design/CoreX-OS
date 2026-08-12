@@ -55,6 +55,11 @@ PDF suite, image converter) / TV Display / Training-Help, and the Agency Public 
 Enumerated from `routes/web.php`, the controllers under `app/Http/Controllers/`, and the sidebar
 nav (`resources/views/layouts/corex-sidebar.blade.php`). Grouped by pillar/area.
 
+### Cross-cutting maps
+| Doc | Status | Notes |
+|-----|--------|-------|
+| **The Pillars & Capture Impact Map** | [PILLARS_AND_CAPTURE_IMPACT.md](PILLARS_AND_CAPTURE_IMPACT.md) | **DONE (facts-only)** | Property/Contact identity law vs current reality; capture paths (MIC address-unlock ×2, deeds, P24 ×4 stores); 4 collision points; **open decisions for Johan** |
+
 ### Property & Market Intelligence
 | Feature | Doc | Status | Notes |
 |---------|-----|--------|-------|
@@ -140,6 +145,8 @@ nav (`resources/views/layouts/corex-sidebar.blade.php`). Grouped by pillar/area.
 - **The atlas now covers every major operational pillar and the cross-cutting platform foundations.**
   The four pillars (Property, Contact, Deal, Agent), both halves of the MIC/matching loop, the document/
   comms/calendar/HR layer, syndication, and the tenancy/event/audit spine are all documented.
+- **Cross-cutting maps: 1** — [PILLARS_AND_CAPTURE_IMPACT.md](PILLARS_AND_CAPTURE_IMPACT.md) (2026-08-13):
+  Property/Contact identity law vs current reality, all capture paths, 4 collision points, open decisions.
 
 ### Remaining minor TODO surfaces (thin — covered indirectly or low-traffic)
 These are small surfaces, mostly sub-features of DONE docs or low-complexity tools; documented here as
