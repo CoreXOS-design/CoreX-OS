@@ -1057,6 +1057,15 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/tools/commission', [ToolsController::class, 'commission'])->middleware('permission:access_calculators')->name('tools.commission');
     Route::get('/tools/cma', [ToolsController::class, 'cma'])->middleware('permission:access_calculators')->name('tools.cma');
 
+    // Evaluation Certificate — Phase 1 (/tools/cma redesign, spec:
+    // .ai/specs/EVALUATION_CERTIFICATE_REDESIGN.md). Property search/prefill +
+    // contact link, mirroring the DR2 party picker under the CMA screen's own
+    // access_calculators gate.
+    Route::get('/tools/cma/evaluation/search-properties', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'searchProperties'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.search-properties');
+    Route::get('/tools/cma/evaluation/property-contact/{property}', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'propertyContact'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.property-contact');
+    Route::get('/tools/cma/evaluation/search-contacts', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'searchContacts'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.search-contacts');
+    Route::post('/tools/cma/evaluation/contact-inline', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'contactInline'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.contact-inline');
+
     // Ad Manager (bulk) — spec .ai/specs/ad-manager.md §10b
     Route::get('/tools/ad-manager', [\App\Http\Controllers\Tools\AdManagerController::class, 'index'])->middleware(['permission:access_ad_manager', 'agency.required'])->name('tools.ad-manager');
     Route::post('/tools/ad-manager/previews', [\App\Http\Controllers\Tools\AdManagerController::class, 'previews'])->middleware(['permission:access_ad_manager', 'agency.required'])->name('tools.ad-manager.previews');
