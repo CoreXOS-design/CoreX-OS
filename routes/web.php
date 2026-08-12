@@ -1065,6 +1065,8 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/tools/cma/evaluation/property-contact/{property}', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'propertyContact'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.property-contact');
     Route::get('/tools/cma/evaluation/search-contacts', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'searchContacts'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.search-contacts');
     Route::post('/tools/cma/evaluation/contact-inline', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'contactInline'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.contact-inline');
+    Route::post('/tools/cma/evaluation', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'store'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.store');
+    Route::put('/tools/cma/evaluation/{certificate}', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'update'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.update');
     Route::get('/tools/cma/evaluation/{certificate}/download', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'download'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.download');
     Route::post('/tools/cma/evaluation/{certificate}/sign', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'sign'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.sign');
 

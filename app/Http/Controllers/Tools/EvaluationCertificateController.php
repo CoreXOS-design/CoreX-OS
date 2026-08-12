@@ -186,6 +186,93 @@ class EvaluationCertificateController extends Controller
     }
 
     /**
+     * Persist a NEW evaluation certificate (spec item 2). The evaluation is its own
+     * record: property_id/contact_id are LINKS, while the fields are an independent,
+     * editable copy — prefilled from the property at creation time and never written
+     * back to the source property.
+     */
+    public function store(Request $request): JsonResponse
+    {
+        $user = auth()->user();
+        abort_unless($user?->hasPermission('access_calculators'), 403);
+
+        $data = $this->validateCertificateInput($request);
+        $data['agency_id']          = (int) ($user->effectiveAgencyId() ?? 0);
+        $data['created_by_user_id'] = $user->id;
+        $data['status']             = EvaluationCertificate::STATUS_DRAFT;
+
+        $certificate = EvaluationCertificate::create($data);
+
+        return response()->json($this->certificatePayload($certificate), 201);
+    }
+
+    /**
+     * Update an existing, UNSIGNED certificate. A signed certificate is the immutable
+     * legal artifact and can never be edited (409).
+     */
+    public function update(Request $request, EvaluationCertificate $certificate): JsonResponse
+    {
+        $user = auth()->user();
+        abort_unless($user?->hasPermission('access_calculators'), 403);
+        abort_unless((int) $certificate->agency_id === (int) ($user->effectiveAgencyId() ?? 0), 404);
+        abort_if($certificate->isAuthorised(), 409, 'A signed evaluation certificate cannot be edited.');
+
+        $certificate->update($this->validateCertificateInput($request));
+
+        return response()->json($this->certificatePayload($certificate->fresh()));
+    }
+
+    /**
+     * Shared validation for store/update. Beds/baths/parking are integers (cc3's
+     * tinyint columns). Any property/contact link is re-checked against what THIS
+     * agency can actually see — a posted id is never trusted (Non-Negotiable #7).
+     */
+    private function validateCertificateInput(Request $request): array
+    {
+        $data = $request->validate([
+            'address'                => ['required', 'string', 'max:255'],
+            'property_type'          => ['nullable', 'string', 'max:100'],
+            'analysis_date'          => ['nullable', 'date'],
+            'estimated_market_value' => ['nullable', 'integer', 'min:0', 'max:4294967295'],
+            'bedrooms'               => ['nullable', 'integer', 'min:0', 'max:255'],
+            'bathrooms'              => ['nullable', 'integer', 'min:0', 'max:255'],
+            'parking'                => ['nullable', 'integer', 'min:0', 'max:255'],
+            'key_features'           => ['nullable', 'string', 'max:5000'],
+            'property_id'            => ['nullable', 'integer'],
+            'contact_id'             => ['nullable', 'integer'],
+        ]);
+
+        if (! empty($data['property_id'])) {
+            abort_unless(
+                Property::query()->visibleTo($request->user())->whereKey($data['property_id'])->exists(),
+                422, 'That property is not available.'
+            );
+        }
+        if (! empty($data['contact_id'])) {
+            $agencyId = (int) ($request->user()->effectiveAgencyId() ?? 0);
+            abort_unless(
+                Contact::withoutGlobalScope(ContactScope::class)->whereKey($data['contact_id'])->where('agency_id', $agencyId)->exists(),
+                422, 'That contact is not available.'
+            );
+        }
+
+        return $data;
+    }
+
+    /** The JSON the /tools/cma screen needs back after a save/sign. */
+    private function certificatePayload(EvaluationCertificate $certificate): array
+    {
+        return [
+            'id'           => $certificate->id,
+            'status'       => $certificate->status,
+            'is_signed'    => $certificate->isAuthorised(),
+            'signed_by'    => $certificate->signedBy?->name,
+            'download_url' => route('tools.cma.evaluation.download', $certificate),
+            'print_url'    => route('tools.cma.evaluation.download', $certificate) . '?inline=1',
+        ];
+    }
+
+    /**
      * Output the evaluation certificate PDF (Phase 2/3 "Download", also serves "Print" via ?inline=1).
      *
      * - Signed + filed: streams the immutable artifact at signed_pdf_path (produced by

@@ -499,72 +499,281 @@
     </div>
   </div>
 
-  <!-- CMA Section -->
+  <!-- Evaluation Certificate Section -->
   <div id="certSection" class="section {{ $activeTab === 'cma' ? 'active' : '' }}" data-tour="tools-cma-section">
-    <div class="tool-card">
-      <h3 class="tool-card-header">CMA Certificate Generator</h3>
+    @php
+      $evalCertUser = auth()->user();
+      $evalCertConfigured = $evalCertUser ? app(\App\Services\AgentSignatureService::class)->isConfigured($evalCertUser) : false;
+      $evalCertIsCandidate = \Illuminate\Support\Str::lower(trim((string) ($evalCertUser?->designation ?? ''))) === 'candidate property practitioner';
+    @endphp
+    <style>#hf-tool-root [x-cloak]{display:none!important;}</style>
+    <div class="tool-card" x-data="evalCert()"
+         x-init="init({ savedSigConfigured: {{ $evalCertConfigured ? 'true' : 'false' }}, isCandidate: {{ $evalCertIsCandidate ? 'true' : 'false' }} })">
+
+      <h3 class="tool-card-header">Evaluation Certificate</h3>
+
+      {{-- Property link / search — selecting a result prefills the (still-editable) fields --}}
+      <div class="inlineRow">
+        <div class="field" style="flex:2; position:relative;">
+          <label>Find a property (optional — or capture manually below)</label>
+          <input type="text" x-model="propQuery" @input.debounce.300ms="searchProperties()" @focus="searchProperties()"
+                 placeholder="Search your listings by address or ref…" autocomplete="off">
+          <div x-show="propResults.length" @click.outside="propResults=[]" x-cloak
+               style="position:absolute; z-index:30; left:0; right:0; top:100%; background:#fff; border:1px solid var(--border); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.12); max-height:260px; overflow:auto;">
+            <template x-for="r in propResults" :key="r.id">
+              <div @click="selectProperty(r)" style="padding:8px 12px; cursor:pointer; border-bottom:1px solid var(--border);"
+                   onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='#fff'">
+                <div style="font-weight:600;" x-text="r.label || r.address"></div>
+                <div style="font-size:.75rem; color:var(--text-secondary);">
+                  <span x-text="r.ref ? ('Ref ' + r.ref) : ''"></span>
+                  <span x-show="r.price" x-text="r.price ? (' • R ' + Number(r.price).toLocaleString('en-ZA')) : ''"></span>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+        <div class="field small" style="display:flex; align-items:flex-end;">
+          <span class="agent-tag" x-show="propertyId" x-cloak style="background:#0b2a4a;color:#fff;">
+            Linked <a href="#" @click.prevent="unlinkProperty()" style="color:#fff; margin-left:6px; text-decoration:underline;">clear</a>
+          </span>
+        </div>
+      </div>
 
       <div class="inlineRow">
         <div class="field" style="flex:2">
           <label>Property Address</label>
-          <input id="cmaAddress" type="text" placeholder="e.g. 12 Smith Street, Shelly Beach"/>
+          <input type="text" x-model="form.address" placeholder="e.g. 12 Smith Street, Shelly Beach">
         </div>
-
         <div class="field small">
           <label>Property Type</label>
-          <select id="cmaType">
-            <option value="House">House</option>
-            <option value="Townhouse">Townhouse</option>
-            <option value="Apartment">Apartment</option>
-            <option value="Vacant Land">Vacant Land</option>
-            <option value="Commercial">Commercial</option>
-            <option value="Farm">Farm</option>
+          <select x-model="form.property_type">
+            <option value="">—</option>
+            <option>House</option><option>Townhouse</option><option>Apartment</option>
+            <option>Vacant Land</option><option>Commercial</option><option>Farm</option>
           </select>
         </div>
-
         <div class="field small">
           <label>Analysis Date</label>
-          <input id="cmaDate" type="date"/>
+          <input type="date" x-model="form.analysis_date">
         </div>
       </div>
 
       <div class="inlineRow" data-tour="tools-cma-value">
         <div class="field">
           <label>Estimated Market Value (R)</label>
-          <input id="cmaValue" type="number" value="0" min="0" step="1000"/>
+          <input type="number" min="0" step="1000" x-model.number="form.estimated_market_value">
         </div>
-        <div class="field">
-          <label>Bedrooms</label>
-          <input id="cmaBeds" type="text" placeholder="e.g. 3"/>
-        </div>
-        <div class="field">
-          <label>Bathrooms</label>
-          <input id="cmaBaths" type="text" placeholder="e.g. 2"/>
-        </div>
-        <div class="field">
-          <label>Parking</label>
-          <input id="cmaParking" type="text" placeholder="e.g. 2 garages"/>
-        </div>
+        <div class="field"><label>Bedrooms</label><input type="number" min="0" x-model.number="form.bedrooms"></div>
+        <div class="field"><label>Bathrooms</label><input type="number" min="0" x-model.number="form.bathrooms"></div>
+        <div class="field"><label>Parking</label><input type="number" min="0" x-model.number="form.parking"></div>
       </div>
 
       <div class="inlineRow" data-tour="tools-cma-notes">
         <div class="field">
           <label>Key Features / Notes</label>
-          <textarea id="cmaNotes" placeholder="e.g. Sea views, renovated kitchen, walking distance to beach..."></textarea>
+          <textarea x-model="form.key_features" placeholder="e.g. Sea views, renovated kitchen, walking distance to beach…"></textarea>
+        </div>
+      </div>
+
+      {{-- Contact link — reuses the same match-or-create search the property page + DR2 use --}}
+      <div class="inlineRow">
+        <div class="field" style="flex:2; position:relative;">
+          <label>Client / contact (optional)</label>
+          <template x-if="contact">
+            <div class="pill" style="display:flex; align-items:center; justify-content:space-between;">
+              <span><b x-text="contact.name"></b> <span style="color:var(--text-secondary)" x-text="contact.phone ? ('• ' + contact.phone) : ''"></span></span>
+              <a href="#" @click.prevent="clearContact()" style="text-decoration:underline;">change</a>
+            </div>
+          </template>
+          <template x-if="!contact">
+            <div>
+              <input type="text" x-model="contactQuery" @input.debounce.300ms="searchContacts()"
+                     placeholder="Search contacts by name, phone or email…" autocomplete="off">
+              <div x-show="contactResults.length || contactQuery.trim().length>1" @click.outside="contactResults=[]" x-cloak
+                   style="position:absolute; z-index:30; left:0; right:0; top:100%; background:#fff; border:1px solid var(--border); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.12); max-height:220px; overflow:auto;">
+                <template x-for="r in contactResults" :key="r.id">
+                  <div @click="selectContact(r)" style="padding:8px 12px; cursor:pointer; border-bottom:1px solid var(--border);"
+                       onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='#fff'">
+                    <div style="font-weight:600;" x-text="r.label || r.name"></div>
+                    <div style="font-size:.75rem; color:var(--text-secondary);" x-text="r.identifier || r.phone || r.email || ''"></div>
+                  </div>
+                </template>
+                <div @click="addInlineContact()" x-show="contactQuery.trim().length>1"
+                     style="padding:8px 12px; cursor:pointer; color:#0b2a4a; font-weight:600;">
+                  + Add “<span x-text="contactQuery"></span>” as a new contact
+                </div>
+              </div>
+            </div>
+          </template>
         </div>
       </div>
 
       <div class="divider"></div>
 
-      <div class="inlineRow">
-        <div class="field" style="display:flex; align-items:flex-end;">
-          <button class="corex-btn-primary" id="btnPrintCert" data-tour="tools-cma-print">Print CMA Certificate</button>
+      {{-- Actions: Save persists the row; Sign/Download/Print act on the saved cert --}}
+      <div class="inlineRow" style="align-items:center; gap:.75rem; flex-wrap:wrap;" data-tour="tools-cma-print">
+        <button class="corex-btn-primary" @click="save()" :disabled="saving || !form.address">
+          <span x-show="!saving" x-text="certId ? 'Save changes' : 'Save evaluation'"></span>
+          <span x-show="saving" x-cloak>Saving…</span>
+        </button>
+
+        <template x-if="certId && !isSigned">
+          <button class="corex-btn-primary" style="background:#0b7d3b;" @click="openSign()">Sign</button>
+        </template>
+        <template x-if="isSigned">
+          <span class="agent-tag" style="background:#0b7d3b;color:#fff;">Signed<span x-show="signedBy" x-text="' by ' + signedBy"></span></span>
+        </template>
+
+        <button class="corex-btn-outline" @click="download()" :disabled="!certId">Download</button>
+        <button class="corex-btn-outline" @click="printCert()" :disabled="!certId">Print</button>
+
+        <span x-show="dirty && certId" x-cloak style="font-size:.75rem; color:#b45309;">Unsaved changes — Save before Sign.</span>
+        <span x-show="flash" x-cloak x-text="flash" style="font-size:.8rem; color:#0b7d3b;"></span>
+      </div>
+
+      {{-- Sign — PIN once, places the agent's saved signature (Phase 4). --}}
+      <div x-show="signOpen" x-cloak @keydown.escape.window="signOpen=false"
+           style="position:fixed; inset:0; z-index:60; background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center;">
+        <div class="tool-card" style="max-width:440px; width:90%; background:#fff;" @click.stop>
+          <h3 class="tool-card-header">Sign this evaluation certificate</h3>
+          <template x-if="!savedSigConfigured">
+            <p style="font-size:.85rem;">Set up your saved signature and signing PIN in
+              <a href="/my-portal#signature" style="text-decoration:underline;">My Portal</a> first, then reopen this to sign.</p>
+          </template>
+          <template x-if="savedSigConfigured && isCandidate">
+            <p style="font-size:.85rem; color:#b45309;">As a candidate practitioner you cannot finalise an evaluation certificate on your own — a full-status practitioner must authorise and sign it.</p>
+          </template>
+          <template x-if="savedSigConfigured && !isCandidate">
+            <div>
+              <p style="font-size:.85rem;">Enter your signing PIN to place your saved signature. This produces the final, filed certificate.</p>
+              <div class="field"><label>Signing PIN</label>
+                <input type="password" x-model="pin" @keydown.enter="submitSign()" autocomplete="off" inputmode="numeric">
+              </div>
+              <div x-show="pinError" x-cloak x-text="pinError" style="color:#b91c1c; font-size:.8rem; margin-bottom:.5rem;"></div>
+            </div>
+          </template>
+          <div style="display:flex; justify-content:flex-end; gap:.5rem; margin-top:.75rem;">
+            <button class="corex-btn-outline" @click="signOpen=false">Cancel</button>
+            <button class="corex-btn-primary" x-show="savedSigConfigured && !isCandidate" @click="submitSign()" :disabled="pinLoading || !pin">
+              <span x-show="!pinLoading">Sign &amp; finalise</span><span x-show="pinLoading" x-cloak>Signing…</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      <div class="cma-preview" id="cmaPreview" style="display:none"></div>
     </div>
   </div>
+
+  <script>
+  function evalCert() {
+    const csrf = () => document.querySelector('meta[name=csrf-token]')?.content || '';
+    const U = {
+      searchProps:    @json(route('tools.cma.evaluation.search-properties')),
+      searchContacts: @json(route('tools.cma.evaluation.search-contacts')),
+      contactInline:  @json(route('tools.cma.evaluation.contact-inline')),
+      store:          @json(route('tools.cma.evaluation.store')),
+      propContactTpl: @json(route('tools.cma.evaluation.property-contact', ['property' => '__ID__'])),
+      updateTpl:      @json(route('tools.cma.evaluation.update',   ['certificate' => '__ID__'])),
+      downloadTpl:    @json(route('tools.cma.evaluation.download', ['certificate' => '__ID__'])),
+      signTpl:        @json(route('tools.cma.evaluation.sign',     ['certificate' => '__ID__'])),
+    };
+    const withId = (tpl, id) => tpl.replace('__ID__', id);
+    const jhead = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+    return {
+      savedSigConfigured: false, isCandidate: false,
+      form: { address: '', property_type: '', analysis_date: '', estimated_market_value: null, bedrooms: null, bathrooms: null, parking: null, key_features: '' },
+      propertyId: null, contact: null, contactId: null,
+      propQuery: '', propResults: [], contactQuery: '', contactResults: [],
+      certId: null, status: 'draft', isSigned: false, signedBy: null,
+      saving: false, dirty: false, flash: '',
+      signOpen: false, pin: '', pinError: '', pinLoading: false,
+
+      init(cfg) {
+        this.savedSigConfigured = !!cfg.savedSigConfigured;
+        this.isCandidate = !!cfg.isCandidate;
+        this.$watch('form', () => { if (this.certId) this.dirty = true; }, { deep: true });
+      },
+
+      async searchProperties() {
+        const q = this.propQuery.trim();
+        if (q.length < 2) { this.propResults = []; return; }
+        const r = await fetch(U.searchProps + '?q=' + encodeURIComponent(q), { headers: jhead });
+        this.propResults = r.ok ? await r.json() : [];
+      },
+      async selectProperty(r) {
+        this.propertyId = r.id; this.propResults = []; this.propQuery = '';
+        this.form.address = r.address || r.label || '';
+        this.form.property_type = r.property_type || '';
+        this.form.estimated_market_value = r.price != null ? Number(r.price) : null;
+        this.form.bedrooms = r.beds  != null ? Number(r.beds)  : null;
+        this.form.bathrooms = r.baths != null ? Number(r.baths) : null;
+        this.form.parking = r.garages != null ? Number(r.garages) : null;
+        try {
+          const cr = await fetch(withId(U.propContactTpl, r.id), { headers: jhead });
+          if (cr.ok) { const j = await cr.json(); if (j.contact) { this.contact = { id: j.contact.id, name: j.contact.name, phone: j.contact.phone, email: j.contact.email }; this.contactId = j.contact.id; } }
+        } catch (e) {}
+      },
+      unlinkProperty() { this.propertyId = null; },
+      clearContact() { this.contact = null; this.contactId = null; this.contactQuery = ''; this.contactResults = []; },
+
+      async searchContacts() {
+        const q = this.contactQuery.trim();
+        if (q.length < 2) { this.contactResults = []; return; }
+        const r = await fetch(U.searchContacts + '?q=' + encodeURIComponent(q), { headers: jhead });
+        this.contactResults = r.ok ? await r.json() : [];
+      },
+      selectContact(r) { this.contact = { id: r.id, name: r.label || r.name, phone: r.phone, email: r.email }; this.contactId = r.id; this.contactResults = []; this.contactQuery = ''; },
+      async addInlineContact() {
+        const parts = this.contactQuery.trim().split(/\s+/);
+        const first = parts.shift() || ''; const last = parts.join(' ');
+        const r = await fetch(U.contactInline, { method: 'POST', headers: { ...jhead, 'X-CSRF-TOKEN': csrf() }, body: JSON.stringify({ first_name: first, last_name: last }) });
+        if (r.status === 201) { const j = await r.json(); this.contact = { id: j.id, name: j.name }; this.contactId = j.id; }
+        else if (r.status === 409) { const j = await r.json(); const d = j.duplicate_detected?.duplicates?.[0]; if (d) { this.contact = { id: d.id, name: d.name, phone: d.phone }; this.contactId = d.id; } }
+        else { alert('Could not add contact.'); return; }
+        this.contactResults = []; this.contactQuery = '';
+      },
+
+      payload() {
+        return {
+          address: this.form.address, property_type: this.form.property_type || null,
+          analysis_date: this.form.analysis_date || null,
+          estimated_market_value: this.form.estimated_market_value === '' ? null : this.form.estimated_market_value,
+          bedrooms: this.form.bedrooms, bathrooms: this.form.bathrooms, parking: this.form.parking,
+          key_features: this.form.key_features || null,
+          property_id: this.propertyId, contact_id: this.contactId,
+        };
+      },
+      async save() {
+        if (!this.form.address) return;
+        this.saving = true; this.flash = '';
+        try {
+          const url = this.certId ? withId(U.updateTpl, this.certId) : U.store;
+          const method = this.certId ? 'PUT' : 'POST';
+          const r = await fetch(url, { method, headers: { ...jhead, 'X-CSRF-TOKEN': csrf() }, body: JSON.stringify(this.payload()) });
+          if (!r.ok) { const j = await r.json().catch(() => ({})); alert(j.message || 'Could not save.'); return; }
+          const j = await r.json();
+          this.certId = j.id; this.status = j.status; this.isSigned = j.is_signed; this.signedBy = j.signed_by; this.dirty = false;
+          this.flash = 'Saved.'; setTimeout(() => { this.flash = ''; }, 2500);
+        } finally { this.saving = false; }
+      },
+      download() { if (this.certId) window.open(withId(U.downloadTpl, this.certId), '_blank'); },
+      printCert() { if (this.certId) window.open(withId(U.downloadTpl, this.certId) + '?inline=1', '_blank'); },
+
+      openSign() { if (this.dirty) { alert('Save your changes before signing.'); return; } this.pin = ''; this.pinError = ''; this.signOpen = true; },
+      async submitSign() {
+        if (!this.pin) return;
+        this.pinLoading = true; this.pinError = '';
+        try {
+          const r = await fetch(withId(U.signTpl, this.certId), { method: 'POST', headers: { ...jhead, 'X-CSRF-TOKEN': csrf() }, body: JSON.stringify({ pin: this.pin }) });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) { this.pinError = j.message || 'Could not sign.'; return; }
+          this.isSigned = true; this.status = j.status; this.signedBy = j.signed_by; this.signOpen = false;
+          this.flash = 'Signed & filed.'; setTimeout(() => { this.flash = ''; }, 3000);
+        } finally { this.pinLoading = false; }
+      },
+    };
+  }
+  </script>
 
   <!-- History Section -->
   <div id="historySection" class="section {{ $activeTab === 'history' ? 'active' : '' }}">
@@ -800,15 +1009,8 @@ window.loadHistoryItem = async (id) => {
       activateSection("calcSection");
       calcAll();
     } else {
-      el("cmaAddress").value = data.cmaAddress || "";
-      if (el("cmaType")) el("cmaType").value = data.cmaType || "House";
-      el("cmaDate").value = data.cmaDate || "";
-      el("cmaValue").value = data.cmaValue ?? 0;
-      el("cmaBeds").value = data.cmaBeds || "";
-      el("cmaBaths").value = data.cmaBaths || "";
-      el("cmaParking").value = data.cmaParking || "";
-      el("cmaNotes").value = data.cmaNotes || "";
-
+      // Legacy client-side "CMA" history rows: the CMA generator is now the
+      // persisted Evaluation Certificate (server-side). Old rows just open the tab.
       activateSection("certSection");
     }
   } catch (e) {
@@ -1069,174 +1271,6 @@ function generateCalculatorPrintHtml() {    const user = (window.AUTH_USER || {}
   `;
 }
 
-function generateCmaPrintHtml() {    const user = (window.AUTH_USER || {});
-  const isCandidatePP = String(user.designation || '').trim().toLowerCase() === 'candidate property practitioner';
-  const cmaAddress = el("cmaAddress").value || "—";
-  const cmaType = el("cmaType").value || "—";
-  const cmaDate = el("cmaDate").value ? new Date(el("cmaDate").value).toLocaleDateString("en-ZA") : new Date().toLocaleDateString("en-ZA");
-  const cmaValue = Number(el("cmaValue").value || 0);
-    const cmaBeds = (el("cmaBeds").value || "").trim();
-    const cmaBaths = (el("cmaBaths").value || "").trim();
-    const cmaParking = (el("cmaParking").value || "").trim();
-  const cmaNotes = el("cmaNotes").value || "";
-  const detailsExtras = [
-    cmaBeds ? `<div class="item"><b>Bedrooms</b>${escapeHtml(cmaBeds)}</div>` : "",
-    cmaBaths ? `<div class="item"><b>Bathrooms</b>${escapeHtml(cmaBaths)}</div>` : "",
-    cmaParking ? `<div class="item"><b>Parking</b>${escapeHtml(cmaParking)}</div>` : "",
-  ].filter(Boolean).join("");
-  return `
-    <html>
-    <head>
-      <title>Market Analysis Certificate</title>
-      <style>
-        body{
-          font-family: Georgia, serif;
-          padding: 30px;
-          background:#ffffff;
-        }
-        .cert{
-          background:#fff;
-          border: 4px double #bbb;
-          border-radius: 10px;
-          padding: 26px;
-          max-width: 820px;
-          margin: 0 auto;
-        }
-        .header{
-          display:flex;
-          justify-content:space-between;
-          align-items:center;
-          gap:16px;
-          border-bottom:1px solid #ddd;
-          padding-bottom:14px;
-        }
-        .logo{max-height:60px;}
-        .company{font-family: Arial, sans-serif; font-weight:900; font-size:14px; color:#1a3c5a;}
-        .title{
-          font-family: Arial, sans-serif;
-          font-weight:900;
-          font-size:20px;
-          letter-spacing:1px;
-          text-align:center;
-          margin: 16px 0 6px 0;
-          color:#1a3c5a;
-          text-transform:uppercase;
-        }
-        .value{
-          font-family: Arial, sans-serif;
-          font-weight:900;
-          font-size:34px;
-          text-align:center;
-          color:#1a3c5a;
-          margin: 14px 0 18px 0;
-        }
-        .details{
-          font-family: Arial, sans-serif;
-          display:grid;
-          grid-template-columns: 1fr 1fr;
-          gap:12px;
-          font-size:12px;
-          color:#111;
-        }
-        .item b{display:block;color:#555;font-size:11px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}
-        .notes{
-          font-family: Arial, sans-serif;
-          margin-top: 18px;
-          border-top:1px solid #eee;
-          padding-top:14px;
-          font-size:12px;
-          color:#333;
-          white-space:pre-wrap;
-        }
-        .disclaimer{
-          font-family: Arial, sans-serif;
-          margin-top: 18px;
-          font-size:11px;
-          color:#444;
-        }
-        .footer{
-          display:flex;
-          justify-content:space-between;
-          align-items:flex-end;
-          margin-top: 22px;
-        }
-        .seal{
-          font-family: Arial, sans-serif;
-          font-weight:900;
-          border:2px solid #1a3c5a;
-          color:#1a3c5a;
-          padding:10px 12px;
-          border-radius:6px;
-          text-align:center;
-          font-size:11px;
-          line-height:1.1;
-        }
-        .sig-box{
-          text-align:center;
-          width:220px;
-          margin:0 auto;
-        }
-        .sig-line{
-          border-top:1px solid #000;
-          margin-top:8px;
-          padding-top:8px;
-        }
-        .sig-img{max-height:75px; display:block; margin: 0 auto 6px auto;}
-        .ppra-footer{margin-top:18px;text-align:center;font-size:11px;color:#555;}
-        @media print{
-          body{background:#fff !important;}
-          .cert{box-shadow:none !important;}
-          a[href]:after{content:"" !important;}
-        }
-      </style>
-    </head>
-    <body>
-      <div class="cert">
-        <div class="header">
-          <div>
-            <div class="company">${escapeHtml(SETTINGS.companyName)}</div>
-            <div class="company" style="font-weight:600;color:#333">${escapeHtml(SETTINGS.address)} • ${escapeHtml(SETTINGS.tel)} • FFC ${escapeHtml(SETTINGS.ffc)}</div>
-          </div>
-          <div>
-            ${SETTINGS.logoUrl ? `<img class="logo" src="${SETTINGS.logoUrl}">` : ``}
-          </div>
-        </div>
-
-        <div class="title">Market Analysis Certificate</div>
-        <div class="company" style="text-align:center;color:#333;font-weight:700">Analysis Date: ${cmaDate}</div>
-
-        <div class="value">${fmtZAR(cmaValue)}</div>
-
-        <div class="details">
-          <div class="item"><b>Property</b>${escapeHtml(cmaAddress)}</div>
-          <div class="item"><b>Property Type</b>${escapeHtml(cmaType)}</div>
-          ${detailsExtras}
-        </div>
-
-        <div class="notes"><b>Notes / Features</b><br>${escapeHtml(cmaNotes)}</div>
-
-        <div class="disclaimer"><b>Disclaimer:</b> This document is a Current Market Analysis based on local trends and available property data. It is not a bank appraisal and not a report by a registered property valuer.</div>
-        <div class="footer">
-          <div class="seal">MARKET<br>ANALYSIS</div>
-          <div style="display:flex; gap:18px; align-items:flex-end;">
-            <div class="sig-box">
-              <div style="height:75px"></div><div class="sig-line"></div>
-              <span style="font-weight:bold; font-size:11pt;">${escapeHtml(user.name || "User")}</span><br><span style="font-size:9pt; color:#666">${escapeHtml(user.designation || "Property Practitioner")}</span>
-            </div>
-            ${isCandidatePP ? `
-            <div class="sig-box">
-              <div style="height:75px"></div><div class="sig-line"></div>
-              <span style="font-weight:bold; font-size:11pt;">Property Practitioner</span><br><span style="font-size:9pt; color:#666">&nbsp;</span>
-            </div>
-            ` : ``}
-          </div>
-        </div>
-        <div class="ppra-footer">Registered with the PPRA.</div>
-      </div>
-    </body>
-    </html>
-  `;
-}
 
 // --- INITIALIZATION ---
 
@@ -1345,22 +1379,6 @@ const calcInputs = ["price", "ownerPocket", "commPct", "vatRate", "vatIncl", "co
     await saveHistoryEntry("CALC", el("propAddress").value || "—", CALC_DATA.sellingPrice, payload);
 
     handlePrint(generateCalculatorPrintHtml());
-  };
-if (el("btnPrintCert")) el("btnPrintCert").onclick = async () => {
-    const payload = {
-      cmaAddress: el("cmaAddress").value || "—",
-      cmaType: el("cmaType").value || "—",
-      cmaDate: el("cmaDate").value || "",
-      cmaValue: Number(el("cmaValue").value || 0),
-      cmaBeds: el("cmaBeds").value || "",
-      cmaBaths: el("cmaBaths").value || "",
-      cmaParking: el("cmaParking").value || "",
-      cmaNotes: el("cmaNotes").value || ""
-    };
-
-    await saveHistoryEntry("CMA", payload.cmaAddress, payload.cmaValue, payload);
-
-    handlePrint(generateCmaPrintHtml());
   };
 updateUIFromSettings();
   refreshHistory();

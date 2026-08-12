@@ -1,0 +1,124 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Feature\Tools;
+
+use App\Models\Agency;
+use App\Models\Branch;
+use App\Models\EvaluationCertificate;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+/**
+ * /tools/cma redesign — the screen renders the Evaluation Certificate builder and
+ * the persist endpoints (store/update) create + edit rows. Companion to
+ * EvaluationCertificateSignTest (the sign surface).
+ */
+final class EvaluationCertificateScreenTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private Agency $agency;
+    private User $agent;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->agency = Agency::create(['name' => 'Coastal', 'slug' => 'coastal']);
+        $branch = Branch::create(['agency_id' => $this->agency->id, 'name' => 'Margate']);
+        $this->agent = User::factory()->create([
+            'name' => 'Full Agent', 'role' => 'agent', 'designation' => 'Property Practitioner',
+            'branch_id' => $branch->id, 'agency_id' => $this->agency->id, 'is_active' => true,
+        ]);
+    }
+
+    public function test_screen_renders_the_evaluation_certificate_builder(): void
+    {
+        $res = $this->actingAs($this->agent)->get(route('tools.cma'));
+        $res->assertOk()
+            ->assertSee('Evaluation Certificate')
+            ->assertSee('evalCert()', false)                 // the Alpine component is wired
+            ->assertSee('searchProps:', false)               // the endpoint config object is emitted
+            ->assertSee('Find a property', false);           // the property-search box is present
+    }
+
+    public function test_screen_no_longer_ships_the_old_client_side_generator(): void
+    {
+        $res = $this->actingAs($this->agent)->get(route('tools.cma'));
+        $res->assertDontSee('generateCmaPrintHtml', false)
+            ->assertDontSee('Market Analysis Certificate', false); // old title, scrubbed
+    }
+
+    public function test_store_creates_a_draft_certificate(): void
+    {
+        $res = $this->actingAs($this->agent)->postJson(route('tools.cma.evaluation.store'), [
+            'address' => '12 Smith Street, Shelly Beach',
+            'property_type' => 'House',
+            'estimated_market_value' => 2500000,
+            'bedrooms' => 3, 'bathrooms' => 2, 'parking' => 2,
+            'key_features' => 'Sea views',
+        ]);
+
+        $res->assertCreated()->assertJson(['status' => 'draft', 'is_signed' => false]);
+        $id = $res->json('id');
+        $this->assertDatabaseHas('evaluation_certificates', [
+            'id' => $id, 'agency_id' => $this->agency->id, 'created_by_user_id' => $this->agent->id,
+            'address' => '12 Smith Street, Shelly Beach', 'estimated_market_value' => 2500000, 'status' => 'draft',
+        ]);
+    }
+
+    public function test_store_requires_an_address(): void
+    {
+        $this->actingAs($this->agent)
+            ->postJson(route('tools.cma.evaluation.store'), ['property_type' => 'House'])
+            ->assertStatus(422);
+    }
+
+    public function test_update_edits_an_unsigned_certificate(): void
+    {
+        $cert = EvaluationCertificate::create([
+            'agency_id' => $this->agency->id, 'address' => 'Old address',
+            'status' => EvaluationCertificate::STATUS_DRAFT, 'created_by_user_id' => $this->agent->id,
+        ]);
+
+        $this->actingAs($this->agent)
+            ->putJson(route('tools.cma.evaluation.update', $cert), [
+                'address' => 'New address', 'estimated_market_value' => 999000,
+            ])
+            ->assertOk();
+
+        $this->assertDatabaseHas('evaluation_certificates', [
+            'id' => $cert->id, 'address' => 'New address', 'estimated_market_value' => 999000,
+        ]);
+    }
+
+    public function test_a_signed_certificate_cannot_be_edited(): void
+    {
+        $cert = EvaluationCertificate::create([
+            'agency_id' => $this->agency->id, 'address' => 'Signed address',
+            'status' => EvaluationCertificate::STATUS_AUTHORISED, 'created_by_user_id' => $this->agent->id,
+            'signed_by_user_id' => $this->agent->id,
+        ]);
+
+        $this->actingAs($this->agent)
+            ->putJson(route('tools.cma.evaluation.update', $cert), ['address' => 'Hacked'])
+            ->assertStatus(409);
+
+        $this->assertDatabaseHas('evaluation_certificates', ['id' => $cert->id, 'address' => 'Signed address']);
+    }
+
+    public function test_a_foreign_agency_certificate_is_not_updatable(): void
+    {
+        $other = Agency::create(['name' => 'Rival', 'slug' => 'rival']);
+        $cert = EvaluationCertificate::withoutGlobalScopes()->create([
+            'agency_id' => $other->id, 'address' => 'Foreign',
+            'status' => EvaluationCertificate::STATUS_DRAFT, 'created_by_user_id' => $this->agent->id,
+        ]);
+
+        $this->actingAs($this->agent)
+            ->putJson(route('tools.cma.evaluation.update', $cert), ['address' => 'X'])
+            ->assertStatus(404);
+    }
+}
