@@ -265,6 +265,14 @@ by oversight — do not reinstate them without asking:
   settings page.
 - **"Invite your team".** Onboarding configures the agency; adding people stays in User
   Management.
+- **"Public website" toggle (`website_enabled`)** (Johan, 2026-08-12 — alongside the
+  "features on by default" change below). Taking the agency's public site live is a
+  deliberate action, never an onboarding default — removed from the capabilities step's
+  `controls` AND its `toggleWebsite` saver (leaving the saver registered with no matching
+  control would fail `'website_enabled' => 'required|boolean'` validation on every step
+  save). Stays on `Admin\AgencyApiKeyController@toggleWebsite`, reachable from the
+  agency's website-settings page. `agencies.website_enabled` and
+  `config/corex-features.php`'s `public-website` registry row both still default `false`.
 
 **From the feature switchboard (spec `.ai/specs/agency-onboarding-feature-switchboard.md` §3.5):**
 

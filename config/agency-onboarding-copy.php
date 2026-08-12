@@ -1,6 +1,5 @@
 <?php
 
-use App\Http\Controllers\Admin\AgencyApiKeyController;
 use App\Http\Controllers\Admin\CompanySettingsController;
 use App\Http\Controllers\Admin\DealPropertySyncSettingsController;
 use App\Http\Controllers\Commission\CommissionSettingsController;
@@ -118,7 +117,14 @@ return [
             ['controller' => SettingsController::class,        'method' => 'updateSyndicationPortals'],
             ['controller' => SettingsController::class,        'method' => 'updateMatchesEnabled'],
             ['controller' => SettingsController::class,        'method' => 'updateSplitBranches'],
-            ['controller' => AgencyApiKeyController::class,     'method' => 'toggleWebsite', 'pass_agency' => true],
+            // toggleWebsite deliberately removed (Johan, 2026-08-12): the
+            // 'website_enabled' control below was pulled from onboarding — going
+            // public shouldn't happen before an agency has set up branding and
+            // listings, so it's a deliberate action from Settings, never an
+            // onboarding default. toggleWebsite requires the field ('required|
+            // boolean') and every saver in this array runs on every submit
+            // (AgencySetupWizardController::save()), so leaving it registered
+            // with no matching control would fail validation on every save.
             ['controller' => FeatureSettingsController::class,  'method' => 'update'],
         ],
         'controls' => [
@@ -136,11 +142,6 @@ return [
              'label' => 'Multi-branch offices',
              'explain' => 'Whether your agency runs as more than one branch, each with its own agents and its own book of properties, contacts and deals.',
              'affects' => 'Whether agents are grouped by branch and whether a branch is credited on commission. With it on, an agent in one branch will not see another branch\'s data — decide it with your principal.'],
-
-            ['key' => 'website_enabled', 'source' => 'agency', 'type' => 'toggle', 'default' => 0,
-             'label' => 'Public website',
-             'explain' => 'Whether your agency\'s public CoreX website — your agents, listings and branches — is live and reachable to the public.',
-             'affects' => 'Whether your public site is online or offline. Off takes the whole public site down without touching any of your internal data.'],
 
             ['key' => 'syndication_p24_enabled', 'source' => 'perf', 'type' => 'toggle', 'default' => 0,
              'heading' => 'Property portals',
