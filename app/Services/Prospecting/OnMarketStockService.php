@@ -122,6 +122,59 @@ class OnMarketStockService
     }
 
     /**
+     * Reverse of stockMapForListings() — the prospecting listings that ARE
+     * this specific on-market property (portal_ref OR normalized_address
+     * EXACT match), for the property page's "Also Marketed By" panel.
+     *
+     * 2026-08-12 (Johan's ruling) — that panel previously read the raw,
+     * ungated `matched_property_id` column directly, which is written by
+     * ProspectingStockMatchService's fuzzy Pass 2 matcher and carries the
+     * same false-positive risk as every other raw-column surface already
+     * fixed this sweep (confirmed live: property #4243 badged as "also
+     * marketed by" a Private Property listing for a different building
+     * 590m away). Pass 2 itself is now tightened at the source, but this
+     * panel gets belt-and-suspenders on top — same canonical, EXACT-match
+     * identity every other "our stock" surface already uses, so it can
+     * never show a fuzzy-only link even if one exists in the raw column.
+     *
+     * An off-market property has nothing live to cross-reference — mirrors
+     * every other on-market gate in this service.
+     */
+    public function listingsMarketingProperty(Property $property, int $agencyId): \Illuminate\Support\Collection
+    {
+        if (!$property->isOnMarket()) {
+            return collect();
+        }
+
+        $refs = [];
+        if (!empty($property->p24_ref)) {
+            $refs[] = 'P24-' . $property->p24_ref;
+        }
+        if (!empty($property->pp_ref)) {
+            $refs[] = 'PP-' . $property->pp_ref;
+        }
+        $normAddr = ProspectingListing::normalizeAddress($property->address, $property->suburb ?? '');
+
+        if (empty($refs) && !$normAddr) {
+            return collect();
+        }
+
+        return ProspectingListing::withoutGlobalScopes()
+            ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->where(function ($q) use ($refs, $normAddr) {
+                if (!empty($refs)) {
+                    $q->orWhereIn('portal_ref', $refs);
+                }
+                if ($normAddr) {
+                    $q->orWhere('normalized_address', $normAddr);
+                }
+            })
+            ->orderByDesc('last_seen_at')
+            ->get();
+    }
+
+    /**
      * On-market owned-property count per LITERAL suburb — [suburb => count].
      * Suburbs are grouped exactly as stored (no normalisation): 'Uvongo' and
      * 'Uvongo Beach' are separate buckets. This is the canonical per-suburb

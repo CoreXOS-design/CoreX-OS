@@ -9,6 +9,26 @@ use Illuminate\Support\Facades\Log;
 class ProspectingStockMatchService
 {
     /**
+     * 2026-08-12 (Johan's ruling) — generic/non-distinguishing address tokens
+     * that must NEVER count as a "significant" street-name word in Pass 2.
+     * Unit/complex descriptors and street-TYPE suffixes appear across
+     * countless UNRELATED addresses; before this list existed they let two
+     * totally different buildings "match" purely on a shared filler word —
+     * confirmed root causes of two live false positives: property #4243
+     * ("...Flat 3") matched a PP listing ("...Holiday Flats") on "flat" as a
+     * SUBSTRING of "flats" (not even the same word), and separately several
+     * properties matched unrelated listings purely because both addresses
+     * happened to end in "Street". Suburb names are excluded per-comparison
+     * (see matchProspect()) since normalizeAddress() appends the suburb to
+     * BOTH sides, so it would otherwise always "match" trivially.
+     */
+    private const GENERIC_ADDRESS_WORDS = [
+        'unit', 'flat', 'flats', 'section', 'block', 'holiday', 'erf', 'door', 'the',
+        'street', 'road', 'drive', 'avenue', 'place', 'close', 'lane', 'way',
+        'boulevard', 'crescent', 'grove', 'view', 'park', 'gardens', 'complex',
+    ];
+
+    /**
      * Try to match a single prospect to an agency property.
      * Returns the matched Property or null.
      */
@@ -52,9 +72,43 @@ class ProspectingStockMatchService
             }
         }
 
-        // Pass 2: fuzzy — same suburb + street overlap
+        // Pass 2: fuzzy — same suburb + STRUCTURED street number + a real
+        // street-name word, both compared precisely (2026-08-12, Johan's
+        // ruling: "a wishlist/match means exactly what it says — no
+        // cleverness, must be defendable"). Rebuilt from the ground up after
+        // two confirmed live false positives (property #4243 vs a PP listing
+        // for a different building 590m away; property #2654 "46 Marine
+        // Drive" vs "46 Taylor Road") — both fired on a bare coincidental
+        // number plus a generic/substring word match, never on real address
+        // content. See the class-level GENERIC_ADDRESS_WORDS note.
         $prospectSuburb = strtolower(trim($prospect->suburb ?? ''));
         if (!$prospectSuburb) {
+            $this->clearMatch($prospect);
+            return null;
+        }
+
+        // The prospect's OWN structured street number. Prospecting listings
+        // carry no dedicated column — only free text. P24/PP convention is
+        // "[complex/building name], [street number] [street name]", so the
+        // real street segment is the LAST comma-separated part, not
+        // necessarily the first number in the string (that first number is
+        // often a complex/unit number — e.g. "14 Dumela Holiday Flats, 1
+        // Marine Drive": "14" is the complex, "1" is the real street number).
+        // A number is read ONLY from that segment's own leading position —
+        // never searched for anywhere in the free text — mirroring how a
+        // real street number is actually written.
+        $prospectSegments = array_filter(array_map('trim', explode(',', (string) $prospect->address)));
+        $prospectStreetSegment = $prospectSegments ? strtolower(end($prospectSegments)) : '';
+        $prospectNumber = null;
+        if (preg_match('/^(\d+)\b/', $prospectStreetSegment, $numMatch)) {
+            $prospectNumber = $numMatch[1];
+        }
+
+        // Prospect has no readable street number at all — per Johan's ruling,
+        // Pass 2 must not fire on number alone (there IS no number to gate
+        // on), so nothing in this suburb can fuzzy-match. Belt-and-braces:
+        // Pass 1 (exact normalized match) already had first refusal above.
+        if (!$prospectNumber) {
             $this->clearMatch($prospect);
             return null;
         }
@@ -65,47 +119,62 @@ class ProspectingStockMatchService
                 continue;
             }
 
-            // Extract street number from property address
-            $propAddr = strtolower(trim($prop->address ?? ''));
-            if (!$propAddr) {
-                continue;
+            // The property's STRUCTURED street number — prefer the dedicated
+            // column; most rows in this dataset have it NULL with the number
+            // written inline at the front of street_name instead ("30 Queen
+            // Street"), so fall back to that leading token only. Do NOT
+            // search for the number anywhere in property.address free text —
+            // that loose search is exactly what let a coincidental complex/
+            // unit number stand in for the real street number before.
+            $propNumber = $prop->street_number ? trim((string) $prop->street_number) : null;
+            if (!$propNumber && $prop->street_name) {
+                if (preg_match('/^(\d+)\b/', strtolower(trim($prop->street_name)), $numMatch2)) {
+                    $propNumber = $numMatch2[1];
+                }
             }
 
-            // Extract leading street number
-            $propNumber = null;
-            if (preg_match('/^(\d+)\b/', $propAddr, $numMatch)) {
-                $propNumber = $numMatch[1];
-            } elseif ($prop->street_number) {
-                $propNumber = trim($prop->street_number);
-            }
-
-            // Must have a street number to fuzzy match — without it, too many false positives
+            // Neither a dedicated street_number nor a readable leading number
+            // in street_name — no real structured number to compare against.
+            // Per Johan's ruling, skip rather than guess.
             if (!$propNumber) {
                 continue;
             }
 
-            // Prospect must contain the same street number at a word boundary
-            if (!preg_match('/\b' . preg_quote($propNumber, '/') . '\b/', $prospectNorm)) {
+            // FIELD-TO-FIELD equality, not "does this number appear somewhere
+            // in the other address's free text" — the exact distinction that
+            // let property #4243's street_number "14" match the unrelated
+            // "14 Dumela Holiday Flats" complex name.
+            if ($propNumber !== $prospectNumber) {
                 continue;
             }
 
-            // Also require a significant street name word match (3+ char words only)
-            $propWords = array_filter(preg_split('/\s+/', preg_replace('/[^a-z\s]/', '', $propAddr)));
-            $propWords = array_filter($propWords, fn($w) => strlen($w) > 3); // skip short/common words
+            // Real street-name word match: word-boundary (not str_contains —
+            // "flat" must never match inside "flats"), excluding generic
+            // descriptor / street-type words AND the shared suburb name (which
+            // normalizeAddress() appends to both sides, so it would otherwise
+            // always "match" regardless of the actual street).
+            $propNameSource = $prop->street_name ?: ($prop->address ?? '');
+            $propWords = preg_split('/\s+/', preg_replace('/[^a-z\s]/', '', strtolower($propNameSource)));
+            $propWords = array_filter($propWords, fn ($w) => strlen($w) > 3
+                && !in_array($w, self::GENERIC_ADDRESS_WORDS, true)
+                && $w !== $prospectSuburb);
 
             if (empty($propWords)) {
+                // No real distinguishing street-name word survives filtering —
+                // a bare number match alone is not enough (the exact 46
+                // Taylor / #4243 failure mode). Skip.
                 continue;
             }
 
-            $matchedWords = 0;
+            $matched = false;
             foreach ($propWords as $word) {
-                if (str_contains($prospectNorm, $word)) {
-                    $matchedWords++;
+                if (preg_match('/\b' . preg_quote($word, '/') . '\b/', $prospectNorm)) {
+                    $matched = true;
+                    break;
                 }
             }
 
-            // Require street number match + at least 1 significant street name word
-            if ($matchedWords >= 1) {
+            if ($matched) {
                 $this->setMatch($prospect, $prop);
                 return $prop;
             }

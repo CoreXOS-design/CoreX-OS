@@ -829,10 +829,17 @@
             </div>
             @endif
 
-            {{-- Also Marketed By (prospecting matches) --}}
+            {{-- Also Marketed By (prospecting matches) — 2026-08-12 (Johan's
+                 ruling): was a raw, ungated matched_property_id query (fuzzy-
+                 matcher output, same false-positive risk as every other raw-
+                 column surface already fixed). Routed through
+                 OnMarketStockService's canonical EXACT-match identity
+                 (portal_ref OR normalized_address only) as belt-and-suspenders
+                 on top of the Pass 2 matcher fix itself. --}}
             @if(!$isNew)
             @php
-                $prospectMatches = \App\Models\ProspectingListing::where('matched_property_id', $property->id)->whereNull('deleted_at')->orderByDesc('last_seen_at')->get();
+                $prospectMatches = app(\App\Services\Prospecting\OnMarketStockService::class)
+                    ->listingsMarketingProperty($property, (int) $property->agency_id);
             @endphp
             @if($prospectMatches->count() > 0)
             <div class="rounded-md p-3 space-y-2" style="background:var(--surface); border:1px solid var(--border);">
