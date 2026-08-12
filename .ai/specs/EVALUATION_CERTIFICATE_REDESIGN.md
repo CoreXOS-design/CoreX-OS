@@ -15,3 +15,29 @@ BUILD APPROACH: reuse the existing e-sign "Authorise Documents" mechanism for th
 
 6. CONTACT LINKING: if the certificate is linked to a property we already know the contact; OR allow the agent to link a contact at this step. REUSE the existing contact-link pattern used elsewhere (Johan cited Pitch Now — link a contact; DR2 — link a supplier; DR2 deal capture — link seller/buyer). Do not build a new picker.
 7. SHARING = the standard CoreX WhatsApp "did-you-send" model — IDENTICAL to the Core Matches feature shipped this afternoon (resources/views/corex/contacts/match-results.blade.php). Flow: Share → WhatsApp → open WhatsApp in a NEW tab and share → on return to the current tab, show the "did the message send? yes / no" prompt → if YES: capture the send against the linked contact + increment the WhatsApp count → if NO: still record it on the contact (as we do now). Same principle used everywhere.
+
+## Build assignment + cross-lane contract — 12 Aug 2026
+
+Phase 0 locked: certificate output = **dompdf** (port `generateCmaPrintHtml()` from `tools.blade.php` to a server-side Blade view). Lanes: cc3 = Phase 1 (model + property search + contact link) · cc6 = Phase 2 (dompdf cert + valuation→evaluation scrub) + Phase 3 (Share/Print/Download) · cc1 = Phase 4 (saved-sig PIN placement) · cc5 = Phase 4b (candidate→full-status authorisation queue) + Phase 5 (property-drive filing) + Phase 6 (end-to-end verification), and cc5 coordinates the model shape across lanes.
+
+### Contract: fields Phase 4b/5/6 need on cc3's Phase 1 model (proposed by cc5, please confirm/adjust rather than diverge silently)
+
+Mirrors the proven `SignatureTemplate`/`SignatureService` candidate-authorisation pattern (same names/shapes where sensible, so the review-screen build is a port, not a reinvention):
+
+| Column | Type | Purpose |
+|---|---|---|
+| `status` | string | `draft` / `ready` / `pending_authorisation` / `returned_to_candidate` / `authorised` |
+| `is_candidate_flow` | bool, default false | Set true at creation if the creator is a candidate practitioner |
+| `created_by` | FK users | Creator (the candidate, in the candidate flow) |
+| `authorised_by` | nullable FK users | Full-status practitioner who accepted + PIN-signed |
+| `authorised_at` | nullable timestamp | |
+| `returned_notes` | nullable text | Reject-with-note message shown back to the candidate |
+| `signed_by` | nullable FK users | Whoever applied the final PIN signature (full-status directly, or the authoriser) |
+| `signed_at` | nullable timestamp | |
+| `signed_pdf_path` | nullable string | Where Phase 2's rendered signed PDF lives — Phase 5 files this |
+| `property_id` | nullable FK properties | Already implied by point 1 — Phase 5 needs it to know where to file |
+| `filed_at` | nullable timestamp | Phase 5 stamps this once attached to the property's document drive |
+
+Authoriser determination needs no schema — `App\Services\CandidatePractitionerService::isCandidate()/canAuthorise()/getEligibleAuthorisers()` operates on `User` alone and is reused as-is.
+
+cc5 is blocked on this model landing on `origin/QA1` before Phase 4b/5 code can be written — watching for it. If cc3's actual column names differ, flag here rather than cc5 guessing against a stale contract.
