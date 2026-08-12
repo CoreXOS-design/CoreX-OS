@@ -717,6 +717,7 @@ CREATE TABLE `agency_onboarding_setups` (
   `slug` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_by` bigint unsigned DEFAULT NULL,
   `admin_user_id` bigint unsigned DEFAULT NULL,
+  `invite_email_sent_at` timestamp NULL DEFAULT NULL,
   `current_step` tinyint unsigned NOT NULL DEFAULT '1',
   `completed_steps` json DEFAULT NULL,
   `expires_at` timestamp NULL DEFAULT NULL,
@@ -9769,6 +9770,7 @@ CREATE TABLE `properties` (
   `p24_listing_number` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `is_demo` tinyint(1) NOT NULL DEFAULT '0',
   `p24_image_signature` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `access_notes` text COLLATE utf8mb4_unicode_ci,
   PRIMARY KEY (`id`),
   UNIQUE KEY `properties_external_id_unique` (`external_id`),
   KEY `properties_agent_id_foreign` (`agent_id`),
@@ -10500,6 +10502,7 @@ CREATE TABLE `prospecting_claims` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
   `prospecting_listing_id` bigint unsigned NOT NULL,
+  `property_id` bigint unsigned DEFAULT NULL,
   `user_id` bigint unsigned NOT NULL,
   `status` varchar(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'claimed',
   `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
@@ -10518,6 +10521,9 @@ CREATE TABLE `prospecting_claims` (
   KEY `prospecting_claims_user_id_is_active_index` (`user_id`,`is_active`),
   KEY `prospecting_claims_agency_id_status_index` (`agency_id`,`status`),
   KEY `prospecting_claims_pitched_at_index` (`pitched_at`),
+  KEY `pc_agency_property_active_idx` (`agency_id`,`property_id`,`is_active`),
+  KEY `prospecting_claims_property_id_foreign` (`property_id`),
+  CONSTRAINT `prospecting_claims_property_id_foreign` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE SET NULL,
   CONSTRAINT `prospecting_claims_prospecting_listing_id_foreign` FOREIGN KEY (`prospecting_listing_id`) REFERENCES `prospecting_listings` (`id`),
   CONSTRAINT `prospecting_claims_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -10535,8 +10541,8 @@ CREATE TABLE `prospecting_listings` (
   `captured_by_user_id` bigint unsigned NOT NULL,
   `portal_source` enum('p24','pp') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `portal_ref` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `portal_url` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `address` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `portal_url` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `address` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `normalized_address` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `property_group_id` bigint unsigned DEFAULT NULL,
   `suburb` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -10560,6 +10566,10 @@ CREATE TABLE `prospecting_listings` (
   `first_seen_email_date` timestamp NULL DEFAULT NULL,
   `price_changed_at` datetime DEFAULT NULL,
   `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `last_search_id` bigint unsigned DEFAULT NULL,
+  `portal_status` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `portal_status_changed_at` timestamp NULL DEFAULT NULL,
+  `off_market_at` timestamp NULL DEFAULT NULL,
   `mandate_type` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -10579,6 +10589,8 @@ CREATE TABLE `prospecting_listings` (
   KEY `idx_prospecting_listings_tracked` (`tracked_property_id`),
   KEY `idx_prospecting_listings_geo` (`latitude`,`longitude`),
   KEY `prospecting_listings_branch_id_foreign` (`branch_id`),
+  KEY `prospecting_listings_portal_status_index` (`portal_status`),
+  KEY `prospecting_listings_last_search_id_index` (`last_search_id`),
   CONSTRAINT `prospecting_listings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `prospecting_listings_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
   CONSTRAINT `prospecting_listings_captured_by_user_id_foreign` FOREIGN KEY (`captured_by_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
@@ -10611,6 +10623,32 @@ CREATE TABLE `prospecting_pitch_locks` (
   CONSTRAINT `prospecting_pitch_locks_prospecting_listing_id_foreign` FOREIGN KEY (`prospecting_listing_id`) REFERENCES `prospecting_listings` (`id`) ON DELETE CASCADE,
   CONSTRAINT `prospecting_pitch_locks_tracked_property_id_foreign` FOREIGN KEY (`tracked_property_id`) REFERENCES `tracked_properties` (`id`) ON DELETE CASCADE,
   CONSTRAINT `prospecting_pitch_locks_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `prospecting_price_anomalies`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `prospecting_price_anomalies` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `prospecting_listing_id` bigint unsigned NOT NULL,
+  `agency_id` bigint unsigned NOT NULL,
+  `portal_source` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `portal_ref` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `stored_price` int DEFAULT NULL,
+  `rejected_price` int DEFAULT NULL,
+  `jump_factor` decimal(8,2) DEFAULT NULL,
+  `search_url` varchar(2000) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `reviewed_at` timestamp NULL DEFAULT NULL,
+  `reviewed_by_user_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `prospecting_price_anomalies_prospecting_listing_id_foreign` (`prospecting_listing_id`),
+  KEY `prospecting_price_anomalies_agency_id_status_index` (`agency_id`,`status`),
+  KEY `prospecting_price_anomalies_created_at_index` (`created_at`),
+  KEY `prospecting_price_anomalies_agency_id_index` (`agency_id`),
+  CONSTRAINT `prospecting_price_anomalies_prospecting_listing_id_foreign` FOREIGN KEY (`prospecting_listing_id`) REFERENCES `prospecting_listings` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `prospecting_price_history`;
@@ -12657,6 +12695,23 @@ CREATE TABLE `user_banking_details` (
   CONSTRAINT `user_banking_details_verified_by_foreign` FOREIGN KEY (`verified_by`) REFERENCES `users` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `user_branch_history`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `user_branch_history` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint unsigned NOT NULL,
+  `agency_id` bigint unsigned DEFAULT NULL,
+  `from_branch_id` bigint unsigned DEFAULT NULL,
+  `to_branch_id` bigint unsigned DEFAULT NULL,
+  `moved_at` timestamp NOT NULL,
+  `moved_by_user_id` bigint unsigned DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `user_branch_history_user_id_moved_at_index` (`user_id`,`moved_at`),
+  KEY `user_branch_history_agency_id_index` (`agency_id`),
+  CONSTRAINT `user_branch_history_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `user_compliance_overrides`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -12885,6 +12940,7 @@ CREATE TABLE `users` (
   `target_listings` int NOT NULL DEFAULT '0',
   `email_verified_at` timestamp NULL DEFAULT NULL,
   `invited_at` timestamp NULL DEFAULT NULL,
+  `first_login_at` timestamp NULL DEFAULT NULL,
   `password` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `remember_token` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `api_token` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -14387,12 +14443,22 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1058,'2026_08_20_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1059,'2026_08_03_120001_create_fica_submission_documents_table',266);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1060,'2026_08_20_000012_create_login_histories_table',267);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1061,'2026_08_05_090000_add_pp_exclusivity_explainer_seen_at_to_users_table',268);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1062,'2026_08_13_000001_add_country_prefix_to_contact_phones',268);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1063,'2026_08_15_000001_create_contact_identifier_labels_table',268);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1064,'2026_08_16_000001_add_whatsapp_flags_to_contact_phones',268);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1065,'2026_08_17_000001_add_send_status_to_communications',268);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1066,'2026_08_21_000002_add_mandate_type_to_prospecting_listings',268);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1067,'2026_08_21_000003_add_not_sent_and_communication_link_to_seller_outreach_sends',268);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1068,'2026_08_21_000004_add_contacted_marked_at_to_contacts',268);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1069,'2026_08_22_000001_create_agent_seat_releases_table',268);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1070,'2026_08_10_112307_make_prospecting_price_columns_nullable',269);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1062,'2026_08_21_000002_add_mandate_type_to_prospecting_listings',268);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1063,'2026_08_13_000001_add_country_prefix_to_contact_phones',269);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1064,'2026_08_15_000001_create_contact_identifier_labels_table',269);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1065,'2026_08_16_000001_add_whatsapp_flags_to_contact_phones',269);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1066,'2026_08_17_000001_add_send_status_to_communications',269);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1067,'2026_08_21_000003_add_not_sent_and_communication_link_to_seller_outreach_sends',269);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1068,'2026_08_21_000004_add_contacted_marked_at_to_contacts',269);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1069,'2026_08_05_000001_create_user_branch_history_table',270);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1070,'2026_08_22_000001_create_agent_seat_releases_table',271);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1071,'2026_08_21_000005_add_access_notes_to_properties_table',272);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1072,'2026_08_10_112307_make_prospecting_price_columns_nullable',273);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1073,'2026_08_10_120000_create_prospecting_price_anomalies_table',274);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1074,'2026_08_10_170000_make_prospecting_listings_address_nullable',275);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1075,'2026_08_10_180000_make_prospecting_listings_portal_url_nullable',275);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1076,'2026_08_21_000010_add_portal_status_to_prospecting_listings',276);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1077,'2026_08_21_000020_add_property_id_to_prospecting_claims',276);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1078,'2026_08_21_000030_add_last_search_id_to_prospecting_listings',276);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1079,'2026_08_22_000002_add_first_login_at_to_users_table',277);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1080,'2026_08_22_000003_add_invite_email_sent_at_to_agency_onboarding_setups_table',277);
