@@ -1066,6 +1066,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/tools/cma/evaluation/search-contacts', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'searchContacts'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.search-contacts');
     Route::post('/tools/cma/evaluation/contact-inline', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'contactInline'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.contact-inline');
     Route::get('/tools/cma/evaluation/{certificate}/download', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'download'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.download');
+    Route::post('/tools/cma/evaluation/{certificate}/sign', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'sign'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.sign');
 
     // Ad Manager (bulk) — spec .ai/specs/ad-manager.md §10b
     Route::get('/tools/ad-manager', [\App\Http\Controllers\Tools\AdManagerController::class, 'index'])->middleware(['permission:access_ad_manager', 'agency.required'])->name('tools.ad-manager');

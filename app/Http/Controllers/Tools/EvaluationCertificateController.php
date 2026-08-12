@@ -9,7 +9,10 @@ use App\Models\Contact;
 use App\Models\EvaluationCertificate;
 use App\Models\Property;
 use App\Models\Scopes\ContactScope;
+use App\Services\AgentSignatureService;
+use App\Services\CandidatePractitionerService;
 use App\Services\ContactDuplicateService;
+use App\Support\Impersonation;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -230,5 +233,92 @@ class EvaluationCertificateController extends Controller
         $pdf->setOption('isRemoteEnabled', true);
 
         return $pdf;
+    }
+
+    /**
+     * Phase 4 — the ONE PIN-sign surface for the evaluation certificate.
+     *
+     * This is the FINALISING signature that produces the immutable authorised
+     * artifact. It is reached two ways (cc5's Phase-4b state machine decides WHO
+     * reaches it; this endpoint does not fork on that):
+     *   • a full-status practitioner signing their own certificate directly, and
+     *   • a full-status AUTHORISER accepting + signing a candidate's certificate.
+     * Either way the signer must be full-status — a candidate cannot finalise alone.
+     *
+     * The saved signature/initial (encrypted, PIN-gated in AgentSignatureService)
+     * are pulled SERVER-SIDE only and baked into cc6's dompdf render, so the filed
+     * PDF is an immutable snapshot of the mark as it was at signing — unaffected by
+     * any later change to the agent's My-Portal signature. Impersonation can never
+     * reach the pixels (guarded here up-front AND inside the service).
+     */
+    public function sign(Request $request, EvaluationCertificate $certificate, AgentSignatureService $signatures, CandidatePractitionerService $practitioners): JsonResponse
+    {
+        $user = auth()->user();
+        abort_unless($user?->hasPermission('access_calculators'), 403);
+
+        // Agency isolation — never sign another agency's certificate.
+        abort_unless((int) $certificate->agency_id === (int) ($user->effectiveAgencyId() ?? 0), 404);
+
+        // Impersonation hard-block: a switch-user session may never place a saved
+        // signature. AgentSignatureService also guards internally; this is the clean
+        // up-front 403 so we never even render.
+        abort_if(Impersonation::actingAdminId() !== null, 403, 'Saved signatures are unavailable while acting as another user.');
+
+        // Only a full-status practitioner may finalise. The candidate flow is cc5's
+        // Phase-4b queue, which routes a full-status authoriser into THIS endpoint.
+        abort_if($practitioners->isCandidate($user), 403, 'A candidate practitioner cannot finalise an evaluation certificate — it must be authorised by a full-status practitioner.');
+
+        // Must have a saved signature + PIN set up (My Portal) to place one.
+        abort_unless($signatures->isConfigured($user), 422, 'Set up your saved signature and signing PIN in My Portal before signing.');
+
+        // A certificate is signed exactly once — the filed artifact is immutable.
+        abort_if($certificate->isAuthorised(), 409, 'This evaluation certificate is already signed.');
+
+        $contextKey = 'evalcert:' . $certificate->id;
+
+        // Unlock: accept the signing PIN inline (verify + unlock), or honour an
+        // unlock already established this session.
+        $pin = (string) $request->input('pin', '');
+        if ($pin !== '') {
+            if (! $signatures->verifyPinAndUnlock($user, $pin, $contextKey)) {
+                return response()->json(['message' => 'Incorrect signing PIN.'], 422);
+            }
+        } elseif (! $signatures->isUnlocked($user, $contextKey)) {
+            return response()->json(['message' => 'Enter your signing PIN to place your saved signature.'], 422);
+        }
+
+        // Decrypted saved marks — server-side only, never echoed to the browser.
+        $signatureImage = $signatures->image($user, 'signature', $contextKey);
+        $initialImage   = $signatures->image($user, 'initial', $contextKey);
+
+        // Stamp the signer before rendering so cc6's view shows signedBy->name.
+        // setRelation avoids a stale/lazy null on the freshly-set foreign key.
+        $certificate->signed_by_user_id = $user->id;
+        $certificate->setRelation('signedBy', $user);
+        // Candidate flow: a certificate that was queued for authorisation is now
+        // being accepted+signed by a full-status authoriser — record them as such.
+        if ($certificate->isPendingAuthorisation()) {
+            $certificate->authorised_by_user_id = $user->id;
+        }
+        $certificate->status = EvaluationCertificate::STATUS_AUTHORISED;
+
+        // Bake the immutable signed PDF and file it (Phase-5 picks up signed_pdf_path
+        // to attach to the property drive; download() streams this exact artifact).
+        $pdf  = $this->renderCertificatePdf($certificate, $signatureImage, $initialImage);
+        $path = 'evaluation-certificates/' . (int) $certificate->agency_id . '/' . $certificate->id . '-signed.pdf';
+        Storage::put($path, $pdf->output());
+        $certificate->signed_pdf_path = $path;
+
+        $certificate->save();
+
+        // One certificate, one signature — drop the unlock; nothing lingers unlocked.
+        $signatures->lock($user, $contextKey);
+
+        return response()->json([
+            'ok'           => true,
+            'status'       => $certificate->status,
+            'signed_by'    => $user->name,
+            'download_url' => route('tools.cma.evaluation.download', $certificate),
+        ]);
     }
 }
