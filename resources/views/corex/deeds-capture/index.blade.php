@@ -33,6 +33,7 @@
                         $tp->province,
                     ])->filter(fn ($v) => trim((string) $v) !== '')->implode(', ');
                     $owner = $tp->ownerContact;
+                    $owners = $tp->owners; // multi-owner (2026-08-12) — falls back to $owner below for pre-migration captures
                 @endphp
                 <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
                     <div class="flex flex-wrap items-start justify-between gap-4">
@@ -55,10 +56,29 @@
                             </div>
                         </div>
 
-                        {{-- Owner --}}
+                        {{-- Owner(s) — multi-owner (2026-08-12): CMA properties can list more than
+                             one registered owner; loop tracked_property_owners when present, else
+                             fall back to the single ownerContact (pre-migration captures). --}}
                         <div class="min-w-0" style="min-width: 14rem;">
-                            <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">Owner</div>
-                            @if($owner)
+                            <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">
+                                Owner{{ $owners->count() > 1 ? 's' : '' }}
+                            </div>
+                            @if($owners->isNotEmpty())
+                                @foreach($owners as $ownerRow)
+                                    <div @if(!$loop->first) class="mt-2 pt-2" style="border-top:1px solid var(--border);" @endif>
+                                        <div class="font-semibold text-sm" style="color: var(--text-primary);">
+                                            {{ $ownerRow->contact ? trim($ownerRow->contact->first_name . ' ' . (string) $ownerRow->contact->last_name) : ($ownerRow->name ?? 'Unnamed owner') }}
+                                        </div>
+                                        <div class="text-xs mt-0.5" style="color: var(--text-muted);">
+                                            @if($ownerRow->id_number)
+                                                {{ $ownerRow->id_type === 'company_reg' ? 'Company reg' : 'ID' }}: {{ $ownerRow->id_number }}
+                                            @else
+                                                <span style="color: var(--ds-amber, #f59e0b);">No owner ID</span>
+                                            @endif
+                                        </div>
+                                    </div>
+                                @endforeach
+                            @elseif($owner)
                                 <div class="font-semibold text-sm" style="color: var(--text-primary);">{{ trim($owner->first_name . ' ' . (string) $owner->last_name) }}</div>
                                 <div class="text-xs mt-0.5" style="color: var(--text-muted);">
                                     @if($owner->id_number)

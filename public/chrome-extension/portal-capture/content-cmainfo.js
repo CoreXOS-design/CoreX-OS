@@ -455,6 +455,122 @@
     return null;
   }
 
+  // ══════════════════════════════════════════════════════════
+  // ── MULTI-OWNER SPLITTING + NAME PARSING (2026-08-12) ──────
+  // ══════════════════════════════════════════════════════════
+  // CMA lists more than one registered owner on some properties, joining both
+  // the "Owner" and "Owner's ID" cells with " ; " — e.g.
+  //   "ZIETSMAN PHILIPPUS JACOBUS CHRISTOFFEL BUYS ; ZIETSMAN ELIZABETH MARIE"
+  //   "5008255027086 ; 5008280066083"
+  // Cramming both into one owner object was the bug that blocked capture (the
+  // combined ID string blew past the server's per-owner 20-char limit).
+
+  function splitOwnerField(raw) {
+    if (!raw) return [];
+    return String(raw).split(/\s*;\s*/).map(function (s) { return s.trim(); }).filter(Boolean);
+  }
+
+  function titleCase(word) {
+    if (!word) return '';
+    return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+  }
+
+  // Compound-surname prefix words CMA leaves trailing at the end of the raw
+  // string (e.g. "MERWE FRANCOIS PHILLIPUS VAN DER" -> surname "Van Der Merwe").
+  // Matched case-insensitively, one token at a time, walking back from the end.
+  const SURNAME_PREFIX_WORDS = new Set(['van', 'der', 'den', 'du', 'de', 'le', 'janse']);
+
+  /**
+   * CMA's raw owner-name layout is SURNAME-FIRST ("ZIETSMAN PHILIPPUS JACOBUS
+   * ..." -> surname "Zietsman", names "Philippus Jacobus ..."), except for a
+   * compound surname, where CMA pulls only the LAST word of the surname to
+   * the front and leaves the prefix words trailing at the end ("MERWE
+   * FRANCOIS PHILLIPUS VAN DER" -> surname "Van Der Merwe", names "Francois
+   * Phillipus").
+   *
+   * Algorithm: tokenize, then walk backward from the last token collecting a
+   * run of known prefix words. If that run is non-empty, the surname is
+   * (prefix words, in order) + the FIRST token; the first names are whatever
+   * tokens are left in between. No trailing prefix run -> the simple case:
+   * surname = first token, names = everything else.
+   *
+   * Returns { surname, first_names, confident }. confident=false (caller
+   * falls back to the raw string) when empty, or when the prefix run would
+   * consume every token after the first (no base surname word to anchor on)
+   * — captured raw rather than guessed, per Johan's instruction.
+   */
+  function parsePersonName(raw) {
+    const tokens = String(raw || '').trim().split(/\s+/).filter(Boolean);
+    if (tokens.length === 0) {
+      return { surname: null, first_names: null, confident: false };
+    }
+    if (tokens.length === 1) {
+      return { surname: titleCase(tokens[0]), first_names: '', confident: true };
+    }
+
+    let prefixCount = 0;
+    for (let i = tokens.length - 1; i > 0; i--) {
+      if (SURNAME_PREFIX_WORDS.has(tokens[i].toLowerCase())) {
+        prefixCount++;
+      } else {
+        break;
+      }
+    }
+
+    if (prefixCount >= tokens.length) {
+      return { surname: null, first_names: null, confident: false };
+    }
+
+    const firstToken = tokens[0];
+    const prefixTokens = prefixCount > 0 ? tokens.slice(tokens.length - prefixCount) : [];
+    const nameTokens = tokens.slice(1, tokens.length - prefixCount);
+
+    const surname = prefixTokens.concat([firstToken]).map(titleCase).join(' ');
+    const firstNames = nameTokens.map(titleCase).join(' ');
+
+    return { surname: surname, first_names: firstNames, confident: true };
+  }
+
+  /**
+   * Splits the raw "Owner" / "Owner's ID" cell strings on " ; " and pairs
+   * them into owner records — uniform for 1 owner (no separator -> a single-
+   * element array) or N. If the two arrays don't line up 1:1 (a malformed
+   * page), pairs up to the shorter length and logs a warning rather than
+   * guessing a match — losing an ID pairing silently would be worse than
+   * dropping the extra row.
+   */
+  function buildOwnersArray(deed) {
+    const s = deed.sale_information;
+    const names = splitOwnerField(s.owner);
+    const ids = splitOwnerField(s.owner_id_number);
+
+    if (names.length !== ids.length) {
+      console.warn('[CoreX] deeds-capture: owner name count (' + names.length + ') and owner ID count (' + ids.length + ') do not match — pairing up to the shorter list. Raw owner: "' + s.owner + '", raw IDs: "' + s.owner_id_number + '"');
+    }
+
+    const count = Math.max(names.length, ids.length);
+    const owners = [];
+    for (let i = 0; i < count; i++) {
+      const rawName = names[i] || '';
+      const rawId = (ids[i] || '').replace(/\s+/g, '');
+      if (rawName === '' && rawId === '') continue;
+
+      const parsed = parsePersonName(rawName);
+      if (!parsed.confident && rawName) {
+        console.warn('[CoreX] deeds-capture: could not confidently parse owner name "' + rawName + '" into surname/first names — sending the raw string; storage falls back to a naive split.');
+      }
+
+      owners.push({
+        name: parsed.confident ? [parsed.first_names, parsed.surname].filter(Boolean).join(' ') : rawName,
+        surname: parsed.confident ? parsed.surname : null,
+        first_names: parsed.confident ? parsed.first_names : null,
+        id_number: rawId || null,
+        id_type: classifyOwnerIdType(rawId),
+      });
+    }
+    return owners;
+  }
+
   /**
    * source_ref MUST be stable per property (cc1's idempotency + match-or-
    * create key) — capturing the same property twice must produce the same
@@ -541,11 +657,7 @@
             property_type:     p.type,
             title_deed_number: s.title_deed, // routed from Sale Information — see mapping note above
           },
-          owner: {
-            name:      s.owner,
-            id_number: s.owner_id_number,
-            id_type:   classifyOwnerIdType(s.owner_id_number),
-          },
+          owners: buildOwnersArray(deed), // multi-owner (2026-08-12) — see buildOwnersArray()
           sale: {
             sale_price:       parseCurrency(s.sale_price),
             sale_date:        parseSaDate(s.sale_date),

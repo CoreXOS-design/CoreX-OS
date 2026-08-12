@@ -187,6 +187,17 @@ final class TrackedProperty extends Model
         return $this->belongsTo(\App\Models\Contact::class, 'owner_contact_id');
     }
 
+    /**
+     * CMA deeds-capture multi-owner support (2026-08-12) — a property can carry
+     * more than one registered owner (CMA joins them with " ; "). owner_contact_id
+     * stays pointed at the FIRST/primary owner for backward compatibility with
+     * every existing consumer of that column; this relation is the full list.
+     */
+    public function owners(): HasMany
+    {
+        return $this->hasMany(TrackedPropertyOwner::class, 'tracked_property_id');
+    }
+
     public function isPromoted(): bool
     {
         return $this->promoted_to_property_id !== null;

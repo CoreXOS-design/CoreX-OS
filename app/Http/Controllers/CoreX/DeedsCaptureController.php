@@ -26,7 +26,7 @@ final class DeedsCaptureController extends Controller
 
         $captures = TrackedProperty::query()
             ->withoutGlobalScopes()
-            ->with('ownerContact')
+            ->with(['ownerContact', 'owners.contact'])
             ->where('agency_id', $agencyId)
             ->whereNull('deleted_at')
             ->where('capture_kind', 'deeds_capture')

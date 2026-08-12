@@ -61,10 +61,17 @@ final class DeedsCaptureController extends Controller
             'captures.*.property.section_extent_m2' => 'nullable|numeric',
             'captures.*.property.property_type'     => 'nullable|string|max:100',
             'captures.*.property.title_deed_number' => 'nullable|string|max:100',
-            'captures.*.owner'                      => 'nullable|array',
-            'captures.*.owner.name'                 => 'nullable|string|max:255',
-            'captures.*.owner.id_number'            => 'nullable|string|max:20',
-            'captures.*.owner.id_type'              => 'nullable|in:sa_id,company_reg',
+            // Multi-owner (2026-08-12) — CMA lists more than one registered owner on
+            // some properties (joined " ; " on the source page); a single owner
+            // object can't hold two id_number's without blowing the 20-char column,
+            // which is exactly the bug this replaced. owners[] validates each
+            // owner's id_number against its own real limit.
+            'captures.*.owners'                     => 'nullable|array',
+            'captures.*.owners.*.name'               => 'nullable|string|max:255',
+            'captures.*.owners.*.surname'            => 'nullable|string|max:150',
+            'captures.*.owners.*.first_names'        => 'nullable|string|max:200',
+            'captures.*.owners.*.id_number'          => 'nullable|string|max:20',
+            'captures.*.owners.*.id_type'            => 'nullable|in:sa_id,company_reg',
             'captures.*.sale'                       => 'nullable|array',
             'captures.*.sale.sale_price'            => 'nullable|numeric',
             'captures.*.sale.sale_date'             => 'nullable|date',
@@ -96,17 +103,37 @@ final class DeedsCaptureController extends Controller
 
     private function ingestOne(array $capture, int $agencyId, $user, $matcher, $dupes): array
     {
-        $p   = $capture['property'];
-        $o   = $capture['owner'] ?? [];
-        $s   = $capture['sale'] ?? [];
-        $ref = $capture['source_ref'];
+        $p      = $capture['property'];
+        $owners = $capture['owners'] ?? [];
+        $s      = $capture['sale'] ?? [];
+        $ref    = $capture['source_ref'];
 
-        // Owner contact — deduped on the owner ID (the join key). Phone left empty.
-        $ownerId   = isset($o['id_number']) ? preg_replace('/\s+/', '', (string) $o['id_number']) : null;
-        $ownerName = trim((string) ($o['name'] ?? ''));
-        $ownerContactId = ($ownerName !== '' || $ownerId)
-            ? $this->resolveOwnerContact($agencyId, $user, $ownerName, $ownerId, $o['id_type'] ?? null, $dupes)
-            : null;
+        // Resolve/create a Contact per owner — deduped on the owner ID (the join
+        // key), same as before, just looped for however many owners CMA listed.
+        // Phone left empty on every owner (phase-2 Virtual Agent fills it).
+        $resolvedOwners = [];
+        foreach ($owners as $o) {
+            $ownerId    = isset($o['id_number']) ? preg_replace('/\s+/', '', (string) $o['id_number']) : null;
+            $ownerName  = trim((string) ($o['name'] ?? ''));
+            $surname    = isset($o['surname']) ? trim((string) $o['surname']) : null;
+            $firstNames = isset($o['first_names']) ? trim((string) $o['first_names']) : null;
+            if ($ownerName === '' && !$ownerId) {
+                continue; // nothing usable on this row
+            }
+            $contactId = $this->resolveOwnerContact(
+                $agencyId, $user, $ownerName, $ownerId, $o['id_type'] ?? null, $dupes, $surname, $firstNames
+            );
+            $resolvedOwners[] = [
+                'contact_id' => $contactId,
+                'name'       => $ownerName !== '' ? $ownerName : null,
+                'id_number'  => $ownerId,
+                'id_type'    => $o['id_type'] ?? null,
+            ];
+        }
+        // owner_contact_id stays the FIRST/primary owner — existing consumers of
+        // that column (e.g. TrackedProperty::ownerContact(), the Pitch entry
+        // point) are untouched; the full list lives in tracked_property_owners.
+        $ownerContactId = $resolvedOwners[0]['contact_id'] ?? null;
 
         // Match-or-create the tracked property (shared plumbing).
         $facts = array_filter([
@@ -165,15 +192,48 @@ final class DeedsCaptureController extends Controller
 
         $tp->save();
 
+        $this->syncOwners($tp, $resolvedOwners);
+
         return [
             'source_ref'          => $ref,
             'tracked_property_id' => $tp->id,
             'owner_contact_id'    => $ownerContactId,
+            'owner_contact_ids'   => array_values(array_filter(array_column($resolvedOwners, 'contact_id'))),
             'created'             => $created,
         ];
     }
 
-    private function resolveOwnerContact(int $agencyId, $user, string $name, ?string $idNumber, ?string $idType, $dupes): ?int
+    /**
+     * Persist the full owner list. Keyed on (tracked_property_id, id_number) so a
+     * re-capture of the same property updates the same rows instead of piling up
+     * duplicates; an owner with no id_number always inserts fresh (nothing to key
+     * a dedupe on) — a real edge case, not the common deeds-capture path.
+     */
+    private function syncOwners(\App\Models\Prospecting\TrackedProperty $tp, array $resolvedOwners): void
+    {
+        foreach ($resolvedOwners as $i => $o) {
+            if ($o['id_number']) {
+                \App\Models\Prospecting\TrackedPropertyOwner::updateOrCreate(
+                    ['tracked_property_id' => $tp->id, 'id_number' => $o['id_number']],
+                    ['contact_id' => $o['contact_id'], 'name' => $o['name'], 'id_type' => $o['id_type'], 'is_primary' => $i === 0]
+                );
+            } else {
+                \App\Models\Prospecting\TrackedPropertyOwner::create([
+                    'tracked_property_id' => $tp->id,
+                    'contact_id'          => $o['contact_id'],
+                    'name'                => $o['name'],
+                    'id_number'           => null,
+                    'id_type'             => $o['id_type'],
+                    'is_primary'          => $i === 0,
+                ]);
+            }
+        }
+    }
+
+    private function resolveOwnerContact(
+        int $agencyId, $user, string $name, ?string $idNumber, ?string $idType, $dupes,
+        ?string $surname = null, ?string $firstNames = null
+    ): ?int
     {
         // Dedupe on the owner ID — the join key.
         if ($idNumber) {
@@ -190,7 +250,15 @@ final class DeedsCaptureController extends Controller
 
         // New owner — name + owner ID, phone LEFT EMPTY (phase-2 Virtual Agent
         // fills it, keyed by the owner ID). contacts.last_name/phone are NOT NULL.
-        [$first, $last] = $this->splitName($name);
+        // Prefer the extension's already-parsed surname/first_names (handles
+        // CMA's surname-first + compound-surname layout correctly) over the
+        // naive first-space split, which mis-splits both of those cases.
+        if ($surname !== null && $surname !== '') {
+            $first = $firstNames ?? '';
+            $last  = $surname;
+        } else {
+            [$first, $last] = $this->splitName($name);
+        }
         $contact = Contact::create([
             'agency_id'             => $agencyId,
             'branch_id'             => $user->branch_id,
