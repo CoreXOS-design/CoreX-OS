@@ -1867,6 +1867,79 @@ class PropertyController extends Controller
         return response()->json(['ok' => true, 'rental_images' => $structure]);
     }
 
+    /**
+     * Bulk-delete rental inspection images — "Delete selected" and "Delete all".
+     * Mirrors the single deleteRentalImage() semantics (HARD delete: the JSON ref is
+     * removed AND the file is unlinked via the same parse_url/'/storage/' path guard),
+     * but does the whole set across ALL sections (in/out/custom) in ONE transaction.
+     * Same permission gate (authorizeProperty). Returns the fresh structure.
+     *
+     * Body: { urls: [ ...image urls... ] }  OR  { all: true } to clear every section.
+     */
+    public function deleteRentalImages(Request $request, Property $property)
+    {
+        $this->authorizeProperty($property);
+
+        $validated = $request->validate([
+            'urls'   => 'required_without:all|array',
+            'urls.*' => 'string',
+            'all'    => 'sometimes|boolean',
+        ]);
+
+        $deleteAll = (bool) $request->boolean('all');
+        $structure = $property->rentalImagesStructure();
+
+        if ($deleteAll) {
+            $targets = [];
+            foreach (['in_inspection', 'out_inspection'] as $s) {
+                foreach ($structure[$s]['images'] as $u) { $targets[$u] = true; }
+            }
+            foreach ($structure['custom'] as $sec) {
+                foreach ($sec['images'] as $u) { $targets[$u] = true; }
+            }
+        } else {
+            $targets = array_flip(array_values(array_unique($validated['urls'] ?? [])));
+        }
+
+        if (empty($targets)) {
+            return response()->json(['ok' => true, 'rental_images' => $structure, 'deleted' => 0]);
+        }
+
+        $filesToUnlink = [];
+        $removeFrom = function (array $images) use ($targets, &$filesToUnlink): array {
+            $kept = [];
+            foreach ($images as $u) {
+                if (isset($targets[$u])) { $filesToUnlink[] = $u; }
+                else { $kept[] = $u; }
+            }
+            return array_values($kept);
+        };
+
+        DB::transaction(function () use ($property, &$structure, $removeFrom) {
+            $structure['in_inspection']['images']  = $removeFrom($structure['in_inspection']['images']);
+            $structure['out_inspection']['images'] = $removeFrom($structure['out_inspection']['images']);
+            foreach ($structure['custom'] as $i => $sec) {
+                $structure['custom'][$i]['images'] = $removeFrom($sec['images']);
+            }
+            $property->update(['rental_images_json' => $structure]);
+        });
+
+        // Unlink files only AFTER the references are gone — same path handling as the
+        // single deleteRentalImage (parse the /storage/ path off the public URL).
+        foreach (array_unique($filesToUnlink) as $url) {
+            $path = str_replace('/storage/', '', (string) parse_url($url, PHP_URL_PATH));
+            if ($path !== '') {
+                Storage::disk('public')->delete($path);
+            }
+        }
+
+        return response()->json([
+            'ok'            => true,
+            'rental_images' => $property->rentalImagesStructure(),
+            'deleted'       => count(array_unique($filesToUnlink)),
+        ]);
+    }
+
     public function reorderImages(Request $request, Property $property)
     {
         $this->authorizeProperty($property);
