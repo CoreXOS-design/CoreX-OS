@@ -34,6 +34,12 @@
     // Saved-signature support — only the e-sign signing surface passes this true.
     // When false the saved markup is not rendered at all (other consumers untouched).
     $savedSignatureSupport = $savedSignatureSupport ?? false;
+    // The saved-tab handler + "is this an initial marker?" expression differ per host modal:
+    //   • showSignModal (markers/conditions): chooseSavedSignature + activeMarker.type
+    //   • showWebSigCapture (inline web-sig blocks): chooseSavedSignatureWeb + currentWebSigBlockId
+    // so the saved option works in BOTH the modals the ceremony actually opens.
+    $chooseSaved    = $chooseSaved    ?? 'chooseSavedSignature';
+    $savedIsInitial = $savedIsInitial ?? "activeMarker && activeMarker.type === 'initial'";
 @endphp
 
 {{-- Google Font for typed signatures (idempotent — browser dedupes) --}}
@@ -66,7 +72,7 @@
                 </button>
                 @if($savedSignatureSupport)
                 {{-- Agent-only: place the saved signature (unlock once with the signing PIN). --}}
-                <button x-show="savedSigConfigured && !savedSigImpersonating" @click="chooseSavedSignature()"
+                <button x-show="savedSigConfigured && !savedSigImpersonating" @click="{{ $chooseSaved }}()"
                         class="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
                         :class="{{ $mode }} === 'saved' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'">
                     <span x-text="savedSigUnlocked ? 'Use my saved signature' : 'Use my saved signature 🔒'"></span>
@@ -129,16 +135,16 @@
             {{-- Saved-signature mode — place the agent's unlocked saved signature/initial. --}}
             <div x-show="{{ $mode }} === 'saved'" x-transition>
                 <div class="border-2 border-slate-200 rounded-xl bg-slate-50 p-3 flex items-center justify-center" style="min-height:120px;">
-                    <template x-if="(activeMarker && activeMarker.type === 'initial') ? savedInitialImg : savedSignatureImg">
-                        <img :src="(activeMarker && activeMarker.type === 'initial') ? savedInitialImg : savedSignatureImg"
+                    <template x-if="({{ $savedIsInitial }}) ? savedInitialImg : savedSignatureImg">
+                        <img :src="({{ $savedIsInitial }}) ? savedInitialImg : savedSignatureImg"
                              alt="Your saved mark" style="max-height:120px; max-width:100%;">
                     </template>
-                    <template x-if="!((activeMarker && activeMarker.type === 'initial') ? savedInitialImg : savedSignatureImg)">
+                    <template x-if="!(({{ $savedIsInitial }}) ? savedInitialImg : savedSignatureImg)">
                         <span class="text-xs text-slate-400">Unlock your saved signature to place it.</span>
                     </template>
                 </div>
                 <p class="text-xs text-slate-500 mt-2">
-                    Your saved <span x-text="(activeMarker && activeMarker.type === 'initial') ? 'initial' : 'signature'"></span> will be placed.
+                    Your saved <span x-text="({{ $savedIsInitial }}) ? 'initial' : 'signature'"></span> will be placed.
                     Click Apply — you can then place it on the rest without re-entering your PIN.
                 </p>
             </div>

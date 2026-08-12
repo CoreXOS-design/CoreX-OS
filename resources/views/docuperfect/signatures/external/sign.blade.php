@@ -1395,6 +1395,12 @@
         'canvasRef' => 'webSigCanvas', 'variant' => 'manual',
         'title' => "'Sign Here'",
         'placeholder' => "'Your full name'",
+        // Saved-signature: the inline web-sig markers (Click to sign / Click to initial) open THIS modal,
+        // so the "Use my saved signature 🔒" option must live here too (agents only). Wire it to the
+        // web-sig world: its own chooser + initial-detection from currentWebSigBlockId ('-init-').
+        'savedSignatureSupport' => ($isAgent ?? false),
+        'chooseSaved' => 'chooseSavedSignatureWeb',
+        'savedIsInitial' => "(currentWebSigBlockId || '').indexOf('-init-') !== -1",
     ])
 
     {{-- Footer --}}
@@ -1491,6 +1497,9 @@ function externalSign() {
         savedPin: '',
         savedPinError: '',
         savedPinLoading: false,
+        // Which modal requested the unlock, so submitSavedPin sets the RIGHT mode after unlocking:
+        // 'marker' → showSignModal (captureMode), 'web' → showWebSigCapture (webSigMode).
+        savedPinTarget: 'marker',
 
         // Decline
         showDeclineModal: false,
@@ -2948,8 +2957,17 @@ function externalSign() {
 
         chooseSavedSignature() {
             if (this.savedSigImpersonating || !this.savedSigConfigured) return;
-            if (!this.savedSigUnlocked) { this.savedPinError = ''; this.savedPin = ''; this.savedPinOpen = true; return; }
+            if (!this.savedSigUnlocked) { this.savedPinTarget = 'marker'; this.savedPinError = ''; this.savedPin = ''; this.savedPinOpen = true; return; }
             this.captureMode = 'saved';
+        },
+
+        // Saved-signature chooser for the INLINE web-sig modal (showWebSigCapture) — the one the
+        // document's "Click to sign" / "Click to initial" markers actually open. Mirrors
+        // chooseSavedSignature but targets webSigMode. Unlock once; then place with no PIN per marker.
+        chooseSavedSignatureWeb() {
+            if (this.savedSigImpersonating || !this.savedSigConfigured) return;
+            if (!this.savedSigUnlocked) { this.savedPinTarget = 'web'; this.savedPinError = ''; this.savedPin = ''; this.savedPinOpen = true; return; }
+            this.webSigMode = 'saved';
         },
 
         async submitSavedPin() {
@@ -2968,7 +2986,9 @@ function externalSign() {
                     this.savedSigUnlocked = true;
                     this.savedPinOpen = false;
                     this.savedPin = '';
-                    this.captureMode = 'saved';
+                    // Switch the modal that requested the unlock into saved mode.
+                    if (this.savedPinTarget === 'web') { this.webSigMode = 'saved'; }
+                    else { this.captureMode = 'saved'; }
                 } else {
                     this.savedPinError = d.error || 'Incorrect PIN.';
                 }
@@ -3844,7 +3864,13 @@ function externalSign() {
             const canvas = this.$refs.webSigCanvas;
             let sigData;
 
-            if (this.webSigMode === 'draw') {
+            if (this.webSigMode === 'saved') {
+                // Place the agent's unlocked saved signature/initial (agent-only; PIN already entered).
+                // Which asset depends on whether the clicked marker is an initial block ('-init-').
+                const isInit = (this.currentWebSigBlockId || '').indexOf('-init-') !== -1;
+                sigData = isInit ? this.savedInitialImg : this.savedSignatureImg;
+                if (!sigData) { this.showNotification('Unlock your saved signature first.', 'warning'); return; }
+            } else if (this.webSigMode === 'draw') {
                 // Check if canvas is effectively blank
                 const ctx = canvas.getContext('2d');
                 const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
