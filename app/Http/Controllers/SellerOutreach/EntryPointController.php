@@ -7,7 +7,9 @@ namespace App\Http\Controllers\SellerOutreach;
 use App\Events\Map\MapProspectLaunched;
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
+use App\Models\ContactNote;
 use App\Models\Property;
+use App\Models\PropertyNote;
 use App\Models\ProspectingListing;
 use App\Models\Prospecting\TrackedProperty;
 use App\Services\Map\MapProspectStatusService;
@@ -300,7 +302,23 @@ final class EntryPointController extends Controller
             $isNew = $existing === null;
         }
 
-        $result = DB::transaction(function () use ($request, $agencyId, $listing, $validated, $existing, $idNumber, $captureAddress, $structuredAddress) {
+        // Johan's ruling (2026-08-12, the "14 Chesapeake" incident) — the ONLY
+        // gate is right here, the moment an EXISTING contact is being linked to
+        // this pitch. Channel-agnostic master gate: Contact::communicationStatus()
+        // defaults to COMM_OPTED_IN for a contact with no opt-out history at all
+        // (messaging_opt_out_at === null — see the model's own docblock: "not
+        // opted out (default; receives all)"), so this can NEVER wrongly withdraw
+        // a property for a never-contacted owner with no consent record — it only
+        // fires when messaging_opt_out_at is actually set. A brand-new contact
+        // ($existing === null) has no history to check.
+        // Does NOT block the pitch: the property still gets created and the claim
+        // still goes permanent (Johan: "it stays claimed so it removes from mic in
+        // any case") — this only marks the outcome (withdrawn + notes) and tells
+        // the agent immediately instead of leaving them to discover it later on
+        // the composer screen.
+        $isOptedOut = $existing !== null && $existing->communicationStatus() !== Contact::COMM_OPTED_IN;
+
+        $result = DB::transaction(function () use ($request, $agencyId, $listing, $validated, $existing, $idNumber, $captureAddress, $structuredAddress, $isOptedOut) {
             // Branch context is mandatory on Contact rows in CoreX schema.
             $branchId = $request->user()->branch_id;
 
@@ -344,6 +362,29 @@ final class EntryPointController extends Controller
             }
 
             $property = $this->promoteListingToProperty($agencyId, $listing, $request->user(), $captureAddress, $structuredAddress);
+
+            // Johan's ruling — opted-out maintenance. The property is still
+            // created and claimed as normal; this just marks the outcome so
+            // nobody pitches this address again without seeing why it's dead.
+            if ($isOptedOut) {
+                $property->update(['status' => 'withdrawn']);
+
+                $optOutNote = 'Property address cannot be contacted — contact '
+                    . trim($existing->first_name . ' ' . (string) $existing->last_name)
+                    . ' opted out.';
+
+                PropertyNote::create([
+                    'property_id' => $property->id,
+                    'user_id'     => $request->user()->id,
+                    'content'     => $optOutNote,
+                ]);
+
+                ContactNote::create([
+                    'contact_id' => $existing->id,
+                    'user_id'    => $request->user()->id,
+                    'body'       => $optOutNote,
+                ]);
+            }
 
             // Universal Match-or-Create: ensure a TrackedProperty exists for this
             // address and link it to both the prospecting listing AND the newly
@@ -433,6 +474,7 @@ final class EntryPointController extends Controller
         });
 
         [$contact, $property] = $result;
+        $property->refresh(); // pick up the withdrawn-status write made inside the transaction
 
         $name = trim($contact->first_name . ' ' . (string) $contact->last_name);
 
@@ -458,6 +500,17 @@ final class EntryPointController extends Controller
                 'contact_id' => $contact->id,
                 'error'      => $e->getMessage(),
             ]);
+        }
+
+        // Opted-out outcome: show the agent immediately rather than letting them
+        // land on a compose screen for someone who was just marked uncontactable.
+        // The property/claim/link all still happened exactly as normal above —
+        // only the destination and the message differ.
+        if ($isOptedOut) {
+            return redirect()
+                ->route('corex.properties.show', ['property' => $property->id])
+                ->with('warning', "Linked to existing contact: {$name} — {$name} has opted out of marketing. "
+                    . 'This property has been marked Withdrawn and a note was added to both records.');
         }
 
         return redirect()
