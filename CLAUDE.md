@@ -200,6 +200,25 @@ This replaces all separate "sync prompts" — there is no scenario where work be
 
 **When to re-run `schema:dump`:** every time you add a new migration. New migrations DO run on top of the snapshot, so tests stay correct, but every replay costs seconds; keeping the snapshot current keeps the bootstrap fast. Run `php artisan schema:dump` whenever the `database/migrations/` folder gains a file, then `git add database/schema/mysql-schema.sql` and include in the same commit as the migration.
 
+**After EVERY `schema:dump`: strip the `DEFINER` clauses.** `schema:dump` bakes an explicit
+``DEFINER=`user`@`host` `` into each dumped `CREATE TRIGGER`, naming whichever concrete user
+dumped it — even though the migrations never specify one. The snapshot then loads only for
+that exact DB user and fails for everyone else with `ERROR 1227 ... SUPER or SET_ANY_DEFINER`,
+because the schema-load path pipes the literal SQL through a plain `mysql` client. Dumped as
+root it looks fine on the machine that made it and breaks every restricted app DB user and
+every other developer's test bootstrap. This is not hypothetical: it shipped to `main` in
+`52d921862` and only surfaced when the demo host first bootstrapped its DB from it.
+
+```powershell
+(Get-Content database/schema/mysql-schema.sql) `
+  -replace '/\*!50017 DEFINER=`[^`]+`@`[^`]+`\*/ ', '' `
+  | Set-Content database/schema/mysql-schema.sql -Encoding utf8
+```
+
+Stripped, the trigger adopts `CURRENT_USER` — exactly what a normal `migrate` run produces, so
+both bootstrap paths converge. `scripts/dev-check.ps1` §10 fails the build if any clause
+returns, so this cannot silently regress again.
+
 The snapshot is committed to the repo — it travels with the migrations it represents. Production migrations are unaffected: Laravel only uses the snapshot when no migrations have run yet (i.e. fresh test DB / `migrate:fresh`).
 
 ### 12. Demo is always a working copy.

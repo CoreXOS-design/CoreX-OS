@@ -3915,7 +3915,7 @@ CREATE TABLE `contacts` (
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-/*!50003 CREATE*/ /*!50017 DEFINER=`root`@`localhost`*/ /*!50003 TRIGGER `corex_contact_audit_after_insert` AFTER INSERT ON `contacts` FOR EACH ROW BEGIN
+/*!50003 CREATE*/ /*!50003 TRIGGER `corex_contact_audit_after_insert` AFTER INSERT ON `contacts` FOR EACH ROW BEGIN
     IF (@corex_audit_handled IS NULL OR @corex_audit_handled = 0)
     THEN
         INSERT INTO contact_audit_log
@@ -3947,7 +3947,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-/*!50003 CREATE*/ /*!50017 DEFINER=`root`@`localhost`*/ /*!50003 TRIGGER `corex_contact_audit_after_update` AFTER UPDATE ON `contacts` FOR EACH ROW BEGIN
+/*!50003 CREATE*/ /*!50003 TRIGGER `corex_contact_audit_after_update` AFTER UPDATE ON `contacts` FOR EACH ROW BEGIN
     IF (@corex_audit_handled IS NULL OR @corex_audit_handled = 0)
        AND (
             NOT (NEW.agent_id          <=> OLD.agent_id)
@@ -9806,7 +9806,7 @@ CREATE TABLE `properties` (
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-/*!50003 CREATE*/ /*!50017 DEFINER=`root`@`localhost`*/ /*!50003 TRIGGER `corex_property_audit_after_insert` AFTER INSERT ON `properties` FOR EACH ROW BEGIN
+/*!50003 CREATE*/ /*!50003 TRIGGER `corex_property_audit_after_insert` AFTER INSERT ON `properties` FOR EACH ROW BEGIN
     IF (@corex_audit_handled IS NULL OR @corex_audit_handled = 0)
     THEN
         INSERT INTO property_audit_log
@@ -9837,7 +9837,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-/*!50003 CREATE*/ /*!50017 DEFINER=`root`@`localhost`*/ /*!50003 TRIGGER `corex_property_audit_after_update` AFTER UPDATE ON `properties` FOR EACH ROW BEGIN
+/*!50003 CREATE*/ /*!50003 TRIGGER `corex_property_audit_after_update` AFTER UPDATE ON `properties` FOR EACH ROW BEGIN
     IF (@corex_audit_handled IS NULL OR @corex_audit_handled = 0)
        AND (
             NOT (NEW.agent_id      <=> OLD.agent_id)
