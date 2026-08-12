@@ -46,10 +46,13 @@
          incrementCsrf: @js(csrf_token()),
          // AT-323 — WhatsApp is client-side click-to-chat with no delivery signal, so the
          // increment endpoint already logs it as not_delivered (server-side, incrementChannel).
-         // This results page never asked "did you send it?", so those rows sat not_delivered
-         // forever and the counter never moved. Reuses the SHARED did-you-send modal + mark-sent
-         // route the contact page already uses — no parallel mechanism. Email is unaffected: it
-         // stays born-sent (system mailto, no modal) exactly as already built on this page.
+         // This results page never asked whether it was actually sent, so those rows sat
+         // not_delivered forever and the counter never moved. Reuses the SHARED did-you-send
+         // modal + mark-sent route the contact page already uses — no parallel mechanism.
+         // Email is unaffected: it stays born-sent (system mailto, no modal) exactly as
+         // already built on this page. NOTE: no literal double quotes in this comment block —
+         // x-data sits inside a double-quoted attribute and a stray one closes it early,
+         // truncating the component and killing every click handler on the page.
          commBase: @js(url('corex/contacts/'.$contact->id.'/communications')),
          sentConfirm: { open: false, communicationId: null },
          async confirmSent(didSend) {
