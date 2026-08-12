@@ -66,10 +66,15 @@ class SettingsController extends Controller
     {
         $agencyId = auth()->user()?->effectiveAgencyId();
 
+        // oldest('id') first, THEN unique('event_class') keeps first-per-key —
+        // i.e. the earliest-created row wins if a global row was ever
+        // duplicated, matching CalendarEventClassSetting::globalDefault().
         $globals = CalendarEventClassSetting::withoutGlobalScopes()
             ->whereNull('agency_id')
-            ->orderBy('label')
+            ->oldest('id')
             ->get()
+            ->unique('event_class')
+            ->sortBy('label')
             ->keyBy('event_class');
 
         $agencyOverrides = $agencyId
@@ -137,10 +142,7 @@ class SettingsController extends Controller
                 ->with('error', 'Threshold order invalid: red_days ≤ amber_days ≤ green_days required.');
         }
 
-        $global = CalendarEventClassSetting::withoutGlobalScopes()
-            ->whereNull('agency_id')
-            ->where('event_class', $eventClass)
-            ->first();
+        $global = CalendarEventClassSetting::globalDefault($eventClass);
 
         if (!$global) {
             return back()->with('error', 'Unknown event class.');

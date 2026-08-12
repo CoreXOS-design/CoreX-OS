@@ -108,15 +108,36 @@ class CalendarEventClassSetting extends Model
             return self::$resolveCache[$key];
         }
 
-        $query = self::withoutGlobalScopes()
-            ->where('event_class', $eventClass);
-
         if ($agencyId !== null) {
-            $agencyRow = (clone $query)->where('agency_id', $agencyId)->first();
+            $agencyRow = self::withoutGlobalScopes()
+                ->where('event_class', $eventClass)
+                ->where('agency_id', $agencyId)
+                ->first();
             if ($agencyRow) return self::$resolveCache[$key] = $agencyRow;
         }
 
-        return self::$resolveCache[$key] = $query->whereNull('agency_id')->first();
+        return self::$resolveCache[$key] = self::globalDefault($eventClass);
+    }
+
+    /**
+     * The canonical global (agency_id IS NULL) row for an event class.
+     *
+     * cecs_agency_class_unique(agency_id, event_class) can't stop two global
+     * rows sharing an event_class — MySQL never treats two NULLs as equal in
+     * a unique index (same landmine as roles_name_agency_unique, see
+     * .ai/audits/2026-08-12-duplicate-admin-role.md). If that ever happens
+     * again, ->oldest('id') keeps resolution deterministic (always the
+     * earliest-created row) instead of picking whichever row MySQL felt
+     * like returning — silent, unreproducible divergence between what an
+     * admin edits and what every read resolves.
+     */
+    public static function globalDefault(string $eventClass): ?self
+    {
+        return self::withoutGlobalScopes()
+            ->whereNull('agency_id')
+            ->where('event_class', $eventClass)
+            ->oldest('id')
+            ->first();
     }
 
     /** Drop the request-scoped resolver memo (called on write so workers stay fresh). */
