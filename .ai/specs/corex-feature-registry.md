@@ -209,6 +209,24 @@ on their proven savers.
 
 ## 5. The catalogue — `config/corex-features.php`
 
+### 5.0 Default-on policy (Johan, 2026-08-12)
+
+Every non-core module feature defaults `true` for a brand-new agency, **except** the four that
+publish something externally or restructure how the agency operates, which stay deliberately
+`false`: `syndication-p24`, `syndication-pp` (auto-push listings to real portals — must be a
+conscious go-live decision, never a default, even once credentials exist), `public-website`
+(the agency's public site going live before branding/listings are set up — also pulled from the
+onboarding wizard entirely, see `.ai/specs/agency-onboarding-setup.md` §5.1), and `multi-branch`
+(a structural mode switch — changes agent data-visibility scoping platform-wide, not just a menu
+item — its `agencies.split_branches_enabled` DB column also still defaults `false`).
+
+Reason for the change: a brand-new agency's admin logging in for the first time found the
+"Branch Manager" sidebar section (Payroll + Leave Management) completely empty — both modules
+defaulted off, and neither had been visited in the onboarding wizard yet. Rather than defaulting
+every new module off and making the admin discover and enable each one individually, the
+registry now defaults new agencies to the full toolkit **minus** the handful of switches with a
+real external or structural consequence.
+
 ### 5.1 Entry shape
 ```php
 'rentals' => [
@@ -219,7 +237,8 @@ on their proven savers.
     'affects'          => 'Whether the Rentals area and its leases appear for your agents, and '
                         . 'whether CoreX chases rental renewals. Off hides it; existing leases '
                         . 'are untouched and reappear when you turn it back on.',
-    'default'          => false,        // bool — on/off for a brand-new agency
+    'default'          => true,         // bool — on/off for a brand-new agency (§5.0: true unless
+                                         // it publishes externally or restructures the agency)
     'core'             => false,        // core features are never toggleable (always on)
     'depends_on'       => [],           // [feature keys] — off if any parent is off
     'nav_permission'   => ['view_rentals'], // the permission(s) the nav item already checks

@@ -2,6 +2,7 @@
 
 namespace App\Services\Prospecting;
 
+use App\Models\Agency;
 use App\Models\ProspectingListing;
 use App\Models\Property;
 
@@ -119,6 +120,95 @@ class OnMarketStockService
             }
         }
         return $map;
+    }
+
+    /**
+     * Reverse of stockMapForListings() — the prospecting listings that ARE
+     * this specific on-market property (portal_ref OR normalized_address
+     * EXACT match), for the property page's "Also Marketed By" panel.
+     *
+     * 2026-08-12 (Johan's ruling) — that panel previously read the raw,
+     * ungated `matched_property_id` column directly, which is written by
+     * ProspectingStockMatchService's fuzzy Pass 2 matcher and carries the
+     * same false-positive risk as every other raw-column surface already
+     * fixed this sweep (confirmed live: property #4243 badged as "also
+     * marketed by" a Private Property listing for a different building
+     * 590m away). Pass 2 itself is now tightened at the source, but this
+     * panel gets belt-and-suspenders on top — same canonical, EXACT-match
+     * identity every other "our stock" surface already uses, so it can
+     * never show a fuzzy-only link even if one exists in the raw column.
+     *
+     * An off-market property has nothing live to cross-reference — mirrors
+     * every other on-market gate in this service.
+     */
+    public function listingsMarketingProperty(Property $property, int $agencyId): \Illuminate\Support\Collection
+    {
+        if (!$property->isOnMarket()) {
+            return collect();
+        }
+
+        $refs = [];
+        if (!empty($property->p24_ref)) {
+            $refs[] = 'P24-' . $property->p24_ref;
+        }
+        if (!empty($property->pp_ref)) {
+            $refs[] = 'PP-' . $property->pp_ref;
+        }
+        $normAddr = ProspectingListing::normalizeAddress($property->address, $property->suburb ?? '');
+
+        if (empty($refs) && !$normAddr) {
+            return collect();
+        }
+
+        // "Also Marketed By" means marketed by SOMEONE ELSE — our own P24/PP
+        // listing of this exact property gets scraped like everyone else's and
+        // must not point back at itself. Compare against both the agency's
+        // display name and its P24 label (the string that actually appears on
+        // scraped listings), case/whitespace-insensitive.
+        $agency = Agency::find($agencyId);
+        $ownAgencyNames = array_filter(array_map(
+            fn ($v) => $v ? strtolower(trim($v)) : null,
+            [$agency?->name, $agency?->p24_agency_label]
+        ));
+
+        return ProspectingListing::withoutGlobalScopes()
+            ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->where(function ($q) use ($refs, $normAddr) {
+                if (!empty($refs)) {
+                    $q->orWhereIn('portal_ref', $refs);
+                }
+                if ($normAddr) {
+                    $q->orWhere('normalized_address', $normAddr);
+                }
+            })
+            // Off-market gate — a withdrawn/sold/under-offer listing is no
+            // longer genuinely "also marketed"; NULL status is kept (never
+            // scraped a status for it, don't guess it off-market).
+            ->where(function ($q) {
+                $q->whereNull('portal_status')
+                    ->orWhereNotIn('portal_status', ProspectingListing::OFF_MARKET_STATUSES);
+            })
+            // Staleness gate — a row we haven't re-confirmed in a reconcile pass
+            // for 120+ days is not a trustworthy "currently marketed" signal
+            // (this panel found a row stale since March, 146 days, sitting
+            // unflagged). 120 days, not a tighter cutoff: suburb reconcile
+            // passes aren't frequent enough to guarantee every genuinely-still-
+            // marketed listing gets re-confirmed within 60-90 days — a
+            // Johan-verified-correct example sat at 70 days stale. NULL
+            // last_seen_at is kept — every real capture sets it at ingestion,
+            // so NULL here means "no signal", not "confirmed stale".
+            ->where(function ($q) {
+                $q->whereNull('last_seen_at')
+                    ->orWhere('last_seen_at', '>=', now()->subDays(120));
+            })
+            ->orderByDesc('last_seen_at')
+            ->get()
+            ->reject(function (ProspectingListing $listing) use ($ownAgencyNames) {
+                $name = $listing->agency_name ? strtolower(trim($listing->agency_name)) : null;
+                return $name !== null && in_array($name, $ownAgencyNames, true);
+            })
+            ->values();
     }
 
     /**

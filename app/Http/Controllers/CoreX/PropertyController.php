@@ -1660,6 +1660,19 @@ class PropertyController extends Controller
         return back()->with('success', 'Image deleted.')->with('tab', 'gallery');
     }
 
+    /**
+     * Bulk-delete gallery images — "Delete selected" and "Delete all". Mirrors the
+     * single deleteImage() semantics exactly (HARD delete: the JSON reference is
+     * removed AND the file is unlinked, guarded to this property's directory), but
+     * does the whole set in ONE transaction so the JSON never lands half-updated.
+     * Same permission gate (authorizeProperty) — whoever can delete one can delete
+     * many. Returns the fresh gallery + fingerprint so the client stays in sync with
+     * the stale-guard used by reorder-images/save.
+     *
+     * Body: { urls: [ ...image urls... ] }  OR  { all: true } to clear the gallery.
+     * "Delete all" clears the GALLERY grid (gallery_images_json) — the set the agent
+     * sees. Time-of-day sets (dawn/noon/dusk) are a separate tool and are untouched.
+     */
     public function deleteImages(Request $request, Property $property)
     {
         // AT-267 — assistants may never delete listing images (see deleteImage()).
@@ -1910,6 +1923,15 @@ class PropertyController extends Controller
         return response()->json(['ok' => true, 'rental_images' => $structure]);
     }
 
+    /**
+     * Bulk-delete rental inspection images — "Delete selected" and "Delete all".
+     * Mirrors the single deleteRentalImage() semantics (HARD delete: the JSON ref is
+     * removed AND the file is unlinked via the same parse_url/'/storage/' path guard),
+     * but does the whole set across ALL sections (in/out/custom) in ONE transaction.
+     * Same permission gate (authorizeProperty). Returns the fresh structure.
+     *
+     * Body: { urls: [ ...image urls... ] }  OR  { all: true } to clear every section.
+     */
     public function deleteRentalImages(Request $request, Property $property)
     {
         // AT-267 — assistants may never delete listing images (see deleteRentalImage()).
