@@ -35,7 +35,7 @@ class Contact extends Model
         'agent_id', 'second_agent_id',
         'client_user_id',
         'first_name', 'last_name', 'phone', 'email', 'notes',
-        'birthday', 'birthday_reminder', 'id_number', 'id_number_captured_at', 'id_number_source', 'address',
+        'birthday', 'birthday_reminder', 'id_number', 'id_type', 'id_number_captured_at', 'id_number_source', 'address',
         // AT-60 — structured PROPERTY-address capture (independent of the
         // residential `address` above; never auto-composed into it).
         'unit_number', 'floor_number', 'unit_section_block', 'complex_name',

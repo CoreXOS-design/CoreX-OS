@@ -1165,7 +1165,12 @@ class MarketIntelligenceController extends Controller
         $base = TrackedProperty::query()
             ->withoutGlobalScopes()
             ->where('agency_id', $agencyId)
-            ->whereNull('deleted_at');
+            ->whereNull('deleted_at')
+            // Deeds captures live on their own "Deeds Capture" screen and must never
+            // mix into Opportunities (Johan's directive). Exclude them here.
+            ->where(function ($q) {
+                $q->whereNull('capture_kind')->orWhere('capture_kind', '<>', 'deeds_capture');
+            });
 
         $query = (clone $base)
             ->with(['primaryAddress', 'externalRefs'])

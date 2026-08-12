@@ -404,6 +404,7 @@ return [
 
         // ── Prospecting ──
         ['key' => 'access_prospecting',          'label' => 'Access Prospecting',          'section' => 'prospecting',      'type' => 'access',  'module' => 'prospecting',      'sort_order' => 1],
+        ['key' => 'deeds_capture.access',        'label' => 'Access Deeds Capture',        'section' => 'prospecting',      'type' => 'access',  'module' => 'prospecting',      'sort_order' => 2],
 
         // ── Market Intelligence Centre (Phase A2) ── per spec §12.2/§12.3
         ['key' => 'mic.edit_address',            'label' => 'Edit / Add Property Address',         'section' => 'prospecting',      'type' => 'action',  'module' => 'mic',              'sort_order' => 50],

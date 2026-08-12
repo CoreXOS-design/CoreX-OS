@@ -4101,6 +4101,17 @@ Route::middleware(['auth', 'permission:access_prospecting'])
 // internal Alpine :action="'/prospecting/...'" form posts (which still hit the
 // legacy POST routes unchanged).
 //
+// CMA / deeds capture (phase 1) — the dedicated Deeds Capture screen (its own menu +
+// permission). Deeds captures are filtered OUT of MIC Opportunities and reviewed here.
+Route::middleware(['auth', 'permission:deeds_capture.access'])
+    ->prefix('corex/deeds-capture')
+    ->name('corex.deeds-capture.')
+    ->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'index'])->name('index');
+        Route::post('/{trackedProperty}/promote', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'promote'])
+            ->whereNumber('trackedProperty')->name('promote');
+    });
+
 // Spec: .ai/specs/build-f-market-intelligence-redesign-spec.md §6.
 Route::middleware(['auth', 'permission:access_prospecting'])
     ->prefix('corex/market-intelligence')

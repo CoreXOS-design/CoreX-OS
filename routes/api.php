@@ -341,6 +341,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/prospecting/import',      [ProspectingApiController::class, 'import'])->name('v1.prospecting.import');
         Route::get('/prospecting/check-search', [ProspectingApiController::class, 'checkSearch'])->name('v1.prospecting.check-search');
 
+        // ── CMA / deeds capture (phase 1) — mirrors the portal-capture ingest. ──
+        Route::post('/deeds-capture', [\App\Http\Controllers\Api\DeedsCaptureController::class, 'store'])->name('v1.deeds-capture');
+
         // ── Properties — portal pull ───────────────────────────────
         Route::post('/properties/pull-from-portal',          [PropertyPullController::class, 'pullFromPortal'])->name('v1.properties.pull-from-portal');
         Route::get('/properties/{propertyId}/pull-status',   [PropertyPullController::class, 'pullStatus'])->name('v1.properties.pull-status');

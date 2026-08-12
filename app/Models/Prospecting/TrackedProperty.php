@@ -56,6 +56,9 @@ final class TrackedProperty extends Model
         'source_chain', 'first_seen_at', 'last_enriched_at', 'last_enrichment_source',
         'status', 'duplicate_of_tracked_property_id',
         'is_demo',
+        // CMA / deeds capture (phase 1)
+        'capture_kind', 'deeds_office', 'scheme_name', 'scheme_number', 'section_number',
+        'bond_holder', 'bond_amount', 'sale_type', 'deeds_registered_date',
     ];
 
     protected $casts = [
@@ -79,6 +82,8 @@ final class TrackedProperty extends Model
         'source_chain'             => 'array',
         'first_seen_at'            => 'datetime',
         'last_enriched_at'         => 'datetime',
+        'bond_amount'              => 'decimal:2',
+        'deeds_registered_date'    => 'date',
     ];
 
     protected static function booted(): void

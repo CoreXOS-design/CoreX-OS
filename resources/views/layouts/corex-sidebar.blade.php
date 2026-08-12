@@ -611,6 +611,16 @@
                      /corex/market-intelligence/opportunities. --}}
                 @endpermission
 
+                {{-- CMA / deeds capture (phase 1) — its OWN screen; deeds captures are
+                     filtered OUT of MIC Opportunities and reviewed/promoted here. --}}
+                @permission('deeds_capture.access')
+                @if(\Illuminate\Support\Facades\Route::has('corex.deeds-capture.index'))
+                <a href="{{ route('corex.deeds-capture.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.deeds-capture.*') ? 'active' : '' }}">
+                    <span>Deeds Capture</span>
+                </a>
+                @endif
+                @endpermission
+
                 @permission('access_properties')
                 @if(config('features.properties') && \Illuminate\Support\Facades\Route::has('corex.properties.index'))
                 <a href="{{ route('corex.properties.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.properties.*') ? 'active' : '' }}">Properties</a>
