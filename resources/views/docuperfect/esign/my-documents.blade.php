@@ -9,6 +9,7 @@
         cancelDocName: '',
         showCompleted: false,
         showCancelled: false,
+        showFiled: false,
         activeFilter: null,
      }">
 
@@ -804,11 +805,14 @@
 
     {{-- Archive — FILED recipient uploads, kept findable (mirrors how completed/filed docs stay listed). --}}
     @if($supportingFiled->isNotEmpty())
+    {{-- Filed additional docs — COLLAPSED by default, same as Completed (Johan 2026-08-12 fix #3). --}}
     <div id="recipient-additional-docs-filed" class="space-y-3 scroll-mt-4 mt-6">
-        <h3 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--ds-green);">
+        <h3 class="text-sm font-semibold uppercase tracking-wider cursor-pointer flex items-center gap-2" style="color: var(--ds-green);"
+            @click="showFiled = !showFiled">
             Filed additional docs ({{ number_format($supportingFiled->count()) }})
+            <span class="text-xs" x-text="showFiled ? '&#9660;' : '&#9654;'"></span>
         </h3>
-        <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+        <div x-show="showFiled" x-collapse class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="overflow-x-auto">
             <table class="min-w-full text-sm ds-table">
                 <thead>

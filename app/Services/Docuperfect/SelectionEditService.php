@@ -256,9 +256,29 @@ final class SelectionEditService
             // 4) Overlay the reverted body onto the SIGNED canonical (baked) — signatures + "signed at"
             //    location preserved; else write merged_html + recompose. Never drops ink.
             $wtd = CanonicalDocumentRenderer::writeAmend($wtd, $newHtml, $baked);
+
+            // 4b) Strip the mark from EVERY served body representation, not only amendSource's canvas.
+            //     A chain-review amendment authored AFTER the doc was baked lives in merged_html while the
+            //     baked canonical_html predates it — so amendSource (the baked canvas) strips nothing and the
+            //     mark survives on the re-opened signer's screen (and in the DOM-scanning Amendments panel),
+            //     making Remove a silent no-op and looping the doc back to the agent. Strip wherever it
+            //     exists. canonical_version is left untouched: the baked signed state (ink) stands.
+            $anyStripped = $strippedFromHtml;
+            foreach (['merged_html', 'canonical_html'] as $bodyField) {
+                if (! empty($wtd[$bodyField])
+                    && is_string($wtd[$bodyField])
+                    && str_contains($wtd[$bodyField], 'data-change-id="' . $changeId . '"')) {
+                    [$strippedBody, $didStrip] = $this->stripChangeMarks($wtd[$bodyField], $changeId);
+                    if ($didStrip) {
+                        $wtd[$bodyField] = $strippedBody;
+                        $anyStripped = true;
+                    }
+                }
+            }
+
             $document->update(['web_template_data' => $wtd]);
 
-            return ['ok' => true, 'change_id' => $changeId, 'reverted' => $strippedFromHtml];
+            return ['ok' => true, 'change_id' => $changeId, 'reverted' => $anyStripped];
         });
 
         return $result;

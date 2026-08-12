@@ -74,6 +74,65 @@
                                 <span class="sel-amend-count" x-text="amendments.length"></span>
                             </div>
 
+                            {{-- AT-373 reject flow (Johan 2026-08-12, fix #1) — the "your agent rejected these,
+                                 Remove them" box lives HERE, at the top of the right-hand Amendments panel, so the
+                                 recipient screen matches the agent review layout (ONE right column). Self-contained
+                                 (vanilla JS, not Alpine — this panel has its OWN x-data scope); Remove reverts the
+                                 change server-side via SelectionEditService::revertChange then reloads so it is gone
+                                 from BOTH the document body and this list. Only renders on the recipient's re-opened
+                                 turn ($inRejectReturn); undefined/false on the agent review page → hidden. --}}
+                            @if(!empty($inRejectReturn) && ($rejectReturnOutstanding ?? 0) > 0)
+                                <div class="sel-reject-box">
+                                    <div class="sel-reject-title">Your agent asked you to remove {{ $rejectReturnOutstanding === 1 ? 'a change' : ($rejectReturnOutstanding . ' changes') }}</div>
+                                    <div class="sel-reject-note">Your agent did not accept the change{{ $rejectReturnOutstanding === 1 ? '' : 's' }} below. Remove {{ $rejectReturnOutstanding === 1 ? 'it' : 'each of them' }} to revert the text to what was originally agreed — you cannot sign again until {{ $rejectReturnOutstanding === 1 ? 'it is' : 'they are all' }} removed.</div>
+                                    @foreach($rejectedRemovableChanges as $chg)
+                                        <div class="sel-reject-item">
+                                            <div class="sel-reject-item-text">
+                                                <span class="sel-reject-kind" style="color:#0369a1;">Clause change</span>
+                                                <span style="text-decoration:line-through; color:#b91c1c;">{{ \Illuminate\Support\Str::limit($chg['old'], 100) }}</span>@if($chg['new'] !== '')<span style="color:#059669;"> &rarr; {{ \Illuminate\Support\Str::limit($chg['new'], 100) }}</span>@endif
+                                            </div>
+                                            <button type="button" class="sel-reject-btn" onclick="__corexRemoveRejected('body', @js($chg['change_id']), this)">Remove</button>
+                                        </div>
+                                    @endforeach
+                                    @foreach($rejectedRemovableConditions as $cond)
+                                        <div class="sel-reject-item">
+                                            <div class="sel-reject-item-text">
+                                                <span class="sel-reject-kind" style="color:#7c3aed;">Other Condition #{{ $cond->condition_number }}</span>
+                                                <span>{{ \Illuminate\Support\Str::limit((string) $cond->content, 120) }}</span>
+                                            </div>
+                                            <button type="button" class="sel-reject-btn" onclick="__corexRemoveRejected('condition', @js((string) $cond->id), this)">Remove</button>
+                                        </div>
+                                    @endforeach
+                                </div>
+                                <style>
+                                    .sel-reject-box{ background:#fef2f2; border:1px solid #fecaca; border-radius:10px; padding:10px 12px; margin-bottom:10px; }
+                                    .sel-reject-title{ font-size:13px; font-weight:800; color:#b91c1c; }
+                                    .sel-reject-note{ font-size:11.5px; color:#991b1b; margin-top:2px; }
+                                    .sel-reject-item{ display:flex; align-items:center; justify-content:space-between; gap:8px; background:#fff; border:1px solid #fecaca; border-radius:8px; padding:7px 9px; margin-top:8px; }
+                                    .sel-reject-item-text{ font-size:11.5px; color:#334155; min-width:0; }
+                                    .sel-reject-kind{ display:block; font-size:9.5px; font-weight:700; text-transform:uppercase; }
+                                    .sel-reject-btn{ flex-shrink:0; font-size:11.5px; font-weight:600; color:#fff; background:#dc2626; border:0; border-radius:7px; padding:6px 12px; cursor:pointer; }
+                                    .sel-reject-btn:disabled{ opacity:0.5; cursor:default; }
+                                </style>
+                                <script>
+                                    window.__corexRemoveRejected = window.__corexRemoveRejected || async function (kind, id, btn) {
+                                        if (!confirm('Remove this rejected change? This reverts it to the original — required before you can sign again.')) return;
+                                        if (btn) { btn.disabled = true; btn.textContent = 'Removing…'; }
+                                        try {
+                                            const r = await fetch('{{ route('signatures.external.removeRejected', $token) }}', {
+                                                method: 'POST',
+                                                headers: { 'Content-Type':'application/json', 'Accept':'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content },
+                                                body: JSON.stringify({ kind: kind, id: String(id) }),
+                                            });
+                                            const d = await r.json().catch(() => ({}));
+                                            if (r.ok && d.ok) { window.location.reload(); return; }
+                                            alert(d.error || 'Could not remove the change.');
+                                        } catch (e) { alert('Could not remove the change. Please try again.'); }
+                                        if (btn) { btn.disabled = false; btn.textContent = 'Remove'; }
+                                    };
+                                </script>
+                            @endif
+
                             @if($allowEdit)
                             {{-- amend controls — highlighted text + Amend button --}}
                             <div class="sel-amend-controls">
