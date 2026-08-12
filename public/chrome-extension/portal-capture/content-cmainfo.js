@@ -123,29 +123,58 @@
    * findAllValuesByLabel for the multi-match variant used by section
    * detection).
    */
+  // Guard for findValueByLabel's row-3 fallback (below) — the full set of
+  // label strings we search for, built lazily so it can reference the label
+  // arrays regardless of their position in the file (both are assigned at
+  // module top-level before any extraction actually runs, which only
+  // happens on a later button click).
+  let _knownLabelsCache = null;
+  function knownLabelTexts() {
+    if (_knownLabelsCache) return _knownLabelsCache;
+    _knownLabelsCache = new Set(
+      PROPERTY_INFORMATION_LABELS.concat(SALE_INFORMATION_LABELS).map(function (pair) { return normalizeLabel(pair[1]); })
+    );
+    return _knownLabelsCache;
+  }
+
   function findValueByLabel(label) {
     const target = normalizeLabel(label);
+    const knownLabels = knownLabelTexts();
     const cells = document.querySelectorAll('td, th');
 
     for (const cell of cells) {
       if (normalizeLabel(cell.textContent) !== target) continue;
 
-      // 1 & 2. Walk forward across sibling cells in the same row, skip blanks.
+      // 1 & 2. Walk forward across sibling cells in the same row, skip
+      // blanks AND skip any cell whose text is itself one of our known
+      // field labels — a real value coinciding with another field's exact
+      // label text is effectively impossible on a deeds page, so this is a
+      // safe guard, not a false-reject risk.
       let sib = cell.nextElementSibling;
       while (sib) {
         const t = (sib.textContent || '').replace(/ /g, ' ').trim();
-        if (t) return t;
+        if (t && !knownLabels.has(normalizeLabel(t))) return t;
         sib = sib.nextElementSibling;
       }
 
-      // 3. Stacked label/value row fallback.
+      // 3. Stacked label/value row fallback — ONLY meaningful when the
+      // label's own row had no usable sibling cell. CONFIRMED LIVE
+      // (2026-08-12, Johan's ASTOVE + 60 Avenue Svea captures): when a
+      // property's value cells are genuinely blank, this fallback used to
+      // walk into the NEXT label/value row and return THAT ROW'S LABEL TEXT
+      // as if it were this field's value — cascading through the whole
+      // label list ("scheme_name" -> "Situated at", "suburb" -> "Municipality",
+      // "province" -> "GPS", etc, each one shifted exactly one field down),
+      // which then promoted into a garbage "Municipality" placeholder
+      // property. Same guard as above: if the candidate is itself a known
+      // label, the true value is genuinely blank — return null, not a guess.
       const row = cell.closest('tr');
       const nextRow = row ? row.nextElementSibling : null;
       if (nextRow) {
         const firstCell = nextRow.querySelector('td, th');
         if (firstCell) {
           const t = (firstCell.textContent || '').trim();
-          if (t) return t;
+          if (t && !knownLabels.has(normalizeLabel(t))) return t;
         }
       }
     }
