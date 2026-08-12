@@ -16,6 +16,9 @@
     $waPhoneRecord = $contact->whatsAppPhone();
     $waPhone = \App\Support\WhatsAppNumberFormatter::forDeepLink($waPhoneRecord?->phone ?? $contact->phone, $waPhoneRecord?->dial_code ?? $contact->primaryPhone?->dial_code);
     $renderedWaMsg = str_replace(['{name}', '{link}'], [$contact->first_name, $match->sharedUrl()], $defaultWaMsg);
+    // Email uses the same personalised copy as the WhatsApp share.
+    $matchEmailSubject = 'Your property matches';
+    $matchEmailBody = $renderedWaMsg;
     $totalViews = array_sum($match->property_view_counts ?? []);
     $hiddenCount = count($match->hidden_property_ids ?? []);
 @endphp
@@ -26,15 +29,61 @@
          waPhone: '{{ $waPhone }}',
          outreachAllowed: {{ ($outreachWindow['allowed'] ?? true) ? 'true' : 'false' }},
          outreachWindowMessage: {{ Js::from($outreachWindow['message'] ?? '') }},
-         sendWhatsApp() {
+         // AT-323 send-confirm + counter — REUSES the contact-page mechanism: /increment logs a
+         // provisional Communication (WhatsApp born not_delivered), then the SHARED did-you-send
+         // modal marks it sent on Yes, which is what increments the contact WA/email counter.
+         // Keep these comments free of literal double quotes: this x-data sits inside a
+         // double-quoted attribute and a stray one closes it, leaking JS onto the page as text.
+         incrementUrl: @js(route('corex.contacts.increment', $contact)),
+         commBase: @js(url('corex/contacts/'.$contact->id.'/communications')),
+         csrf: @js(csrf_token()),
+         sentConfirm: { open: false, communicationId: null },
+         emailAddress: @js($contact->email),
+         emailSubject: {{ Js::from($matchEmailSubject) }},
+         emailBody: {{ Js::from($matchEmailBody) }},
+         async increment(channel, payload = {}) {
+             try {
+                 const res = await fetch(this.incrementUrl, {
+                     method: 'POST',
+                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': this.csrf, 'X-Requested-With': 'XMLHttpRequest' },
+                     body: JSON.stringify({ channel: channel, subject: payload.subject ?? null, body: payload.body ?? null }),
+                 });
+                 return await res.json();
+             } catch (e) { return null; }
+         },
+         async confirmSent(didSend) {
+             const commId = this.sentConfirm.communicationId;
+             this.sentConfirm.open = false;
+             if (!commId || !didSend) return; // No answer: the WhatsApp row stays not_delivered (uncounted).
+             try {
+                 await fetch(this.commBase + '/' + commId + '/mark-sent', {
+                     method: 'POST',
+                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': this.csrf, 'X-Requested-With': 'XMLHttpRequest' },
+                     body: '{}',
+                 });
+             } catch (e) {}
+         },
+         sendEmail() {
+             if (!this.emailAddress) { alert('This contact has no email address.'); return; }
+             window.location.href = 'mailto:' + encodeURIComponent(this.emailAddress) + '?subject=' + encodeURIComponent(this.emailSubject) + '&body=' + encodeURIComponent(this.emailBody);
+             // Email is client-launched (mailto): counted on send, no did-you-send modal (matches outreach).
+             this.increment('email', { subject: this.emailSubject, body: this.emailBody });
+         },
+         async sendWhatsApp() {
              if (!this.waPhone) return;
              // AT-117 §4a — send-window lock.
              if (!this.outreachAllowed) {
                  alert(this.outreachWindowMessage || 'Outreach sending is closed right now.');
                  return;
              }
-             window.open('https://wa.me/' + this.waPhone + '?text=' + encodeURIComponent(this.waMessage), '_blank');
+             // AT-323 — open WhatsApp FIRST (inside the click gesture, new tab, not popup-blocked),
+             // THEN record the send and ask did-you-send.
+             window.open('https://wa.me/' + this.waPhone + '?text=' + encodeURIComponent(this.waMessage), '_blank', 'noopener');
              this.showWaModal = false;
+             const data = await this.increment('whatsapp', { body: this.waMessage });
+             if (data && data.communication_id) {
+                 this.sentConfirm = { open: true, communicationId: data.communication_id };
+             }
          },
          // AT-117 — add this composed message to the outreach queue (ready now).
          queueUrl: @js(route('corex.outreach-queue.enqueue')),
@@ -57,6 +106,10 @@
              } catch (e) { alert('Network error — try again.'); } finally { this.queuing = false; }
          },
      }">
+
+    {{-- AT-323 — SHARED post-send did-you-send confirmation modal (same component the contact page
+         + outreach pitch-send use). Driven by this component's sentConfirm / confirmSent. --}}
+    @include('partials.whatsapp-send-confirm-modal')
 
     {{-- Page header (Pattern A — branded) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -199,6 +252,15 @@
                             <path d="M12 0C5.373 0 0 5.373 0 12c0 2.117.554 4.103 1.523 5.824L0 24l6.335-1.509A11.945 11.945 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.854 0-3.6-.483-5.12-1.33l-.368-.214-3.76.896.952-3.656-.238-.384A10.01 10.01 0 0 1 2 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/>
                         </svg>
                         WhatsApp
+                    </button>
+                    @endif
+                    @if($contact->email)
+                    {{-- Email the match list — opens the mail client and records the send so the
+                         contact's email counter updates (same mechanism as the contact page). --}}
+                    <button type="button" @click="sendEmail()" class="corex-btn-outline inline-flex items-center gap-1.5"
+                            style="background: rgba(255,255,255,0.08); color: #fff; border-color: rgba(255,255,255,0.2);">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
+                        Email
                     </button>
                     @endif
                     {{-- Print / Download PDF — the resolved list as a clean A4 sheet for
