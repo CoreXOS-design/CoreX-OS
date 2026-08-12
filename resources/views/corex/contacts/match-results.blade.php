@@ -44,19 +44,41 @@
          // the server never sees, so this call is what makes the send count.
          incrementUrl: @js(route('corex.contacts.increment', $contact)),
          incrementCsrf: @js(csrf_token()),
+         // AT-323 — WhatsApp is client-side click-to-chat with no delivery signal, so the
+         // increment endpoint already logs it as not_delivered (server-side, incrementChannel).
+         // This results page never asked "did you send it?", so those rows sat not_delivered
+         // forever and the counter never moved. Reuses the SHARED did-you-send modal + mark-sent
+         // route the contact page already uses — no parallel mechanism. Email is unaffected: it
+         // stays born-sent (system mailto, no modal) exactly as already built on this page.
+         commBase: @js(url('corex/contacts/'.$contact->id.'/communications')),
+         sentConfirm: { open: false, communicationId: null },
+         async confirmSent(didSend) {
+             const commId = this.sentConfirm.communicationId;
+             this.sentConfirm.open = false;
+             if (!commId || !didSend) return; // No answer: the WhatsApp row stays not_delivered (uncounted).
+             try {
+                 await fetch(this.commBase + '/' + commId + '/mark-sent', {
+                     method: 'POST',
+                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': this.incrementCsrf },
+                     body: '{}',
+                 });
+             } catch (e) {}
+         },
          async recordSend(channel, payload = {}) {
              try {
-                 await fetch(this.incrementUrl, {
+                 const res = await fetch(this.incrementUrl, {
                      method: 'POST',
                      headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.incrementCsrf, 'Accept': 'application/json' },
                      body: JSON.stringify({ channel, subject: payload.subject ?? null, body: payload.body ?? null }),
                  });
+                 return await res.json();
              } catch (e) {
                  // Network blip: the archive is the source of truth on next load;
                  // the WhatsApp/email deep link has already fired regardless.
+                 return null;
              }
          },
-         sendWhatsApp() {
+         async sendWhatsApp() {
              if (!this.waPhone) return;
              // AT-117 §4a — send-window lock.
              if (!this.outreachAllowed) {
@@ -64,8 +86,11 @@
                  return;
              }
              window.open('https://wa.me/' + this.waPhone + '?text=' + encodeURIComponent(this.waMessage), '_blank');
-             this.recordSend('whatsapp', { body: this.waMessage });
              this.showWaModal = false;
+             const data = await this.recordSend('whatsapp', { body: this.waMessage });
+             if (data && data.communication_id) {
+                 this.sentConfirm = { open: true, communicationId: data.communication_id };
+             }
          },
          sendEmail() {
              if (!this.contactEmail) return;
@@ -95,6 +120,10 @@
              } catch (e) { alert('Network error — try again.'); } finally { this.queuing = false; }
          },
      }">
+
+    {{-- AT-323 — SHARED post-send did-you-send confirmation modal (same component the contact page
+         + outreach pitch-send use). Driven by this component's sentConfirm / confirmSent. --}}
+    @include('partials.whatsapp-send-confirm-modal')
 
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
