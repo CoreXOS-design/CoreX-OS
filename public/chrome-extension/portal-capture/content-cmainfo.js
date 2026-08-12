@@ -8,14 +8,16 @@
  * OUT OF SCOPE for phase 1) as plain HTML <table> label→value rows. There is
  * no JSON API — everything is read from the rendered DOM.
  *
- * SCAFFOLD STATUS (2026-08-12, updated for cc1's real contract):
+ * SCAFFOLD STATUS (2026-08-12, updated after Johan's live CMA session):
  *   - Field extraction is WIRED to Johan's confirmed field labels (label-
- *     driven, not hard selectors — see findValueByLabel()). This should work
- *     against the real page largely as-is.
- *   - Accordion-expand + "view owner's ID" reveal are BEST-EFFORT generic
- *     implementations (no exact selector confirmed yet) — Johan will tune
- *     these against a live page load. STILL OPEN.
- *   - The POST payload (buildDeedsCapturePayload()) is now ALIGNED to cc1's
+ *     driven, not hard selectors — see findValueByLabel()).
+ *   - Accordion-expand (ensureSectionExpanded) and owner's-ID reveal
+ *     (revealOwnerIdIfNeeded) are now wired to the CONFIRMED live markup —
+ *     button.accordion + sibling div.panel for sections, i.fa.fa-eye (no
+ *     inline onclick) for the reveal. See the comment blocks above each
+ *     function for the exact confirmed structure. Open item: whether a
+ *     second reveal click re-masks the value — untested, noted inline.
+ *   - The POST payload (buildDeedsCapturePayload()) is ALIGNED to cc1's
  *     real, shipped contract: POST /api/v1/deeds-capture (Sanctum bearer),
  *     verified against DeedsCaptureController::store()'s actual validation
  *     rules, not just the spec doc. See .ai/specs/deeds-capture.md §2 and the
@@ -23,6 +25,10 @@
  *     needed a judgment call (title_deed_number's placement, complex_name,
  *     erf_number/street_number/street_name being unavailable from the
  *     current label list, the source_ref stability fallback chain).
+ *   - Still needing Johan: a final load-test of the built extension against
+ *     a live property, plus the payload-mapping items flagged for him/cc1
+ *     (owner.name required-vs-nullable spec/code discrepancy, etc — see
+ *     .ai/specs/SPEC_Portal_Scraping_Prospecting.md §10).
  *
  * Mirrors the existing portal-capture sources' shape (content-p24-detail.js,
  * content-pp.js) as closely as an ASP.NET WebForms accordion tool allows:
@@ -176,123 +182,162 @@
   }
 
   // ══════════════════════════════════════════════════════════
-  // ── ACCORDION EXPAND (best-effort — Johan to confirm exact markup) ──
+  // ── ACCORDION EXPAND (confirmed live, 2026-08-12 Johan session) ──
   // ══════════════════════════════════════════════════════════
-  // TODO(johan): confirm the real header/toggle element + collapsed-state
-  // indicator once we load the extension against a live page together.
-  // Built as a real best-effort now rather than a stub: tries a handful of
-  // common ASP.NET-accordion patterns, and is a safe no-op (never throws,
-  // never double-toggles an already-open section) if none match — in which
-  // case findValueByLabel() still works fine IF the section's table is
-  // merely display:none rather than genuinely absent from the DOM.
+  // Real markup: each section is <button class="accordion ..."> immediately
+  // followed by a sibling <div class="... panel">. Collapsed = the panel has
+  // computed display:none. It's a classic JS-accordion — a plain click
+  // listener toggles the panel's display, no aria-expanded/data-toggle/
+  // onclick attribute to read — so collapsed state is read off the PANEL's
+  // computed style, not the button, and expansion is verified the same way
+  // (poll the style) rather than via MutationObserver, since a display
+  // toggle alone doesn't reliably fire a childList/subtree mutation.
+  //
+  // Per-section markup (used only as a fallback if the generic text-match
+  // below ever misses a section — e.g. a label rewording):
+  //   Property Information : button.accordion.pnlSTPropInfoContainer
+  //                           (also seen as .pnlFTPropInfoContainer)
+  //                           → next sibling div.property-info.panel
+  //   Sale Information      : button.accordion.pnlSaleInfoContainer
+  //                           → next sibling div.sale-info.panel
+  //   Municipal Valuation   : button.accordion.pnlMunValueContainer
+  //                           → next sibling div.panel
+  const SECTION_CONTAINER_CLASS_FALLBACKS = {
+    'property information': ['pnlSTPropInfoContainer', 'pnlFTPropInfoContainer'],
+    'sale information': ['pnlSaleInfoContainer'],
+    'municipal valuation': ['pnlMunValueContainer'],
+  };
+
   function findSectionHeader(sectionTitle) {
     const target = normalizeLabel(sectionTitle);
-    const candidates = document.querySelectorAll(
-      '[class*="accordion"] [class*="header"], [class*="Accordion"] [class*="Header"], ' +
-      '[class*="panel-heading"], [class*="collapsible"], a[href="#"], span[onclick], div[onclick]'
-    );
-    for (const el of candidates) {
-      if (normalizeLabel(el.textContent).startsWith(target)) return el;
+
+    // Primary: button.accordion whose visible text starts with the label —
+    // confirmed live as the general rule across every section.
+    const buttons = document.querySelectorAll('button.accordion');
+    for (const btn of buttons) {
+      if (normalizeLabel(btn.textContent).startsWith(target)) return btn;
     }
+
+    // Fallback: known per-section container class, in case the button's
+    // rendered text ever diverges from the confirmed label.
+    const classNames = SECTION_CONTAINER_CLASS_FALLBACKS[target] || [];
+    for (const cls of classNames) {
+      const el = document.querySelector('button.accordion.' + cls);
+      if (el) return el;
+    }
+
     return null;
   }
 
-  function looksCollapsed(headerEl) {
-    if (!headerEl) return false;
-    const aria = headerEl.getAttribute('aria-expanded');
-    if (aria === 'false') return true;
-    if (aria === 'true') return false;
-    // "+" / "−" glyph heuristic — common in ASP.NET accordion generators.
-    const text = (headerEl.textContent || '');
-    if (/\+/.test(text) && !/[−–-]\s*$/.test(text)) return true;
-    const cls = headerEl.className || '';
-    if (/collapsed/i.test(cls)) return true;
-    if (/expanded|open/i.test(cls)) return false;
-    return false; // default assumption: already rendered/expanded
+  // Confirmed structure: the panel is the header's next ELEMENT sibling,
+  // always carrying a "panel" class (property-info/sale-info/plain panel).
+  function findSectionPanel(headerEl) {
+    if (!headerEl) return null;
+    const sib = headerEl.nextElementSibling;
+    return (sib && sib.classList && sib.classList.contains('panel')) ? sib : null;
+  }
+
+  function isPanelCollapsed(panelEl) {
+    if (!panelEl) return false;
+    return getComputedStyle(panelEl).display === 'none';
   }
 
   /**
-   * Ensure a section's data is in the DOM before reading it. Waits for a
-   * MutationObserver signal (ASP.NET UpdatePanel partial postback swaps DOM
-   * nodes async) with a hard timeout fallback so a click that doesn't
-   * trigger a postback (data was already there) never hangs the capture.
+   * Ensure a section's panel is expanded before reading it. Confirmed
+   * live: button.click() toggles the panel from display:none to visible
+   * via a plain event listener, so this polls the panel's computed style
+   * directly rather than waiting on a MutationObserver.
    */
   function ensureSectionExpanded(sectionTitle, timeoutMs = 4000) {
     return new Promise((resolve) => {
       const header = findSectionHeader(sectionTitle);
-      if (!header || !looksCollapsed(header)) {
-        resolve(false); // nothing to do — already expanded or not found
+      const panel = findSectionPanel(header);
+      if (!header || !panel || !isPanelCollapsed(panel)) {
+        resolve(false); // nothing to do — already expanded, or section not found
         return;
       }
-
-      const observer = new MutationObserver(() => {
-        clearTimeout(timer);
-        observer.disconnect();
-        // Small settle delay — ASP.NET UpdatePanel swaps can fire multiple
-        // mutation bursts as it rebuilds the section.
-        setTimeout(() => resolve(true), 150);
-      });
-      observer.observe(document.body, { childList: true, subtree: true });
-
-      const timer = setTimeout(() => {
-        observer.disconnect();
-        resolve(false);
-      }, timeoutMs);
 
       try {
         header.click();
       } catch (e) {
-        clearTimeout(timer);
-        observer.disconnect();
         resolve(false);
+        return;
       }
+
+      const start = Date.now();
+      (function poll() {
+        if (!isPanelCollapsed(panel)) { resolve(true); return; }
+        if (Date.now() - start >= timeoutMs) { resolve(false); return; }
+        setTimeout(poll, 50);
+      })();
     });
   }
 
   // ══════════════════════════════════════════════════════════
-  // ── OWNER'S ID REVEAL (best-effort — Johan to confirm exact control) ──
+  // ── OWNER'S ID REVEAL (confirmed live, 2026-08-12 Johan session) ──
   // ══════════════════════════════════════════════════════════
-  // TODO(johan): confirm the real "view owner's ID" control. Heuristic:
-  // find the Owner's ID label cell, then look for a clickable element
-  // (link/button/span with onclick) within that same row whose text
-  // suggests a reveal action ("view", "show", "reveal").
+  // Real markup: inside div.sale-info.panel, the Owner's ID row contains
+  // <i class="fa fa-eye"> with NO inline onclick — a JS event listener does
+  // the unmasking IN PLACE (the cell's text value changes; the icon itself
+  // may not). There's also an unrelated i.fas.fa-info-circle tooltip icon
+  // elsewhere in the panel — must not be confused with the reveal control.
   function findOwnerIdRevealControl() {
     const target = normalizeLabel("Owner's ID");
-    const cells = document.querySelectorAll('td, th');
+    const panel = document.querySelector('div.sale-info.panel') || document;
+    const cells = panel.querySelectorAll('td, th');
     for (const cell of cells) {
       if (normalizeLabel(cell.textContent) !== target) continue;
       const row = cell.closest('tr');
-      if (!row) continue;
-      const clickable = row.querySelectorAll('a, button, span[onclick], [role="button"]');
-      for (const el of clickable) {
-        const t = (el.textContent || '').toLowerCase();
-        if (/view|show|reveal/.test(t)) return el;
-      }
+      const icon = row && row.querySelector('i.fa.fa-eye');
+      if (icon) return icon;
     }
-    return null;
+    // Fallback: the row-scoped lookup above can miss if the label cell's
+    // exact text ever shifts — the icon itself (i.fa.fa-eye, never
+    // i.fas.fa-info-circle) is unambiguous within the sale-info panel.
+    return panel.querySelector('i.fa.fa-eye');
   }
 
-  function revealOwnerIdIfNeeded(timeoutMs = 3000) {
+  /**
+   * No inline onclick on the icon, so the synthetic interaction must
+   * actually dispatch an event the bound listener responds to — plain
+   * element.click() is confirmed to work live; the MouseEvent path is a
+   * fallback for any environment where .click() alone doesn't reach a
+   * listener bound via addEventListener on a non-form element.
+   */
+  function dispatchRealClick(el) {
+    try {
+      el.click();
+      return true;
+    } catch (e) {
+      // fall through to the MouseEvent fallback below
+    }
+    try {
+      el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * The reveal unmasks the Owner's ID cell's VALUE in place rather than
+   * mutating the icon, so this doesn't wait on a DOM signal from the icon
+   * — it just gives the listener a moment to run, then the caller re-reads
+   * the cell via the normal label-driven extractor (findValueByLabel).
+   *
+   * Not yet confirmed live: whether a second click re-masks the value
+   * (i.e. whether fa-eye is a toggle). Each capture click currently calls
+   * this once per Sale Information read, so a re-mask would only bite if
+   * the agent presses Capture twice on the same loaded section without an
+   * intervening reload — untested; flag if seen.
+   */
+  function revealOwnerIdIfNeeded(timeoutMs = 1500) {
     return new Promise((resolve) => {
       const control = findOwnerIdRevealControl();
       if (!control) { resolve(false); return; }
-
-      const observer = new MutationObserver(() => {
-        clearTimeout(timer);
-        observer.disconnect();
-        setTimeout(() => resolve(true), 150);
-      });
-      observer.observe(document.body, { childList: true, subtree: true });
-
-      const timer = setTimeout(() => { observer.disconnect(); resolve(false); }, timeoutMs);
-
-      try {
-        control.click();
-      } catch (e) {
-        clearTimeout(timer);
-        observer.disconnect();
-        resolve(false);
-      }
+      const dispatched = dispatchRealClick(control);
+      if (!dispatched) { resolve(false); return; }
+      setTimeout(() => resolve(true), 200);
     });
   }
 
