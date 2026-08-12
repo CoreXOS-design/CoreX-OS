@@ -248,6 +248,13 @@ class CanonicalDocumentRenderer
             if (! is_array($c) || trim((string) ($c['old'] ?? '')) === '') {
                 return false;
             }
+            // AT-373 reject flow (Johan 2026-08-12) — a REVERTED change (recipient removed it after the agent
+            // rejected it, or a self-revert) must NEVER be re-authored. pending_body_changes RETAINS it for
+            // audit; without this skip, revertChange strips the mark and this "missing"-mark re-apply pass
+            // immediately puts it back — making Remove a no-op and looping the doc back to the agent.
+            if (! empty($c['reverted'])) {
+                return false;
+            }
             $cid = (string) ($c['change_id'] ?? '');
             return $cid === '' || ! str_contains($html, 'data-change-id="' . $cid . '"');
         }));
