@@ -804,7 +804,36 @@
     </div>
 
     {{-- Include signature capture modal --}}
-    @include('docuperfect.signatures.partials.signature-modal')
+    @include('docuperfect.signatures.partials.signature-modal', ['savedSignatureSupport' => true])
+
+    {{-- Saved-signature PIN unlock (agent-only) — enter the signing PIN ONCE per document, then place
+         the saved signature/initial with no PIN per marker. A switch-user/impersonated session can never
+         unlock (server guards it). Mirrors the external ceremony's unlock modal. --}}
+    <div x-show="savedPinOpen" x-cloak x-transition.opacity
+         class="fixed inset-0 z-[70] flex items-center justify-center"
+         style="background:rgba(0,0,0,0.6);"
+         @keydown.escape.window="savedPinOpen = false">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden" @click.stop>
+            <div class="px-6 py-4" style="background:#0b2a4a;">
+                <h3 class="text-white font-semibold text-base">Unlock your saved signature</h3>
+            </div>
+            <div class="p-6 space-y-3">
+                <p class="text-sm text-slate-600">Enter your <strong>signing PIN</strong> to place your saved signature on this document.</p>
+                <input type="password" x-model="savedPin" inputmode="numeric" autocomplete="off"
+                       placeholder="Signing PIN" @keydown.enter="submitSavedPin()"
+                       class="w-full rounded-lg border border-slate-300 text-sm px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <p x-show="savedPinError" x-cloak class="text-xs text-red-600" x-text="savedPinError"></p>
+                <div class="flex items-center justify-end gap-3 pt-1">
+                    <button @click="savedPinOpen = false" class="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 font-medium">Cancel</button>
+                    <button @click="submitSavedPin()" :disabled="savedPinLoading || !savedPin"
+                            class="rounded-lg px-5 py-2 text-sm font-semibold text-white"
+                            :class="(savedPinLoading || !savedPin) ? 'opacity-50 cursor-not-allowed' : ''"
+                            style="background:#0b2a4a;"
+                            x-text="savedPinLoading ? 'Unlocking…' : 'Unlock'"></button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     {{-- ESIGN AT-300 — add-condition + per-condition initial machinery, in parity
          with the external /sign ceremony. Provides the delegated ".btn-add-initial"
@@ -904,6 +933,20 @@ function signDocument() {
         applying: false,
         signaturePad: null,
 
+        // ── Saved-signature (agent-only; ports the external ceremony's PIN flow) ──
+        // The internal signing surface IS the agent, so isAgent is true here. Unlock once with the
+        // signing PIN, then place the saved signature/initial at every marker with no PIN per page.
+        isAgent: true,
+        savedSigConfigured: false,
+        savedSigImpersonating: false,
+        savedSigUnlocked: false,
+        savedSignatureImg: null,
+        savedInitialImg: null,
+        savedPinOpen: false,
+        savedPin: '',
+        savedPinError: '',
+        savedPinLoading: false,
+
         // Complete form state
         completingForm: false,
         completionDone: false,
@@ -955,6 +998,10 @@ function signDocument() {
         init() {
             // Check if agent already has at least one signed marker
             this.firstSignatureDone = this.markers.some(m => m.assigned_party === 'agent' && m.signed);
+
+            this.initSavedSig();   // agent-only saved-signature availability check
+
+
 
             // ESIGN AT-300 — when a per-condition initial is filled or a new
             // condition is added (delegated handlers in the add-condition-modal
@@ -2036,6 +2083,70 @@ function signDocument() {
         },
 
         // ── Apply signature ──
+        // ── Saved-signature methods (agent-only) — reuse the SAME route()-based endpoints as the
+        //    external ceremony fix (the /corex prefix is carried by route(); never hardcode /signature/…). ──
+        async initSavedSig() {
+            if (!this.isAgent) return;
+            try {
+                const res = await fetch('{{ route('signature.status') }}', { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+                if (!res.ok) return;
+                const d = await res.json();
+                this.savedSigConfigured = !!d.configured;
+                this.savedSigImpersonating = !!d.impersonating;
+            } catch (e) { /* leave disabled */ }
+        },
+
+        _sigContext() { return @json('esign:doc:' . $document->id); },
+        _csrf() { return document.querySelector('meta[name="csrf-token"]')?.content || ''; },
+
+        chooseSavedSignature() {
+            if (this.savedSigImpersonating || !this.savedSigConfigured) return;
+            if (!this.savedSigUnlocked) { this.savedPinError = ''; this.savedPin = ''; this.savedPinOpen = true; return; }
+            this.captureMode = 'saved';
+        },
+
+        async submitSavedPin() {
+            if (this.savedPinLoading || !this.savedPin) return;
+            this.savedPinLoading = true; this.savedPinError = '';
+            try {
+                const res = await fetch('{{ route('signature.unlock') }}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this._csrf(), 'Accept': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ pin: this.savedPin, context: this._sigContext() }),
+                });
+                const d = await res.json().catch(() => ({}));
+                if (res.ok && d.ok) {
+                    await this.loadSavedAssets();
+                    this.savedSigUnlocked = true;
+                    this.savedPinOpen = false;
+                    this.savedPin = '';
+                    this.captureMode = 'saved';
+                } else {
+                    this.savedPinError = d.error || 'Incorrect PIN.';
+                }
+            } catch (e) {
+                this.savedPinError = 'Network error — please try again.';
+            } finally {
+                this.savedPinLoading = false;
+            }
+        },
+
+        async loadSavedAssets() {
+            const q = '?context=' + encodeURIComponent(this._sigContext());
+            const [s, i] = await Promise.all([
+                fetch('{{ route('signature.asset', ['type' => 'signature']) }}' + q, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' }),
+                fetch('{{ route('signature.asset', ['type' => 'initial']) }}'   + q, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' }),
+            ]);
+            if (s.ok) { const d = await s.json(); this.savedSignatureImg = d.image || null; }
+            if (i.ok) { const d = await i.json(); this.savedInitialImg   = d.image || null; }
+        },
+
+        savedImageForActiveMarker() {
+            const isInitial = this.activeMarker && this.activeMarker.type === 'initial';
+            return isInitial ? this.savedInitialImg : this.savedSignatureImg;
+        },
+
         async applySignature() {
             if (!this.activeMarker) return;
             this.applying = true;
@@ -2043,7 +2154,13 @@ function signDocument() {
             let signatureData = null;
             let signatureType = 'drawn';
 
-            if (this.captureMode === 'draw') {
+            if (this.captureMode === 'saved') {
+                // Place the agent's unlocked saved signature/initial (an image — same downstream path
+                // as a drawn one). No PIN here; unlock already happened.
+                signatureData = this.savedImageForActiveMarker();
+                if (!signatureData) { this.applying = false; return; }
+                signatureType = 'drawn';
+            } else if (this.captureMode === 'draw') {
                 if (!this.signaturePad || this.signaturePad.isEmpty()) {
                     this.applying = false;
                     return;

@@ -11,8 +11,11 @@
 --}}
 
 {{-- Capture modal — THE single component (agent in-app: markers + web-sig + conditions).
-     Defaults map to showSignModal/captureMode/typedName/applySignature (pad variant). --}}
-@include('docuperfect.signatures.partials._capture-modal')
+     Defaults map to showSignModal/captureMode/typedName/applySignature (pad variant).
+     Saved-signature: this IS the internal agent signing surface, so the saved tab belongs here
+     too. Default chooseSaved/savedIsInitial (chooseSavedSignature + activeMarker.type) already
+     fit this modal's world (showSignModal / captureMode / applySignature). --}}
+@include('docuperfect.signatures.partials._capture-modal', ['savedSignatureSupport' => ($savedSignatureSupport ?? false)])
 
 {{-- Apply-to-all confirmation modal --}}
 <div x-show="showApplyAll" x-cloak x-transition.opacity
