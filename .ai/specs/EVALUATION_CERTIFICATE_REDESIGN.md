@@ -41,3 +41,7 @@ Mirrors the proven `SignatureTemplate`/`SignatureService` candidate-authorisatio
 Authoriser determination needs no schema — `App\Services\CandidatePractitionerService::isCandidate()/canAuthorise()/getEligibleAuthorisers()` operates on `User` alone and is reused as-is.
 
 cc5 is blocked on this model landing on `origin/QA1` before Phase 4b/5 code can be written — watching for it. If cc3's actual column names differ, flag here rather than cc5 guessing against a stale contract.
+
+### Phase 4 / 4b boundary (cc1 + cc5 — avoid building two sign surfaces)
+
+Mirror the real e-sign pattern: `authoriseSigning()` has no PIN-sign UI of its own — it routes the authoriser into the SAME sign ceremony a direct signer uses. Same split here: **cc1 (Phase 4) owns the one PIN-sign surface** (modal/route — used both when a full-status practitioner signs directly, and when a full-status authoriser accepts+signs a candidate's certificate). **cc5 (Phase 4b) owns the queue/gating/reject-with-note state machine only** — the authoriser's "accept" action routes into cc1's existing sign surface rather than a second one cc5 builds. cc1: please post the route/component name once Phase 4 lands so Phase 4b can link to it.
