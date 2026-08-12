@@ -6,11 +6,15 @@ namespace App\Http\Controllers\Tools;
 
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
+use App\Models\EvaluationCertificate;
 use App\Models\Property;
 use App\Models\Scopes\ContactScope;
 use App\Services\ContactDuplicateService;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Evaluation Certificate — Phase 1 foundation (/tools/cma redesign).
@@ -176,5 +180,55 @@ class EvaluationCertificateController extends Controller
         $contact = Contact::create($data);
 
         return response()->json(['id' => $contact->id, 'name' => $contact->full_name], 201);
+    }
+
+    /**
+     * Output the evaluation certificate PDF (Phase 2/3 "Download", also serves "Print" via ?inline=1).
+     *
+     * - Signed + filed: streams the immutable artifact at signed_pdf_path (produced by
+     *   cc1's Phase-4 sign flow) — the filed copy, never re-rendered.
+     * - Draft/unsigned: renders a live preview with EMPTY signature slots.
+     *
+     * Filename is "evaluation-certificate-{id}.pdf" (terminology: evaluation, never valuation).
+     */
+    public function download(Request $request, EvaluationCertificate $certificate): Response
+    {
+        abort_unless(auth()->user()?->hasPermission('access_calculators'), 403);
+        abort_unless((int) $certificate->agency_id === (int) (auth()->user()->effectiveAgencyId() ?? 0), 404);
+
+        $filename = 'evaluation-certificate-' . $certificate->id . '.pdf';
+        $inline   = $request->boolean('inline');
+
+        if ($certificate->signed_pdf_path && Storage::exists($certificate->signed_pdf_path)) {
+            return $inline
+                ? Storage::response($certificate->signed_pdf_path, $filename, ['Content-Disposition' => 'inline; filename="' . $filename . '"'])
+                : Storage::download($certificate->signed_pdf_path, $filename);
+        }
+
+        $pdf = $this->renderCertificatePdf($certificate);
+
+        return $inline ? $pdf->stream($filename) : $pdf->download($filename);
+    }
+
+    /**
+     * Render the certificate to a dompdf PDF using the same engine/options as
+     * SignaturePdfService (Barryvdh dompdf). Deliberately NOT routed through
+     * SignaturePdfService itself — that service is SignatureTemplate-bound
+     * (docuperfect) and must not be repurposed here (no docuperfect regression).
+     *
+     * SIGNATURE-BLOCK SLOTS (cc1 Phase-4): pass the saved-signature PNG data-URIs
+     * (data:image/png;base64,...) to bake an immutable signed artifact at sign time.
+     * Both null on the unsigned preview path.
+     */
+    public function renderCertificatePdf(EvaluationCertificate $certificate, ?string $signatureImage = null, ?string $initialImage = null): \Barryvdh\DomPDF\PDF
+    {
+        $pdf = Pdf::loadView('tools.evaluation-certificate.pdf', [
+            'certificate'    => $certificate,
+            'signatureImage' => $signatureImage,
+            'initialImage'   => $initialImage,
+        ])->setPaper('a4', 'portrait');
+        $pdf->setOption('isRemoteEnabled', true);
+
+        return $pdf;
     }
 }
