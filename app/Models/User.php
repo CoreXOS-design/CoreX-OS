@@ -52,6 +52,12 @@ class User extends Authenticatable
         'branch_id',
         'agency_id',
         'is_active',
+        // AT — was write-only via mass assignment (User::create(['invited_at' =>
+        // ...])) without being fillable, so it silently never persisted. Only a
+        // cast existed before this. No functional gating currently reads it back
+        // (the invite-pending gate is email_verified_at via isPendingInvite()) —
+        // this fixes it to actually record what it claims to.
+        'invited_at',
         'show_on_website',
         // Per-agent opt-out from Property24 — hides the agent on the P24 portal
         // and keeps them off syndicated listings. See Property24SyndicationService.

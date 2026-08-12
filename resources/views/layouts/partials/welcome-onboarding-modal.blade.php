@@ -8,15 +8,26 @@
      partial in the two app layouts (layouts/corex.blade.php and
      layouts/corex-app.blade.php), exactly like the system-update-modal.
 
-     No persisted dismissal record — the trigger is a session-flashed flag set
-     once by the Login listener in AppServiceProvider (spec §R1b), and Laravel's
-     flash semantics already guarantee it survives exactly one redirect and
-     never reappears on refresh or a later visit.
+     No persisted dismissal record — the trigger is session PUT (not flash) by
+     the Login listener in AppServiceProvider (spec §R1b). flash() was tried
+     first and doesn't work here: it only survives ONE subsequent request, but
+     the post-login redirect chain is TWO hops (POST /login -> GET /dashboard,
+     a redirect-only closure with no view -> GET /corex/dashboard, the actual
+     rendered page) — the flash aged out before this partial ever rendered.
+     put() persists until THIS partial explicitly forgets it below, right
+     after reading it, so it still only ever shows once.
 
      Spec: .ai/specs/agency-admin-rule.md §R1b
      ════════════════════════════════════════════════════════════════════════ --}}
 @auth
-@if(session('show_welcome_onboarding_popup'))
+@php
+    $__welcomeOnboardingUrl = session('welcome_onboarding_url');
+    $__showWelcomeOnboarding = session('show_welcome_onboarding_popup') && $__welcomeOnboardingUrl;
+    if ($__showWelcomeOnboarding) {
+        session()->forget(['show_welcome_onboarding_popup', 'welcome_onboarding_url']);
+    }
+@endphp
+@if($__showWelcomeOnboarding)
 <div x-data="{ open: true }"
      x-show="open"
      x-cloak
@@ -46,7 +57,7 @@
 
         <div class="flex items-center justify-end gap-2 px-6 py-4" style="border-top:1px solid var(--border); background:var(--surface-2);">
             <button type="button" @click="open = false" class="corex-btn-outline text-sm">Maybe later</button>
-            <a href="{{ session('welcome_onboarding_url') }}" class="corex-btn-primary text-sm">Start agency setup</a>
+            <a href="{{ $__welcomeOnboardingUrl }}" class="corex-btn-primary text-sm">Start agency setup</a>
         </div>
     </div>
 </div>

@@ -768,8 +768,19 @@ class AppServiceProvider extends ServiceProvider
                         ]);
                     }
 
-                    session()->flash('show_welcome_onboarding_popup', true);
-                    session()->flash('welcome_onboarding_url', $pendingSetup->publicUrl());
+                    // put(), NOT flash(): flash() survives exactly ONE subsequent
+                    // request, and the post-login redirect chain is TWO hops
+                    // (POST /login -> GET /dashboard, a redirect-only closure with
+                    // no view -> GET /corex/dashboard, the actual rendered page).
+                    // A flash set here ages out at the end of the /dashboard hop
+                    // and is already gone by the time /corex/dashboard renders —
+                    // confirmed live (AT — reported 2026-08-12): first_login_at got
+                    // stamped and the mail sent, but the pop-up never appeared.
+                    // put() persists until explicitly cleared; the modal partial
+                    // (welcome-onboarding-modal.blade.php) forgets both keys right
+                    // after rendering so it still only ever shows once.
+                    session()->put('show_welcome_onboarding_popup', true);
+                    session()->put('welcome_onboarding_url', $pendingSetup->publicUrl());
                 }
             }
 

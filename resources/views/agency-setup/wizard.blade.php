@@ -8,7 +8,7 @@
     $isLast  = $nav['isLast'];
 @endphp
 
-<div class="max-w-2xl mx-auto px-4 sm:px-6 py-8 sm:py-10">
+<div class="max-w-[1100px] mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
 
     <div class="rounded-lg overflow-hidden" style="background:var(--surface,#fff); border:1px solid var(--border,#e5e7eb);">
         {{-- Step header --}}
