@@ -181,6 +181,41 @@
     return null;
   }
 
+  /**
+   * Same traversal as findValueByLabel, but returns the matched VALUE
+   * ELEMENT instead of its text — needed to inspect computed style (the
+   * opted-out red check can't work off text alone). Best-effort: mirrors
+   * findValueByLabel's three fallback steps exactly so the two never
+   * disagree about which cell holds "the value".
+   */
+  function findValueElementByLabel(label) {
+    const target = normalizeLabel(label);
+    const knownLabels = knownLabelTexts();
+    const cells = document.querySelectorAll('td, th');
+
+    for (const cell of cells) {
+      if (normalizeLabel(cell.textContent) !== target) continue;
+
+      let sib = cell.nextElementSibling;
+      while (sib) {
+        const t = (sib.textContent || '').replace(/ /g, ' ').trim();
+        if (t && !knownLabels.has(normalizeLabel(t))) return sib;
+        sib = sib.nextElementSibling;
+      }
+
+      const row = cell.closest('tr');
+      const nextRow = row ? row.nextElementSibling : null;
+      if (nextRow) {
+        const firstCell = nextRow.querySelector('td, th');
+        if (firstCell) {
+          const t = (firstCell.textContent || '').trim();
+          if (t && !knownLabels.has(normalizeLabel(t))) return firstCell;
+        }
+      }
+    }
+    return null;
+  }
+
   /** All (label, value) row matches — used where a page can repeat a label (e.g. per section). */
   function findAllValuesByLabel(label) {
     const target = normalizeLabel(label);
@@ -560,13 +595,59 @@
     return { surname: surname, first_names: firstNames, confident: true };
   }
 
+  // ══════════════════════════════════════════════════════════
+  // ── OPTED-OUT (RED) DETECTION — shared with content-tva.js ──
+  // ══════════════════════════════════════════════════════════
+  // TVA/CMA render opted-out IDs/values in red. Confirmed live DOM: Bootstrap
+  // text-danger, computed color ~rgb(231,61,74) (hover rgb(215,27,41)) vs
+  // normal link-blue rgb(51,122,183). Check computed color, not class alone —
+  // a themed/renamed class would silently defeat a class-only check; the
+  // rendered color is the real signal per Johan's instruction.
+  const OPTED_OUT_REDS = [[231, 61, 74], [215, 27, 41]];
+  function isOptedOutStyled(el) {
+    if (!el) return false;
+    if (el.classList && el.classList.contains('text-danger')) return true;
+    const color = getComputedStyle(el).color;
+    const m = color && color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+    if (!m) return false;
+    const r = parseInt(m[1], 10), g = parseInt(m[2], 10), b = parseInt(m[3], 10);
+    return OPTED_OUT_REDS.some(function (rgb) {
+      return Math.abs(r - rgb[0]) <= 6 && Math.abs(g - rgb[1]) <= 6 && Math.abs(b - rgb[2]) <= 6;
+    });
+  }
+
+  /**
+   * Owner's-ID opted-out check (2026-08-12, best-effort — TODO(johan):
+   * confirm against a live opted-out record, none seen yet). The ID cell can
+   * hold multiple owners' IDs joined " ; " in one cell (multi-owner). If CMA
+   * wraps each ID in its own child element (a/span), each is checked
+   * independently — a per-index array aligned with splitOwnerField()'s
+   * output. Without that per-ID structure, the WHOLE cell's styling is the
+   * only signal available: a red cell blocks every owner sharing it, which
+   * extends "ID number red -> whole person opted out" to "whole row" when
+   * CMA doesn't mark up IDs individually within the joined cell.
+   */
+  function ownerIdOptedOutFlags(count) {
+    const cell = findValueElementByLabel("Owner's ID");
+    if (!cell) return new Array(count).fill(false);
+    const children = cell.querySelectorAll('a, span');
+    if (children.length >= count) {
+      const flags = [];
+      for (let i = 0; i < count; i++) flags.push(isOptedOutStyled(children[i]));
+      return flags;
+    }
+    const wholeCellOptedOut = isOptedOutStyled(cell);
+    return new Array(count).fill(wholeCellOptedOut);
+  }
+
   /**
    * Splits the raw "Owner" / "Owner's ID" cell strings on " ; " and pairs
    * them into owner records — uniform for 1 owner (no separator -> a single-
    * element array) or N. If the two arrays don't line up 1:1 (a malformed
    * page), pairs up to the shorter length and logs a warning rather than
    * guessing a match — losing an ID pairing silently would be worse than
-   * dropping the extra row.
+   * dropping the extra row. An owner whose ID is styled opted-out (red) is
+   * DROPPED entirely — never sent to CoreX (Johan's safe model).
    */
   function buildOwnersArray(deed) {
     const s = deed.sale_information;
@@ -578,11 +659,17 @@
     }
 
     const count = Math.max(names.length, ids.length);
+    const optedOutFlags = ownerIdOptedOutFlags(count);
     const owners = [];
     for (let i = 0; i < count; i++) {
       const rawName = names[i] || '';
       const rawId = (ids[i] || '').replace(/\s+/g, '');
       if (rawName === '' && rawId === '') continue;
+
+      if (optedOutFlags[i]) {
+        console.warn('[CoreX] deeds-capture: owner "' + rawName + '" ID is styled opted-out (red) — dropped, not sent.');
+        continue;
+      }
 
       const parsed = parsePersonName(rawName);
       if (!parsed.confident && rawName) {

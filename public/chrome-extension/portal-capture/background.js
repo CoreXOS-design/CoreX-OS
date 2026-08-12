@@ -145,6 +145,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // TVA contact capture (2026-08-12) — same no-popup-step shape as
+  // captureDeed above; apiUrl/apiToken read from chrome.storage.local here.
+  if (msg.action === 'captureTvaContacts') {
+    handleCaptureTvaContacts(msg.payload)
+      .then(result => sendResponse(result))
+      .catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+
   return false;
 });
 
@@ -1115,6 +1124,73 @@ async function handleCaptureDeed(payload) {
       iconUrl: 'icons/icon-128.png',
       title: 'CoreX: Deed Captured',
       message: 'Property + sale information sent to CoreX',
+      priority: 2,
+    });
+  } catch (e) { /* ignore */ }
+
+  return result;
+}
+
+// ── TVA (The Virtual Agent) contact capture — send to CoreX ────────────
+// Same shape and reasoning as handleCaptureDeed() directly above — no popup
+// step, reads apiUrl/apiToken from chrome.storage.local, /api/v1/ prefix.
+// Response shape: { ok, results: [{ id_number, tva_contact_capture_id,
+// tracked_property_id, matched_contact_id, items_count, error? }] } — same
+// per-row error semantics as deeds-capture; content-tva.js checks
+// results[0].error, this function stays limited to transport.
+async function handleCaptureTvaContacts(payload) {
+  const settings = await new Promise(resolve => {
+    chrome.storage.local.get(['apiUrl', 'apiToken'], resolve);
+  });
+
+  if (!settings.apiToken) {
+    throw new Error('Not connected — add your API token in the CoreX extension Settings.');
+  }
+
+  const apiUrl = (settings.apiUrl || 'https://www.corexos.co.za').replace(/\/+$/, '');
+  const url = apiUrl + '/api/v1/tva-contact-capture';
+
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Accept':        'application/json',
+        'Authorization': 'Bearer ' + settings.apiToken,
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (e) {
+    throw new Error('CoreX unreachable');
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    if (response.status === 401 || response.status === 419) {
+      throw new Error('Invalid API token. Check your extension Settings.');
+    }
+    if (response.status === 422) {
+      try {
+        const errors = JSON.parse(text);
+        const firstError = Object.values(errors.errors || {})[0];
+        throw new Error(firstError ? firstError[0] : 'Validation failed');
+      } catch (e) {
+        if (e.message && e.message !== 'Validation failed') throw e;
+        throw new Error('Validation failed: ' + text);
+      }
+    }
+    throw new Error('API error ' + response.status + ': ' + (text || 'Unknown error'));
+  }
+
+  const result = await response.json();
+
+  try {
+    chrome.notifications.create('tva-capture-complete', {
+      type: 'basic',
+      iconUrl: 'icons/icon-128.png',
+      title: 'CoreX: TVA Contacts Captured',
+      message: 'Contact numbers/emails sent to CoreX',
       priority: 2,
     });
   } catch (e) { /* ignore */ }

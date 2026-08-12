@@ -69,9 +69,15 @@
                                         <div class="font-semibold text-sm" style="color: var(--text-primary);">
                                             {{ $ownerRow->contact ? trim($ownerRow->contact->first_name . ' ' . (string) $ownerRow->contact->last_name) : ($ownerRow->name ?? 'Unnamed owner') }}
                                         </div>
-                                        <div class="text-xs mt-0.5" style="color: var(--text-muted);">
+                                        <div class="text-xs mt-0.5 flex items-center gap-2" style="color: var(--text-muted);">
                                             @if($ownerRow->id_number)
-                                                {{ $ownerRow->id_type === 'company_reg' ? 'Company reg' : 'ID' }}: {{ $ownerRow->id_number }}
+                                                <span>{{ $ownerRow->id_type === 'company_reg' ? 'Company reg' : 'ID' }}: {{ $ownerRow->id_number }}</span>
+                                                {{-- Copy ID (2026-08-12) — TVA flow: paste this into TVA's person lookup. --}}
+                                                <button type="button" x-data="{ copied: false }"
+                                                        @click="navigator.clipboard.writeText({{ Js::from($ownerRow->id_number) }}); copied = true; setTimeout(() => copied = false, 1500)"
+                                                        class="text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                                                        style="border:1px solid var(--border); color: var(--brand-icon, #2563eb);"
+                                                        x-text="copied ? 'Copied!' : 'Copy ID'"></button>
                                             @else
                                                 <span style="color: var(--ds-amber, #f59e0b);">No owner ID</span>
                                             @endif
@@ -80,9 +86,14 @@
                                 @endforeach
                             @elseif($owner)
                                 <div class="font-semibold text-sm" style="color: var(--text-primary);">{{ trim($owner->first_name . ' ' . (string) $owner->last_name) }}</div>
-                                <div class="text-xs mt-0.5" style="color: var(--text-muted);">
+                                <div class="text-xs mt-0.5 flex items-center gap-2" style="color: var(--text-muted);">
                                     @if($owner->id_number)
-                                        {{ $owner->id_type === 'company_reg' ? 'Company reg' : 'ID' }}: {{ $owner->id_number }}
+                                        <span>{{ $owner->id_type === 'company_reg' ? 'Company reg' : 'ID' }}: {{ $owner->id_number }}</span>
+                                        <button type="button" x-data="{ copied: false }"
+                                                @click="navigator.clipboard.writeText({{ Js::from($owner->id_number) }}); copied = true; setTimeout(() => copied = false, 1500)"
+                                                class="text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                                                style="border:1px solid var(--border); color: var(--brand-icon, #2563eb);"
+                                                x-text="copied ? 'Copied!' : 'Copy ID'"></button>
                                     @else
                                         <span style="color: var(--ds-amber, #f59e0b);">No owner ID</span>
                                     @endif
@@ -110,11 +121,32 @@
                             </form>
                         </div>
                     </div>
+
+                    {{-- TVA (The Virtual Agent) captured contacts (2026-08-12) — display UNDER the
+                         CMA details for this same property, per spec. --}}
+                    @foreach(($tvaByProperty[$tp->id] ?? []) as $tvaCapture)
+                        @include('corex.deeds-capture._tva-capture', ['capture' => $tvaCapture])
+                    @endforeach
                 </div>
             @endforeach
         </div>
 
         <div>{{ $captures->links() }}</div>
+    @endif
+
+    {{-- Standalone TVA captures — no matching suspense record (rare, per spec). --}}
+    @if($tvaStandalone->isNotEmpty())
+        <div class="rounded-md px-6 py-4 mt-6" style="background: var(--brand-default, #0b2a4a);">
+            <h2 class="text-base font-bold text-white">TVA captures — no matching property</h2>
+            <p class="text-xs text-white/60 mt-1">Captured from TVA but no deeds-capture record shares this ID number.</p>
+        </div>
+        <div class="space-y-3 mt-3">
+            @foreach($tvaStandalone as $tvaCapture)
+                <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+                    @include('corex.deeds-capture._tva-capture', ['capture' => $tvaCapture])
+                </div>
+            @endforeach
+        </div>
     @endif
 </div>
 @endsection

@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "CoreX",
-  "version": "3.2.1",
+  "version": "3.3.0",
   "description": "Pull properties and capture listings from portals into CoreX OS",
   "permissions": ["activeTab", "storage", "unlimitedStorage", "notifications", "alarms"],
   "host_permissions": [
     "https://www.property24.com/*",
     "https://www.privateproperty.co.za/*",
-    "https://www.cmainfo.co.za/*"
+    "https://www.cmainfo.co.za/*",
+    "https://app.thevirtualagent.co.za/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -31,6 +32,11 @@
     {
       "matches": ["https://www.cmainfo.co.za/Mapping/PropSearch.aspx*"],
       "js": ["content-cmainfo.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://app.thevirtualagent.co.za/Search/Person/*"],
+      "js": ["content-tva.js"],
       "run_at": "document_idle"
     }
   ],

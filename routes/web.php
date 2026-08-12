@@ -4138,6 +4138,9 @@ Route::middleware(['auth', 'permission:deeds_capture.access'])
         Route::get('/', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'index'])->name('index');
         Route::post('/{trackedProperty}/promote', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'promote'])
             ->whereNumber('trackedProperty')->name('promote');
+        // TVA (The Virtual Agent) contact capture (2026-08-12) — tick-to-ingest.
+        Route::post('/tva/{tvaContactCapture}/ingest', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'ingestTva'])
+            ->whereNumber('tvaContactCapture')->name('tva.ingest');
     });
 
 // Spec: .ai/specs/build-f-market-intelligence-redesign-spec.md §6.

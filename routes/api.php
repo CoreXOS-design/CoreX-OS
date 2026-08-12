@@ -344,6 +344,9 @@ Route::middleware('auth:sanctum')->group(function () {
         // ── CMA / deeds capture (phase 1) — mirrors the portal-capture ingest. ──
         Route::post('/deeds-capture', [\App\Http\Controllers\Api\DeedsCaptureController::class, 'store'])->name('v1.deeds-capture');
 
+        // ── TVA (The Virtual Agent) contact capture — mirrors deeds-capture. ──
+        Route::post('/tva-contact-capture', [\App\Http\Controllers\Api\TvaContactCaptureController::class, 'store'])->name('v1.tva-contact-capture');
+
         // ── Properties — portal pull ───────────────────────────────
         Route::post('/properties/pull-from-portal',          [PropertyPullController::class, 'pullFromPortal'])->name('v1.properties.pull-from-portal');
         Route::get('/properties/{propertyId}/pull-status',   [PropertyPullController::class, 'pullStatus'])->name('v1.properties.pull-status');
