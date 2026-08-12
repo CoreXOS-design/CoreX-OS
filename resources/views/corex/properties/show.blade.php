@@ -3731,7 +3731,47 @@
                             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/></svg>
                             <span x-text="selected.length > 0 ? 'Delete (' + selected.length + ')' : 'Delete'"></span>
                         </button>
+                        {{-- Delete ALL — destructive; behind a type-to-confirm modal. Same
+                             AT-267 assistant gate as "Delete (N)" above — at least as
+                             destructive, so it carries the same restriction. --}}
+                        <button type="button" @click="openDeleteAll()" x-show="images.length > 0"
+                                class="text-xs font-semibold px-2.5 py-1 rounded inline-flex items-center gap-1"
+                                style="background:var(--surface-2); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 45%, transparent);">
+                            Delete all
+                        </button>
                         @endunless
+                    </div>
+                </div>
+
+                {{-- Delete-all confirm — type DELETE (destructive, hard-removes every gallery photo). --}}
+                <div x-show="deleteAllOpen" x-cloak
+                     class="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+                     @keydown.escape.window="deleteAllOpen = false">
+                    <div class="absolute inset-0 bg-black/60" @click="deleteAllOpen = false"></div>
+                    <div class="relative w-full max-w-md rounded-lg shadow-2xl overflow-hidden" style="background:var(--surface); border:1px solid var(--border);" @click.stop>
+                        <div class="px-5 py-3" style="background:var(--ds-crimson); color:#fff;">
+                            <span class="text-sm font-bold">Delete ALL gallery photos?</span>
+                        </div>
+                        <div class="p-5 space-y-3">
+                            <p class="text-sm" style="color:var(--text-primary);">
+                                This permanently deletes <strong x-text="images.length"></strong> photo<span x-show="images.length !== 1">s</span> from this property's gallery and removes the files. <strong>This cannot be undone.</strong>
+                            </p>
+                            <p class="text-xs" style="color:var(--text-muted);">Type <strong>DELETE</strong> to confirm.</p>
+                            <input type="text" x-model="deleteAllText" placeholder="DELETE" autocomplete="off"
+                                   @keydown.enter="confirmDeleteAll()"
+                                   class="w-full px-3 py-2 text-sm rounded-md"
+                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            <div class="flex items-center justify-end gap-2 pt-1">
+                                <button type="button" @click="deleteAllOpen = false"
+                                        class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">Cancel</button>
+                                <button type="button" @click="confirmDeleteAll()"
+                                        :disabled="deleteAllText.trim().toUpperCase() !== 'DELETE'"
+                                        class="text-xs font-semibold px-3 py-1.5 rounded-md text-white"
+                                        :style="deleteAllText.trim().toUpperCase() === 'DELETE' ? 'background:var(--ds-crimson); cursor:pointer;' : 'background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border); cursor:not-allowed;'">
+                                    Delete all photos
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -3878,7 +3918,8 @@
                 urls: {
                     upload: '{{ route('corex.properties.rental-images.upload', $property) }}',
                     save:   '{{ route('corex.properties.rental-images.save', $property) }}',
-                    delete: '{{ route('corex.properties.rental-images.delete', $property) }}'
+                    delete: '{{ route('corex.properties.rental-images.delete', $property) }}',
+                    deleteBulk: '{{ route('corex.properties.rental-images.delete-bulk', $property) }}'
                 },
                 data: {{ Js::from($property->rentalImagesStructure()) }}
              })">
@@ -3890,6 +3931,51 @@
                     as you need for handovers, snags or damage.
                 </p>
                 <div x-show="error" x-cloak class="text-xs" style="color:#ef4444;" x-text="error"></div>
+            </div>
+
+            {{-- Delete ALL rental images — destructive; behind a type-to-confirm modal.
+                 AT-267 — same assistant gate as the per-image delete in
+                 rental-section-body.blade.php; at least as destructive. --}}
+            @unless(auth()->user()?->is_assistant)
+            <div x-show="rentalImageCount() > 0" x-cloak class="flex justify-end">
+                <button type="button" @click="openDeleteAll()"
+                        class="text-xs font-semibold px-3 py-1.5 rounded-md inline-flex items-center gap-1"
+                        style="background:var(--surface-2); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 45%, transparent);">
+                    Delete all rental images
+                </button>
+            </div>
+            @endunless
+
+            {{-- Delete-all confirm — type DELETE (hard-removes every rental photo, all sections). --}}
+            <div x-show="deleteAllOpen" x-cloak
+                 class="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+                 @keydown.escape.window="deleteAllOpen = false">
+                <div class="absolute inset-0 bg-black/60" @click="deleteAllOpen = false"></div>
+                <div class="relative w-full max-w-md rounded-lg shadow-2xl overflow-hidden" style="background:var(--surface); border:1px solid var(--border);" @click.stop>
+                    <div class="px-5 py-3" style="background:var(--ds-crimson); color:#fff;">
+                        <span class="text-sm font-bold">Delete ALL rental images?</span>
+                    </div>
+                    <div class="p-5 space-y-3">
+                        <p class="text-sm" style="color:var(--text-primary);">
+                            This permanently deletes <strong x-text="rentalImageCount()"></strong> rental photo<span x-show="rentalImageCount() !== 1">s</span> across every section (In / Out / custom) and removes the files. <strong>This cannot be undone.</strong>
+                        </p>
+                        <p class="text-xs" style="color:var(--text-muted);">Type <strong>DELETE</strong> to confirm.</p>
+                        <input type="text" x-model="deleteAllText" placeholder="DELETE" autocomplete="off"
+                               @keydown.enter="confirmDeleteAll()"
+                               class="w-full px-3 py-2 text-sm rounded-md"
+                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                        <div class="flex items-center justify-end gap-2 pt-1">
+                            <button type="button" @click="deleteAllOpen = false"
+                                    class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">Cancel</button>
+                            <button type="button" @click="confirmDeleteAll()"
+                                    :disabled="deleteAllText.trim().toUpperCase() !== 'DELETE'"
+                                    class="text-xs font-semibold px-3 py-1.5 rounded-md text-white"
+                                    :style="deleteAllText.trim().toUpperCase() === 'DELETE' ? 'background:var(--ds-crimson); cursor:pointer;' : 'background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border); cursor:not-allowed;'">
+                                Delete all rental images
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             {{-- In Inspection --}}
@@ -4222,6 +4308,49 @@
                         const r = await this._post(this.urls.delete, {
                             section, custom_id: customId || '', index,
                         });
+                        this.data = r.rental_images;
+                    } catch (e) { this.error = e.message; }
+                },
+
+                // ── Bulk delete (mirror of the Gallery bulk delete) ──────────
+                // Reuses the existing per-section select state (selecting/sel) that
+                // download-selected uses. One server round-trip removes the JSON refs
+                // AND unlinks the files in a transaction (same HARD-delete + permission
+                // as the single rental delete). "Delete all" clears every section.
+                deleteAllOpen: false,
+                deleteAllText: '',
+
+                selectAllInSection(key, section, customId) {
+                    this.sel[key] = this._imagesFor(section, customId).map((_, i) => i);
+                },
+                clearSection(key) { this.sel[key] = []; },
+
+                async deleteSelected(section, customId, key) {
+                    const imgs = this._imagesFor(section, customId);
+                    const urls = (this.sel[key] || []).map(i => imgs[i]).filter(Boolean);
+                    if (urls.length === 0) return;
+                    if (!window.confirm(`Delete ${urls.length} photo${urls.length > 1 ? 's' : ''}? This permanently removes the file${urls.length > 1 ? 's' : ''} — it cannot be undone.`)) return;
+                    await this._bulkDelete({ urls });
+                    this.sel[key] = [];
+                    this.selecting[key] = false;
+                },
+
+                rentalImageCount() {
+                    let n = (this.data.in_inspection?.images?.length || 0) + (this.data.out_inspection?.images?.length || 0);
+                    for (const s of (this.data.custom || [])) n += (s.images?.length || 0);
+                    return n;
+                },
+                openDeleteAll() { this.deleteAllText = ''; this.deleteAllOpen = true; },
+                async confirmDeleteAll() {
+                    if (this.deleteAllText.trim().toUpperCase() !== 'DELETE') return;
+                    this.deleteAllOpen = false;
+                    await this._bulkDelete({ all: true });
+                    this.sel = {}; this.selecting = {};
+                },
+
+                async _bulkDelete(payload) {
+                    try {
+                        const r = await this._post(this.urls.deleteBulk, payload);
                         this.data = r.rental_images;
                     } catch (e) { this.error = e.message; }
                 },
@@ -6730,29 +6859,60 @@ function smartGallery(initImages, initTags, propertyId, csrfToken, availableTags
             }
         },
 
-        deleteSelected() {
+        // ── Bulk delete ──────────────────────────────────────────────────────
+        // Delete "selected" and "all" both go through ONE server endpoint that
+        // removes the JSON refs AND unlinks the files in a single transaction (same
+        // HARD-delete semantics + permission as the single delete). This replaces the
+        // old client-side splice + broken per-url cleanup that orphaned files on disk.
+        deleteAllOpen: false,
+        deleteAllText: '',
+
+        async deleteSelected() {
             if (this.selected.length === 0) return;
-            if (!confirm(`Delete ${this.selected.length} image${this.selected.length > 1 ? 's' : ''}? This cannot be undone.`)) return;
-            // Sort indices DESC so each splice doesn't shift later targets.
-            const idxs = [...this.selected].sort((a, b) => b - a);
-            const removedUrls = [];
-            for (const idx of idxs) {
-                const img = this.images.splice(idx, 1)[0];
-                if (img !== undefined) {
-                    delete this.tags[img];
-                    removedUrls.push(img);
-                }
-            }
-            this.selected = [];
-            this.dirty = true;
-            this.save();
-            // Best-effort server-side cleanup so storage files don't orphan.
-            for (const url of removedUrls) {
-                fetch(`/corex/properties/${this.propertyId}/delete-image`, {
+            const n = this.selected.length;
+            if (!confirm(`Delete ${n} photo${n > 1 ? 's' : ''}? This permanently removes the photo file${n > 1 ? 's' : ''} — it cannot be undone.`)) return;
+            const urls = this.selected.map(i => this.images[i]).filter(u => u !== undefined);
+            await this._bulkDelete({ urls });
+        },
+
+        openDeleteAll() { this.deleteAllText = ''; this.deleteAllOpen = true; },
+        async confirmDeleteAll() {
+            if (this.deleteAllText.trim().toUpperCase() !== 'DELETE') return;
+            this.deleteAllOpen = false;
+            await this._bulkDelete({ all: true });
+        },
+
+        async _bulkDelete(payload) {
+            this.saving = true; this.saveMsg = ''; this.saveError = false;
+            try {
+                const res = await fetch(`/corex/properties/${this.propertyId}/delete-images`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
-                    body: JSON.stringify({ url }),
+                    body: JSON.stringify(payload),
                 });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok && data.ok) {
+                    if (Array.isArray(data.images)) this.images = data.images;
+                    if (data.fingerprint) this.fingerprint = data.fingerprint;  // keep the stale-guard in sync
+                    // Drop tags for photos that no longer exist.
+                    const present = new Set(this.images);
+                    for (const k of Object.keys(this.tags)) { if (!present.has(k)) delete this.tags[k]; }
+                    this.selected = [];
+                    this.dirty = false;
+                    this.saveMsg = (data.deleted || 0) + ' photo' + ((data.deleted === 1) ? '' : 's') + ' deleted';
+                    if (this.selectMode && this.images.length === 0) this.selectMode = false;
+                } else if (res.status === 403) {
+                    this.saveError = true; this.saveMsg = 'Not allowed';
+                    alert('You do not have permission to delete these photos.');
+                } else {
+                    this.saveError = true; this.saveMsg = 'Delete failed';
+                    alert(data.message || 'Could not delete the photos. Please try again.');
+                }
+            } catch (e) {
+                this.saveError = true; this.saveMsg = 'Network error';
+                alert('Network error while deleting photos. Please try again.');
+            } finally {
+                this.saving = false; setTimeout(() => this.saveMsg = '', 3000);
             }
         },
 

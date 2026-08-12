@@ -1660,6 +1660,98 @@ class PropertyController extends Controller
         return back()->with('success', 'Image deleted.')->with('tab', 'gallery');
     }
 
+    public function deleteImages(Request $request, Property $property)
+    {
+        // AT-267 — assistants may never delete listing images (see deleteImage()).
+        // This bulk endpoint is at least as destructive as the single delete it
+        // mirrors, so it carries the exact same hard capability rule.
+        abort_if((bool) $request->user()?->is_assistant, 403, 'Assistants cannot delete listing photos.');
+
+        $this->authorizeProperty($property);
+
+        $validated = $request->validate([
+            'urls'   => 'required_without:all|array',
+            'urls.*' => 'string',
+            'all'    => 'sometimes|boolean',
+        ]);
+
+        $deleteAll = (bool) ($request->boolean('all'));
+        $groups    = ['gallery_images_json', 'dawn_images_json', 'noon_images_json', 'dusk_images_json'];
+
+        if ($deleteAll) {
+            // Clear the gallery grid only; leave the time-of-day groups alone.
+            $targetSet = array_flip(array_values($property->gallery_images_json ?? []));
+        } else {
+            $targetSet = array_flip(array_values(array_unique($validated['urls'] ?? [])));
+        }
+
+        if (empty($targetSet)) {
+            return response()->json([
+                'ok'          => true,
+                'images'      => array_values($property->gallery_images_json ?? []),
+                'fingerprint' => $property->galleryFingerprint(),
+                'deleted'     => 0,
+            ]);
+        }
+
+        $filesToUnlink = [];
+        DB::transaction(function () use ($property, $groups, $targetSet, $deleteAll, &$filesToUnlink) {
+            $updates     = [];
+            $cats        = $property->gallery_categories_json;
+            $catsChanged = false;
+
+            foreach ($groups as $group) {
+                // Delete-all is scoped to the visible gallery grid only.
+                if ($deleteAll && $group !== 'gallery_images_json') {
+                    continue;
+                }
+                $images = $property->$group ?? [];
+                if (empty($images)) {
+                    continue;
+                }
+                $kept = [];
+                foreach ($images as $url) {
+                    if (isset($targetSet[$url])) {
+                        $filesToUnlink[] = $url;
+                        if ($group === 'gallery_images_json') {
+                            $cats = $this->removeUrlFromCategories($cats, $url);
+                            $catsChanged = true;
+                        }
+                    } else {
+                        $kept[] = $url;
+                    }
+                }
+                if (count($kept) !== count($images)) {
+                    $updates[$group] = array_values($kept);
+                }
+            }
+
+            if ($catsChanged) {
+                $updates['gallery_categories_json'] = $cats;
+            }
+            if (! empty($updates)) {
+                $property->update($updates);
+            }
+        });
+
+        // Unlink files only AFTER the references are gone (same order + guard as the
+        // single delete), so a failed update never leaves a dangling JSON reference.
+        foreach (array_unique($filesToUnlink) as $url) {
+            if (PropertyImageGuard::belongsToProperty($property, $url)) {
+                Storage::disk('public')->delete((string) PropertyImageGuard::relativePath($url));
+            }
+        }
+
+        $property->refresh();
+
+        return response()->json([
+            'ok'          => true,
+            'images'      => array_values($property->gallery_images_json ?? []),
+            'fingerprint' => $property->galleryFingerprint(),
+            'deleted'     => count(array_unique($filesToUnlink)),
+        ]);
+    }
+
     // ── Rental inspection galleries ─────────────────────────────────────────
     // Only meaningful for rental listings. Data lives in properties.rental_images_json,
     // normalised through Property::rentalImagesStructure(). Files are stored exactly
@@ -1816,6 +1908,75 @@ class PropertyController extends Controller
         $property->update(['rental_images_json' => $structure]);
 
         return response()->json(['ok' => true, 'rental_images' => $structure]);
+    }
+
+    public function deleteRentalImages(Request $request, Property $property)
+    {
+        // AT-267 — assistants may never delete listing images (see deleteRentalImage()).
+        // This bulk endpoint is at least as destructive as the single delete it
+        // mirrors, so it carries the exact same hard capability rule.
+        abort_if((bool) $request->user()?->is_assistant, 403, 'Assistants cannot delete listing photos.');
+
+        $this->authorizeProperty($property);
+
+        $validated = $request->validate([
+            'urls'   => 'required_without:all|array',
+            'urls.*' => 'string',
+            'all'    => 'sometimes|boolean',
+        ]);
+
+        $deleteAll = (bool) $request->boolean('all');
+        $structure = $property->rentalImagesStructure();
+
+        if ($deleteAll) {
+            $targets = [];
+            foreach (['in_inspection', 'out_inspection'] as $s) {
+                foreach ($structure[$s]['images'] as $u) { $targets[$u] = true; }
+            }
+            foreach ($structure['custom'] as $sec) {
+                foreach ($sec['images'] as $u) { $targets[$u] = true; }
+            }
+        } else {
+            $targets = array_flip(array_values(array_unique($validated['urls'] ?? [])));
+        }
+
+        if (empty($targets)) {
+            return response()->json(['ok' => true, 'rental_images' => $structure, 'deleted' => 0]);
+        }
+
+        $filesToUnlink = [];
+        $removeFrom = function (array $images) use ($targets, &$filesToUnlink): array {
+            $kept = [];
+            foreach ($images as $u) {
+                if (isset($targets[$u])) { $filesToUnlink[] = $u; }
+                else { $kept[] = $u; }
+            }
+            return array_values($kept);
+        };
+
+        DB::transaction(function () use ($property, &$structure, $removeFrom) {
+            $structure['in_inspection']['images']  = $removeFrom($structure['in_inspection']['images']);
+            $structure['out_inspection']['images'] = $removeFrom($structure['out_inspection']['images']);
+            foreach ($structure['custom'] as $i => $sec) {
+                $structure['custom'][$i]['images'] = $removeFrom($sec['images']);
+            }
+            $property->update(['rental_images_json' => $structure]);
+        });
+
+        // Unlink files only AFTER the references are gone — same path handling as the
+        // single deleteRentalImage (parse the /storage/ path off the public URL).
+        foreach (array_unique($filesToUnlink) as $url) {
+            $path = str_replace('/storage/', '', (string) parse_url($url, PHP_URL_PATH));
+            if ($path !== '') {
+                Storage::disk('public')->delete($path);
+            }
+        }
+
+        return response()->json([
+            'ok'            => true,
+            'rental_images' => $property->rentalImagesStructure(),
+            'deleted'       => count(array_unique($filesToUnlink)),
+        ]);
     }
 
     public function reorderImages(Request $request, Property $property)
