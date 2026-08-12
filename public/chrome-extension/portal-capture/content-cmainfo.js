@@ -307,30 +307,65 @@
   }
 
   /**
-   * Ensure a section's panel is expanded before reading it. Confirmed
-   * live: button.click() toggles the panel from display:none to visible
-   * via a plain event listener, so this polls the panel's computed style
-   * directly rather than waiting on a MutationObserver.
+   * CONFIRMED LIVE (2026-08-12, 60 Avenue Svea, full-title — NOT a
+   * sectional/scheme issue): while a panel is collapsed, its label cells
+   * exist but the VALUE cells are genuinely EMPTY in the DOM — populated
+   * only once the panel expands (an async postback fill-in, not just a CSS
+   * toggle). Collapsed: Address value = "". Expanded: Address value =
+   * "60 AVENUE SVEA". Polling only the panel's display (as before) resolves
+   * the instant the CSS flips, which can race ahead of that population —
+   * this checks for actual content, not just visibility. 2-col TR/TD rows,
+   * label = cell[0], value = cell[last] (matches findValueByLabel's own
+   * shape) — one non-empty value cell anywhere in the panel is enough to
+   * call the section "populated"; a genuinely all-blank section (rare) just
+   * rides out to the timeout below, same as before.
+   */
+  function sectionHasPopulatedValues(panelEl) {
+    if (!panelEl) return false;
+    const rows = panelEl.querySelectorAll('tr');
+    for (const row of rows) {
+      const cells = row.querySelectorAll('td, th');
+      if (cells.length < 2) continue;
+      if ((cells[cells.length - 1].textContent || '').trim()) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Ensure a section's panel is expanded AND populated before reading it.
+   * button.click() toggles the panel from display:none to visible via a
+   * plain event listener, but the VALUE cells can still be empty for a
+   * moment after that (see sectionHasPopulatedValues above) — this polls
+   * for both display and real content, not display alone.
    */
   function ensureSectionExpanded(sectionTitle, timeoutMs = 4000) {
     return new Promise((resolve) => {
       const header = findSectionHeader(sectionTitle);
       const panel = findSectionPanel(header);
-      if (!header || !panel || !isPanelCollapsed(panel)) {
-        resolve(false); // nothing to do — already expanded, or section not found
+      if (!header || !panel) {
+        resolve(false); // section not found
         return;
       }
 
-      try {
-        header.click();
-      } catch (e) {
-        resolve(false);
+      let clicked = false;
+      if (isPanelCollapsed(panel)) {
+        try {
+          header.click();
+          clicked = true;
+        } catch (e) {
+          resolve(false);
+          return;
+        }
+      }
+
+      if (!isPanelCollapsed(panel) && sectionHasPopulatedValues(panel)) {
+        resolve(clicked);
         return;
       }
 
       const start = Date.now();
       (function poll() {
-        if (!isPanelCollapsed(panel)) { resolve(true); return; }
+        if (!isPanelCollapsed(panel) && sectionHasPopulatedValues(panel)) { resolve(true); return; }
         if (Date.now() - start >= timeoutMs) { resolve(false); return; }
         setTimeout(poll, 50);
       })();
