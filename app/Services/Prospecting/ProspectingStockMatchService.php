@@ -88,21 +88,11 @@ class ProspectingStockMatchService
         }
 
         // The prospect's OWN structured street number. Prospecting listings
-        // carry no dedicated column — only free text. P24/PP convention is
-        // "[complex/building name], [street number] [street name]", so the
-        // real street segment is the LAST comma-separated part, not
-        // necessarily the first number in the string (that first number is
-        // often a complex/unit number — e.g. "14 Dumela Holiday Flats, 1
-        // Marine Drive": "14" is the complex, "1" is the real street number).
-        // A number is read ONLY from that segment's own leading position —
-        // never searched for anywhere in the free text — mirroring how a
-        // real street number is actually written.
-        $prospectSegments = array_filter(array_map('trim', explode(',', (string) $prospect->address)));
-        $prospectStreetSegment = $prospectSegments ? strtolower(end($prospectSegments)) : '';
-        $prospectNumber = null;
-        if (preg_match('/^(\d+)\b/', $prospectStreetSegment, $numMatch)) {
-            $prospectNumber = $numMatch[1];
-        }
+        // carry no dedicated column — only free text. Shared parser (see
+        // ProspectingListing::parseStreetNumber) so this and the Pitch Now
+        // collision check (EntryPointController -> MapProspectStatusService)
+        // can never drift on what counts as "the number".
+        $prospectNumber = ProspectingListing::parseStreetNumber($prospect->address);
 
         // Prospect has no readable street number at all — per Johan's ruling,
         // Pass 2 must not fire on number alone (there IS no number to gate

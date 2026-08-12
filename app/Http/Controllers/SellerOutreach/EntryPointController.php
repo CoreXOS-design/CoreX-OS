@@ -8,6 +8,7 @@ use App\Events\Map\MapProspectLaunched;
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\Property;
+use App\Models\ProspectingListing;
 use App\Models\Prospecting\TrackedProperty;
 use App\Services\Map\MapProspectStatusService;
 use App\Services\Prospecting\PitchLockConflictException;
@@ -1010,10 +1011,16 @@ final class EntryPointController extends Controller
         }
 
         $facts = [
-            'address'   => $listing->address ?? null,
-            'latitude'  => $lat,
-            'longitude' => $lng,
-            'suburb'    => $listing->suburb ?? null,
+            'address'       => $listing->address ?? null,
+            // AT-URGENT — the real street number, read only from the address's real
+            // street segment (see ProspectingListing::parseStreetNumber), so
+            // TrackedPropertyMatchOrCreateService's numbersConflict() veto can
+            // actually fire and stop "51 Colin Street" colliding with "64 Colin
+            // Street" just because they share a suburb + GPS proximity / street name.
+            'street_number' => ProspectingListing::parseStreetNumber($listing->address ?? null),
+            'latitude'      => $lat,
+            'longitude'     => $lng,
+            'suburb'        => $listing->suburb ?? null,
         ];
 
         $status = $this->prospectStatus->resolve($facts, $agencyId, $currentUserId);
