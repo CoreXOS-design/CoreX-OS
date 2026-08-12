@@ -466,6 +466,49 @@
                     // Matches cc2's server guard in editSelection (422 when template is amendment_initialing).
                     'allowEdit'        => empty($inAmendmentInitialing),
                 ])
+                {{-- AT-373 reject flow (Johan 2026-08-12) — the agent REJECTED specific changes and sent
+                     the document back to this signer. They must REMOVE each rejected change (they own their
+                     own words — the agent never edits them) before they can sign again. Accepted changes
+                     stay. All-first: signing is blocked server-side until every one below is removed. --}}
+                @if(!empty($inRejectReturn) && ($rejectReturnOutstanding ?? 0) > 0)
+                    <div class="rounded-xl border p-4 mb-3" style="background:#fef2f2; border-color:#fecaca;">
+                        <div style="font-size:13px; font-weight:800; color:#b91c1c;">Your agent asked you to remove {{ $rejectReturnOutstanding === 1 ? 'a change' : ($rejectReturnOutstanding . ' changes') }}</div>
+                        <div style="font-size:12px; color:#991b1b; margin-top:2px;">
+                            Your agent did not accept the change{{ $rejectReturnOutstanding === 1 ? '' : 's' }} below. To continue, remove {{ $rejectReturnOutstanding === 1 ? 'it' : 'each of them' }} — this reverts the text to what was originally agreed. You cannot sign again until {{ $rejectReturnOutstanding === 1 ? 'it is' : 'they are all' }} removed.
+                        </div>
+                        <div style="margin-top:10px; display:flex; flex-direction:column; gap:8px;">
+                            @foreach($rejectedRemovableChanges as $chg)
+                                <div class="flex items-center justify-between gap-3 rounded-lg" style="background:#fff; border:1px solid #fecaca; padding:8px 10px;">
+                                    <div class="min-w-0" style="font-size:12px; color:#334155;">
+                                        <span style="font-size:10px; font-weight:700; text-transform:uppercase; color:#0369a1;">Clause change</span><br>
+                                        <span style="text-decoration:line-through; color:#b91c1c;">{{ \Illuminate\Support\Str::limit($chg['old'], 120) }}</span>
+                                        @if($chg['new'] !== '')
+                                            <span style="color:#059669;"> &rarr; {{ \Illuminate\Support\Str::limit($chg['new'], 120) }}</span>
+                                        @endif
+                                    </div>
+                                    <button type="button" @click="removeRejected('body', @js($chg['change_id']))"
+                                            :disabled="removingEdit"
+                                            style="flex-shrink:0; font-size:12px; font-weight:600; color:#fff; background:#dc2626; border:0; border-radius:7px; padding:6px 12px; cursor:pointer;">
+                                        Remove
+                                    </button>
+                                </div>
+                            @endforeach
+                            @foreach($rejectedRemovableConditions as $cond)
+                                <div class="flex items-center justify-between gap-3 rounded-lg" style="background:#fff; border:1px solid #fecaca; padding:8px 10px;">
+                                    <div class="min-w-0" style="font-size:12px; color:#334155;">
+                                        <span style="font-size:10px; font-weight:700; text-transform:uppercase; color:#7c3aed;">Other Condition #{{ $cond->condition_number }}</span><br>
+                                        <span>{{ \Illuminate\Support\Str::limit((string) $cond->content, 140) }}</span>
+                                    </div>
+                                    <button type="button" @click="removeRejected('condition', @js((string) $cond->id))"
+                                            :disabled="removingEdit"
+                                            style="flex-shrink:0; font-size:12px; font-weight:600; color:#fff; background:#dc2626; border:0; border-radius:7px; padding:6px 12px; cursor:pointer;">
+                                        Remove
+                                    </button>
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
                 {{-- Recipient self-revert (Johan 2026-08-11) — the signer can REMOVE their own
                      pending edits and sign the document as originally agreed, so long as no
                      other party has signed. Each Remove reverts that clause to the original. --}}
@@ -2352,6 +2395,33 @@ function externalSign() {
                         'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
                     },
                     body: JSON.stringify({ change_id: changeId }),
+                });
+                const data = await resp.json().catch(() => ({}));
+                if (resp.ok && data.ok) { window.location.reload(); return; }
+                this.showNotification(data.error || 'Could not remove the change.', 'error');
+            } catch (e) {
+                this.showNotification('Could not remove the change. Please try again.', 'error');
+            } finally {
+                this.removingEdit = false;
+            }
+        },
+
+        // AT-373 reject flow (Johan 2026-08-12) — remove ONE change the agent rejected and sent back.
+        // Body clause or Other Condition. On success reload so the reverted document + updated
+        // "remaining to remove" count render; when the last one is removed the signing gate lifts.
+        async removeRejected(kind, id) {
+            if (this.removingEdit) return;
+            if (!confirm('Remove this rejected change? This reverts your change to the original — required before you can sign again.')) return;
+            this.removingEdit = true;
+            try {
+                const resp = await fetch('/sign/' + this.token + '/remove-rejected', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    },
+                    body: JSON.stringify({ kind: kind, id: String(id) }),
                 });
                 const data = await resp.json().catch(() => ({}));
                 if (resp.ok && data.ok) { window.location.reload(); return; }

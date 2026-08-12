@@ -623,8 +623,50 @@ class SigningController extends Controller
             }
         }
 
+        // AT-373 reject flow (Johan 2026-08-12) — the agent REJECTED specific amendments and sent the doc
+        // back to THIS recipient (the amendment author). We surface exactly the rejected items with a
+        // Remove action; the recipient owns removing their own words. Re-signing is gated until ALL are
+        // removed (all-first). Distinct from the pre-sign self-revert above — this branch is authorised by
+        // the agent's rejection, so it is NOT bound by the "no other party signed" rule.
+        $rejectReturn = $webTemplateData['amendment_reject_return'] ?? null;
+        $inRejectReturn = is_array($rejectReturn)
+            && (int) ($rejectReturn['editor_request_id'] ?? 0) === (int) $signingRequest->id;
+        $rejectedRemovableChanges = [];
+        $rejectedRemovableConditions = collect();
+        if ($inRejectReturn && $this->signerCanAct($signingRequest)) {
+            $rejChangeIds = array_map('strval', $rejectReturn['rejected_change_ids'] ?? []);
+            foreach (($webTemplateData['pending_body_changes'] ?? []) as $c) {
+                if (! is_array($c) || ! empty($c['reverted'])) {
+                    continue;
+                }
+                $cid = (string) ($c['change_id'] ?? '');
+                if ($cid === '' || ! in_array($cid, $rejChangeIds, true)) {
+                    continue;
+                }
+                $rejectedRemovableChanges[] = [
+                    'change_id' => $cid,
+                    'old'       => (string) ($c['old'] ?? ''),
+                    'new'       => (string) ($c['new'] ?? ''),
+                    'mode'      => (string) ($c['mode'] ?? 'selection'),
+                ];
+            }
+            $rejCondIds = array_map('intval', $rejectReturn['rejected_condition_ids'] ?? []);
+            if (! empty($rejCondIds)) {
+                $rejectedRemovableConditions = \App\Models\Docuperfect\DocumentCondition::whereIn('id', $rejCondIds)
+                    ->whereNull('superseded_at')
+                    ->orderBy('condition_number')
+                    ->get(['id', 'condition_number', 'content']);
+            }
+        }
+        // Outstanding = rejected items the recipient has NOT yet removed. Re-signing stays blocked until 0.
+        $rejectReturnOutstanding = count($rejectedRemovableChanges) + $rejectedRemovableConditions->count();
+
         return view('docuperfect.signatures.external.sign', [
             'request' => $signingRequest,
+            'inRejectReturn' => $inRejectReturn,                             // AT-373 reject flow
+            'rejectedRemovableChanges' => $rejectedRemovableChanges,         // AT-373 reject flow — body clauses
+            'rejectedRemovableConditions' => $rejectedRemovableConditions,   // AT-373 reject flow — Other Conditions
+            'rejectReturnOutstanding' => $rejectReturnOutstanding,           // AT-373 reject flow — all-first gate
             'reacceptanceMode' => $reacceptanceMode,       // AT-373 inc5 — second mandatory ECT-Act tick
             'reacceptanceReason' => $reacceptanceReason,   // AT-373 inc5 — why the amendment was rejected
             'currentRecipient' => $signingRequest,        // B1 — alias for the loop-engine downstream layers
@@ -1618,6 +1660,19 @@ class SigningController extends Controller
             return response()->json([
                 'ok'    => false,
                 'error' => $this->signatureService->outstandingChangeInitialsMessage($signingRequest->template, $signingRequest->canonicalPartyKey()),
+            ], 422);
+        }
+
+        // AT-373 reject flow (Johan 2026-08-12) — ALL-FIRST gate. If the agent rejected changes and sent
+        // the doc back to THIS recipient, they cannot re-sign until EVERY rejected change is removed. The
+        // removal endpoint clears the marker once outstanding hits zero, so a present marker = still-owed
+        // removals. Non-bypassable server-side (the client also hides the sign button, but this is truth).
+        $rejMarker = is_array($signingRequest->template->document->web_template_data ?? null)
+            ? ($signingRequest->template->document->web_template_data['amendment_reject_return'] ?? null) : null;
+        if (is_array($rejMarker) && (int) ($rejMarker['editor_request_id'] ?? 0) === (int) $signingRequest->id) {
+            return response()->json([
+                'ok'    => false,
+                'error' => 'Please remove the change(s) your agent rejected before signing again — use the Remove buttons shown on your changes.',
             ], 422);
         }
 
@@ -4310,6 +4365,100 @@ CSS;
             ->revertChange($template, $changeId, null);
 
         return response()->json($result, empty($result['ok']) ? 422 : 200);
+    }
+
+    /**
+     * AT-373 reject flow (Johan 2026-08-12) — the recipient REMOVES one change the agent rejected and
+     * sent back. Authorised by the reject-return marker naming THIS request (not the "no other party
+     * signed" rule — earlier parties HAVE signed here). Body clauses revert via SelectionEditService
+     * (audit-retained); Other Conditions are soft-deleted. Every removal is recorded ("rec removed").
+     * When the LAST rejected item is removed, the marker is cleared so re-signing is unblocked.
+     */
+    public function removeRejectedItem(Request $request, string $token): \Illuminate\Http\JsonResponse
+    {
+        $signingRequest = SignatureRequest::where('token', $token)
+            ->with('template.document')
+            ->firstOrFail();
+
+        if ($signingRequest->isSigningBlocked()) {
+            return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
+        }
+        if (! $this->signerCanAct($signingRequest)) {
+            return response()->json(['ok' => false, 'error' => 'It is not your turn.'], 403);
+        }
+
+        $data = $request->validate([
+            'kind' => ['required', 'string', 'in:body,condition'],
+            'id'   => ['required', 'string', 'max:64'],
+        ]);
+
+        $template = $signingRequest->template;
+        $wtd = is_array($template->document->web_template_data ?? null) ? $template->document->web_template_data : [];
+        $marker = $wtd['amendment_reject_return'] ?? null;
+        if (! is_array($marker) || (int) ($marker['editor_request_id'] ?? 0) !== (int) $signingRequest->id) {
+            return response()->json(['ok' => false, 'error' => 'There is no rejected change to remove.'], 422);
+        }
+
+        if ($data['kind'] === 'body') {
+            $changeId = (string) $data['id'];
+            if (! in_array($changeId, array_map('strval', $marker['rejected_change_ids'] ?? []), true)) {
+                return response()->json(['ok' => false, 'error' => 'That change was not among the rejected changes.'], 422);
+            }
+            $result = app(\App\Services\Docuperfect\SelectionEditService::class)
+                ->revertChange($template, $changeId, null);
+            if (empty($result['ok'])) {
+                return response()->json($result, 422);
+            }
+        } else {
+            $condId = (int) $data['id'];
+            if (! in_array($condId, array_map('intval', $marker['rejected_condition_ids'] ?? []), true)) {
+                return response()->json(['ok' => false, 'error' => 'That condition was not among the rejected changes.'], 422);
+            }
+            $cond = DocumentCondition::where('id', $condId)
+                ->where('signature_template_id', $template->id)
+                ->whereNull('superseded_at')
+                ->first();
+            if ($cond) {
+                $cond->delete(); // soft delete — recoverable; no hard deletes (non-negotiable #1)
+            }
+        }
+
+        // "rec removed" — record the recipient's removal of their own rejected change.
+        SignatureAuditLog::log(
+            $template,
+            'amendment_rejected_change_removed',
+            SignatureAuditLog::ACTOR_SIGNER,
+            $signingRequest->signer_name,
+            $signingRequest->signer_email,
+            requestId: $signingRequest->id,
+            ip: $request->ip(),
+            ua: $request->userAgent(),
+            metadata: ['kind' => $data['kind'], 'id' => (string) $data['id']],
+        );
+
+        // Recompute outstanding rejected items for this request; clear the marker once none remain.
+        $freshWtd = is_array($template->document->fresh()->web_template_data ?? null)
+            ? $template->document->fresh()->web_template_data : [];
+        $remainingBody = 0;
+        $rejChangeIds = array_map('strval', $marker['rejected_change_ids'] ?? []);
+        foreach (($freshWtd['pending_body_changes'] ?? []) as $c) {
+            if (is_array($c) && in_array((string) ($c['change_id'] ?? ''), $rejChangeIds, true) && empty($c['reverted'])) {
+                $remainingBody++;
+            }
+        }
+        $rejCondIds = array_map('intval', $marker['rejected_condition_ids'] ?? []);
+        $remainingCond = empty($rejCondIds) ? 0 : DocumentCondition::whereIn('id', $rejCondIds)
+            ->whereNull('superseded_at')->whereNull('deleted_at')->count();
+        $outstanding = $remainingBody + $remainingCond;
+
+        if ($outstanding === 0) {
+            $clearWtd = is_array($template->document->fresh()->web_template_data ?? null)
+                ? $template->document->fresh()->web_template_data : [];
+            unset($clearWtd['amendment_reject_return']);
+            $template->document->update(['web_template_data' => $clearWtd]);
+        }
+
+        return response()->json(['ok' => true, 'outstanding' => $outstanding]);
     }
 
     public function editSelection(Request $request, string $token): \Illuminate\Http\JsonResponse

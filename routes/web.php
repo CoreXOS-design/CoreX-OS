@@ -3780,6 +3780,10 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     // AT-373 (Part 3) — agent bounce-back: send the doc back to the amendment author so they remove
     // their own change and re-sign clean (recipient revert path). Transition lives in the service.
     Route::post('/documents/{document}/signatures/amendment/send-back', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'sendBackToRecipient'])->name('docuperfect.signatures.amendment.sendBack');
+    // AT-373 reject flow (Johan 2026-08-12) — the agent flags a SPECIFIC recipient amendment (body clause
+    // OR Other Condition) as rejected before "Reject & send back". Records the decision only; the transition
+    // + reject-return marker are stamped on send-back. Idempotent toggle.
+    Route::post('/documents/{document}/signatures/amendment/reject-item', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'rejectAmendmentItem'])->name('docuperfect.signatures.amendment.rejectItem');
     // SYMMETRIC edit-upon-edit (Johan 2026-08-10) — "reject" is RETIRED as a distinct action/state. A
     // rejection is now just an EDIT (a strike, optionally with replacement), authored with the shared amend
     // tool on the review page and routed like any other edit. The three reject endpoints
@@ -3942,6 +3946,9 @@ Route::prefix('sign')->group(function () {
     // Recipient self-revert (Johan 2026-08-11) — remove one of MY OWN pending edits before signing,
     // while no other party has signed. Reverts the clause to the agreed original.
     Route::post('/{token}/revert-change', [\App\Http\Controllers\Docuperfect\SigningController::class, 'revertMyChange'])->name('signatures.external.revertChange');
+    // AT-373 reject flow (Johan 2026-08-12) — the recipient removes a change the agent REJECTED and sent
+    // back (authorised by the reject-return marker, not the pre-sign "no other party signed" rule).
+    Route::post('/{token}/remove-rejected', [\App\Http\Controllers\Docuperfect\SigningController::class, 'removeRejectedItem'])->name('signatures.external.removeRejected');
     Route::post('/{token}/complete-web', [\App\Http\Controllers\Docuperfect\SigningController::class, 'completeWeb'])->name('signatures.external.completeWeb');
     Route::post('/{token}/complete', [\App\Http\Controllers\Docuperfect\SigningController::class, 'complete'])->name('signatures.external.complete');
     Route::get('/{token}/completed', [\App\Http\Controllers\Docuperfect\SigningController::class, 'completed'])->name('signatures.external.completed');

@@ -2759,6 +2759,7 @@ class SignatureController extends Controller
                         ? ('Removed: ' . \Illuminate\Support\Str::limit($old, 60))
                         : (\Illuminate\Support\Str::limit($old, 28) . ' → ' . \Illuminate\Support\Str::limit($new, 28)),
                     'author'   => null, 'initialed' => (bool) $filled,
+                    'rejected' => ! empty($c['rejected']),
                 ];
             }
             $conds = \App\Models\Docuperfect\DocumentCondition::where('signature_template_id', $template->id)
@@ -2773,6 +2774,7 @@ class SignatureController extends Controller
                     'location' => 'Other Conditions — #' . $cond->condition_number,
                     'summary'  => \Illuminate\Support\Str::limit((string) $cond->content, 70),
                     'author'   => $author?->signer_name, 'initialed' => (bool) $initialed,
+                    'rejected' => $cond->rejected_at !== null,
                 ];
             }
         }
@@ -3144,6 +3146,76 @@ class SignatureController extends Controller
         return redirect()->route('docuperfect.esign.myDocuments')
             ->with('status', 'Sent back to ' . ($result['editor'] ?? 'the recipient')
                 . ' — they will get a fresh signing link to remove their change and re-sign.');
+    }
+
+    /**
+     * AT-373 reject flow (Johan 2026-08-12) — the agent flags a SPECIFIC recipient amendment as
+     * REJECTED (as opposed to accept-and-initial). Rejected items are NOT initialed; on "Reject &
+     * send back to recipient" the recipient is shown exactly these and must Remove each before the
+     * document can continue. This only records the agent's decision — the transition happens on
+     * send-back. Idempotent toggle (rejected = 0|1). Body changes carry the flag in
+     * web_template_data['pending_body_changes'][n]; Other Conditions carry it on their own row.
+     */
+    public function rejectAmendmentItem(Request $request, Document $document)
+    {
+        $user = $request->user();
+        $this->authorizeDocument($user, $document);
+
+        $data = $request->validate([
+            'kind'     => ['required', 'string', 'in:body,condition'],
+            'id'       => ['required', 'string', 'max:64'],
+            'rejected' => ['required', 'boolean'],
+        ]);
+
+        $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+        if ($template->status !== SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW) {
+            return response()->json(['ok' => false, 'error' => 'This document is not awaiting amendment review.'], 422);
+        }
+
+        $rejected = (bool) $data['rejected'];
+
+        if ($data['kind'] === 'condition') {
+            $cond = DocumentCondition::where('signature_template_id', $template->id)
+                ->where('id', (int) $data['id'])
+                ->where('added_via', 'recipient_signing')
+                ->whereNull('superseded_at')
+                ->first();
+            if (! $cond) {
+                return response()->json(['ok' => false, 'error' => 'That condition could not be found.'], 404);
+            }
+            $cond->rejected_at = $rejected ? now() : null;
+            $cond->rejected_by_user_id = $rejected ? (int) $user->id : null;
+            $cond->save();
+
+            return response()->json(['ok' => true, 'kind' => 'condition', 'id' => (string) $cond->id, 'rejected' => $rejected]);
+        }
+
+        // Body clause amendment — flag the entry in pending_body_changes.
+        $wtd = is_array($document->web_template_data) ? $document->web_template_data : [];
+        $changeId = (string) $data['id'];
+        $found = false;
+        foreach (($wtd['pending_body_changes'] ?? []) as $i => $c) {
+            if (is_array($c) && (string) ($c['change_id'] ?? '') === $changeId && empty($c['reverted'])) {
+                if ($rejected) {
+                    $wtd['pending_body_changes'][$i]['rejected'] = true;
+                    $wtd['pending_body_changes'][$i]['rejected_by'] = (int) $user->id;
+                    $wtd['pending_body_changes'][$i]['rejected_at'] = now()->toIso8601String();
+                } else {
+                    unset($wtd['pending_body_changes'][$i]['rejected'], $wtd['pending_body_changes'][$i]['rejected_by'], $wtd['pending_body_changes'][$i]['rejected_at']);
+                }
+                $found = true;
+                break;
+            }
+        }
+        if (! $found) {
+            return response()->json(['ok' => false, 'error' => 'That change could not be found.'], 404);
+        }
+        // Re-index in case Laravel serialised a gap (defensive; keys are preserved above).
+        $wtd['pending_body_changes'] = array_values($wtd['pending_body_changes']);
+        $document->web_template_data = $wtd;
+        $document->save();
+
+        return response()->json(['ok' => true, 'kind' => 'body', 'id' => $changeId, 'rejected' => $rejected]);
     }
 
     /**

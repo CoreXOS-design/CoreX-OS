@@ -2583,11 +2583,41 @@ class SignatureService
             return ['ok' => false, 'error' => 'The recipient who proposed the amendment could not be resolved.'];
         }
 
-        DB::transaction(function () use ($template, $editor, $agent, $cycle) {
+        // AT-373 reject flow (Johan 2026-08-12) — gather EXACTLY the changes the agent rejected. The
+        // recipient must Remove each of these before re-signing; accepted-and-initialed changes stay.
+        $wtdNow = $this->docWtd($template);
+        $rejectedChangeIds = [];
+        foreach (($wtdNow['pending_body_changes'] ?? []) as $c) {
+            if (is_array($c) && ! empty($c['rejected']) && empty($c['reverted'])) {
+                $cid = (string) ($c['change_id'] ?? '');
+                if ($cid !== '') {
+                    $rejectedChangeIds[] = $cid;
+                }
+            }
+        }
+        $rejectedConditionIds = \App\Models\Docuperfect\DocumentCondition::where('signature_template_id', $template->id)
+            ->whereNotNull('rejected_at')
+            ->whereNull('superseded_at')
+            ->pluck('id')->map(fn ($id) => (int) $id)->all();
+
+        if (empty($rejectedChangeIds) && empty($rejectedConditionIds)) {
+            return ['ok' => false, 'error' => 'Reject at least one change before sending the document back.'];
+        }
+
+        DB::transaction(function () use ($template, $editor, $agent, $cycle, $rejectedChangeIds, $rejectedConditionIds) {
             // Abandon the chain-review routing marker ONLY — pending_body_changes stay so the editor
-            // can revert them on their signing screen.
+            // can revert them on their signing screen. Stamp the reject-return marker so the recipient's
+            // signing screen shows EXACTLY the rejected items with a Remove action, and gates re-signing
+            // until all are removed.
             $wtd = $this->docWtd($template);
             unset($wtd['amendment_cycle']);
+            $wtd['amendment_reject_return'] = [
+                'editor_request_id'      => (int) $editor->id,
+                'rejected_change_ids'    => array_values($rejectedChangeIds),
+                'rejected_condition_ids' => array_values($rejectedConditionIds),
+                'at'                     => now()->toIso8601String(),
+                'by'                     => (int) $agent->id,
+            ];
             $this->writeDocWtd($template, $wtd);
 
             // Back to the signing walk (same proven transition as ratifyMarkAmendment).
@@ -2595,15 +2625,16 @@ class SignatureService
 
             SignatureAuditLog::log(
                 $template,
-                'amendment_bounced_to_recipient',
+                'amendment_rejected_sent_back',
                 SignatureAuditLog::ACTOR_USER,
                 $agent->name ?? 'Agent',
                 $agent->email,
                 $agent->id,
                 metadata: [
-                    'editor_request_id' => $editor->id,
-                    'editor_name'       => $editor->signer_name,
-                    'change_ids'        => $cycle['change_ids'] ?? [],
+                    'editor_request_id'      => $editor->id,
+                    'editor_name'            => $editor->signer_name,
+                    'rejected_change_ids'    => array_values($rejectedChangeIds),
+                    'rejected_condition_ids' => array_values($rejectedConditionIds),
                 ],
             );
         });

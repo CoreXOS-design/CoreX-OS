@@ -51,24 +51,30 @@
                             : 'font-size:10px;font-weight:700;text-transform:uppercase;color:#0369a1;background:#f0f9ff;border-radius:6px;padding:1px 6px;'"
                           x-text="it.badge"></span>
                     <span style="margin-left:auto; font-size:11px; font-weight:600; border-radius:999px; padding:1px 8px;"
-                          :style="it.state==='accepted' ? 'color:#166534;background:#f0fdf4;' : 'color:#92400e;background:#fffbeb;'"
-                          x-text="it.state==='accepted' ? 'Initialed ✓' : 'Needs your initial'"></span>
+                          :style="it.state==='accepted' ? 'color:#166534;background:#f0fdf4;' : (it.state==='rejected' ? 'color:#b91c1c;background:#fef2f2;' : 'color:#92400e;background:#fffbeb;')"
+                          x-text="it.state==='accepted' ? 'Initialed ✓' : (it.state==='rejected' ? 'Rejected ✕' : 'Needs your initial')"></span>
                 </div>
                 <div style="font-size:12.5px; font-weight:600; color:#0f172a;" x-text="it.location"></div>
                 <div style="font-size:12px; color:#475569; margin-top:2px;" x-text="it.summary"></div>
                 <div x-show="it.author" style="font-size:11px; color:#64748b; margin-top:3px;" x-text="'Added by ' + (it.author||'')"></div>
-                {{-- SYMMETRIC edit-upon-edit (Johan 2026-08-10): the agent AGREES (Accept & Initial) OR EDITS
-                     the change with the SAME amend tool a recipient uses — a strike / reword, itself a new
-                     initialed mark. There is NO "reject": disagreeing IS editing. Nothing is ever removed. --}}
+                {{-- The agent has three routes for each change: ACCEPT & INITIAL (agree — places the
+                     initial, the change stays), EDIT (strike / reword with the shared amend tool — itself a
+                     new initialed mark), or REJECT (AT-373 reject flow, Johan 2026-08-12 — the recipient must
+                     REMOVE this change; the agent never edits the recipient's words). A rejected item is NOT
+                     initialed; Reject & send back (footer) hands exactly the rejected set to the recipient. --}}
                 <div @click.stop style="display:flex; flex-wrap:wrap; gap:8px; margin-top:8px;">
-                    <button type="button" @click="accept(it)"
+                    <button type="button" @click="accept(it)" x-show="it.state!=='rejected'"
                             :style="it.state==='accepted' ? 'color:#166534;background:#f0fdf4;' : 'color:#fff;background:#059669;'"
                             style="font-size:12px; font-weight:600; border-radius:7px; padding:5px 12px;"
                             x-text="it.state==='accepted' ? 'Re-initial' : 'Accept &amp; Initial'"></button>
-                    <button type="button" @click="edit(it)"
+                    <button type="button" @click="edit(it)" x-show="it.state!=='rejected'"
                             style="font-size:12px; color:#b45309; border:1px solid #fed7aa; border-radius:7px; padding:5px 12px;">
                         Edit
                     </button>
+                    <button type="button" @click="toggleReject(it)" :disabled="it.busy"
+                            :style="it.state==='rejected' ? 'color:#fff;background:#dc2626;border:1px solid #dc2626;' : 'color:#b91c1c;border:1px solid #fecaca;'"
+                            style="font-size:12px; font-weight:600; border-radius:7px; padding:5px 12px;"
+                            x-text="it.state==='rejected' ? 'Rejected — undo' : 'Reject'"></button>
                     <button type="button" @click="scrollTo(it)"
                             style="font-size:12px; color:#475569; border:1px solid #cbd5e1; border-radius:7px; padding:5px 10px;">
                         View
@@ -79,30 +85,37 @@
     </div>
 
     <div style="padding:12px 16px; border-top:1px solid #e2e8f0;">
-        {{-- The single Approve enables ONLY once EVERY change has been actioned individually
-             (accepted+initialled, or rejected) — nothing outstanding. No accept-all / reject-all. --}}
+        {{-- Two mutually-exclusive outcomes once EVERY change is decided:
+             • ALL accepted (nothing rejected) → Approve & send to next party.
+             • ANY rejected → Reject & send back to recipient (they remove the rejected changes).
+             Approve is blocked while anything is outstanding OR anything is rejected. --}}
         <div style="font-size:12px; margin-bottom:8px;"
-             :style="outstanding>0 ? 'color:#92400e;' : 'color:#166534;'"
-             x-text="outstanding>0 ? (outstanding + ' change' + (outstanding===1?'':'s') + ' still need your initial (Accept &amp; Initial, or Edit each above)') : 'Every change actioned — ready to send on.'"></div>
+             :style="outstanding>0 ? 'color:#92400e;' : (rejectedCount>0 ? 'color:#b91c1c;' : 'color:#166534;')"
+             x-text="outstanding>0
+                        ? (outstanding + ' change' + (outstanding===1?'':'s') + ' still need a decision — Accept &amp; Initial, Edit, or Reject each above')
+                        : (rejectedCount>0
+                            ? (rejectedCount + ' change' + (rejectedCount===1?'':'s') + ' rejected — send back to the recipient to remove ' + (rejectedCount===1?'it':'them'))
+                            : 'Every change accepted — ready to send on.')"></div>
         <form method="POST" action="{{ route('docuperfect.signatures.amendment.approve', $document) }}">
             @csrf
-            <button type="submit" :disabled="outstanding>0"
-                    :style="outstanding>0 ? 'opacity:0.5;cursor:not-allowed;' : 'cursor:pointer;'"
+            <button type="submit" :disabled="outstanding>0 || rejectedCount>0"
+                    :style="(outstanding>0 || rejectedCount>0) ? 'opacity:0.5;cursor:not-allowed;' : 'cursor:pointer;'"
                     style="width:100%; font-size:13px; font-weight:600; color:#fff; background:#059669; border-radius:9px; padding:9px 12px;"
-                    @click="return outstanding>0 ? $event.preventDefault() : confirm('{{ $nextParty ? 'Approve and send to ' . ($amendNextName ?? 'the next recipient') . '?' : 'Approve and finalise the document?' }}')">
+                    @click="return (outstanding>0 || rejectedCount>0) ? $event.preventDefault() : confirm('{{ $nextParty ? 'Approve and send to ' . ($amendNextName ?? 'the next recipient') . '?' : 'Approve and finalise the document?' }}')">
                 {!! $approveLabel !!} &rarr;
             </button>
         </form>
-        {{-- AT-373 (Part 3) — agent bounce-back. When the agent does NOT want to accept/edit a
-             recipient's change (e.g. a struck-out edit there is no natural way to amend), send the doc
-             BACK to the author so THEY remove or adjust their own change and re-sign clean. Always
-             available (never gated on initialing) so the agent always has a way to act. --}}
+        {{-- AT-373 reject flow (Johan 2026-08-12) — when the agent has REJECTED one or more changes, send
+             the doc back to the author; they get a fresh signing link and must REMOVE each rejected change
+             (they own their own words) before re-signing. Armed only once every change is decided and at
+             least one is rejected (canSendBack). Accepted-and-initialed changes stay. --}}
         <form method="POST" action="{{ route('docuperfect.signatures.amendment.sendBack', $document) }}" style="margin-top:8px;"
-              onsubmit="return confirm('Send this document back to {{ $completedRequest?->signer_name ?? 'the recipient' }} so they can remove or adjust their change and re-sign? They will get a fresh signing link by email.');">
+              @submit="return canSendBack ? confirm('Send this document back to {{ $completedRequest?->signer_name ?? 'the recipient' }} to REMOVE the rejected change(s) and re-sign? They will get a fresh signing link by email.') : $event.preventDefault()">
             @csrf
-            <button type="submit"
-                    style="width:100%; font-size:13px; font-weight:500; color:#b45309; background:#fff; border:1px solid #fcd34d; border-radius:9px; padding:9px 12px; cursor:pointer;">
-                Send back to recipient
+            <button type="submit" :disabled="!canSendBack"
+                    :style="canSendBack ? 'color:#fff;background:#dc2626;border:1px solid #dc2626;cursor:pointer;' : 'color:#b91c1c;background:#fff;border:1px solid #fecaca;opacity:0.5;cursor:not-allowed;'"
+                    style="width:100%; font-size:13px; font-weight:600; border-radius:9px; padding:9px 12px;">
+                Reject &amp; send back to recipient
             </button>
         </form>
     </div>
@@ -134,8 +147,10 @@
 </div>
 <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
 <script>
+// Script-block-level (visible to BOTH the capture IIFE below and the Alpine agentAmendmentPanel factory).
+const CSRF = document.querySelector('meta[name=csrf-token]')?.content || @json(csrf_token());
+const REJECT_URL = @json(route('docuperfect.signatures.amendment.rejectItem', $document));
 (function () {
-    const CSRF = document.querySelector('meta[name=csrf-token]')?.content || @json(csrf_token());
     const CHANGE_URL = @json(route('docuperfect.signatures.initialChange', $document));
     const COND_URL_BASE = @json(url('/docuperfect/documents/' . $document->id . '/signatures/condition'));
     // Reuse the affordance's body-change apply if present; else define it here (POST internal initial-change).
@@ -181,12 +196,30 @@
 })();
 function agentAmendmentPanel(items){
     return {
-        // state per item: 'pending' (needs a decision) | 'accepted' (initialled) | 'rejected' (reverted).
-        items: (items||[]).map(function(it){ return Object.assign({}, it, { state: it.initialed ? 'accepted' : 'pending' }); }),
+        // state per item: 'pending' (needs a decision) | 'accepted' (initialled) | 'rejected' (agent
+        // rejected — recipient must remove it on send-back).
+        items: (items||[]).map(function(it){ return Object.assign({}, it, { state: it.rejected ? 'rejected' : (it.initialed ? 'accepted' : 'pending'), busy:false }); }),
         get outstanding(){ return this.items.filter(function(i){ return i.state==='pending'; }).length; },
+        get rejectedCount(){ return this.items.filter(function(i){ return i.state==='rejected'; }).length; },
+        // Every item decided (accepted or rejected) AND at least one rejected → the send-back is armed.
+        get canSendBack(){ return this.outstanding===0 && this.rejectedCount>0; },
         scrollTo(it){ const sel = it.kind==='body' ? '[data-change-id="'+it.id+'"]' : '[data-condition-id="'+it.id+'"]'; const el=document.querySelector(sel); if(el){ el.scrollIntoView({behavior:'smooth',block:'center'}); el.classList.add('amend-flash'); setTimeout(()=>el.classList.remove('amend-flash'),1600); } },
         // Accept = place the agent's initial on this change (accept IS the initial — decision i).
         async accept(it){ const ok = await window.AgentCI.capture(it); if(ok){ it.state='accepted'; } },
+        // Reject / undo-reject = record the agent's rejection server-side (persists across reload so the
+        // send-back transition can read it). A rejected item is NOT initialed; on send-back the recipient
+        // is shown exactly these and must Remove each. Toggling accepts nothing — accept is a separate act.
+        async toggleReject(it){
+            if(it.busy) return; it.busy=true;
+            const next = it.state!=='rejected';
+            try {
+                const r = await fetch(REJECT_URL, { method:'POST', headers:{'Content-Type':'application/json','X-CSRF-TOKEN':CSRF,'X-Requested-With':'XMLHttpRequest'}, body:JSON.stringify({kind:it.kind, id:String(it.id), rejected: next}) });
+                const d = await r.json().catch(()=>({}));
+                if(r.ok && d.ok){ it.state = next ? 'rejected' : 'pending'; }
+                else { alert(d.error || 'Could not update the rejection — please try again.'); }
+            } catch(e){ alert('Could not update the rejection — please try again.'); }
+            it.busy=false;
+        },
         // Edit = open the SHARED amend tool (cc6's selectionEditor, ported onto this page) focused on this
         // change so the agent can strike / reword it — itself a new initialed mark. This REPLACES "reject":
         // disagreeing is just editing; nothing is removed. cc6's partial exposes window.CoreXAgentEdit(it);
