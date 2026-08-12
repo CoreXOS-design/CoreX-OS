@@ -164,11 +164,56 @@
 
                     <div>
                         <label class="block text-xs font-semibold text-slate-700 mb-1">Your Signature *</label>
-                        <div style="position: relative;">
+                        {{-- Saved-signature (Johan 2026-08-13): a Compliance Officer who saved a signature + PIN
+                             in My Portal can place it here instead of drawing. Reuses the e-sign endpoints via
+                             route('signature.*') (the /corex prefix is carried by route()). Only shows when the
+                             logged-in officer has one configured; impersonated sessions are blocked server-side.
+                             Draw stays the fallback. --}}
+                        <div x-show="savedSigConfigured && !savedSigImpersonating" x-cloak style="margin-bottom:0.5rem;">
+                            <button type="button" @click="chooseSavedSignature()"
+                                    class="text-xs font-semibold px-3 py-1.5 rounded"
+                                    style="border:1px solid #bfdbfe; color:#1d4ed8; background:#eff6ff;">
+                                <span x-text="savedApplied ? '✓ Saved signature placed' : (savedSigUnlocked ? 'Use my saved signature' : 'Use my saved signature 🔒')"></span>
+                            </button>
+                            <span x-show="savedApplied" x-cloak class="text-xs text-slate-500" style="margin-left:0.5rem;">Click Clear to draw instead.</span>
+                        </div>
+                        {{-- Placed saved signature preview (shown instead of the canvas once applied). --}}
+                        <div x-show="savedApplied" x-cloak style="position:relative; border:1px solid #bbf7d0; background:#f0fdf4; padding:0.5rem; text-align:center;">
+                            <img :src="savedSignatureImg" alt="Your saved signature" style="max-height:110px; max-width:100%;">
+                        </div>
+                        <div x-show="!savedApplied" style="position: relative;">
                             <canvas x-ref="coSignatureCanvas" width="400" height="120" style="width: 100%; border: 1px solid #cbd5e1; background: #fff; touch-action: none; cursor: crosshair;"></canvas>
                             <button type="button" @click="clearSignature()" style="position: absolute; top: 0.25rem; right: 0.25rem; font-size: 0.7rem; color: #64748b; background: #fff; border: 1px solid #e2e8f0; padding: 0.15rem 0.4rem; cursor: pointer;">Clear</button>
                         </div>
                         <input type="hidden" name="co_signature_data" x-model="signatureDataUrl">
+                    </div>
+
+                    {{-- Saved-signature PIN unlock (officer-only). Enter the signing PIN once to place the
+                         saved signature; a switch-user/impersonated session can never unlock (server guards it). --}}
+                    <div x-show="savedPinOpen" x-cloak x-transition.opacity
+                         class="fixed inset-0 z-[70] flex items-center justify-center"
+                         style="background:rgba(0,0,0,0.6);"
+                         @keydown.escape.window="savedPinOpen = false">
+                        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden" @click.stop>
+                            <div class="px-6 py-4" style="background:#0b2a4a;">
+                                <h3 class="text-white font-semibold text-base">Unlock your saved signature</h3>
+                            </div>
+                            <div class="p-6 space-y-3">
+                                <p class="text-sm text-slate-600">Enter your <strong>signing PIN</strong> to place your saved signature on this FICA review.</p>
+                                <input type="password" x-model="savedPin" inputmode="numeric" autocomplete="off"
+                                       placeholder="Signing PIN" @keydown.enter="submitSavedPin()"
+                                       class="w-full rounded-lg border border-slate-300 text-sm px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                <p x-show="savedPinError" x-cloak class="text-xs text-red-600" x-text="savedPinError"></p>
+                                <div class="flex items-center justify-end gap-3 pt-1">
+                                    <button type="button" @click="savedPinOpen = false" class="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 font-medium">Cancel</button>
+                                    <button type="button" @click="submitSavedPin()" :disabled="savedPinLoading || !savedPin"
+                                            class="rounded-lg px-5 py-2 text-sm font-semibold text-white"
+                                            :class="(savedPinLoading || !savedPin) ? 'opacity-50 cursor-not-allowed' : ''"
+                                            style="background:#0b2a4a;"
+                                            x-text="savedPinLoading ? 'Unlocking…' : 'Unlock'"></button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     @error('tfs')
@@ -244,7 +289,73 @@ function coReview() {
             identity_docs: '', address_docs: '', authority_docs: '', delegating_docs: '',
             is_vip: '', suspicious: '', suspicious_details: '', consistent: '',
         },
-        init() { this.$nextTick(() => this.initSignaturePad()); },
+
+        // ── Saved-signature (officer-only) — ports the e-sign PIN flow; reuses route('signature.*'). ──
+        savedSigConfigured: false,
+        savedSigImpersonating: false,
+        savedSigUnlocked: false,
+        savedSignatureImg: null,
+        savedApplied: false,
+        savedPinOpen: false,
+        savedPin: '',
+        savedPinError: '',
+        savedPinLoading: false,
+
+        init() { this.$nextTick(() => this.initSignaturePad()); this.initSavedSig(); },
+
+        async initSavedSig() {
+            try {
+                const res = await fetch('{{ route('signature.status') }}', { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+                if (!res.ok) return;
+                const d = await res.json();
+                this.savedSigConfigured = !!d.configured;
+                this.savedSigImpersonating = !!d.impersonating;
+            } catch (e) { /* leave disabled */ }
+        },
+        _sigContext() { return @json('fica:co:' . $submission->id); },
+        _csrf() { return document.querySelector('meta[name="csrf-token"]')?.content || ''; },
+        chooseSavedSignature() {
+            if (this.savedSigImpersonating || !this.savedSigConfigured) return;
+            if (!this.savedSigUnlocked) { this.savedPinError = ''; this.savedPin = ''; this.savedPinOpen = true; return; }
+            this.applySavedSignature();
+        },
+        async submitSavedPin() {
+            if (this.savedPinLoading || !this.savedPin) return;
+            this.savedPinLoading = true; this.savedPinError = '';
+            try {
+                const res = await fetch('{{ route('signature.unlock') }}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this._csrf(), 'Accept': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ pin: this.savedPin, context: this._sigContext() }),
+                });
+                const d = await res.json().catch(() => ({}));
+                if (res.ok && d.ok) {
+                    await this.loadSavedAssets();
+                    this.savedSigUnlocked = true;
+                    this.savedPinOpen = false;
+                    this.savedPin = '';
+                    this.applySavedSignature();
+                } else {
+                    this.savedPinError = d.error || 'Incorrect PIN.';
+                }
+            } catch (e) {
+                this.savedPinError = 'Network error — please try again.';
+            } finally {
+                this.savedPinLoading = false;
+            }
+        },
+        async loadSavedAssets() {
+            const q = '?context=' + encodeURIComponent(this._sigContext());
+            // The CO places their full SIGNATURE (not an initial) here.
+            const s = await fetch('{{ route('signature.asset', ['type' => 'signature']) }}' + q, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+            if (s.ok) { const d = await s.json(); this.savedSignatureImg = d.image || null; }
+        },
+        applySavedSignature() {
+            if (!this.savedSignatureImg) { this.savedPinError = 'Could not load your saved signature.'; this.savedPinOpen = true; return; }
+            this.signatureDataUrl = this.savedSignatureImg;   // the hidden co_signature_data field
+            this.savedApplied = true;
+        },
         initSignaturePad() {
             const canvas = this.$refs.coSignatureCanvas;
             if (!canvas) return;
@@ -265,12 +376,18 @@ function coReview() {
             this.signaturePad = { canvas, ctx };
         },
         clearSignature() {
-            if (!this.signaturePad) return;
-            this.signaturePad.ctx.clearRect(0, 0, this.signaturePad.canvas.width, this.signaturePad.canvas.height);
+            // Also clears a placed saved signature — reveals the canvas so the officer can draw instead.
+            this.savedApplied = false;
             this.signatureDataUrl = '';
+            if (this.signaturePad) {
+                this.signaturePad.ctx.clearRect(0, 0, this.signaturePad.canvas.width, this.signaturePad.canvas.height);
+            }
+            this.$nextTick(() => { if (!this.signaturePad) this.initSignaturePad(); });
         },
         submitApproval() {
-            if (this.signaturePad) {
+            if (this.savedApplied && this.signatureDataUrl) {
+                // Saved signature already placed — no canvas ink required.
+            } else if (this.signaturePad) {
                 const c = this.signaturePad.canvas, ctx = this.signaturePad.ctx;
                 const px = ctx.getImageData(0, 0, c.width, c.height).data;
                 let has = false; for (let i = 3; i < px.length; i += 4) { if (px[i] > 0) { has = true; break; } }
