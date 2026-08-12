@@ -2825,6 +2825,12 @@ class MarketIntelligenceController extends Controller
         $user = auth()->user();
         $agencyId = $user->agency_id ?? $user->effectiveAgencyId() ?? 1;
 
+        // Stale-tab guard — re-derives CURRENT claim state server-side on every
+        // submit rather than trusting whatever the (possibly stale) page showed
+        // when it loaded, so a tab that never refreshed can't double-claim a
+        // listing someone else (or a genuinely-still-active claim of the same
+        // agent's own) already holds. See release() below for the matching
+        // guard on the un-claim side.
         $existing = ProspectingClaim::where('prospecting_listing_id', $listing->id)
             ->active()->first();
 
@@ -2887,9 +2893,18 @@ class MarketIntelligenceController extends Controller
     {
         $user = auth()->user();
 
+        // Stale-tab guard — a tab left open across a claim/pitch/release cycle
+        // elsewhere shows an outdated "Claim"/"Release" state until reloaded.
+        // A clear message here (not firstOrFail()'s raw 404) tells the agent
+        // their view is out of date instead of a dead-end error page; the
+        // redirect back re-renders this listing's row with CURRENT state.
         $claim = ProspectingClaim::where('prospecting_listing_id', $listing->id)
             ->where('user_id', $user->id)
-            ->active()->firstOrFail();
+            ->active()->first();
+
+        if ($claim === null) {
+            return back()->with('error', 'This claim was already released or updated elsewhere — refreshed to current state.');
+        }
 
         $claim->update([
             'is_active'   => false,
