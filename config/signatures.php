@@ -15,9 +15,12 @@ return [
     ],
 
     'emails' => [
-        'company_domain' => env('SIGNATURE_EMAIL_DOMAIN', 'hfcoastal.co.za'),
-        'fallback_from' => env('MAIL_FROM_ADDRESS', 'system@hfcoastal.co.za'),
-        'from_name' => 'Home Finders Coastal',
+        // 'company_domain' removed 2026-08-12 — was a single hardcoded domain
+        // for every tenant (multi-tenancy bug). BaseSignatureMail now derives
+        // each agent's company domain from their OWN agency's email instead
+        // (App\Mail\Signatures\BaseSignatureMail::companyDomainForAgent()).
+        'fallback_from' => env('MAIL_FROM_ADDRESS', 'mail@corexos.co.za'),
+        'from_name' => 'CoreX OS',
     ],
 
     'leases' => [
