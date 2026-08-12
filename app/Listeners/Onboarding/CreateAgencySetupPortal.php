@@ -16,8 +16,8 @@ use Illuminate\Support\Facades\Log;
  * longer emails AgencyOnboardingSetupMail. At creation time the new Admin has no
  * password yet (email-only invite — UserInviteMail is what goes out, sent from
  * AgencyController@store). AgencyOnboardingSetupMail now fires on the Admin's
- * first successful login (see the Login listener in AppServiceProvider) or via
- * manual resend from the owner tracking page — never here.
+ * first successful login (see App\Services\Onboarding\AgencyAdminFirstLoginService)
+ * or via manual resend from the owner tracking page — never here.
  *
  * Wired by Laravel's automatic listener discovery (it scans app/Listeners and
  * binds this handle() to its type-hinted event). Do NOT add an explicit

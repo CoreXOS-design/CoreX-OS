@@ -69,8 +69,18 @@
         // non-live environment — the tooltip says so to avoid "whose email is
         // this" confusion when QA1/QA2/Staging/Demo test mail is all mixed
         // together in the one Mailpit UI.
-        $mailpitActive = config('mail.mailers.smtp.host') === '127.0.0.1'
-            && (int) config('mail.mailers.smtp.port') === 1025;
+        //
+        // Checks EVERY mailer actually used to send app mail, not just the
+        // default 'smtp' one (found in review 2026-08-12): AgencyOnboardingSetupMail
+        // and PillarEventNotification send via the independently-configured
+        // 'corex' mailer, and client-auth OTP emails via 'otp' — each has its
+        // own MAIL_*_HOST/PORT and can be pointed at real SMTP even while the
+        // default mailer is safely local. Claiming "your mail is caught here"
+        // is only true if ALL of them are actually local.
+        $mailpitActive = collect(['smtp', 'corex', 'otp'])->every(
+            fn (string $mailer) => config("mail.mailers.{$mailer}.host") === '127.0.0.1'
+                && (int) config("mail.mailers.{$mailer}.port") === 1025
+        );
     @endphp
     <div role="status" aria-label="Environment: {{ $envLabel }}"
          style="flex:0 0 auto; width:100%; height:24px; line-height:24px;

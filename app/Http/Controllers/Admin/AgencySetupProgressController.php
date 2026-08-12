@@ -3,11 +3,10 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Mail\AgencyOnboardingSetupMail;
 use App\Models\AgencyOnboardingSetup;
+use App\Models\User;
+use App\Services\Onboarding\AgencyAdminFirstLoginService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 
 /**
  * Platform-owner tracking board: every agency's onboarding-setup progress.
@@ -22,9 +21,25 @@ class AgencySetupProgressController extends Controller
     public function index(Request $request)
     {
         $setups = AgencyOnboardingSetup::queryWithoutAgencyScope()
-            ->with(['agency', 'admin'])
+            ->with('agency')
             ->orderByDesc('id')
             ->get();
+
+        // Same cross-agency scope issue as resend() below: eager-loading via
+        // ->with('admin') runs the `admin()` relation through User's OWN
+        // AgencyScope, so an owner who has switched into one agency would see
+        // a blank Admin column for every OTHER agency's row on this
+        // cross-agency tracking board. Batch-load unscoped instead (one query,
+        // not per-row) and attach manually — the view's `$s->admin?->email`
+        // usage is unchanged.
+        $adminsById = User::withoutGlobalScopes()
+            ->whereIn('id', $setups->pluck('admin_user_id')->filter()->unique())
+            ->get()
+            ->keyBy('id');
+
+        $setups->each(function (AgencyOnboardingSetup $setup) use ($adminsById) {
+            $setup->setRelation('admin', $setup->admin_user_id ? $adminsById->get($setup->admin_user_id) : null);
+        });
 
         return view('admin.agency-setup-progress.index', [
             'setups' => $setups,
@@ -38,32 +53,33 @@ class AgencySetupProgressController extends Controller
      * allowed regardless of prior send state — this is an explicit owner
      * action, not the automatic once-only trigger.
      */
-    public function resend(int $setupId)
+    public function resend(int $setupId, AgencyAdminFirstLoginService $onboardingMail)
     {
         // Explicit queryWithoutAgencyScope, not implicit route-model-binding:
         // an owner who HAS entered the agency switcher (active_agency_id set)
         // is subject to AgencyScope like anyone else, and this is cross-agency
         // platform tooling — mirrors index() above.
-        $setup = AgencyOnboardingSetup::queryWithoutAgencyScope()
-            ->with('admin')
-            ->findOrFail($setupId);
+        $setup = AgencyOnboardingSetup::queryWithoutAgencyScope()->findOrFail($setupId);
 
-        $email = $setup->admin?->email;
+        // Deliberately NOT ->with('admin')/$setup->admin: the `admin()`
+        // relation returns a User model, and User's OWN AgencyScope applies
+        // to relation queries just like any other User query — an owner
+        // viewing Agency A via the switcher got a silent null back for every
+        // OTHER agency's admin here (found in review 2026-08-12). Load the
+        // admin explicitly unscoped instead.
+        $email = $setup->admin_user_id
+            ? User::withoutGlobalScopes()->where('id', $setup->admin_user_id)->value('email')
+            : null;
 
         if (!$email) {
             return back()->with('error', 'This setup has no linked Admin email to send to.');
         }
 
-        try {
-            Mail::mailer('corex')->to($email)->send(new AgencyOnboardingSetupMail($setup));
-            $setup->forceFill(['invite_email_sent_at' => now()])->save();
-        } catch (\Throwable $e) {
-            Log::error('Failed to resend agency onboarding setup email.', [
-                'setup_id' => $setup->id,
-                'error'    => $e->getMessage(),
-            ]);
+        if (!$onboardingMail->sendMail($setup, $email)) {
             return back()->with('error', 'Could not send the email — please try again.');
         }
+
+        $setup->forceFill(['invite_email_sent_at' => now()])->save();
 
         return back()->with('success', "Onboarding setup link resent to {$email}.");
     }

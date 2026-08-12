@@ -10,7 +10,6 @@ use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\ServiceProvider;
 use App\Models\Agency;
 use App\Models\CommandCenter\CalendarEvent;
@@ -25,8 +24,6 @@ use App\Models\ContactMatch;
 use App\Models\Deal;
 use App\Models\DealMoneyLine;
 use App\Models\DealSettlement;
-use App\Mail\AgencyOnboardingSetupMail;
-use App\Models\AgencyOnboardingSetup;
 use App\Models\LoginHistory;
 use App\Models\Presentation;
 use App\Models\Property;
@@ -734,55 +731,15 @@ class AppServiceProvider extends ServiceProvider
                 ]);
             }
 
-            // Agency admin email-only invite (.ai/specs/agency-admin-rule.md §R1b) —
-            // on this account's FIRST successful login ever: stamp first_login_at
-            // (once, never again — existing accounts are backfilled to created_at
-            // by the migration, so this only trips for genuinely new accounts) and,
-            // if this user is the invited Admin of a pending agency-onboarding
-            // setup, send the guided-setup link email (deferred from agency-
-            // creation time — see CreateAgencySetupPortal) and flash the one-time
-            // welcome pop-up. Scoped to Admins with a pending setup only — a
-            // regular agent's first login never sees an "agency setup" prompt
-            // that isn't theirs (the wizard itself is Admin-gated the same way).
-            if ($event->user && is_null($event->user->first_login_at)) {
-                $event->user->forceFill(['first_login_at' => now()])->save();
-
-                $pendingSetup = AgencyOnboardingSetup::queryWithoutAgencyScope()
-                    ->where('admin_user_id', $event->user->id)
-                    ->whereNull('invite_email_sent_at')
-                    ->first();
-
-                if ($pendingSetup) {
-                    try {
-                        Mail::mailer('corex')
-                            ->to($event->user->email)
-                            ->send(new AgencyOnboardingSetupMail($pendingSetup));
-                        $pendingSetup->forceFill(['invite_email_sent_at' => now()])->save();
-                    } catch (\Throwable $e) {
-                        // A mail hiccup here must not block login. The setup is
-                        // still reachable via Resend on the owner tracking page.
-                        Log::error('Failed to send agency onboarding setup email on first login.', [
-                            'user_id'  => $event->user->id,
-                            'setup_id' => $pendingSetup->id,
-                            'error'    => $e->getMessage(),
-                        ]);
-                    }
-
-                    // put(), NOT flash(): flash() survives exactly ONE subsequent
-                    // request, and the post-login redirect chain is TWO hops
-                    // (POST /login -> GET /dashboard, a redirect-only closure with
-                    // no view -> GET /corex/dashboard, the actual rendered page).
-                    // A flash set here ages out at the end of the /dashboard hop
-                    // and is already gone by the time /corex/dashboard renders —
-                    // confirmed live (AT — reported 2026-08-12): first_login_at got
-                    // stamped and the mail sent, but the pop-up never appeared.
-                    // put() persists until explicitly cleared; the modal partial
-                    // (welcome-onboarding-modal.blade.php) forgets both keys right
-                    // after rendering so it still only ever shows once.
-                    session()->put('show_welcome_onboarding_popup', true);
-                    session()->put('welcome_onboarding_url', $pendingSetup->publicUrl());
-                }
-            }
+            // NOTE: the agency-admin first-login trigger (.ai/specs/agency-admin-rule.md
+            // §R1b — first_login_at, deferred onboarding email, welcome pop-up) is
+            // DELIBERATELY NOT here. It used to be, but Auth::login() also fires this
+            // same Login event for impersonation (ImpersonateController) — an owner
+            // impersonating a brand-new Admin was silently consuming the Admin's own
+            // first-login trigger. It is now called explicitly from only the two real
+            // login call sites: AuthenticatedSessionController::store() and
+            // AgencySetupGateController::login(). See App\Services\Onboarding\
+            // AgencyAdminFirstLoginService for the full rationale.
 
             session()->forget('active_agency_id');
 

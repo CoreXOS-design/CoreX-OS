@@ -9,13 +9,16 @@
      layouts/corex-app.blade.php), exactly like the system-update-modal.
 
      No persisted dismissal record — the trigger is session PUT (not flash) by
-     the Login listener in AppServiceProvider (spec §R1b). flash() was tried
-     first and doesn't work here: it only survives ONE subsequent request, but
-     the post-login redirect chain is TWO hops (POST /login -> GET /dashboard,
-     a redirect-only closure with no view -> GET /corex/dashboard, the actual
-     rendered page) — the flash aged out before this partial ever rendered.
-     put() persists until THIS partial explicitly forgets it below, right
-     after reading it, so it still only ever shows once.
+     App\Services\Onboarding\AgencyAdminFirstLoginService (spec §R1b), called
+     from AuthenticatedSessionController::store() — deliberately NOT the
+     generic Login event, which also fires for impersonation (see the
+     service's own docblock). flash() was tried first and doesn't work here:
+     it only survives ONE subsequent request, but the post-login redirect
+     chain is TWO hops (POST /login -> GET /dashboard, a redirect-only closure
+     with no view -> GET /corex, the actual rendered page) — the flash aged
+     out before this partial ever rendered. put() persists until THIS partial
+     explicitly forgets it below, right after reading it, so it still only
+     ever shows once.
 
      Spec: .ai/specs/agency-admin-rule.md §R1b
      ════════════════════════════════════════════════════════════════════════ --}}

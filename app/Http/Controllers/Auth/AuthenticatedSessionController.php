@@ -84,6 +84,13 @@ class AuthenticatedSessionController extends Controller
             return back()->withErrors(['email' => 'Your account is inactive. Please contact the administrator.']);
         }
 
+        // Agency admin email-only invite (.ai/specs/agency-admin-rule.md §R1b) —
+        // AFTER the is_active gate, so a since-deactivated admin who fails
+        // login above never trips this. See AgencyAdminFirstLoginService's
+        // docblock for why this is called explicitly here rather than off the
+        // generic Login event (impersonation fires that event too).
+        app(\App\Services\Onboarding\AgencyAdminFirstLoginService::class)->handle(auth()->user());
+
         $request->session()->regenerate();
 
         return redirect()->intended(route('dashboard', absolute: false));

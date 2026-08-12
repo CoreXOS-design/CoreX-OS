@@ -89,6 +89,30 @@ at migration time so only genuinely new accounts trip this path):
    first-login email is lost, the link expires, or the Admin needs it before ever logging in
    (support path — independent of the first-login trigger).
 
+### R1c. Implementation note — explicit service call, NOT the generic Login event (amended 2026-08-12, audit)
+
+§R1b originally wired the above into `AppServiceProvider`'s existing `Event::listen(Login::class,
+...)` closure. An audit the same day found this broke on impersonation: `ImpersonateController`
+calls `Auth::login($user)`, which fires the identical `Illuminate\Auth\Events\Login` event — so an
+owner impersonating a brand-new, still-pending-invite Admin silently consumed the Admin's own
+first-login trigger. The mail sent from the owner's action, the pop-up flags landed in the owner's
+(impersonating) session, and the real Admin's later genuine login was a no-op.
+
+**Fix:** the logic now lives in `App\Services\Onboarding\AgencyAdminFirstLoginService::handle()`,
+called explicitly from only the two genuine-login call sites —
+`AuthenticatedSessionController::store()` and `AgencySetupGateController::login()` (the wizard's own
+login gate, which passes `showWelcomePopup: false` since that login already lands the Admin in the
+wizard — a "go start onboarding" pop-up on top of it would be redundant, though the mail still
+sends). Impersonation code simply never calls it — structural prevention, not detect-and-exclude
+(BUILD_STANDARD §3). `handle()` also uses an atomic compare-and-swap update (not read-then-write) on
+both `first_login_at` and `invite_email_sent_at`, closing a same-day-found race where two
+near-simultaneous logins could both pass a check-then-act null check and double-send.
+
+`AgencyAdminFirstLoginService::sendMail()` is also reused by `AgencySetupProgressController::resend()`
+and `agency:backfill-onboarding-setups --email` — the backfill command previously sent the mail
+without stamping `invite_email_sent_at`, so the same admin's later first login would re-send it; now
+both paths stamp on success through the one shared method.
+
 ### R2. Admin gets full permission matrix
 On creation, the new Admin is granted every permission key in the (post-cleanup) matrix. They can subsequently grant/revoke permissions for other users they create within their agency.
 
@@ -231,19 +255,39 @@ Remove from agency matrix:
   with `User::pendingInvitePassword()` + `invited_at`; send `UserInviteMail`
 - `app/Listeners/Onboarding/CreateAgencySetupPortal.php` — stop sending
   `AgencyOnboardingSetupMail` at creation time
-- `app/Providers/AppServiceProvider.php` — extend the existing `Event::listen(Login::class, ...)`
-  block to stamp `first_login_at` once and, for a pending onboarding Admin, send
-  `AgencyOnboardingSetupMail` + flash the welcome pop-up
 - `app/Models/User.php` — add `first_login_at` to `$casts`
 - `app/Models/AgencyOnboardingSetup.php` — add `invite_email_sent_at` to `$fillable`/`$casts`
 - `app/Http/Controllers/Admin/AgencySetupProgressController.php` — add `resend()`
 - `resources/views/admin/agency-setup-progress/index.blade.php` — add "Resend invite" button
 - `routes/web.php` — add `admin.agency-setup-progress.resend` route
 
+**§R1c (2026-08-12, audit fix) — Modify:**
+- `app/Providers/AppServiceProvider.php` — REMOVED the `Event::listen(Login::class, ...)`
+  first-login block (broke on impersonation — see §R1c above)
+- `app/Http/Controllers/Auth/AuthenticatedSessionController.php` — calls
+  `AgencyAdminFirstLoginService::handle()` after the `is_active` gate
+- `app/Http/Controllers/Public/AgencySetupGateController.php` — calls the same with
+  `showWelcomePopup: false`
+- `app/Http/Controllers/Admin/AgencySetupProgressController.php` — `resend()` no longer
+  resolves the admin via the scoped `admin()` relation (cross-agency scope bug); `index()`
+  had the identical bug in its eager load, fixed the same way; both reuse
+  `AgencyAdminFirstLoginService::sendMail()`
+- `app/Console/Commands/BackfillAgencyOnboardingSetups.php` — `--email` path now stamps
+  `invite_email_sent_at` on success (was a duplicate-send bug)
+- `resources/views/partials/_env-banner.blade.php` — "Open Mailpit" gate now checks the
+  `corex` and `otp` mailers too, not just the default `smtp` one
+- `tests/Feature/Onboarding/AgencySetupWizardTest.php` — updated the two tests that asserted
+  mail sent at creation time; added coverage for the first-login trigger, impersonation
+  exclusion, the wizard-gate login path, backfill non-duplication, and both resend/index
+  cross-agency-scope fixes
+
 **§R1a/§R1b (2026-08-12) — Create:**
 - Migration: `users.first_login_at` (nullable timestamp, backfilled to `created_at`)
 - Migration: `agency_onboarding_setups.invite_email_sent_at` (nullable timestamp)
 - `resources/views/layouts/partials/welcome-onboarding-modal.blade.php`
+
+**§R1c (2026-08-12, audit fix) — Create:**
+- `app/Services/Onboarding/AgencyAdminFirstLoginService.php`
 
 ---
 
