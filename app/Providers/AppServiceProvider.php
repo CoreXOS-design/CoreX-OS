@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\ServiceProvider;
 use App\Models\Agency;
 use App\Models\CommandCenter\CalendarEvent;
@@ -24,6 +25,8 @@ use App\Models\ContactMatch;
 use App\Models\Deal;
 use App\Models\DealMoneyLine;
 use App\Models\DealSettlement;
+use App\Mail\AgencyOnboardingSetupMail;
+use App\Models\AgencyOnboardingSetup;
 use App\Models\LoginHistory;
 use App\Models\Presentation;
 use App\Models\Property;
@@ -729,6 +732,45 @@ class AppServiceProvider extends ServiceProvider
                     'ip_address' => request()->ip(),
                     'user_agent' => request()->userAgent(),
                 ]);
+            }
+
+            // Agency admin email-only invite (.ai/specs/agency-admin-rule.md §R1b) —
+            // on this account's FIRST successful login ever: stamp first_login_at
+            // (once, never again — existing accounts are backfilled to created_at
+            // by the migration, so this only trips for genuinely new accounts) and,
+            // if this user is the invited Admin of a pending agency-onboarding
+            // setup, send the guided-setup link email (deferred from agency-
+            // creation time — see CreateAgencySetupPortal) and flash the one-time
+            // welcome pop-up. Scoped to Admins with a pending setup only — a
+            // regular agent's first login never sees an "agency setup" prompt
+            // that isn't theirs (the wizard itself is Admin-gated the same way).
+            if ($event->user && is_null($event->user->first_login_at)) {
+                $event->user->forceFill(['first_login_at' => now()])->save();
+
+                $pendingSetup = AgencyOnboardingSetup::queryWithoutAgencyScope()
+                    ->where('admin_user_id', $event->user->id)
+                    ->whereNull('invite_email_sent_at')
+                    ->first();
+
+                if ($pendingSetup) {
+                    try {
+                        Mail::mailer('corex')
+                            ->to($event->user->email)
+                            ->send(new AgencyOnboardingSetupMail($pendingSetup));
+                        $pendingSetup->forceFill(['invite_email_sent_at' => now()])->save();
+                    } catch (\Throwable $e) {
+                        // A mail hiccup here must not block login. The setup is
+                        // still reachable via Resend on the owner tracking page.
+                        Log::error('Failed to send agency onboarding setup email on first login.', [
+                            'user_id'  => $event->user->id,
+                            'setup_id' => $pendingSetup->id,
+                            'error'    => $e->getMessage(),
+                        ]);
+                    }
+
+                    session()->flash('show_welcome_onboarding_popup', true);
+                    session()->flash('welcome_onboarding_url', $pendingSetup->publicUrl());
+                }
             }
 
             session()->forget('active_agency_id');

@@ -176,6 +176,7 @@ class User extends Authenticatable
     protected $casts = [
         'email_verified_at' => 'datetime',
         'invited_at' => 'datetime',
+        'first_login_at' => 'datetime',
         'pp_exclusivity_explainer_seen_at' => 'datetime',
         'password' => 'hashed',
         'is_active' => 'boolean',

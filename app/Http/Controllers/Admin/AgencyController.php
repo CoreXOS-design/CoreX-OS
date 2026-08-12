@@ -103,10 +103,9 @@ class AgencyController extends Controller
             'logo'             => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
 
             // First Admin — required for live agencies, skipped for demo agencies.
-            // See .ai/specs/agency-admin-rule.md.
+            // Email-only invite, no password captured here. See .ai/specs/agency-admin-rule.md §R1a.
             'admin_name'     => 'required_if:is_demo,0,false,,|nullable|string|max:191',
             'admin_email'    => 'required_if:is_demo,0,false,,|nullable|email|max:191|unique:users,email',
-            'admin_password' => 'required_if:is_demo,0,false,,|nullable|string|min:8',
             'admin_cell'     => 'nullable|string|max:50',
         ]);
 
@@ -120,39 +119,65 @@ class AgencyController extends Controller
 
         $isDemo = $data['is_demo'];
         $adminPayload = $isDemo ? null : [
-            'name'     => $data['admin_name'],
-            'email'    => $data['admin_email'],
-            'password' => $data['admin_password'],
-            'cell'     => $data['admin_cell'] ?? null,
+            'name'  => $data['admin_name'],
+            'email' => $data['admin_email'],
+            'cell'  => $data['admin_cell'] ?? null,
         ];
-        unset($data['logo'], $data['admin_name'], $data['admin_email'], $data['admin_password'], $data['admin_cell']);
+        unset($data['logo'], $data['admin_name'], $data['admin_email'], $data['admin_cell']);
 
         // Atomic: live agency + first Admin must succeed together. Demo agencies
         // skip the admin requirement entirely. See spec R1.
+        //
+        // Email-only invite (spec §R1a): the Admin is created with an unusable
+        // placeholder password — the same mechanism UserManagementController's
+        // existing invite flow uses (AT-268) — and invited_at stamped.
+        // email_verified_at stays null (CoreX's "invite not yet redeemed" marker;
+        // User::isPendingInvite()) until they set a real password via the
+        // account.setup link mailed below.
         $adminUser = null;
         $agency = DB::transaction(function () use ($data, $adminPayload, &$adminUser) {
             $agency = Agency::create($data);
 
             if ($adminPayload) {
                 $adminUser = User::create([
-                    'name'      => $adminPayload['name'],
-                    'email'     => $adminPayload['email'],
-                    'password'  => Hash::make($adminPayload['password']),
-                    'cell'      => $adminPayload['cell'],
-                    'role'      => 'admin',
-                    'agency_id' => $agency->id,
-                    'is_active' => true,
+                    'name'       => $adminPayload['name'],
+                    'email'      => $adminPayload['email'],
+                    'password'   => Hash::make(User::pendingInvitePassword()),
+                    'cell'       => $adminPayload['cell'],
+                    'role'       => 'admin',
+                    'agency_id'  => $agency->id,
+                    'is_active'  => true,
+                    'invited_at' => now(),
                 ]);
             }
 
             return $agency;
         });
 
+        // Email the new Admin their password-setup link (mirrors
+        // UserManagementController's invite flow — same Mailable, same signed
+        // 7-day account.setup link). A mail hiccup must not roll back a
+        // successful agency + admin create; log and let it be resolved via the
+        // owner tracking page / a re-invite rather than 500ing the request.
+        if ($adminUser) {
+            try {
+                \Illuminate\Support\Facades\Mail::to($adminUser->email)->send(new \App\Mail\UserInviteMail($adminUser));
+            } catch (\Throwable $e) {
+                Log::error('Failed to send admin invite email for new agency.', [
+                    'agency_id' => $agency->id,
+                    'admin_id'  => $adminUser->id,
+                    'error'     => $e->getMessage(),
+                ]);
+            }
+        }
+
         // Fire the AgencyCreated domain event AFTER the transaction commits, and
         // ONLY for live agencies with an Admin (demo agencies get no onboarding
-        // wizard, no email). A listener creates the guided-setup record and
-        // emails the Admin the link. Non-negotiable #9 (domain events, not an
-        // ad-hoc hook). Spec: .ai/specs/agency-onboarding-setup.md §3.4.
+        // wizard, no email). A listener creates the guided-setup record (the
+        // onboarding-link email itself is now deferred to the Admin's first
+        // successful login — spec §R1b — NOT sent by this listener anymore).
+        // Non-negotiable #9 (domain events, not an ad-hoc hook).
+        // Spec: .ai/specs/agency-onboarding-setup.md §3.4/§3.5.
         if ($adminPayload && $adminUser) {
             event(new \App\Events\AgencyCreated(
                 agency: $agency,
@@ -183,7 +208,7 @@ class AgencyController extends Controller
 
         $msg = $isDemo
             ? "Demo agency \"{$data['name']}\" created (no Admin required)."
-            : "Agency \"{$data['name']}\" created with Admin {$adminPayload['email']}.";
+            : "Agency \"{$data['name']}\" created. A password-setup email has been sent to {$adminPayload['email']}.";
 
         return redirect()->route('agencies.index')->with('success', $msg);
     }

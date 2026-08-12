@@ -63,12 +63,22 @@
                             <td class="px-4 py-3 text-xs" style="color:var(--text-muted);">{{ $s->completed_at?->format('Y-m-d H:i') ?? '—' }}</td>
                             <td class="px-4 py-3 text-center tabular-nums" style="color:var(--text-secondary);">{{ (int) $s->open_count }}</td>
                             <td class="px-4 py-3 text-right">
-                                <button type="button"
-                                        @click="navigator.clipboard.writeText('{{ $s->publicUrl() }}'); copied = {{ $s->id }}; setTimeout(() => copied = null, 1500)"
-                                        class="corex-btn-outline text-xs">
-                                    <span x-show="copied !== {{ $s->id }}">Copy link</span>
-                                    <span x-show="copied === {{ $s->id }}" x-cloak style="color:var(--ds-green);">Copied!</span>
-                                </button>
+                                <div class="inline-flex items-center gap-2">
+                                    <button type="button"
+                                            @click="navigator.clipboard.writeText('{{ $s->publicUrl() }}'); copied = {{ $s->id }}; setTimeout(() => copied = null, 1500)"
+                                            class="corex-btn-outline text-xs">
+                                        <span x-show="copied !== {{ $s->id }}">Copy link</span>
+                                        <span x-show="copied === {{ $s->id }}" x-cloak style="color:var(--ds-green);">Copied!</span>
+                                    </button>
+                                    {{-- Manual resend (spec §R1b) — independent of the first-login trigger,
+                                         for a lost/expired link or an Admin who hasn't logged in yet. --}}
+                                    <form method="POST" action="{{ route('admin.agency-setup-progress.resend', $s->id) }}">
+                                        @csrf
+                                        <button type="submit" class="corex-btn-outline text-xs" title="Re-send the onboarding setup link to {{ $s->admin?->email ?? 'the Admin' }}">
+                                            Resend
+                                        </button>
+                                    </form>
+                                </div>
                             </td>
                         </tr>
                     @empty

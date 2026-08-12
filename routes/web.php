@@ -2857,6 +2857,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // onboarding wizard. Owner-only. Spec: agency-onboarding-setup.md §7.4.
     Route::middleware('owner_only')->get('/admin/agency-setup-progress', [\App\Http\Controllers\Admin\AgencySetupProgressController::class, 'index'])
         ->name('admin.agency-setup-progress');
+    // Manual resend of the onboarding link (spec §R1b) — independent of the
+    // first-login trigger, e.g. the emailed link was lost or has expired.
+    Route::middleware('owner_only')->post('/admin/agency-setup-progress/{setupId}/resend', [\App\Http\Controllers\Admin\AgencySetupProgressController::class, 'resend'])
+        ->name('admin.agency-setup-progress.resend');
 
     // Agency edit/update — accessible to admins with manage_performance_settings.
     // Controller enforces own-agency scope unless the user is an owner.

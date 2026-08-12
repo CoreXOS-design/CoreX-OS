@@ -573,7 +573,7 @@
             <div x-show="!isDemo" x-cloak class="space-y-4 pt-2" style="border-top: 1px solid var(--border);">
                 <div>
                     <h3 class="text-sm font-bold pt-3" style="color:var(--text-primary);">First Admin <span style="color:var(--ds-crimson);">*</span></h3>
-                    <p class="text-xs mt-0.5" style="color:var(--text-muted);">Every live agency must have at least one Admin. They are created together — this user becomes the agency's first Admin and gets full permissions.</p>
+                    <p class="text-xs mt-0.5" style="color:var(--text-muted);">Every live agency must have at least one Admin. They are created together — this user becomes the agency's first Admin and gets full permissions. No password is set here — the Admin is emailed a secure link to set their own password (.ai/specs/agency-admin-rule.md §R1a).</p>
                 </div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
@@ -589,13 +589,7 @@
                                class="w-full rounded-md px-3 py-2 text-sm"
                                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                                placeholder="admin@agency.co.za" :required="!isDemo" :disabled="isDemo">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Password <span style="color:var(--ds-crimson);">*</span></label>
-                        <input type="password" name="admin_password"
-                               class="w-full rounded-md px-3 py-2 text-sm"
-                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
-                               placeholder="min 8 characters" minlength="8" :required="!isDemo" :disabled="isDemo">
+                        <p class="text-xs mt-1" style="color:var(--text-muted);">A "set your password" email is sent here immediately.</p>
                     </div>
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Mobile</label>
