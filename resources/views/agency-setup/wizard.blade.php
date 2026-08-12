@@ -8,7 +8,7 @@
     $isLast  = $nav['isLast'];
 @endphp
 
-<div class="max-w-[1100px] mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
+<div class="w-full px-4 sm:px-6 lg:px-12 py-8 sm:py-10">
 
     <div class="rounded-lg overflow-hidden" style="background:var(--surface,#fff); border:1px solid var(--border,#e5e7eb);">
         {{-- Step header --}}
@@ -57,7 +57,13 @@
                 @include($config['partial'])
             @endif
 
-            {{-- Live controls (data-driven simple settings) --}}
+            {{-- Live controls (data-driven simple settings). Two-per-row on wide
+                 screens — a single stacked column was the "acres of empty space"
+                 complaint once the wizard shell went full-width; headings and
+                 textareas still span the full row (lg:col-span-2) since a section
+                 break or a long-form field reads badly split into a half-width
+                 column. --}}
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6">
             @foreach (($config['controls'] ?? []) as $control)
                 @php
                     $key = $control['key'];
@@ -67,11 +73,11 @@
                 {{-- Optional sub-heading to group related controls (e.g. the two
                      property-portal toggles in the Capabilities step). --}}
                 @if (!empty($control['heading']))
-                    <div class="pt-1 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted,#94a3b8);">
+                    <div class="pt-1 lg:col-span-2 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted,#94a3b8);">
                         {{ $control['heading'] }}
                     </div>
                 @endif
-                <div>
+                <div class="{{ $type === 'textarea' ? 'lg:col-span-2' : '' }}">
                     <div class="flex items-start justify-between gap-4">
                         <div class="min-w-0">
                             <label for="f_{{ $key }}" class="block text-sm font-semibold" style="color:var(--text-primary,#0f172a);">
@@ -125,6 +131,7 @@
                     @enderror
                 </div>
             @endforeach
+            </div>
 
             {{-- Deep links into the full editors for complex collections --}}
             @if (!empty($config['links']))
