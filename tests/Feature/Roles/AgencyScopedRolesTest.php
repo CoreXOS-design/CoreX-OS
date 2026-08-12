@@ -115,6 +115,25 @@ final class AgencyScopedRolesTest extends TestCase
         $this->assertCount(2, $keys, 'Re-provision restores the missing template grant, no duplicates');
     }
 
+    public function test_provisioning_survives_duplicate_global_templates(): void
+    {
+        // Regression for the 2026-08-12 500 on POST /corex/settings/agencies:
+        // roles_name_agency_unique(name, agency_id) does not stop two global
+        // template rows sharing name='admin', agency_id=NULL — MySQL never
+        // treats two NULLs as equal in a unique index. When that happens,
+        // provisioning must still succeed with exactly ONE cloned role/grant
+        // per agency, not attempt a second INSERT and 1062.
+        $this->seedTemplateRole('admin', ['deals.export']);
+        $this->seedTemplateRole('admin', ['deals.export', 'contacts.export']); // duplicate template, same name
+
+        $agency = Agency::create(['name' => 'Dupe ' . Str::random(5), 'slug' => 'dupe-' . Str::random(6)]);
+
+        $this->assertSame(1, Role::where('agency_id', $agency->id)->where('name', 'admin')->count(),
+            'Exactly one admin role cloned despite two global templates');
+        PermissionService::clearCache();
+        $this->assertCount(2, PermissionService::getPermissionsForRole('admin', $agency->id));
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private function makeAgency(): int
