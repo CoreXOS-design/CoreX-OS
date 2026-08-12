@@ -2302,13 +2302,28 @@ class SignatureController extends Controller
     }
 
     /** A recipient's supporting-doc uploads for THIS document (their whole batch), in upload order. */
-    private function supportingVersionsFor(Document $document, SignatureRequest $signingRequest)
+    private function supportingVersionsFor(Document $document, SignatureRequest $signingRequest, ?bool $filed = null)
     {
-        return \App\Models\Docuperfect\SignedDocumentVersion::where('document_id', $document->id)
+        $q = \App\Models\Docuperfect\SignedDocumentVersion::where('document_id', $document->id)
             ->where('signature_request_id', $signingRequest->id)
-            ->where('kind', \App\Models\Docuperfect\SignedDocumentVersion::KIND_SUPPORTING)
-            ->orderBy('id')
-            ->get();
+            ->where('kind', \App\Models\Docuperfect\SignedDocumentVersion::KIND_SUPPORTING);
+        // Scope to a row's filed state so a partially-filed batch's "to file" row and "Filed" row
+        // each act on their OWN docs (null = both, for the whole request).
+        if ($filed === true) {
+            $q->whereNotNull('filed_at');
+        } elseif ($filed === false) {
+            $q->whereNull('filed_at');
+        }
+        return $q->orderBy('id')->get();
+    }
+
+    /** Read the optional ?filed=0|1 row scope from the request (null = whole batch). */
+    private function supportingFiledScope(Request $request): ?bool
+    {
+        if (! $request->has('filed')) {
+            return null;
+        }
+        return $request->query('filed') === '1' || $request->query('filed') === 'true';
     }
 
     /**
@@ -2320,7 +2335,7 @@ class SignatureController extends Controller
     {
         $this->authorizeDocument($request->user(), $document);
 
-        $versions = $this->supportingVersionsFor($document, $signingRequest);
+        $versions = $this->supportingVersionsFor($document, $signingRequest, $this->supportingFiledScope($request));
         if ($versions->isEmpty()) {
             abort(404);
         }
@@ -2358,7 +2373,7 @@ class SignatureController extends Controller
     {
         $this->authorizeDocument($request->user(), $document);
 
-        $versions = $this->supportingVersionsFor($document, $signingRequest);
+        $versions = $this->supportingVersionsFor($document, $signingRequest, $this->supportingFiledScope($request));
         if ($versions->isEmpty()) {
             abort(404);
         }
@@ -2392,7 +2407,7 @@ class SignatureController extends Controller
     {
         $this->authorizeDocument($request->user(), $document);
 
-        $versions = $this->supportingVersionsFor($document, $signingRequest);
+        $versions = $this->supportingVersionsFor($document, $signingRequest, $this->supportingFiledScope($request));
         if ($versions->isEmpty()) {
             abort(404);
         }
@@ -2416,7 +2431,7 @@ class SignatureController extends Controller
     {
         $this->authorizeDocument($request->user(), $document);
 
-        $versions = $this->supportingVersionsFor($document, $signingRequest);
+        $versions = $this->supportingVersionsFor($document, $signingRequest, $this->supportingFiledScope($request));
         if ($versions->isEmpty()) {
             abort(404);
         }

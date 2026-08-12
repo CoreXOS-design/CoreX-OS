@@ -5570,15 +5570,17 @@ class ESignWizardController extends Controller
         // "to file" list into the "Filed additional docs" archive. A later re-upload (an unfiled
         // version on a filed request) flips the whole batch back to "to file" until re-filed.
         // Part B — resolve the property prefill once per batch so "Send to splitter" hands the
-        // splitter what CoreX already knows (property_id + the batch's unfiled version ids).
+        // splitter what CoreX already knows (property_id + the batch's version ids).
         $prefillResolver = app(\App\Services\Docuperfect\SupportingBatchPrefillResolver::class);
-        $buildBatch = function ($versions, $requestId) use ($templatesByDocId, $prefillResolver) {
+        // Split PER-DOCUMENT by filed state (not all-or-nothing per request): the splitter may file
+        // only SOME of a batch (its qpdf page-count check skips a PDF), so the docs it DID file must
+        // still move to "Filed additional docs" — only the not-yet-filed stragglers stay "to file".
+        $buildBatch = function ($versions, $requestId, bool $isFiled) use ($templatesByDocId, $prefillResolver) {
             $first = $versions->first();
             $tpl = $templatesByDocId->get($first->document_id);
             if (! $tpl || ! $tpl->document) {
                 return null;
             }
-            $unfiled = $versions->whereNull('filed_at');
             $prefill = $prefillResolver->forDocument($tpl->document);
             return (object) [
                 'request_id'   => (int) $requestId,
@@ -5587,20 +5589,21 @@ class ESignWizardController extends Controller
                 'signer_name'  => $first->uploaded_by_name ?: 'Recipient',
                 'count'        => $versions->count(),
                 'latest_at'    => $versions->pluck('uploaded_at')->filter()->max(),
-                'filed'        => $unfiled->isEmpty(),
-                'filed_at'     => $versions->pluck('filed_at')->filter()->max(),
-                // Splitter hand-off payload: the UNFILED uploads to intake + the resolved property.
-                'version_ids'  => $unfiled->pluck('id')->all(),
+                'filed_at'     => $isFiled ? $versions->pluck('filed_at')->filter()->max() : null,
+                // Splitter hand-off + view/download scope: this row's own version ids.
+                'version_ids'  => $versions->pluck('id')->all(),
                 'prefill_property_id' => $prefill['property_id'] ?? null,
             ];
         };
-        $batches = $supporting
-            ->filter(fn ($v) => $v->signature_request_id !== null)
+        $withRequest = $supporting->filter(fn ($v) => $v->signature_request_id !== null);
+        $supportingToFile = $withRequest->whereNull('filed_at')
             ->groupBy('signature_request_id')
-            ->map(fn ($versions, $requestId) => $buildBatch($versions, $requestId))
-            ->filter();
-        $supportingToFile = $batches->reject(fn ($b) => $b->filed)->sortByDesc('latest_at')->values();
-        $supportingFiled  = $batches->filter(fn ($b) => $b->filed)->sortByDesc('filed_at')->values();
+            ->map(fn ($versions, $rid) => $buildBatch($versions, $rid, false))
+            ->filter()->sortByDesc('latest_at')->values();
+        $supportingFiled = $withRequest->whereNotNull('filed_at')
+            ->groupBy('signature_request_id')
+            ->map(fn ($versions, $rid) => $buildBatch($versions, $rid, true))
+            ->filter()->sortByDesc('filed_at')->values();
 
         $counts = [
             'flagged'             => $groups['flagged']->count(), // AT-299

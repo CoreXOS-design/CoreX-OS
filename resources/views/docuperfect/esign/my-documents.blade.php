@@ -771,8 +771,8 @@
                         <td class="px-4 py-3"><span class="text-xs" style="color: var(--text-muted);">{{ $batch->latest_at?->format('d M Y H:i') ?? '—' }}</span></td>
                         <td class="px-4 py-3 text-right">
                             <div class="inline-flex items-center gap-4">
-                                <a href="{{ route('signatures.supporting.view', ['document' => $batch->document->id, 'signingRequest' => $batch->request_id]) }}" target="_blank" class="text-xs font-semibold hover:underline" style="color: var(--brand-icon);">View documents</a>
-                                <a href="{{ route('signatures.supporting.downloadAll', ['document' => $batch->document->id, 'signingRequest' => $batch->request_id]) }}" class="text-xs font-semibold hover:underline" style="color: var(--ds-green);">Download all</a>
+                                <a href="{{ route('signatures.supporting.view', ['document' => $batch->document->id, 'signingRequest' => $batch->request_id, 'filed' => 0]) }}" target="_blank" class="text-xs font-semibold hover:underline" style="color: var(--brand-icon);">View documents</a>
+                                <a href="{{ route('signatures.supporting.downloadAll', ['document' => $batch->document->id, 'signingRequest' => $batch->request_id, 'filed' => 0]) }}" class="text-xs font-semibold hover:underline" style="color: var(--ds-green);">Download all</a>
                                 {{-- Batch hand-off to the multi-doc splitter (cc5 intake-by-reference): opens the
                                      splitter with this batch's files + the property/address pre-filled. --}}
                                 <form method="POST" action="{{ route('tools.pdf_splitter.intake_supporting') }}" class="inline">
@@ -786,7 +786,7 @@
                                     @endif
                                     <button type="submit" class="text-xs font-semibold hover:underline" style="color: var(--brand-icon);" title="Open this batch in the document splitter with the address pre-filled">Send to splitter</button>
                                 </form>
-                                <form method="POST" action="{{ route('signatures.supporting.file', ['document' => $batch->document->id, 'signingRequest' => $batch->request_id]) }}" class="inline"
+                                <form method="POST" action="{{ route('signatures.supporting.file', ['document' => $batch->document->id, 'signingRequest' => $batch->request_id, 'filed' => 0]) }}" class="inline"
                                       onsubmit="return confirm('Mark {{ $batch->signer_name }}\'s {{ $batch->count }} document(s) as filed? They move to Filed additional docs.');">
                                     @csrf
                                     <button type="submit" class="text-xs font-semibold hover:underline" style="color: var(--ds-green);" title="Mark this batch filed — moves it to the archive below">Mark as filed</button>
@@ -828,8 +828,8 @@
                         <td class="px-4 py-3"><span class="text-xs" style="color: var(--text-muted);">{{ $batch->filed_at?->format('d M Y H:i') ?? '—' }}</span></td>
                         <td class="px-4 py-3 text-right">
                             <div class="inline-flex items-center gap-4">
-                                <a href="{{ route('signatures.supporting.view', ['document' => $batch->document->id, 'signingRequest' => $batch->request_id]) }}" target="_blank" class="text-xs font-semibold hover:underline" style="color: var(--brand-icon);">View documents</a>
-                                <a href="{{ route('signatures.supporting.downloadAll', ['document' => $batch->document->id, 'signingRequest' => $batch->request_id]) }}" class="text-xs font-semibold hover:underline" style="color: var(--ds-green);">Download all</a>
+                                <a href="{{ route('signatures.supporting.view', ['document' => $batch->document->id, 'signingRequest' => $batch->request_id, 'filed' => 1]) }}" target="_blank" class="text-xs font-semibold hover:underline" style="color: var(--brand-icon);">View documents</a>
+                                <a href="{{ route('signatures.supporting.downloadAll', ['document' => $batch->document->id, 'signingRequest' => $batch->request_id, 'filed' => 1]) }}" class="text-xs font-semibold hover:underline" style="color: var(--ds-green);">Download all</a>
                             </div>
                         </td>
                     </tr>

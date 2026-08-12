@@ -93,6 +93,18 @@
                 {!! $approveLabel !!} &rarr;
             </button>
         </form>
+        {{-- AT-373 (Part 3) — agent bounce-back. When the agent does NOT want to accept/edit a
+             recipient's change (e.g. a struck-out edit there is no natural way to amend), send the doc
+             BACK to the author so THEY remove or adjust their own change and re-sign clean. Always
+             available (never gated on initialing) so the agent always has a way to act. --}}
+        <form method="POST" action="{{ route('docuperfect.signatures.amendment.sendBack', $document) }}" style="margin-top:8px;"
+              onsubmit="return confirm('Send this document back to {{ $completedRequest?->signer_name ?? 'the recipient' }} so they can remove or adjust their change and re-sign? They will get a fresh signing link by email.');">
+            @csrf
+            <button type="submit"
+                    style="width:100%; font-size:13px; font-weight:500; color:#b45309; background:#fff; border:1px solid #fcd34d; border-radius:9px; padding:9px 12px; cursor:pointer;">
+                Send back to recipient
+            </button>
+        </form>
     </div>
 </div>
 

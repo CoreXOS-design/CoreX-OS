@@ -540,16 +540,9 @@
                                 {!! $amendNextLabel !!} &rarr;
                             </button>
                         </form>
-                        {{-- AT-373 (Part 3) — agent bounce-back: send the doc BACK to the amendment's author so
-                             they remove their own change and re-sign clean (they get a fresh signing link). --}}
-                        <form method="POST" action="{{ route('docuperfect.signatures.amendment.sendBack', $document) }}"
-                              onsubmit="return confirm('Send this document back to {{ $completedRequest?->signer_name ?? 'the recipient' }} so they can remove their change and re-sign? They will get a fresh signing link by email.');">
-                            @csrf
-                            <button type="submit"
-                                    class="px-5 py-2.5 text-sm font-medium text-amber-700 border border-amber-300 rounded-lg hover:bg-amber-50 transition-colors">
-                                Send back to recipient
-                            </button>
-                        </form>
+                        {{-- AT-373 (Part 3) — "Send back to recipient" lives in the right-rail
+                             _agent-amendments-panel (the real amendment action surface). This bottom
+                             block is suppressed in amendment mode (@unless above), so no button here. --}}
                     </div>
                 </div>
             @elseif(!empty($isCandidateFlow) && in_array($template->status, [\App\Models\Docuperfect\SignatureTemplate::STATUS_AWAITING_SUPERVISOR, \App\Models\Docuperfect\SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL]))
