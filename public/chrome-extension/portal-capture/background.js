@@ -133,6 +133,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // CMA Info deeds capture — the ONE flow with no popup step (an on-page
+  // button on cmainfo.co.za messages here directly), so unlike every other
+  // handler above, apiUrl/apiToken are NOT relayed in msg — read them from
+  // chrome.storage.local ourselves, same source of truth the popup itself
+  // reads from.
+  if (msg.action === 'captureDeed') {
+    handleCaptureDeed(msg.payload)
+      .then(result => sendResponse(result))
+      .catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+
   return false;
 });
 
@@ -1024,6 +1036,77 @@ async function handlePullProperty(apiUrl, apiToken, property) {
       iconUrl: 'icons/icon-128.png',
       title: 'CoreX: Property Pulled',
       message: (property.title || 'Property') + ' has been added to CoreX',
+      priority: 2,
+    });
+  } catch (e) { /* ignore */ }
+
+  return result;
+}
+
+// ── CMA Info deeds capture — send to CoreX ─────────────────
+// SCAFFOLD (2026-08-12): mirrors handlePullProperty()'s shape (single-item
+// POST, no durable queue — this is a one-off capture, not a paginated bulk
+// loop) with one deliberate difference: this is the only capture flow with
+// no popup step, so apiUrl/apiToken are read from chrome.storage.local HERE
+// rather than relayed in the message. The payload itself is a DRAFT —
+// /api/deeds-capture doesn't exist yet; cc1 owns the real contract. This
+// function's job is the transport (auth, error-kind distinction, endpoint),
+// not the payload shape — swap the URL/response handling to match cc1's
+// contract once it lands, the auth/error plumbing below should not need to
+// change.
+async function handleCaptureDeed(payload) {
+  const settings = await new Promise(resolve => {
+    chrome.storage.local.get(['apiUrl', 'apiToken'], resolve);
+  });
+
+  if (!settings.apiToken) {
+    throw new Error('Not connected — add your API token in the CoreX extension Settings.');
+  }
+
+  const apiUrl = (settings.apiUrl || 'https://www.corexos.co.za').replace(/\/+$/, '');
+  const url = apiUrl + '/api/deeds-capture'; // TODO(cc1): confirm final path
+
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Accept':        'application/json',
+        'Authorization': 'Bearer ' + settings.apiToken,
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (e) {
+    throw new Error('CoreX unreachable');
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    if (response.status === 401 || response.status === 419) {
+      throw new Error('Invalid API token. Check your extension Settings.');
+    }
+    if (response.status === 422) {
+      try {
+        const errors = JSON.parse(text);
+        const firstError = Object.values(errors.errors || {})[0];
+        throw new Error(firstError ? firstError[0] : 'Validation failed');
+      } catch (e) {
+        if (e.message && e.message !== 'Validation failed') throw e;
+        throw new Error('Validation failed: ' + text);
+      }
+    }
+    throw new Error('API error ' + response.status + ': ' + (text || 'Unknown error'));
+  }
+
+  const result = await response.json();
+
+  try {
+    chrome.notifications.create('deeds-capture-complete', {
+      type: 'basic',
+      iconUrl: 'icons/icon-128.png',
+      title: 'CoreX: Deed Captured',
+      message: 'Property + sale information sent to CoreX',
       priority: 2,
     });
   } catch (e) { /* ignore */ }
