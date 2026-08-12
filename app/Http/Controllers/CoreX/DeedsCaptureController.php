@@ -61,16 +61,21 @@ final class DeedsCaptureController extends Controller
         // address, that default composed from street_number/street_name
         // alone, which are never populated by CMA, so it fell back to an
         // effectively-empty address/title and a R0 price.
-        $addressParts = array_filter([
+        // NOTE: 'address' is deliberately NOT set here — PropertyObserver::saving()
+        // always recomputes it from unit_number/complex_name/street via
+        // composeAddressFromParts() and silently overwrites any value passed to
+        // create(), by design (keeps ~4,679 existing rows on one composition
+        // rule). Setting complex_name/unit_number below is what actually
+        // controls the real address; a redundant 'address' override here would
+        // just be discarded and mislead a future reader.
+        $displayAddress = implode(', ', array_filter([
             $trackedProperty->complex_name,
             $trackedProperty->section_number ? ('Section ' . $trackedProperty->section_number) : null,
             $trackedProperty->suburb,
-        ]);
-        $displayAddress = $addressParts !== [] ? implode(', ', $addressParts) : $trackedProperty->displayAddress();
+        ])) ?: $trackedProperty->displayAddress();
 
         $property = $matcher->promoteToStock($trackedProperty->id, (int) $user->id, array_filter([
             'title_deed_number' => $trackedProperty->title_deed_number,
-            'address'           => $displayAddress,
             'title'             => $displayAddress,
             'complex_name'      => $trackedProperty->complex_name,   // = CMA scheme name
             'unit_number'       => $trackedProperty->section_number, // = CMA section number
