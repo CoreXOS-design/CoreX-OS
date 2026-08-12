@@ -59,16 +59,21 @@ final class MapProspectStatusService
     ) {}
 
     /**
-     * @param array{address: ?string, latitude: ?float, longitude: ?float, suburb: ?string} $facts
+     * @param array{address: ?string, street_number?: ?string, latitude: ?float, longitude: ?float, suburb: ?string} $facts
      * @return array{status: string, property_id?: int, agent_name?: ?string, days_in_state?: int, state_label?: string, sale_date?: ?string, expired_at?: ?string}
      */
     public function resolve(array $facts, int $agencyId, int $currentUserId): array
     {
         $factsForLookup = array_filter([
-            'address'   => $facts['address']   ?? null,
-            'latitude'  => $facts['latitude']  ?? null,
-            'longitude' => $facts['longitude'] ?? null,
-            'suburb'    => $facts['suburb']    ?? null,
+            'address'       => $facts['address']       ?? null,
+            // AT-URGENT — without this, TrackedPropertyMatchOrCreateService's
+            // numbersConflict() veto (built to stop "1 The Oval" colliding with
+            // "2 The Oval") can never fire for a Pitch Now resolution, since it
+            // only activates when a street_number is present on both sides.
+            'street_number' => $facts['street_number'] ?? null,
+            'latitude'      => $facts['latitude']       ?? null,
+            'longitude'     => $facts['longitude']      ?? null,
+            'suburb'        => $facts['suburb']         ?? null,
         ], static fn ($v) => $v !== null && $v !== '');
 
         if (empty($factsForLookup)) {
@@ -193,13 +198,36 @@ final class MapProspectStatusService
         // 'deleted_at') below is now redundant with SoftDeletes restored
         // but is kept as belt-and-suspenders.
         $box = 0.00018;
-        return Property::withoutGlobalScope(AgencyScope::class)
+        $candidates = Property::withoutGlobalScope(AgencyScope::class)
             ->where('agency_id', $agencyId)
             ->whereNull('deleted_at')
             ->whereBetween('latitude',  [$lat - $box, $lat + $box])
             ->whereBetween('longitude', [$lng - $box, $lng + $box])
             ->orderByDesc('updated_at')
-            ->first();
+            ->get();
+
+        // AT-URGENT — this is the SAME class of bug the TP-based resolver's
+        // numbersConflict() veto exists to stop (e.g. "745 Beatty Drive" sitting
+        // within the GPS box of the already-listed "8 Beatty Drive"), just on the
+        // second, ungated fallback path that queries `properties` directly. A
+        // 20m box on a coastal street can easily span several house numbers, so
+        // this needs the same street-number discriminator before returning a hit.
+        $factNumber = $facts['street_number'] ?? null;
+        if ($factNumber === null || $factNumber === '') {
+            return $candidates->first();
+        }
+        foreach ($candidates as $candidate) {
+            $candNumber = $candidate->street_number ? trim((string) $candidate->street_number) : null;
+            if (!$candNumber && $candidate->street_name) {
+                if (preg_match('/^(\d+)\b/', strtolower(trim($candidate->street_name)), $m)) {
+                    $candNumber = $m[1];
+                }
+            }
+            if ($candNumber === null || $candNumber === '' || $candNumber === (string) $factNumber) {
+                return $candidate;
+            }
+        }
+        return null;
     }
 
     /**
