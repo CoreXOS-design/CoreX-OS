@@ -1612,6 +1612,106 @@ class PropertyController extends Controller
         return back()->with('success', 'Image deleted.')->with('tab', 'gallery');
     }
 
+    /**
+     * Bulk-delete gallery images — "Delete selected" and "Delete all". Mirrors the
+     * single deleteImage() semantics exactly (HARD delete: the JSON reference is
+     * removed AND the file is unlinked, guarded to this property's directory), but
+     * does the whole set in ONE transaction so the JSON never lands half-updated.
+     * Same permission gate (authorizeProperty) — whoever can delete one can delete
+     * many. Returns the fresh gallery + fingerprint so the client stays in sync with
+     * the stale-guard used by reorder-images/save.
+     *
+     * Body: { urls: [ ...image urls... ] }  OR  { all: true } to clear the gallery.
+     * "Delete all" clears the GALLERY grid (gallery_images_json) — the set the agent
+     * sees. Time-of-day sets (dawn/noon/dusk) are a separate tool and are untouched.
+     */
+    public function deleteImages(Request $request, Property $property)
+    {
+        $this->authorizeProperty($property);
+
+        $validated = $request->validate([
+            'urls'   => 'required_without:all|array',
+            'urls.*' => 'string',
+            'all'    => 'sometimes|boolean',
+        ]);
+
+        $deleteAll = (bool) ($request->boolean('all'));
+        $groups    = ['gallery_images_json', 'dawn_images_json', 'noon_images_json', 'dusk_images_json'];
+
+        if ($deleteAll) {
+            // Clear the gallery grid only; leave the time-of-day groups alone.
+            $targetSet = array_flip(array_values($property->gallery_images_json ?? []));
+        } else {
+            $targetSet = array_flip(array_values(array_unique($validated['urls'] ?? [])));
+        }
+
+        if (empty($targetSet)) {
+            return response()->json([
+                'ok'          => true,
+                'images'      => array_values($property->gallery_images_json ?? []),
+                'fingerprint' => $property->galleryFingerprint(),
+                'deleted'     => 0,
+            ]);
+        }
+
+        $filesToUnlink = [];
+        DB::transaction(function () use ($property, $groups, $targetSet, $deleteAll, &$filesToUnlink) {
+            $updates     = [];
+            $cats        = $property->gallery_categories_json;
+            $catsChanged = false;
+
+            foreach ($groups as $group) {
+                // Delete-all is scoped to the visible gallery grid only.
+                if ($deleteAll && $group !== 'gallery_images_json') {
+                    continue;
+                }
+                $images = $property->$group ?? [];
+                if (empty($images)) {
+                    continue;
+                }
+                $kept = [];
+                foreach ($images as $url) {
+                    if (isset($targetSet[$url])) {
+                        $filesToUnlink[] = $url;
+                        if ($group === 'gallery_images_json') {
+                            $cats = $this->removeUrlFromCategories($cats, $url);
+                            $catsChanged = true;
+                        }
+                    } else {
+                        $kept[] = $url;
+                    }
+                }
+                if (count($kept) !== count($images)) {
+                    $updates[$group] = array_values($kept);
+                }
+            }
+
+            if ($catsChanged) {
+                $updates['gallery_categories_json'] = $cats;
+            }
+            if (! empty($updates)) {
+                $property->update($updates);
+            }
+        });
+
+        // Unlink files only AFTER the references are gone (same order + guard as the
+        // single delete), so a failed update never leaves a dangling JSON reference.
+        foreach (array_unique($filesToUnlink) as $url) {
+            if (PropertyImageGuard::belongsToProperty($property, $url)) {
+                Storage::disk('public')->delete((string) PropertyImageGuard::relativePath($url));
+            }
+        }
+
+        $property->refresh();
+
+        return response()->json([
+            'ok'          => true,
+            'images'      => array_values($property->gallery_images_json ?? []),
+            'fingerprint' => $property->galleryFingerprint(),
+            'deleted'     => count(array_unique($filesToUnlink)),
+        ]);
+    }
+
     // ── Rental inspection galleries ─────────────────────────────────────────
     // Only meaningful for rental listings. Data lives in properties.rental_images_json,
     // normalised through Property::rentalImagesStructure(). Files are stored exactly
