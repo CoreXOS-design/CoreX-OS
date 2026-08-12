@@ -308,6 +308,11 @@
          ═══════════════════════════════════════════ --}}
     <div x-show="tab === 'profile'" x-cloak>
 
+        {{-- Saved signature / initial / signing PIN (encrypted; PIN-gated; blocked under impersonation) --}}
+        <div style="margin-bottom:20px;">
+            @include('agent._signature-settings')
+        </div>
+
         {{-- Live preview of the public agent page --}}
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:16px 24px; margin-bottom:20px; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;">
             <div>

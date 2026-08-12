@@ -1803,6 +1803,18 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::patch('/my-portal/profile', [\App\Http\Controllers\Agent\AgentPortalController::class, 'updateProfile'])
         ->middleware('permission:edit_own_profile')->name('agent.portal.profile.update');
 
+    // Saved signature / initial / signing PIN — agent sets their own (My Portal).
+    Route::patch('/my-portal/signature', [\App\Http\Controllers\Agent\AgentPortalController::class, 'saveSignature'])
+        ->middleware('permission:access_my_portal')->name('agent.portal.signature.save');
+
+    // Reusable "place my signature" endpoints — consumed by BOTH e-sign and the CMA
+    // certificate generator. Operate on the CURRENT user's own signature; the service
+    // blocks impersonated sessions from unlocking or reading the images.
+    Route::get('/signature/status',        [\App\Http\Controllers\AgentSignatureController::class, 'status'])->name('signature.status');
+    Route::post('/signature/unlock',       [\App\Http\Controllers\AgentSignatureController::class, 'unlock'])->name('signature.unlock');
+    Route::get('/signature/asset/{type}',  [\App\Http\Controllers\AgentSignatureController::class, 'asset'])
+        ->where('type', 'signature|initial')->name('signature.asset');
+
     // Admin Multi-Branch Manager — admin self-assigns which branches they
     // manage (+ a default) from their own profile. Gated by the dedicated
     // permission (admins/owners only; branch managers already have one branch).
