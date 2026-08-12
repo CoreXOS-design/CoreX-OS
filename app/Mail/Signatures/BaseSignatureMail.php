@@ -28,7 +28,7 @@ abstract class BaseSignatureMail extends Mailable
     /**
      * Get the From address.
      * - Company-domain agents: send directly from their address.
-     * - Personal-email agents: send from system with "Name via Home Finders Coastal".
+     * - Personal-email agents: send from system with "Name via CoreX OS".
      * - No agent: system default.
      */
     protected function getFromAddress(): Address
@@ -36,26 +36,53 @@ abstract class BaseSignatureMail extends Mailable
         if (!$this->sendingAgent) {
             return new Address(
                 config('mail.from.address'),
-                config('mail.from.name', 'Home Finders Coastal')
+                config('mail.from.name', 'CoreX OS')
             );
         }
 
-        $companyDomain = config('signatures.emails.company_domain', 'hfcoastal.co.za');
+        $companyDomain = $this->companyDomainForAgent($this->sendingAgent);
         // AT-79 — outward-facing identity: use the display_email override when
         // set (falls back to the real email). Same company domain, so the
         // domain check below is unaffected.
         $agentEmail = $this->sendingAgent->outward_email;
         $agentName = $this->sendingAgent->name;
 
-        if (str_ends_with(strtolower($agentEmail), '@' . $companyDomain)) {
+        if ($companyDomain && str_ends_with(strtolower($agentEmail), '@' . $companyDomain)) {
             return new Address($agentEmail, $agentName);
         }
 
         // Personal email — send from system but show agent name
         return new Address(
             config('mail.from.address'),
-            "{$agentName} via Home Finders Coastal"
+            "{$agentName} via CoreX OS"
         );
+    }
+
+    /**
+     * The email domain THIS agent's own agency uses, derived from the
+     * agency's own contact email (e.g. admin@hfcoastal.co.za -> hfcoastal.co.za).
+     *
+     * Was previously a single hardcoded config value (signatures.emails.
+     * company_domain, default 'hfcoastal.co.za') — correct only for CoreX's
+     * first tenant, and silently wrong for every other agency on the platform:
+     * their agents' real company-domain emails would never match the
+     * hardcoded domain and would incorrectly fall into the "personal email"
+     * branch every time. Fixed 2026-08-12 to resolve per-agency instead.
+     *
+     * Returns null (never send directly as the agent) when the agency has no
+     * email on file to derive a domain from — absent data means "can't
+     * confirm this is the company domain", not "assume it matches anyway".
+     */
+    private function companyDomainForAgent(User $agent): ?string
+    {
+        $agencyId = $agent->effectiveAgencyId();
+        $agencyEmail = $agencyId ? Agency::find($agencyId)?->email : null;
+
+        if ($agencyEmail && str_contains($agencyEmail, '@')) {
+            return strtolower(trim(explode('@', $agencyEmail, 2)[1]));
+        }
+
+        return null;
     }
 
     /**
