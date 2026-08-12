@@ -154,16 +154,21 @@ Regression-guarded by `test_no_step_deep_links_out_of_the_wizard` (iterates all 
 - Add `AgencyCreated` to the event catalogue in
   `.ai/specs/corex-domain-events-spec.md` §5.
 
-### 3.5 Listener creates the setup record + sends the email
+### 3.5 Listener creates the setup record; the email is deferred (AMENDED 2026-08-12, Johan — see .ai/specs/agency-admin-rule.md §R1a/§R1b)
 `App\Listeners\Onboarding\CreateAgencySetupPortal` (sync) subscribes to `AgencyCreated`:
 1. `AgencyOnboardingSetup::create()` — token (`Str::random(40)`, uniqueness-checked),
    slug, `agency_id`, `current_step = 1`, `completed_steps = []`, `expires_at =
    now()->addDays(30)` (generous — this is a resumable setup, not a P24 review window).
    **Idempotent:** `firstOrCreate` on `agency_id` — never a second live portal per agency
    (per E5 of the domain-events spec; the listener must be safe to run twice).
-2. Sends `AgencyOnboardingSetupMail` to the admin email **via the `corex` mailer**
-   (`Mail::mailer('corex')->to($email)->send(...)`) so it delivers even where the default
-   mailer is `log` (staging). Subject: *"Welcome to CoreX — set up your agency."*
+2. **Superseded:** this listener no longer sends `AgencyOnboardingSetupMail` at creation
+   time. As of §R1a, the new Admin has no password yet at this point (email-only invite —
+   `UserInviteMail` is what's sent here, from `AgencyController@store`, not this listener).
+   `AgencyOnboardingSetupMail` (subject *"Welcome to CoreX — set up your agency"*, via the
+   `corex` mailer, unchanged) now fires on the Admin's **first successful login** — see §R1b
+   — stamping `agency_onboarding_setups.invite_email_sent_at` so the trigger fires once. It
+   can also be **manually re-sent** from the owner tracking page (§7.4) independent of login
+   state.
 
 ### 3.6 Completion vs revisit
 `completed_at` is stamped when the Admin hits Finish on the last step. A completed portal:
@@ -454,8 +459,11 @@ Regression coverage: `tests/Feature/Onboarding/AgencySetupWizardSaverGuardTest.p
    of every agency (owner-scoped, `queryWithoutAgencyScope` since it is cross-agency
    platform tooling per multi-tenancy spec rule #5) with: agency, admin, status chip
    (Active/Completed/Expired/Revoked), progress %, opened / last-activity / completed
-   timestamps, open count, and a **copy-link** button. Gated to owner role. Nav entry
-   added in the Platform-Admin sidebar block same day.
+   timestamps, open count, a **copy-link** button, and (added 2026-08-12, §R1b) a
+   **"Resend invite"** button that re-sends `AgencyOnboardingSetupMail` on demand —
+   independent of the first-login trigger, for when the emailed link is lost or the Admin
+   needs it before ever logging in. Gated to owner role. Nav entry added in the
+   Platform-Admin sidebar block same day.
 
 ---
 

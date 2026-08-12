@@ -168,6 +168,10 @@
              Spec: .ai/specs/system-updates.md --}}
         @include('layouts.partials.system-update-modal')
 
+        {{-- Welcome pop-up — new agency Admin's first successful login.
+             Spec: .ai/specs/agency-admin-rule.md §R1b --}}
+        @include('layouts.partials.welcome-onboarding-modal')
+
         {{-- Portal Leads real-time toast (P24 + PP). Spec: .ai/specs/portal-leads.md --}}
         @include('components.portal-lead-toast')
         @include('components.reminder-toast')

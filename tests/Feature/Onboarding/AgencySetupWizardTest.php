@@ -513,7 +513,10 @@ class AgencySetupWizardTest extends TestCase
 
     // ── Event / listener ─────────────────────────────────────────────────────
 
-    public function test_listener_creates_setup_and_sends_mail(): void
+    // AT §R1a/§R1b (2026-08-12): the mail send moved OUT of this listener and
+    // onto the Admin's first real login — see the "First-login trigger"
+    // section below. This listener now only creates the record.
+    public function test_listener_creates_setup_without_sending_mail(): void
     {
         Mail::fake();
         $agency = $this->agency();
@@ -521,7 +524,7 @@ class AgencySetupWizardTest extends TestCase
         event(new AgencyCreated(agency: $agency, adminUser: null, adminEmail: 'admin@coastal.co.za', createdByUserId: null));
 
         $this->assertDatabaseHas('agency_onboarding_setups', ['agency_id' => $agency->id]);
-        Mail::assertSent(AgencyOnboardingSetupMail::class);
+        Mail::assertNothingSent();
     }
 
     public function test_listener_is_idempotent(): void
@@ -533,7 +536,93 @@ class AgencySetupWizardTest extends TestCase
         event(new AgencyCreated(agency: $agency, adminUser: null, adminEmail: 'admin@coastal.co.za', createdByUserId: null));
 
         $this->assertSame(1, AgencyOnboardingSetup::withoutGlobalScopes()->where('agency_id', $agency->id)->count());
+        Mail::assertNothingSent();
+    }
+
+    // ── First-login trigger (AgencyAdminFirstLoginService, spec §R1b) ────────
+
+    public function test_first_login_sends_onboarding_mail_and_flags_welcome_popup(): void
+    {
+        Mail::fake();
+        $agency = $this->agency();
+        $admin  = $this->admin($agency);
+        $setup  = $this->setupFor($agency, ['admin_user_id' => $admin->id]);
+
+        $this->assertNull($admin->first_login_at);
+
+        $this->post(route('login'), [
+            'email'    => $admin->email,
+            'password' => 'password', // UserFactory default
+        ])->assertRedirect(route('dashboard', absolute: false));
+
+        $admin->refresh();
+        $setup->refresh();
+        $this->assertNotNull($admin->first_login_at);
+        $this->assertNotNull($setup->invite_email_sent_at);
         Mail::assertSent(AgencyOnboardingSetupMail::class, 1);
+        $this->assertTrue(session('show_welcome_onboarding_popup'));
+        $this->assertSame($setup->publicUrl(), session('welcome_onboarding_url'));
+    }
+
+    public function test_second_login_does_not_resend_onboarding_mail(): void
+    {
+        Mail::fake();
+        $agency = $this->agency();
+        $admin  = $this->admin($agency);
+        $this->setupFor($agency, ['admin_user_id' => $admin->id]);
+
+        $this->post(route('login'), ['email' => $admin->email, 'password' => 'password']);
+        $this->post(route('logout'));
+        $this->post(route('login'), ['email' => $admin->email, 'password' => 'password']);
+
+        Mail::assertSent(AgencyOnboardingSetupMail::class, 1);
+    }
+
+    // Regression test for the bug this replaced Event::listen(Login::class) for:
+    // Auth::login() inside ImpersonateController ALSO fires Illuminate\Auth\Events\Login,
+    // which would consume the target Admin's first-login trigger from the OWNER's
+    // action — before the fix, the Admin's own later real login was silently a no-op.
+    public function test_impersonation_does_not_trigger_first_login_onboarding(): void
+    {
+        Mail::fake();
+        $owner  = $this->ownerUser();
+        $agency = $this->agency();
+        $admin  = $this->admin($agency);
+        $this->setupFor($agency, ['admin_user_id' => $admin->id]);
+
+        $this->actingAs($owner)->post(route('impersonate.start', $admin));
+
+        $admin->refresh();
+        $this->assertNull($admin->first_login_at, 'Impersonation must not consume the Admin\'s own first-login trigger.');
+        Mail::assertNothingSent();
+
+        // The Admin's OWN real login afterwards must still work normally.
+        $this->post(route('logout'));
+        $this->post(route('login'), ['email' => $admin->email, 'password' => 'password']);
+        $admin->refresh();
+        $this->assertNotNull($admin->first_login_at);
+        Mail::assertSent(AgencyOnboardingSetupMail::class, 1);
+    }
+
+    // The wizard's own login gate lands the Admin IN the wizard already, so it
+    // deliberately sends the mail but skips the redundant "go start onboarding"
+    // pop-up (AgencyAdminFirstLoginService::handle($user, showWelcomePopup: false)).
+    public function test_agency_setup_gate_login_sends_mail_but_not_popup(): void
+    {
+        Mail::fake();
+        $agency = $this->agency();
+        $admin  = $this->admin($agency);
+        $setup  = $this->setupFor($agency, ['admin_user_id' => $admin->id]);
+
+        $this->post(route('agency-setup.login', $setup->urlKey()), [
+            'email'    => $admin->email,
+            'password' => 'password',
+        ])->assertRedirect(route('corex.agency-setup.index'));
+
+        $admin->refresh();
+        $this->assertNotNull($admin->first_login_at);
+        Mail::assertSent(AgencyOnboardingSetupMail::class, 1);
+        $this->assertNull(session('show_welcome_onboarding_popup'));
     }
 
     // ── Controller hook: live fires, demo does not ───────────────────────────
@@ -543,12 +632,13 @@ class AgencySetupWizardTest extends TestCase
         Event::fake();
         $owner = $this->ownerUser();
 
+        // No admin_password — email-only invite (spec §R1a), the field no
+        // longer exists on the form or in validation.
         $this->actingAs($owner)->post(route('agencies.store'), [
-            'name'           => 'New Live Agency',
-            'is_demo'        => '0',
-            'admin_name'     => 'Ann Admin',
-            'admin_email'    => 'ann@newlive.co.za',
-            'admin_password' => 'secret1234',
+            'name'        => 'New Live Agency',
+            'is_demo'     => '0',
+            'admin_name'  => 'Ann Admin',
+            'admin_email' => 'ann@newlive.co.za',
         ])->assertRedirect(route('agencies.index'));
 
         Event::assertDispatched(AgencyCreated::class);
@@ -603,11 +693,66 @@ class AgencySetupWizardTest extends TestCase
     public function test_backfill_emails_only_with_flag(): void
     {
         Mail::fake();
-        $live = $this->agency('Established Realty');
-        $this->admin($live);
+        $live  = $this->agency('Established Realty');
+        $admin = $this->admin($live);
 
         $this->artisan('agency:backfill-onboarding-setups', ['--email' => true])->assertSuccessful();
 
         Mail::assertSent(AgencyOnboardingSetupMail::class, 1);
+
+        // Regression (found in review 2026-08-12): this send used to NOT
+        // stamp invite_email_sent_at, so the same admin's later first login
+        // would find the setup still "unsent" and email them a second time.
+        $setup = AgencyOnboardingSetup::withoutGlobalScopes()->where('agency_id', $live->id)->first();
+        $this->assertNotNull($setup->invite_email_sent_at);
+
+        $this->post(route('login'), ['email' => $admin->email, 'password' => 'password']);
+        Mail::assertSent(AgencyOnboardingSetupMail::class, 1); // still 1, not 2
+    }
+
+    // ── Resend (owner tracking page) ──────────────────────────────────────────
+
+    // Regression (found in review 2026-08-12): $setup->admin resolved via the
+    // `admin()` relation, which returns a User — and User's OWN AgencyScope
+    // applied to it. An owner who had entered the agency switcher (session
+    // active_agency_id set to a DIFFERENT agency than the one being resent)
+    // got a silent null admin email for every agency but the one in context.
+    public function test_resend_works_for_an_agency_other_than_the_owners_switched_context(): void
+    {
+        Mail::fake();
+        $owner = $this->ownerUser();
+
+        $otherAgency = $this->agency('Other Agency');
+        $targetAgency = $this->agency('Target Agency');
+        $targetAdmin  = $this->admin($targetAgency);
+        $setup        = $this->setupFor($targetAgency, ['admin_user_id' => $targetAdmin->id]);
+
+        $this->actingAs($owner)
+            ->withSession(['active_agency_id' => $otherAgency->id])
+            ->post(route('admin.agency-setup-progress.resend', $setup->id))
+            ->assertSessionHas('success');
+
+        Mail::assertSent(AgencyOnboardingSetupMail::class, 1);
+        $setup->refresh();
+        $this->assertNotNull($setup->invite_email_sent_at);
+    }
+
+    // Same root cause as the resend test above, found while self-reviewing
+    // the fix: index()'s ->with('admin') eager load had the identical bug —
+    // the tracking board's Admin column would blank out for every agency
+    // except whichever one the owner had switched into.
+    public function test_tracking_page_shows_admin_for_agency_other_than_owners_switched_context(): void
+    {
+        $owner = $this->ownerUser();
+
+        $otherAgency  = $this->agency('Other Agency');
+        $targetAgency = $this->agency('Target Agency');
+        $targetAdmin  = $this->admin($targetAgency);
+        $this->setupFor($targetAgency, ['admin_user_id' => $targetAdmin->id]);
+
+        $this->actingAs($owner)
+            ->withSession(['active_agency_id' => $otherAgency->id])
+            ->get(route('admin.agency-setup-progress'))
+            ->assertSee($targetAdmin->email);
     }
 }

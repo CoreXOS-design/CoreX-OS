@@ -731,6 +731,16 @@ class AppServiceProvider extends ServiceProvider
                 ]);
             }
 
+            // NOTE: the agency-admin first-login trigger (.ai/specs/agency-admin-rule.md
+            // §R1b — first_login_at, deferred onboarding email, welcome pop-up) is
+            // DELIBERATELY NOT here. It used to be, but Auth::login() also fires this
+            // same Login event for impersonation (ImpersonateController) — an owner
+            // impersonating a brand-new Admin was silently consuming the Admin's own
+            // first-login trigger. It is now called explicitly from only the two real
+            // login call sites: AuthenticatedSessionController::store() and
+            // AgencySetupGateController::login(). See App\Services\Onboarding\
+            // AgencyAdminFirstLoginService for the full rationale.
+
             session()->forget('active_agency_id');
 
             // Admin Multi-Branch Manager — open CoreX already IN the user's

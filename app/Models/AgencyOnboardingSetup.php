@@ -52,6 +52,7 @@ class AgencyOnboardingSetup extends Model
         'slug',
         'created_by',
         'admin_user_id',
+        'invite_email_sent_at',
         'current_step',
         'completed_steps',
         'expires_at',
@@ -63,13 +64,14 @@ class AgencyOnboardingSetup extends Model
     ];
 
     protected $casts = [
-        'completed_steps' => 'array',
-        'current_step'    => 'integer',
-        'open_count'      => 'integer',
-        'expires_at'      => 'datetime',
-        'revoked_at'      => 'datetime',
-        'last_opened_at'  => 'datetime',
-        'completed_at'    => 'datetime',
+        'completed_steps'      => 'array',
+        'current_step'         => 'integer',
+        'open_count'           => 'integer',
+        'expires_at'           => 'datetime',
+        'revoked_at'           => 'datetime',
+        'last_opened_at'       => 'datetime',
+        'completed_at'         => 'datetime',
+        'invite_email_sent_at' => 'datetime',
     ];
 
     public static function totalSteps(): int

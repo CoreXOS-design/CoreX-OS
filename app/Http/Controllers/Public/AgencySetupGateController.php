@@ -85,6 +85,14 @@ class AgencySetupGateController extends Controller
         }
 
         Auth::login($user);
+
+        // Agency admin email-only invite (.ai/specs/agency-admin-rule.md §R1b).
+        // showWelcomePopup: false — this login already lands the Admin IN the
+        // wizard (redirect below), so a "go start onboarding" pop-up on top of
+        // the wizard they're already on would be redundant. The mail still
+        // sends either way, so the link is in their inbox for later.
+        app(\App\Services\Onboarding\AgencyAdminFirstLoginService::class)->handle($user, showWelcomePopup: false);
+
         $request->session()->regenerate();
 
         return redirect()->route('corex.agency-setup.index');
