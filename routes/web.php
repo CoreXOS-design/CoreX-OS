@@ -1069,6 +1069,7 @@ Route::middleware(['auth'])->group(function () {
     Route::put('/tools/cma/evaluation/{certificate}', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'update'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.update');
     Route::get('/tools/cma/evaluation/{certificate}/download', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'download'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.download');
     Route::post('/tools/cma/evaluation/{certificate}/sign', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'sign'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.sign');
+    Route::get('/tools/cma/evaluation/{certificate}/share-meta', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'shareMeta'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.share-meta');
 
     // Ad Manager (bulk) — spec .ai/specs/ad-manager.md §10b
     Route::get('/tools/ad-manager', [\App\Http\Controllers\Tools\AdManagerController::class, 'index'])->middleware(['permission:access_ad_manager', 'agency.required'])->name('tools.ad-manager');
@@ -4387,3 +4388,10 @@ Route::middleware(['auth', 'permission:access_settings'])
         Route::post('/settings', [\App\Http\Controllers\Admin\MinionCaptureController::class, 'saveSettings'])->name('settings.save');
         Route::post('/run-now', [\App\Http\Controllers\Admin\MinionCaptureController::class, 'runNow'])->name('run-now');
     });
+
+// Evaluation Certificate — PUBLIC client-facing view. Reachable only via a valid
+// temporary SIGNED URL (Share action); the 'signed' middleware 403s any tampered/
+// expired link. No auth: the recipient is the agent's client, not a CoreX user.
+Route::get('/tools/cma/evaluation/public/{certificate}', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'publicView'])
+    ->middleware('signed')
+    ->name('tools.cma.evaluation.public');

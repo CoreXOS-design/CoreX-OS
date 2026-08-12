@@ -13,10 +13,12 @@ use App\Services\AgentSignatureService;
 use App\Services\CandidatePractitionerService;
 use App\Services\ContactDuplicateService;
 use App\Support\Impersonation;
+use App\Support\WhatsAppNumberFormatter;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -259,6 +261,25 @@ class EvaluationCertificateController extends Controller
         return $data;
     }
 
+    /**
+     * The certificate's linked contact, resolved WITHOUT the personal ContactScope
+     * ('own'/'branch') but strictly within the certificate's agency. The link is
+     * authoritative — often an auto-linked seller/owner created by someone else — so
+     * it must resolve for display/share regardless of who is viewing (Non-Negotiable
+     * #10 spirit: never re-surface a "no contact" just because personal scope can't
+     * see it), while never crossing an agency boundary.
+     */
+    private function linkedContact(EvaluationCertificate $certificate): ?Contact
+    {
+        if (! $certificate->contact_id) {
+            return null;
+        }
+
+        return Contact::withoutGlobalScope(ContactScope::class)
+            ->where('agency_id', $certificate->agency_id)
+            ->find($certificate->contact_id);
+    }
+
     /** The JSON the /tools/cma screen needs back after a save/sign. */
     private function certificatePayload(EvaluationCertificate $certificate): array
     {
@@ -382,6 +403,9 @@ class EvaluationCertificateController extends Controller
         // setRelation avoids a stale/lazy null on the freshly-set foreign key.
         $certificate->signed_by_user_id = $user->id;
         $certificate->setRelation('signedBy', $user);
+        // Ensure the filed PDF shows the linked contact even if it sits outside the
+        // signer's personal contact scope (auto-linked seller/owner is common).
+        $certificate->setRelation('contact', $this->linkedContact($certificate));
         // Candidate flow: a certificate that was queued for authorisation is now
         // being accepted+signed by a full-status authoriser — record them as such.
         if ($certificate->isPendingAuthorisation()) {
@@ -407,5 +431,62 @@ class EvaluationCertificateController extends Controller
             'signed_by'    => $user->name,
             'download_url' => route('tools.cma.evaluation.download', $certificate),
         ]);
+    }
+
+    /**
+     * Share metadata for the "Share via WhatsApp" action (Phase 3). Returns the
+     * LINKED contact's deep-link WhatsApp number, a PUBLIC signed link the client
+     * can actually open (the Download route is agent-only), and the personalised
+     * message. Recording of the send reuses the contact page's increment/mark-sent
+     * (the standard did-you-send model — same as Core Matches, AT-323).
+     */
+    public function shareMeta(Request $request, EvaluationCertificate $certificate): JsonResponse
+    {
+        $user = auth()->user();
+        abort_unless($user?->hasPermission('access_calculators'), 403);
+        abort_unless((int) $certificate->agency_id === (int) ($user->effectiveAgencyId() ?? 0), 404);
+
+        $contact = $this->linkedContact($certificate);
+        if (! $contact) {
+            return response()->json(['message' => 'Link a contact before sharing.'], 422);
+        }
+
+        $waPhoneRecord = $contact->whatsAppPhone();
+        $waPhone = WhatsAppNumberFormatter::forDeepLink(
+            $waPhoneRecord?->phone ?? $contact->phone,
+            $waPhoneRecord?->dial_code ?? $contact->primaryPhone?->dial_code
+        );
+
+        // A time-limited signed URL — the only way a non-agent can open the certificate.
+        $shareUrl  = URL::temporarySignedRoute('tools.cma.evaluation.public', now()->addDays(30), ['certificate' => $certificate->id]);
+        $firstName = $contact->first_name ?: $contact->full_name;
+        $message   = "Hi {$firstName}!\n\nHere is your property evaluation certificate:\n{$shareUrl}\n\nPlease reach out if you have any questions.";
+
+        return response()->json([
+            'contact_id'     => $contact->id,
+            'wa_phone'       => $waPhone,
+            'share_url'      => $shareUrl,
+            'message'        => $message,
+            'increment_url'  => route('corex.contacts.increment', $contact),
+            'mark_sent_base' => url('corex/contacts/' . $contact->id . '/communications'),
+        ]);
+    }
+
+    /**
+     * PUBLIC certificate view — reachable only via a valid temporary SIGNED URL
+     * (the 'signed' middleware 403s otherwise). Streams the filed signed artifact
+     * when present, else a live preview. This is what a shared client link opens.
+     */
+    public function publicView(Request $request, EvaluationCertificate $certificate): Response
+    {
+        $filename = 'evaluation-certificate-' . $certificate->id . '.pdf';
+
+        if ($certificate->signed_pdf_path && Storage::exists($certificate->signed_pdf_path)) {
+            return Storage::response($certificate->signed_pdf_path, $filename, ['Content-Disposition' => 'inline; filename="' . $filename . '"']);
+        }
+
+        $certificate->setRelation('contact', $this->linkedContact($certificate));
+
+        return $this->renderCertificatePdf($certificate)->stream($filename);
     }
 }

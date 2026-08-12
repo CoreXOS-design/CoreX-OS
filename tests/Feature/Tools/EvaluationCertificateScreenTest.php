@@ -6,9 +6,12 @@ namespace Tests\Feature\Tools;
 
 use App\Models\Agency;
 use App\Models\Branch;
+use App\Models\Contact;
 use App\Models\EvaluationCertificate;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 use Tests\TestCase;
 
 /**
@@ -120,5 +123,52 @@ final class EvaluationCertificateScreenTest extends TestCase
         $this->actingAs($this->agent)
             ->putJson(route('tools.cma.evaluation.update', $cert), ['address' => 'X'])
             ->assertStatus(404);
+    }
+
+    public function test_share_meta_returns_a_signed_public_link_for_a_linked_contact(): void
+    {
+        $contact = Contact::create([
+            'agency_id' => $this->agency->id, 'first_name' => 'Jane', 'last_name' => 'Doe', 'phone' => '0821234567',
+        ]);
+        $cert = EvaluationCertificate::create([
+            'agency_id' => $this->agency->id, 'address' => '1 Beach Rd', 'contact_id' => $contact->id,
+            'status' => EvaluationCertificate::STATUS_DRAFT, 'created_by_user_id' => $this->agent->id,
+        ]);
+
+        $res = $this->actingAs($this->agent)->getJson(route('tools.cma.evaluation.share-meta', $cert));
+        $res->assertOk()->assertJson(['contact_id' => $contact->id]);
+        $this->assertStringContainsString('/tools/cma/evaluation/public/', $res->json('share_url'));
+        $this->assertStringContainsString('signature=', $res->json('share_url'));  // it is a signed URL
+        $this->assertStringContainsString($res->json('share_url'), $res->json('message'));
+    }
+
+    public function test_share_meta_422_without_a_linked_contact(): void
+    {
+        $cert = EvaluationCertificate::create([
+            'agency_id' => $this->agency->id, 'address' => '1 Beach Rd',
+            'status' => EvaluationCertificate::STATUS_DRAFT, 'created_by_user_id' => $this->agent->id,
+        ]);
+
+        $this->actingAs($this->agent)
+            ->getJson(route('tools.cma.evaluation.share-meta', $cert))
+            ->assertStatus(422);
+    }
+
+    public function test_public_view_requires_a_valid_signed_url(): void
+    {
+        Storage::fake();
+        $cert = EvaluationCertificate::create([
+            'agency_id' => $this->agency->id, 'address' => '1 Beach Rd',
+            'status' => EvaluationCertificate::STATUS_AUTHORISED, 'created_by_user_id' => $this->agent->id,
+            'signed_by_user_id' => $this->agent->id, 'signed_pdf_path' => 'eval/signed.pdf',
+        ]);
+        Storage::put('eval/signed.pdf', '%PDF-1.4 fake');
+
+        // Unsigned (tampered / hand-typed) link → 403; no auth involved either way.
+        $this->get(route('tools.cma.evaluation.public', $cert))->assertStatus(403);
+
+        // A valid temporary signed link → streams the filed PDF.
+        $url = URL::temporarySignedRoute('tools.cma.evaluation.public', now()->addDay(), ['certificate' => $cert->id]);
+        $this->get($url)->assertOk()->assertHeader('content-type', 'application/pdf');
     }
 }

@@ -626,6 +626,7 @@
 
         <button class="corex-btn-outline" @click="download()" :disabled="!certId">Download</button>
         <button class="corex-btn-outline" @click="printCert()" :disabled="!certId">Print</button>
+        <button class="corex-btn-outline" @click="share()" :disabled="!certId">Share</button>
 
         <span x-show="dirty && certId" x-cloak style="font-size:.75rem; color:#b45309;">Unsaved changes — Save before Sign.</span>
         <span x-show="flash" x-cloak x-text="flash" style="font-size:.8rem; color:#0b7d3b;"></span>
@@ -661,6 +662,9 @@
         </div>
       </div>
 
+      {{-- Share — WhatsApp did-you-send confirm (same shared modal Core Matches / the contact page use). --}}
+      @include('partials.whatsapp-send-confirm-modal')
+
     </div>
   </div>
 
@@ -676,6 +680,7 @@
       updateTpl:      @json(route('tools.cma.evaluation.update',   ['certificate' => '__ID__'])),
       downloadTpl:    @json(route('tools.cma.evaluation.download', ['certificate' => '__ID__'])),
       signTpl:        @json(route('tools.cma.evaluation.sign',     ['certificate' => '__ID__'])),
+      shareMetaTpl:   @json(route('tools.cma.evaluation.share-meta', ['certificate' => '__ID__'])),
     };
     const withId = (tpl, id) => tpl.replace('__ID__', id);
     const jhead = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
@@ -687,6 +692,7 @@
       certId: null, status: 'draft', isSigned: false, signedBy: null,
       saving: false, dirty: false, flash: '',
       signOpen: false, pin: '', pinError: '', pinLoading: false,
+      sentConfirm: { open: false, communicationId: null }, markSentBase: '',
 
       init(cfg) {
         this.savedSigConfigured = !!cfg.savedSigConfigured;
@@ -758,6 +764,36 @@
       },
       download() { if (this.certId) window.open(withId(U.downloadTpl, this.certId), '_blank'); },
       printCert() { if (this.certId) window.open(withId(U.downloadTpl, this.certId) + '?inline=1', '_blank'); },
+
+      // Share to the linked client via WhatsApp — opens WhatsApp FIRST (click gesture),
+      // then records a provisional Communication and asks did-you-send (AT-323 model,
+      // identical to Core Matches). The link is a time-limited signed public URL.
+      async share() {
+        if (!this.certId) return;
+        if (!this.contactId) { alert('Link a contact before sharing.'); return; }
+        if (this.dirty) { alert('Save your changes before sharing.'); return; }
+        const r = await fetch(withId(U.shareMetaTpl, this.certId), { headers: jhead });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { alert(j.message || 'Could not prepare the share.'); return; }
+        if (!j.wa_phone) { alert('This contact has no WhatsApp number.'); return; }
+        window.open('https://wa.me/' + j.wa_phone + '?text=' + encodeURIComponent(j.message), '_blank', 'noopener');
+        try {
+          const ir = await fetch(j.increment_url, { method: 'POST', headers: { ...jhead, 'X-CSRF-TOKEN': csrf(), 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify({ channel: 'whatsapp', body: j.message }) });
+          const idata = await ir.json().catch(() => ({}));
+          if (idata && idata.communication_id) {
+            this.markSentBase = j.mark_sent_base;
+            this.sentConfirm = { open: true, communicationId: idata.communication_id };
+          }
+        } catch (e) {}
+      },
+      async confirmSent(didSend) {
+        const commId = this.sentConfirm.communicationId;
+        this.sentConfirm.open = false;
+        if (!commId || !didSend) return; // No answer: the WhatsApp row stays not_delivered (uncounted).
+        try {
+          await fetch(this.markSentBase + '/' + commId + '/mark-sent', { method: 'POST', headers: { ...jhead, 'X-CSRF-TOKEN': csrf(), 'X-Requested-With': 'XMLHttpRequest' }, body: '{}' });
+        } catch (e) {}
+      },
 
       openSign() { if (this.dirty) { alert('Save your changes before signing.'); return; } this.pin = ''; this.pinError = ''; this.signOpen = true; },
       async submitSign() {
