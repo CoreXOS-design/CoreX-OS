@@ -2,13 +2,11 @@
 
 namespace App\Console\Commands;
 
-use App\Mail\AgencyOnboardingSetupMail;
 use App\Models\Agency;
 use App\Models\AgencyOnboardingSetup;
 use App\Models\User;
+use App\Services\Onboarding\AgencyAdminFirstLoginService;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 
 /**
  * Backfill an AgencyOnboardingSetup record for every existing LIVE agency that
@@ -36,7 +34,7 @@ class BackfillAgencyOnboardingSetups extends Command
 
     protected $description = 'Create AgencyOnboardingSetup records for existing live agencies that lack one';
 
-    public function handle(): int
+    public function handle(AgencyAdminFirstLoginService $onboardingMail): int
     {
         $email = (bool) $this->option('email');
         $dry   = (bool) $this->option('dry-run');
@@ -96,14 +94,13 @@ class BackfillAgencyOnboardingSetups extends Command
             $created++;
 
             if ($email && $admin?->email) {
-                try {
-                    Mail::mailer('corex')->to($admin->email)->send(new AgencyOnboardingSetupMail($setup));
+                // Found in review 2026-08-12: this used to send without stamping
+                // invite_email_sent_at, so the SAME admin's later first login
+                // would find the setup still "unsent" and email them a second
+                // time. Stamp on success, exactly like every other send path.
+                if ($onboardingMail->sendMail($setup, $admin->email)) {
+                    $setup->forceFill(['invite_email_sent_at' => now()])->save();
                     $emailed++;
-                } catch (\Throwable $e) {
-                    Log::error('Backfill onboarding email failed.', [
-                        'agency_id' => $agency->id,
-                        'error'     => $e->getMessage(),
-                    ]);
                 }
             }
         }
