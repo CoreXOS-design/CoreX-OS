@@ -46,6 +46,14 @@
                             class="w-full rounded-md touch-none"
                             style="background:#fff; border:1px dashed var(--border-hover,#cbd5e1); aspect-ratio:500/160;"></canvas>
                     <input type="hidden" name="{{ $key }}_image" x-ref="{{ $key }}Input">
+                    {{-- Saved-state confirmation (Johan 2026-08-12) — the drawn image intentionally clears
+                         on reload (encrypted at rest, never echoed back), which read as "it disappeared".
+                         Show a clear "on file" state so the agent knows it saved; the pad is blank ONLY
+                         because we never display the stored signature. Draw again to replace it. --}}
+                    <p x-show="status.signature" x-cloak class="text-[11px] mt-1 flex items-center gap-1" style="color:#166534;">
+                        <span>✓ {{ $label }} on file — stored securely &amp; hidden for your protection.</span>
+                        <span style="color:var(--text-muted,#64748b);">Draw above only to replace it.</span>
+                    </p>
                 </div>
             @endforeach
         </div>

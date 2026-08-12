@@ -2935,7 +2935,7 @@ function externalSign() {
         async initSavedSig() {
             if (!this.isAgent) return;   // only agents have a saved signature
             try {
-                const res = await fetch('/signature/status', { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+                const res = await fetch('{{ route('signature.status') }}', { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
                 if (!res.ok) return;     // e.g. not authenticated (recipient) — silently disabled
                 const d = await res.json();
                 this.savedSigConfigured = !!d.configured;
@@ -2956,7 +2956,7 @@ function externalSign() {
             if (this.savedPinLoading || !this.savedPin) return;
             this.savedPinLoading = true; this.savedPinError = '';
             try {
-                const res = await fetch('/signature/unlock', {
+                const res = await fetch('{{ route('signature.unlock') }}', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this._csrf(), 'Accept': 'application/json' },
                     credentials: 'same-origin',
@@ -2982,8 +2982,8 @@ function externalSign() {
         async loadSavedAssets() {
             const q = '?context=' + encodeURIComponent(this._sigContext());
             const [s, i] = await Promise.all([
-                fetch('/signature/asset/signature' + q, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' }),
-                fetch('/signature/asset/initial'   + q, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' }),
+                fetch('{{ route('signature.asset', ['type' => 'signature']) }}' + q, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' }),
+                fetch('{{ route('signature.asset', ['type' => 'initial']) }}'   + q, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' }),
             ]);
             if (s.ok) { const d = await s.json(); this.savedSignatureImg = d.image || null; }
             if (i.ok) { const d = await i.json(); this.savedInitialImg   = d.image || null; }

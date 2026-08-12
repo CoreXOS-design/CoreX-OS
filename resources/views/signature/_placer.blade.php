@@ -67,7 +67,7 @@
             context: (config && config.context) || '',
             statusUrl: @json(route('signature.status')),
             unlockUrl: @json(route('signature.unlock')),
-            assetUrl:  @json(url('/signature/asset')),
+            assetUrl:  @json(dirname(route('signature.asset', ['type' => 'signature']))),
             csrf: document.querySelector('meta[name="csrf-token"]')?.content || '',
 
             configured: false,
