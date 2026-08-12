@@ -269,4 +269,27 @@ class ProspectingListing extends Model
 
         return $addr;
     }
+
+    /**
+     * The REAL street number, read only from the address's real street segment —
+     * never searched for anywhere in the free text. P24/PP convention is
+     * "[complex/building name], [street number] [street name]", so the real
+     * street segment is the LAST comma-separated part, not necessarily the first
+     * number in the string (that first number is often a complex/unit number —
+     * e.g. "14 Dumela Holiday Flats, 1 Marine Drive": "14" is the complex, "1"
+     * is the real street number). Single source of truth for every caller that
+     * needs to discriminate two addresses on the same street by number —
+     * ProspectingStockMatchService::matchProspect() Pass 2 and the Pitch Now
+     * collision check (EntryPointController -> MapProspectStatusService) both
+     * call this so they can never drift apart on what counts as "the number".
+     */
+    public static function parseStreetNumber(?string $address): ?string
+    {
+        $segments = array_filter(array_map('trim', explode(',', (string) $address)));
+        $streetSegment = $segments ? strtolower(end($segments)) : '';
+        if (preg_match('/^(\d+)\b/', $streetSegment, $m)) {
+            return $m[1];
+        }
+        return null;
+    }
 }
