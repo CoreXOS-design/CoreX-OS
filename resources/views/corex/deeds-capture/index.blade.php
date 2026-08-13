@@ -111,12 +111,21 @@
                         </div>
 
                         {{-- Action --}}
-                        <div class="flex-shrink-0">
+                        <div class="flex-shrink-0 flex flex-col items-end gap-2">
                             <form method="POST" action="{{ route('corex.deeds-capture.promote', $tp->id) }}"
                                   onsubmit="return confirm('Create a property from this deeds capture and link the owner?');">
                                 @csrf
                                 <button type="submit" class="text-xs font-semibold px-4 py-2 rounded-md text-white" style="background: var(--brand-button, #0ea5e9);">
                                     Promote to property + contact
+                                </button>
+                            </form>
+                            {{-- Remove (2026-08-13) — soft delete, reversible; wrong details / duplicates. --}}
+                            <form method="POST" action="{{ route('corex.deeds-capture.dismiss', $tp->id) }}"
+                                  onsubmit="return confirm('Remove this capture from the list? It will no longer show here, but nothing is permanently deleted.');">
+                                @csrf
+                                <button type="submit" class="text-xs font-semibold px-3 py-1 rounded-md"
+                                        style="background:transparent; color:#ef4444; border:1px solid rgba(239,68,68,0.4);">
+                                    Remove
                                 </button>
                             </form>
                         </div>

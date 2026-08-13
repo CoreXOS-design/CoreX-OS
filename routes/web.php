@@ -4146,6 +4146,11 @@ Route::middleware(['auth', 'permission:deeds_capture.access'])
         // TVA (The Virtual Agent) contact capture (2026-08-12) — tick-to-ingest.
         Route::post('/tva/{tvaContactCapture}/ingest', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'ingestTva'])
             ->whereNumber('tvaContactCapture')->name('tva.ingest');
+        // Remove (soft delete, reversible) — wrong details / duplicates (2026-08-13).
+        Route::post('/{trackedProperty}/dismiss', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'dismissProperty'])
+            ->whereNumber('trackedProperty')->name('dismiss');
+        Route::post('/tva/{tvaContactCapture}/dismiss', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'dismissTva'])
+            ->whereNumber('tvaContactCapture')->name('tva.dismiss');
     });
 
 // Spec: .ai/specs/build-f-market-intelligence-redesign-spec.md §6.

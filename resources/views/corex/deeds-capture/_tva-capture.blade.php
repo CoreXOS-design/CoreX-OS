@@ -83,4 +83,16 @@
             Ingest ticked
         </button>
     </form>
+
+    {{-- Remove (2026-08-13) — soft delete, reversible; wrong details / duplicates
+         (e.g. an earlier capture superseded by a later, correctly-named one). --}}
+    <form method="POST" action="{{ route('corex.deeds-capture.tva.dismiss', $capture->id) }}"
+          onsubmit="return confirm('Remove this TVA capture from the list? It will no longer show here, but nothing is permanently deleted.');"
+          class="mt-2">
+        @csrf
+        <button type="submit" class="text-xs font-semibold px-3 py-1 rounded-md"
+                style="background:transparent; color:#ef4444; border:1px solid rgba(239,68,68,0.4);">
+            Remove
+        </button>
+    </form>
 </div>

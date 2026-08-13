@@ -219,4 +219,45 @@ final class DeedsCaptureController extends Controller
             'Promoted to a property and linked the owner' . ($ownerContactIds->count() > 1 ? 's' : '') . '. Open the property to continue.'
         );
     }
+
+    /**
+     * Remove a deeds-capture property record from the screen (wrong details,
+     * duplicate). SOFT delete only (Non-Negotiable #1, no hard deletes) —
+     * TrackedProperty already carries SoftDeletes; this just sets
+     * deleted_at, which the index() query's whereNull('deleted_at') then
+     * excludes. Reversible by an admin (TrackedProperty::withTrashed()
+     * ->find($id)->restore()); no in-app restore UI yet, not asked for.
+     */
+    public function dismissProperty(Request $request, TrackedProperty $trackedProperty)
+    {
+        $user = $request->user();
+        $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
+        abort_if((int) $trackedProperty->agency_id !== (int) $agencyId, 404);
+        abort_if($trackedProperty->capture_kind !== 'deeds_capture', 404);
+
+        if ($trackedProperty->promoted_to_property_id) {
+            return redirect()->route('corex.deeds-capture.index')
+                ->with('info', 'This capture was already promoted — nothing to remove.');
+        }
+
+        $trackedProperty->delete();
+
+        return redirect()->route('corex.deeds-capture.index')->with('success', 'Removed from the list.');
+    }
+
+    /**
+     * Remove a TVA capture block from the screen (wrong details, duplicate —
+     * e.g. an earlier capture superseded by a later one with the correct
+     * name). SOFT delete — same reasoning as dismissProperty() above.
+     */
+    public function dismissTva(Request $request, TvaContactCapture $tvaContactCapture)
+    {
+        $user = $request->user();
+        $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
+        abort_if((int) $tvaContactCapture->agency_id !== (int) $agencyId, 404);
+
+        $tvaContactCapture->delete();
+
+        return redirect()->route('corex.deeds-capture.index')->with('success', 'Removed from the list.');
+    }
 }
