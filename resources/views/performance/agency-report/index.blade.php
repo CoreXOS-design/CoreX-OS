@@ -13,29 +13,7 @@
         </div>
 
         {{-- Period selector (AT-366-A: preset + custom range) --}}
-        <form method="GET" class="flex items-end gap-2 flex-wrap">
-            <label class="text-[11px]" style="color:var(--text-muted);">
-                Period
-                <select name="period" onchange="this.form.submit()"
-                        class="block mt-1 text-xs rounded px-2 py-1"
-                        style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                    @foreach($presets as $p)
-                        <option value="{{ $p }}" @selected($preset === $p)>{{ ucfirst(str_replace('_', ' ', $p)) }}</option>
-                    @endforeach
-                </select>
-            </label>
-            @if($preset === 'custom')
-                <label class="text-[11px]" style="color:var(--text-muted);">Start
-                    <input type="date" name="start" value="{{ request('start') }}"
-                           class="block mt-1 text-xs rounded px-2 py-1" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                </label>
-                <label class="text-[11px]" style="color:var(--text-muted);">End
-                    <input type="date" name="end" value="{{ request('end') }}"
-                           class="block mt-1 text-xs rounded px-2 py-1" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                </label>
-                <button type="submit" class="text-xs px-3 py-1 rounded" style="background:var(--brand); color:#fff;">Apply</button>
-            @endif
-        </form>
+        @include('performance.agency-report._period-selector', ['preset' => $preset, 'presets' => $presets])
     </div>
 
     @if(session('period_error'))
