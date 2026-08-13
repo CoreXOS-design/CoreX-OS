@@ -1069,6 +1069,10 @@ Route::middleware(['auth'])->group(function () {
     Route::put('/tools/cma/evaluation/{certificate}', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'update'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.update');
     Route::get('/tools/cma/evaluation/{certificate}/download', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'download'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.download');
     Route::post('/tools/cma/evaluation/{certificate}/sign', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'sign'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.sign');
+    Route::post('/tools/cma/evaluation/{certificate}/submit', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'submitForAuthorisation'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.submit');
+    Route::post('/tools/cma/evaluation/{certificate}/authorise', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'authorise'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.authorise');
+    Route::post('/tools/cma/evaluation/{certificate}/reject', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'reject'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.reject');
+    Route::get('/tools/cma/evaluation/queue', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'queue'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.queue');
     Route::get('/tools/cma/evaluation/{certificate}/share-meta', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'shareMeta'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.share-meta');
 
     // Ad Manager (bulk) — spec .ai/specs/ad-manager.md §10b

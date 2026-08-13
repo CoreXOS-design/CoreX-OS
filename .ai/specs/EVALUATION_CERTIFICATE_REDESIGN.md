@@ -121,6 +121,22 @@ Verified: `EvaluationCertificateScreenTest` (view hides/shows "Authorised by" by
 - **Filed to the property drive on sign** — `fileToPropertyDrive()` creates a canonical `Document` (the signed PDF at `signed_pdf_path`, `source_type='evaluation_certificate'`, `source_id`=cert id, named by the property address) and attaches it via `document_properties` (`$doc->properties()->syncWithoutDetaching`) — the SAME pivot `Property::documents()` / the PDF splitter / DR2 use, so the certificate shows on the property's drive like any other filed doc. Called from `sign()` after the PDF is baked+filed; **non-fatal** (a filing hiccup logs a warning, never fails the signature); **idempotent** (one Document per certificate); no-op when the cert has no `property_id`. Property resolved agency-scoped (bypasses personal visibility, never crosses agency). `document_type_id` left null (no dedicated eval type exists). Verified: `EvaluationCertificateSignTest` — signed+linked → doc on the property drive (named by address, one copy); unlinked → nothing filed.
 - **Candidate flow PARKED** — Johan is (correctly) impersonation-blocked from setting up a candidate's saved signature/PIN, so the candidate authorise→sign path can't be exercised until a real candidate practitioner tests it. The authoriser-section render conditional (`showsAuthoriser`) is built + unit-verified; end-to-end candidate testing is deferred to a candidate on QA1. cc5's Phase-4b authorisation queue remains the outstanding piece.
 
+### cc1 — CANDIDATE FLOW finished end-to-end (Johan, 13 Aug 2026; absorbs old Phase-4b)
+
+The candidate dead-end modal ("you cannot finalise… Cancel") is replaced by a full submit→authorise/reject→return loop. cc1 owns it end-to-end (cc5 off it). Mirrors the e-sign Authorise-Documents pattern using the eval cert's own model.
+
+- **Migration** `…000070_add_candidate_signature…`: `candidate_signature_image` (longText, **encrypted** cast, `$hidden`). The final PDF is baked at the AUTHORISER's sign — when the candidate isn't present to unlock their saved signature — so the candidate's signature is **snapshotted at submit** and baked into "Evaluated & signed by" at authorisation.
+- **Endpoints** (all `access_calculators`, impersonation-blocked, saved-sig-gated via `guardSigner()` + `unlock()`):
+  - `submitForAuthorisation` (candidate only, own draft/rejected cert) → snapshots candidate sig, `signed_by=candidate`, `status=pending_authorisation`, clears `reject_note`. NOT finalising.
+  - `authorise` (full-status, `canAuthoriseFor(candidate)`, pending cert) → bakes candidate snapshot ("Evaluated & signed by") + authoriser live sig ("Authorised by"), `authorised_by=authoriser`, `status=authorised`, files to drive.
+  - `reject` (full-status, pending) → `status=rejected` + required `reject_note`.
+  - `queue` (GET) → role-scoped list: candidate sees own pending/authorised/rejected; authoriser sees pending certs they may authorise (`canAuthoriseFor`).
+  - `sign` is now **direct full-status only** (candidate/pending → routed to submit/authorise).
+- **PDF**: `renderCertificatePdf($cert, $signerImage, $authoriserSignatureImage)` — two signature slots; the "Authorised by" slot now bakes the authoriser's signature image.
+- **Screen** (`tools.blade` `evalCert()`): candidate "Sign & submit for authorisation" (was the dead-end); a role-aware **queue panel** (candidate: my submissions + status/download; authoriser: pending → Review); the sign modal drives 3 modes (`submit`/`finalise`/`authorise`); **Reject** modal (note); status badge + returned-note banner; `fieldset :disabled="formLocked"` makes a submitted/authorised cert read-only; rejected → editable + "Sign & resubmit". Statuses colour-coded both sides.
+- Authoriser eligibility = `CandidatePractitionerService::canAuthoriseFor` (agency admin agency-wide, OR BM/full-status of the candidate's branch) — reused, no new logic.
+- Verified: `EvaluationCertificateSignTest` — candidate submit→pending (+snapshot), full-status authorise→authorised (2 sigs, filed), reject+note→resubmit, candidate/stranger-branch cannot authorise, queue role-scoping.
+
 ### ⚠️ REMAINING FLAGS from cc1 (Phase 4) — need owner decisions
 
 1. ~~No certificate SAVE/PERSIST endpoint~~ — **RESOLVED**: Johan assigned cc1 the last-mile; `store`/`update` + the full screen are built (see section above). End-to-end in the browser now works.
