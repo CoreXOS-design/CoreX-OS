@@ -784,6 +784,21 @@ class EvaluationCertificateController extends Controller
     }
 
     /**
+     * The candidate's "My Evaluations" screen — a LIST of their submitted evaluations
+     * (pending / authorised / rejected), each opening to a READ-ONLY view of the
+     * finished certificate with Download / Print / Share (and Edit & resubmit when
+     * returned). Mirrors the authorisations screen: viewing a submitted cert never
+     * lands in the editable create/edit builder.
+     */
+    public function mine(Request $request): \Illuminate\Contracts\View\View
+    {
+        $user = $request->user();
+        abort_unless($user?->hasPermission('access_calculators'), 403);
+
+        return view('tools.evaluation-certificate.mine');
+    }
+
+    /**
      * Share metadata for the "Share via WhatsApp" action (Phase 3). Returns the
      * LINKED contact's deep-link WhatsApp number, a PUBLIC signed link the client
      * can actually open (the Download route is agent-only), and the personalised

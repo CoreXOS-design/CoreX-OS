@@ -1074,6 +1074,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/tools/cma/evaluation/{certificate}/reject', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'reject'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.reject');
     Route::get('/tools/cma/evaluation/queue', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'queue'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.queue');
     Route::get('/tools/cma/evaluation/authorisations', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'authorisations'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.authorisations');
+    Route::get('/tools/cma/evaluation/mine', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'mine'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.mine');
     Route::get('/tools/cma/evaluation/{certificate}/share-meta', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'shareMeta'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.share-meta');
 
     // Ad Manager (bulk) — spec .ai/specs/ad-manager.md §10b
