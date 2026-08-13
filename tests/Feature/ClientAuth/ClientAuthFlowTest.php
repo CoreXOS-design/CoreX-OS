@@ -304,9 +304,9 @@ class ClientAuthFlowTest extends TestCase
             'current_agency_id' => $agency->id,
         ]);
         $this->makeContact($agency, [
-            'email'              => 'hasagent@example.com',
-            'client_user_id'     => $cu->id,
-            'created_by_user_id' => $agent->id,
+            'email'          => 'hasagent@example.com',
+            'client_user_id' => $cu->id,
+            'agent_id'       => $agent->id,
         ]);
 
         $token = $cu->createToken('t', ['client'])->plainTextToken;
@@ -333,9 +333,9 @@ class ClientAuthFlowTest extends TestCase
             'current_agency_id' => $agency->id,
         ]);
         $this->makeContact($agency, [
-            'email'              => 'noagent@example.com',
-            'client_user_id'     => $cu->id,
-            'created_by_user_id' => null,
+            'email'          => 'noagent@example.com',
+            'client_user_id' => $cu->id,
+            'agent_id'       => null,
         ]);
 
         $token = $cu->createToken('t', ['client'])->plainTextToken;
@@ -367,9 +367,9 @@ class ClientAuthFlowTest extends TestCase
             'current_agency_id' => $agencyA->id,
         ]);
         $this->makeContact($agencyA, [
-            'email'              => 'leak@example.com',
-            'client_user_id'     => $cu->id,
-            'created_by_user_id' => $foreignAgent->id,
+            'email'          => 'leak@example.com',
+            'client_user_id' => $cu->id,
+            'agent_id'       => $foreignAgent->id,
         ]);
 
         $token = $cu->createToken('t', ['client'])->plainTextToken;

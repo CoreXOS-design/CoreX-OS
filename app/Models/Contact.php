@@ -407,7 +407,18 @@ class Contact extends Model
         foreach (preg_split('/\s+/', $term, -1, PREG_SPLIT_NO_EMPTY) as $token) {
             $like   = '%' . $token . '%';
             $lcLike = '%' . mb_strtolower($token) . '%';
-            $digits = preg_replace('/\D/', '', $token);
+
+            // Only treat the token as a phone-number fragment when it actually
+            // LOOKS like one (digits + common phone punctuation only, nothing
+            // else). Extracting digits from an arbitrary alphanumeric token —
+            // an email like "roets12@gmail.com", a unit number like "12B" —
+            // turns a 1-2 digit fragment into a near-useless filter that
+            // matches most of the phone book. Confirmed in production
+            // 2026-08-13: searching an email containing "12" matched 519
+            // unrelated contacts via phone_normalised LIKE '%12%', burying
+            // the real result many pages deep.
+            $strippedPunct = preg_replace('/[\s\-()+]/', '', $token);
+            $digits = ($strippedPunct !== '' && ctype_digit($strippedPunct)) ? $strippedPunct : '';
 
             $query->where(function ($q) use ($like, $lcLike, $digits) {
                 $q->where('first_name', 'like', $like)
