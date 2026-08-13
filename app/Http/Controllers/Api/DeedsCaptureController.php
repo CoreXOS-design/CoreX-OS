@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
+use App\Rules\SouthAfricanIdNumber;
 use App\Services\ContactDuplicateService;
 use App\Services\Prospecting\TrackedPropertyMatchOrCreateService;
 use Illuminate\Http\JsonResponse;
@@ -112,6 +113,7 @@ final class DeedsCaptureController extends Controller
         // key), same as before, just looped for however many owners CMA listed.
         // Phone left empty on every owner (phase-2 Virtual Agent fills it).
         $resolvedOwners = [];
+        $blockedCompanies = [];
         foreach ($owners as $o) {
             $ownerId    = isset($o['id_number']) ? preg_replace('/\s+/', '', (string) $o['id_number']) : null;
             $ownerName  = trim((string) ($o['name'] ?? ''));
@@ -120,6 +122,19 @@ final class DeedsCaptureController extends Controller
             if ($ownerName === '' && !$ownerId) {
                 continue; // nothing usable on this row
             }
+
+            // COMPANY SCRAPING BLOCK (2026-08-13, interim rule per Johan — see
+            // isCompanyLikeOwner() below). Server-side is the authoritative
+            // gate: the extension already skips company owners client-side,
+            // but a stale extension build or a direct API call must not be
+            // able to bypass this. Skip resolving/creating a Contact for this
+            // owner entirely — the property/deed data and any other natural-
+            // person owners on the same capture still ingest normally.
+            if ($this->isCompanyLikeOwner($o['id_type'] ?? null, $ownerId)) {
+                $blockedCompanies[] = $ownerName !== '' ? $ownerName : ($ownerId ?? 'unnamed owner');
+                continue;
+            }
+
             $contactId = $this->resolveOwnerContact(
                 $agencyId, $user, $ownerName, $ownerId, $o['id_type'] ?? null, $dupes, $surname, $firstNames
             );
@@ -207,7 +222,33 @@ final class DeedsCaptureController extends Controller
             'owner_contact_id'    => $ownerContactId,
             'owner_contact_ids'   => array_values(array_filter(array_column($resolvedOwners, 'contact_id'))),
             'created'             => $created,
+            'blocked_companies'   => $blockedCompanies,
         ];
+    }
+
+    /**
+     * COMPANY SCRAPING BLOCK (2026-08-13, interim rule per Johan — proper
+     * company handling is a separate cc3 investigation). The scraper must
+     * only capture NATURAL PERSONS. An owner is treated as non-natural
+     * (company / CC / trust) when EITHER signal fires: the entity-type field
+     * says so (id_type === 'company_reg', set client-side from the CIPC
+     * registration format), OR the id_number is present but fails full SA ID
+     * validation (13 digits + valid date-of-birth digits + Luhn checksum via
+     * SouthAfricanIdNumber::isValid()) — the stronger, authoritative check
+     * available server-side, catching a trust/CC registered under any format
+     * the client's shape-only regex didn't happen to match. An EMPTY
+     * id_number is NOT a company signal — that's the pre-existing "no owner
+     * ID" case, a different, allowed scenario.
+     */
+    private function isCompanyLikeOwner(?string $idType, ?string $idNumber): bool
+    {
+        if ($idType === 'company_reg') {
+            return true;
+        }
+        if ($idNumber === null || $idNumber === '') {
+            return false;
+        }
+        return ! SouthAfricanIdNumber::isValid($idNumber);
     }
 
     /**

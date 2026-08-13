@@ -239,9 +239,26 @@
   // ── PAYLOAD ──────────────────────────────────────────────────
   // ══════════════════════════════════════════════════════════
 
+  // COMPANY SCRAPING BLOCK (2026-08-13, interim rule per Johan — proper
+  // company handling is a separate cc3 investigation). TVA is a natural-
+  // person lookup by design (Search/Person/{id}) so this is a defensive
+  // check, not the primary line of defense (that's CMA, where company/CC/
+  // trust owners actually show up) — but the rule says "applies to both
+  // paths", so if the URL's idNumber isn't shaped like a valid 13-digit SA ID
+  // (e.g. someone manually navigates to a company registration number), block
+  // it here too rather than silently capturing garbage.
+  function isCompanyLikeId(idNumber) {
+    if (!idNumber) return false;
+    return !/^\d{13}$/.test(String(idNumber).trim().replace(/\s+/g, ''));
+  }
+
   function buildPayload() {
     const idNumber = idNumberFromUrl();
     if (!idNumber) return { error: 'No ID number found in the page URL — open a person via Find, not this URL directly.' };
+
+    if (isCompanyLikeId(idNumber)) {
+      return { error: 'Company scraping is not allowed at this time — coming soon.', blockedCompany: true };
+    }
 
     if (isPersonOptedOut(idNumber)) {
       return { error: 'This person is marked opted-out (ID shown in red) — not captured, per compliance policy.' };
@@ -340,6 +357,9 @@
     try {
       const built = buildPayload();
       if (built.error) {
+        if (built.blockedCompany) {
+          window.alert(built.error);
+        }
         setStatus('Failed: ' + built.error, true);
         return;
       }
@@ -350,6 +370,13 @@
       } else {
         const row = result && Array.isArray(result.results) ? result.results[0] : null;
         if (row && row.error) {
+          // Server-side backstop (2026-08-13) — the client-side check above
+          // already blocks a non-13-digit ID before sending, but if the
+          // server ALSO reports it blocked (e.g. a stale extension build),
+          // surface the popup rather than only the small status line.
+          if (row.blocked === 'company') {
+            window.alert(row.error);
+          }
           setStatus('Failed: ' + row.error, true);
         } else if (row) {
           setStatus('Captured ✓ (' + row.items_count + ' contact value' + (row.items_count === 1 ? '' : 's') + ')', false);

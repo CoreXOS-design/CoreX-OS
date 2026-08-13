@@ -81,6 +81,21 @@ final class TvaContactCaptureController extends Controller
     {
         $idNumber = preg_replace('/\s+/', '', (string) $person['id_number']);
 
+        // COMPANY SCRAPING BLOCK (2026-08-13, interim rule per Johan — mirrors
+        // DeedsCaptureController::isCompanyLikeOwner()). TVA is a natural-
+        // person lookup by page design, so the extension's client-side check
+        // is the primary defense, but the server is the authoritative gate —
+        // a direct API call (or a stale extension build) must not be able to
+        // bypass this. Nothing is staged (no TvaContactCapture / items row)
+        // for a non-natural-person ID.
+        if (! \App\Rules\SouthAfricanIdNumber::isValid($idNumber)) {
+            return [
+                'id_number' => $idNumber,
+                'blocked'   => 'company',
+                'error'     => 'Company scraping is not allowed at this time — coming soon.',
+            ];
+        }
+
         // Suspense-record match — an un-promoted deeds capture whose owners
         // include this ID. Only un-promoted: a promoted capture's owner is
         // already a real linked contact, so it belongs in the standalone flow

@@ -584,6 +584,22 @@
     return null;
   }
 
+  // COMPANY SCRAPING BLOCK (2026-08-13, interim rule per Johan — proper
+  // company handling is a separate cc3 investigation). The scraper must only
+  // capture NATURAL PERSONS. An owner is treated as non-natural (company / CC
+  // / trust) when EITHER signal fires: the entity-type field says so
+  // (id_type === 'company_reg', the CIPC-format regex above), OR the captured
+  // "ID" simply isn't shaped like a valid 13-digit SA ID number — that catches
+  // trusts/CCs registered under a Master's Office reference or any other
+  // non-SA-ID format the CIPC regex doesn't happen to match. An EMPTY id is
+  // NOT a company signal (that's the pre-existing "no owner ID" case, a
+  // different, allowed scenario) — only a PRESENT-but-wrong-shaped id counts.
+  function isCompanyLikeOwner(idType, idNumber) {
+    if (idType === 'company_reg') return true;
+    if (!idNumber) return false;
+    return !/^\d{13}$/.test(String(idNumber).trim().replace(/\s+/g, ''));
+  }
+
   // ══════════════════════════════════════════════════════════
   // ── MULTI-OWNER SPLITTING + NAME PARSING (2026-08-12) ──────
   // ══════════════════════════════════════════════════════════
@@ -727,6 +743,7 @@
     const count = Math.max(names.length, ids.length);
     const optedOutFlags = ownerIdOptedOutFlags(count);
     const owners = [];
+    const blockedCompanies = [];
     for (let i = 0; i < count; i++) {
       const rawName = names[i] || '';
       const rawId = (ids[i] || '').replace(/\s+/g, '');
@@ -734,6 +751,13 @@
 
       if (optedOutFlags[i]) {
         console.warn('[CoreX] deeds-capture: owner "' + rawName + '" ID is styled opted-out (red) — dropped, not sent.');
+        continue;
+      }
+
+      const idType = classifyOwnerIdType(rawId);
+      if (isCompanyLikeOwner(idType, rawId)) {
+        console.warn('[CoreX] deeds-capture: owner "' + rawName + '" looks like a company/CC/trust (id_type=' + idType + ', id="' + rawId + '") — dropped, not sent. Company scraping is blocked (interim rule).');
+        blockedCompanies.push(rawName || rawId || 'unnamed owner');
         continue;
       }
 
@@ -747,9 +771,10 @@
         surname: parsed.confident ? parsed.surname : null,
         first_names: parsed.confident ? parsed.first_names : null,
         id_number: rawId || null,
-        id_type: classifyOwnerIdType(rawId),
+        id_type: idType,
       });
     }
+    owners.blockedCompanies = blockedCompanies; // smuggled alongside the array — see buildDeedsCapturePayload()
     return owners;
   }
 
@@ -952,6 +977,16 @@
       const deed = await extractDeed();
       const payload = buildDeedsCapturePayload(deed);
 
+      // COMPANY SCRAPING BLOCK (2026-08-13) — buildOwnersArray() already
+      // dropped any company/CC/trust owner from the payload; surface it to
+      // the agent so a silently-shorter owner list doesn't read as "this
+      // property has no other owners". Property/deed data still captures
+      // normally — only the non-natural-person owner is excluded.
+      const blockedCompanies = (payload.captures[0].owners && payload.captures[0].owners.blockedCompanies) || [];
+      if (blockedCompanies.length > 0) {
+        window.alert('Company scraping is not allowed at this time — coming soon.\n\nSkipped: ' + blockedCompanies.join(', '));
+      }
+
       setStatus('Sending to CoreX…', false);
 
       // No popup step in this flow — background.js reads apiUrl/apiToken
@@ -972,6 +1007,13 @@
         if (row && row.error) {
           setStatus('Failed: ' + row.error, true);
         } else if (row) {
+          // Server-side backstop (2026-08-13) — the client-side check above
+          // already filters company owners before sending, but if the server
+          // ALSO reports some as blocked (e.g. a stale extension build sent
+          // one it shouldn't have), surface that rather than staying silent.
+          if (row.blocked_companies && row.blocked_companies.length > 0) {
+            window.alert('Company scraping is not allowed at this time — coming soon.\n\nSkipped: ' + row.blocked_companies.join(', '));
+          }
           setStatus((row.created ? 'Captured ✓ (new)' : 'Captured ✓ (enriched existing)'), false);
           setTimeout(() => setStatus(null), 4000);
         } else {
