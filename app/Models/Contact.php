@@ -19,6 +19,12 @@ class Contact extends Model
 {
     use SoftDeletes, BelongsToAgency, BelongsToBranch;
 
+    // Entity-type foundation (.ai/specs/contact-entity-type.md) — coarse
+    // natural-person/entity split, distinct from fica_submissions.entity_type's
+    // richer natural/company/trust/partnership classification.
+    public const TYPE_NATURAL_PERSON = 'natural_person';
+    public const TYPE_ENTITY         = 'entity';
+
     protected static function booted(): void
     {
         static::addGlobalScope(new ContactScope());
@@ -36,6 +42,10 @@ class Contact extends Model
         'client_user_id',
         'first_name', 'last_name', 'phone', 'email', 'notes',
         'birthday', 'birthday_reminder', 'id_number', 'id_type', 'id_number_captured_at', 'id_number_source', 'address',
+        // Entity-type foundation (.ai/specs/contact-entity-type.md) — 'type' is
+        // deliberately coarser than fica_submissions.entity_type; it only
+        // distinguishes natural_person vs entity for linking/ownership/dedup.
+        'type', 'entity_name', 'entity_reg_no',
         // AT-60 — structured PROPERTY-address capture (independent of the
         // residential `address` above; never auto-composed into it).
         'unit_number', 'floor_number', 'unit_section_block', 'complex_name',
@@ -522,7 +532,45 @@ class Contact extends Model
 
     public function getFullNameAttribute(): string
     {
-        return $this->first_name . ' ' . $this->last_name;
+        if ($this->type === self::TYPE_ENTITY) {
+            return (string) $this->entity_name;
+        }
+
+        return trim($this->first_name . ' ' . $this->last_name);
+    }
+
+    public function isEntity(): bool
+    {
+        return $this->type === self::TYPE_ENTITY;
+    }
+
+    /**
+     * The natural-person Contacts who represent THIS entity Contact (director/
+     * trustee/partner/signatory). Many-to-many: a director can sit on multiple
+     * entities. Spec: .ai/specs/contact-entity-type.md §4.2/§5.
+     */
+    public function representatives(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            Contact::class,
+            'contact_representatives',
+            'entity_contact_id',
+            'representative_contact_id'
+        )->using(ContactRepresentative::class)->withPivot('is_primary')->withTimestamps();
+    }
+
+    /**
+     * The entity Contacts THIS natural-person Contact represents (inverse of
+     * representatives()).
+     */
+    public function representedEntities(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            Contact::class,
+            'contact_representatives',
+            'representative_contact_id',
+            'entity_contact_id'
+        )->using(ContactRepresentative::class)->withPivot('is_primary')->withTimestamps();
     }
 
     public function getInitialsAttribute(): string

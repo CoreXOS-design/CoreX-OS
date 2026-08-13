@@ -64,6 +64,8 @@ class ContactObserver
      */
     public function saving(Contact $contact): void
     {
+        $this->mirrorEntityNameToPersonFields($contact);
+
         AuditContext::markHandled();
 
         if ($contact->exists && !$contact->wasRecentlyCreated) {
@@ -201,6 +203,28 @@ class ContactObserver
                     $contact->branch_id = $defaultBranch;
                 }
             }
+        }
+    }
+
+    /**
+     * .ai/specs/contact-entity-type.md §4.1 — contacts.first_name/last_name
+     * are NOT NULL, and an entity Contact has no natural first/last name.
+     * Rather than relaxing the columns and null-safing every existing
+     * consumer (Excel export, WhatsApp/email templates, initials, etc.),
+     * mirror entity_name into first_name and blank last_name whenever the
+     * entity fields change. Contact::getFullNameAttribute() still composes
+     * the display correctly from entity_name directly (no trailing space);
+     * this mirror is a safety net for the raw columns.
+     */
+    private function mirrorEntityNameToPersonFields(Contact $contact): void
+    {
+        if ($contact->type !== Contact::TYPE_ENTITY) {
+            return;
+        }
+
+        if ($contact->isDirty('entity_name') || $contact->isDirty('type') || !$contact->exists) {
+            $contact->first_name = (string) $contact->entity_name;
+            $contact->last_name  = '';
         }
     }
 

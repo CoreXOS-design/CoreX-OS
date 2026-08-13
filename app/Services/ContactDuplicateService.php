@@ -34,7 +34,7 @@ class ContactDuplicateService
     public function findDuplicates(array $data, int $agencyId): Collection
     {
         $settings = AgencyContactSettings::forAgency($agencyId);
-        $matchFields = $settings->duplicate_match_fields ?? ['phone', 'email', 'id_number'];
+        $matchFields = $settings->duplicate_match_fields ?? ['phone', 'email', 'id_number', 'entity_reg_no'];
 
         $query = Contact::withoutGlobalScopes()
             ->where('agency_id', $agencyId)
@@ -186,6 +186,11 @@ class ContactDuplicateService
             'phone' => $this->normalizePhone($value),
             'email' => strtolower(trim($value)),
             'id_number' => preg_replace('/[\s\-]/', '', $value),
+            // Entity foundation (.ai/specs/contact-entity-type.md §6.7) — an
+            // entity dedups on its registration number, same normalization as
+            // id_number (strip whitespace/hyphens; CIPC's '/' separators are
+            // semantically meaningful and kept).
+            'entity_reg_no' => preg_replace('/[\s\-]/', '', $value),
             default => $value,
         };
     }
@@ -244,6 +249,7 @@ class ContactDuplicateService
             'phone' => "RIGHT(REGEXP_REPLACE(phone, '[^0-9]', ''), 9)",
             'email' => "LOWER(TRIM(email))",
             'id_number' => "REPLACE(REPLACE(id_number, ' ', ''), '-', '')",
+            'entity_reg_no' => "REPLACE(REPLACE(entity_reg_no, ' ', ''), '-', '')",
             default => $field,
         };
     }
@@ -254,7 +260,7 @@ class ContactDuplicateService
     public function identifyMatch(array $data, Contact $existing, int $agencyId): array
     {
         $settings = AgencyContactSettings::forAgency($agencyId);
-        $matchFields = $settings->duplicate_match_fields ?? ['phone', 'email', 'id_number'];
+        $matchFields = $settings->duplicate_match_fields ?? ['phone', 'email', 'id_number', 'entity_reg_no'];
 
         foreach ($matchFields as $field) {
             $attemptedValue = $data[$field] ?? null;

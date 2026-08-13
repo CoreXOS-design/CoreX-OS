@@ -1,0 +1,34 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * Contact enhancement foundation — entity type (spec:
+ * .ai/specs/contact-entity-type.md). Johan's decided minimal model: a
+ * Contact is either a natural person or an entity (company/CC/trust/etc,
+ * collapsed to one value — FICA's own richer natural/company/trust/
+ * partnership distinction is untouched and unrelated, see spec §3).
+ *
+ * contacts.first_name/last_name stay NOT NULL — an entity Contact gets them
+ * mirrored from entity_name via ContactObserver rather than relaxing the
+ * columns and null-safing every existing consumer (spec §4.1).
+ */
+return new class extends Migration {
+    public function up(): void
+    {
+        Schema::table('contacts', function (Blueprint $table) {
+            $table->string('type')->default('natural_person')->after('id_type');
+            $table->string('entity_name')->nullable()->after('type');
+            $table->string('entity_reg_no')->nullable()->after('entity_name');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::table('contacts', function (Blueprint $table) {
+            $table->dropColumn(['type', 'entity_name', 'entity_reg_no']);
+        });
+    }
+};
