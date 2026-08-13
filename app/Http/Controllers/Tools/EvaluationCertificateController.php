@@ -281,6 +281,25 @@ class EvaluationCertificateController extends Controller
             ->find($certificate->contact_id);
     }
 
+    /**
+     * Download filename built from the property ADDRESS, sanitised to a safe slug —
+     * e.g. "380-Wilfred-Street-Shelly-Beach-Margate-Evaluation-Certificate.pdf".
+     * Falls back to the ref/id when the certificate has no address.
+     */
+    private function certificateFilename(EvaluationCertificate $certificate): string
+    {
+        $address = trim((string) $certificate->address);
+        if ($address === '') {
+            return 'Evaluation-Certificate-EC-' . ($certificate->id ?? 'DRAFT') . '.pdf';
+        }
+
+        $slug = preg_replace('/[^A-Za-z0-9]+/', '-', $address);   // non-alphanumeric → hyphen
+        $slug = trim((string) $slug, '-');
+        $slug = substr($slug, 0, 120);                            // keep the filename sane
+
+        return ($slug !== '' ? $slug : 'Evaluation-Certificate-EC-' . $certificate->id) . '-Evaluation-Certificate.pdf';
+    }
+
     /** The JSON the /tools/cma screen needs back after a save/sign. */
     private function certificatePayload(EvaluationCertificate $certificate): array
     {
@@ -308,7 +327,7 @@ class EvaluationCertificateController extends Controller
         abort_unless(auth()->user()?->hasPermission('access_calculators'), 403);
         abort_unless((int) $certificate->agency_id === (int) (auth()->user()->effectiveAgencyId() ?? 0), 404);
 
-        $filename = 'evaluation-certificate-' . $certificate->id . '.pdf';
+        $filename = $this->certificateFilename($certificate);
         $inline   = $request->boolean('inline');
 
         if ($certificate->signed_pdf_path && Storage::exists($certificate->signed_pdf_path)) {
@@ -530,7 +549,7 @@ class EvaluationCertificateController extends Controller
      */
     public function publicView(Request $request, EvaluationCertificate $certificate): Response
     {
-        $filename = 'evaluation-certificate-' . $certificate->id . '.pdf';
+        $filename = $this->certificateFilename($certificate);
 
         if ($certificate->signed_pdf_path && Storage::exists($certificate->signed_pdf_path)) {
             return Storage::response($certificate->signed_pdf_path, $filename, ['Content-Disposition' => 'inline; filename="' . $filename . '"']);
