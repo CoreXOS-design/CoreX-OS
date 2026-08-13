@@ -607,7 +607,7 @@ class EvaluationCertificateController extends Controller
     {
         $authorisers = $practitioners->getEligibleAuthorisers($candidate);   // throws if none → caught by caller
         $auth = app(EvaluationAuthorisationService::class);
-        $url  = route('tools.cma') . '?section=cma';
+        $url  = route('tools.cma.evaluation.authorisations');
 
         foreach ($authorisers as $authoriser) {
             DatabaseNotification::create([
@@ -741,9 +741,26 @@ class EvaluationCertificateController extends Controller
             'status'                 => $certificate->status,
             'reject_note'            => $certificate->reject_note,
             'candidate_name'         => $creator?->name,
+            'submitted_at'           => optional($certificate->updated_at)->format('Y-m-d H:i'),
             'is_signed'              => $certificate->isAuthorised(),
             'download_url'           => route('tools.cma.evaluation.download', $certificate),
         ];
+    }
+
+    /**
+     * The dedicated Pending Authorisations screen for full-status practitioners — a
+     * LIST of certificates awaiting their authorisation, each opening to a READ-ONLY
+     * review (the finished PDF) → Authorise & sign / Reject. Deliberately NOT the
+     * create/edit builder — an authoriser signs a submitted cert, never edits it.
+     */
+    public function authorisations(Request $request): \Illuminate\Contracts\View\View
+    {
+        $user = $request->user();
+        abort_unless($user?->hasPermission('access_calculators'), 403);
+
+        return view('tools.evaluation-certificate.authorisations', [
+            'savedSigConfigured' => app(AgentSignatureService::class)->isConfigured($user),
+        ]);
     }
 
     /**

@@ -243,6 +243,18 @@ final class EvaluationCertificateScreenTest extends TestCase
         $this->assertSame('Evaluation-Certificate-EC-' . $blank->id . '.pdf', $fn->invoke($ctrl, $blank));
     }
 
+    public function test_authorisations_page_is_the_dedicated_review_not_the_builder(): void
+    {
+        $res = $this->actingAs($this->agent)->get(route('tools.cma.evaluation.authorisations'));
+
+        $res->assertOk()
+            ->assertSee('Pending Authorisations')
+            ->assertSee('evalAuth()', false)          // the dedicated review component
+            ->assertSee('Authorise &amp; sign', false)
+            ->assertDontSee('Find a property', false) // NOT the create/edit builder (no property search)
+            ->assertDontSee('Save evaluation', false);
+    }
+
     public function test_pdf_uses_the_full_esign_company_letterhead(): void
     {
         $cert = EvaluationCertificate::create([

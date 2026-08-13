@@ -147,6 +147,15 @@ Johan (full-status) had a candidate cert but "nowhere to be found on my side." R
 - The `/tools/cma` "Evaluations awaiting your authorisation" queue panel remains the list where each pending cert opens to Authorise+sign / Reject.
 - ⚠️ Field note: Angelique's live certs were `draft`, not `pending` — she must click **"Sign & submit for authorisation"** (she has a saved sig+PIN, so it will work) for it to reach Johan.
 
+### cc1 — DEDICATED authorise screen (Johan's 2 defects, 13 Aug 2026)
+
+Johan's authorise experience was broken: clicking Review on the /tools/cma queue loaded the pending cert into the **create/edit builder** (blank/editable "new cert" chrome), and "Authorise & sign" threw a JS **"Save your changes first"** alert (the builder's dirty-watch fired when the cert was loaded). Root cause = reusing the editable form as the authorise surface. Fix = a **dedicated read-only review view**:
+
+- **New page** `GET /tools/cma/evaluation/authorisations` → `tools.evaluation-certificate.authorisations` (Alpine `evalAuth()`). A **LIST** of pending certs (property, value, submitting agent, submitted date, status) each with **Review** → a **read-only** review (the finished PDF in an iframe: `download?inline=1`) → **Authorise & sign** (PIN → direct `POST …/authorise`, NO save step, NO dirty-check) or **Reject** (note). Scales to many pending at once. `queueItem` gains `submitted_at`.
+- **Entry points repointed** to the new page: sidebar "Pending Authorisations" badge + the submit notification's `action_url`.
+- **/tools/cma is now candidate-only for the queue** — the "My submitted evaluations" panel shows only for `queueRole==='candidate'`; the authoriser authorise/reject buttons were removed from the builder. Authorisers never touch the editable form → both defects gone by construction.
+- Verified: `EvaluationCertificateScreenTest` — the authorisations page renders the dedicated `evalAuth()` review (has "Authorise & sign", does NOT have "Find a property"/"Save evaluation").
+
 ### ⚠️ REMAINING FLAGS from cc1 (Phase 4) — need owner decisions
 
 1. ~~No certificate SAVE/PERSIST endpoint~~ — **RESOLVED**: Johan assigned cc1 the last-mile; `store`/`update` + the full screen are built (see section above). End-to-end in the browser now works.
