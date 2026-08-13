@@ -90,6 +90,21 @@ final class SuggestedActionResolver
             return $this->buildR4($claim, $listing, $thresholds);
         }
 
+        // EXISTENCE CHECK (Johan 2026-08-13, MIC funnel phase 1) — this listing resolves to a property
+        // already on HFC's books. Do NOT offer it as a fresh pitch to a second agent; surface
+        // "already exists → open property" (naming who is on it) instead. Runs AFTER the viewer's own
+        // follow-up rules (R1–R4, so a personal claim/pitch reminder still wins) and BEFORE every
+        // pitch-offer rule (R5–R10). The authoritative pre-work gate remains the reactive collision
+        // check (EntryPointController → TrackedPropertyMatchOrCreateService::findExistingMatch), which
+        // redirects a pitch-now click on an existing property to the property; this makes it visible
+        // up-front so a second agent never starts.
+        if ($companyStockPropertyId !== null) {
+            return $this->buildAlreadyExists(
+                $companyStockPropertyId,
+                $state['company_stock_agent_name'] ?? null,
+            );
+        }
+
         // R5 — high-value pitch opportunity (not yet in stock)
         $hasRecentPitch = $pitch
             && $this->daysSince($pitch['sent_at'] ?? null) < $thresholds->pitch_recency_days;
@@ -362,6 +377,29 @@ final class SuggestedActionResolver
      * "PITCH NOW" — when buyer signal exists, R5 ("PITCH NOW · HIGH") or
      * R6 ("PITCH NOW" + buyer-count tooltip) wins above.
      */
+    /**
+     * EXISTENCE CHECK chip (Johan 2026-08-13) — the listing matches a property already on HFC's books.
+     * Replaces the Pitch Now offer with "already exists → open property", naming who is on it, so a
+     * second agent opens the existing record instead of working it again.
+     */
+    private function buildAlreadyExists(int $propertyId, ?string $agentName): SuggestedAction
+    {
+        $who = $agentName !== null && trim($agentName) !== ''
+            ? e(trim($agentName)) . ' is already on it'
+            : 'Already on HFC&rsquo;s books';
+        $tooltip = $this->tooltip($who . ' — open the existing property instead of pitching it again.');
+
+        return new SuggestedAction(
+            rank:        'EXISTS',
+            label:       'ALREADY EXISTS · OPEN PROPERTY',
+            tier:        'info',
+            icon:        'info',
+            tooltipHtml: $tooltip,
+            clickType:   'anchor',
+            href:        route('corex.properties.show', ['property' => $propertyId]),
+        );
+    }
+
     private function buildR10(ProspectingListing $listing, ?int $companyStockPropertyId): SuggestedAction
     {
         $inStock = $companyStockPropertyId !== null;

@@ -514,25 +514,24 @@
       <h3 class="tool-card-header">Evaluation Certificate</h3>
 
       {{-- ── Candidate authorisation queue ──────────────────────────────────────
-           Candidate: their submitted evaluations + status (pending/authorised/rejected).
-           Authoriser: evaluations awaiting their authorisation. --}}
-      <div x-show="queue.length" x-cloak class="pill" style="display:block; margin-bottom:1rem; background:#f1f5f9;">
-        <div style="font-weight:700; color:#0b2a4a; margin-bottom:.5rem;"
-             x-text="queueRole === 'candidate' ? 'My submitted evaluations' : 'Evaluations awaiting your authorisation'"></div>
+           CANDIDATE ONLY — their submitted evaluations + status (pending/authorised/rejected).
+           Authorisers use the dedicated Pending Authorisations screen (list → read-only
+           review → authorise), never this editable builder. --}}
+      <div x-show="queue.length && queueRole === 'candidate'" x-cloak class="pill" style="display:block; margin-bottom:1rem; background:#f1f5f9;">
+        <div style="font-weight:700; color:#0b2a4a; margin-bottom:.5rem;">My submitted evaluations</div>
         <template x-for="q in queue" :key="q.id">
           <div style="display:flex; align-items:center; justify-content:space-between; gap:.75rem; padding:.4rem 0; border-top:1px solid var(--border);">
             <div style="min-width:0;">
               <div style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" x-text="q.address"></div>
               <div style="font-size:.72rem; color:var(--text-secondary);">
                 <span x-show="q.estimated_market_value" x-text="q.estimated_market_value ? ('R ' + Number(q.estimated_market_value).toLocaleString('en-ZA')) : ''"></span>
-                <span x-show="queueRole !== 'candidate' && q.candidate_name" x-text="' • ' + q.candidate_name"></span>
               </div>
             </div>
             <div style="display:flex; align-items:center; gap:.4rem; flex-shrink:0;">
               <span class="agent-tag" x-text="statusLabel(q.status)"
                     :style="'color:#fff;background:' + statusColour(q.status)"></span>
               <button class="corex-btn-outline" style="padding:.25rem .6rem;" @click="reviewCert(q)"
-                      x-text="queueRole === 'candidate' ? (q.status === 'rejected' ? 'Fix &amp; resubmit' : 'Open') : 'Review'"></button>
+                      x-text="q.status === 'rejected' ? 'Fix &amp; resubmit' : 'Open'"></button>
             </div>
           </div>
         </template>
@@ -669,13 +668,8 @@
           <button class="corex-btn-primary" style="background:#0b7d3b;" @click="openSign()">Sign &amp; finalise</button>
         </template>
 
-        {{-- Authoriser: accept+sign, or reject-with-note, a pending certificate --}}
-        <template x-if="certId && !isCandidate && canAuthorise && status === 'pending_authorisation'">
-          <span style="display:inline-flex; gap:.5rem;">
-            <button class="corex-btn-primary" style="background:#0b7d3b;" @click="openSign()">Authorise &amp; sign</button>
-            <button class="corex-btn-outline" style="border-color:#b91c1c; color:#b91c1c;" @click="openReject()">Reject</button>
-          </span>
-        </template>
+        {{-- Authorising a candidate's cert happens on the dedicated Pending Authorisations
+             screen (read-only review), never in this editable builder. --}}
 
         <button class="corex-btn-outline" x-show="status === 'authorised'" x-cloak @click="share()">Share</button>
 

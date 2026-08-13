@@ -137,6 +137,25 @@ The candidate dead-end modal ("you cannot finalise… Cancel") is replaced by a 
 - Authoriser eligibility = `CandidatePractitionerService::canAuthoriseFor` (agency admin agency-wide, OR BM/full-status of the candidate's branch) — reused, no new logic.
 - Verified: `EvaluationCertificateSignTest` — candidate submit→pending (+snapshot), full-status authorise→authorised (2 sigs, filed), reject+note→resubmit, candidate/stranger-branch cannot authorise, queue role-scoping.
 
+### cc1 — DISCOVERABILITY: authorisers can now FIND pending authorisations (Johan, 13 Aug 2026)
+
+Johan (full-status) had a candidate cert but "nowhere to be found on my side." Root cause was two-fold: (a) the only surface was the buried `/tools/cma` queue panel, AND (b) it only shows when something is actually pending — and the candidate's certs were still `draft` (never submitted). Fix adds real entry points:
+
+- **`EvaluationAuthorisationService`** — single source of truth: `pendingFor(User)` (pending certs the user may authorise) + `pendingCountFor(User)` (cached 30s, badge count). `queue()` now uses it.
+- **Bell notification on submit** — `submitForAuthorisation()` creates a `DatabaseNotification` (`type=evalcert.authorisation_pending`, `data.action_url` → `/tools/cma`) for every `getEligibleAuthorisers(candidate)`, and busts their badge cache. Non-fatal.
+- **Sidebar entry + count badge** — under Tools, a **"Pending Authorisations"** item appears for eligible authorisers whenever `pendingCountFor > 0`, with a red count badge, linking to the eval screen. So a submit lights up the sidebar without a magic URL.
+- The `/tools/cma` "Evaluations awaiting your authorisation" queue panel remains the list where each pending cert opens to Authorise+sign / Reject.
+- ⚠️ Field note: Angelique's live certs were `draft`, not `pending` — she must click **"Sign & submit for authorisation"** (she has a saved sig+PIN, so it will work) for it to reach Johan.
+
+### cc1 — DEDICATED authorise screen (Johan's 2 defects, 13 Aug 2026)
+
+Johan's authorise experience was broken: clicking Review on the /tools/cma queue loaded the pending cert into the **create/edit builder** (blank/editable "new cert" chrome), and "Authorise & sign" threw a JS **"Save your changes first"** alert (the builder's dirty-watch fired when the cert was loaded). Root cause = reusing the editable form as the authorise surface. Fix = a **dedicated read-only review view**:
+
+- **New page** `GET /tools/cma/evaluation/authorisations` → `tools.evaluation-certificate.authorisations` (Alpine `evalAuth()`). A **LIST** of pending certs (property, value, submitting agent, submitted date, status) each with **Review** → a **read-only** review (the finished PDF in an iframe: `download?inline=1`) → **Authorise & sign** (PIN → direct `POST …/authorise`, NO save step, NO dirty-check) or **Reject** (note). Scales to many pending at once. `queueItem` gains `submitted_at`.
+- **Entry points repointed** to the new page: sidebar "Pending Authorisations" badge + the submit notification's `action_url`.
+- **/tools/cma is now candidate-only for the queue** — the "My submitted evaluations" panel shows only for `queueRole==='candidate'`; the authoriser authorise/reject buttons were removed from the builder. Authorisers never touch the editable form → both defects gone by construction.
+- Verified: `EvaluationCertificateScreenTest` — the authorisations page renders the dedicated `evalAuth()` review (has "Authorise & sign", does NOT have "Find a property"/"Save evaluation").
+
 ### ⚠️ REMAINING FLAGS from cc1 (Phase 4) — need owner decisions
 
 1. ~~No certificate SAVE/PERSIST endpoint~~ — **RESOLVED**: Johan assigned cc1 the last-mile; `store`/`update` + the full screen are built (see section above). End-to-end in the browser now works.
