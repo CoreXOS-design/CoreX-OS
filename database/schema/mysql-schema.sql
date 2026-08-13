@@ -3817,7 +3817,7 @@ CREATE TABLE `contacts` (
   `messaging_opt_in_reason` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `messaging_opt_in_recorded_by_user_id` bigint unsigned DEFAULT NULL,
   `id_type` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `type` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'natural_person',
+  `contact_kind` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'natural_person',
   `entity_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `entity_reg_no` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -14563,3 +14563,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1078,'2026_08_21_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1079,'2026_08_21_000070_add_candidate_signature_to_evaluation_certificates',247);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1080,'2026_08_21_000080_add_entity_type_to_contacts_table',248);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1081,'2026_08_21_000090_create_contact_representatives_table',248);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1082,'2026_08_21_000100_rename_type_to_contact_kind_on_contacts_table',249);

@@ -42,10 +42,14 @@ class Contact extends Model
         'client_user_id',
         'first_name', 'last_name', 'phone', 'email', 'notes',
         'birthday', 'birthday_reminder', 'id_number', 'id_type', 'id_number_captured_at', 'id_number_source', 'address',
-        // Entity-type foundation (.ai/specs/contact-entity-type.md) — 'type' is
-        // deliberately coarser than fica_submissions.entity_type; it only
-        // distinguishes natural_person vs entity for linking/ownership/dedup.
-        'type', 'entity_name', 'entity_reg_no',
+        // Entity-type foundation (.ai/specs/contact-entity-type.md) —
+        // 'contact_kind' is deliberately coarser than fica_submissions.
+        // entity_type; it only distinguishes natural_person vs entity for
+        // linking/ownership/dedup. NOT named 'type' — that column name
+        // shadowed the pre-existing Contact::type() relationship
+        // (belongsTo(ContactType::class)), see the incident-fix migration
+        // 2026_08_21_000100_rename_type_to_contact_kind_on_contacts_table.
+        'contact_kind', 'entity_name', 'entity_reg_no',
         // AT-60 — structured PROPERTY-address capture (independent of the
         // residential `address` above; never auto-composed into it).
         'unit_number', 'floor_number', 'unit_section_block', 'complex_name',
@@ -532,7 +536,7 @@ class Contact extends Model
 
     public function getFullNameAttribute(): string
     {
-        if ($this->type === self::TYPE_ENTITY) {
+        if ($this->contact_kind === self::TYPE_ENTITY) {
             return (string) $this->entity_name;
         }
 
@@ -541,7 +545,7 @@ class Contact extends Model
 
     public function isEntity(): bool
     {
-        return $this->type === self::TYPE_ENTITY;
+        return $this->contact_kind === self::TYPE_ENTITY;
     }
 
     /**

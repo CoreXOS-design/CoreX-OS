@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Contacts;
 
 use App\Models\Contact;
+use App\Models\ContactType;
 use App\Models\User;
 use App\Services\ContactDuplicateService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -33,7 +34,7 @@ final class ContactEntityTypeTest extends TestCase
         $agencyId = $this->makeAgency();
         $contact = $this->makeNaturalContact($agencyId, 'Sam', 'Seller');
 
-        $this->assertSame(Contact::TYPE_NATURAL_PERSON, $contact->fresh()->type);
+        $this->assertSame(Contact::TYPE_NATURAL_PERSON, $contact->fresh()->contact_kind);
         $this->assertFalse($contact->isEntity());
     }
 
@@ -132,6 +133,23 @@ final class ContactEntityTypeTest extends TestCase
         $this->assertSame('Sam Seller', $contact->fresh()->full_name);
     }
 
+    // ── Regression guard: Contact::type() relationship must NOT be shadowed ─
+    // (2026-08-13 incident — a same-named `type` column broke this app-wide;
+    // contact_kind exists precisely so this never recurs).
+
+    public function test_contact_type_relationship_is_not_shadowed_by_contact_kind(): void
+    {
+        $agencyId = $this->makeAgency();
+        $contactType = ContactType::create(['name' => 'Seller', 'esign_role' => 'seller']);
+        $contact = $this->makeNaturalContact($agencyId, 'Sam', 'Seller');
+        $contact->update(['contact_type_id' => $contactType->id]);
+
+        $fresh = Contact::withoutGlobalScopes()->with('type')->find($contact->id);
+
+        $this->assertInstanceOf(ContactType::class, $fresh->type);
+        $this->assertSame('Seller', $fresh->type->name);
+    }
+
     // ── Dedup: entity keys on reg number, natural person on ID number ────
 
     public function test_duplicate_service_finds_entity_by_reg_number(): void
@@ -193,7 +211,7 @@ final class ContactEntityTypeTest extends TestCase
             'branch_id' => $agencyId,
             'created_by_user_id' => $creator->id,
             'agent_id'  => $creator->id,
-            'type' => Contact::TYPE_NATURAL_PERSON,
+            'contact_kind' => Contact::TYPE_NATURAL_PERSON,
             'first_name' => $first,
             'last_name' => $last,
             'phone' => $phone ?? '08' . random_int(10000000, 99999999),
@@ -211,7 +229,7 @@ final class ContactEntityTypeTest extends TestCase
             'branch_id' => $agencyId,
             'created_by_user_id' => $creator->id,
             'agent_id'  => $creator->id,
-            'type' => Contact::TYPE_ENTITY,
+            'contact_kind' => Contact::TYPE_ENTITY,
             'entity_name' => $entityName,
             'entity_reg_no' => $regNo,
             // NOT NULL columns — the observer mirror is what's under test in

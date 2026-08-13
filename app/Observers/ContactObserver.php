@@ -218,11 +218,11 @@ class ContactObserver
      */
     private function mirrorEntityNameToPersonFields(Contact $contact): void
     {
-        if ($contact->type !== Contact::TYPE_ENTITY) {
+        if ($contact->contact_kind !== Contact::TYPE_ENTITY) {
             return;
         }
 
-        if ($contact->isDirty('entity_name') || $contact->isDirty('type') || !$contact->exists) {
+        if ($contact->isDirty('entity_name') || $contact->isDirty('contact_kind') || !$contact->exists) {
             $contact->first_name = (string) $contact->entity_name;
             $contact->last_name  = '';
         }
