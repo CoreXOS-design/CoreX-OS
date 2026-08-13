@@ -69,6 +69,18 @@
     // on a full-title property, "Flat/Unit no:" (the next label down) wasn't
     // recognised as a known label and slipped through as a fake value.
     ['flat_number',     'Flat/Unit no'],
+    // CONFIRMED LIVE (2026-08-13, Mzobe/Vorster captures) — another two real
+    // labels that were missing from this list, so the cascade guard didn't
+    // recognise them either: a genuinely blank "Street number:" row leaked
+    // into unit_number, and a blank "Estate" row leaked into the address.
+    // Not consumed into the payload (no confirmed role beyond existing —
+    // splitStreetAddress() derives street_number from Address instead,
+    // which IS confirmed) — listed here purely so knownLabelTexts() closes
+    // this gap. The scopeRoot fix (below) addresses the deeper cause of why
+    // these blank rows were being reached via cross-panel matches at all;
+    // this stays as defence-in-depth for genuinely-blank same-panel rows.
+    ['cma_street_number', 'Street number'],
+    ['estate',          'Estate'],
     ['address',         'Address'],
     // CONFIRMED LIVE (2026-08-13) — full-title properties carry Erf no as
     // its own labelled row here, separate from the sectional-title fields.
@@ -147,10 +159,11 @@
     return _knownLabelsCache;
   }
 
-  function findValueByLabel(label) {
+  function findValueByLabel(label, scopeRoot) {
+    const root = scopeRoot || document;
     const target = normalizeLabel(label);
     const knownLabels = knownLabelTexts();
-    const cells = document.querySelectorAll('td, th');
+    const cells = root.querySelectorAll('td, th');
 
     for (const cell of cells) {
       if (normalizeLabel(cell.textContent) !== target) continue;
@@ -198,10 +211,11 @@
    * findValueByLabel's three fallback steps exactly so the two never
    * disagree about which cell holds "the value".
    */
-  function findValueElementByLabel(label) {
+  function findValueElementByLabel(label, scopeRoot) {
+    const root = scopeRoot || document;
     const target = normalizeLabel(label);
     const knownLabels = knownLabelTexts();
-    const cells = document.querySelectorAll('td, th');
+    const cells = root.querySelectorAll('td, th');
 
     for (const cell of cells) {
       if (normalizeLabel(cell.textContent) !== target) continue;
@@ -243,11 +257,11 @@
     return values;
   }
 
-  function extractByLabelMap(labelPairs) {
+  function extractByLabelMap(labelPairs, scopeRoot) {
     const out = {};
     labelPairs.forEach(([key, label]) => {
       try {
-        out[key] = findValueByLabel(label);
+        out[key] = findValueByLabel(label, scopeRoot);
       } catch (e) {
         out[key] = null;
       }
@@ -469,13 +483,19 @@
   // ── EXTRACTION ──────────────────────────────────────────────
   // ══════════════════════════════════════════════════════════
 
+  // Scoped to the section's own panel (2026-08-13 — see the scopeRoot note
+  // above findValueByLabel) so a same-named label anywhere ELSE on this
+  // search page (another panel, a filter form) can never be matched instead
+  // of the panel's own real row.
   function extractPropertyInformation() {
-    return extractByLabelMap(PROPERTY_INFORMATION_LABELS);
+    const panel = findSectionPanel(findSectionHeader('Property Information'));
+    return extractByLabelMap(PROPERTY_INFORMATION_LABELS, panel || undefined);
   }
 
   async function extractSaleInformation() {
     await revealOwnerIdIfNeeded();
-    return extractByLabelMap(SALE_INFORMATION_LABELS);
+    const panel = findSectionPanel(findSectionHeader('Sale Information'));
+    return extractByLabelMap(SALE_INFORMATION_LABELS, panel || undefined);
   }
 
   /**
@@ -673,7 +693,8 @@
    * CMA doesn't mark up IDs individually within the joined cell.
    */
   function ownerIdOptedOutFlags(count) {
-    const cell = findValueElementByLabel("Owner's ID");
+    const salePanel = findSectionPanel(findSectionHeader('Sale Information'));
+    const cell = findValueElementByLabel("Owner's ID", salePanel || undefined);
     if (!cell) return new Array(count).fill(false);
     const children = cell.querySelectorAll('a, span');
     if (children.length >= count) {
