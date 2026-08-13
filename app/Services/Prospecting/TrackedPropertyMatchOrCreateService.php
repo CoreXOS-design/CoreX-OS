@@ -144,7 +144,22 @@ final class TrackedPropertyMatchOrCreateService
             return $historyHit;
         }
 
-        // Strategy 1: Source-ref exact match (the strongest signal — a portal told us this is the same listing)
+        // Strategy 1: Source-ref exact match (the strongest signal — a portal told us this is the same listing).
+        // numbersConflict() guard added 2026-08-13 (Frankenstein-record fix):
+        // this used to be the ONLY strategy with no conflict veto at all, on
+        // the theory that an exact ref match can't be wrong. In practice a
+        // ref can get linked to the wrong TrackedProperty exactly once (a
+        // mis-timed panel read sending a stale/duplicated erf, or two
+        // captures colliding on the same generated ref) — and because
+        // writeExternalRef() is unconditional, that single bad link then gets
+        // silently re-confirmed and compounded by every future capture of
+        // that ref forever, since nothing downstream ever re-checks it. If
+        // the incoming facts now structurally conflict with the linked TP
+        // (different erf/unit/section, both populated), treat the stale link
+        // as suspect rather than gospel: fall through to strategies 2-5 (or
+        // create-new) instead of returning it. writeExternalRef() then
+        // re-points the ref at whatever correctly resolves this time,
+        // self-healing the link for every capture after this one.
         if (!empty($source['type']) && !empty($source['ref'])) {
             $ref = TrackedPropertyExternalRef::queryWithoutAgencyScope()
                 ->where('agency_id', $agencyId)
@@ -157,11 +172,16 @@ final class TrackedPropertyMatchOrCreateService
                     ->where('agency_id', $agencyId)
                     ->whereNull('deleted_at')
                     ->find($ref->tracked_property_id);
-                if ($tp) {
+                if ($tp && ! $this->numbersConflict($facts, $tp)) {
                     Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch matched via strategy=1_source_ref', [
                         'agency_id' => $agencyId, 'tracked_property_id' => $tp->id,
                     ]);
                     return $tp;
+                }
+                if ($tp) {
+                    Log::warning('TrackedPropertyMatchOrCreateService::resolveMatch strategy=1_source_ref REJECTED stale link — numbers conflict', [
+                        'agency_id' => $agencyId, 'tracked_property_id' => $tp->id, 'source_ref' => (string) $source['ref'],
+                    ]);
                 }
             }
         }
@@ -333,6 +353,27 @@ final class TrackedPropertyMatchOrCreateService
         $factNameNums = $this->nameNumbers($facts['street_name'] ?? null, $facts['complex_name'] ?? null);
         $candNameNums = $this->nameNumbers($candidate->street_name, $candidate->complex_name);
         if ($factNameNums !== [] && $candNameNums !== [] && array_intersect($factNameNums, $candNameNums) === []) {
+            return true;
+        }
+
+        // (5) Erf number — the cadastral identity of the property itself
+        // (2026-08-13, Frankenstein-record fix). Structurally stable (an erf
+        // only changes on subdivision/consolidation, which genuinely is a
+        // different property going forward) — unlike title_deed_number, which
+        // legitimately changes on every resale, so deed number is NOT used as
+        // a veto here (that would wrongly split records for the same property
+        // across a resale). Two captures with different, both-populated erf
+        // numbers are legally different properties — no address/GPS/token
+        // similarity overrides that. This closes the gap where a scheme's
+        // shared street address (or a stale/mis-extracted erf from a
+        // mis-timed panel read) let unrelated properties collapse into one
+        // TrackedProperty via the looser strategies, and — critically — via
+        // strategy=1 (source-ref exact), which previously had NO conflict
+        // check at all. Same "both sides populated + differ" veto shape as
+        // above; a missing erf on either side never blocks a match.
+        $factErf = $this->numberKey($facts['erf_number'] ?? null);
+        $candErf = $this->numberKey($candidate->erf_number);
+        if ($factErf !== null && $candErf !== null && $factErf !== $candErf) {
             return true;
         }
 
