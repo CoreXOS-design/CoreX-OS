@@ -50,8 +50,35 @@ final class DeedsCaptureController extends Controller
             ->whereHas('items', fn ($q) => $q->whereNull('ingested_at'))
             ->orderByDesc('created_at')
             ->get();
-        $tvaByProperty = $tvaCaptures->where('tracked_property_id', '!=', null)->groupBy('tracked_property_id');
-        $tvaStandalone = $tvaCaptures->whereNull('tracked_property_id');
+
+        // Orphan guard (2026-08-13) — a TVA capture's tracked_property_id is a
+        // suspense link set at capture time; if that TrackedProperty is later
+        // dismissed (soft-deleted, via the Remove feature) or promoted, it
+        // stops appearing in $captures. Grouping strictly by tracked_property_id
+        // then rendering only inside the $captures loop silently dropped that
+        // capture off the screen entirely — not in the property-grouped
+        // section (parent card gone) and not in standalone (tracked_property_id
+        // isn't null) — even though its scraped items were intact and its
+        // matched_contact_id link still valid. Re-home anything whose linked
+        // property isn't currently visible into standalone so it stays
+        // reachable and ingestable regardless of what happens to the property
+        // card.
+        $visibleTpIds = TrackedProperty::query()
+            ->withoutGlobalScopes()
+            ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->where('capture_kind', 'deeds_capture')
+            ->whereNull('promoted_to_property_id')
+            ->whereIn('id', $tvaCaptures->pluck('tracked_property_id')->filter()->unique())
+            ->pluck('id');
+
+        $tvaByProperty = $tvaCaptures
+            ->where('tracked_property_id', '!=', null)
+            ->whereIn('tracked_property_id', $visibleTpIds)
+            ->groupBy('tracked_property_id');
+        $tvaStandalone = $tvaCaptures
+            ->whereNull('tracked_property_id')
+            ->merge($tvaCaptures->where('tracked_property_id', '!=', null)->whereNotIn('tracked_property_id', $visibleTpIds));
 
         return view('corex.deeds-capture.index', [
             'captures'       => $captures,

@@ -143,11 +143,12 @@
         <div>{{ $captures->links() }}</div>
     @endif
 
-    {{-- Standalone TVA captures — no matching suspense record (rare, per spec). --}}
+    {{-- Standalone TVA captures — no matching suspense record, or the record
+         they matched isn't currently on this list (dismissed/promoted). --}}
     @if($tvaStandalone->isNotEmpty())
         <div class="rounded-md px-6 py-4 mt-6" style="background: var(--brand-default, #0b2a4a);">
             <h2 class="text-base font-bold text-white">TVA captures — no matching property</h2>
-            <p class="text-xs text-white/60 mt-1">Captured from TVA but no deeds-capture record shares this ID number.</p>
+            <p class="text-xs text-white/60 mt-1">Either no deeds-capture record shares this ID number, or its matched property is no longer on this list.</p>
         </div>
         <div class="space-y-3 mt-3">
             @foreach($tvaStandalone as $tvaCapture)
