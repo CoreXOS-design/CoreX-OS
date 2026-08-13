@@ -116,6 +116,11 @@ Verified: `EvaluationCertificateScreenTest` (view hides/shows "Authorised by" by
 - **Download filename from the address** — `certificateFilename()` slugs the property address → e.g. `380-Wilfred-Street-Shelly-Beach-Margate-Evaluation-Certificate.pdf` (non-alphanumeric → hyphen, capped 120 chars); falls back to `Evaluation-Certificate-EC-{id}.pdf` when there is no address. Used by both `download()` and `publicView()`.
 - Note: the fuller letterhead can push a short certificate onto a 2nd page (signature block lands there) — acceptable for a formal cert; logo capped at 74px to keep it tight.
 
+### cc1 — property-drive filing (spec item 4) + candidate flow PARKED (Johan, 13 Aug 2026)
+
+- **Filed to the property drive on sign** — `fileToPropertyDrive()` creates a canonical `Document` (the signed PDF at `signed_pdf_path`, `source_type='evaluation_certificate'`, `source_id`=cert id, named by the property address) and attaches it via `document_properties` (`$doc->properties()->syncWithoutDetaching`) — the SAME pivot `Property::documents()` / the PDF splitter / DR2 use, so the certificate shows on the property's drive like any other filed doc. Called from `sign()` after the PDF is baked+filed; **non-fatal** (a filing hiccup logs a warning, never fails the signature); **idempotent** (one Document per certificate); no-op when the cert has no `property_id`. Property resolved agency-scoped (bypasses personal visibility, never crosses agency). `document_type_id` left null (no dedicated eval type exists). Verified: `EvaluationCertificateSignTest` — signed+linked → doc on the property drive (named by address, one copy); unlinked → nothing filed.
+- **Candidate flow PARKED** — Johan is (correctly) impersonation-blocked from setting up a candidate's saved signature/PIN, so the candidate authorise→sign path can't be exercised until a real candidate practitioner tests it. The authoriser-section render conditional (`showsAuthoriser`) is built + unit-verified; end-to-end candidate testing is deferred to a candidate on QA1. cc5's Phase-4b authorisation queue remains the outstanding piece.
+
 ### ⚠️ REMAINING FLAGS from cc1 (Phase 4) — need owner decisions
 
 1. ~~No certificate SAVE/PERSIST endpoint~~ — **RESOLVED**: Johan assigned cc1 the last-mile; `store`/`update` + the full screen are built (see section above). End-to-end in the browser now works.

@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Tools;
 
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
+use App\Models\Document;
 use App\Models\EvaluationCertificate;
 use App\Models\Property;
 use App\Models\Scopes\ContactScope;
@@ -18,6 +19,7 @@ use App\Support\WhatsAppNumberFormatter;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
 use Symfony\Component\HttpFoundation\Response;
@@ -300,6 +302,51 @@ class EvaluationCertificateController extends Controller
         return ($slug !== '' ? $slug : 'Evaluation-Certificate-EC-' . $certificate->id) . '-Evaluation-Certificate.pdf';
     }
 
+    /**
+     * File the signed certificate PDF onto the linked property's document drive
+     * (spec item 4) using the canonical Document + document_properties mechanism —
+     * the same pivot the PDF splitter / DR2 filing and Property::documents() use, so
+     * the certificate appears on the property's drive exactly like any other filed
+     * document. Idempotent (one Document per certificate); no-op when the certificate
+     * is not linked to a property or has no filed PDF yet.
+     */
+    private function fileToPropertyDrive(EvaluationCertificate $certificate, User $actor): void
+    {
+        if (! $certificate->property_id || ! $certificate->signed_pdf_path) {
+            return;
+        }
+
+        // The cert's property link is authoritative — resolve within the agency,
+        // bypassing the viewer's personal visibility scope (Non-Negotiable #7 keeps
+        // it inside the agency), never crossing an agency boundary.
+        $property = Property::withoutGlobalScopes()
+            ->where('agency_id', $certificate->agency_id)
+            ->find($certificate->property_id);
+        if (! $property) {
+            return;
+        }
+
+        // Never file the same certificate twice.
+        if (Document::where('source_type', 'eval_cert')->where('source_id', $certificate->id)->exists()) {
+            return;
+        }
+
+        $doc = Document::create([
+            'agency_id'        => $certificate->agency_id,
+            'original_name'    => $this->certificateFilename($certificate),
+            'storage_path'     => $certificate->signed_pdf_path,
+            'disk'             => config('filesystems.default', 'local'),
+            'mime_type'        => 'application/pdf',
+            'size'             => Storage::exists($certificate->signed_pdf_path) ? Storage::size($certificate->signed_pdf_path) : null,
+            'document_type_id' => null,
+            'source_type'      => 'eval_cert',
+            'source_id'        => $certificate->id,
+            'uploaded_by'      => $actor->id,
+        ]);
+
+        $doc->properties()->syncWithoutDetaching([$property->id]);
+    }
+
     /** The JSON the /tools/cma screen needs back after a save/sign. */
     private function certificatePayload(EvaluationCertificate $certificate): array
     {
@@ -491,6 +538,14 @@ class EvaluationCertificateController extends Controller
         $certificate->signed_pdf_path = $path;
 
         $certificate->save();
+
+        // File the signed certificate onto the linked property's document drive
+        // (spec item 4). Non-fatal: a filing hiccup must never fail the signature.
+        try {
+            $this->fileToPropertyDrive($certificate, $user);
+        } catch (\Throwable $e) {
+            Log::warning('eval-cert: property-drive filing failed', ['certificate' => $certificate->id, 'error' => $e->getMessage()]);
+        }
 
         // One certificate, one signature — drop the unlock; nothing lingers unlocked.
         $signatures->lock($user, $contextKey);
