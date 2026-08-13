@@ -96,6 +96,33 @@ final class MicPropertyReconciliationTest extends TestCase
         $this->assertNull($this->recon()->resolveExistingProperty($this->agencyId, $facts));
     }
 
+    /**
+     * DUPLICATE-TP reality (QA1): several TrackedProperty rows for one asset, only one promoted.
+     * findExistingMatch may return an UNPROMOTED twin — reconciliation must still resolve to the
+     * canonical property via the promoted sibling (erf+suburb identity).
+     */
+    public function test_resolves_via_promoted_sibling_when_matched_twin_is_unpromoted(): void
+    {
+        $prop = $this->seedProperty('12 Marine Drive, Margate', 'Margate');
+        $facts = ['street_number' => '12', 'street_name' => 'Marine Drive', 'suburb' => 'Margate', 'erf_number' => '659'];
+        // Promoted canonical TP (built via the real spine).
+        $promoted = $this->matcher()->matchOrCreate($this->agencyId, $facts, ['type' => 'deeds_capture', 'ref' => 'deed-1']);
+        $promoted->update(['promoted_to_property_id' => $prop->id, 'promoted_at' => now(), 'status' => TrackedProperty::STATUS_PROMOTED]);
+
+        // An UNPROMOTED duplicate twin of the same asset (erf+suburb), inserted with a LOWER id so a
+        // naive first-match returns it.
+        DB::table('tracked_properties')->insert([
+            'agency_id' => $this->agencyId, 'erf_number' => '659',
+            'street_number' => '12', 'street_name' => 'Marine Drive',
+            'suburb' => 'Margate', 'suburb_normalised' => $promoted->suburb_normalised,
+            'status' => TrackedProperty::STATUS_ACTIVE, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $resolved = $this->recon()->resolveExistingProperty($this->agencyId, $facts);
+        $this->assertNotNull($resolved, 'resolves through the duplicate twin to the promoted sibling');
+        $this->assertSame($prop->id, $resolved->id);
+    }
+
     /** The MIC funnel existence-check backing (findExistingMatch → promoted TP) sees the property. */
     public function test_existence_check_sees_address_unlock_property(): void
     {
