@@ -137,6 +137,7 @@ Route::prefix('v1/client-auth')->group(function () {
         Route::post('/password/change', [ClientAuthController::class, 'changePassword'])->name('client-auth.password.change');
         Route::post('/agency/select',   [ClientAuthController::class, 'selectAgency'])->name('client-auth.agency.select');
         Route::post('/logout',          [ClientAuthController::class, 'logout'])->name('client-auth.logout');
+        Route::delete('/account',       [ClientAuthController::class, 'deleteAccount'])->name('client-auth.account.delete');
     });
 });
 

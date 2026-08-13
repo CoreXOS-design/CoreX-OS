@@ -293,6 +293,22 @@ class ClientAuthService
     }
 
     /**
+     * All Contact rows linked to this ClientUser, across every agency.
+     * SANCTIONED cross-agency read — used only to unlink/log on full account
+     * deletion (Apple 5.1.1(v) "delete my account" endpoint).
+     *
+     * @return \Illuminate\Support\Collection<int, Contact>
+     */
+    public function allContactsFor(ClientUser $clientUser): \Illuminate\Support\Collection
+    {
+        return Contact::query()
+            ->withoutGlobalScope(AgencyScope::class)
+            ->withoutGlobalScope(ContactScope::class)
+            ->where('client_user_id', $clientUser->id)
+            ->get(['id', 'agency_id', 'client_user_id']);
+    }
+
+    /**
      * Resolve the contact row this client should operate as in the given agency.
      */
     public function contactForAgency(ClientUser $clientUser, int $agencyId): ?Contact

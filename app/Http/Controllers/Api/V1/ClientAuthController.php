@@ -380,6 +380,65 @@ class ClientAuthController extends Controller
     }
 
     /**
+     * DELETE /api/v1/client-auth/account
+     *
+     * Apple 5.1.1(v) account-deletion requirement — a self-service, in-app,
+     * non-reversible-to-the-client path off the login. The client's Contact
+     * record(s) are NEVER deleted (they are agency business/compliance
+     * records — the pillar data). Only the LOGIN identity is removed: every
+     * linked Contact is unlinked, every Sanctum token is revoked, the
+     * password is wiped, and the ClientUser itself is soft-deleted (never a
+     * hard delete — non-negotiable #1). Once this runs, /lookup and /login
+     * behave exactly as if this email had never signed up — the client can
+     * always start over from Screen 1.
+     */
+    public function deleteAccount(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'password' => 'required_unless:must_change,1|string',
+        ]);
+
+        /** @var ClientUser $clientUser */
+        $clientUser = $request->user();
+
+        if ($clientUser->hasPassword() && !$clientUser->password_must_change) {
+            if (!Hash::check($data['password'] ?? '', $clientUser->password)) {
+                return response()->json(['message' => 'Password is incorrect.'], 422);
+            }
+        }
+
+        $contacts = $this->service->allContactsFor($clientUser);
+
+        if ($contacts->isEmpty()) {
+            $this->service->log($clientUser, $clientUser->current_agency_id, null, 'account_deleted', $request);
+        } else {
+            foreach ($contacts as $contact) {
+                $this->service->log($clientUser, $contact->agency_id, $contact->id, 'account_deleted', $request);
+                $contact->forceFill(['client_user_id' => null])->saveQuietly();
+            }
+        }
+
+        $clientUser->tokens()->delete();
+
+        $clientUser->forceFill([
+            'password'             => null,
+            'password_must_change' => true,
+            'preferred_agency_id'  => null,
+            'locked_to_agency_id'  => null,
+            'current_agency_id'    => null,
+        ])->save();
+
+        $clientUser->delete();
+
+        if ($request->hasSession()) {
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+        }
+
+        return response()->json(['ok' => true, 'message' => 'Your account has been deleted.']);
+    }
+
+    /**
      * POST /api/v1/client-auth/logout
      */
     public function logout(Request $request): JsonResponse

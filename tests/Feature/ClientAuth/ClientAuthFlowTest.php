@@ -458,4 +458,122 @@ class ClientAuthFlowTest extends TestCase
         $this->assertSame(0, \Laravel\Sanctum\PersonalAccessToken::count());
         $this->assertNull(\Laravel\Sanctum\PersonalAccessToken::findToken($token));
     }
+
+    /**
+     * Apple 5.1.1(v) account-deletion endpoint.
+     */
+    public function test_delete_account_with_correct_password_soft_deletes_and_unlinks_all_contacts(): void
+    {
+        $agencyA = $this->makeAgency('Delete A');
+        $agencyB = $this->makeAgency('Delete B');
+        $cu = ClientUser::create([
+            'email' => 'deleteme@example.com',
+            'password' => Hash::make('pw-12345678'),
+        ]);
+        $contactA = $this->makeContact($agencyA, ['email' => 'deleteme@example.com', 'client_user_id' => $cu->id]);
+        $contactB = $this->makeContact($agencyB, ['email' => 'deleteme@example.com', 'client_user_id' => $cu->id]);
+        $token = $cu->createToken('test', ['client'])->plainTextToken;
+
+        $res = $this->withHeader('Authorization', "Bearer {$token}")
+            ->deleteJson('/api/v1/client-auth/account', ['password' => 'pw-12345678']);
+
+        $res->assertOk()->assertJsonPath('ok', true);
+
+        $this->assertTrue(ClientUser::withTrashed()->findOrFail($cu->id)->trashed());
+        $this->assertSame(0, \Laravel\Sanctum\PersonalAccessToken::count());
+
+        $this->assertNull(
+            Contact::withoutGlobalScope(AgencyScope::class)->find($contactA->id)->client_user_id
+        );
+        $this->assertNull(
+            Contact::withoutGlobalScope(AgencyScope::class)->find($contactB->id)->client_user_id
+        );
+
+        $this->assertSame(2, ClientAccessLog::where('client_user_id', $cu->id)
+            ->where('event', 'account_deleted')->count());
+        $this->assertDatabaseHas('client_access_logs', [
+            'client_user_id' => $cu->id,
+            'agency_id' => $agencyA->id,
+            'contact_id' => $contactA->id,
+            'event' => 'account_deleted',
+        ]);
+    }
+
+    public function test_delete_account_with_wrong_password_returns_422_and_leaves_account_intact(): void
+    {
+        $agency = $this->makeAgency();
+        $cu = ClientUser::create([
+            'email' => 'keepme@example.com',
+            'password' => Hash::make('correct-pw-123'),
+        ]);
+        $contact = $this->makeContact($agency, ['email' => 'keepme@example.com', 'client_user_id' => $cu->id]);
+        $token = $cu->createToken('test', ['client'])->plainTextToken;
+
+        $res = $this->withHeader('Authorization', "Bearer {$token}")
+            ->deleteJson('/api/v1/client-auth/account', ['password' => 'wrong-password']);
+
+        $res->assertStatus(422);
+
+        $this->assertFalse(ClientUser::withTrashed()->findOrFail($cu->id)->trashed());
+        $this->assertSame(1, \Laravel\Sanctum\PersonalAccessToken::count());
+        $this->assertSame(
+            $cu->id,
+            Contact::withoutGlobalScope(AgencyScope::class)->find($contact->id)->client_user_id
+        );
+    }
+
+    public function test_delete_account_allowed_without_password_check_while_must_change_password(): void
+    {
+        $agency = $this->makeAgency();
+        $cu = ClientUser::create([
+            'email' => 'mustchange@example.com',
+            'password' => Hash::make('temp-pw-123'),
+            'password_must_change' => true,
+        ]);
+        $this->makeContact($agency, ['email' => 'mustchange@example.com', 'client_user_id' => $cu->id]);
+        $token = $cu->createToken('test', ['client'])->plainTextToken;
+
+        // No 'password' field — only legal because password_must_change is true.
+        $res = $this->withHeader('Authorization', "Bearer {$token}")
+            ->deleteJson('/api/v1/client-auth/account', ['must_change' => 1]);
+
+        $res->assertOk();
+        $this->assertTrue(ClientUser::withTrashed()->findOrFail($cu->id)->trashed());
+    }
+
+    public function test_delete_account_with_no_linked_contacts_logs_single_row(): void
+    {
+        $cu = ClientUser::create([
+            'email' => 'orphan@example.com',
+            'password' => Hash::make('pw-12345678'),
+        ]);
+        $token = $cu->createToken('test', ['client'])->plainTextToken;
+
+        $this->withHeader('Authorization', "Bearer {$token}")
+            ->deleteJson('/api/v1/client-auth/account', ['password' => 'pw-12345678'])
+            ->assertOk();
+
+        $this->assertSame(1, ClientAccessLog::where('client_user_id', $cu->id)
+            ->where('event', 'account_deleted')->count());
+    }
+
+    public function test_login_after_account_deletion_behaves_as_if_never_signed_up(): void
+    {
+        $agency = $this->makeAgency();
+        $cu = ClientUser::create([
+            'email' => 'gone@example.com',
+            'password' => Hash::make('pw-12345678'),
+        ]);
+        $this->makeContact($agency, ['email' => 'gone@example.com', 'client_user_id' => $cu->id]);
+        $token = $cu->createToken('test', ['client'])->plainTextToken;
+
+        $this->withHeader('Authorization', "Bearer {$token}")
+            ->deleteJson('/api/v1/client-auth/account', ['password' => 'pw-12345678'])
+            ->assertOk();
+
+        $this->postJson('/api/v1/client-auth/login', [
+            'email' => 'gone@example.com',
+            'password' => 'pw-12345678',
+        ])->assertStatus(422);
+    }
 }
