@@ -61,8 +61,18 @@
     ['scheme_name',     'Scheme name'],
     ['situated_at',     'Situated at'],
     ['section_number',  'Section number'],
-    ['flat_number',     'Flat number'],
+    // CONFIRMED LIVE (2026-08-13, 58 Avenue Svea) — the real label is
+    // "Flat/Unit no:", not "Flat number". The old (wrong) search text never
+    // matched anything, which was harmless on its own, but it ALSO meant
+    // "Flat/Unit no" was missing from knownLabelTexts() — so when the
+    // label-cascade guard (findValueByLabel step 3) hit a blank Scheme name
+    // on a full-title property, "Flat/Unit no:" (the next label down) wasn't
+    // recognised as a known label and slipped through as a fake value.
+    ['flat_number',     'Flat/Unit no'],
     ['address',         'Address'],
+    // CONFIRMED LIVE (2026-08-13) — full-title properties carry Erf no as
+    // its own labelled row here, separate from the sectional-title fields.
+    ['erf_no',          'Erf no'],
     ['suburb',          'Suburb'],
     ['municipality',    'Municipality'],
     ['province',        'Province'],
@@ -754,6 +764,31 @@
     return { ref: ref, stable: stable };
   }
 
+  /**
+   * Splits the "Address" field into street_number + street_name.
+   * CONFIRMED LIVE (2026-08-13, 58 Avenue Svea): TrackedProperty has no raw
+   * "address" column at all — canonicalFactsForWrite() on the server
+   * silently drops property.address; street_number/street_name are the
+   * ONLY storable representation of the street line, and were previously
+   * always sent null (nothing split them out), so a full-title property's
+   * street never persisted even though "Address" extracted fine. Leading
+   * numeric token (optional letter suffix, e.g. "58A") is the street
+   * number; the rest is the street name. No leading number -> the whole
+   * string is the street name, number left null (never guessed).
+   *
+   * Deliberately only splits p.address (the real street-address field), not
+   * p.situated_at (the sectional-title descriptor, e.g. "Section 4, Ocean
+   * View, Shelly Beach") — that text isn't a street line and splitting it
+   * the same way would produce wrong data for sectional captures.
+   */
+  function splitStreetAddress(address) {
+    const trimmed = (address || '').trim();
+    if (!trimmed) return { number: null, name: null };
+    const m = trimmed.match(/^(\d+[A-Za-z]?)\s+(.+)$/);
+    if (m) return { number: m[1], name: m[2].trim() };
+    return { number: null, name: trimmed };
+  }
+
   // ══════════════════════════════════════════════════════════
   // ── PAYLOAD — aligned to cc1's contract (.ai/specs/deeds-capture.md §2) ──
   // ══════════════════════════════════════════════════════════
@@ -766,10 +801,10 @@
   //     "Scheme name" value as scheme_name (SA sectional-title convention:
   //     the scheme name IS the complex name). Flagged for Johan to confirm,
   //     not a guess I'm otherwise unsure of.
-  //   - erf_number, street_number, street_name: NOT populated — no CMA label
-  //     was given for these. address carries the full combined string
-  //     instead (a valid field in cc1's schema on its own). Flagged as an
-  //     open item, not silently dropped.
+  //   - erf_number: CONFIRMED LIVE (2026-08-13) — extracted from the
+  //     "Erf no" label (full-title properties only; blank on sectional).
+  //   - street_number/street_name: split from "Address" via
+  //     splitStreetAddress() (see above) — was always null before.
   function buildDeedsCapturePayload(deed) {
     const p = deed.property_information;
     const s = deed.sale_information;
@@ -783,6 +818,8 @@
       console.warn('[CoreX] deeds-capture: no stable identifier found on this page — using a timestamp fallback. Re-capturing this property will create a DUPLICATE tracked_property, not update the existing one.');
     }
 
+    const street = splitStreetAddress(p.address);
+
     return {
       source: 'cmainfo',
       captures: [
@@ -793,10 +830,10 @@
             scheme_name:       p.scheme_name,
             scheme_number:     p.scheme_no,
             section_number:    p.section_number,
-            erf_number:        null, // TODO(johan): no CMA label given yet
+            erf_number:        p.erf_no || null,
             address:           p.address || p.situated_at || null,
-            street_number:     null, // TODO(johan): CMA gives one combined Address string
-            street_name:       null, // TODO(johan): — split these out if/when needed
+            street_number:     street.number,
+            street_name:       street.name,
             unit_number:       p.flat_number,
             complex_name:      p.scheme_name, // see mapping note above
             suburb:            p.suburb,
