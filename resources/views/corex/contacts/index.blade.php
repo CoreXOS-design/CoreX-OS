@@ -3,7 +3,7 @@
 
 @section('corex-content')
 <div class="w-full space-y-5" data-tour-root="contacts"
-     x-data="{ showAdd: {{ (session('duplicate_detected') || old('first_name')) ? 'true' : 'false' }}, showImport: false, editId: null, importLoading: false }">
+     x-data="{ showAdd: {{ (session('duplicate_detected') || old('first_name')) ? 'true' : 'false' }}, showImport: false, editId: null, importLoading: false, contactKind: '{{ old('contact_kind', 'natural_person') }}' }">
 
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
@@ -196,28 +196,64 @@
         <form method="POST" action="{{ route('corex.contacts.store') }}" class="space-y-4">
             @csrf
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div class="sm:col-span-2 lg:col-span-3" data-tour="contact-kind">
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Contact Is <span class="text-red-500">*</span></label>
+                    <div class="flex items-center gap-4">
+                        <label class="inline-flex items-center gap-1.5 text-sm" style="color:var(--text-primary);">
+                            <input type="radio" name="contact_kind" value="natural_person" x-model="contactKind">
+                            Natural person
+                        </label>
+                        <label class="inline-flex items-center gap-1.5 text-sm" style="color:var(--text-primary);">
+                            <input type="radio" name="contact_kind" value="entity" x-model="contactKind">
+                            Entity <span style="color:var(--text-muted); font-weight:400;">(company / CC / trust)</span>
+                        </label>
+                    </div>
+                </div>
+                <template x-if="contactKind === 'natural_person'">
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">First Name <span class="text-red-500">*</span></label>
-                    <input type="text" name="first_name" value="{{ old('first_name') }}" required
+                    <input type="text" name="first_name" value="{{ old('first_name') }}" :required="contactKind === 'natural_person'"
                            data-tour="contact-first-name"
                            placeholder="e.g. John"
                            class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300"
                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); outline:none;">
                 </div>
+                </template>
+                <template x-if="contactKind === 'natural_person'">
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Surname <span class="text-red-500">*</span></label>
-                    <input type="text" name="last_name" value="{{ old('last_name') }}" required
+                    <input type="text" name="last_name" value="{{ old('last_name') }}" :required="contactKind === 'natural_person'"
                            data-tour="contact-last-name"
                            placeholder="e.g. Smith"
                            class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300"
                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); outline:none;">
                 </div>
+                </template>
+                <template x-if="contactKind === 'entity'">
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Entity Name <span class="text-red-500">*</span></label>
+                    <input type="text" name="entity_name" value="{{ old('entity_name') }}" :required="contactKind === 'entity'"
+                           placeholder="e.g. Coastal Holdings (Pty) Ltd"
+                           class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); outline:none;">
+                </div>
+                </template>
+                <template x-if="contactKind === 'entity'">
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Registration Number <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
+                    <input type="text" name="entity_reg_no" value="{{ old('entity_reg_no') }}"
+                           placeholder="e.g. 2015/123456/07"
+                           class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); outline:none;">
+                </div>
+                </template>
                 <div class="sm:col-span-2 lg:col-span-3" data-tour="contact-phone">
                     @include('corex.contacts._identifier-repeater', ['kind' => 'phones', 'type' => 'text', 'title' => 'Phone Numbers', 'addLabel' => 'phone', 'placeholder' => 'e.g. 082 123 4567', 'labels' => $contactIdentifierLabels])
                 </div>
                 <div class="sm:col-span-2 lg:col-span-3" data-tour="contact-email">
                     @include('corex.contacts._identifier-repeater', ['kind' => 'emails', 'type' => 'email', 'title' => 'Emails (optional — but a contact needs at least one phone or email)', 'addLabel' => 'email', 'placeholder' => 'e.g. john@example.com', 'labels' => $contactIdentifierLabels])
                 </div>
+                <template x-if="contactKind === 'natural_person'">
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID Number <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
                     <input type="text" name="id_number" value="{{ old('id_number') }}"
@@ -227,6 +263,7 @@
                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); outline:none;">
                     <p class="mt-1 text-[11px]" style="color:var(--text-muted);">SA ID — 13 digits. Leave blank if not known.</p>
                 </div>
+                </template>
                 <div class="sm:col-span-2 lg:col-span-3" data-tour="contact-type">
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Contact Type <span class="text-red-500">*</span></label>
                     @include('corex.contacts._type_picker', ['contactTypes' => $contactTypes])

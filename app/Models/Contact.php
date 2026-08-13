@@ -552,6 +552,11 @@ class Contact extends Model
      * The natural-person Contacts who represent THIS entity Contact (director/
      * trustee/partner/signatory). Many-to-many: a director can sit on multiple
      * entities. Spec: .ai/specs/contact-entity-type.md §4.2/§5.
+     *
+     * wherePivotNull('deleted_at') is load-bearing: ContactRepresentative
+     * extends Pivot + SoftDeletes, so detach() (via ->using()) soft-deletes
+     * the pivot row rather than hard-deleting it (Non-Negotiable #1) — without
+     * this filter an "unlinked" representative would still show as linked.
      */
     public function representatives(): BelongsToMany
     {
@@ -560,7 +565,7 @@ class Contact extends Model
             'contact_representatives',
             'entity_contact_id',
             'representative_contact_id'
-        )->using(ContactRepresentative::class)->withPivot('is_primary')->withTimestamps();
+        )->using(ContactRepresentative::class)->withPivot('is_primary')->withTimestamps()->wherePivotNull('deleted_at');
     }
 
     /**
@@ -574,7 +579,7 @@ class Contact extends Model
             'contact_representatives',
             'representative_contact_id',
             'entity_contact_id'
-        )->using(ContactRepresentative::class)->withPivot('is_primary')->withTimestamps();
+        )->using(ContactRepresentative::class)->withPivot('is_primary')->withTimestamps()->wherePivotNull('deleted_at');
     }
 
     public function getInitialsAttribute(): string

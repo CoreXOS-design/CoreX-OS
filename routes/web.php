@@ -3197,6 +3197,16 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{contact}/properties/search',    [\App\Http\Controllers\CoreX\ContactPropertyController::class, 'search'])->name('properties.search');
         Route::post('/{contact}/properties/link',     [\App\Http\Controllers\CoreX\ContactPropertyController::class, 'link'])->name('properties.link');
         Route::delete('/{contact}/properties/{property}', [\App\Http\Controllers\CoreX\ContactPropertyController::class, 'unlink'])->name('properties.unlink');
+        // Entity-type foundation (.ai/specs/contact-entity-type.md) — entity <-> representative link.
+        Route::get('/{contact}/representatives/search', [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'search'])->name('representatives.search');
+        Route::post('/{contact}/representatives/link',  [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'link'])->name('representatives.link');
+        Route::post('/{contact}/representatives/create-and-link', [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'createAndLinkRepresentative'])->name('representatives.create-and-link');
+        Route::delete('/{contact}/representatives/{representative}', [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'unlink'])->name('representatives.unlink');
+        // Mirror direction — a NATURAL PERSON's "Linked Entities" panel. Same
+        // pivot, same link()/unlink() above (called with the entity as
+        // {contact}); these two are the person-side search + create-on-the-fly.
+        Route::get('/{contact}/linked-entities/search', [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'searchEntities'])->name('representatives.search-entities');
+        Route::post('/{contact}/linked-entities/create-and-link', [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'createAndLinkEntity'])->name('representatives.create-and-link-entity');
         // Core Matches
         Route::post('/{contact}/matches',                              [\App\Http\Controllers\CoreX\ContactMatchController::class, 'store'])->name('matches.store');
         Route::get('/{contact}/matches/{match}/edit',                  [\App\Http\Controllers\CoreX\ContactMatchController::class, 'edit'])->name('matches.edit');

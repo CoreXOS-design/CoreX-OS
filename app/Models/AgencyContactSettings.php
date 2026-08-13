@@ -124,7 +124,12 @@ class AgencyContactSettings extends Model
             'sharing_mode' => 'branch',
             'buyer_pipeline_default_scope' => 'own',
             'duplicate_mode' => 'soft_warn',
-            'duplicate_match_fields' => ['phone', 'email', 'id_number'],
+            // entity_reg_no added 2026-08-13 (.ai/specs/contact-entity-type.md
+            // §6.7) — an entity contact dedups on its registration number the
+            // same way a natural person dedups on id_number. Existing
+            // agencies backfilled by migration 2026_08_21_000110 (firstOrCreate's
+            // $defaults only applies when CREATING a row — never retroactively).
+            'duplicate_match_fields' => ['phone', 'email', 'id_number', 'entity_reg_no'],
             'address_match_mode' => 'standard',
             'warn_on_held_address_capture' => true,
             'portal_lead_auto_seed_buyer' => true,

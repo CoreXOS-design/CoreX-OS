@@ -22,10 +22,19 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * representative_contact_id must reference a Contact with
  * type=Contact::TYPE_NATURAL_PERSON — validated at the write path
  * (App\Http\Controllers\CoreX\ContactController), not enforced in schema.
+ *
+ * $table is set explicitly: AsPivot::getTable() (used by the base Pivot
+ * class) guesses the SINGULAR of the class name ('contact_representative')
+ * by convention — wrong for this table, which is genuinely plural like any
+ * other CoreX table. Discovered via a real QueryException when querying the
+ * model directly (Contact::representatives() itself is unaffected, since
+ * that relation hard-codes the table name as a literal string).
  */
 class ContactRepresentative extends Pivot
 {
     use SoftDeletes;
+
+    protected $table = 'contact_representatives';
 
     public $incrementing = true;
 
