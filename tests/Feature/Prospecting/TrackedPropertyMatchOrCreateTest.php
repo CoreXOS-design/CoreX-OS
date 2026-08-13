@@ -438,7 +438,7 @@ class TrackedPropertyMatchOrCreateTest extends TestCase
         // the SAME row as tpA — already promoted, so promoteToStock() would
         // hit the early-return and never exercise the refresh path this test
         // is actually for.
-        $tpB = $tpA->replicate();
+        $tpB = $tpA->replicate(['external_id']);
         $tpB->source_chain = [];
         $tpB->promoted_to_property_id = null;
         $tpB->promoted_at = null;
@@ -485,7 +485,7 @@ class TrackedPropertyMatchOrCreateTest extends TestCase
         // (from before a matcher fix, a race, whatever) that the CURRENT
         // matcher wouldn't create fresh today, but that still exists in the
         // data and must be handled gracefully at the property layer.
-        $tpB = $tpA->replicate();
+        $tpB = $tpA->replicate(['external_id']);
         $tpB->source_chain = [];
         $tpB->save();
         $this->assertNotSame($tpA->id, $tpB->id, 'sanity: must be two distinct TrackedProperty rows');
