@@ -557,6 +557,50 @@ class ClientAuthFlowTest extends TestCase
             ->where('event', 'account_deleted')->count());
     }
 
+    /**
+     * Regression for a real production bug (2026-08-13): client_users.email
+     * carried a plain global-unique index, so a soft-deleted ClientUser
+     * still occupied its email in the DB. A genuine re-signup after account
+     * deletion hit a 1062 duplicate-entry 500 inside findOrCreateClientUser
+     * — AFTER the OTP was already marked used, so the retry with the SAME
+     * (correct) code then legitimately 422'd as "already used". Fixed by
+     * migration 2026_08_22_000004 (unique index scoped to active rows via a
+     * generated column). This test re-creates the full user-facing sequence
+     * end to end.
+     */
+    public function test_re_signup_via_otp_succeeds_after_account_deletion_with_same_email(): void
+    {
+        $agency = $this->makeAgency();
+        $email = 'reborn@example.com';
+        $cu = ClientUser::create(['email' => $email, 'password' => Hash::make('pw-12345678')]);
+        $this->makeContact($agency, ['email' => $email, 'client_user_id' => $cu->id]);
+        $token = $cu->createToken('test', ['client'])->plainTextToken;
+
+        $this->withHeader('Authorization', "Bearer {$token}")
+            ->deleteJson('/api/v1/client-auth/account', ['password' => 'pw-12345678'])
+            ->assertOk();
+
+        $this->assertTrue(ClientUser::withTrashed()->findOrFail($cu->id)->trashed());
+
+        // The Contact stays on the agency's books and still carries the
+        // email, so a fresh OTP send/verify (same email) must succeed.
+        $code = '654321';
+        ClientOtp::create([
+            'email' => $email, 'purpose' => 'activation',
+            'code_hash' => Hash::make($code), 'expires_at' => now()->addMinutes(10),
+        ]);
+
+        $res = $this->postJson('/api/v1/client-auth/otp/verify', [
+            'email' => $email, 'code' => $code,
+        ]);
+
+        $res->assertOk()->assertJsonStructure(['activation_token', 'email']);
+
+        $this->assertSame(1, ClientUser::where('email', $email)->count(), 'exactly one ACTIVE row for the email');
+        $this->assertSame(1, ClientUser::onlyTrashed()->where('email', $email)->count(), 'the original stays trashed, not resurrected');
+        $this->assertNotSame($cu->id, ClientUser::where('email', $email)->first()->id, 'a genuinely new identity, not a reused/undeleted one');
+    }
+
     public function test_login_after_account_deletion_behaves_as_if_never_signed_up(): void
     {
         $agency = $this->makeAgency();

@@ -2372,12 +2372,14 @@ CREATE TABLE `client_users` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
+  `active_email` varchar(255) COLLATE utf8mb4_unicode_ci GENERATED ALWAYS AS (if((`deleted_at` is null),`email`,NULL)) VIRTUAL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `client_users_email_unique` (`email`),
+  UNIQUE KEY `client_users_active_email_unique` (`active_email`),
   KEY `client_users_preferred_agency_id_foreign` (`preferred_agency_id`),
   KEY `client_users_locked_to_agency_id_foreign` (`locked_to_agency_id`),
   KEY `client_users_current_agency_id_foreign` (`current_agency_id`),
   KEY `client_users_created_by_agency_id_foreign` (`created_by_agency_id`),
+  KEY `client_users_email_index` (`email`),
   CONSTRAINT `client_users_created_by_agency_id_foreign` FOREIGN KEY (`created_by_agency_id`) REFERENCES `agencies` (`id`) ON DELETE SET NULL,
   CONSTRAINT `client_users_current_agency_id_foreign` FOREIGN KEY (`current_agency_id`) REFERENCES `agencies` (`id`) ON DELETE SET NULL,
   CONSTRAINT `client_users_locked_to_agency_id_foreign` FOREIGN KEY (`locked_to_agency_id`) REFERENCES `agencies` (`id`) ON DELETE SET NULL,
@@ -14458,3 +14460,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1075,'2026_08_21_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1076,'2026_08_21_000030_add_last_search_id_to_prospecting_listings',216);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1077,'2026_08_22_000002_add_first_login_at_to_users_table',217);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1078,'2026_08_22_000003_add_invite_email_sent_at_to_agency_onboarding_setups_table',217);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1079,'2026_08_22_000004_scope_client_users_email_unique_to_active_rows',218);

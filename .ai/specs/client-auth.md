@@ -40,7 +40,8 @@ The mobile app login screen splits into two paths:
 | Column | Type | Purpose |
 |---|---|---|
 | `id` | bigint pk | |
-| `email` | string, **globally unique** | Login identifier. Real or agent-fabricated under `@corexclient.co.za`. |
+| `email` | string, indexed (see `active_email` below for the real uniqueness rule) | Login identifier. Real or agent-fabricated under `@corexclient.co.za`. |
+| `active_email` | string, **generated column**, `IF(deleted_at IS NULL, email, NULL)`, **unique** | Added by migration `2026_08_22_000004` (bug fix — see "Account deletion" below). The real uniqueness boundary: at most one ACTIVE row may hold a given email; any number of soft-deleted rows may share one, so a deleted account's email is immediately reusable by a fresh signup. Never read/write this column directly — it exists purely so MySQL enforces the invariant every call site already assumes via Eloquent's SoftDeletes scope. Hidden from all JSON output. |
 | `password` | string, nullable, hashed | bcrypt; nullable until set |
 | `password_must_change` | boolean | True when an agent set a temp password — blocks all endpoints except `/password/set` + `/logout` + `/me` |
 | `password_set_at` | timestamp, nullable | |
@@ -376,6 +377,21 @@ deprioritised.
 15. `DELETE /api/v1/client-auth/account` never hard-deletes anything; the `ClientUser` row is soft-deleted, every linked `Contact` row and its history is untouched (only `client_user_id` is nulled), and every `client_access_logs`/`client_signin_attempts` row is preserved.
 16. After account deletion, `/lookup` and `/login` for that email behave exactly as a fresh, never-signed-up email (soft-deleted `ClientUser` is excluded from the default query scope).
 17. Account deletion is reachable even while `password_must_change=true` (allow-listed in `EnsureClientAbility`) — a client is never blocked from deleting their own account.
+18. After account deletion, a fresh signup (OTP flow) with the SAME email succeeds end to end (send OTP → verify OTP → `findOrCreateClientUser` creates a genuinely new, distinct `ClientUser` row) with no 500 and no false "invalid code" caused by the OTP being consumed on a failed prior attempt.
+
+### Bug found & fixed same day (2026-08-13) — stale unique index blocked re-signup after deletion
+`client_users.email` originally carried a plain global-unique index. Soft-deleting a `ClientUser`
+(account deletion) does not free that email at the DB level, so a real re-signup after deletion hit
+a 1062 duplicate-entry error inside `findOrCreateClientUser()` — AFTER `OtpService::verify()` had
+already marked the OTP as used (single-use, written one line earlier), so the user saw a server
+error on the correct code, then "Invalid or expired code" on retrying the SAME correct code (already
+consumed). Confirmed live in production within minutes of the endpoint shipping (real row:
+`a.roets12@gmail.com`, soft-deleted 2026-08-13 13:31:19). Root-cause fixed via migration
+`2026_08_22_000004_scope_client_users_email_unique_to_active_rows` — see `active_email` above.
+Verified in production (rolled-back transaction: a fresh insert with the same email as the trashed
+row now succeeds; two ACTIVE rows with the same email still correctly collide). No manual data
+cleanup was needed — the blocking row's `active_email` becomes NULL automatically once the
+migration lands, since its `deleted_at` was already set.
 
 ## Cross-agency contact linking (added 2026-05-12)
 
