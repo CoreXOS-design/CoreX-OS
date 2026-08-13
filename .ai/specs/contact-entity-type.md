@@ -1,7 +1,20 @@
 # Spec: Contact Enhancement — Entity Type (Build Spec)
 
-**Status:** DRAFT — Johan-decided model, awaiting build sign-off. Read-only
-research + spec only (cc3, 2026-08-13). No code, no migration, no deploy.
+**Status:** FOUNDATION BUILT on QA1 (commits `0f1a79e49`, incident-fixed in
+`e57f8bebb`), other threads (§6) not yet wired.
+
+**COLUMN NAME CORRECTION (2026-08-13, read before building anything else):**
+every `type`/`contacts.type` reference below is **historical** — the actual
+shipped column is **`contacts.contact_kind`**, not `type`. The original
+build used `type`, which shadowed the pre-existing
+`Contact::type()` relationship (`belongsTo(ContactType::class,
+'contact_type_id')` — the Seller/Buyer/Lessor/Lessee taxonomy) and broke
+~20 call sites app-wide (blades, e-sign role resolution, exports, mobile
+API, calendar) with a live 500 on the property page. Fixed via an additive
+rename migration (`2026_08_21_000100_rename_type_to_contact_kind_on_
+contacts_table.php`). Read `contact_kind` everywhere you see `type` below —
+left as originally written rather than rewritten throughout, so this note
+also serves as the incident record.
 **Supersedes the model proposed in** `.ai/specs/company-owned-properties.md`
 §4 — that doc's broader FICA-gap analysis stands, but its 4-way
 `entity_type` on `contacts` and its "representative needs their own FICA"
