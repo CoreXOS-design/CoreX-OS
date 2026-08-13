@@ -110,6 +110,12 @@ Also: **nav renamed** "CMA Certificate Generator" → "Evaluation Certificate" (
 
 Verified: `EvaluationCertificateScreenTest` (view hides/shows "Authorised by" by flag; `showsAuthoriser` false for full-status creator, true for candidate creator / authorised cert) + Sign PDF still bakes. Kept OFF `SignaturePdfService` (no docuperfect regression).
 
+### cc1 — v5 PDF header + filename (Johan + Elize, 13 Aug 2026)
+
+- **Full company letterhead** — the certificate header now `@include`s the SAME shared e-sign block `docuperfect.web-templates.components.company-header` (trading name, address, reg no, VAT, NCC, email, phone, fax, **FFC**, FIC — whatever the e-sign header carries), tied to the certificate's agency via `previewAgency` (correct on the public/no-auth render) with the logo passed as `logo_url` (base64). The component was authored for e-sign's **Chromium** renderer, so a scoped `.ec-letterhead` wrapper overrides CSS `grid`→table (the two-column contact strip) and constrains the logo (dompdf ignores `object-fit`, AT-367, which would stretch it). The shared component is untouched → future letterhead edits flow through automatically. **Verified by rendering to PDF→PNG** (pdftoppm): bordered letterhead, undistorted centred logo, two-column contact strip, all details present.
+- **Download filename from the address** — `certificateFilename()` slugs the property address → e.g. `380-Wilfred-Street-Shelly-Beach-Margate-Evaluation-Certificate.pdf` (non-alphanumeric → hyphen, capped 120 chars); falls back to `Evaluation-Certificate-EC-{id}.pdf` when there is no address. Used by both `download()` and `publicView()`.
+- Note: the fuller letterhead can push a short certificate onto a 2nd page (signature block lands there) — acceptable for a formal cert; logo capped at 74px to keep it tight.
+
 ### ⚠️ REMAINING FLAGS from cc1 (Phase 4) — need owner decisions
 
 1. ~~No certificate SAVE/PERSIST endpoint~~ — **RESOLVED**: Johan assigned cc1 the last-mile; `store`/`update` + the full screen are built (see section above). End-to-end in the browser now works.

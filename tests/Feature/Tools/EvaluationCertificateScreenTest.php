@@ -219,4 +219,41 @@ final class EvaluationCertificateScreenTest extends TestCase
         $fullCert->save();
         $this->assertTrue($show->invoke($ctrl, $fullCert->fresh()));
     }
+
+    public function test_download_filename_is_built_from_the_property_address(): void
+    {
+        $ctrl = app(\App\Http\Controllers\Tools\EvaluationCertificateController::class);
+        $fn = new \ReflectionMethod($ctrl, 'certificateFilename');
+        $fn->setAccessible(true);
+
+        $addressed = EvaluationCertificate::create([
+            'agency_id' => $this->agency->id, 'address' => '380 Wilfred Street, Shelly Beach, Margate',
+            'status' => EvaluationCertificate::STATUS_DRAFT, 'created_by_user_id' => $this->agent->id,
+        ]);
+        $this->assertSame(
+            '380-Wilfred-Street-Shelly-Beach-Margate-Evaluation-Certificate.pdf',
+            $fn->invoke($ctrl, $addressed)
+        );
+
+        // Fallback to the ref/id when there is no address.
+        $blank = EvaluationCertificate::create([
+            'agency_id' => $this->agency->id, 'address' => '',
+            'status' => EvaluationCertificate::STATUS_DRAFT, 'created_by_user_id' => $this->agent->id,
+        ]);
+        $this->assertSame('Evaluation-Certificate-EC-' . $blank->id . '.pdf', $fn->invoke($ctrl, $blank));
+    }
+
+    public function test_pdf_uses_the_full_esign_company_letterhead(): void
+    {
+        $cert = EvaluationCertificate::create([
+            'agency_id' => $this->agency->id, 'address' => '1 Beach Rd',
+            'status' => EvaluationCertificate::STATUS_DRAFT, 'created_by_user_id' => $this->agent->id,
+        ])->fresh();
+
+        $html = view('tools.evaluation-certificate.pdf', ['certificate' => $cert, 'showAuthoriser' => false])->render();
+        $this->assertStringContainsString('ec-letterhead', $html);                 // reused e-sign block, wrapped
+        $this->assertStringContainsString('company-header-contact-grid', $html);   // the shared letterhead component
+        $this->assertStringContainsString('Reg no:', $html);                       // full company details present
+        $this->assertStringContainsString('FFC:', $html);
+    }
 }

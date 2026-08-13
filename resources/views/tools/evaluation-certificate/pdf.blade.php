@@ -74,7 +74,15 @@
     .attr-tbl .al { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #6b7280; }
     ul.features { margin: 4px 0 0; padding-left: 16px; }
     ul.features li { margin: 2px 0; }
-    .logo { max-height: 46px; max-width: 210px; margin-bottom: 4px; }
+    /* Full e-sign company letterhead reused verbatim (components/company-header),
+       adapted for dompdf: it was authored for the Chromium renderer, so override the
+       CSS grid (contact strip) to a table and constrain the logo — dompdf ignores
+       object-fit (AT-367), which would otherwise stretch/distort it. Scoped to the
+       certificate only; the shared component is untouched. */
+    .ec-letterhead { margin-bottom: 10px; }
+    .ec-letterhead .company-header-contact-grid { display: table !important; width: 100% !important; }
+    .ec-letterhead .company-header-contact-grid > div { display: table-cell !important; width: 50% !important; vertical-align: top; }
+    .ec-letterhead img { width: auto !important; height: auto !important; max-height: 74px !important; max-width: 280px !important; }
     .sign-tbl { margin-top: 34px; }
     .sign-tbl td { width: 50%; vertical-align: bottom; padding: 0 10px; }
     /* Signature sits in a fixed-height slot DIRECTLY above the ruled line — no floating gap. */
@@ -88,13 +96,20 @@
 </head>
 <body>
 
-    <table class="header-tbl">
+    {{-- FULL company letterhead — the SAME block the e-sign documents use (shared
+         component). previewAgency ties it to THIS certificate's agency (correct on the
+         public/client render, no auth); logo_url embeds the base64 logo for a
+         self-contained dompdf render. --}}
+    <div class="ec-letterhead">
+        @include('docuperfect.web-templates.components.company-header', [
+            'previewAgency' => $certificate->agency,
+            'logo_url'      => $logoData,
+        ])
+    </div>
+
+    <table class="header-tbl" style="margin-bottom:4px;">
         <tr>
-            <td>
-                @if($logoData)<img class="logo" src="{{ $logoData }}" alt="{{ $agencyName }}"><br>@endif
-                <div class="agency">{{ $agencyName }}</div>
-                @if($contactName)<div style="font-size:10px;color:#6b7280;">Prepared for {{ $contactName }}</div>@endif
-            </td>
+            <td>@if($contactName)<span style="font-size:10px;color:#6b7280;">Prepared for {{ $contactName }}</span>@endif</td>
             <td class="meta">
                 @if($analysisDate)Evaluation date: {{ $analysisDate }}<br>@endif
                 Ref: EC-{{ $certificate->id ?? 'DRAFT' }}
