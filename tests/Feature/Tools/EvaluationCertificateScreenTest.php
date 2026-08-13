@@ -255,6 +255,63 @@ final class EvaluationCertificateScreenTest extends TestCase
             ->assertDontSee('Save evaluation', false);
     }
 
+    public function test_pdf_signature_block_paints_signer_image_and_aligned_columns(): void
+    {
+        $cert = EvaluationCertificate::create([
+            'agency_id' => $this->agency->id, 'address' => '1 Beach Rd',
+            'status' => EvaluationCertificate::STATUS_PENDING_AUTHORISATION,
+            'created_by_user_id' => $this->agent->id, 'signed_by_user_id' => $this->agent->id,
+        ])->fresh();
+
+        $html = view('tools.evaluation-certificate.pdf', [
+            'certificate' => $cert,
+            'signatureImage' => 'data:image/png;base64,SIGNERPIX',
+            'authoriserSignatureImage' => null,
+            'showAuthoriser' => true,
+        ])->render();
+
+        // Defect 1: the signer's captured signature is painted (not just the name).
+        $this->assertStringContainsString('data:image/png;base64,SIGNERPIX', $html);
+        $this->assertStringContainsString('sig-img', $html);
+        // Defect 2: the aligned two-row table (sig-box / sig-cap); the old drifting divs are gone.
+        $this->assertStringContainsString('sig-box', $html);
+        $this->assertStringContainsString('sig-cap', $html);
+        $this->assertStringNotContainsString('sig-slot', $html);
+        $this->assertStringNotContainsString('sig-line', $html);
+        // Designation renders under the signer's name (from the USER record, not a contact).
+        $this->assertStringContainsString('sig-desig', $html);
+        $this->assertStringContainsString($this->agent->designation, $html);   // 'Property Practitioner'
+    }
+
+    public function test_share_has_no_save_gate_on_the_screen(): void
+    {
+        $res = $this->actingAs($this->agent)->get(route('tools.cma'));
+        $res->assertOk()
+            ->assertSee('async share()', false)
+            ->assertDontSee('Save your changes before sharing', false);
+    }
+
+    public function test_my_evaluations_page_is_a_dedicated_read_only_list(): void
+    {
+        $res = $this->actingAs($this->agent)->get(route('tools.cma.evaluation.mine'));
+
+        $res->assertOk()
+            ->assertSee('My Evaluations')
+            ->assertSee('evalMine()', false)              // dedicated read-only component
+            ->assertDontSee('Find a property', false)     // NOT the create/edit builder
+            ->assertDontSee('Save evaluation', false);
+    }
+
+    public function test_builder_no_longer_overlays_the_submitted_list(): void
+    {
+        $res = $this->actingAs($this->agent)->get(route('tools.cma'));
+
+        // The overlay panel is gone; the builder only links to the dedicated list.
+        $res->assertOk()
+            ->assertDontSee('My submitted evaluations</div>', false)
+            ->assertSee('View my submitted evaluations', false);
+    }
+
     public function test_pdf_uses_the_full_esign_company_letterhead(): void
     {
         $cert = EvaluationCertificate::create([

@@ -513,28 +513,11 @@
 
       <h3 class="tool-card-header">Evaluation Certificate</h3>
 
-      {{-- ── Candidate authorisation queue ──────────────────────────────────────
-           CANDIDATE ONLY — their submitted evaluations + status (pending/authorised/rejected).
-           Authorisers use the dedicated Pending Authorisations screen (list → read-only
-           review → authorise), never this editable builder. --}}
-      <div x-show="queue.length && queueRole === 'candidate'" x-cloak class="pill" style="display:block; margin-bottom:1rem; background:#f1f5f9;">
-        <div style="font-weight:700; color:#0b2a4a; margin-bottom:.5rem;">My submitted evaluations</div>
-        <template x-for="q in queue" :key="q.id">
-          <div style="display:flex; align-items:center; justify-content:space-between; gap:.75rem; padding:.4rem 0; border-top:1px solid var(--border);">
-            <div style="min-width:0;">
-              <div style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" x-text="q.address"></div>
-              <div style="font-size:.72rem; color:var(--text-secondary);">
-                <span x-show="q.estimated_market_value" x-text="q.estimated_market_value ? ('R ' + Number(q.estimated_market_value).toLocaleString('en-ZA')) : ''"></span>
-              </div>
-            </div>
-            <div style="display:flex; align-items:center; gap:.4rem; flex-shrink:0;">
-              <span class="agent-tag" x-text="statusLabel(q.status)"
-                    :style="'color:#fff;background:' + statusColour(q.status)"></span>
-              <button class="corex-btn-outline" style="padding:.25rem .6rem;" @click="reviewCert(q)"
-                      x-text="q.status === 'rejected' ? 'Fix &amp; resubmit' : 'Open'"></button>
-            </div>
-          </div>
-        </template>
+      {{-- Submitted evaluations live on the dedicated, READ-ONLY My Evaluations screen —
+           this builder is for CREATING / editing only, so a submitted cert never sits
+           on top of a blank create form. --}}
+      <div x-show="showMineLink" x-cloak style="margin-bottom:1rem;">
+        <a href="{{ route('tools.cma.evaluation.mine') }}" style="font-size:.82rem; color:#0b2a4a; text-decoration:underline;">View my submitted evaluations &rarr;</a>
       </div>
 
       {{-- The builder fields — disabled (read-only) once the certificate is submitted or
@@ -759,7 +742,7 @@
     const withId = (tpl, id) => tpl.replace('__ID__', id);
     const jhead = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
     return {
-      savedSigConfigured: false, isCandidate: false, canAuthorise: false,
+      savedSigConfigured: false, isCandidate: false, canAuthorise: false, showMineLink: false,
       form: { address: '', property_type: '', analysis_date: '', estimated_market_value: null, bedrooms: null, bathrooms: null, parking: null, key_features: '' },
       propertyId: null, contact: null, contactId: null,
       propQuery: '', propResults: [], contactQuery: '', contactResults: [],
@@ -767,7 +750,6 @@
       saving: false, dirty: false, flash: '',
       signOpen: false, signMode: 'finalise', pin: '', pinError: '', pinLoading: false,
       rejectOpen: false, rejectInput: '', rejectLoading: false,
-      queue: [], queueRole: '',
       sentConfirm: { open: false, communicationId: null }, markSentBase: '',
 
       // The builder is read-only once the certificate is submitted/authorised — only a
@@ -780,8 +762,12 @@
         this.savedSigConfigured = !!cfg.savedSigConfigured;
         this.isCandidate = !!cfg.isCandidate;
         this.canAuthorise = !!cfg.canAuthorise;
+        this.showMineLink = this.isCandidate;
         this.$watch('form', () => { if (this.certId) this.dirty = true; }, { deep: true });
-        this.loadQueue();
+        // The builder is create/edit only. It loads an existing cert ONLY when the
+        // My Evaluations screen sends a returned cert here to fix & resubmit (?edit=<id>).
+        const editId = new URLSearchParams(window.location.search).get('edit');
+        if (editId) this.loadForEdit(editId);
       },
 
       statusLabel(s) { return ({ draft: 'Draft', pending_authorisation: 'Pending authorisation', authorised: 'Authorised', rejected: 'Rejected' })[s] || s; },
@@ -790,14 +776,18 @@
       async loadQueue() {
         try {
           const r = await fetch(U.queue, { headers: jhead });
-          if (!r.ok) return;
-          const j = await r.json();
-          this.queueRole = j.role; this.queue = j.items || [];
-        } catch (e) {}
+          if (!r.ok) return null;
+          return await r.json();
+        } catch (e) { return null; }
       },
 
-      // Load a queue row into the builder — candidate opens their own cert (edit if
-      // rejected, else view), authoriser opens a pending cert to review.
+      async loadForEdit(id) {
+        const j = await this.loadQueue();
+        const item = j && (j.items || []).find(x => String(x.id) === String(id));
+        if (item) this.reviewCert(item);
+      },
+
+      // Load a returned cert into the builder for editing (fix & resubmit).
       reviewCert(q) {
         this.certId = q.id; this.status = q.status; this.isSigned = !!q.is_signed; this.rejectNote = q.reject_note || '';
         this.form = {
@@ -881,9 +871,10 @@
       // then records a provisional Communication and asks did-you-send (AT-323 model,
       // identical to Core Matches). The link is a time-limited signed public URL.
       async share() {
+        // Share/Download/Print are READ actions on a submitted/authorised cert — never
+        // gated on unsaved edits (the form is read-only once submitted).
         if (!this.certId) return;
         if (!this.contactId) { alert('Link a contact before sharing.'); return; }
-        if (this.dirty) { alert('Save your changes before sharing.'); return; }
         const r = await fetch(withId(U.shareMetaTpl, this.certId), { headers: jhead });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) { alert(j.message || 'Could not prepare the share.'); return; }
