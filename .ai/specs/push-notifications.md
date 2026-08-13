@@ -97,7 +97,56 @@ single-attempt transport behind the `PushTransport` contract (swapped for
 - `app/Services/Push/FcmService.php` — kreait adapter (single attempt)
 - `app/Services/Push/NullPushTransport.php` — no-op fallback
 - `config/push.php` — tunables; binding in `AppServiceProvider::register()`
-- `app/Services/CommandCenter/NotificationDispatcher.php` — pillar call site
-- `app/Listeners/Leads/PushNewPortalLeadToMobile.php` — portal-lead call site
+- `app/Services/CommandCenter/NotificationDispatcher.php` — the ONE gateway call site
+  (both pillar alerts and portal leads now flow through here — see
+  `.ai/specs/portal-leads.md`'s "Mobile API" section; `PushNewPortalLeadToMobile`
+  below is retired, kept in this list only as forwarding-pointer history)
+- ~~`app/Listeners/Leads/PushNewPortalLeadToMobile.php`~~ — **RETIRED (AT-235 S2,
+  2026-07-xx)**. File no longer exists. Portal-lead push is now one channel of
+  the single `NewPortalLeadAgentNotification` sent via the gateway (targeted to
+  the listing/co-listing/buyer's agent only, never agency-wide, and honours
+  `notify_push`) — see `app/Listeners/Leads/EmailPortalLeadToAgent.php`.
 - `app/Http/Controllers/Api/DeviceTokenController.php` — token hygiene
-- `tests/Feature/Push/*`, `tests/Support/SpyPushTransport.php`
+- `tests/Feature/Push/*`, `tests/Unit/Push/FcmServiceTest.php`, `tests/Support/SpyPushTransport.php`
+
+## Android delivery gap found & fixed 2026-08-13 — no notification channel on the wire
+
+Investigating "the mobile app never shows a push pop-up" (raised alongside the Portal
+Leads visibility bug — see `.ai/specs/portal-leads.md`) surfaced two real gaps, split
+across the two repos:
+
+**Backend (this repo, fixed):** `FcmService::send()` built the FCM message with no
+`android` config at all — no `notification.channel_id`. Without one, Android 8+ (which
+requires every notification to belong to a channel) routes the push into FCM's
+**auto-created fallback channel at default importance**, regardless of any
+high-importance channel the app itself had defined — CoreX Mobile had one
+(`corex_test`), but it was only ever used by the app's own local "send test
+notification" button, never referenced by anything the server sent. Result: pushes
+landed silently in the notification shade with no heads-up banner, sound, or vibration.
+Fixed: every `FcmService::send()` call now sets
+`android.notification.channel_id = 'corex_alerts'` (+ `notification_priority: PRIORITY_HIGH`,
+`priority: high`, default sound/vibration). **`corex_alerts` is now a cross-repo
+contract string** — the mobile app MUST create a real `AndroidNotificationChannel` with
+this exact id at high importance at startup, or Android will still fall back silently.
+
+**Also fixed in the same pass:** `sent` was computed as `count(tokens) - count(dead)`
+(dead = FCM's `unknownTokens()` + `invalidTokens()` only) — so any OTHER per-message
+failure (a transient auth error, quota, sender-ID mismatch) was silently counted as a
+successful delivery. The push-storm postmortem above already established `sent` needs
+to be trustworthy for the per-user metrics tripwire; a formula that can over-count
+defeats that. Now `sent = $report->successes()->count()` — FCM's own per-message result,
+not an inference from two specific failure buckets. `tests/Unit/Push/FcmServiceTest.php`
+locks in both (mocks the kreait `Messaging` contract directly — no DB/HTTP, runs in
+<0.1s).
+
+**Mobile (NOT this repo — flagged, not fixed here):** even with the channel_id now on
+the wire, Android only auto-displays it for background/terminated app states. The app's
+foreground handler (`_onForegroundMessage`) only shows an in-app `MaterialBanner`, never
+a real system notification via `flutter_local_notifications` — so a lead arriving while
+the app is open produces no pop-up at all, by design of the current code, not a
+transport failure. It also has several silent early-returns (missing nav context,
+`localPushEnabled` off, outside the agent's open-hours window, any exception, 10s dedup,
+a 6-per-60s rate cap) that can swallow even the banner. Separately, iOS push is entirely
+unconfigured (no `Runner.entitlements`, no `aps-environment`, no `UIBackgroundModes:
+remote-notification` in `Info.plist`) — `getToken()` fails silently on iOS with no
+recovery path. Both need a mobile-repo prompt, not a backend fix.
