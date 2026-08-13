@@ -32,6 +32,36 @@
                         $tp->town,
                         $tp->province,
                     ])->filter(fn ($v) => trim((string) $v) !== '')->implode(', ');
+
+                    // Sectional-title headline swap (2026-08-14) — same sectional
+                    // detection as the matcher (presence of scheme/section): for a
+                    // sectional unit the primary identity is the COMPLEX + SECTION,
+                    // not the street (a scheme's street address is shared by every
+                    // unit in it, so leading with it reads as if every card is the
+                    // same property). Freehold is untouched — $addr as before.
+                    // section_number requires a digit — some pre-fix captures have
+                    // leaked label text ("Flat number") into this column, and that
+                    // garbage must not trigger the sectional headline on what's
+                    // actually a freehold record.
+                    $isSectional = filled($tp->scheme_name) || filled($tp->scheme_number)
+                        || (filled($tp->section_number) && preg_match('/\d/', (string) $tp->section_number));
+                    if ($isSectional) {
+                        $schemeLabel = collect([
+                            $tp->complex_name ?: $tp->scheme_name,
+                            $tp->section_number ? ('Section ' . $tp->section_number) : null,
+                        ])->filter(fn ($v) => trim((string) $v) !== '')->implode(' — ');
+                        $headline = collect([$schemeLabel, $tp->suburb])->filter(fn ($v) => trim((string) $v) !== '')->implode(', ');
+                        if ($headline === '') $headline = $addr; // no scheme/complex name captured — fall back rather than show nothing
+                        $secondaryAddr = collect([
+                            trim(($tp->street_number ?? '') . ' ' . ($tp->street_name ?? '')),
+                            $tp->town,
+                            $tp->province,
+                        ])->filter(fn ($v) => trim((string) $v) !== '')->implode(', ');
+                    } else {
+                        $headline = $addr;
+                        $secondaryAddr = '';
+                    }
+
                     $owner = $tp->ownerContact;
                     $owners = $tp->owners; // multi-owner (2026-08-12) — falls back to $owner below for pre-migration captures
                 @endphp
@@ -40,7 +70,10 @@
                         {{-- Property --}}
                         <div class="min-w-0 flex-1">
                             <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">Property</div>
-                            <div class="font-semibold text-sm" style="color: var(--text-primary);">{{ $addr !== '' ? $addr : ('Tracked property #' . $tp->id) }}</div>
+                            <div class="font-semibold text-sm" style="color: var(--text-primary);">{{ $headline !== '' ? $headline : ('Tracked property #' . $tp->id) }}</div>
+                            @if($secondaryAddr !== '')
+                                <div class="text-xs mt-1" style="color: var(--text-muted);">{{ $secondaryAddr }}</div>
+                            @endif
                             <div class="text-xs mt-1" style="color: var(--text-muted);">
                                 @if($tp->scheme_name)Scheme: {{ $tp->scheme_name }}@if($tp->scheme_number) ({{ $tp->scheme_number }})@endif @endif
                                 @if($tp->section_number) · Section {{ $tp->section_number }}@endif
