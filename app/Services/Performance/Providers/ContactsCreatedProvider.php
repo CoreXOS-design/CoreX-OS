@@ -2,6 +2,7 @@
 
 namespace App\Services\Performance\Providers;
 
+use App\Services\Performance\AgentActivityFilter;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 
@@ -40,6 +41,7 @@ class ContactsCreatedProvider extends AbstractCountMetricProvider
 
     protected function baseQuery(): Builder
     {
-        return DB::table('contacts')->whereNull('deleted_at');
+        // AT-366 correctness: exclude untouched bulk imports (count native or worked-since-import).
+        return AgentActivityFilter::contacts(DB::table('contacts')->whereNull('deleted_at'));
     }
 }
