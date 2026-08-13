@@ -44,6 +44,24 @@ class BuyerPipelineController extends Controller
             $query->where('agent_id', (int) $agentFilter);
         }
 
+        // Buyer WON (Johan 2026-08-13) — converted buyers live in a SEPARATE success section, OUT of
+        // the active pipeline. Build the success list from the same scope, and exclude 'won' from the
+        // active board (unless the user explicitly asks for ?state=won).
+        $wonQuery = Contact::buyers()->with(['agent', 'matches'])
+            ->where('buyer_state', \App\Services\BuyerStateService::WON);
+        $this->applyPipelineScope($wonQuery, $user, $pipelineScope);
+        if ($agentFilter) {
+            $wonQuery->where('agent_id', (int) $agentFilter);
+        }
+        $wonBuyers = $wonQuery->orderByDesc('last_activity_at')->get();
+
+        if (! $stateFilter) {
+            $query->where(function ($q) {
+                $q->where('buyer_state', '!=', \App\Services\BuyerStateService::WON)
+                    ->orWhereNull('buyer_state');
+            });
+        }
+
         // Drill-down from a prospecting listing: show only buyers who have an
         // active match against this listing (score >= 50, not dismissed).
         // Multi-tenancy belt-and-braces: explicit agency_id on the match query.
@@ -77,8 +95,9 @@ class BuyerPipelineController extends Controller
             return view('command-center.buyers.pipeline', [
                 'view' => 'list',
                 'buyers' => $buyers,
+                'wonBuyers' => $wonBuyers,
                 'counts' => $this->stateCounts($user, $pipelineScope),
-                'coreMatchCounts' => $this->coreMatchCounts($buyers->pluck('id')),
+                'coreMatchCounts' => $this->coreMatchCounts($buyers->pluck('id')->merge($wonBuyers->pluck('id'))),
                 'pipelineScope' => $pipelineScope,
                 'canSeeBranch' => (bool) $user->branch_id,
                 'contextListing' => $contextListing,
@@ -104,9 +123,10 @@ class BuyerPipelineController extends Controller
         return view('command-center.buyers.pipeline', [
             'view' => 'kanban',
             'columns' => $columns,
+            'wonBuyers' => $wonBuyers,
             'counts' => $this->stateCounts($user, $pipelineScope),
             'riskScores' => $riskScores,
-            'coreMatchCounts' => $this->coreMatchCounts($allBuyers->pluck('id')),
+            'coreMatchCounts' => $this->coreMatchCounts($allBuyers->pluck('id')->merge($wonBuyers->pluck('id'))),
             'pipelineScope' => $pipelineScope,
             'canSeeBranch' => (bool) $user->branch_id,
             'contextListing' => $contextListing,
