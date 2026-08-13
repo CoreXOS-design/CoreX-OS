@@ -32,9 +32,11 @@
     $contactName = $certificate->contact?->full_name
         ?? $certificate->contact?->name
         ?? null;
-    $signerName     = $certificate->signedBy?->name;
-    $authoriserName = $certificate->authorisedBy?->name;
-    $agencyName     = $certificate->agency?->name ?? config('app.name');
+    $signerName            = $certificate->signedBy?->name;
+    $signerDesignation     = $certificate->signedBy?->designation;      // staff/user title (e.g. Candidate Property Practitioner)
+    $authoriserName        = $certificate->authorisedBy?->name;
+    $authoriserDesignation = $certificate->authorisedBy?->designation;
+    $agencyName            = $certificate->agency?->name ?? config('app.name');
 
     // key_features: column is a plain string; tolerate a JSON array too.
     $features = [];
@@ -94,6 +96,7 @@
     .sig-img { max-height: 50px; max-width: 220px; }
     .sig-role { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #6b7280; }
     .sig-name { font-weight: 700; }
+    .sig-desig { font-size: 9px; color: #6b7280; }
     .foot { margin-top: 22px; font-size: 8.5px; color: #9aa3b2; text-align: center; line-height: 1.5; }
 </style>
 </head>
@@ -174,11 +177,13 @@
             <td class="sig-cap">
                 <span class="sig-role">Evaluated &amp; signed by</span><br>
                 <span class="sig-name">{{ $signerName ?: '' }}</span>
+                @if($signerDesignation)<br><span class="sig-desig">{{ $signerDesignation }}</span>@endif
             </td>
             @if($showAuthoriser)
             <td class="sig-cap">
                 <span class="sig-role">Authorised by</span><br>
                 <span class="sig-name">{{ $authoriserName ?: '' }}</span>
+                @if($authoriserDesignation)<br><span class="sig-desig">{{ $authoriserDesignation }}</span>@endif
             </td>
             @endif
         </tr>

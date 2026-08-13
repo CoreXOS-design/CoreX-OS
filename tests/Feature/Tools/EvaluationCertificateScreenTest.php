@@ -259,7 +259,8 @@ final class EvaluationCertificateScreenTest extends TestCase
     {
         $cert = EvaluationCertificate::create([
             'agency_id' => $this->agency->id, 'address' => '1 Beach Rd',
-            'status' => EvaluationCertificate::STATUS_PENDING_AUTHORISATION, 'created_by_user_id' => $this->agent->id,
+            'status' => EvaluationCertificate::STATUS_PENDING_AUTHORISATION,
+            'created_by_user_id' => $this->agent->id, 'signed_by_user_id' => $this->agent->id,
         ])->fresh();
 
         $html = view('tools.evaluation-certificate.pdf', [
@@ -277,6 +278,17 @@ final class EvaluationCertificateScreenTest extends TestCase
         $this->assertStringContainsString('sig-cap', $html);
         $this->assertStringNotContainsString('sig-slot', $html);
         $this->assertStringNotContainsString('sig-line', $html);
+        // Designation renders under the signer's name (from the USER record, not a contact).
+        $this->assertStringContainsString('sig-desig', $html);
+        $this->assertStringContainsString($this->agent->designation, $html);   // 'Property Practitioner'
+    }
+
+    public function test_share_has_no_save_gate_on_the_screen(): void
+    {
+        $res = $this->actingAs($this->agent)->get(route('tools.cma'));
+        $res->assertOk()
+            ->assertSee('async share()', false)
+            ->assertDontSee('Save your changes before sharing', false);
     }
 
     public function test_pdf_uses_the_full_esign_company_letterhead(): void

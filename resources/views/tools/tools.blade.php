@@ -881,9 +881,10 @@
       // then records a provisional Communication and asks did-you-send (AT-323 model,
       // identical to Core Matches). The link is a time-limited signed public URL.
       async share() {
+        // Share/Download/Print are READ actions on a submitted/authorised cert — never
+        // gated on unsaved edits (the form is read-only once submitted).
         if (!this.certId) return;
         if (!this.contactId) { alert('Link a contact before sharing.'); return; }
-        if (this.dirty) { alert('Save your changes before sharing.'); return; }
         const r = await fetch(withId(U.shareMetaTpl, this.certId), { headers: jhead });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) { alert(j.message || 'Could not prepare the share.'); return; }
