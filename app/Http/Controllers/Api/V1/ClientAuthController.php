@@ -201,9 +201,28 @@ class ClientAuthController extends Controller
         }
         $tokenable->forceFill(['last_login_at' => now(), 'last_ip' => $request->ip()])->save();
 
+        // Mirror login()'s agency auto-selection: unlike /login, this endpoint is the
+        // ONLY step in Flow A (fresh OTP activation) that runs after the ClientUser
+        // exists, so if it doesn't set current_agency_id here, a single-agency client
+        // lands signed-in with NO agency selected — /client/me then returns contact:
+        // null (gated on current_agency_id), which cascades into no agent shown and
+        // every agency-scoped endpoint (matches, seller-listings) 409ing "Select an
+        // agency first" until the app happens to call /agency/select on its own.
+        // Bug found 2026-08-13: the mobile app's Screen 3 does not call
+        // /agency/select for the single-agency case (see MOBILE-PROMPT), so this was
+        // silently broken for every brand-new activation. Locked agency still wins.
+        $agencies = $this->service->agenciesFor($tokenable);
+        $agencyId = $tokenable->locked_to_agency_id;
+        if (!$agencyId && count($agencies) === 1) {
+            $agencyId = $agencies[0]['id'];
+        }
+        if ($agencyId && $tokenable->current_agency_id !== $agencyId) {
+            $tokenable->forceFill(['current_agency_id' => $agencyId])->save();
+        }
+
         return response()->json([
             'token'    => $sessionToken,
-            'agencies' => $this->service->agenciesFor($tokenable),
+            'agencies' => $agencies,
             'client'   => $this->summarise($tokenable),
         ]);
     }

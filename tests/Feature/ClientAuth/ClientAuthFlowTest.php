@@ -161,6 +161,52 @@ class ClientAuthFlowTest extends TestCase
         $this->assertNotNull($cu->fresh()->password_set_at);
     }
 
+    /**
+     * Regression for a real production bug (2026-08-13): unlike login(),
+     * setPassword() never auto-selected a single linked agency, so a
+     * brand-new client activating via OTP (Flow A) landed signed-in with
+     * current_agency_id still null. /client/me then returned contact: null
+     * (gated on current_agency_id), which cascaded into no agent shown and
+     * every agency-scoped endpoint 409ing "Select an agency first" — the
+     * mobile app's Screen 3 doesn't call /agency/select for the
+     * single-agency case, so nothing else would have fixed it.
+     */
+    public function test_password_set_auto_selects_single_linked_agency(): void
+    {
+        $agency = $this->makeAgency();
+        $cu = ClientUser::create(['email' => 'single-agency@example.com']);
+        $this->makeContact($agency, ['email' => 'single-agency@example.com', 'client_user_id' => $cu->id]);
+        $this->assertNull($cu->current_agency_id);
+        $token = $cu->createToken('activation', ['client-activation'], now()->addMinutes(15))->plainTextToken;
+
+        $res = $this->withHeader('Authorization', "Bearer {$token}")->postJson('/api/v1/client-auth/password/set', [
+            'password'              => 'secret-password-123',
+            'password_confirmation' => 'secret-password-123',
+        ]);
+
+        $res->assertOk()->assertJsonPath('client.current_agency_id', $agency->id);
+        $this->assertSame($agency->id, $cu->fresh()->current_agency_id);
+    }
+
+    public function test_password_set_does_not_auto_select_when_multiple_agencies(): void
+    {
+        $agencyA = $this->makeAgency('MultiA');
+        $agencyB = $this->makeAgency('MultiB');
+        $cu = ClientUser::create(['email' => 'multi-agency@example.com']);
+        $this->makeContact($agencyA, ['email' => 'multi-agency@example.com', 'client_user_id' => $cu->id]);
+        $this->makeContact($agencyB, ['email' => 'multi-agency@example.com', 'client_user_id' => $cu->id]);
+
+        $token = $cu->createToken('activation', ['client-activation'], now()->addMinutes(15))->plainTextToken;
+
+        $res = $this->withHeader('Authorization', "Bearer {$token}")->postJson('/api/v1/client-auth/password/set', [
+            'password'              => 'secret-password-123',
+            'password_confirmation' => 'secret-password-123',
+        ]);
+
+        $res->assertOk()->assertJsonPath('client.current_agency_id', null);
+        $this->assertNull($cu->fresh()->current_agency_id);
+    }
+
     public function test_login_with_correct_password_returns_token(): void
     {
         $agency = $this->makeAgency();

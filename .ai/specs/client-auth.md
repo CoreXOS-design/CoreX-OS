@@ -111,7 +111,7 @@ Same intent as draft. Keyed by `email` (so OTPs can be issued before a ClientUse
 | POST | `/api/v1/client-auth/lookup` | `client-auth.lookup` | none | `{email}` → `{exists, requires_otp, requires_password, agencies:[{id,name,is_preferred,is_locked}]}` |
 | POST | `/api/v1/client-auth/otp/send` | `client-auth.otp.send` | none | `{email}` — sends OTP via mail; rate-limited 1/min, 5/hour per email+IP |
 | POST | `/api/v1/client-auth/otp/verify` | `client-auth.otp.verify` | none | `{email, code}` → activation token (short-lived, 15 min) for password set |
-| POST | `/api/v1/client-auth/password/set` | `client-auth.password.set` | activation token OR `auth:sanctum` (ability `client`) when `client_password_must_change` | `{password, password_confirmation}` |
+| POST | `/api/v1/client-auth/password/set` | `client-auth.password.set` | activation token OR `auth:sanctum` (ability `client`) when `client_password_must_change` | `{password, password_confirmation}`. Also auto-selects `current_agency_id` when the client has exactly one linked agency (mirrors `login()` — fixed 2026-08-13, see "Bug found & fixed" note below) |
 | POST | `/api/v1/client-auth/login` | `client-auth.login` | none | `{email, password, device_name, agency_id?}` → `{token, contact, agencies}` |
 | POST | `/api/v1/client-auth/agency/select` | `client-auth.agency.select` | `auth:sanctum` (`client`) | `{agency_id, lock?, favourite?}` |
 | POST | `/api/v1/client-auth/password/change` | `client-auth.password.change` | `auth:sanctum` (`client`) | `{current_password, password, password_confirmation}` |
@@ -392,6 +392,21 @@ Verified in production (rolled-back transaction: a fresh insert with the same em
 row now succeeds; two ACTIVE rows with the same email still correctly collide). No manual data
 cleanup was needed — the blocking row's `active_email` becomes NULL automatically once the
 migration lands, since its `deleted_at` was already set.
+
+### Bug found & fixed same day (2026-08-13) — Flow A never selected an agency
+`login()` has always auto-selected `current_agency_id` when a client has exactly one linked agency
+(locked > requested > only-one > null). `setPassword()` — the step that actually completes Flow A
+(fresh OTP activation) — never did the same thing, so a brand-new single-agency client landed
+signed-in with NO agency selected. `/client/me` gates `contact` resolution on `current_agency_id`
+being set, so this cascaded into `contact: null` → no `agent` key → the mobile app falling back to
+showing the client's email in place of a name → and every agency-scoped endpoint (`/client/matches`,
+seller-listings) 409ing "Select an agency first". The mobile app's Screen 3 does not call
+`/agency/select` for the single-agency case (see `client-auth-MOBILE-PROMPT.md`), so nothing on the
+client side would have recovered from this. Found live via the real re-signup from the migration
+bug above (`a.roets12@gmail.com`, `ClientUser` id 9) — confirmed and manually corrected that row's
+`current_agency_id` in production, then fixed the root cause: `setPassword()` now runs the same
+locked-then-single-agency auto-select logic as `login()`. Tests: `test_password_set_auto_selects_single_linked_agency`,
+`test_password_set_does_not_auto_select_when_multiple_agencies`.
 
 ## Cross-agency contact linking (added 2026-05-12)
 
