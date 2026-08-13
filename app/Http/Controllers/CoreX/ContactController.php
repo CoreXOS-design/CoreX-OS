@@ -151,7 +151,7 @@ class ContactController extends Controller
             ]);
         }
 
-        $contact->load(['type', 'parentTypes', 'createdBy', 'agent', 'secondAgent', 'contactNotes.user', 'testimonials.user', 'testimonials.agent', 'documents.uploader', 'documents.documentType', 'documents.properties', 'properties', 'matches.createdBy', 'tags', 'communications', 'phones', 'emails']);
+        $contact->load(['type', 'parentTypes', 'createdBy', 'agent', 'secondAgent', 'contactNotes.user', 'testimonials.user', 'testimonials.agent', 'documents.uploader', 'documents.documentType', 'documents.properties', 'properties', 'matches.createdBy', 'tags', 'communications', 'phones', 'emails', 'representatives', 'representedEntities']);
 
         // Agents in this contact's agency — for the "agent this testimonial is
         // about" selector on the Notes & Testimonials tab.
@@ -679,8 +679,15 @@ class ContactController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'first_name'      => 'required|string|max:100',
-            'last_name'       => 'required|string|max:100',
+            // Entity-type foundation (.ai/specs/contact-entity-type.md) — the
+            // Contact Is radio. first_name/last_name are only required for a
+            // natural person; entity_name only for an entity. The form hides
+            // whichever set doesn't apply, so the absent side is never posted.
+            'contact_kind'    => 'nullable|in:' . Contact::TYPE_NATURAL_PERSON . ',' . Contact::TYPE_ENTITY,
+            'first_name'      => 'nullable|string|max:100|required_if:contact_kind,' . Contact::TYPE_NATURAL_PERSON,
+            'last_name'       => 'nullable|string|max:100|required_if:contact_kind,' . Contact::TYPE_NATURAL_PERSON,
+            'entity_name'     => 'nullable|string|max:255|required_if:contact_kind,' . Contact::TYPE_ENTITY,
+            'entity_reg_no'   => 'nullable|string|max:255',
             // AT-125 — single fields kept for back-compat (external posters); the
             // form posts the repeatable phones[]/emails[] arrays below.
             'phone'           => 'nullable|string|max:30',
@@ -706,12 +713,16 @@ class ContactController extends Controller
             // Type/tag assignments arrive via the pop-up picker and are applied
             // after creation (applyTypeAssignments) — not a single column.
             'notes'           => 'nullable|string|max:1000',
-            // Optional SA ID number, captured with a POPIA audit trail.
+            // Optional SA ID number, captured with a POPIA audit trail. Only
+            // meaningful for a natural person — the form doesn't post it for
+            // an entity, so this rule doesn't need a contact_kind condition.
             'id_number'       => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
             // Duplicate bypass fields
             'bypass_duplicate_check' => 'nullable|boolean',
             'override_reason'        => 'nullable|string|max:500',
         ]);
+
+        $data['contact_kind'] = $data['contact_kind'] ?? Contact::TYPE_NATURAL_PERSON;
 
         // AT-125 — a contact needs at least one identifier (phone OR email), but
         // not necessarily a phone (email-only is valid).
@@ -745,7 +756,9 @@ class ContactController extends Controller
                 array_column($phones, 'value'),
                 array_column($emails, 'value'),
                 $idNumber,
-                $agencyId
+                $agencyId,
+                null,
+                $data['entity_reg_no'] ?? null
             );
 
             if ($duplicates->isNotEmpty()) {
@@ -921,8 +934,13 @@ class ContactController extends Controller
     public function update(Request $request, Contact $contact)
     {
         $data = $request->validate([
-            'first_name'      => 'required|string|max:100',
-            'last_name'       => 'required|string|max:100',
+            // Entity-type foundation (.ai/specs/contact-entity-type.md) — see
+            // store() for the same shape/reasoning.
+            'contact_kind'    => 'nullable|in:' . Contact::TYPE_NATURAL_PERSON . ',' . Contact::TYPE_ENTITY,
+            'first_name'      => 'nullable|string|max:100|required_if:contact_kind,' . Contact::TYPE_NATURAL_PERSON,
+            'last_name'       => 'nullable|string|max:100|required_if:contact_kind,' . Contact::TYPE_NATURAL_PERSON,
+            'entity_name'     => 'nullable|string|max:255|required_if:contact_kind,' . Contact::TYPE_ENTITY,
+            'entity_reg_no'   => 'nullable|string|max:255',
             // AT-125 — single fields kept for back-compat; the form posts arrays.
             'phone'           => 'nullable|string|max:30',
             'email'           => 'nullable|email|max:150',
@@ -981,6 +999,11 @@ class ContactController extends Controller
             'preapproval_expires_at'  => 'nullable|date',
             'preapproval_institution' => 'nullable|string|max:100',
         ]);
+
+        // Defensive: if the radio somehow didn't post (JS disabled/bypassed),
+        // keep the contact's existing kind rather than silently defaulting to
+        // natural_person, which could wrongly flip an existing entity contact.
+        $data['contact_kind'] = $data['contact_kind'] ?? $contact->contact_kind ?? Contact::TYPE_NATURAL_PERSON;
 
         // A co-agent without a primary is meaningless — collapse it.
         if (array_key_exists('agent_id', $data) && empty($data['agent_id'])) {

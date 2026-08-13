@@ -10576,7 +10576,9 @@ CREATE TABLE `prospecting_claims` (
   `feedback_at` timestamp NULL DEFAULT NULL,
   `last_updated_at` timestamp NULL DEFAULT NULL,
   `released_at` timestamp NULL DEFAULT NULL,
+  `release_reason` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `flagged_at` timestamp NULL DEFAULT NULL,
+  `warned_at` timestamp NULL DEFAULT NULL,
   `is_active` tinyint(1) NOT NULL DEFAULT '1',
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -12224,6 +12226,8 @@ CREATE TABLE `suggested_action_thresholds` (
   `high_value_strong_min` smallint unsigned NOT NULL DEFAULT '3',
   `stock_repitch_days` smallint unsigned NOT NULL DEFAULT '30',
   `colleague_claim_stale_days` smallint unsigned NOT NULL DEFAULT '21',
+  `claim_warn_days` smallint unsigned NOT NULL DEFAULT '7',
+  `claim_release_days` smallint unsigned NOT NULL DEFAULT '10',
   `investigate_mid_min` smallint unsigned NOT NULL DEFAULT '5',
   `new_listing_lookback_days` smallint unsigned NOT NULL DEFAULT '1',
   `created_at` timestamp NULL DEFAULT NULL,
@@ -14564,3 +14568,6 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1079,'2026_08_21_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1080,'2026_08_21_000080_add_entity_type_to_contacts_table',248);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1081,'2026_08_21_000090_create_contact_representatives_table',248);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1082,'2026_08_21_000100_rename_type_to_contact_kind_on_contacts_table',249);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1083,'2026_08_21_000070_add_stale_claim_thresholds_to_suggested_action_thresholds',250);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1084,'2026_08_21_000080_add_stale_fields_to_prospecting_claims',250);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1085,'2026_08_21_000110_backfill_entity_reg_no_into_duplicate_match_fields',251);
