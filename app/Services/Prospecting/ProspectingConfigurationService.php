@@ -185,6 +185,8 @@ class ProspectingConfigurationService
             'follow_up_days', 'pitch_recency_days',
             'high_value_strong_min', 'stock_repitch_days',
             'colleague_claim_stale_days', 'investigate_mid_min',
+            // MIC funnel phase 2 — agency-configurable stale-claim thresholds.
+            'claim_warn_days', 'claim_release_days',
         ];
         $clean = [];
         $errors = [];
@@ -201,6 +203,15 @@ class ProspectingConfigurationService
         }
         if (!empty($errors)) {
             throw ValidationException::withMessages($errors);
+        }
+        // Stale-claim invariant: release must not precede warn (you can't be released before warned).
+        $row0 = SuggestedActionThresholds::getOrCreateForAgency($agencyId);
+        $effWarn    = $clean['claim_warn_days']    ?? (int) $row0->claim_warn_days;
+        $effRelease = $clean['claim_release_days'] ?? (int) $row0->claim_release_days;
+        if ($effRelease < $effWarn) {
+            throw ValidationException::withMessages([
+                'claim_release_days' => ['Release days must be greater than or equal to warn days.'],
+            ]);
         }
 
         $row = SuggestedActionThresholds::getOrCreateForAgency($agencyId);

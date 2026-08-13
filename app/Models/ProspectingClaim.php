@@ -22,7 +22,9 @@ class ProspectingClaim extends Model
         'feedback_at',
         'last_updated_at',
         'released_at',
+        'release_reason',
         'flagged_at',
+        'warned_at',
         'is_active',
     ];
 
@@ -33,8 +35,37 @@ class ProspectingClaim extends Model
         'last_updated_at' => 'datetime',
         'released_at'     => 'datetime',
         'flagged_at'      => 'datetime',
+        'warned_at'       => 'datetime',
         'is_active'       => 'boolean',
     ];
+
+    /**
+     * MIC funnel phase 2 — days this claim has sat unworked. The staleness clock is
+     * last_updated_at (bumped every time the claim is worked via recordActionOnClaim),
+     * falling back to claimed_at for a never-touched claim.
+     */
+    public function staleAgeDays(): int
+    {
+        $since = $this->last_updated_at ?? $this->claimed_at ?? $this->created_at;
+        return $since ? (int) $since->diffInDays(now()) : 0;
+    }
+
+    /** Warn-worthy: active, unworked ≥ warn_days, and not already warned since last worked. */
+    public function needsStaleWarning(int $warnDays): bool
+    {
+        return $this->is_active
+            && $this->released_at === null
+            && $this->warned_at === null
+            && $this->staleAgeDays() >= $warnDays;
+    }
+
+    /** Stale for BM/admin move-or-keep review: active, unworked ≥ release_days. */
+    public function isStaleForReview(int $releaseDays): bool
+    {
+        return $this->is_active
+            && $this->released_at === null
+            && $this->staleAgeDays() >= $releaseDays;
+    }
 
     /**
      * Canonical claim-status vocabulary — the SINGLE SOURCE OF TRUTH.

@@ -121,6 +121,12 @@ class NotificationEventTypeSeeder extends Seeder
             // push (the alarm must not depend on FCM being configured on the environment it warns about).
             // The security log is the guaranteed record — this is the human-facing half.
             $this->row('security.permissions_unavailable', 'agent', 'Security', 'CoreX permissions are unavailable (all access denied)', 'none', null, null, null, 50, false, null, inApp: true, email: true, push: false),
+            // MIC funnel phase 2 (Johan 2026-08-13) — the agent on a pitched/claimed property is warned
+            // it is going stale (unworked past the agency's claim_warn_days) so they can react before it
+            // reaches BM/admin move-or-keep review. In-app + email; no push.
+            $this->row('prospecting.claim_stale_warning', 'agent', 'My activity', 'Your claimed property is going stale', 'none', null, null, null, 51, false, null, inApp: true, email: true, push: false),
+            // MIC funnel phase 2 — the losing agent is warned when a BM/admin reassigns a stale claim away.
+            $this->row('prospecting.claim_reassigned', 'agent', 'My activity', 'Your claimed property was reassigned', 'none', null, null, null, 52, false, null, inApp: true, email: true, push: false),
             // AT-373 inc7 — the 'esign.clause_flagged' event type was retired with the recipient
             // clause-flag mechanism (recipients now amend via the wet-ink tool at their turn).
         ];

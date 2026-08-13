@@ -11,6 +11,8 @@
                 <h1 class="text-xl font-bold text-white leading-tight mt-1">Prospecting Setup</h1>
                 <p class="text-sm text-white/60">Towns, property types, bedroom segments and price bands for your agency's prospecting.</p>
             </div>
+            {{-- MIC funnel phase 2 — agency stale-claim warn/release thresholds. --}}
+            <a href="{{ route('settings.prospecting.stale-rules.edit') }}" class="inline-flex items-center gap-1 text-xs font-semibold no-underline rounded-md px-3 py-2" style="background:rgba(255,255,255,0.12); color:#fff;">Stale-claim rules →</a>
             {{-- AT-246 — Regions door retired from nav; region assignment lives on
                  the single P24 Suburb Mappings surface. --}}
         </div>

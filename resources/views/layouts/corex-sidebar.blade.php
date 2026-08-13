@@ -598,6 +598,12 @@
                           style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color:var(--brand-icon, #0ea5e9);">{{ number_format($miCount) }}</span>
                     @endif
                 </a>
+                {{-- MIC funnel phase 2 — BM/admin stale-claim review (anti-poaching reassignment). --}}
+                @if(\Illuminate\Support\Facades\Route::has('market-intelligence.stale-review') && auth()->user()->hasPermission('prospecting_setup.manage'))
+                <a href="{{ route('market-intelligence.stale-review') }}" class="corex-nav-subitem {{ request()->routeIs('market-intelligence.stale-review') ? 'active' : '' }}">
+                    <span>Stale claims review</span>
+                </a>
+                @endif
                 {{-- Bulk Import Reports moved into the Market Intelligence tab bar
                      as the "Importer" tab (see partials/tabs.blade.php). No
                      separate sidebar entry. --}}

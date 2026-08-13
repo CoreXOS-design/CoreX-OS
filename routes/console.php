@@ -88,6 +88,8 @@ Schedule::command('webhooks:retry-due')->everyMinute()->withoutOverlapping();
 
 // Prospecting claim maintenance — runs hourly
 Schedule::command('prospecting:maintain-claims')->hourly();
+// MIC funnel phase 2 — warn agents when their pitched/claimed property goes stale (agency-configurable).
+Schedule::command('prospecting:warn-stale-claims')->dailyAt('05:30')->onOneServer()->withoutOverlapping();
 
 // Module 6 (M6.4) — auto-revoke stale provisional auto_calendar points
 // rows whose feedback never arrived inside the mapping's
