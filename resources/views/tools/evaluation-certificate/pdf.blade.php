@@ -20,6 +20,8 @@
     /** @var \App\Models\EvaluationCertificate $certificate */
     $signatureImage = $signatureImage ?? null;
     $initialImage   = $initialImage   ?? null;
+    $logoData       = $logoData       ?? null;                                   // agency logo, base64 data-URI (cc1)
+    $showAuthoriser = $showAuthoriser ?? (bool) $certificate->authorised_by_user_id; // candidate flow only
 
     $fmtMoney = static function ($v) {
         return $v === null || $v === '' ? '—' : 'R ' . number_format((int) $v);
@@ -72,14 +74,15 @@
     .attr-tbl .al { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #6b7280; }
     ul.features { margin: 4px 0 0; padding-left: 16px; }
     ul.features li { margin: 2px 0; }
-    .sign-tbl { margin-top: 26px; }
+    .logo { max-height: 46px; max-width: 210px; margin-bottom: 4px; }
+    .sign-tbl { margin-top: 34px; }
     .sign-tbl td { width: 50%; vertical-align: bottom; padding: 0 10px; }
-    .sig-img { height: 46px; max-width: 220px; }
-    .sig-line { border-top: 1px solid #333; margin-top: 46px; padding-top: 4px; }
+    /* Signature sits in a fixed-height slot DIRECTLY above the ruled line — no floating gap. */
+    .sig-slot { height: 48px; }
+    .sig-img { max-height: 48px; max-width: 220px; }
+    .sig-line { border-top: 1px solid #333; padding-top: 4px; }
     .sig-role { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #6b7280; }
     .sig-name { font-weight: 700; }
-    .init-box { display: inline-block; border: 1px solid #d5dbe5; border-radius: 3px; padding: 2px 4px; height: 34px; min-width: 60px; }
-    .init-box img { height: 28px; }
     .foot { margin-top: 22px; font-size: 8.5px; color: #9aa3b2; text-align: center; line-height: 1.5; }
 </style>
 </head>
@@ -88,6 +91,7 @@
     <table class="header-tbl">
         <tr>
             <td>
+                @if($logoData)<img class="logo" src="{{ $logoData }}" alt="{{ $agencyName }}"><br>@endif
                 <div class="agency">{{ $agencyName }}</div>
                 @if($contactName)<div style="font-size:10px;color:#6b7280;">Prepared for {{ $contactName }}</div>@endif
             </td>
@@ -133,27 +137,30 @@
         </ul>
     @endif
 
-    {{-- SIGNATURE BLOCK — cc1 bakes $signatureImage / $initialImage here at sign time (immutable filed artifact) --}}
+    {{-- SIGNATURE BLOCK — cc1 bakes $signatureImage here at sign time (immutable filed artifact).
+         The signature sits in a fixed-height slot directly ON the ruled line above the signer's
+         name — one tidy area, no floating image, no stray initial box. The "Authorised by" column
+         renders ONLY for the candidate flow ($showAuthoriser); a full-status signer needs none. --}}
     <table class="sign-tbl">
         <tr>
             <td>
-                @if($signatureImage)
-                    <img class="sig-img" src="{{ $signatureImage }}" alt="signature">
-                @endif
+                <div class="sig-slot">
+                    @if($signatureImage)<img class="sig-img" src="{{ $signatureImage }}" alt="signature">@endif
+                </div>
                 <div class="sig-line">
                     <span class="sig-role">Evaluated &amp; signed by</span><br>
                     <span class="sig-name">{{ $signerName ?: '' }}</span>
-                    @if($initialImage)
-                        <span class="init-box"><img src="{{ $initialImage }}" alt="initials"></span>
-                    @endif
                 </div>
             </td>
+            @if($showAuthoriser)
             <td>
+                <div class="sig-slot"></div>
                 <div class="sig-line">
                     <span class="sig-role">Authorised by</span><br>
                     <span class="sig-name">{{ $authoriserName ?: '' }}</span>
                 </div>
             </td>
+            @endif
         </tr>
     </table>
 

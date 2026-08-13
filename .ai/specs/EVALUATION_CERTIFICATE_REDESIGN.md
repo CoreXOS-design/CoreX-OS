@@ -95,6 +95,21 @@ Cross-cutting fix landed here: the cert's linked contact resolves via an **agenc
 
 Verified: `EvaluationCertificateScreenTest` 10/10 + `EvaluationCertificateSignTest` 6/6.
 
+### cc1 — post-live-test fixes (Johan, 13 Aug 2026) — flow + PDF render
+
+After Johan's live test + PDF review. cc1 owns these end-to-end incl. cc6's dompdf blade (cc6 idle).
+
+**PART 1 — progressive button disclosure (`tools.blade` `evalCert()`):** actions now gate by state instead of showing disabled — Draft/unsaved shows ONLY Save; after Save (`certId`) Download/Print/Sign appear; **Share appears only after Sign** (`isSigned`). Removed the confusing "visible but dead until Save" buttons.
+
+**PART 2 — PDF render (`resources/views/tools/evaluation-certificate/pdf.blade.php` + `renderCertificatePdf`):**
+- **Agency logo in header** — `agencyLogoData()` embeds `agency->logo_path` as a **base64 data-URI** (raster png/jpg/gif; svg/missing → falls back to the agency-name text). Embedded, not a remote URL → self-contained/fast render. Header now shows logo + name.
+- **Signature placement fixed** — the old CSS put the image in flow then pushed the line down with `margin-top:46px`, so the signature floated disconnected at top-left. Now a fixed-height `.sig-slot` holds the signature **directly on the ruled line** above "Evaluated & signed by / {name}". The stray bordered **initial box was removed** (`$initialImage` no longer rendered in this block) — one tidy signature area.
+- **"Authorised by" is conditional** — `showsAuthoriser()`: shows only when the cert has an `authorised_by_user_id` OR its **creator is a candidate practitioner**; a full-status practitioner signing directly gets **no authoriser block**. Determined from the certificate's own data (creator designation), NOT `auth()->user()` — so it is correct on the public/client render (no session) and during the authoriser's sign (where `auth()` is the full-status finaliser, not the candidate). This realises the spec's candidate-vs-full-status intent robustly.
+
+Also: **nav renamed** "CMA Certificate Generator" → "Evaluation Certificate" (`corex-sidebar.blade.php`, `navigation.blade.php`).
+
+Verified: `EvaluationCertificateScreenTest` (view hides/shows "Authorised by" by flag; `showsAuthoriser` false for full-status creator, true for candidate creator / authorised cert) + Sign PDF still bakes. Kept OFF `SignaturePdfService` (no docuperfect regression).
+
 ### ⚠️ REMAINING FLAGS from cc1 (Phase 4) — need owner decisions
 
 1. ~~No certificate SAVE/PERSIST endpoint~~ — **RESOLVED**: Johan assigned cc1 the last-mile; `store`/`update` + the full screen are built (see section above). End-to-end in the browser now works.

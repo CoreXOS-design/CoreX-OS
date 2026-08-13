@@ -171,4 +171,52 @@ final class EvaluationCertificateScreenTest extends TestCase
         $url = URL::temporarySignedRoute('tools.cma.evaluation.public', now()->addDay(), ['certificate' => $cert->id]);
         $this->get($url)->assertOk()->assertHeader('content-type', 'application/pdf');
     }
+
+    public function test_pdf_view_shows_authorised_by_only_when_flagged(): void
+    {
+        $cert = EvaluationCertificate::create([
+            'agency_id' => $this->agency->id, 'address' => '1 Beach Rd',
+            'status' => EvaluationCertificate::STATUS_AUTHORISED,
+            'created_by_user_id' => $this->agent->id, 'signed_by_user_id' => $this->agent->id,
+        ])->fresh();
+
+        $hidden = view('tools.evaluation-certificate.pdf', ['certificate' => $cert, 'showAuthoriser' => false])->render();
+        $this->assertStringNotContainsString('Authorised by', $hidden);
+        $this->assertStringContainsString('Evaluated &amp; signed by', $hidden);   // signer block always present
+        $this->assertStringContainsString($this->agency->name, $hidden);           // logo-less header falls back to name
+
+        $shown = view('tools.evaluation-certificate.pdf', ['certificate' => $cert, 'showAuthoriser' => true])->render();
+        $this->assertStringContainsString('Authorised by', $shown);
+    }
+
+    public function test_authoriser_visibility_hides_for_full_status_shows_for_candidate(): void
+    {
+        $mk = fn (string $designation) => User::factory()->create([
+            'role' => 'agent', 'designation' => $designation,
+            'agency_id' => $this->agency->id, 'branch_id' => $this->agent->branch_id, 'is_active' => true,
+        ]);
+        $full = $mk('Property Practitioner');
+        $candidate = $mk('Candidate Property Practitioner');
+
+        $fullCert = EvaluationCertificate::create([
+            'agency_id' => $this->agency->id, 'address' => 'A', 'status' => EvaluationCertificate::STATUS_DRAFT,
+            'created_by_user_id' => $full->id,
+        ]);
+        $candCert = EvaluationCertificate::create([
+            'agency_id' => $this->agency->id, 'address' => 'B', 'status' => EvaluationCertificate::STATUS_DRAFT,
+            'created_by_user_id' => $candidate->id,
+        ]);
+
+        $ctrl = app(\App\Http\Controllers\Tools\EvaluationCertificateController::class);
+        $show = new \ReflectionMethod($ctrl, 'showsAuthoriser');
+        $show->setAccessible(true);
+
+        $this->assertFalse($show->invoke($ctrl, $fullCert), 'full-status creator: no authoriser block');
+        $this->assertTrue($show->invoke($ctrl, $candCert), 'candidate creator: authoriser block shows');
+
+        // An authoriser on record always shows it, regardless of creator designation.
+        $fullCert->authorised_by_user_id = $full->id;
+        $fullCert->save();
+        $this->assertTrue($show->invoke($ctrl, $fullCert->fresh()));
+    }
 }

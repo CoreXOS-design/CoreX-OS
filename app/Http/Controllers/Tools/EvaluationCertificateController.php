@@ -9,6 +9,7 @@ use App\Models\Contact;
 use App\Models\EvaluationCertificate;
 use App\Models\Property;
 use App\Models\Scopes\ContactScope;
+use App\Models\User;
 use App\Services\AgentSignatureService;
 use App\Services\CandidatePractitionerService;
 use App\Services\ContactDuplicateService;
@@ -337,10 +338,60 @@ class EvaluationCertificateController extends Controller
             'certificate'    => $certificate,
             'signatureImage' => $signatureImage,
             'initialImage'   => $initialImage,
+            'logoData'       => $this->agencyLogoData($certificate),
+            'showAuthoriser' => $this->showsAuthoriser($certificate),
         ])->setPaper('a4', 'portrait');
         $pdf->setOption('isRemoteEnabled', true);
 
         return $pdf;
+    }
+
+    /**
+     * The agency logo as a base64 data-URI for the certificate header — embedded,
+     * NOT a remote URL, so the dompdf render is self-contained and fast (no network
+     * fetch). Raster only (png/jpg/gif); returns null for missing/svg logos, in
+     * which case the header falls back to the agency name text.
+     */
+    private function agencyLogoData(EvaluationCertificate $certificate): ?string
+    {
+        $path = $certificate->agency?->logo_path;
+        if (! $path) {
+            return null;
+        }
+
+        $abs = storage_path('app/public/' . ltrim($path, '/'));
+        if (! is_file($abs)) {
+            return null;
+        }
+
+        $mime = [
+            'png' => 'image/png', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'gif' => 'image/gif',
+        ][strtolower(pathinfo($abs, PATHINFO_EXTENSION))] ?? null;
+        if (! $mime) {
+            return null;
+        }
+
+        return 'data:' . $mime . ';base64,' . base64_encode((string) file_get_contents($abs));
+    }
+
+    /**
+     * Whether the "Authorised by" block renders. Only the CANDIDATE flow needs a
+     * full-status authoriser: show it when the certificate has an authoriser OR its
+     * creator is a candidate practitioner. A full-status practitioner signing their
+     * own certificate directly needs no authoriser — hide it entirely. Determined
+     * from the certificate's own data (not the live session) so it is correct on the
+     * public/client render too, where there is no authenticated user.
+     */
+    private function showsAuthoriser(EvaluationCertificate $certificate): bool
+    {
+        if ($certificate->authorised_by_user_id) {
+            return true;
+        }
+
+        $creator = User::withoutGlobalScopes()->find($certificate->created_by_user_id);
+
+        return $creator !== null
+            && strtolower(trim((string) $creator->designation)) === 'candidate property practitioner';
     }
 
     /**

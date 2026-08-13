@@ -612,10 +612,14 @@
 
       {{-- Actions: Save persists the row; Sign/Download/Print act on the saved cert --}}
       <div class="inlineRow" style="align-items:center; gap:.75rem; flex-wrap:wrap;" data-tour="tools-cma-print">
+        {{-- Progressive disclosure: Save first; Download/Print/Sign appear once saved; Share once signed. --}}
         <button class="corex-btn-primary" @click="save()" :disabled="saving || !form.address">
           <span x-show="!saving" x-text="certId ? 'Save changes' : 'Save evaluation'"></span>
           <span x-show="saving" x-cloak>Saving…</span>
         </button>
+
+        <button class="corex-btn-outline" x-show="certId" x-cloak @click="download()">Download</button>
+        <button class="corex-btn-outline" x-show="certId" x-cloak @click="printCert()">Print</button>
 
         <template x-if="certId && !isSigned">
           <button class="corex-btn-primary" style="background:#0b7d3b;" @click="openSign()">Sign</button>
@@ -624,9 +628,7 @@
           <span class="agent-tag" style="background:#0b7d3b;color:#fff;">Signed<span x-show="signedBy" x-text="' by ' + signedBy"></span></span>
         </template>
 
-        <button class="corex-btn-outline" @click="download()" :disabled="!certId">Download</button>
-        <button class="corex-btn-outline" @click="printCert()" :disabled="!certId">Print</button>
-        <button class="corex-btn-outline" @click="share()" :disabled="!certId">Share</button>
+        <button class="corex-btn-outline" x-show="isSigned" x-cloak @click="share()">Share</button>
 
         <span x-show="dirty && certId" x-cloak style="font-size:.75rem; color:#b45309;">Unsaved changes — Save before Sign.</span>
         <span x-show="flash" x-cloak x-text="flash" style="font-size:.8rem; color:#0b7d3b;"></span>
