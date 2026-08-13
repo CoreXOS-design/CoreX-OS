@@ -88,6 +88,36 @@ When a `CommandTask` is created with `source_type = 'private_property_webhook'`:
 
 - New key `access_portal_leads` registered in `config/corex-permissions.php`, gating sidebar entry + route middleware + controller actions.
 
+## Mobile API (added, bug found & fixed 2026-08-13)
+
+`app/Http/Controllers/Api/V1/MobilePortalLeadController.php` — `/api/v1/mobile/portal-leads`
+(`index`, `dates`, `show`, `mark-read`). Mirrors the web controller's JSON shape for the CoreX
+mobile app.
+
+**Bug found & fixed same day:** all four endpoints queried `PortalLead::query()` directly,
+never applying `PortalLead::scopeVisibleTo()` — the exact scoping the web controller has always
+used (own/branch/all per the Portal Leads Data Scope in Role Manager). Every mobile user saw,
+and could open/mark-read, every other agent's leads in the agency regardless of their configured
+scope — a real data-leak, confirmed live. Fixed: `index`/`dates` now call `->visibleTo($request->user())`;
+`show`/`markRead` (route-model-bound, so the list-query fix alone doesn't protect a direct-by-id
+request) now explicitly re-check visibility via a shared `authorizeLead()` helper and 403 otherwise.
+Regression tests: `tests/Feature/Leads/MobilePortalLeadVisibilityTest.php` (7 cases: index/dates
+own-vs-admin scope, show/markRead 403 on another agent's lead, both succeed on own).
+
+**Push notification note (also investigated same day, NOT a bug):** AT-235 (S2) retired the old
+agency-wide `PushNewPortalLeadToMobile` listener — push for a new lead now targets ONLY
+`PortalLead::agentIds()` (listing agent + co-listing agent + the matched buyer's existing agent),
+routed through the single `NotificationDispatcher` gateway (`app/Listeners/Leads/EmailPortalLeadToAgent.php`
+→ `NewPortalLeadAgentNotification`), same as every other notification type. Confirmed live via
+`storage/logs/laravel.log`: `Push dispatched {...,"sent":1}` — FCM is accepting and delivering. If
+an agent who is NOT the listing/co-listing/buyer's agent expects a pop-up for every lead, that is
+the (intentional, storm-safety) targeting change, not a defect — and was very likely what the
+visibility bug above was making look broken (everyone could SEE every lead in the list, so
+everyone expected to be notified about every lead too). Any remaining "push not arriving for the
+correct recipient" symptom is unverified from the server side (FCM reported successful acceptance)
+and points at on-device delivery (foreground-message handling, notification permission, or testing
+on an emulator without Google Play Services) — mobile-app-repo territory, not this repo's.
+
 ## UI
 
 - **Route**: `GET /real-estate/portal-leads` → `PortalLeadController@index`. JSON variant at `GET /real-estate/portal-leads/poll` for the toast poller.

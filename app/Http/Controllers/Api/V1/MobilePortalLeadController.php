@@ -13,7 +13,13 @@ use Illuminate\Support\Carbon;
  *
  * Mirrors the web `/corex/real-estate/portal-leads` controller but returns
  * JSON for the CoreX mobile app. Agency isolation is enforced structurally
- * via the AgencyScope global scope on the PortalLead model.
+ * via the AgencyScope global scope on the PortalLead model. Per-agent
+ * visibility WITHIN the agency (the Portal Leads Data Scope in Role
+ * Manager: own/branch/all) is enforced by PortalLead::scopeVisibleTo() —
+ * every query and every single-lead lookup below MUST apply it. Bug found
+ * 2026-08-13: none of the four endpoints did, so every mobile user saw
+ * every other agent's leads regardless of their configured scope. Mirrors
+ * the web PortalLeadController, which has always called ->visibleTo().
  *
  * Spec: .ai/specs/portal-leads.md
  */
@@ -42,6 +48,7 @@ class MobilePortalLeadController extends Controller
             : Carbon::today();
 
         $query = PortalLead::query()
+            ->visibleTo($request->user())
             ->with([
                 'listing:id,title,agent_id',
                 'contact:id,first_name,last_name,email,phone',
@@ -77,6 +84,7 @@ class MobilePortalLeadController extends Controller
         $since = Carbon::today()->subDays(30);
 
         $rows = PortalLead::query()
+            ->visibleTo($request->user())
             ->selectRaw('DATE(received_at) as d, COUNT(*) as total, SUM(CASE WHEN notified_at IS NULL THEN 1 ELSE 0 END) as unread')
             ->where('received_at', '>=', $since)
             ->groupBy('d')
@@ -93,8 +101,10 @@ class MobilePortalLeadController extends Controller
     }
 
     /** GET /api/v1/mobile/portal-leads/{portalLead} */
-    public function show(PortalLead $portalLead): JsonResponse
+    public function show(Request $request, PortalLead $portalLead): JsonResponse
     {
+        $this->authorizeLead($request, $portalLead);
+
         $portalLead->load([
             'listing:id,title,agent_id',
             'contact:id,first_name,last_name,email,phone',
@@ -107,14 +117,31 @@ class MobilePortalLeadController extends Controller
     }
 
     /** POST /api/v1/mobile/portal-leads/{portalLead}/mark-read */
-    public function markRead(PortalLead $portalLead): JsonResponse
+    public function markRead(Request $request, PortalLead $portalLead): JsonResponse
     {
+        $this->authorizeLead($request, $portalLead);
+
         if (! $portalLead->notified_at) {
             $portalLead->notified_at = now();
             $portalLead->save();
         }
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Route-model-bound endpoints (show/markRead) bypass the list query
+     * entirely, so ->visibleTo() there does nothing to protect them — a
+     * lead hidden from a user's list was still directly readable/markable
+     * by guessing its id. Re-check visibility explicitly for single-lead
+     * lookups.
+     */
+    private function authorizeLead(Request $request, PortalLead $portalLead): void
+    {
+        abort_unless(
+            PortalLead::query()->visibleTo($request->user())->whereKey($portalLead->id)->exists(),
+            403
+        );
     }
 
     private function transform(PortalLead $l, bool $full = false): array
