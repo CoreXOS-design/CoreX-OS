@@ -258,10 +258,17 @@ final class DeedsCaptureController extends Controller
             );
         }
 
-        return redirect()->route('corex.deeds-capture.index')->with(
-            'success',
-            'Promoted to a property and linked the owner' . ($ownerContactIds->count() > 1 ? 's' : '') . '. Open the property to continue.'
-        );
+        return redirect()->route('corex.deeds-capture.index')
+            ->with(
+                'success',
+                'Promoted to a property and linked the owner' . ($ownerContactIds->count() > 1 ? 's' : '') . '.'
+            )
+            // 2026-08-14 — the flash used to SAY "Open the property to continue"
+            // with no actual link, dead-ending the user. success_link is a
+            // separate, optional session key (see index.blade.php) so the
+            // other flash('success', <plain string>) callers in this
+            // controller (dismissProperty/dismissTva) are untouched.
+            ->with('success_link', route('corex.properties.show', $property->id));
     }
 
     /**

@@ -11,7 +11,18 @@
     </div>
 
     @if(session('success'))
-        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green, #16a34a) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-green, #16a34a) 35%, transparent); color: var(--text-primary);">{{ session('success') }}</div>
+        {{-- success_link (2026-08-14) — optional, set only by promote() alongside
+             'success'; dismiss actions keep sending a plain string with no link,
+             so this stays backward-compatible rather than changing the shape of
+             session('success') itself. Closes the "Open the property to
+             continue" dead-end — the message used to name an action with no
+             actual link to take it. --}}
+        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green, #16a34a) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-green, #16a34a) 35%, transparent); color: var(--text-primary);">
+            {{ session('success') }}
+            @if(session('success_link'))
+                <a href="{{ session('success_link') }}" class="font-semibold underline" style="color: var(--ds-green, #16a34a);">Open property &rarr;</a>
+            @endif
+        </div>
     @endif
     @if(session('info'))
         <div class="rounded-md px-4 py-3 text-sm" style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-secondary);">{{ session('info') }}</div>
@@ -43,12 +54,19 @@
                     // leaked label text ("Flat number") into this column, and that
                     // garbage must not trigger the sectional headline on what's
                     // actually a freehold record.
-                    $isSectional = filled($tp->scheme_name) || filled($tp->scheme_number)
-                        || (filled($tp->section_number) && preg_match('/\d/', (string) $tp->section_number));
+                    // hasRealSection (2026-08-14) — shared by the headline AND the
+                    // detail line below (the "· Section …" segment). CONFIRMED LIVE:
+                    // pre-fix captures leaked the literal string "Flat number" into
+                    // section_number on records that are actually FREEHOLD (56 Avenue
+                    // Svea, 53 Broadway — both scheme_name/scheme_number NULL), so a
+                    // bare truthiness check on section_number displays that garbage as
+                    // if it were a real section. Same digit guard as $isSectional.
+                    $hasRealSection = filled($tp->section_number) && preg_match('/\d/', (string) $tp->section_number);
+                    $isSectional = filled($tp->scheme_name) || filled($tp->scheme_number) || $hasRealSection;
                     if ($isSectional) {
                         $schemeLabel = collect([
                             $tp->complex_name ?: $tp->scheme_name,
-                            $tp->section_number ? ('Section ' . $tp->section_number) : null,
+                            $hasRealSection ? ('Section ' . $tp->section_number) : null,
                         ])->filter(fn ($v) => trim((string) $v) !== '')->implode(' — ');
                         $headline = collect([$schemeLabel, $tp->suburb])->filter(fn ($v) => trim((string) $v) !== '')->implode(', ');
                         if ($headline === '') $headline = $addr; // no scheme/complex name captured — fall back rather than show nothing
@@ -76,7 +94,7 @@
                             @endif
                             <div class="text-xs mt-1" style="color: var(--text-muted);">
                                 @if($tp->scheme_name)Scheme: {{ $tp->scheme_name }}@if($tp->scheme_number) ({{ $tp->scheme_number }})@endif @endif
-                                @if($tp->section_number) · Section {{ $tp->section_number }}@endif
+                                @if($hasRealSection) · Section {{ $tp->section_number }}@endif
                                 @if($tp->erf_number) · Erf {{ $tp->erf_number }}@endif
                                 @if($tp->title_deed_number) · Deed {{ $tp->title_deed_number }}@endif
                                 @if($tp->cadastral_extent) · {{ $tp->cadastral_extent }} m²@endif
