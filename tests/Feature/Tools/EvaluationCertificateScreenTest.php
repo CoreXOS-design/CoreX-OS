@@ -291,6 +291,27 @@ final class EvaluationCertificateScreenTest extends TestCase
             ->assertDontSee('Save your changes before sharing', false);
     }
 
+    public function test_my_evaluations_page_is_a_dedicated_read_only_list(): void
+    {
+        $res = $this->actingAs($this->agent)->get(route('tools.cma.evaluation.mine'));
+
+        $res->assertOk()
+            ->assertSee('My Evaluations')
+            ->assertSee('evalMine()', false)              // dedicated read-only component
+            ->assertDontSee('Find a property', false)     // NOT the create/edit builder
+            ->assertDontSee('Save evaluation', false);
+    }
+
+    public function test_builder_no_longer_overlays_the_submitted_list(): void
+    {
+        $res = $this->actingAs($this->agent)->get(route('tools.cma'));
+
+        // The overlay panel is gone; the builder only links to the dedicated list.
+        $res->assertOk()
+            ->assertDontSee('My submitted evaluations</div>', false)
+            ->assertSee('View my submitted evaluations', false);
+    }
+
     public function test_pdf_uses_the_full_esign_company_letterhead(): void
     {
         $cert = EvaluationCertificate::create([

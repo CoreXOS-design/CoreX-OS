@@ -44,6 +44,8 @@ final class SuggestedActionThresholds extends Model
         'colleague_claim_stale_days',
         'investigate_mid_min',
         'new_listing_lookback_days',
+        'claim_warn_days',
+        'claim_release_days',
     ];
 
     protected $casts = [
@@ -58,6 +60,8 @@ final class SuggestedActionThresholds extends Model
         'colleague_claim_stale_days' => 'integer',
         'investigate_mid_min'        => 'integer',
         'new_listing_lookback_days'  => 'integer',
+        'claim_warn_days'            => 'integer',
+        'claim_release_days'         => 'integer',
     ];
 
     /**
@@ -83,6 +87,8 @@ final class SuggestedActionThresholds extends Model
             'colleague_claim_stale_days' => 21,
             'investigate_mid_min'        => 5,
             'new_listing_lookback_days'  => 1,
+            'claim_warn_days'            => 7,   // warn the agent-on-it (Johan default)
+            'claim_release_days'         => 10,  // stale → BM/admin move-or-keep review (Johan default)
         ];
     }
 

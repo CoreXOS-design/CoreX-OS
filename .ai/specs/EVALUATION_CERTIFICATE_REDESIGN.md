@@ -168,6 +168,15 @@ Two PDF-render defects (the on-screen review IS the dompdf PDF via `download?inl
 - **ITEM 1 — Share no longer save-gated.** The candidate's Share button (on an authorised cert) still ran `if (this.dirty) alert('Save your changes before sharing')` — a spurious dirty flag from loading the cert into the (now read-only) form. Removed from `share()`. Share/Download/Print are READ actions on a submitted/authorised cert; Download/Print already fired directly. (The `openSign()` dirty-check stays — a candidate genuinely must save before submitting.)
 - **ITEM 2 — designation under each signer.** The signature caption now stacks **signature → name → designation** for both columns, pulled from the **USER** record's `designation` (`signedBy?->designation` / `authorisedBy?->designation`) — NOT a contact field (the signer is a logged-in staff user; avoids cc3's contacts `type`-column fix). New `.sig-desig` line under `.sig-name`; stays level across columns via the 2-row table. Renders on-screen AND in the PDF. ⚠️ Filed PDFs baked BEFORE this change (e.g. #10) keep their old artifact; certs authorised after the deploy bake the designation in.
 
+### cc1 — candidate "My Evaluations" read-only screen (Johan, 13 Aug 2026)
+
+The candidate side had the SAME overlay bug the authoriser side had: on `/tools/cma`, the "My submitted evaluations" panel sat on top of the blank create form. Fixed by mirroring the authorise page:
+
+- **New page** `GET /tools/cma/evaluation/mine` → `tools.evaluation-certificate.mine` (`evalMine`, mirrors `evalAuth`). A LIST of the candidate's own submitted evaluations (address/value/submitted date/status) → **Open** → a READ-ONLY view (finished PDF in an iframe) with **Download / Print / Share** (Share = the did-you-send model, on authorised); a **returned** (rejected) cert shows its note + **Edit & resubmit** → `/tools/cma?edit=<id>`.
+- **`/tools/cma` builder is now create/edit ONLY** — the overlay panel is removed; it shows a "View my submitted evaluations →" link and loads an existing cert ONLY via `?edit=<id>` (a returned cert sent from the mine screen). So a submitted cert never sits over the create form.
+- **Sidebar** gains "My Evaluations" for candidates (`CandidatePractitionerService::isCandidate`).
+- Verified: `EvaluationCertificateScreenTest` — the mine page renders the dedicated `evalMine` list (no "Find a property"/"Save evaluation"); the builder no longer shows "My submitted evaluations", links to the dedicated list.
+
 ### ⚠️ REMAINING FLAGS from cc1 (Phase 4) — need owner decisions
 
 1. ~~No certificate SAVE/PERSIST endpoint~~ — **RESOLVED**: Johan assigned cc1 the last-mile; `store`/`update` + the full screen are built (see section above). End-to-end in the browser now works.

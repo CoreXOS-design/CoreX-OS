@@ -1074,6 +1074,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/tools/cma/evaluation/{certificate}/reject', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'reject'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.reject');
     Route::get('/tools/cma/evaluation/queue', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'queue'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.queue');
     Route::get('/tools/cma/evaluation/authorisations', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'authorisations'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.authorisations');
+    Route::get('/tools/cma/evaluation/mine', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'mine'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.mine');
     Route::get('/tools/cma/evaluation/{certificate}/share-meta', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'shareMeta'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.share-meta');
 
     // Ad Manager (bulk) — spec .ai/specs/ad-manager.md §10b
@@ -2525,6 +2526,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
             // Buyer-match tier thresholds — single PUT per agency.
             Route::put('/buyer-match-tiers',                      [\App\Http\Controllers\Settings\Prospecting\BuyerMatchTiersController::class, 'update'])->name('buyer-match-tiers.update');
+            // MIC funnel phase 2 — agency-configurable stale-claim warn/release thresholds.
+            Route::get('/stale-rules',                            [\App\Http\Controllers\Settings\Prospecting\StaleRulesController::class, 'edit'])->name('stale-rules.edit');
+            Route::put('/stale-rules',                            [\App\Http\Controllers\Settings\Prospecting\StaleRulesController::class, 'update'])->name('stale-rules.update');
         });
 
     // ── Seller Outreach Templates (per-agency template CRUD) ──
@@ -4182,6 +4186,17 @@ Route::middleware(['auth', 'permission:access_prospecting'])
 
         // Phase G2 — BM team dashboard. Permission-gated via the controller.
         Route::get('/team', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'team'])->name('team');
+
+        // MIC funnel phase 2 — BM/admin stale-claim review + reassignment (anti-poaching).
+        Route::get('/stale-review', [\App\Http\Controllers\Prospecting\StaleClaimController::class, 'index'])
+            ->middleware('permission:prospecting_setup.manage')->name('stale-review');
+        Route::post('/stale-review/{claim}/reassign', [\App\Http\Controllers\Prospecting\StaleClaimController::class, 'reassign'])
+            ->whereNumber('claim')->middleware('permission:prospecting_setup.manage')->name('stale-review.reassign');
+        Route::post('/stale-review/{claim}/keep', [\App\Http\Controllers\Prospecting\StaleClaimController::class, 'keep'])
+            ->whereNumber('claim')->middleware('permission:prospecting_setup.manage')->name('stale-review.keep');
+        // Agent-facing: release my claim back to MIC because no address could be established.
+        Route::post('/claims/{claim}/release-no-address', [\App\Http\Controllers\Prospecting\StaleClaimController::class, 'releaseNoAddress'])
+            ->whereNumber('claim')->name('claims.release-no-address');
 
         // Phase G3 — feedback-template JSON for the claim slide-over.
         Route::get('/feedback-templates', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'feedbackTemplates'])->name('feedback-templates');

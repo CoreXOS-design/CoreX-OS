@@ -246,6 +246,9 @@ final class ProspectingClaimService
             'status'          => $newStatus ?? $claim->status,
             'notes'           => $combined,
             'last_updated_at' => now(),
+            // MIC funnel phase 2 — working the claim RESETS the staleness timer: clear the warn so it
+            // re-arms next cycle (and drops out of the BM stale-review until it goes stale again).
+            'warned_at'       => null,
         ]);
     }
 
@@ -256,9 +259,9 @@ final class ProspectingClaimService
      * Callers (controllers) are responsible for authorisation. This service does
      * not gate access — it does the bookkeeping atomically.
      */
-    public function releaseClaim(int $claimId, int $releasedByUserId, string $reason): ProspectingClaim
+    public function releaseClaim(int $claimId, int $releasedByUserId, string $reason, ?string $reasonCode = null): ProspectingClaim
     {
-        return DB::transaction(function () use ($claimId, $releasedByUserId, $reason) {
+        return DB::transaction(function () use ($claimId, $releasedByUserId, $reason, $reasonCode) {
             $claim = ProspectingClaim::lockForUpdate()->findOrFail($claimId);
 
             $existing = (string) ($claim->notes ?? '');
@@ -268,10 +271,64 @@ final class ProspectingClaimService
             $claim->update([
                 'released_at'     => now(),
                 'is_active'       => false,
+                // Structured reason (MIC phase 2) so other agents / the BM see WHY on the pool
+                // (e.g. 'no_address' → "no address could be established, released back"). Free-text
+                // reason still captured in the notes trail above.
+                'release_reason'  => $reasonCode,
                 'notes'           => $combined,
                 'last_updated_at' => now(),
+                'warned_at'       => null,
             ]);
 
+            return $claim->refresh();
+        });
+    }
+
+    /**
+     * MIC funnel phase 2 — BM/admin REASSIGNMENT (anti-poaching: agents never grab stale stock from
+     * each other; the BM/admin moves it). Changes the owning agent, resets the staleness timer, and
+     * leaves an audit note. Returns [claim, oldUserId] so the caller can warn the losing agent.
+     */
+    public function reassignClaim(int $claimId, int $newAgentId, int $byUserId): array
+    {
+        return DB::transaction(function () use ($claimId, $newAgentId, $byUserId) {
+            $claim = ProspectingClaim::lockForUpdate()->findOrFail($claimId);
+            $oldUserId = (int) $claim->user_id;
+
+            $existing = (string) ($claim->notes ?? '');
+            $note = '[' . now()->format('Y-m-d H:i') . '] REASSIGNED by user #' . $byUserId
+                . ' from agent #' . $oldUserId . ' to agent #' . $newAgentId;
+            $combined = trim($note . ($existing === '' ? '' : "\n" . $existing));
+
+            $claim->update([
+                'user_id'         => $newAgentId,
+                'notes'           => $combined,
+                'last_updated_at' => now(),   // fresh start for the new agent
+                'warned_at'       => null,
+                'is_active'       => true,
+                'released_at'     => null,
+            ]);
+
+            return [$claim->refresh(), $oldUserId];
+        });
+    }
+
+    /**
+     * MIC funnel phase 2 — BM/admin KEEP decision: leave the claim with its current agent but reset
+     * the staleness timer (a deliberate "still ours, carry on"), clearing the warn.
+     */
+    public function keepClaim(int $claimId, int $byUserId): ProspectingClaim
+    {
+        return DB::transaction(function () use ($claimId, $byUserId) {
+            $claim = ProspectingClaim::lockForUpdate()->findOrFail($claimId);
+            $existing = (string) ($claim->notes ?? '');
+            $note = '[' . now()->format('Y-m-d H:i') . '] KEPT by user #' . $byUserId . ' — staleness timer reset';
+            $combined = trim($note . ($existing === '' ? '' : "\n" . $existing));
+            $claim->update([
+                'notes'           => $combined,
+                'last_updated_at' => now(),
+                'warned_at'       => null,
+            ]);
             return $claim->refresh();
         });
     }

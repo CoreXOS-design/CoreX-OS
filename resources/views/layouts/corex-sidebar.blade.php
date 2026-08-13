@@ -598,6 +598,12 @@
                           style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color:var(--brand-icon, #0ea5e9);">{{ number_format($miCount) }}</span>
                     @endif
                 </a>
+                {{-- MIC funnel phase 2 — BM/admin stale-claim review (anti-poaching reassignment). --}}
+                @if(\Illuminate\Support\Facades\Route::has('market-intelligence.stale-review') && auth()->user()->hasPermission('prospecting_setup.manage'))
+                <a href="{{ route('market-intelligence.stale-review') }}" class="corex-nav-subitem {{ request()->routeIs('market-intelligence.stale-review') ? 'active' : '' }}">
+                    <span>Stale claims review</span>
+                </a>
+                @endif
                 {{-- Bulk Import Reports moved into the Market Intelligence tab bar
                      as the "Importer" tab (see partials/tabs.blade.php). No
                      separate sidebar entry. --}}
@@ -1111,6 +1117,10 @@
                 <div class="corex-nav-sublabel">Tools</div>
                 <a href="{{ route('tools.commission') }}" class="corex-nav-subitem {{ request()->routeIs('tools.commission') && !request()->query('section') ? 'active' : '' }}">Commission Calculator</a>
                 <a href="{{ route('tools.cma') }}" class="corex-nav-subitem {{ request()->routeIs('tools.cma') ? 'active' : '' }}">Evaluation Certificate</a>
+                @php $evalIsCandidate = auth()->check() ? app(\App\Services\CandidatePractitionerService::class)->isCandidate(auth()->user()) : false; @endphp
+                @if($evalIsCandidate)
+                <a href="{{ route('tools.cma.evaluation.mine') }}" class="corex-nav-subitem {{ request()->routeIs('tools.cma.evaluation.mine') ? 'active' : '' }}">My Evaluations</a>
+                @endif
                 @php $evalPendingAuth = auth()->check() ? app(\App\Services\EvaluationAuthorisationService::class)->pendingCountFor(auth()->user()) : 0; @endphp
                 @if($evalPendingAuth > 0)
                 <a href="{{ route('tools.cma.evaluation.authorisations') }}" class="corex-nav-subitem {{ request()->routeIs('tools.cma.evaluation.authorisations') ? 'active' : '' }}" style="display:flex; align-items:center;">
