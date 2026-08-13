@@ -156,6 +156,13 @@ Johan's authorise experience was broken: clicking Review on the /tools/cma queue
 - **/tools/cma is now candidate-only for the queue** — the "My submitted evaluations" panel shows only for `queueRole==='candidate'`; the authoriser authorise/reject buttons were removed from the builder. Authorisers never touch the editable form → both defects gone by construction.
 - Verified: `EvaluationCertificateScreenTest` — the authorisations page renders the dedicated `evalAuth()` review (has "Authorise & sign", does NOT have "Find a property"/"Save evaluation").
 
+### cc1 — signature-block render defects (Johan, 13 Aug 2026)
+
+Two PDF-render defects (the on-screen review IS the dompdf PDF via `download?inline=1` iframe, so one render fixes both surfaces):
+
+- **DEFECT 1 — candidate signature missing.** Her signature WAS persisted (`candidate_signature_image`, ~12KB on #10) — it just wasn't passed to the preview render. `download()`/`publicView()` now render via a new `previewPdf()` that passes `candidate_signature_image` as the signer image (and resolves signedBy/authorisedBy names). So a pending/preview cert shows her captured signature above "Evaluated & signed by", exactly as the authoriser's will appear on "Authorised by" after they sign. (The filed authorised PDF already had both, baked at sign.)
+- **DEFECT 2 — signature lines not level.** The old block used bottom-aligned `<div>` slots; dompdf collapses the empty slot + drifts the ruled lines. Rebuilt as a **2-row table**: row 1 = fixed-height signature BOXES with a `border-bottom` (the ruled line) — dompdf keeps both at an identical baseline whether a box holds an image or is empty; row 2 = top-aligned captions. Both lines, both labels, both names now sit level. Verified by PDF→PNG for the filled-vs-empty (pending) and both-signed cases.
+
 ### ⚠️ REMAINING FLAGS from cc1 (Phase 4) — need owner decisions
 
 1. ~~No certificate SAVE/PERSIST endpoint~~ — **RESOLVED**: Johan assigned cc1 the last-mile; `store`/`update` + the full screen are built (see section above). End-to-end in the browser now works.

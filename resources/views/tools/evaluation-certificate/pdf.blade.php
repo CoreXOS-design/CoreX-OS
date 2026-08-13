@@ -83,12 +83,15 @@
     .ec-letterhead .company-header-contact-grid { display: table !important; width: 100% !important; }
     .ec-letterhead .company-header-contact-grid > div { display: table-cell !important; width: 50% !important; vertical-align: top; }
     .ec-letterhead img { width: auto !important; height: auto !important; max-height: 74px !important; max-width: 280px !important; }
-    .sign-tbl { margin-top: 34px; }
-    .sign-tbl td { width: 50%; vertical-align: bottom; padding: 0 10px; }
-    /* Signature sits in a fixed-height slot DIRECTLY above the ruled line — no floating gap. */
-    .sig-slot { height: 48px; }
-    .sig-img { max-height: 48px; max-width: 220px; }
-    .sig-line { border-top: 1px solid #333; padding-top: 4px; }
+    /* Signature block — a 2-row TABLE so both columns align in dompdf. Row 1 = the
+       signature BOXES: fixed-height table cells with a bottom border (the ruled line),
+       which dompdf keeps at an IDENTICAL baseline whether a box holds a signature image
+       or is empty (unlike bottom-aligned divs, which collapse + drift). Row 2 = the
+       captions, top-aligned so both labels + names sit on the same level too. */
+    .sign-tbl { margin-top: 34px; width: 100%; }
+    .sign-tbl .sig-box { width: 50%; height: 52px; vertical-align: bottom; border-bottom: 1px solid #333; padding: 0 10px 3px; }
+    .sign-tbl .sig-cap { width: 50%; vertical-align: top; padding: 5px 10px 0; }
+    .sig-img { max-height: 50px; max-width: 220px; }
     .sig-role { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #6b7280; }
     .sig-name { font-weight: 700; }
     .foot { margin-top: 22px; font-size: 8.5px; color: #9aa3b2; text-align: center; line-height: 1.5; }
@@ -152,30 +155,30 @@
         </ul>
     @endif
 
-    {{-- SIGNATURE BLOCK — cc1 bakes $signatureImage here at sign time (immutable filed artifact).
-         The signature sits in a fixed-height slot directly ON the ruled line above the signer's
-         name — one tidy area, no floating image, no stray initial box. The "Authorised by" column
-         renders ONLY for the candidate flow ($showAuthoriser); a full-status signer needs none. --}}
+    {{-- SIGNATURE BLOCK — two-row table so both columns stay LEVEL in dompdf.
+         Row 1 (sig-box): each column's signature sits above its ruled line (the cell's
+         bottom border); fixed cell height keeps both lines on the same baseline whether a
+         box holds a signature or is empty. Row 2 (sig-cap): the labels + names, top-aligned.
+         $signatureImage = the candidate/direct signer's mark (baked at sign, or the
+         candidate's snapshot on a pending preview); $authoriserSignatureImage = the
+         full-status authoriser's mark. The "Authorised by" column renders only for the
+         candidate flow ($showAuthoriser). --}}
     <table class="sign-tbl">
         <tr>
-            <td>
-                <div class="sig-slot">
-                    @if($signatureImage)<img class="sig-img" src="{{ $signatureImage }}" alt="signature">@endif
-                </div>
-                <div class="sig-line">
-                    <span class="sig-role">Evaluated &amp; signed by</span><br>
-                    <span class="sig-name">{{ $signerName ?: '' }}</span>
-                </div>
+            <td class="sig-box">@if($signatureImage)<img class="sig-img" src="{{ $signatureImage }}" alt="signature">@endif</td>
+            @if($showAuthoriser)
+            <td class="sig-box">@if($authoriserSignatureImage)<img class="sig-img" src="{{ $authoriserSignatureImage }}" alt="authoriser signature">@endif</td>
+            @endif
+        </tr>
+        <tr>
+            <td class="sig-cap">
+                <span class="sig-role">Evaluated &amp; signed by</span><br>
+                <span class="sig-name">{{ $signerName ?: '' }}</span>
             </td>
             @if($showAuthoriser)
-            <td>
-                <div class="sig-slot">
-                    @if($authoriserSignatureImage)<img class="sig-img" src="{{ $authoriserSignatureImage }}" alt="authoriser signature">@endif
-                </div>
-                <div class="sig-line">
-                    <span class="sig-role">Authorised by</span><br>
-                    <span class="sig-name">{{ $authoriserName ?: '' }}</span>
-                </div>
+            <td class="sig-cap">
+                <span class="sig-role">Authorised by</span><br>
+                <span class="sig-name">{{ $authoriserName ?: '' }}</span>
             </td>
             @endif
         </tr>

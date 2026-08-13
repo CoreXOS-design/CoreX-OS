@@ -386,9 +386,29 @@ class EvaluationCertificateController extends Controller
                 : Storage::download($certificate->signed_pdf_path, $filename);
         }
 
-        $pdf = $this->renderCertificatePdf($certificate);
+        $pdf = $this->previewPdf($certificate);
 
         return $inline ? $pdf->stream($filename) : $pdf->download($filename);
+    }
+
+    /**
+     * The live PREVIEW render (draft / pending — no filed artifact yet). Paints the
+     * CANDIDATE's captured signature into "Evaluated & signed by" once submitted, so a
+     * pending certificate reviews as the candidate actually signed it (the authoriser's
+     * mark appears after they sign). Relations set so the names resolve on any render
+     * context (incl. the public/no-auth path).
+     */
+    private function previewPdf(EvaluationCertificate $certificate): \Barryvdh\DomPDF\PDF
+    {
+        $certificate->setRelation('contact', $this->linkedContact($certificate));
+        if ($certificate->signed_by_user_id) {
+            $certificate->setRelation('signedBy', User::withoutGlobalScopes()->find($certificate->signed_by_user_id));
+        }
+        if ($certificate->authorised_by_user_id) {
+            $certificate->setRelation('authorisedBy', User::withoutGlobalScopes()->find($certificate->authorised_by_user_id));
+        }
+
+        return $this->renderCertificatePdf($certificate, $certificate->candidate_signature_image, null);
     }
 
     /**
@@ -815,8 +835,6 @@ class EvaluationCertificateController extends Controller
             return Storage::response($certificate->signed_pdf_path, $filename, ['Content-Disposition' => 'inline; filename="' . $filename . '"']);
         }
 
-        $certificate->setRelation('contact', $this->linkedContact($certificate));
-
-        return $this->renderCertificatePdf($certificate)->stream($filename);
+        return $this->previewPdf($certificate)->stream($filename);
     }
 }

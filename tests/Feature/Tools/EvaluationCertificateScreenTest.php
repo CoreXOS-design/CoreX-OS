@@ -255,6 +255,30 @@ final class EvaluationCertificateScreenTest extends TestCase
             ->assertDontSee('Save evaluation', false);
     }
 
+    public function test_pdf_signature_block_paints_signer_image_and_aligned_columns(): void
+    {
+        $cert = EvaluationCertificate::create([
+            'agency_id' => $this->agency->id, 'address' => '1 Beach Rd',
+            'status' => EvaluationCertificate::STATUS_PENDING_AUTHORISATION, 'created_by_user_id' => $this->agent->id,
+        ])->fresh();
+
+        $html = view('tools.evaluation-certificate.pdf', [
+            'certificate' => $cert,
+            'signatureImage' => 'data:image/png;base64,SIGNERPIX',
+            'authoriserSignatureImage' => null,
+            'showAuthoriser' => true,
+        ])->render();
+
+        // Defect 1: the signer's captured signature is painted (not just the name).
+        $this->assertStringContainsString('data:image/png;base64,SIGNERPIX', $html);
+        $this->assertStringContainsString('sig-img', $html);
+        // Defect 2: the aligned two-row table (sig-box / sig-cap); the old drifting divs are gone.
+        $this->assertStringContainsString('sig-box', $html);
+        $this->assertStringContainsString('sig-cap', $html);
+        $this->assertStringNotContainsString('sig-slot', $html);
+        $this->assertStringNotContainsString('sig-line', $html);
+    }
+
     public function test_pdf_uses_the_full_esign_company_letterhead(): void
     {
         $cert = EvaluationCertificate::create([
