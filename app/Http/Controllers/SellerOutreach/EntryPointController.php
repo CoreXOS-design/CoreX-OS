@@ -897,6 +897,51 @@ final class EntryPointController extends Controller
             }
         }
 
+        // MIC ↔ property-pillar reconciliation (Johan 2026-08-14). The external_id + raw
+        // address-string dedup above only catches EXACT string matches. Before minting a NEW
+        // property, resolve the FINAL address against the canonical TrackedProperty identity spine
+        // (the SAME resolver deeds promote uses: source-ref → GPS ~5m → erf+suburb → normalised
+        // structured address → token) so an address that already exists — e.g. a deeds-promoted
+        // property under a slightly different string — reconciles to it instead of duplicating.
+        // Read-only (findExistingMatch creates nothing); failure-isolated (falls through to create).
+        try {
+            $reconLat = null;
+            $reconLng = null;
+            if (!empty($listing->tracked_property_id)) {
+                $tpGps = DB::table('tracked_properties')
+                    ->where('id', (int) $listing->tracked_property_id)
+                    ->where('agency_id', $agencyId)
+                    ->first(['latitude', 'longitude']);
+                if ($tpGps) {
+                    $reconLat = $tpGps->latitude !== null ? (float) $tpGps->latitude : null;
+                    $reconLng = $tpGps->longitude !== null ? (float) $tpGps->longitude : null;
+                }
+            }
+            $reconFacts = array_filter([
+                'address'       => $address ?: ($listing->address ?? null),
+                'street_number' => $streetNumber ?: ProspectingListing::parseStreetNumber($listing->address ?? null),
+                'street_name'   => $streetName ?: null,
+                'suburb'        => $suburb ?: ($listing->suburb ?? null),
+                'latitude'      => $reconLat,
+                'longitude'     => $reconLng,
+            ], static fn ($v) => $v !== null && $v !== '');
+
+            // Only attempt when we hold a real locating key (a real address or GPS) — never let an
+            // empty/placeholder address collapse onto an existing property (the Ramsgate landmine).
+            if (($address !== '') || ($reconLat !== null && $reconLng !== null)) {
+                $canonical = app(\App\Services\Prospecting\MicPropertyReconciliationService::class)
+                    ->resolveExistingProperty($agencyId, $reconFacts);
+                if ($canonical) {
+                    return $canonical;
+                }
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('MIC property-pillar reconciliation failed (falling through to create)', [
+                'listing_id' => $listing->id ?? null,
+                'error'      => $e->getMessage(),
+            ]);
+        }
+
         // properties.beds/baths/garages/price/suburb/property_type/status are
         // NOT NULL — fall back to the schema defaults (0 / empty / 'house' /
         // 'draft') when the prospecting row doesn't carry the value.
