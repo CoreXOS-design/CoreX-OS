@@ -14,14 +14,17 @@ use App\Models\User;
 use App\Services\AgentSignatureService;
 use App\Services\CandidatePractitionerService;
 use App\Services\ContactDuplicateService;
+use App\Services\EvaluationAuthorisationService;
 use App\Support\Impersonation;
 use App\Support\WhatsAppNumberFormatter;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -583,7 +586,45 @@ class EvaluationCertificateController extends Controller
 
         $signatures->lock($user, $contextKey);
 
+        // Make it findable: alert every eligible authoriser (bell notification) and
+        // bust their sidebar-badge cache. Non-fatal — a notification hiccup must never
+        // fail the submission.
+        try {
+            $this->notifyAuthorisers($certificate, $user, $practitioners);
+        } catch (\Throwable $e) {
+            Log::warning('eval-cert: authoriser notification failed', ['certificate' => $certificate->id, 'error' => $e->getMessage()]);
+        }
+
         return response()->json(['ok' => true, 'status' => $certificate->status]);
+    }
+
+    /**
+     * Notify every eligible authoriser that a candidate certificate awaits them — a
+     * bell notification linking straight to the evaluation screen (where the queue
+     * lives), and a sidebar-badge cache bust so their count updates immediately.
+     */
+    private function notifyAuthorisers(EvaluationCertificate $certificate, User $candidate, CandidatePractitionerService $practitioners): void
+    {
+        $authorisers = $practitioners->getEligibleAuthorisers($candidate);   // throws if none → caught by caller
+        $auth = app(EvaluationAuthorisationService::class);
+        $url  = route('tools.cma') . '?section=cma';
+
+        foreach ($authorisers as $authoriser) {
+            DatabaseNotification::create([
+                'id'              => (string) Str::uuid(),
+                'type'            => 'evalcert.authorisation_pending',
+                'notifiable_type' => User::class,
+                'notifiable_id'   => $authoriser->id,
+                'data'            => [
+                    'title'          => 'Evaluation awaiting your authorisation',
+                    'message'        => $candidate->name . ' submitted an evaluation certificate for '
+                                        . ($certificate->address ?: 'a property') . ' — review to authorise or reject.',
+                    'action_url'     => $url,
+                    'certificate_id' => $certificate->id,
+                ],
+            ]);
+            $auth->forget($authoriser);
+        }
     }
 
     /**
@@ -670,14 +711,7 @@ class EvaluationCertificateController extends Controller
                 ])
                 ->latest()->limit(50)->get();
         } else {
-            $certs = EvaluationCertificate::where('agency_id', $agencyId)
-                ->where('status', EvaluationCertificate::STATUS_PENDING_AUTHORISATION)
-                ->latest()->limit(100)->get()
-                ->filter(function (EvaluationCertificate $c) use ($user, $practitioners) {
-                    $creator = User::withoutGlobalScopes()->find($c->signed_by_user_id ?: $c->created_by_user_id);
-                    return $creator && $practitioners->canAuthoriseFor($user, $creator);
-                })
-                ->values();
+            $certs = app(EvaluationAuthorisationService::class)->pendingFor($user);
         }
 
         return response()->json([

@@ -1111,6 +1111,13 @@
                 <div class="corex-nav-sublabel">Tools</div>
                 <a href="{{ route('tools.commission') }}" class="corex-nav-subitem {{ request()->routeIs('tools.commission') && !request()->query('section') ? 'active' : '' }}">Commission Calculator</a>
                 <a href="{{ route('tools.cma') }}" class="corex-nav-subitem {{ request()->routeIs('tools.cma') ? 'active' : '' }}">Evaluation Certificate</a>
+                @php $evalPendingAuth = auth()->check() ? app(\App\Services\EvaluationAuthorisationService::class)->pendingCountFor(auth()->user()) : 0; @endphp
+                @if($evalPendingAuth > 0)
+                <a href="{{ route('tools.cma') }}?section=cma" class="corex-nav-subitem {{ request()->routeIs('tools.cma') ? 'active' : '' }}" style="display:flex; align-items:center;">
+                    <span>Pending Authorisations</span>
+                    <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold" style="background:#ef444420; color:#ef4444;">{{ $evalPendingAuth }}</span>
+                </a>
+                @endif
                 <a href="{{ route('tools.commission') }}?section=history" class="corex-nav-subitem {{ request()->routeIs('tools.commission') && request()->query('section') === 'history' ? 'active' : '' }}">History & Logs</a>
                 @endpermission
             </div>

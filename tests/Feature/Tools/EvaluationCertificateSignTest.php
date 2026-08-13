@@ -336,4 +336,41 @@ final class EvaluationCertificateSignTest extends TestCase
             ->assertOk()->assertJson(['role' => 'authoriser'])
             ->assertJsonFragment(['id' => $cert->id]);
     }
+
+    public function test_candidate_submit_notifies_eligible_authorisers(): void
+    {
+        $candidate = $this->practitioner('Candidate Property Practitioner');
+        $this->withSavedSignature($candidate, '1111');
+        $authoriser = $this->practitioner('Property Practitioner');   // same branch → eligible
+        $cert = $this->draftCertificate($candidate);
+
+        $this->actingAs($candidate)->postJson(route('tools.cma.evaluation.submit', $cert), ['pin' => '1111'])->assertOk();
+
+        // A bell notification lands for the eligible authoriser, linking to the eval screen.
+        $this->assertDatabaseHas('notifications', [
+            'type'            => 'evalcert.authorisation_pending',
+            'notifiable_id'   => $authoriser->id,
+            'notifiable_type' => User::class,
+        ]);
+    }
+
+    public function test_pending_authorisation_count_is_scoped_to_eligible_authorisers(): void
+    {
+        $candidate = $this->practitioner('Candidate Property Practitioner');
+        $this->withSavedSignature($candidate, '1111');
+        $authoriser = $this->practitioner('Property Practitioner');   // eligible (same branch)
+        $cert = $this->draftCertificate($candidate);
+        $this->actingAs($candidate)->postJson(route('tools.cma.evaluation.submit', $cert), ['pin' => '1111'])->assertOk();
+
+        $svc = app(\App\Services\EvaluationAuthorisationService::class);
+        $this->assertSame(1, $svc->pendingCountFor($authoriser));   // authoriser sees the badge count
+        $this->assertSame(0, $svc->pendingCountFor($candidate));    // the candidate is not an authoriser
+
+        $otherBranch = Branch::create(['agency_id' => $this->agency->id, 'name' => 'Other']);
+        $stranger = User::factory()->create([
+            'name' => 'Stranger', 'role' => 'agent', 'designation' => 'Property Practitioner',
+            'branch_id' => $otherBranch->id, 'agency_id' => $this->agency->id, 'is_active' => true,
+        ]);
+        $this->assertSame(0, $svc->pendingCountFor($stranger));      // different branch → not eligible
+    }
 }
