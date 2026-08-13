@@ -136,10 +136,17 @@ final class DeedsCaptureController extends Controller
         $ownerContactId = $resolvedOwners[0]['contact_id'] ?? null;
 
         // Match-or-create the tracked property (shared plumbing).
+        // section_number (2026-08-13): the sectional-title dedup discriminator
+        // — was missing entirely, so the matcher's numbersConflict() guard had
+        // no way to see it and two different units in the same scheme/building
+        // (same street address, often the same GPS pin) collapsed into one
+        // TrackedProperty. See TrackedPropertyMatchOrCreateService::
+        // numbersConflict() for the other half of this fix.
         $facts = array_filter([
             'street_number'         => $p['street_number'] ?? null,
             'street_name'           => $p['street_name'] ?? null,
             'unit_number'           => $p['unit_number'] ?? null,
+            'section_number'        => $p['section_number'] ?? null,
             'complex_name'          => $p['complex_name'] ?? null,
             'address'               => $p['address'] ?? null,
             'suburb'                => $p['suburb'] ?? null,

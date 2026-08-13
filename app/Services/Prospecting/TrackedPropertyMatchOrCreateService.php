@@ -302,6 +302,28 @@ final class TrackedPropertyMatchOrCreateService
             return true;
         }
 
+        // (3) Section number — the OTHER sectional-title discriminator
+        // (2026-08-13). Two units in the same scheme/building share a street
+        // address and — since one GPS pin usually represents the whole
+        // building, not each unit — often the same GPS coordinates too.
+        // "unit_number" above is populated from CMA's "Flat/Unit no" field,
+        // which is routinely blank; "Section number" is the field that
+        // actually distinguishes units in a scheme (per the PILLAR: a
+        // sectional-title property's identity is scheme + address + SECTION
+        // NUMBER, not address alone). Without this, two genuinely different
+        // sectional units collapsed into one TrackedProperty via GPS
+        // proximity / normalised-address / token-overlap, none of which knew
+        // section number existed. Same "both sides populated + differ" veto
+        // shape as street/unit number above — a missing section number on
+        // either side (freehold, or a capture that hasn't loaded it yet)
+        // never blocks a match, so freehold (erf-based) matching is
+        // untouched.
+        $factSection = $this->numberKey($facts['section_number'] ?? null);
+        $candSection = $this->numberKey($candidate->section_number);
+        if ($factSection !== null && $candSection !== null && $factSection !== $candSection) {
+            return true;
+        }
+
         // (4) Numbers embedded in the NAME strings ("Aqua Breeze 3" vs
         // "Aqua Breeze 5", "Forest Walk 4") — the structured fields are empty for
         // these, and the tokeniser would otherwise match them on the shared word
