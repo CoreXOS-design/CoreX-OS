@@ -777,15 +777,126 @@ final class TrackedPropertyMatchOrCreateService
     }
 
     /**
+     * Property-pillar refresh fields (2026-08-14) — the ONLY columns
+     * promoteToStock() will ever write onto an EXISTING (matched) Property.
+     * Everything else — agent_id, branch_id, status, status_label,
+     * mandate_type, price, title, listing_type, published_at, and any
+     * deal/outreach-linked data — is the owning agent's relationship state
+     * and is NEVER touched on refresh, regardless of whether it came from
+     * the TrackedProperty's own facts or a caller's $propertyFields. Only
+     * physical/factual columns: the property doesn't care who owns the
+     * relationship with it.
+     */
+    private const REFRESHABLE_PROPERTY_FIELDS = [
+        'street_number', 'street_name', 'suburb', 'town', 'province',
+        'latitude', 'longitude', 'cma_gps_lat', 'cma_gps_lng',
+        'erf_number', 'title_deed_number',
+        'municipal_valuation', 'municipal_valuation_year',
+        'property_type', 'beds', 'baths', 'garages',
+        'complex_name', 'unit_number', 'erf_size_m2',
+    ];
+
+    /**
+     * Property-pillar match (2026-08-14) — the SAME physical-identity
+     * philosophy as resolveMatch() above, applied to `properties` instead of
+     * `tracked_properties`, so promoteToStock() links to ONE canonical
+     * Property per physical unit instead of creating a duplicate every time
+     * a distinct TrackedProperty (a fresh re-capture, a differently-matched
+     * suspense record, an earlier-session TP that pre-dates a matcher fix,
+     * etc.) gets promoted for the same real-world property.
+     *
+     * Sectional and freehold use DIFFERENT primary keys — same reasoning as
+     * numbersConflict()'s erf veto: every unit in a scheme shares one erf,
+     * so erf+suburb is only a safe key for FREEHOLD. Sectional keys on
+     * complex_name + unit_number: `properties.unit_number` is ALREADY the
+     * established convention for "CMA section number" on a deeds-sourced
+     * property (see DeedsCaptureController::promote()'s
+     * `'unit_number' => $trackedProperty->section_number`) — reused here
+     * rather than adding a new column, so there is ONE identity column for
+     * this, not two competing ones.
+     *
+     * Normalised address is the fallback for either title type, gated by
+     * propertyIdentityConflicts() so two different sectional units that both
+     * lack scheme/section data don't silently collapse onto the same
+     * Property via address alone (the exact bug class fixed in
+     * numbersConflict() for tracked_properties).
+     */
+    private function resolvePropertyMatch(TrackedProperty $tp): ?Property
+    {
+        $isSectional = filled($tp->scheme_number)
+            || (filled($tp->section_number) && preg_match('/\d/', (string) $tp->section_number));
+
+        if ($isSectional) {
+            $complexName = trim((string) ($tp->complex_name ?: $tp->scheme_name));
+            $section = trim((string) $tp->section_number);
+            if ($complexName !== '' && $section !== '') {
+                $match = Property::queryWithoutAgencyScope()
+                    ->where('agency_id', $tp->agency_id)
+                    ->whereNull('deleted_at')
+                    ->whereRaw('LOWER(complex_name) = ?', [mb_strtolower($complexName)])
+                    ->where('unit_number', $section)
+                    ->first();
+                if ($match) {
+                    return $match;
+                }
+            }
+        } elseif (filled($tp->erf_number) && filled($tp->suburb)) {
+            $match = Property::queryWithoutAgencyScope()
+                ->where('agency_id', $tp->agency_id)
+                ->whereNull('deleted_at')
+                ->where('erf_number', trim((string) $tp->erf_number))
+                ->where('suburb_normalised', TrackedPropertyAddress::normaliseSuburb($tp->suburb))
+                ->first();
+            if ($match) {
+                return $match;
+            }
+        }
+
+        // Fallback: normalised address + suburb, for either title type.
+        if (filled($tp->street_number) && filled($tp->street_name) && filled($tp->suburb)) {
+            $candidate = Property::queryWithoutAgencyScope()
+                ->where('agency_id', $tp->agency_id)
+                ->whereNull('deleted_at')
+                ->where('street_number', trim((string) $tp->street_number))
+                ->where('street_name_normalised', TrackedPropertyAddress::normaliseStreet($tp->street_name))
+                ->where('suburb_normalised', TrackedPropertyAddress::normaliseSuburb($tp->suburb))
+                ->first();
+            if ($candidate && ! $this->propertyIdentityConflicts($tp, $candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Lightweight sibling of numbersConflict() for resolvePropertyMatch()'s
+     * address-fallback branch. Same veto shape: only fires when BOTH sides
+     * carry a value AND they differ — a missing unit number on either side
+     * never blocks the match.
+     */
+    private function propertyIdentityConflicts(TrackedProperty $tp, Property $candidate): bool
+    {
+        $tpUnit = $this->numberKey($tp->section_number ?: $tp->unit_number);
+        $candUnit = $this->numberKey($candidate->unit_number);
+
+        return $tpUnit !== null && $candUnit !== null && $tpUnit !== $candUnit;
+    }
+
+    /**
      * Promote a Tracked Property to Agency Stock.
      *
-     * Creates a Property row, links the TP to it via promoted_to_property_id,
-     * and preserves the entire source_chain for audit.
+     * Resolves to ONE canonical Property via resolvePropertyMatch() — refreshes
+     * the physical facts (REFRESHABLE_PROPERTY_FIELDS only) if a matching
+     * Property already exists, creates one if not. Links the TP to it via
+     * promoted_to_property_id and preserves the entire source_chain for audit
+     * either way.
      *
      * Defence-of-NOT-NULL: properties.agent_id and properties.branch_id are NOT NULL
      * on the schema with no defaults. The promoting user supplies both — agent_id
      * defaults to the promoting user, branch_id to their branch. Caller may override
-     * either via $propertyFields.
+     * either via $propertyFields (CREATE path only — see REFRESHABLE_PROPERTY_FIELDS
+     * doc above for why $propertyFields is filtered down on the refresh path).
      */
     public function promoteToStock(
         int $trackedPropertyId,
@@ -807,12 +918,15 @@ final class TrackedPropertyMatchOrCreateService
                 );
             }
 
-            $property = Property::create(array_merge(
-                [
-                    'agency_id'                => $tp->agency_id,
-                    'agent_id'                 => $promotingUserId,
-                    'branch_id'                => $defaultBranchId,
-                    'address'                  => $tp->displayAddress(),
+            $existingProperty = $this->resolvePropertyMatch($tp);
+
+            if ($existingProperty) {
+                // REFRESH — never blank an existing value with null/empty,
+                // and never write outside REFRESHABLE_PROPERTY_FIELDS. TP
+                // facts take precedence over $propertyFields (TP is the
+                // freshest capture); either source is filtered to the same
+                // whitelist before being applied.
+                $tpFacts = array_filter([
                     'street_number'            => $tp->street_number,
                     'street_name'              => $tp->street_name,
                     'suburb'                   => $tp->suburb,
@@ -826,19 +940,81 @@ final class TrackedPropertyMatchOrCreateService
                     'title_deed_number'        => $tp->title_deed_number,
                     'municipal_valuation'      => $tp->municipal_valuation,
                     'municipal_valuation_year' => $tp->municipal_valuation_year,
-                    'property_type'            => $tp->property_type ?? 'house',
-                    'beds'                     => $tp->bedrooms ?? 0,
-                    'baths'                    => $tp->bathrooms ?? 0,
-                    'garages'                  => $tp->garages ?? 0,
-                    'price'                    => $tp->last_known_asking_price ?? 0,
-                    'title'                    => $tp->displayAddress(),
-                    'status'                   => 'draft',
-                    'listing_type'             => 'sale',
-                    // external_id auto-generated by Property's creating hook (char(36) UUID).
-                    // The TP↔Property linkage is preserved by tracked_properties.promoted_to_property_id.
-                ],
-                $propertyFields
-            ));
+                    'property_type'            => $tp->property_type,
+                    'beds'                     => $tp->bedrooms,
+                    'baths'                    => $tp->bathrooms,
+                    'garages'                  => $tp->garages,
+                    'complex_name'             => $tp->complex_name ?: $tp->scheme_name,
+                    // section_number takes priority (the deeds/sectional
+                    // convention this whole match key relies on) but falls
+                    // back to unit_number so a plain unit/flat number from a
+                    // non-deeds capture isn't silently dropped — that value
+                    // is exactly what propertyIdentityConflicts() needs
+                    // populated on the CANDIDATE side to veto a false match.
+                    'unit_number'              => $tp->section_number ?: $tp->unit_number,
+                    'erf_size_m2'              => $tp->cadastral_extent,
+                ], static fn ($v) => $v !== null && $v !== '');
+
+                $callerFacts = array_filter(
+                    array_intersect_key($propertyFields, array_flip(self::REFRESHABLE_PROPERTY_FIELDS)),
+                    static fn ($v) => $v !== null && $v !== ''
+                );
+
+                $refreshable = array_intersect_key(
+                    array_merge($tpFacts, $callerFacts),
+                    array_flip(self::REFRESHABLE_PROPERTY_FIELDS)
+                );
+
+                if ($refreshable !== []) {
+                    $existingProperty->update($refreshable);
+                }
+
+                $property = $existingProperty;
+            } else {
+                $property = Property::create(array_merge(
+                    [
+                        'agency_id'                => $tp->agency_id,
+                        'agent_id'                 => $promotingUserId,
+                        'branch_id'                => $defaultBranchId,
+                        'address'                  => $tp->displayAddress(),
+                        'street_number'            => $tp->street_number,
+                        'street_name'              => $tp->street_name,
+                        'suburb'                   => $tp->suburb,
+                        'town'                     => $tp->town,
+                        'province'                 => $tp->province,
+                        'latitude'                 => $tp->latitude,
+                        'longitude'                => $tp->longitude,
+                        'cma_gps_lat'              => $tp->cma_gps_lat,
+                        'cma_gps_lng'              => $tp->cma_gps_lng,
+                        'erf_number'               => $tp->erf_number,
+                        'title_deed_number'        => $tp->title_deed_number,
+                        'municipal_valuation'      => $tp->municipal_valuation,
+                        'municipal_valuation_year' => $tp->municipal_valuation_year,
+                        'property_type'            => $tp->property_type ?? 'house',
+                        'beds'                     => $tp->bedrooms ?? 0,
+                        'baths'                    => $tp->bathrooms ?? 0,
+                        'garages'                  => $tp->garages ?? 0,
+                        'price'                    => $tp->last_known_asking_price ?? 0,
+                        'title'                    => $tp->displayAddress(),
+                        'status'                   => 'draft',
+                        'listing_type'             => 'sale',
+                        // complex_name/unit_number (2026-08-14) — carry the
+                        // scheme/section identity onto the new Property so a
+                        // LATER promote() of a different unit in the same
+                        // scheme can resolvePropertyMatch() against it,
+                        // instead of every unit only ever creating fresh.
+                        // section_number takes priority but falls back to
+                        // unit_number — same reasoning as the refresh path
+                        // above (propertyIdentityConflicts() needs whichever
+                        // one the capture actually carries).
+                        'complex_name'             => $tp->complex_name ?: $tp->scheme_name,
+                        'unit_number'              => $tp->section_number ?: $tp->unit_number,
+                        // external_id auto-generated by Property's creating hook (char(36) UUID).
+                        // The TP↔Property linkage is preserved by tracked_properties.promoted_to_property_id.
+                    ],
+                    $propertyFields
+                ));
+            }
 
             $tp->update([
                 'promoted_to_property_id' => $property->id,

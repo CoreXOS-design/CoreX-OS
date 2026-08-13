@@ -234,6 +234,19 @@ final class DeedsCaptureController extends Controller
         // step (Api\DeedsCaptureController::ingestOne resolves/creates them);
         // sequencing per Johan — contact(s) first (already done at capture
         // time), property second (just created above), link last.
+        //
+        // CONTACT-SIDE SEAM (2026-08-14): this stays natural-person-only —
+        // Api\DeedsCaptureController::isCompanyLikeOwner() already blocks a
+        // company/CC/trust owner from ever reaching tracked_property_owners
+        // (interim rule; proper company/entity handling is cc3's separate
+        // contact-foundation investigation). The role='owner' link below is
+        // deliberately just "whichever Contact IDs got resolved at capture
+        // time" — entity-aware resolution (a company as its own legal-entity
+        // record, a different role than 'owner' for a trustee, etc.) is
+        // expected to slot in at the CAPTURE step once cc3's foundation
+        // lands, not here; this loop doesn't need to change to accommodate
+        // it, it just needs $ownerContactIds to start including entity
+        // contacts once capture-time resolution produces them.
         $ownerContactIds = $trackedProperty->owners()->pluck('contact_id')->filter()->unique();
         if ($ownerContactIds->isEmpty() && $trackedProperty->owner_contact_id) {
             $ownerContactIds = collect([$trackedProperty->owner_contact_id]);
