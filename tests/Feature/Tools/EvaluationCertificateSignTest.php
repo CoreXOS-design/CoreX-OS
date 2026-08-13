@@ -203,4 +203,137 @@ final class EvaluationCertificateSignTest extends TestCase
 
         $this->assertSame(0, Document::where('source_type', 'eval_cert')->where('source_id', $cert->id)->count());
     }
+
+    // ── Candidate authorisation flow ────────────────────────────────────────────
+
+    public function test_candidate_submits_for_authorisation(): void
+    {
+        $candidate = $this->practitioner('Candidate Property Practitioner');
+        $this->withSavedSignature($candidate, '1111');
+        $cert = $this->draftCertificate($candidate);
+
+        $this->actingAs($candidate)
+            ->postJson(route('tools.cma.evaluation.submit', $cert), ['pin' => '1111'])
+            ->assertOk()->assertJson(['status' => 'pending_authorisation']);
+
+        $cert->refresh();
+        $this->assertSame(EvaluationCertificate::STATUS_PENDING_AUTHORISATION, $cert->status);
+        $this->assertSame($candidate->id, $cert->signed_by_user_id);   // candidate evaluated + signed
+        $this->assertNotNull($cert->candidate_signature_image);        // snapshotted for later bake
+        $this->assertNull($cert->signed_pdf_path);                     // not finalised yet
+    }
+
+    public function test_a_full_status_practitioner_cannot_submit(): void
+    {
+        $agent = $this->practitioner('Property Practitioner');
+        $this->withSavedSignature($agent, '4321');
+        $cert = $this->draftCertificate($agent);
+
+        $this->actingAs($agent)
+            ->postJson(route('tools.cma.evaluation.submit', $cert), ['pin' => '4321'])
+            ->assertStatus(403);
+    }
+
+    public function test_full_status_authorises_a_candidate_certificate_and_files_it(): void
+    {
+        $candidate = $this->practitioner('Candidate Property Practitioner');
+        $this->withSavedSignature($candidate, '1111');
+        $authoriser = $this->practitioner('Property Practitioner');   // same branch → eligible
+        $this->withSavedSignature($authoriser, '2222');
+
+        $property = Property::create([
+            'agency_id' => $this->agency->id, 'agent_id' => $candidate->id, 'branch_id' => $this->branch->id,
+            'external_id' => (string) Str::uuid(), 'title' => 'P', 'suburb' => 'Margate',
+            'property_type' => 'house', 'status' => 'draft', 'price' => 0,
+        ]);
+        $cert = EvaluationCertificate::create([
+            'agency_id' => $this->agency->id, 'address' => '9 Ocean Drive', 'property_id' => $property->id,
+            'status' => EvaluationCertificate::STATUS_DRAFT, 'created_by_user_id' => $candidate->id,
+        ]);
+
+        $this->actingAs($candidate)->postJson(route('tools.cma.evaluation.submit', $cert), ['pin' => '1111'])->assertOk();
+        $this->actingAs($authoriser)
+            ->postJson(route('tools.cma.evaluation.authorise', $cert->fresh()), ['pin' => '2222'])
+            ->assertOk()->assertJson(['status' => 'authorised']);
+
+        $cert->refresh();
+        $this->assertSame(EvaluationCertificate::STATUS_AUTHORISED, $cert->status);
+        $this->assertSame($candidate->id, $cert->signed_by_user_id);       // Evaluated & signed by = candidate
+        $this->assertSame($authoriser->id, $cert->authorised_by_user_id);  // Authorised by = full-status
+        $this->assertNotNull($cert->signed_pdf_path);
+        Storage::assertExists($cert->signed_pdf_path);
+        $this->assertTrue(
+            $property->documents()->where('source_type', 'eval_cert')->where('source_id', $cert->id)->exists(),
+            'authorised candidate certificate should be filed to the property drive'
+        );
+    }
+
+    public function test_authoriser_rejects_with_note_then_candidate_resubmits(): void
+    {
+        $candidate = $this->practitioner('Candidate Property Practitioner');
+        $this->withSavedSignature($candidate, '1111');
+        $authoriser = $this->practitioner('Property Practitioner');
+        $this->withSavedSignature($authoriser, '2222');
+        $cert = $this->draftCertificate($candidate);
+
+        $this->actingAs($candidate)->postJson(route('tools.cma.evaluation.submit', $cert), ['pin' => '1111'])->assertOk();
+
+        // Reject requires a note.
+        $this->actingAs($authoriser)->postJson(route('tools.cma.evaluation.reject', $cert->fresh()), ['note' => ''])->assertStatus(422);
+
+        // Reject with a note → returned to the candidate.
+        $this->actingAs($authoriser)
+            ->postJson(route('tools.cma.evaluation.reject', $cert->fresh()), ['note' => 'Re-check the comparables.'])
+            ->assertOk()->assertJson(['status' => 'rejected']);
+        $cert->refresh();
+        $this->assertSame(EvaluationCertificate::STATUS_REJECTED, $cert->status);
+        $this->assertSame('Re-check the comparables.', $cert->reject_note);
+
+        // Candidate resubmits → pending again, note cleared.
+        $this->actingAs($candidate)
+            ->postJson(route('tools.cma.evaluation.submit', $cert->fresh()), ['pin' => '1111'])
+            ->assertOk()->assertJson(['status' => 'pending_authorisation']);
+        $this->assertNull($cert->fresh()->reject_note);
+    }
+
+    public function test_candidate_cannot_authorise_and_stranger_branch_cannot_either(): void
+    {
+        $candidate = $this->practitioner('Candidate Property Practitioner');
+        $this->withSavedSignature($candidate, '1111');
+        $cert = $this->draftCertificate($candidate);
+        $this->actingAs($candidate)->postJson(route('tools.cma.evaluation.submit', $cert), ['pin' => '1111'])->assertOk();
+
+        // A candidate cannot authorise.
+        $this->actingAs($candidate)
+            ->postJson(route('tools.cma.evaluation.authorise', $cert->fresh()), ['pin' => '1111'])
+            ->assertStatus(403);
+
+        // A full-status practitioner in ANOTHER branch is not an eligible authoriser.
+        $otherBranch = Branch::create(['agency_id' => $this->agency->id, 'name' => 'Other']);
+        $stranger = User::factory()->create([
+            'name' => 'Stranger', 'role' => 'agent', 'designation' => 'Property Practitioner',
+            'branch_id' => $otherBranch->id, 'agency_id' => $this->agency->id, 'is_active' => true,
+        ]);
+        $this->withSavedSignature($stranger, '3333');
+        $this->actingAs($stranger)
+            ->postJson(route('tools.cma.evaluation.authorise', $cert->fresh()), ['pin' => '3333'])
+            ->assertStatus(403);
+    }
+
+    public function test_queue_is_scoped_by_role(): void
+    {
+        $candidate = $this->practitioner('Candidate Property Practitioner');
+        $this->withSavedSignature($candidate, '1111');
+        $authoriser = $this->practitioner('Property Practitioner');
+        $cert = $this->draftCertificate($candidate);
+        $this->actingAs($candidate)->postJson(route('tools.cma.evaluation.submit', $cert), ['pin' => '1111'])->assertOk();
+
+        $this->actingAs($candidate)->getJson(route('tools.cma.evaluation.queue'))
+            ->assertOk()->assertJson(['role' => 'candidate'])
+            ->assertJsonFragment(['id' => $cert->id, 'status' => 'pending_authorisation']);
+
+        $this->actingAs($authoriser)->getJson(route('tools.cma.evaluation.queue'))
+            ->assertOk()->assertJson(['role' => 'authoriser'])
+            ->assertJsonFragment(['id' => $cert->id]);
+    }
 }

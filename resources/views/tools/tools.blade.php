@@ -505,12 +505,42 @@
       $evalCertUser = auth()->user();
       $evalCertConfigured = $evalCertUser ? app(\App\Services\AgentSignatureService::class)->isConfigured($evalCertUser) : false;
       $evalCertIsCandidate = \Illuminate\Support\Str::lower(trim((string) ($evalCertUser?->designation ?? ''))) === 'candidate property practitioner';
+      $evalCertCanAuthorise = $evalCertUser ? app(\App\Services\CandidatePractitionerService::class)->canAuthorise($evalCertUser) : false;
     @endphp
     <style>#hf-tool-root [x-cloak]{display:none!important;}</style>
     <div class="tool-card" x-data="evalCert()"
-         x-init="init({ savedSigConfigured: {{ $evalCertConfigured ? 'true' : 'false' }}, isCandidate: {{ $evalCertIsCandidate ? 'true' : 'false' }} })">
+         x-init="init({ savedSigConfigured: {{ $evalCertConfigured ? 'true' : 'false' }}, isCandidate: {{ $evalCertIsCandidate ? 'true' : 'false' }}, canAuthorise: {{ $evalCertCanAuthorise ? 'true' : 'false' }} })">
 
       <h3 class="tool-card-header">Evaluation Certificate</h3>
+
+      {{-- ── Candidate authorisation queue ──────────────────────────────────────
+           Candidate: their submitted evaluations + status (pending/authorised/rejected).
+           Authoriser: evaluations awaiting their authorisation. --}}
+      <div x-show="queue.length" x-cloak class="pill" style="display:block; margin-bottom:1rem; background:#f1f5f9;">
+        <div style="font-weight:700; color:#0b2a4a; margin-bottom:.5rem;"
+             x-text="queueRole === 'candidate' ? 'My submitted evaluations' : 'Evaluations awaiting your authorisation'"></div>
+        <template x-for="q in queue" :key="q.id">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:.75rem; padding:.4rem 0; border-top:1px solid var(--border);">
+            <div style="min-width:0;">
+              <div style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" x-text="q.address"></div>
+              <div style="font-size:.72rem; color:var(--text-secondary);">
+                <span x-show="q.estimated_market_value" x-text="q.estimated_market_value ? ('R ' + Number(q.estimated_market_value).toLocaleString('en-ZA')) : ''"></span>
+                <span x-show="queueRole !== 'candidate' && q.candidate_name" x-text="' • ' + q.candidate_name"></span>
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:.4rem; flex-shrink:0;">
+              <span class="agent-tag" x-text="statusLabel(q.status)"
+                    :style="'color:#fff;background:' + statusColour(q.status)"></span>
+              <button class="corex-btn-outline" style="padding:.25rem .6rem;" @click="reviewCert(q)"
+                      x-text="queueRole === 'candidate' ? (q.status === 'rejected' ? 'Fix &amp; resubmit' : 'Open') : 'Review'"></button>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      {{-- The builder fields — disabled (read-only) once the certificate is submitted or
+           authorised; a draft or a returned (rejected) certificate stays editable. --}}
+      <fieldset :disabled="formLocked" style="border:0; padding:0; margin:0; min-width:0;">
 
       {{-- Property link / search — selecting a result prefills the (still-editable) fields --}}
       <div class="inlineRow">
@@ -608,12 +638,19 @@
         </div>
       </div>
 
+      </fieldset>
+
       <div class="divider"></div>
 
-      {{-- Actions: Save persists the row; Sign/Download/Print act on the saved cert --}}
+      {{-- Actions — state-aware: Save (while editable) · Download/Print (any saved cert) ·
+           candidate Sign+submit · full-status Sign+finalise · authoriser Authorise/Reject ·
+           Share (once authorised). --}}
       <div class="inlineRow" style="align-items:center; gap:.75rem; flex-wrap:wrap;" data-tour="tools-cma-print">
-        {{-- Progressive disclosure: Save first; Download/Print/Sign appear once saved; Share once signed. --}}
-        <button class="corex-btn-primary" @click="save()" :disabled="saving || !form.address">
+        <template x-if="certId">
+          <span class="agent-tag" x-text="statusLabel(status)" :style="'color:#fff;background:' + statusColour(status)"></span>
+        </template>
+
+        <button class="corex-btn-primary" x-show="!formLocked" @click="save()" :disabled="saving || !form.address">
           <span x-show="!saving" x-text="certId ? 'Save changes' : 'Save evaluation'"></span>
           <span x-show="saving" x-cloak>Saving…</span>
         </button>
@@ -621,34 +658,52 @@
         <button class="corex-btn-outline" x-show="certId" x-cloak @click="download()">Download</button>
         <button class="corex-btn-outline" x-show="certId" x-cloak @click="printCert()">Print</button>
 
-        <template x-if="certId && !isSigned">
-          <button class="corex-btn-primary" style="background:#0b7d3b;" @click="openSign()">Sign</button>
-        </template>
-        <template x-if="isSigned">
-          <span class="agent-tag" style="background:#0b7d3b;color:#fff;">Signed<span x-show="signedBy" x-text="' by ' + signedBy"></span></span>
+        {{-- Candidate: sign their part + submit for authorisation (draft or after a rejection) --}}
+        <template x-if="certId && isCandidate && (status === 'draft' || status === 'rejected')">
+          <button class="corex-btn-primary" style="background:#0b7d3b;" @click="openSign()"
+                  x-text="status === 'rejected' ? 'Sign &amp; resubmit' : 'Sign &amp; submit for authorisation'"></button>
         </template>
 
-        <button class="corex-btn-outline" x-show="isSigned" x-cloak @click="share()">Share</button>
+        {{-- Full-status: finalise their own certificate directly --}}
+        <template x-if="certId && !isCandidate && status === 'draft'">
+          <button class="corex-btn-primary" style="background:#0b7d3b;" @click="openSign()">Sign &amp; finalise</button>
+        </template>
 
-        <span x-show="dirty && certId" x-cloak style="font-size:.75rem; color:#b45309;">Unsaved changes — Save before Sign.</span>
+        {{-- Authoriser: accept+sign, or reject-with-note, a pending certificate --}}
+        <template x-if="certId && !isCandidate && canAuthorise && status === 'pending_authorisation'">
+          <span style="display:inline-flex; gap:.5rem;">
+            <button class="corex-btn-primary" style="background:#0b7d3b;" @click="openSign()">Authorise &amp; sign</button>
+            <button class="corex-btn-outline" style="border-color:#b91c1c; color:#b91c1c;" @click="openReject()">Reject</button>
+          </span>
+        </template>
+
+        <button class="corex-btn-outline" x-show="status === 'authorised'" x-cloak @click="share()">Share</button>
+
+        <span x-show="dirty && certId && !formLocked" x-cloak style="font-size:.75rem; color:#b45309;">Unsaved changes — Save first.</span>
         <span x-show="flash" x-cloak x-text="flash" style="font-size:.8rem; color:#0b7d3b;"></span>
       </div>
 
-      {{-- Sign — PIN once, places the agent's saved signature (Phase 4). --}}
+      {{-- Why it was returned (candidate sees the authoriser's note) --}}
+      <div x-show="certId && status === 'rejected' && rejectNote" x-cloak class="pill"
+           style="background:#fef2f2; color:#991b1b; margin-top:.6rem;">
+        <b>Returned for changes:</b> <span x-text="rejectNote"></span>
+      </div>
+
+      {{-- Sign — PIN once. signMode: 'submit' (candidate→queue), 'finalise' (full-status direct),
+           'authorise' (full-status accepts a candidate's cert). Reuses the saved-sig PIN machinery. --}}
       <div x-show="signOpen" x-cloak @keydown.escape.window="signOpen=false"
            style="position:fixed; inset:0; z-index:60; background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center;">
         <div class="tool-card" style="max-width:440px; width:90%; background:#fff;" @click.stop>
-          <h3 class="tool-card-header">Sign this evaluation certificate</h3>
+          <h3 class="tool-card-header" x-text="signMode === 'submit' ? 'Sign &amp; submit for authorisation' : (signMode === 'authorise' ? 'Authorise &amp; sign' : 'Sign this evaluation certificate')"></h3>
           <template x-if="!savedSigConfigured">
             <p style="font-size:.85rem;">Set up your saved signature and signing PIN in
               <a href="/my-portal#signature" style="text-decoration:underline;">My Portal</a> first, then reopen this to sign.</p>
           </template>
-          <template x-if="savedSigConfigured && isCandidate">
-            <p style="font-size:.85rem; color:#b45309;">As a candidate practitioner you cannot finalise an evaluation certificate on your own — a full-status practitioner must authorise and sign it.</p>
-          </template>
-          <template x-if="savedSigConfigured && !isCandidate">
+          <template x-if="savedSigConfigured">
             <div>
-              <p style="font-size:.85rem;">Enter your signing PIN to place your saved signature. This produces the final, filed certificate.</p>
+              <p style="font-size:.85rem;" x-show="signMode === 'submit'">Enter your signing PIN to sign your evaluation and submit it to a full-status practitioner for authorisation.</p>
+              <p style="font-size:.85rem;" x-show="signMode === 'authorise'">Enter your signing PIN to authorise and sign this candidate's evaluation. This produces the final, filed certificate.</p>
+              <p style="font-size:.85rem;" x-show="signMode === 'finalise'">Enter your signing PIN to place your saved signature. This produces the final, filed certificate.</p>
               <div class="field"><label>Signing PIN</label>
                 <input type="password" x-model="pin" @keydown.enter="submitSign()" autocomplete="off" inputmode="numeric">
               </div>
@@ -657,8 +712,27 @@
           </template>
           <div style="display:flex; justify-content:flex-end; gap:.5rem; margin-top:.75rem;">
             <button class="corex-btn-outline" @click="signOpen=false">Cancel</button>
-            <button class="corex-btn-primary" x-show="savedSigConfigured && !isCandidate" @click="submitSign()" :disabled="pinLoading || !pin">
-              <span x-show="!pinLoading">Sign &amp; finalise</span><span x-show="pinLoading" x-cloak>Signing…</span>
+            <button class="corex-btn-primary" x-show="savedSigConfigured" @click="submitSign()" :disabled="pinLoading || !pin">
+              <span x-show="!pinLoading" x-text="signMode === 'submit' ? 'Sign &amp; submit' : (signMode === 'authorise' ? 'Authorise &amp; sign' : 'Sign &amp; finalise')"></span>
+              <span x-show="pinLoading" x-cloak>Working…</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {{-- Reject — authoriser returns a pending certificate to the candidate with a note. --}}
+      <div x-show="rejectOpen" x-cloak @keydown.escape.window="rejectOpen=false"
+           style="position:fixed; inset:0; z-index:60; background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center;">
+        <div class="tool-card" style="max-width:440px; width:90%; background:#fff;" @click.stop>
+          <h3 class="tool-card-header">Return to the candidate</h3>
+          <p style="font-size:.85rem;">Tell the candidate what to fix. They will see this note and can amend and resubmit.</p>
+          <div class="field"><label>Note to candidate</label>
+            <textarea x-model="rejectInput" placeholder="e.g. Estimated value looks high — please re-check the comparables."></textarea>
+          </div>
+          <div style="display:flex; justify-content:flex-end; gap:.5rem; margin-top:.75rem;">
+            <button class="corex-btn-outline" @click="rejectOpen=false">Cancel</button>
+            <button class="corex-btn-primary" style="background:#b91c1c;" @click="submitReject()" :disabled="rejectLoading || !rejectInput.trim()">
+              <span x-show="!rejectLoading">Return to candidate</span><span x-show="rejectLoading" x-cloak>Returning…</span>
             </button>
           </div>
         </div>
@@ -682,24 +756,66 @@
       updateTpl:      @json(route('tools.cma.evaluation.update',   ['certificate' => '__ID__'])),
       downloadTpl:    @json(route('tools.cma.evaluation.download', ['certificate' => '__ID__'])),
       signTpl:        @json(route('tools.cma.evaluation.sign',     ['certificate' => '__ID__'])),
+      submitTpl:      @json(route('tools.cma.evaluation.submit',    ['certificate' => '__ID__'])),
+      authoriseTpl:   @json(route('tools.cma.evaluation.authorise', ['certificate' => '__ID__'])),
+      rejectTpl:      @json(route('tools.cma.evaluation.reject',    ['certificate' => '__ID__'])),
+      queue:          @json(route('tools.cma.evaluation.queue')),
       shareMetaTpl:   @json(route('tools.cma.evaluation.share-meta', ['certificate' => '__ID__'])),
     };
     const withId = (tpl, id) => tpl.replace('__ID__', id);
     const jhead = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
     return {
-      savedSigConfigured: false, isCandidate: false,
+      savedSigConfigured: false, isCandidate: false, canAuthorise: false,
       form: { address: '', property_type: '', analysis_date: '', estimated_market_value: null, bedrooms: null, bathrooms: null, parking: null, key_features: '' },
       propertyId: null, contact: null, contactId: null,
       propQuery: '', propResults: [], contactQuery: '', contactResults: [],
-      certId: null, status: 'draft', isSigned: false, signedBy: null,
+      certId: null, status: 'draft', isSigned: false, signedBy: null, rejectNote: '',
       saving: false, dirty: false, flash: '',
-      signOpen: false, pin: '', pinError: '', pinLoading: false,
+      signOpen: false, signMode: 'finalise', pin: '', pinError: '', pinLoading: false,
+      rejectOpen: false, rejectInput: '', rejectLoading: false,
+      queue: [], queueRole: '',
       sentConfirm: { open: false, communicationId: null }, markSentBase: '',
+
+      // The builder is read-only once the certificate is submitted/authorised — only a
+      // draft or a rejected (own) certificate can be edited.
+      get formLocked() {
+        return !!this.certId && (this.status === 'pending_authorisation' || this.status === 'authorised');
+      },
 
       init(cfg) {
         this.savedSigConfigured = !!cfg.savedSigConfigured;
         this.isCandidate = !!cfg.isCandidate;
+        this.canAuthorise = !!cfg.canAuthorise;
         this.$watch('form', () => { if (this.certId) this.dirty = true; }, { deep: true });
+        this.loadQueue();
+      },
+
+      statusLabel(s) { return ({ draft: 'Draft', pending_authorisation: 'Pending authorisation', authorised: 'Authorised', rejected: 'Rejected' })[s] || s; },
+      statusColour(s) { return ({ draft: '#64748b', pending_authorisation: '#b45309', authorised: '#0b7d3b', rejected: '#b91c1c' })[s] || '#64748b'; },
+
+      async loadQueue() {
+        try {
+          const r = await fetch(U.queue, { headers: jhead });
+          if (!r.ok) return;
+          const j = await r.json();
+          this.queueRole = j.role; this.queue = j.items || [];
+        } catch (e) {}
+      },
+
+      // Load a queue row into the builder — candidate opens their own cert (edit if
+      // rejected, else view), authoriser opens a pending cert to review.
+      reviewCert(q) {
+        this.certId = q.id; this.status = q.status; this.isSigned = !!q.is_signed; this.rejectNote = q.reject_note || '';
+        this.form = {
+          address: q.address || '', property_type: q.property_type || '', analysis_date: q.analysis_date || '',
+          estimated_market_value: q.estimated_market_value, bedrooms: q.bedrooms, bathrooms: q.bathrooms,
+          parking: q.parking, key_features: q.key_features || '',
+        };
+        this.propertyId = q.property_id || null;
+        this.contact = q.contact ? { id: q.contact.id, name: q.contact.name, phone: q.contact.phone } : null;
+        this.contactId = q.contact ? q.contact.id : null;
+        this.dirty = false; this.flash = '';
+        try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) {}
       },
 
       async searchProperties() {
@@ -797,17 +913,42 @@
         } catch (e) {}
       },
 
-      openSign() { if (this.dirty) { alert('Save your changes before signing.'); return; } this.pin = ''; this.pinError = ''; this.signOpen = true; },
+      // Decide the PIN action from role + state: candidate→submit, authoriser on a
+      // pending cert→authorise, otherwise full-status direct→finalise.
+      openSign() {
+        if (this.dirty) { alert('Save your changes first.'); return; }
+        this.pin = ''; this.pinError = '';
+        this.signMode = this.isCandidate ? 'submit' : (this.status === 'pending_authorisation' ? 'authorise' : 'finalise');
+        this.signOpen = true;
+      },
       async submitSign() {
         if (!this.pin) return;
         this.pinLoading = true; this.pinError = '';
+        const tpl = { submit: U.submitTpl, authorise: U.authoriseTpl, finalise: U.signTpl }[this.signMode];
         try {
-          const r = await fetch(withId(U.signTpl, this.certId), { method: 'POST', headers: { ...jhead, 'X-CSRF-TOKEN': csrf() }, body: JSON.stringify({ pin: this.pin }) });
+          const r = await fetch(withId(tpl, this.certId), { method: 'POST', headers: { ...jhead, 'X-CSRF-TOKEN': csrf() }, body: JSON.stringify({ pin: this.pin }) });
           const j = await r.json().catch(() => ({}));
-          if (!r.ok) { this.pinError = j.message || 'Could not sign.'; return; }
-          this.isSigned = true; this.status = j.status; this.signedBy = j.signed_by; this.signOpen = false;
-          this.flash = 'Signed & filed.'; setTimeout(() => { this.flash = ''; }, 3000);
+          if (!r.ok) { this.pinError = j.message || 'Could not complete.'; return; }
+          this.status = j.status; this.signOpen = false;
+          if (this.signMode !== 'submit') { this.isSigned = true; this.signedBy = j.signed_by || this.signedBy; }
+          this.flash = ({ submit: 'Submitted for authorisation.', authorise: 'Authorised & filed.', finalise: 'Signed & filed.' })[this.signMode];
+          setTimeout(() => { this.flash = ''; }, 3000);
+          this.loadQueue();
         } finally { this.pinLoading = false; }
+      },
+
+      openReject() { this.rejectInput = ''; this.rejectOpen = true; },
+      async submitReject() {
+        if (!this.rejectInput.trim()) return;
+        this.rejectLoading = true;
+        try {
+          const r = await fetch(withId(U.rejectTpl, this.certId), { method: 'POST', headers: { ...jhead, 'X-CSRF-TOKEN': csrf() }, body: JSON.stringify({ note: this.rejectInput }) });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) { alert(j.message || 'Could not return the certificate.'); return; }
+          this.status = j.status; this.rejectOpen = false;
+          this.flash = 'Returned to the candidate.'; setTimeout(() => { this.flash = ''; }, 3000);
+          this.loadQueue();
+        } finally { this.rejectLoading = false; }
       },
     };
   }

@@ -18,8 +18,8 @@
 --}}
 @php
     /** @var \App\Models\EvaluationCertificate $certificate */
-    $signatureImage = $signatureImage ?? null;
-    $initialImage   = $initialImage   ?? null;
+    $signatureImage           = $signatureImage           ?? null;   // "Evaluated & signed by" mark
+    $authoriserSignatureImage = $authoriserSignatureImage ?? null;   // "Authorised by" mark (candidate flow)
     $logoData       = $logoData       ?? null;                                   // agency logo, base64 data-URI (cc1)
     $showAuthoriser = $showAuthoriser ?? (bool) $certificate->authorised_by_user_id; // candidate flow only
 
@@ -169,7 +169,9 @@
             </td>
             @if($showAuthoriser)
             <td>
-                <div class="sig-slot"></div>
+                <div class="sig-slot">
+                    @if($authoriserSignatureImage)<img class="sig-img" src="{{ $authoriserSignatureImage }}" alt="authoriser signature">@endif
+                </div>
                 <div class="sig-line">
                     <span class="sig-role">Authorised by</span><br>
                     <span class="sig-name">{{ $authoriserName ?: '' }}</span>

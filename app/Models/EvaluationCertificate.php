@@ -60,16 +60,22 @@ class EvaluationCertificate extends Model
         'signed_by_user_id',
         'authorised_by_user_id',
         'reject_note',
+        'candidate_signature_image',
         'signed_pdf_path',
     ];
 
     protected $casts = [
-        'analysis_date'           => 'date',
-        'estimated_market_value'  => 'integer',
-        'bedrooms'                => 'integer',
-        'bathrooms'               => 'integer',
-        'parking'                 => 'integer',
+        'analysis_date'             => 'date',
+        'estimated_market_value'    => 'integer',
+        'bedrooms'                  => 'integer',
+        'bathrooms'                 => 'integer',
+        'parking'                   => 'integer',
+        // Candidate's snapshotted signature — ciphertext at rest, never serialised.
+        'candidate_signature_image' => 'encrypted',
     ];
+
+    /** Never expose the candidate's snapshotted signature image in JSON. */
+    protected $hidden = ['candidate_signature_image'];
 
     public function property(): BelongsTo
     {

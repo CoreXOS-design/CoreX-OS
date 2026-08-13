@@ -396,16 +396,20 @@ class EvaluationCertificateController extends Controller
      *
      * SIGNATURE-BLOCK SLOTS (cc1 Phase-4): pass the saved-signature PNG data-URIs
      * (data:image/png;base64,...) to bake an immutable signed artifact at sign time.
+     *   $signatureImage           → "Evaluated & signed by" slot (direct full-status
+     *                               signer, OR the candidate in the candidate flow).
+     *   $authoriserSignatureImage → "Authorised by" slot (the full-status authoriser,
+     *                               candidate flow only).
      * Both null on the unsigned preview path.
      */
-    public function renderCertificatePdf(EvaluationCertificate $certificate, ?string $signatureImage = null, ?string $initialImage = null): \Barryvdh\DomPDF\PDF
+    public function renderCertificatePdf(EvaluationCertificate $certificate, ?string $signatureImage = null, ?string $authoriserSignatureImage = null): \Barryvdh\DomPDF\PDF
     {
         $pdf = Pdf::loadView('tools.evaluation-certificate.pdf', [
-            'certificate'    => $certificate,
-            'signatureImage' => $signatureImage,
-            'initialImage'   => $initialImage,
-            'logoData'       => $this->agencyLogoData($certificate),
-            'showAuthoriser' => $this->showsAuthoriser($certificate),
+            'certificate'              => $certificate,
+            'signatureImage'           => $signatureImage,
+            'authoriserSignatureImage' => $authoriserSignatureImage,
+            'logoData'                 => $this->agencyLogoData($certificate),
+            'showAuthoriser'           => $this->showsAuthoriser($certificate),
         ])->setPaper('a4', 'portrait');
         $pdf->setOption('isRemoteEnabled', true);
 
@@ -461,48 +465,27 @@ class EvaluationCertificateController extends Controller
     }
 
     /**
-     * Phase 4 — the ONE PIN-sign surface for the evaluation certificate.
-     *
-     * This is the FINALISING signature that produces the immutable authorised
-     * artifact. It is reached two ways (cc5's Phase-4b state machine decides WHO
-     * reaches it; this endpoint does not fork on that):
-     *   • a full-status practitioner signing their own certificate directly, and
-     *   • a full-status AUTHORISER accepting + signing a candidate's certificate.
-     * Either way the signer must be full-status — a candidate cannot finalise alone.
-     *
-     * The saved signature/initial (encrypted, PIN-gated in AgentSignatureService)
-     * are pulled SERVER-SIDE only and baked into cc6's dompdf render, so the filed
-     * PDF is an immutable snapshot of the mark as it was at signing — unaffected by
-     * any later change to the agent's My-Portal signature. Impersonation can never
-     * reach the pixels (guarded here up-front AND inside the service).
+     * Common signer guards: permission, agency isolation, NO impersonation, saved
+     * signature configured. Returns the authenticated user. Used by every PIN action.
      */
-    public function sign(Request $request, EvaluationCertificate $certificate, AgentSignatureService $signatures, CandidatePractitionerService $practitioners): JsonResponse
+    private function guardSigner(Request $request, EvaluationCertificate $certificate, AgentSignatureService $signatures): User
     {
-        $user = auth()->user();
+        $user = $request->user();
         abort_unless($user?->hasPermission('access_calculators'), 403);
-
-        // Agency isolation — never sign another agency's certificate.
         abort_unless((int) $certificate->agency_id === (int) ($user->effectiveAgencyId() ?? 0), 404);
-
-        // Impersonation hard-block: a switch-user session may never place a saved
-        // signature. AgentSignatureService also guards internally; this is the clean
-        // up-front 403 so we never even render.
+        // A switch-user/impersonation session may NEVER place or unlock a saved signature.
         abort_if(Impersonation::actingAdminId() !== null, 403, 'Saved signatures are unavailable while acting as another user.');
+        abort_unless($signatures->isConfigured($user), 422, 'Set up your saved signature and signing PIN in My Portal first.');
 
-        // Only a full-status practitioner may finalise. The candidate flow is cc5's
-        // Phase-4b queue, which routes a full-status authoriser into THIS endpoint.
-        abort_if($practitioners->isCandidate($user), 403, 'A candidate practitioner cannot finalise an evaluation certificate — it must be authorised by a full-status practitioner.');
+        return $user;
+    }
 
-        // Must have a saved signature + PIN set up (My Portal) to place one.
-        abort_unless($signatures->isConfigured($user), 422, 'Set up your saved signature and signing PIN in My Portal before signing.');
-
-        // A certificate is signed exactly once — the filed artifact is immutable.
-        abort_if($certificate->isAuthorised(), 409, 'This evaluation certificate is already signed.');
-
-        $contextKey = 'evalcert:' . $certificate->id;
-
-        // Unlock: accept the signing PIN inline (verify + unlock), or honour an
-        // unlock already established this session.
+    /**
+     * Verify the signing PIN inline (or honour an unlock already held this session).
+     * Returns a 422 JsonResponse on failure, or null when the signature is unlocked.
+     */
+    private function unlock(Request $request, User $user, AgentSignatureService $signatures, string $contextKey): ?JsonResponse
+    {
         $pin = (string) $request->input('pin', '');
         if ($pin !== '') {
             if (! $signatures->verifyPinAndUnlock($user, $pin, $contextKey)) {
@@ -512,42 +495,56 @@ class EvaluationCertificateController extends Controller
             return response()->json(['message' => 'Enter your signing PIN to place your saved signature.'], 422);
         }
 
-        // Decrypted saved marks — server-side only, never echoed to the browser.
-        $signatureImage = $signatures->image($user, 'signature', $contextKey);
-        $initialImage   = $signatures->image($user, 'initial', $contextKey);
+        return null;
+    }
 
-        // Stamp the signer before rendering so cc6's view shows signedBy->name.
-        // setRelation avoids a stale/lazy null on the freshly-set foreign key.
-        $certificate->signed_by_user_id = $user->id;
-        $certificate->setRelation('signedBy', $user);
-        // Ensure the filed PDF shows the linked contact even if it sits outside the
-        // signer's personal contact scope (auto-linked seller/owner is common).
+    /**
+     * Bake the immutable authorised PDF (both signature slots), store it at
+     * signed_pdf_path, and file it to the linked property's document drive. Sets the
+     * status to authorised. The signedBy/authorisedBy/contact relations must already
+     * be set on $certificate so the render shows the right names.
+     */
+    private function finaliseCertificate(EvaluationCertificate $certificate, ?string $signerImage, ?string $authoriserImage, User $actor): void
+    {
         $certificate->setRelation('contact', $this->linkedContact($certificate));
-        // Candidate flow: a certificate that was queued for authorisation is now
-        // being accepted+signed by a full-status authoriser — record them as such.
-        if ($certificate->isPendingAuthorisation()) {
-            $certificate->authorised_by_user_id = $user->id;
-        }
         $certificate->status = EvaluationCertificate::STATUS_AUTHORISED;
 
-        // Bake the immutable signed PDF and file it (Phase-5 picks up signed_pdf_path
-        // to attach to the property drive; download() streams this exact artifact).
-        $pdf  = $this->renderCertificatePdf($certificate, $signatureImage, $initialImage);
+        $pdf  = $this->renderCertificatePdf($certificate, $signerImage, $authoriserImage);
         $path = 'evaluation-certificates/' . (int) $certificate->agency_id . '/' . $certificate->id . '-signed.pdf';
         Storage::put($path, $pdf->output());
         $certificate->signed_pdf_path = $path;
 
         $certificate->save();
 
-        // File the signed certificate onto the linked property's document drive
-        // (spec item 4). Non-fatal: a filing hiccup must never fail the signature.
+        // Non-fatal: a filing hiccup must never fail the signature (spec item 4).
         try {
-            $this->fileToPropertyDrive($certificate, $user);
+            $this->fileToPropertyDrive($certificate, $actor);
         } catch (\Throwable $e) {
             Log::warning('eval-cert: property-drive filing failed', ['certificate' => $certificate->id, 'error' => $e->getMessage()]);
         }
+    }
 
-        // One certificate, one signature — drop the unlock; nothing lingers unlocked.
+    /**
+     * Full-status DIRECT sign — a full-status practitioner finalising their OWN
+     * certificate with no candidate authorisation. Their signature is baked into
+     * "Evaluated & signed by"; the certificate becomes authorised and is filed to the
+     * property drive. Candidates cannot finalise — they submit for authorisation.
+     */
+    public function sign(Request $request, EvaluationCertificate $certificate, AgentSignatureService $signatures, CandidatePractitionerService $practitioners): JsonResponse
+    {
+        $user = $this->guardSigner($request, $certificate, $signatures);
+        abort_if($practitioners->isCandidate($user), 403, 'A candidate practitioner cannot finalise — sign to submit for authorisation instead.');
+        abort_if($certificate->isAuthorised(), 409, 'This evaluation certificate is already signed.');
+        abort_if($certificate->isPendingAuthorisation(), 409, 'This certificate is awaiting authorisation — use Authorise.');
+
+        $contextKey = 'evalcert:' . $certificate->id;
+        if (($err = $this->unlock($request, $user, $signatures, $contextKey)) !== null) {
+            return $err;
+        }
+
+        $certificate->signed_by_user_id = $user->id;
+        $certificate->setRelation('signedBy', $user);
+        $this->finaliseCertificate($certificate, $signatures->image($user, 'signature', $contextKey), null, $user);
         $signatures->lock($user, $contextKey);
 
         return response()->json([
@@ -556,6 +553,163 @@ class EvaluationCertificateController extends Controller
             'signed_by'    => $user->name,
             'download_url' => route('tools.cma.evaluation.download', $certificate),
         ]);
+    }
+
+    /**
+     * Candidate SUBMIT — a candidate practitioner PIN-signs their part and queues the
+     * certificate for a full-status practitioner to authorise. Their signature is
+     * snapshotted now (encrypted) so it can be baked into "Evaluated & signed by" at
+     * authorisation, when the candidate is no longer present to unlock it. NOT a
+     * finalising signature — status becomes pending_authorisation.
+     */
+    public function submitForAuthorisation(Request $request, EvaluationCertificate $certificate, AgentSignatureService $signatures, CandidatePractitionerService $practitioners): JsonResponse
+    {
+        $user = $this->guardSigner($request, $certificate, $signatures);
+        abort_unless($practitioners->isCandidate($user), 403, 'Only a candidate practitioner submits for authorisation; full-status practitioners sign directly.');
+        abort_unless((int) $certificate->created_by_user_id === (int) $user->id, 403, 'You can only submit your own evaluation.');
+        abort_unless($certificate->isDraft() || $certificate->isRejected(), 409, 'This certificate is not awaiting your submission.');
+
+        $contextKey = 'evalcert:' . $certificate->id;
+        if (($err = $this->unlock($request, $user, $signatures, $contextKey)) !== null) {
+            return $err;
+        }
+
+        $certificate->candidate_signature_image = $signatures->image($user, 'signature', $contextKey);
+        $certificate->signed_by_user_id     = $user->id;   // the candidate evaluated + signed
+        $certificate->authorised_by_user_id = null;
+        $certificate->reject_note           = null;
+        $certificate->status                = EvaluationCertificate::STATUS_PENDING_AUTHORISATION;
+        $certificate->save();
+
+        $signatures->lock($user, $contextKey);
+
+        return response()->json(['ok' => true, 'status' => $certificate->status]);
+    }
+
+    /**
+     * Full-status AUTHORISE — a full-status practitioner (or a BM/admin able to
+     * authorise for the candidate) accepts a pending certificate and PIN-signs it.
+     * Bakes the candidate's snapshotted signature into "Evaluated & signed by" and the
+     * authoriser's live signature into "Authorised by", producing the filed artifact.
+     */
+    public function authorise(Request $request, EvaluationCertificate $certificate, AgentSignatureService $signatures, CandidatePractitionerService $practitioners): JsonResponse
+    {
+        $user = $this->guardSigner($request, $certificate, $signatures);
+        abort_if($practitioners->isCandidate($user), 403, 'A candidate practitioner cannot authorise a certificate.');
+        abort_unless($certificate->isPendingAuthorisation(), 409, 'This certificate is not awaiting authorisation.');
+
+        $candidate = User::withoutGlobalScopes()->find($certificate->signed_by_user_id ?: $certificate->created_by_user_id);
+        abort_unless($candidate && $practitioners->canAuthoriseFor($user, $candidate), 403, 'You are not an eligible authoriser for this candidate.');
+
+        $contextKey = 'evalcert:' . $certificate->id;
+        if (($err = $this->unlock($request, $user, $signatures, $contextKey)) !== null) {
+            return $err;
+        }
+
+        $certificate->authorised_by_user_id = $user->id;
+        $certificate->setRelation('signedBy', $candidate);   // Evaluated & signed by = candidate
+        $certificate->setRelation('authorisedBy', $user);    // Authorised by = full-status
+        $this->finaliseCertificate(
+            $certificate,
+            $certificate->candidate_signature_image,                 // candidate's snapshot
+            $signatures->image($user, 'signature', $contextKey),     // authoriser's live signature
+            $user
+        );
+        $signatures->lock($user, $contextKey);
+
+        return response()->json([
+            'ok'            => true,
+            'status'        => $certificate->status,
+            'authorised_by' => $user->name,
+            'download_url'  => route('tools.cma.evaluation.download', $certificate),
+        ]);
+    }
+
+    /** Full-status REJECT — send the pending certificate back to the candidate with a note. */
+    public function reject(Request $request, EvaluationCertificate $certificate, CandidatePractitionerService $practitioners): JsonResponse
+    {
+        $user = $request->user();
+        abort_unless($user?->hasPermission('access_calculators'), 403);
+        abort_unless((int) $certificate->agency_id === (int) ($user->effectiveAgencyId() ?? 0), 404);
+        abort_if($practitioners->isCandidate($user), 403, 'A candidate practitioner cannot reject a certificate.');
+        abort_unless($certificate->isPendingAuthorisation(), 409, 'This certificate is not awaiting authorisation.');
+
+        $candidate = User::withoutGlobalScopes()->find($certificate->signed_by_user_id ?: $certificate->created_by_user_id);
+        abort_unless($candidate && $practitioners->canAuthoriseFor($user, $candidate), 403, 'You are not an eligible authoriser for this candidate.');
+
+        $note = trim((string) $request->input('note', ''));
+        abort_if($note === '', 422, 'Add a note telling the candidate what to fix.');
+
+        $certificate->status      = EvaluationCertificate::STATUS_REJECTED;
+        $certificate->reject_note = $note;
+        $certificate->save();
+
+        return response()->json(['ok' => true, 'status' => $certificate->status]);
+    }
+
+    /**
+     * The candidate-authorisation queue for /tools/cma, scoped to the viewer:
+     *   • a candidate sees THEIR OWN submitted certs (pending / authorised / rejected);
+     *   • a full-status practitioner sees the certs PENDING authorisation that they are
+     *     eligible to authorise (canAuthoriseFor the candidate creator).
+     */
+    public function queue(Request $request, CandidatePractitionerService $practitioners): JsonResponse
+    {
+        $user = $request->user();
+        abort_unless($user?->hasPermission('access_calculators'), 403);
+        $agencyId = (int) ($user->effectiveAgencyId() ?? 0);
+        $isCandidate = $practitioners->isCandidate($user);
+
+        if ($isCandidate) {
+            $certs = EvaluationCertificate::where('agency_id', $agencyId)
+                ->where('created_by_user_id', $user->id)
+                ->whereIn('status', [
+                    EvaluationCertificate::STATUS_PENDING_AUTHORISATION,
+                    EvaluationCertificate::STATUS_AUTHORISED,
+                    EvaluationCertificate::STATUS_REJECTED,
+                ])
+                ->latest()->limit(50)->get();
+        } else {
+            $certs = EvaluationCertificate::where('agency_id', $agencyId)
+                ->where('status', EvaluationCertificate::STATUS_PENDING_AUTHORISATION)
+                ->latest()->limit(100)->get()
+                ->filter(function (EvaluationCertificate $c) use ($user, $practitioners) {
+                    $creator = User::withoutGlobalScopes()->find($c->signed_by_user_id ?: $c->created_by_user_id);
+                    return $creator && $practitioners->canAuthoriseFor($user, $creator);
+                })
+                ->values();
+        }
+
+        return response()->json([
+            'role'  => $isCandidate ? 'candidate' : 'authoriser',
+            'items' => $certs->map(fn (EvaluationCertificate $c) => $this->queueItem($c))->all(),
+        ]);
+    }
+
+    /** One queue row — enough to populate the form + show status without a second fetch. */
+    private function queueItem(EvaluationCertificate $certificate): array
+    {
+        $creator = User::withoutGlobalScopes()->find($certificate->created_by_user_id);
+        $contact = $this->linkedContact($certificate);
+
+        return [
+            'id'                     => $certificate->id,
+            'address'                => $certificate->address,
+            'property_type'          => $certificate->property_type,
+            'analysis_date'          => optional($certificate->analysis_date)->format('Y-m-d'),
+            'estimated_market_value' => $certificate->estimated_market_value,
+            'bedrooms'               => $certificate->bedrooms,
+            'bathrooms'              => $certificate->bathrooms,
+            'parking'                => $certificate->parking,
+            'key_features'           => $certificate->key_features,
+            'property_id'            => $certificate->property_id,
+            'contact'                => $contact ? ['id' => $contact->id, 'name' => $contact->full_name, 'phone' => $contact->phone] : null,
+            'status'                 => $certificate->status,
+            'reject_note'            => $certificate->reject_note,
+            'candidate_name'         => $creator?->name,
+            'is_signed'              => $certificate->isAuthorised(),
+            'download_url'           => route('tools.cma.evaluation.download', $certificate),
+        ];
     }
 
     /**
