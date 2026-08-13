@@ -287,6 +287,12 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Contact\ContactLinkedToProperty::class,
             \App\Listeners\Contact\PromoteOwnerToSellerOnPropertyLink::class,
         );
+        // Buyer WON (Johan 2026-08-13) — a buyer linked to a property converts: mark buyer_state 'won'
+        // and move them into the pipeline's success section. Covers property-page links AND DR2 deals.
+        Event::listen(
+            \App\Events\Contact\ContactLinkedToProperty::class,
+            \App\Listeners\Contact\MarkBuyerWonOnPropertyLink::class,
+        );
         Event::listen(
             \App\Events\Mandate\MandateExpired::class,
             \App\Listeners\Mandate\DesyndicateExpiredMandate::class,

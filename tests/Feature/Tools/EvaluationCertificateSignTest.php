@@ -6,11 +6,14 @@ namespace Tests\Feature\Tools;
 
 use App\Models\Agency;
 use App\Models\Branch;
+use App\Models\Document;
 use App\Models\EvaluationCertificate;
+use App\Models\Property;
 use App\Models\User;
 use App\Services\AgentSignatureService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /**
@@ -158,5 +161,46 @@ final class EvaluationCertificateSignTest extends TestCase
         $this->actingAs($agent)
             ->postJson(route('tools.cma.evaluation.sign', $cert), ['pin' => '4321'])
             ->assertStatus(409);
+    }
+
+    public function test_signed_certificate_is_filed_to_the_linked_property_drive(): void
+    {
+        $agent = $this->practitioner('Property Practitioner');
+        $this->withSavedSignature($agent, '4321');
+
+        $property = Property::create([
+            'agency_id' => $this->agency->id, 'agent_id' => $agent->id, 'branch_id' => $this->branch->id,
+            'external_id' => (string) Str::uuid(), 'title' => 'Test property', 'suburb' => 'Margate',
+            'property_type' => 'house', 'status' => 'draft', 'price' => 0,
+        ]);
+        $cert = EvaluationCertificate::create([
+            'agency_id' => $this->agency->id, 'address' => '380 Wilfred Street, Shelly Beach',
+            'property_id' => $property->id, 'status' => EvaluationCertificate::STATUS_DRAFT,
+            'created_by_user_id' => $agent->id,
+        ]);
+
+        $this->actingAs($agent)->postJson(route('tools.cma.evaluation.sign', $cert), ['pin' => '4321'])->assertOk();
+
+        // The signed certificate now appears on the property's document drive.
+        $this->assertTrue(
+            $property->documents()->where('source_type', 'eval_cert')->where('source_id', $cert->id)->exists(),
+            'signed certificate should be filed to the linked property drive'
+        );
+        // Filed exactly once, named by the property address.
+        $doc = Document::where('source_type', 'eval_cert')->where('source_id', $cert->id)->get();
+        $this->assertCount(1, $doc);
+        $this->assertSame('380-Wilfred-Street-Shelly-Beach-Evaluation-Certificate.pdf', $doc->first()->original_name);
+        $this->assertSame($cert->fresh()->signed_pdf_path, $doc->first()->storage_path);
+    }
+
+    public function test_certificate_with_no_property_files_nothing(): void
+    {
+        $agent = $this->practitioner('Property Practitioner');
+        $this->withSavedSignature($agent, '4321');
+        $cert = $this->draftCertificate($agent);   // no property_id
+
+        $this->actingAs($agent)->postJson(route('tools.cma.evaluation.sign', $cert), ['pin' => '4321'])->assertOk();
+
+        $this->assertSame(0, Document::where('source_type', 'eval_cert')->where('source_id', $cert->id)->count());
     }
 }
