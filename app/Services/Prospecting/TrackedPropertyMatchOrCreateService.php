@@ -219,6 +219,18 @@ final class TrackedPropertyMatchOrCreateService
         }
 
         // Strategy 3: Erf number + suburb (works even when address is unknown).
+        // numbersConflict() guard added 2026-08-13 (sectional-title "SS" fix):
+        // erf+suburb uniquely identifies a FREEHOLD stand, but every unit in a
+        // sectional scheme sits on the SAME underlying erf — that's how SA
+        // sectional title is structured, not a data-quality issue. This
+        // strategy had no conflict check at all, so two different units in
+        // the same scheme/erf (e.g. ASTOVE section 30 vs a different section)
+        // collapsed into one TrackedProperty purely on erf+suburb equality,
+        // even though numbersConflict() already knows how to veto on a
+        // differing section_number when both sides carry one. Same shape as
+        // the strategy=1 fix — a missing section number on either side still
+        // never blocks a match, so plain freehold-vs-freehold matching on erf
+        // is untouched.
         if (!empty($facts['erf_number']) && !empty($facts['suburb'])) {
             $erfMatch = TrackedProperty::queryWithoutAgencyScope()
                 ->where('agency_id', $agencyId)
@@ -226,7 +238,7 @@ final class TrackedPropertyMatchOrCreateService
                 ->where('erf_number', trim((string) $facts['erf_number']))
                 ->where('suburb_normalised', TrackedProperty::normaliseSuburb($facts['suburb']))
                 ->first();
-            if ($erfMatch) {
+            if ($erfMatch && ! $this->numbersConflict($facts, $erfMatch)) {
                 Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch matched via strategy=3_erf_suburb', [
                     'agency_id' => $agencyId, 'tracked_property_id' => $erfMatch->id,
                 ]);
