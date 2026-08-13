@@ -7,15 +7,12 @@
  * screen), searches, opens the person, and lands on the Contact tab, which
  * renders a grid of phone/email rows (Type / value / Date / Link Date).
  *
- * SCAFFOLD STATUS (2026-08-12): built label/structure-driven, same
- * discipline as content-cmainfo.js, since exact selectors for this page
- * were not available to confirm live. Best-effort, flagged where a live
- * page load with Johan is needed to finalize:
- *   - Identity (first name / surname) extraction — no exact selector given;
- *     tries a handful of common label/heading patterns.
- *   - The Contact-tab grid's exact table structure — located by HEADER TEXT
- *     ("Type"/"Date"/"Link Date"), not a hardcoded selector, so it should
- *     survive markup that shifts, but is unverified against the real page.
+ * STATUS (2026-08-13): confirmed working live end-to-end (Jessica Fawcett) —
+ * Contact tab grid extraction, red/opted-out detection, and ID-match dedup
+ * all verified in Johan's browser. Still open:
+ *   - Identity (first name / surname) — CONFIRMED LIVE (2026-08-13): the
+ *     page heading "SURNAME, Firstname" ("FAWCETT, JESSICA"), not a
+ *     labelled field. See parsePersonHeading()/extractIdentity().
  *   - Opted-out (red) detection — implemented per Johan's confirmed
  *     computed-color values (shared logic with content-cmainfo.js's
  *     isOptedOutStyled), but not yet exercised against a real opted-out row.
@@ -61,11 +58,6 @@
     return (s || '').replace(/ /g, ' ').replace(/\s+/g, ' ').trim().replace(/[:\s]+$/, '').toLowerCase();
   }
 
-  // TODO(johan): confirm the real identity markup live. Tries, in order: a
-  // label/value cell pair (mirrors CMA's pattern, in case TVA renders person
-  // details the same way), then a couple of common heading/name-field
-  // patterns. Falls back to null (extraction failure, not a guess) rather
-  // than risk sending a garbage name.
   function findLabelledValue(labelText) {
     const target = normalizeLabel(labelText);
     const cells = document.querySelectorAll('td, th, dt, label');
@@ -81,7 +73,35 @@
     return null;
   }
 
+  function toTitleCase(s) {
+    return s.trim().split(/\s+/).map(function (w) {
+      return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+    }).join(' ');
+  }
+
+  // CONFIRMED LIVE (2026-08-13, Jessica Fawcett): the name isn't a labelled
+  // field on the Contact tab at all — it's the page heading, "SURNAME,
+  // Firstname" ("FAWCETT, JESSICA"). Present in the DOM even while viewing
+  // the Contact tab (the person's tabs share one page, capture never needs
+  // to switch tabs). Title-cased on the way in — TVA's all-caps display
+  // convention isn't how CoreX stores contact names elsewhere (matches
+  // Johan's own "Jessica Fawcett" ground truth, not "JESSICA FAWCETT").
+  function parsePersonHeading(text) {
+    const m = (text || '').trim().match(/^([A-Za-z][A-Za-z\-'\s]*?),\s*([A-Za-z][A-Za-z\-'\s]*)$/);
+    if (!m) return null;
+    return { surname: toTitleCase(m[1]), first_name: toTitleCase(m[2]) };
+  }
+
   function extractIdentity() {
+    const headings = document.querySelectorAll('h1, h2, h3, h4, .panel-heading, .card-header, .page-header');
+    for (const h of headings) {
+      const parsed = parsePersonHeading(h.textContent);
+      if (parsed) return parsed;
+    }
+
+    // Fallback: a labelled field, in case a different page layout has one —
+    // TODO(johan): the heading above is confirmed live; this fallback is
+    // still best-effort/unconfirmed.
     const firstName = findLabelledValue('First Name') || findLabelledValue('Names') || findLabelledValue('First Names');
     const surname = findLabelledValue('Surname') || findLabelledValue('Last Name');
     return {
