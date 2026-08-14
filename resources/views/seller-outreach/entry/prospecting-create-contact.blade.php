@@ -131,6 +131,26 @@
               deedSearch: '',
               deeds: @js($deeds ?? []),
               linkDeedUrl: @js($linkDeedUrl ?? null),
+              // FIX 2 — live deed state (reactive), initialised from the server render and refreshed
+              // by polling so a scrape auto-surfaces without a full reload (form state preserved).
+              deed: { owners: @js($deedLink['owners'] ?? []), candidates: @js($deedLink['candidates'] ?? []) },
+              deedPollUrl: @js($deedPollUrl ?? null),
+              _deedTimer: null,
+              startDeedPoll() {
+                  if (!this.deedPollUrl) return;
+                  this._deedTimer = setInterval(() => this.pollDeed(), 5000);
+              },
+              async pollDeed() {
+                  if (document.hidden) return;   // don't poll a backgrounded tab
+                  try {
+                      const res = await fetch(this.deedPollUrl, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
+                      if (!res.ok) return;
+                      const d = await res.json();
+                      this.deed.owners = d.owners || [];
+                      this.deed.candidates = d.candidates || [];
+                      if (Array.isArray(d.deeds)) this.deeds = d.deeds;
+                  } catch (e) { /* transient — keep polling */ }
+              },
               filteredDeeds() {
                   const q = this.deedSearch.trim().toLowerCase();
                   if (!q) return this.deeds;
@@ -163,6 +183,7 @@
                       || (this.$refs.email && this.$refs.email.value.trim()));
               },
           }"
+          x-init="startDeedPoll()"
           action="{{ !empty($trackedProperty)
               ? route('seller-outreach.entry.store-from-tracked-property', $trackedProperty->id)
               : (!empty($property)
@@ -170,143 +191,97 @@
                   : route('seller-outreach.entry.store-from-prospecting', $listing->id)) }}">
         @csrf
 
-        {{-- ── MIC ↔ Deeds ↔ Contact loop (Part A) ──
-             The deed the agent scraped (CMA / deeds-office) already landed the registered
-             owner(s) in CoreX (name + SA-ID). Surface them here so the agent USES what was
-             ingested instead of re-typing. "Use from deeds" prefills the Create-new fields;
-             "View full deed" opens the Deeds Capture screen. --}}
-        @if(!empty($deedLink['owners']))
-            <div class="rounded-md p-4 mb-4"
-                 style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, var(--surface)); border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 40%, var(--border));">
-                <div class="flex items-center justify-between gap-3 flex-wrap mb-2">
-                    <div class="flex items-center gap-2">
-                        <span class="text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded"
-                              style="background: var(--brand-icon, #0ea5e9); color:#fff;">From the deed you scraped</span>
-                        <span class="text-xs" style="color: var(--text-muted);">Owner(s) already captured from the deeds record</span>
-                    </div>
-                    @if(auth()->user()->hasPermission('deeds_capture.access'))
-                        <a href="{{ route('corex.deeds-capture.index') }}" target="_blank" rel="noopener"
-                           class="text-xs font-semibold no-underline" style="color: var(--brand-icon, #0ea5e9);">
-                            View full deed →
-                        </a>
-                    @endif
+        {{-- ── MIC ↔ Deeds ↔ Contact loop (Part A + FIX 2) ──
+             The deed the agent scraped already landed the registered owner(s) in CoreX (name +
+             SA-ID). These panels are Alpine-REACTIVE (driven by `deed`, initialised from the server
+             render and refreshed by polling) so a scrape that lands while the screen is open
+             surfaces on its own — no full reload, form state + dead-end tick preserved.
+             "Use from deeds" prefills the Create-new fields; "View full deed" opens Deeds Capture. --}}
+        <div x-show="deed.owners.length" x-cloak class="rounded-md p-4 mb-4"
+             style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, var(--surface)); border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 40%, var(--border));">
+            <div class="flex items-center justify-between gap-3 flex-wrap mb-2">
+                <div class="flex items-center gap-2">
+                    <span class="text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded"
+                          style="background: var(--brand-icon, #0ea5e9); color:#fff;">From the deed you scraped</span>
+                    <span class="text-xs" style="color: var(--text-muted);">Owner(s) already captured from the deeds record</span>
                 </div>
-
-                <div class="space-y-2">
-                    @foreach($deedLink['owners'] as $owner)
-                        <div class="flex items-center justify-between gap-3 rounded-md p-3"
-                             style="background: var(--surface); border: 1px solid var(--border);">
-                            <div class="min-w-0">
-                                <div class="text-sm font-semibold truncate" style="color: var(--text-primary);">
-                                    {{ trim(($owner['first_name'] ?? '') . ' ' . ($owner['last_name'] ?? '')) ?: ($owner['name'] ?? '(unnamed owner)') }}
-                                    @if(!empty($owner['is_primary']))
-                                        <span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded"
-                                              style="background: var(--surface-2); color: var(--text-muted);">Primary</span>
-                                    @endif
-                                    @if(!empty($owner['dead_end']))
-                                        <span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded"
-                                              style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-primary);">⚠ Dead end · {{ $owner['dead_end']['label'] }}</span>
-                                    @endif
-                                </div>
-                                <div class="text-xs mt-0.5" style="color: var(--text-muted);">
-                                    @if(!empty($owner['id_number']))
-                                        {{ strtoupper((string) ($owner['id_type'] ?? 'sa_id')) === 'COMPANY_REG' ? 'Reg' : 'ID' }}:
-                                        <span class="font-mono">{{ $owner['id_number'] }}</span>
-                                    @else
-                                        <span class="italic">No ID on the deed record</span>
-                                    @endif
-                                </div>
+                @if(auth()->user()->hasPermission('deeds_capture.access'))
+                    <a href="{{ route('corex.deeds-capture.index') }}" target="_blank" rel="noopener"
+                       class="text-xs font-semibold no-underline" style="color: var(--brand-icon, #0ea5e9);">View full deed →</a>
+                @endif
+            </div>
+            <div class="space-y-2">
+                <template x-for="owner in deed.owners" :key="(owner.contact_id || '') + '-' + (owner.id_number || owner.name)">
+                    <div class="flex items-center justify-between gap-3 rounded-md p-3"
+                         style="background: var(--surface); border: 1px solid var(--border);">
+                        <div class="min-w-0">
+                            <div class="text-sm font-semibold truncate" style="color: var(--text-primary);">
+                                <span x-text="(((owner.first_name || '') + ' ' + (owner.last_name || '')).trim()) || owner.name || '(unnamed owner)'"></span>
+                                <template x-if="owner.is_primary"><span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded" style="background: var(--surface-2); color: var(--text-muted);">Primary</span></template>
+                                <template x-if="owner.dead_end"><span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-primary);">⚠ Dead end · <span x-text="owner.dead_end && owner.dead_end.label"></span></span></template>
                             </div>
-                            <button type="button"
-                                    @click='useDeedOwner(@json($owner))'
-                                    class="shrink-0 px-3 py-1.5 text-xs font-semibold rounded-md border-0"
-                                    style="background: var(--brand-icon, #0ea5e9); color:#fff; cursor:pointer;">
-                                Use from deeds
-                            </button>
+                            <div class="text-xs mt-0.5" style="color: var(--text-muted);">
+                                <template x-if="owner.id_number"><span><span x-text="(String(owner.id_type || 'sa_id').toUpperCase() === 'COMPANY_REG') ? 'Reg' : 'ID'"></span>: <span class="font-mono" x-text="owner.id_number"></span></span></template>
+                                <template x-if="!owner.id_number"><span class="italic">No ID on the deed record</span></template>
+                            </div>
                         </div>
-                    @endforeach
-                </div>
-            </div>
-        @endif
-
-        {{-- Possible deed match (agent-verified). The deeds-office address routinely differs from
-             the portal/marketing address (e.g. portal "516 Bream Crescent, Ramsgate" vs deed
-             "516 Bidstone, The Nest, Ramsgate Beach"), so these share only street number + suburb
-             and are NOT auto-linked — the agent confirms it's the same property, then "Use from
-             deeds" prefills. --}}
-        @if(empty($deedLink['owners']) && !empty($deedLink['candidates']))
-            <div class="rounded-md p-4 mb-4"
-                 style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 8%, var(--surface)); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 45%, var(--border));">
-                <div class="flex items-center justify-between gap-3 flex-wrap mb-2">
-                    <div class="flex items-center gap-2">
-                        <span class="text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded"
-                              style="background: var(--ds-amber, #f59e0b); color:#111;">Possible deed match</span>
-                        <span class="text-xs" style="color: var(--text-muted);">Same street &amp; suburb — verify this is the same property before using</span>
+                        <button type="button" @click="useDeedOwner(owner)"
+                                class="shrink-0 px-3 py-1.5 text-xs font-semibold rounded-md border-0"
+                                style="background: var(--brand-icon, #0ea5e9); color:#fff; cursor:pointer;">Use from deeds</button>
                     </div>
-                    @if(auth()->user()->hasPermission('deeds_capture.access'))
-                        <a href="{{ route('corex.deeds-capture.index') }}" target="_blank" rel="noopener"
-                           class="text-xs font-semibold no-underline" style="color: var(--ds-amber, #f59e0b);">
-                            Open Deeds Capture →
-                        </a>
-                    @endif
-                </div>
-
-                <div class="space-y-2">
-                    @foreach($deedLink['candidates'] as $cand)
-                        <div class="rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
-                            @if(!empty($cand['address']))
-                                <div class="text-xs font-semibold mb-1" style="color: var(--text-secondary);">
-                                    Deed: {{ $cand['address'] }}
-                                </div>
-                            @endif
-                            @foreach($cand['owners'] as $owner)
-                                <div class="flex items-center justify-between gap-3 py-1">
-                                    <div class="min-w-0">
-                                        <div class="text-sm font-semibold truncate" style="color: var(--text-primary);">
-                                            {{ trim(($owner['first_name'] ?? '') . ' ' . ($owner['last_name'] ?? '')) ?: ($owner['name'] ?? '(unnamed owner)') }}
-                                            @if(!empty($owner['is_primary']))
-                                                <span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded"
-                                                      style="background: var(--surface-2); color: var(--text-muted);">Primary</span>
-                                            @endif
-                                            @if(!empty($owner['dead_end']))
-                                                <span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded"
-                                                      style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-primary);">⚠ Dead end · {{ $owner['dead_end']['label'] }}</span>
-                                            @endif
-                                        </div>
-                                        <div class="text-xs mt-0.5" style="color: var(--text-muted);">
-                                            @if(!empty($owner['id_number']))
-                                                {{ strtoupper((string) ($owner['id_type'] ?? 'sa_id')) === 'COMPANY_REG' ? 'Reg' : 'ID' }}:
-                                                <span class="font-mono">{{ $owner['id_number'] }}</span>
-                                            @else
-                                                <span class="italic">No ID on the deed record</span>
-                                            @endif
-                                        </div>
-                                    </div>
-                                    <button type="button"
-                                            @click='useDeedOwner(@json($owner))'
-                                            class="shrink-0 px-3 py-1.5 text-xs font-semibold rounded-md"
-                                            style="background: transparent; color: var(--text-primary); border:1px solid var(--ds-amber, #f59e0b); cursor:pointer;">
-                                        Use from deeds
-                                    </button>
-                                </div>
-                            @endforeach
-                        </div>
-                    @endforeach
-                </div>
+                </template>
             </div>
-        @endif
+        </div>
+
+        {{-- Possible deed match (agent-verified) — reactive; shows when there's no confirmed owner
+             but candidate deeds exist (P24 marketing address vs deeds-office scheme address). --}}
+        <div x-show="!deed.owners.length && deed.candidates.length" x-cloak class="rounded-md p-4 mb-4"
+             style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 8%, var(--surface)); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 45%, var(--border));">
+            <div class="flex items-center justify-between gap-3 flex-wrap mb-2">
+                <div class="flex items-center gap-2">
+                    <span class="text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded"
+                          style="background: var(--ds-amber, #f59e0b); color:#111;">Possible deed match</span>
+                    <span class="text-xs" style="color: var(--text-muted);">Same street &amp; suburb — verify this is the same property before using</span>
+                </div>
+                @if(auth()->user()->hasPermission('deeds_capture.access'))
+                    <a href="{{ route('corex.deeds-capture.index') }}" target="_blank" rel="noopener"
+                       class="text-xs font-semibold no-underline" style="color: var(--ds-amber, #f59e0b);">Open Deeds Capture →</a>
+                @endif
+            </div>
+            <div class="space-y-2">
+                <template x-for="cand in deed.candidates" :key="cand.tracked_property_id">
+                    <div class="rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
+                        <template x-if="cand.address"><div class="text-xs font-semibold mb-1" style="color: var(--text-secondary);">Deed: <span x-text="cand.address"></span></div></template>
+                        <template x-for="owner in cand.owners" :key="(owner.contact_id || '') + '-' + (owner.id_number || owner.name)">
+                            <div class="flex items-center justify-between gap-3 py-1">
+                                <div class="min-w-0">
+                                    <div class="text-sm font-semibold truncate" style="color: var(--text-primary);">
+                                        <span x-text="(((owner.first_name || '') + ' ' + (owner.last_name || '')).trim()) || owner.name || '(unnamed owner)'"></span>
+                                        <template x-if="owner.is_primary"><span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded" style="background: var(--surface-2); color: var(--text-muted);">Primary</span></template>
+                                        <template x-if="owner.dead_end"><span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-primary);">⚠ Dead end · <span x-text="owner.dead_end && owner.dead_end.label"></span></span></template>
+                                    </div>
+                                    <div class="text-xs mt-0.5" style="color: var(--text-muted);">
+                                        <template x-if="owner.id_number"><span><span x-text="(String(owner.id_type || 'sa_id').toUpperCase() === 'COMPANY_REG') ? 'Reg' : 'ID'"></span>: <span class="font-mono" x-text="owner.id_number"></span></span></template>
+                                        <template x-if="!owner.id_number"><span class="italic">No ID on the deed record</span></template>
+                                    </div>
+                                </div>
+                                <button type="button" @click="useDeedOwner(owner)"
+                                        class="shrink-0 px-3 py-1.5 text-xs font-semibold rounded-md"
+                                        style="background: transparent; color: var(--text-primary); border:1px solid var(--ds-amber, #f59e0b); cursor:pointer;">Use from deeds</button>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </div>
+        </div>
 
         {{-- Manual "Link a deed" fallback — ALWAYS available so the agent can pick the right deed
              when auto-match doesn't fire (P24 marketing address vs deeds-office scheme address). --}}
-        @if(!empty($deeds))
-            <div class="flex items-center justify-between gap-3 flex-wrap mb-4 rounded-md p-3"
+        <div x-show="deeds.length" x-cloak class="flex items-center justify-between gap-3 flex-wrap mb-4 rounded-md p-3"
                  style="background: var(--surface); border: 1px dashed var(--border);">
                 <div class="text-xs" style="color: var(--text-muted);">
-                    @if(empty($deedLink['owners']) && empty($deedLink['candidates']))
-                        No deed auto-matched to this property —
-                    @else
-                        Not the right owner?
-                    @endif
+                    <span x-show="!deed.owners.length && !deed.candidates.length">No deed auto-matched to this property — </span>
+                    <span x-show="deed.owners.length || deed.candidates.length">Not the right owner? </span>
                     pick the scraped deed yourself.
                 </div>
                 <button type="button" @click="showDeedModal = true"
@@ -314,8 +289,7 @@
                         style="background: var(--brand-default, #0b2a4a); color:#fff; cursor:pointer;">
                     🔍 Link a deed
                 </button>
-            </div>
-        @endif
+        </div>
 
         {{-- #3 Address-first: when the source listing carries no street address, capture
              one BEFORE the seller. Reuses the SAME "Property Address" modal + component as

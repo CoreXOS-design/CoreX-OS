@@ -2603,6 +2603,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                 [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'linkDeedToProspecting'])
                 ->where('prospectingListingId', '\d+')
                 ->name('link-deed-prospecting');
+            // FIX 2 (Johan 2026-08-14) — lightweight poll: the compose screen calls this every few
+            // seconds so a deed/TVA capture that lands while it's open auto-surfaces (partial
+            // refresh, no full reload — preserves the claim, form state and the dead-end tick).
+            Route::get('/prospecting/{prospectingListingId}/outreach/deed-poll',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'pollDeedsForProspecting'])
+                ->where('prospectingListingId', '\d+')
+                ->name('deed-poll-prospecting');
 
             // Map Workspace Phase B (Fix 2+3) — T-pin WhatsApp / Pitch flow.
             // Mirrors the prospecting entry point but the source is a

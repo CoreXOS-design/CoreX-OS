@@ -240,6 +240,8 @@ final class EntryPointController extends Controller
             // the agent's choice on this listing.
             'deeds'        => $this->safeAvailableDeeds($agencyId),
             'linkDeedUrl'  => route('seller-outreach.entry.link-deed-prospecting', ['prospectingListingId' => $listing->id]),
+            // FIX 2 — poll endpoint so a deed/TVA scrape auto-surfaces while the screen is open.
+            'deedPollUrl'  => route('seller-outreach.entry.deed-poll-prospecting', ['prospectingListingId' => $listing->id]),
         ]);
     }
 
@@ -1242,6 +1244,33 @@ final class EntryPointController extends Controller
             'ok'                  => true,
             'tracked_property_id' => (int) $deedTp->id,
             'owners'              => $payload['owners'],
+        ]);
+    }
+
+    /**
+     * FIX 2 (Johan 2026-08-14) — poll endpoint for the compose screen. Returns the current deed
+     * link state (auto-matched owner(s), candidate deeds) + the full deeds list for the modal, so
+     * a scrape that lands while the screen is open surfaces via a partial refresh (no full reload).
+     * Agency-scoped, read-only, cheap.
+     */
+    public function pollDeedsForProspecting(Request $request, int $prospectingListingId)
+    {
+        $agencyId = $this->resolveAgencyId($request);
+
+        $listing = DB::table('prospecting_listings')
+            ->where('id', $prospectingListingId)
+            ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->first();
+        abort_if(! $listing, 404);
+
+        $deedLink = $this->safeDeedLink(fn () => app(\App\Services\Prospecting\DeedsCaptureLinkService::class)
+            ->ownersForListing($agencyId, $listing));
+
+        return response()->json([
+            'owners'     => $deedLink['owners'],
+            'candidates' => $deedLink['candidates'],
+            'deeds'      => $this->safeAvailableDeeds($agencyId),
         ]);
     }
 

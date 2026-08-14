@@ -330,6 +330,32 @@ final class EntryPointStoreFromProspectingTest extends TestCase
         $this->assertSame(0, DB::table('contact_dead_end_flags')->count());
     }
 
+    // ── FIX 2: deed poll endpoint (auto-refresh on scrape) ────────────────
+
+    /** The compose screen polls this — it returns the current deed state as JSON, agency-scoped. */
+    public function test_deed_poll_returns_current_deed_state_as_json(): void
+    {
+        [$agencyId, $userId] = $this->seedAgency();
+        $listingId = $this->seedProspectingListing($agencyId, ['address' => '1486 Beaumont', 'suburb' => 'Ramsgate']);
+
+        $this->actingAs(User::find($userId))
+            ->get(route('seller-outreach.entry.deed-poll-prospecting', ['prospectingListingId' => $listingId]))
+            ->assertStatus(200)
+            ->assertJsonStructure(['owners', 'candidates', 'deeds']);
+    }
+
+    /** Tenancy — polling another agency's listing 404s. */
+    public function test_deed_poll_rejects_another_agencys_listing(): void
+    {
+        [$agencyId, $userId] = $this->seedAgency();
+        [$otherAgencyId]     = $this->seedAgency();
+        $foreignListingId    = $this->seedProspectingListing($otherAgencyId, ['address' => '1 Other Agency Road']);
+
+        $this->actingAs(User::find($userId))
+            ->get(route('seller-outreach.entry.deed-poll-prospecting', ['prospectingListingId' => $foreignListingId]))
+            ->assertNotFound();
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     /** @return array{0:int,1:int} */
