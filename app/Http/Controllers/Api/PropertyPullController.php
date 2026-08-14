@@ -72,7 +72,10 @@ class PropertyPullController extends Controller
         $isUpdate = false;
 
         if (!empty($data['portal_ref'])) {
-            $existing = Property::withTrashed()->where('external_id', $data['portal_ref'])->first();
+            $existing = Property::withTrashed()
+                ->where('agency_id', $user->effectiveAgencyId())
+                ->where('external_id', $data['portal_ref'])
+                ->first();
         }
 
         if ($existing) {

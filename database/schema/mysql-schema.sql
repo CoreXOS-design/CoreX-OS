@@ -9771,7 +9771,7 @@ CREATE TABLE `properties` (
   `p24_image_signature` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `access_notes` text COLLATE utf8mb4_unicode_ci,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `properties_external_id_unique` (`external_id`),
+  UNIQUE KEY `properties_agency_ext_uq` (`agency_id`,`external_id`),
   KEY `properties_agent_id_foreign` (`agent_id`),
   KEY `properties_p24_listing_number_index` (`p24_listing_number`),
   KEY `properties_branch_id_foreign` (`branch_id`),
@@ -14461,3 +14461,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1076,'2026_08_21_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1077,'2026_08_22_000002_add_first_login_at_to_users_table',217);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1078,'2026_08_22_000003_add_invite_email_sent_at_to_agency_onboarding_setups_table',217);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1079,'2026_08_22_000004_scope_client_users_email_unique_to_active_rows',218);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1080,'2026_08_14_162800_scope_properties_external_id_unique_to_agency',219);
