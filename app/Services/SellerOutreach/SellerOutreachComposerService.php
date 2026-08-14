@@ -506,20 +506,42 @@ final class SellerOutreachComposerService
             ->value('restrict_consent_outreach_to_full_status');
     }
 
+    /**
+     * Build the digits-only INTERNATIONAL form (27XXXXXXXXX) a wa.me / whatsapp://
+     * link needs, at send/link-build time — so every send is correct regardless of
+     * how the number was stored (no data migration required).
+     *
+     * The old body only prepended 27 when the number ALREADY had a leading 0, so a
+     * number stored WITHOUT it (e.g. "733981843" — the 0 dropped on entry) built an
+     * invalid wa.me target and WhatsApp opened on a broken number. We now route
+     * through the canonical App\Support\SaPhoneNumber normaliser, which restores a
+     * dropped leading 0 on a bare 9-digit national number and folds every
+     * international form (+27 / 27 / 0027, with spaces/dashes/parens/dots) to the
+     * local "0XXXXXXXXX" form, then convert that to wa.me international digits.
+     *
+     * Validity guard: a dialable SA number is EXACTLY 10 digits with a leading 0.
+     * Anything else (too short/long, non-SA, garbage) returns null so the existing
+     * no-phone handling applies instead of shipping a malformed link.
+     *
+     *   0733981843      → 27733981843
+     *   733981843       → 27733981843   (the dropped-leading-0 bug case)
+     *   +27 73 398 1843 → 27733981843
+     *   27733981843     → 27733981843   (unchanged)
+     *   12345 / non-SA  → null
+     */
     private function normalisePhone(Contact $contact): ?string
     {
         $raw = $contact->phone ?? $contact->cell_number ?? $contact->mobile ?? null;
-        if (!$raw) {
+
+        // Canonical SA local form ("0XXXXXXXXX"), restoring a dropped leading 0.
+        $local = \App\Support\SaPhoneNumber::normalize($raw !== null ? (string) $raw : null);
+
+        // Only a valid 10-digit leading-0 SA number becomes a wa.me target.
+        if ($local === null || strlen($local) !== 10 || $local[0] !== '0') {
             return null;
         }
-        $digits = preg_replace('/\D/', '', (string) $raw);
-        if (!$digits) {
-            return null;
-        }
-        if (str_starts_with($digits, '0')) {
-            $digits = '27' . substr($digits, 1);
-        }
-        return $digits;
+
+        return '27' . substr($local, 1);
     }
 
     private function resolveEmail(Contact $contact): ?string
