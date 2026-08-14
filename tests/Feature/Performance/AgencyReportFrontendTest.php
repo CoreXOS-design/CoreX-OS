@@ -49,7 +49,7 @@ class AgencyReportFrontendTest extends TestCase
         $res = $this->actingAs($this->admin)->get(route('performance.agency-report'));
 
         $res->assertOk()
-            ->assertSee('agencyReportTable(', false)   // the Alpine sort/filter component is wired
+            ->assertSee('agencyReport(', false)        // the Alpine report component is wired
             ->assertSee('sortAgent(', false)           // clickable column-header sort
             ->assertSee('branchDisplay()', false)      // branch table is component-driven too
             ->assertSee('Filter agent', false)         // agent name filter control
@@ -57,6 +57,23 @@ class AgencyReportFrontendTest extends TestCase
             ->assertSee('Min activity', false)         // min-activity filter control
             ->assertSee('Print report', false)         // #8 whole-company print entry point
             ->assertSee('Thabo Mokoena');              // the agent row data is present (embedded rollup JSON)
+    }
+
+    public function test_index_wires_status_toggles_and_drilldown(): void
+    {
+        $res = $this->actingAs($this->admin)->get(route('performance.agency-report'));
+
+        $res->assertOk()
+            // #6 deal-status toggles (recompute logic present; bar reveals when cc6 ships deal_status)
+            ->assertSee('toggleAll(', false)
+            ->assertSee('statusKeys', false)
+            ->assertSee('deals (selected)', false)
+            ->assertSee('hasDealStatus', false)
+            // #9 drilldown modal + click wiring + the contract endpoint path
+            ->assertSee('drill(', false)
+            ->assertSee('drillOpen', false)
+            // @js() escapes slashes in the embedded URL string (agency-report\/drilldown) — match that
+            ->assertSee('agency-report\/drilldown', false);
     }
 
     public function test_whole_company_print_renders_with_company_header(): void
