@@ -117,11 +117,24 @@ class DealBreakdownAndDrilldownTest extends TestCase
     {
         $d = $this->dr1(['accepted_status' => 'G', 'granted_at' => '2026-08-11']);
         DB::table('deal_user')->insert(['deal_id' => $d, 'user_id' => $this->a2->id]); // a2 co-agent
+        // each co-agent has their OWN money line (ex-VAT split)
+        $this->ml($d, $this->a1->id, 50_000);
+        $this->ml($d, $this->a2->id, 40_000);
 
         $out = app(DealStatusBreakdownService::class)->forUsers([$this->a1->id, $this->a2->id], $this->period(), $this->ag1->id);
         $this->assertSame(1, $out['perAgent'][$this->a1->id]['granted']['count']);
         $this->assertSame(1, $out['perAgent'][$this->a2->id]['granted']['count']);
         $this->assertSame(1, $out['distinct']['granted']['count'], 'distinct rollup counts the shared deal once');
+        // per-agent commission = that agent's OWN money line (not the full deal)
+        $this->assertEqualsWithDelta(50_000.0, $out['perAgent'][$this->a1->id]['granted']['commission'], 0.01);
+        $this->assertEqualsWithDelta(40_000.0, $out['perAgent'][$this->a2->id]['granted']['commission'], 0.01);
+
+        // and the COMPANY rollup (sum over agents) must NOT double-count the co-agent deal:
+        // company commission == 50k + 40k == the KPI, not 180k.
+        $report = app(\App\Services\Performance\AgencyPerformanceReportService::class)
+            ->build(new \App\Services\Performance\PerformanceScope($this->ag1->id), $this->period());
+        $this->assertEqualsWithDelta(90_000.0, $report['company']['deal_status']['granted']['commission'], 0.01, 'co-agent commission must not double-count in the company rollup');
+        $this->assertEqualsWithDelta((float) ($report['company']['commission_gross_ex_vat'] ?? 0), $report['company']['deal_status']['granted']['commission'], 0.01, 'company deal_status commission == the KPI');
     }
 
     public function test_breakdown_is_agency_scoped(): void

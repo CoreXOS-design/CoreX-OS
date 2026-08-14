@@ -305,6 +305,96 @@ final class MicComposeMultiSellerTest extends TestCase
         $this->assertDatabaseMissing('contact_phones', ['contact_id' => $contact->id, 'phone' => '0820000001']);
     }
 
+    // ── Entity (company / CC) seller linking (Johan 2026-08-14) ──────────
+
+    /** The company ENTITY owner links as a seller via its resolved contact_id — no SA ID, no silent fail. */
+    public function test_entity_owner_links_as_seller_via_contact_id(): void
+    {
+        [$agencyId, $userId] = $this->seedAgency();
+        $listingId = $this->seedListing($agencyId, '1502 Beaumont Drive');
+        $entity = $this->makeEntity($agencyId, 'Beaumont Prop Cc 1502', '2010/017928/23');
+
+        $this->actingAs(User::find($userId))
+            ->postJson(route('seller-outreach.entry.link-seller-prospecting', ['prospectingListingId' => $listingId]),
+                ['contact_id' => $entity->id])
+            ->assertOk()
+            ->assertJsonPath('sellers.0.is_entity', true)
+            ->assertJsonPath('sellers.0.display_name', 'Beaumont Prop Cc 1502')
+            ->assertJsonPath('sellers.0.entity_reg_no', '2010/017928/23');
+
+        $propertyId = (int) DB::table('prospecting_listings')->where('id', $listingId)->value('matched_property_id');
+        $this->assertDatabaseHas('contact_property', ['property_id' => $propertyId, 'contact_id' => $entity->id, 'role' => 'seller']);
+    }
+
+    /** An entity owner with no resolved contact links off its REGISTRATION number (never a 13-digit SA ID) and dedupes. */
+    public function test_entity_owner_links_via_entity_payload_and_dedupes_on_reg_no(): void
+    {
+        [$agencyId, $userId] = $this->seedAgency();
+        $listingId = $this->seedListing($agencyId, '1502 Beaumont Drive');
+        $url = route('seller-outreach.entry.link-seller-prospecting', ['prospectingListingId' => $listingId]);
+
+        $this->actingAs(User::find($userId))
+            ->postJson($url, ['entity' => true, 'entity_name' => 'Beaumont Prop Cc 1502', 'entity_reg_no' => '2010/017928/23'])
+            ->assertOk()->assertJsonPath('sellers.0.is_entity', true);
+
+        $entity = Contact::withoutGlobalScopes()->where('entity_reg_no', '2010/017928/23')->first();
+        $this->assertNotNull($entity);
+        $this->assertSame(Contact::TYPE_ENTITY, $entity->contact_kind);
+        $this->assertTrue($entity->id_number === null || $entity->id_number === '', 'entity keys on reg number, never a fake SA ID');
+
+        // Re-linking the same reg number resolves onto the SAME entity contact — no clone.
+        $this->actingAs(User::find($userId))
+            ->postJson($url, ['entity' => true, 'entity_name' => 'Beaumont Prop Cc 1502', 'entity_reg_no' => '2010/017928/23'])->assertOk();
+        $this->assertSame(1, Contact::withoutGlobalScopes()->where('entity_reg_no', '2010/017928/23')->count());
+    }
+
+    /** Sellers list shows the company (entity) + its director together; the entity never blocks continue. */
+    public function test_sellers_list_shows_entity_with_director_and_entity_never_blocks_continue(): void
+    {
+        [$agencyId, $userId] = $this->seedAgency();
+        $listingId = $this->seedListing($agencyId, '1502 Beaumont Drive');
+        $link = route('seller-outreach.entry.link-seller-prospecting', ['prospectingListingId' => $listingId]);
+
+        // Company entity links...
+        $entity = $this->makeEntity($agencyId, 'Beaumont Prop Cc 1502', '2010/017928/23');
+        $this->actingAs(User::find($userId))->postJson($link, ['contact_id' => $entity->id])->assertOk();
+
+        // ...and its director (natural person) links, with cc6's representative link + a number.
+        $this->actingAs(User::find($userId))->postJson($link, ['first_name' => 'HA', 'last_name' => 'Pretorius', 'id_number' => '7004065141082'])->assertOk();
+        $director = Contact::withoutGlobalScopes()->where('id_number', '7004065141082')->first();
+        DB::table('contact_representatives')->insert([
+            'entity_contact_id' => $entity->id, 'representative_contact_id' => $director->id,
+            'is_primary' => true, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $director->phones()->create(['agency_id' => $agencyId, 'phone' => '0820000001', 'label' => 'TVA']);
+
+        // Payload: BOTH are sellers; the entity carries its director as a representative.
+        $listing = DB::table('prospecting_listings')->where('id', $listingId)->first();
+        $payload = app(\App\Services\Prospecting\ComposeSellerService::class)->payload($agencyId, $listing);
+        $isEntityFlags = collect($payload['sellers'])->pluck('is_entity')->all();
+        $this->assertContains(true, $isEntityFlags, 'the company entity is a seller');
+        $this->assertContains(false, $isEntityFlags, 'the director is a seller');
+        $entityRow = collect($payload['sellers'])->firstWhere('is_entity', true);
+        $this->assertSame('Beaumont Prop Cc 1502', $entityRow['display_name']);
+        $this->assertSame([['contact_id' => $director->id, 'name' => 'HA Pretorius']], $entityRow['representatives']);
+        $this->assertTrue($entityRow['contactable'], 'an entity with a representative director counts as contactable');
+
+        // Continue passes: the director has a number; the entity is exempt (reached through the director).
+        $this->actingAs(User::find($userId))
+            ->post(route('seller-outreach.entry.store-from-prospecting', ['prospectingListingId' => $listingId]), [])
+            ->assertRedirect(route('seller-outreach.entry.pitch-ready-prospecting', ['prospectingListingId' => $listingId]));
+    }
+
+    /** An entity Contact for the tests (contact_kind=entity, reg-no, no SA ID) — cc6's capture shape. */
+    private function makeEntity(int $agencyId, string $name, string $regNo): Contact
+    {
+        return Contact::create([
+            'agency_id' => $agencyId, 'branch_id' => $agencyId,
+            'contact_kind' => Contact::TYPE_ENTITY, 'entity_name' => $name, 'entity_reg_no' => $regNo,
+            'first_name' => $name, 'last_name' => '', 'phone' => '',
+        ]);
+    }
+
     /** Seed a deeds tracked_property with owners; returns its id. */
     private function seedDeed(int $agencyId, array $owners): int
     {

@@ -225,7 +225,13 @@
                   if ('linked_deed' in d) this.linkedDeed = d.linked_deed;
                   if ('removed' in d) this.removed = d.removed || [];
               },
-              isSellerLinked(idNumber) { return !!idNumber && this.sellers.some(s => s.id_number === idNumber); },
+              isSellerLinked(owner) {
+                  if (!owner) return false;
+                  // Match on the resolved contact FIRST (an entity has no SA ID), then on SA ID.
+                  return this.sellers.some(s =>
+                      (owner.contact_id && s.contact_id === owner.contact_id)
+                      || (owner.id_number && s.id_number === owner.id_number));
+              },
               isRemoved(idNumber) { return !!idNumber && (this.removed || []).includes(idNumber); },
               async unlinkDeed() {
                   if (!this.unlinkDeedUrl || this.sellerBusy) return;
@@ -255,13 +261,33 @@
               waUrl(v) { return 'https://wa.me/' + (v || '').replace(/[^0-9]/g, '').replace(/^0/, '27'); },
               async linkSeller(owner) {
                   if (!this.linkSellerUrl || this.sellerBusy) return;
-                  if (!owner.id_number) { window.alert('This owner has no SA ID on the deed — cannot link as a distinct seller.'); return; }
+                  // Prefer the contact already resolved off the deed (a director OR the company entity):
+                  // links the exact contact, no SA ID required. An entity with no contact yet keys on its
+                  // registration number, never a 13-digit SA ID; a natural person keys on their SA ID.
+                  let body;
+                  if (owner.contact_id) {
+                      body = { contact_id: owner.contact_id };
+                  } else if (owner.is_entity) {
+                      body = { entity: true, entity_name: owner.display_name || owner.name, entity_reg_no: owner.entity_reg_no || owner.id_number || '' };
+                  } else if (owner.id_number) {
+                      body = { first_name: owner.first_name, last_name: owner.last_name, id_number: owner.id_number };
+                  } else {
+                      window.alert('This owner has no SA ID or registration number on the deed — cannot link as a distinct seller.');
+                      return;
+                  }
                   this.sellerBusy = true;
                   try {
-                      const res = await fetch(this.linkSellerUrl, { method: 'POST', headers: this._postHeaders(),
-                          body: JSON.stringify({ first_name: owner.first_name, last_name: owner.last_name, id_number: owner.id_number }) });
-                      if (res.ok) this.applySellerState(await res.json());
-                  } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
+                      const res = await fetch(this.linkSellerUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify(body) });
+                      if (res.ok) { this.applySellerState(await res.json()); }
+                      else {
+                          // NEVER a silent no-op — surface the server's reason (Johan 2026-08-14).
+                          const err = await res.json().catch(() => ({}));
+                          const msg = err.message || (err.errors && Object.values(err.errors).flat()[0]) || 'Could not link this owner as a seller.';
+                          window.alert(msg);
+                      }
+                  } catch (e) {
+                      window.alert('Could not link this owner — a network error occurred. Please try again.');
+                  } finally { this.sellerBusy = false; }
               },
               async unlinkSeller(contactId) {
                   if (!this.unlinkSellerUrl || this.sellerBusy) return;
@@ -361,21 +387,24 @@
                          style="background: var(--surface); border: 1px solid var(--border);">
                         <div class="min-w-0">
                             <div class="text-sm font-semibold truncate" style="color: var(--text-primary);">
-                                <span x-text="(((owner.first_name || '') + ' ' + (owner.last_name || '')).trim()) || owner.name || '(unnamed owner)'"></span>
+                                <template x-if="owner.is_entity"><span class="text-[10px] uppercase tracking-wider font-bold mr-1 px-1.5 py-0.5 rounded align-middle" style="background: color-mix(in srgb, #6366f1 20%, transparent); color: var(--text-primary);">Company</span></template>
+                                <span x-text="owner.display_name || (((owner.first_name || '') + ' ' + (owner.last_name || '')).trim()) || owner.name || '(unnamed owner)'"></span>
                                 <template x-if="owner.dead_end"><span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-primary);">⚠ Dead end · <span x-text="owner.dead_end && owner.dead_end.label"></span></span></template>
                             </div>
                             <div class="text-xs mt-0.5" style="color: var(--text-muted);">
-                                <template x-if="owner.id_number"><span><span x-text="(String(owner.id_type || 'sa_id').toUpperCase() === 'COMPANY_REG') ? 'Reg' : 'ID'"></span>: <span class="font-mono" x-text="owner.id_number"></span></span></template>
-                                <template x-if="!owner.id_number"><span class="italic">No ID on the deed record</span></template>
+                                <template x-if="owner.is_entity"><span><span x-show="owner.entity_reg_no">Reg: <span class="font-mono" x-text="owner.entity_reg_no"></span></span><span x-show="!owner.entity_reg_no" class="italic">Company / entity owner</span></span></template>
+                                <template x-if="!owner.is_entity && owner.id_number"><span>ID: <span class="font-mono" x-text="owner.id_number"></span></span></template>
+                                <template x-if="!owner.is_entity && !owner.id_number"><span class="italic">No ID on the deed record</span></template>
                             </div>
                         </div>
                         <div class="shrink-0 flex flex-col gap-1">
-                            <template x-if="!isSellerLinked(owner.id_number)">
+                            <template x-if="!isSellerLinked(owner)">
                                 <button type="button" @click="linkSeller(owner)" :disabled="sellerBusy"
                                         class="px-3 py-1.5 text-xs font-semibold rounded-md border-0"
-                                        style="background: var(--brand-icon, #0ea5e9); color:#fff; cursor:pointer;">+ Link as seller</button>
+                                        style="background: var(--brand-icon, #0ea5e9); color:#fff; cursor:pointer;"
+                                        x-text="owner.is_entity ? '+ Link company as seller' : '+ Link as seller'"></button>
                             </template>
-                            <template x-if="isSellerLinked(owner.id_number)">
+                            <template x-if="isSellerLinked(owner)">
                                 <span class="px-3 py-1.5 text-xs font-semibold rounded-md text-center"
                                       style="background: color-mix(in srgb, #10b981 18%, transparent); color: var(--text-primary);">✓ Seller linked</span>
                             </template>
@@ -408,21 +437,24 @@
                             <div class="flex items-center justify-between gap-3 py-1">
                                 <div class="min-w-0">
                                     <div class="text-sm font-semibold truncate" style="color: var(--text-primary);">
-                                        <span x-text="(((owner.first_name || '') + ' ' + (owner.last_name || '')).trim()) || owner.name || '(unnamed owner)'"></span>
+                                        <template x-if="owner.is_entity"><span class="text-[10px] uppercase tracking-wider font-bold mr-1 px-1.5 py-0.5 rounded align-middle" style="background: color-mix(in srgb, #6366f1 20%, transparent); color: var(--text-primary);">Company</span></template>
+                                        <span x-text="owner.display_name || (((owner.first_name || '') + ' ' + (owner.last_name || '')).trim()) || owner.name || '(unnamed owner)'"></span>
                                                 <template x-if="owner.dead_end"><span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-primary);">⚠ Dead end · <span x-text="owner.dead_end && owner.dead_end.label"></span></span></template>
                                     </div>
                                     <div class="text-xs mt-0.5" style="color: var(--text-muted);">
-                                        <template x-if="owner.id_number"><span><span x-text="(String(owner.id_type || 'sa_id').toUpperCase() === 'COMPANY_REG') ? 'Reg' : 'ID'"></span>: <span class="font-mono" x-text="owner.id_number"></span></span></template>
-                                        <template x-if="!owner.id_number"><span class="italic">No ID on the deed record</span></template>
+                                        <template x-if="owner.is_entity"><span><span x-show="owner.entity_reg_no">Reg: <span class="font-mono" x-text="owner.entity_reg_no"></span></span><span x-show="!owner.entity_reg_no" class="italic">Company / entity owner</span></span></template>
+                                        <template x-if="!owner.is_entity && owner.id_number"><span>ID: <span class="font-mono" x-text="owner.id_number"></span></span></template>
+                                        <template x-if="!owner.is_entity && !owner.id_number"><span class="italic">No ID on the deed record</span></template>
                                     </div>
                                 </div>
                                 <div class="shrink-0 flex flex-col gap-1">
-                                    <template x-if="!isSellerLinked(owner.id_number)">
+                                    <template x-if="!isSellerLinked(owner)">
                                         <button type="button" @click="linkSeller(owner)" :disabled="sellerBusy"
                                                 class="px-3 py-1.5 text-xs font-semibold rounded-md"
-                                                style="background: transparent; color: var(--text-primary); border:1px solid var(--ds-amber, #f59e0b); cursor:pointer;">+ Link as seller</button>
+                                                style="background: transparent; color: var(--text-primary); border:1px solid var(--ds-amber, #f59e0b); cursor:pointer;"
+                                                x-text="owner.is_entity ? '+ Link company as seller' : '+ Link as seller'"></button>
                                     </template>
-                                    <template x-if="isSellerLinked(owner.id_number)">
+                                    <template x-if="isSellerLinked(owner)">
                                         <span class="px-3 py-1.5 text-xs font-semibold rounded-md text-center"
                                               style="background: color-mix(in srgb, #10b981 18%, transparent); color: var(--text-primary);">✓ Seller linked</span>
                                     </template>
@@ -457,12 +489,23 @@
                                         <span x-text="s.is_primary ? '★' : '☆'"></span>
                                         <span x-text="s.is_primary ? 'Primary' : 'Make primary'"></span>
                                     </button>
-                                    <span x-text="((s.first_name || '') + ' ' + (s.last_name || '')).trim() || 'Seller'"></span>
+                                    <template x-if="s.is_entity"><span class="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, #6366f1 20%, transparent); color: var(--text-primary);">Company</span></template>
+                                    <span x-text="s.display_name || (((s.first_name || '') + ' ' + (s.last_name || '')).trim()) || 'Seller'"></span>
                                     <template x-if="s.dead_end"><span class="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-primary);">⚠ Dead end · <span x-text="s.dead_end && s.dead_end.label"></span></span></template>
                                 </div>
                                 <div class="text-xs mt-0.5" style="color: var(--text-muted);">
-                                    <template x-if="s.id_number"><span>ID: <span class="font-mono" x-text="s.id_number"></span></span></template>
+                                    <template x-if="!s.is_entity && s.id_number"><span>ID: <span class="font-mono" x-text="s.id_number"></span></span></template>
+                                    {{-- Entity seller: reg number + the representative directors (cc6's link) who are the contactable people. --}}
+                                    <template x-if="s.is_entity">
+                                        <span>
+                                            <span x-show="s.entity_reg_no">Reg: <span class="font-mono" x-text="s.entity_reg_no"></span><span x-show="s.representatives && s.representatives.length"> · </span></span>
+                                            <span x-show="s.representatives && s.representatives.length">Represented by <span x-text="(s.representatives || []).map(r => r.name).join(', ')"></span></span>
+                                            <span x-show="!s.representatives || !s.representatives.length" class="italic">Directors link separately from the deed rows above</span>
+                                        </span>
+                                    </template>
                                 </div>
+                                {{-- Numbers/dead-end apply to natural-person sellers only — a company is reached through its directors. --}}
+                                <template x-if="!s.is_entity">
                                 <div class="flex flex-wrap gap-1 mt-1 items-center">
                                     <template x-for="p in s.phones" :key="'p' + p.value">
                                         <span class="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded font-mono"
@@ -490,6 +533,7 @@
                                     <button type="button" x-show="s.dead_end" @click="clearSellerDeadEnd(s.contact_id)" :disabled="sellerBusy"
                                             class="text-[11px] font-semibold" style="color: var(--brand-icon, #0ea5e9); background:none; border:0; cursor:pointer;">clear dead-end</button>
                                 </div>
+                                </template>
                             </div>
                             <button type="button" @click="unlinkSeller(s.contact_id)" :disabled="sellerBusy"
                                     class="shrink-0 text-xs font-semibold" style="color: var(--ds-crimson); background:none; border:0; cursor:pointer;">Remove</button>

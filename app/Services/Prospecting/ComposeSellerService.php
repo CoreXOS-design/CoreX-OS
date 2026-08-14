@@ -84,25 +84,45 @@ class ComposeSellerService
         $contacts = Contact::withoutGlobalScope(ContactScope::class)
             ->where('agency_id', $agencyId)
             ->whereIn('id', $links->keys()->all())
-            ->with(['phones', 'emails', 'deadEndFlag'])
+            // Entity foundation (cc6) — an entity seller (company/CC/trust) carries its
+            // representative directors (natural persons) via the SAME contact_representatives
+            // pivot; we surface them so the sellers list shows the company + its directors
+            // together and knows the entity is reachable THROUGH them.
+            ->with(['phones', 'emails', 'deadEndFlag', 'representatives:id,first_name,last_name,contact_kind,entity_name'])
             ->get();
 
         return $contacts->map(function (Contact $c) use ($links) {
-            // Contactable = the seller has at least one way to reach them (a ticked TVA/typed number
-            // or email). This — not the empty single-form input — is the redesigned "continue" gate.
-            $contactable = $c->phones->isNotEmpty() || $c->emails->isNotEmpty()
-                || trim((string) $c->phone) !== '' || trim((string) $c->email) !== '';
+            $isEntity = $c->isEntity();
+
+            // Representative directors of an entity seller (name + id) — reused from cc6's link,
+            // never a parallel one. Empty for a natural person.
+            $representatives = $isEntity
+                ? $c->representatives->map(fn (Contact $r) => ['contact_id' => (int) $r->id, 'name' => $r->full_name])->values()->all()
+                : [];
+
+            // Contactable = the seller has a way to be reached. A natural person: a ticked/typed
+            // number or email. An ENTITY is never phoned directly — it is reached THROUGH its
+            // representative directors, so it counts as contactable once it has ≥1 representative
+            // (the directors themselves are separate seller rows carrying the actual numbers).
+            $contactable = $isEntity
+                ? (count($representatives) > 0)
+                : ($c->phones->isNotEmpty() || $c->emails->isNotEmpty()
+                    || trim((string) $c->phone) !== '' || trim((string) $c->email) !== '');
 
             return [
-                'contact_id'  => (int) $c->id,
-                'first_name'  => (string) ($c->first_name ?? ''),
-                'last_name'   => (string) ($c->last_name ?? ''),
-                'id_number'   => $c->id_number !== null && $c->id_number !== '' ? (string) $c->id_number : null,
-                'phones'      => $c->phones->map(fn ($p) => ['value' => $p->phone, 'label' => $p->label, 'is_primary' => (bool) $p->is_primary])->values()->all(),
-                'emails'      => $c->emails->map(fn ($e) => ['value' => $e->email, 'label' => $e->label, 'is_primary' => (bool) $e->is_primary])->values()->all(),
-                'dead_end'    => $c->deadEndFlag ? ['reason' => $c->deadEndFlag->reason, 'label' => ContactDeadEndFlag::reasonLabel($c->deadEndFlag->reason)] : null,
-                'is_primary'  => (bool) ($links[$c->id]->is_primary ?? false),
-                'contactable' => $contactable,
+                'contact_id'    => (int) $c->id,
+                'first_name'    => (string) ($c->first_name ?? ''),
+                'last_name'     => (string) ($c->last_name ?? ''),
+                'is_entity'     => $isEntity,
+                'display_name'  => $isEntity ? (string) ($c->entity_name ?? $c->full_name) : trim((string) ($c->first_name ?? '') . ' ' . (string) ($c->last_name ?? '')),
+                'entity_reg_no' => $isEntity && $c->entity_reg_no !== null && $c->entity_reg_no !== '' ? (string) $c->entity_reg_no : null,
+                'representatives' => $representatives,
+                'id_number'     => $c->id_number !== null && $c->id_number !== '' ? (string) $c->id_number : null,
+                'phones'        => $c->phones->map(fn ($p) => ['value' => $p->phone, 'label' => $p->label, 'is_primary' => (bool) $p->is_primary])->values()->all(),
+                'emails'        => $c->emails->map(fn ($e) => ['value' => $e->email, 'label' => $e->label, 'is_primary' => (bool) $e->is_primary])->values()->all(),
+                'dead_end'      => $c->deadEndFlag ? ['reason' => $c->deadEndFlag->reason, 'label' => ContactDeadEndFlag::reasonLabel($c->deadEndFlag->reason)] : null,
+                'is_primary'    => (bool) ($links[$c->id]->is_primary ?? false),
+                'contactable'   => $contactable,
             ];
         })->sortByDesc('is_primary')->values()->all();
     }
@@ -166,6 +186,12 @@ class ComposeSellerService
     {
         $names = [];
         foreach ($this->linkedSellers($agencyId, $propertyId) as $s) {
+            // An ENTITY seller (company/CC) is never phoned directly — it is reached through its
+            // representative directors, each a separate (gated) seller row — so the entity itself
+            // never blocks continue for "no number".
+            if (! empty($s['is_entity'])) {
+                continue;
+            }
             if (! $s['contactable'] && empty($s['dead_end'])) {
                 $names[] = trim($s['first_name'] . ' ' . $s['last_name']) ?: ('Contact #' . $s['contact_id']);
             }
@@ -243,6 +269,46 @@ class ComposeSellerService
             'id_number_captured_at' => now(),
             'id_number_source'      => 'seller_outreach_entry',
             'created_by_user_id'    => $userId,
+        ]);
+    }
+
+    /**
+     * Resolve-or-create the ENTITY (company / CC / trust) seller Contact for a company-owned
+     * property. Entities key on their registration number, NOT a 13-digit SA ID — so this never
+     * runs the SA-ID rule; it dedupes on entity_reg_no via the SAME shared ContactDuplicateService
+     * cc6's deeds capture uses (`.ai/specs/contact-entity-type.md` §6.7), so the compose link lands
+     * on the very entity Contact the capture created rather than a parallel record. Shape mirrors
+     * cc6's DeedsCaptureController::resolveEntityOwnerContact (contact_kind=entity, entity_name,
+     * entity_reg_no; first_name mirrored so the NOT NULL column is satisfied).
+     */
+    public function resolveOrCreateEntitySellerContact(int $agencyId, ?int $branchId, int $userId, string $entityName, ?string $entityRegNo): Contact
+    {
+        $entityName = trim($entityName) !== '' ? trim($entityName) : 'Unnamed entity';
+        $entityRegNo = ($entityRegNo !== null && trim($entityRegNo) !== '') ? trim($entityRegNo) : null;
+
+        if ($entityRegNo !== null) {
+            $existing = $this->dupes->findDuplicatesForIdentifiers([], [], null, $agencyId, null, $entityRegNo)->first();
+            if ($existing) {
+                $patch = [];
+                if ($existing->contact_kind !== Contact::TYPE_ENTITY) { $patch['contact_kind'] = Contact::TYPE_ENTITY; }
+                if (empty($existing->entity_reg_no)) { $patch['entity_reg_no'] = $entityRegNo; }
+                if (empty($existing->entity_name)) { $patch['entity_name'] = $entityName; }
+                if ($patch !== []) { $existing->update($patch); }
+
+                return $existing;
+            }
+        }
+
+        return Contact::create([
+            'agency_id'          => $agencyId,
+            'branch_id'          => $branchId,
+            'contact_kind'       => Contact::TYPE_ENTITY,
+            'entity_name'        => $entityName,
+            'entity_reg_no'      => $entityRegNo,
+            'first_name'         => $entityName,
+            'last_name'          => '',
+            'phone'              => '',
+            'created_by_user_id' => $userId,
         ]);
     }
 

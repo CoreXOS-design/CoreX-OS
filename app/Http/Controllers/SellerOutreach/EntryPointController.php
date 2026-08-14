@@ -1357,9 +1357,23 @@ final class EntryPointController extends Controller
         $svc = app(\App\Services\Prospecting\ComposeSellerService::class);
 
         if ($request->filled('contact_id')) {
+            // The owner already resolved to a Contact at capture (a director OR the company ENTITY) —
+            // link that exact contact; no SA-ID needed. This is the normal deed-owner path.
             $contact = Contact::withoutGlobalScope(\App\Models\Scopes\ContactScope::class)
                 ->where('agency_id', $agencyId)->find((int) $request->input('contact_id'));
             abort_if($contact === null, 404, 'Contact not found in this agency.');
+        } elseif ($request->boolean('entity')) {
+            // ENTITY owner (company / CC / trust) with no resolved contact yet — key on the
+            // registration number, NEVER a 13-digit SA ID (Johan 2026-08-14). Resolve-or-create the
+            // entity Contact off cc6's entity dedupe so we land on the captured entity, not a clone.
+            $data = $request->validate([
+                'entity_name'   => 'required|string|max:255',
+                'entity_reg_no' => 'nullable|string|max:100',
+            ]);
+            $contact = $svc->resolveOrCreateEntitySellerContact(
+                $agencyId, $request->user()->branch_id, (int) $request->user()->id,
+                $data['entity_name'], $data['entity_reg_no'] ?? null,
+            );
         } else {
             $data = $request->validate([
                 'first_name' => 'required|string|max:100',
