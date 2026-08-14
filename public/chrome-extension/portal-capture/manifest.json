@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CoreX",
-  "version": "3.3.5",
+  "version": "3.3.6",
   "description": "Pull properties and capture listings from portals into CoreX OS",
   "permissions": ["activeTab", "storage", "unlimitedStorage", "notifications", "alarms"],
   "host_permissions": [
@@ -37,6 +37,11 @@
     {
       "matches": ["https://app.thevirtualagent.co.za/Search/Person/*"],
       "js": ["content-tva.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://app.thevirtualagent.co.za/Search/Company/*"],
+      "js": ["content-tva-company.js"],
       "run_at": "document_idle"
     }
   ],

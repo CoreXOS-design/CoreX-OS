@@ -154,6 +154,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // TVA company DIRECTORSHIP capture (2026-08-14) — directors → natural-person
+  // contacts linked to the company entity contact. Same transport shape as
+  // captureTvaContacts above.
+  if (msg.action === 'captureTvaCompanyDirectors') {
+    handleCaptureTvaCompanyDirectors(msg.payload)
+      .then(result => sendResponse(result))
+      .catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+
   return false;
 });
 
@@ -1191,6 +1201,71 @@ async function handleCaptureTvaContacts(payload) {
       iconUrl: 'icons/icon-128.png',
       title: 'CoreX: TVA Contacts Captured',
       message: 'Contact numbers/emails sent to CoreX',
+      priority: 2,
+    });
+  } catch (e) { /* ignore */ }
+
+  return result;
+}
+
+// TVA company DIRECTORSHIP capture — same transport as handleCaptureTvaContacts.
+// POSTs { company:{registration_number,name}, directors:[{id_number,full_name,
+// gender}] } to /api/v1/tva-company-directors; the server creates the directors
+// as natural-person contacts linked to the company entity contact and returns
+// { ok, entity_contact_id, directors:[{id_number, contact_id, error? }] }.
+async function handleCaptureTvaCompanyDirectors(payload) {
+  const settings = await new Promise(resolve => {
+    chrome.storage.local.get(['apiUrl', 'apiToken'], resolve);
+  });
+
+  if (!settings.apiToken) {
+    throw new Error('Not connected — add your API token in the CoreX extension Settings.');
+  }
+
+  const apiUrl = (settings.apiUrl || 'https://www.corexos.co.za').replace(/\/+$/, '');
+  const url = apiUrl + '/api/v1/tva-company-directors';
+
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Accept':        'application/json',
+        'Authorization': 'Bearer ' + settings.apiToken,
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (e) {
+    throw new Error('CoreX unreachable');
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    if (response.status === 401 || response.status === 419) {
+      throw new Error('Invalid API token. Check your extension Settings.');
+    }
+    if (response.status === 422) {
+      try {
+        const errors = JSON.parse(text);
+        const firstError = Object.values(errors.errors || {})[0];
+        throw new Error(firstError ? firstError[0] : 'Validation failed');
+      } catch (e) {
+        if (e.message && e.message !== 'Validation failed') throw e;
+        throw new Error('Validation failed: ' + text);
+      }
+    }
+    throw new Error('API error ' + response.status + ': ' + (text || 'Unknown error'));
+  }
+
+  const result = await response.json();
+
+  try {
+    chrome.notifications.create('tva-directors-complete', {
+      type: 'basic',
+      iconUrl: 'icons/icon-128.png',
+      title: 'CoreX: Company Directors Captured',
+      message: 'Directors linked to the company in CoreX',
       priority: 2,
     });
   } catch (e) { /* ignore */ }
