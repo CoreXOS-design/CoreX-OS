@@ -89,6 +89,10 @@
                         <div class="text-xl font-bold" style="color:var(--text-primary);" x-text="'R ' + statusValue().toLocaleString()"></div>
                         <div class="text-[10px]" style="color:var(--text-muted);">value (selected)</div>
                     </div>
+                    <div class="text-right">
+                        <div class="text-xl font-bold" style="color:var(--text-primary);" x-text="'R ' + statusCommission().toLocaleString()"></div>
+                        <div class="text-[10px]" style="color:var(--text-muted);">commission (selected)</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -395,6 +399,10 @@ function agencyReport(cfg) {
         statusValue() {
             if (!this.companyStatus) return 0;
             return this.statusKeys.reduce((s, k) => s + (this.statusOn[k] ? Number(this.companyStatus[k]?.value ?? 0) : 0), 0);
+        },
+        statusCommission() {
+            if (!this.companyStatus) return 0;
+            return this.statusKeys.reduce((s, k) => s + (this.statusOn[k] ? Number(this.companyStatus[k]?.commission ?? 0) : 0), 0);
         },
 
         // ---- #9 drilldown modal ----

@@ -17,7 +17,9 @@ use Illuminate\Support\Facades\DB;
  *
  * Dedup: DR1 is canonical; only UNLINKED DR2 (legacy_deal_id NULL) is added.
  * Value = deal value (DR1 property_value / DR2 purchase_price); Commission =
- * deal commission (DR1 total_commission / DR2 commission_amount).
+ * GROSS EX-VAT from deal_money_lines (same source as CommissionGrossProvider, so buckets
+ * reconcile with the "Commission (gross ex-VAT)" KPI). DR2 contributes 0 commission
+ * (money lines are DR1-only), matching the KPI.
  *
  * Returns per user: bucket => ['count'=>int,'value'=>float,'commission'=>float]
  * for all five buckets. Company/branch rollups are computed from DISTINCT deals
@@ -78,14 +80,28 @@ class DealStatusBreakdownService
             ->get(['id', 'managed_by_user_id', 'accepted_status', 'registration_date', 'granted_at', 'property_value', 'total_commission']);
         $pivot1 = DB::table('deal_user')->whereIn('user_id', $userIds)
             ->whereIn('deal_id', $dr1->pluck('id'))->get()->groupBy('deal_id');
+        // Commission = GROSS EX-VAT from deal_money_lines — the report's canonical commission
+        // (identical source to CommissionGrossProvider) so the buckets RECONCILE with the
+        // "Commission (gross ex-VAT)" KPI. PER-AGENT commission = that agent's OWN money line
+        // (agent_gross_ex_vat); since the company rollup sums agents, using the agent's own line
+        // (not the deal's full sum) is what makes All-selected == the KPI and avoids double-counting
+        // a co-agent deal. Distinct rollup uses the deal's full money-line sum (once).
+        $mlByDealUser = [];  // [deal_id][user_id] => ex-VAT
+        $mlByDeal     = [];  // [deal_id] => ex-VAT (all in-scope agents on the deal)
+        foreach (DB::table('deal_money_lines')->whereNull('deleted_at')
+                    ->whereIn('deal_id', $dr1->pluck('id'))->whereIn('user_id', $userIds)
+                    ->get(['deal_id', 'user_id', 'agent_gross_ex_vat']) as $r) {
+            $mlByDealUser[$r->deal_id][(int) $r->user_id] = ($mlByDealUser[$r->deal_id][(int) $r->user_id] ?? 0.0) + (float) $r->agent_gross_ex_vat;
+            $mlByDeal[$r->deal_id] = ($mlByDeal[$r->deal_id] ?? 0.0) + (float) $r->agent_gross_ex_vat;
+        }
         foreach ($dr1 as $d) {
             $bucket = self::dr1Bucket($d);
-            $val = (float) ($d->property_value ?? 0); $comm = (float) ($d->total_commission ?? 0);
+            $val = (float) ($d->property_value ?? 0);
             $agents = [];
             if (in_array((int) $d->managed_by_user_id, $userIds, true)) $agents[(int) $d->managed_by_user_id] = true;
             foreach ($pivot1[$d->id] ?? [] as $p) $agents[(int) $p->user_id] = true;
-            foreach (array_keys($agents) as $uid) $add($perAgent[$uid], $bucket, $val, $comm);
-            if ($agents) { $key = '1:' . $d->id; if (empty($distinctSeen[$key])) { $distinctSeen[$key] = true; $add($distinct, $bucket, $val, $comm); } }
+            foreach (array_keys($agents) as $uid) $add($perAgent[$uid], $bucket, $val, (float) ($mlByDealUser[$d->id][$uid] ?? 0));
+            if ($agents) { $key = '1:' . $d->id; if (empty($distinctSeen[$key])) { $distinctSeen[$key] = true; $add($distinct, $bucket, $val, (float) ($mlByDeal[$d->id] ?? 0)); } }
         }
 
         // ---- DR2 (unlinked only — dedup) ----
@@ -97,7 +113,10 @@ class DealStatusBreakdownService
             ->whereIn('deal_id', $dr2->pluck('id'))->get()->groupBy('deal_id');
         foreach ($dr2 as $d) {
             $bucket = self::dr2Bucket($d);
-            $val = (float) ($d->purchase_price ?? 0); $comm = (float) ($d->commission_amount ?? 0);
+            // DR2 commission = 0 here: the "Commission (gross ex-VAT)" KPI is deal_money_lines
+            // (DR1) only, so DR2 contributes 0 commission to the buckets too — keeps the tile
+            // reconciled with the KPI. (DR2 still contributes qty + value.)
+            $val = (float) ($d->purchase_price ?? 0); $comm = 0.0;
             $agents = [];
             foreach (['listing_agent_id', 'selling_agent_id'] as $c) if (in_array((int) $d->$c, $userIds, true)) $agents[(int) $d->$c] = true;
             foreach ($pivot2[$d->id] ?? [] as $p) $agents[(int) $p->user_id] = true;

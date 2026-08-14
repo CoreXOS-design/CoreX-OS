@@ -6,7 +6,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
-use App\Rules\SouthAfricanIdNumber;
+use App\Support\OwnerEntityClassifier;
 use App\Services\ContactDuplicateService;
 use App\Services\Prospecting\TrackedPropertyMatchOrCreateService;
 use Illuminate\Http\JsonResponse;
@@ -123,26 +123,29 @@ final class DeedsCaptureController extends Controller
                 continue; // nothing usable on this row
             }
 
-            // COMPANY SCRAPING BLOCK (2026-08-13, interim rule per Johan — see
-            // isCompanyLikeOwner() below). Server-side is the authoritative
-            // gate: the extension already skips company owners client-side,
-            // but a stale extension build or a direct API call must not be
-            // able to bypass this. Skip resolving/creating a Contact for this
-            // owner entirely — the property/deed data and any other natural-
-            // person owners on the same capture still ingest normally.
-            if ($this->isCompanyLikeOwner($o['id_type'] ?? null, $ownerId)) {
-                $blockedCompanies[] = $ownerName !== '' ? $ownerName : ($ownerId ?? 'unnamed owner');
-                continue;
-            }
+            // Classify the owner as a natural person or a juristic ENTITY
+            // (company / CC / trust / body corporate). This REPLACES the
+            // 2026-08-13 interim "block companies" rule: a genuine entity owner
+            // is now CAPTURED as an entity Contact (contact_kind='entity',
+            // entity_name, entity_reg_no) instead of dropped — see
+            // .ai/specs/contact-entity-type.md §6.1. The classifier
+            // (App\Support\OwnerEntityClassifier) also fixes the old
+            // false-positive that blocked real natural persons whose scraped ID
+            // was not a valid 13-digit SA ID (foreign national / OCR / partial
+            // capture — the "12 Radstock Road, Southbroom" case): a valid SA ID
+            // is definitive proof of a person, and an owner with no company
+            // evidence defaults to a person rather than being blocked.
+            $isEntity = OwnerEntityClassifier::isEntity($ownerName, $o['id_type'] ?? null, $ownerId);
 
             $contactId = $this->resolveOwnerContact(
-                $agencyId, $user, $ownerName, $ownerId, $o['id_type'] ?? null, $dupes, $surname, $firstNames
+                $agencyId, $user, $ownerName, $ownerId, $o['id_type'] ?? null, $dupes, $surname, $firstNames, $isEntity
             );
             $resolvedOwners[] = [
                 'contact_id' => $contactId,
                 'name'       => $ownerName !== '' ? $ownerName : null,
                 'id_number'  => $ownerId,
                 'id_type'    => $o['id_type'] ?? null,
+                'is_entity'  => $isEntity,
             ];
         }
         // owner_contact_id stays the FIRST/primary owner — existing consumers of
@@ -227,31 +230,6 @@ final class DeedsCaptureController extends Controller
     }
 
     /**
-     * COMPANY SCRAPING BLOCK (2026-08-13, interim rule per Johan — proper
-     * company handling is a separate cc3 investigation). The scraper must
-     * only capture NATURAL PERSONS. An owner is treated as non-natural
-     * (company / CC / trust) when EITHER signal fires: the entity-type field
-     * says so (id_type === 'company_reg', set client-side from the CIPC
-     * registration format), OR the id_number is present but fails full SA ID
-     * validation (13 digits + valid date-of-birth digits + Luhn checksum via
-     * SouthAfricanIdNumber::isValid()) — the stronger, authoritative check
-     * available server-side, catching a trust/CC registered under any format
-     * the client's shape-only regex didn't happen to match. An EMPTY
-     * id_number is NOT a company signal — that's the pre-existing "no owner
-     * ID" case, a different, allowed scenario.
-     */
-    private function isCompanyLikeOwner(?string $idType, ?string $idNumber): bool
-    {
-        if ($idType === 'company_reg') {
-            return true;
-        }
-        if ($idNumber === null || $idNumber === '') {
-            return false;
-        }
-        return ! SouthAfricanIdNumber::isValid($idNumber);
-    }
-
-    /**
      * Persist the full owner list. Keyed on (tracked_property_id, id_number) so a
      * re-capture of the same property updates the same rows instead of piling up
      * duplicates; an owner with no id_number always inserts fresh (nothing to key
@@ -280,9 +258,14 @@ final class DeedsCaptureController extends Controller
 
     private function resolveOwnerContact(
         int $agencyId, $user, string $name, ?string $idNumber, ?string $idType, $dupes,
-        ?string $surname = null, ?string $firstNames = null
+        ?string $surname = null, ?string $firstNames = null, bool $isEntity = false
     ): ?int
     {
+        // Juristic entity (company/CC/trust) — capture as an entity Contact.
+        if ($isEntity) {
+            return $this->resolveEntityOwnerContact($agencyId, $user, $name, $idNumber, $dupes);
+        }
+
         // Dedupe on the owner ID — the join key.
         if ($idNumber) {
             $matches = $dupes->findDuplicatesForIdentifiers([], [], $idNumber, $agencyId);
@@ -318,6 +301,51 @@ final class DeedsCaptureController extends Controller
             'id_number_captured_at' => $idNumber ? now() : null,
             'id_number_source'      => $idNumber ? 'deeds_capture' : null,
             'created_by_user_id'    => (int) $user->id,
+        ]);
+
+        return (int) $contact->id;
+    }
+
+    /**
+     * Entity owner (company / CC / trust / body corporate) — capture as an
+     * entity Contact: contact_kind='entity', entity_name = the owner name,
+     * entity_reg_no = the captured registration number (moved OFF the overloaded
+     * id_number/id_type columns per .ai/specs/contact-entity-type.md §6.1). The
+     * representative (director/trustee) is left blank — the scraper knows the
+     * entity, not yet the human behind it; that link is added later (§5(a)).
+     * first_name/last_name are mirrored from entity_name by ContactObserver;
+     * set here too so the NOT NULL columns are satisfied regardless of hook
+     * order. Dedupe on entity_reg_no — the entity join key — mirroring how the
+     * natural-person path dedupes on id_number.
+     */
+    private function resolveEntityOwnerContact(int $agencyId, $user, string $name, ?string $regNo, $dupes): ?int
+    {
+        $regNo = ($regNo !== null && $regNo !== '') ? $regNo : null;
+
+        if ($regNo) {
+            $matches = $dupes->findDuplicatesForIdentifiers([], [], null, $agencyId, null, $regNo);
+            if ($matches->isNotEmpty()) {
+                $existing = $matches->first();
+                $patch = [];
+                if (empty($existing->entity_reg_no)) { $patch['entity_reg_no'] = $regNo; }
+                if ($existing->contact_kind !== Contact::TYPE_ENTITY) { $patch['contact_kind'] = Contact::TYPE_ENTITY; }
+                if (empty($existing->entity_name) && $name !== '') { $patch['entity_name'] = $name; }
+                if ($patch !== []) { $existing->update($patch); }
+                return (int) $existing->id;
+            }
+        }
+
+        $entityName = $name !== '' ? $name : 'Unnamed entity';
+        $contact = Contact::create([
+            'agency_id'          => $agencyId,
+            'branch_id'          => $user->branch_id,
+            'contact_kind'       => Contact::TYPE_ENTITY,
+            'entity_name'        => $entityName,
+            'entity_reg_no'      => $regNo,
+            'first_name'         => $entityName,
+            'last_name'          => '',
+            'phone'              => '',
+            'created_by_user_id' => (int) $user->id,
         ]);
 
         return (int) $contact->id;

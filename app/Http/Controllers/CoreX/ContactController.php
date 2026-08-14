@@ -151,7 +151,7 @@ class ContactController extends Controller
             ]);
         }
 
-        $contact->load(['type', 'parentTypes', 'createdBy', 'agent', 'secondAgent', 'contactNotes.user', 'testimonials.user', 'testimonials.agent', 'documents.uploader', 'documents.documentType', 'documents.properties', 'properties', 'matches.createdBy', 'tags', 'communications', 'phones', 'emails', 'representatives', 'representedEntities']);
+        $contact->load(['type', 'parentTypes', 'createdBy', 'agent', 'secondAgent', 'contactNotes.user', 'testimonials.user', 'testimonials.agent', 'documents.uploader', 'documents.documentType', 'documents.properties', 'properties', 'matches.createdBy', 'tags', 'communications', 'phones', 'emails', 'representatives', 'representedEntities', 'deadEndFlag']);
 
         // Agents in this contact's agency — for the "agent this testimonial is
         // about" selector on the Notes & Testimonials tab.
@@ -1003,6 +1003,10 @@ class ContactController extends Controller
             'preapproval_amount'      => 'nullable|numeric|min:0',
             'preapproval_expires_at'  => 'nullable|date',
             'preapproval_institution' => 'nullable|string|max:100',
+            // Dead-end escape hatch — same ContactDeadEndFlag concept the MIC
+            // compose screen uses (ComposeSellerService::markSellerDeadEnd),
+            // surfaced here so a contact record can be saved with no phone/email.
+            'no_contact_details' => 'nullable|boolean',
         ]);
 
         // Defensive: if the radio somehow didn't post (JS disabled/bypassed),
@@ -1034,7 +1038,10 @@ class ContactController extends Controller
         $hasIdentifierInput = $request->has('phones') || $request->has('emails')
             || $request->filled('phone') || $request->filled('email');
         [$phones, $emails] = $this->extractIdentifiers($request, $data);
-        if ($hasIdentifierInput && $phones === [] && $emails === []) {
+        // "No contact details available" — the same dead-end escape hatch the
+        // MIC compose screen uses — bypasses the compulsory-identifier check.
+        $noContactDetails = $request->boolean('no_contact_details');
+        if ($hasIdentifierInput && $phones === [] && $emails === [] && ! $noContactDetails) {
             throw \Illuminate\Validation\ValidationException::withMessages([
                 'phones' => 'A contact needs at least one phone number or email address.',
             ]);
@@ -1046,12 +1053,39 @@ class ContactController extends Controller
         // the whole save back cleanly — no half-written record. The picker's
         // type/tag selections are applied via the shared helper, which keeps the
         // multi-parent pivot, sub-tag pivot and primary-type mirror consistent.
-        \DB::transaction(function () use ($contact, $data, $request, $hasIdentifierInput, $phones, $emails) {
+        \DB::transaction(function () use ($contact, $data, $request, $hasIdentifierInput, $phones, $emails, $noContactDetails) {
             $contact->update($data);
             if ($hasIdentifierInput) {
                 app(\App\Services\Contacts\ContactIdentifierService::class)->syncIdentifiers($contact, $phones, $emails);
             }
             $this->applyTypeAssignments($contact, $request);
+
+            // Reconcile the dead-end flag against the identifiers this save
+            // actually leaves in place — real contact details always win, even
+            // if the tick is left checked. Same ContactDeadEndFlag row the MIC
+            // compose screen reads/writes (ComposeSellerService), written here
+            // directly so the 'source' correctly reflects this entry point —
+            // a contact flagged here reads correctly from the compose screen too.
+            $hasContactDetails = $hasIdentifierInput
+                ? ($phones !== [] || $emails !== [])
+                : ($contact->phones()->exists() || $contact->emails()->exists() || filled($contact->phone) || filled($contact->email));
+            if ($hasContactDetails) {
+                \App\Models\ContactDeadEndFlag::withoutGlobalScopes()
+                    ->where('agency_id', $contact->agency_id)
+                    ->where('contact_id', $contact->id)
+                    ->delete();
+            } elseif ($noContactDetails) {
+                \App\Models\ContactDeadEndFlag::updateOrCreate(
+                    ['contact_id' => $contact->id],
+                    [
+                        'agency_id'          => $contact->agency_id,
+                        'property_id'        => null,
+                        'reason'             => \App\Models\ContactDeadEndFlag::REASON_NO_RECORD,
+                        'source'             => 'contact_record',
+                        'created_by_user_id' => $request->user()->id,
+                    ],
+                );
+            }
         });
 
         // Redirect to show page if coming from there, otherwise index

@@ -49,14 +49,26 @@ class DealBreakdownAndDrilldownTest extends TestCase
         ], $a));
     }
 
+    /** Money line = the canonical GROSS EX-VAT commission source (as CommissionGrossProvider). */
+    private function ml(int $dealId, int $userId, float $exVat): void
+    {
+        DB::table('deal_money_lines')->insert([
+            'deal_id' => $dealId, 'agency_id' => $this->ag1->id, 'user_id' => $userId,
+            'period' => '2026-08', 'agent_gross_ex_vat' => $exVat, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
     public function test_status_buckets_precedence_values_and_all(): void
     {
         $this->dr1(['accepted_status' => 'P', 'property_value' => 1_000_000, 'total_commission' => 40_000]);
         $this->dr1(['accepted_status' => 'G', 'granted_at' => '2026-08-11', 'property_value' => 2_000_000, 'total_commission' => 60_000]);
-        $this->dr1(['accepted_status' => 'R', 'registration_date' => '2026-08-12', 'property_value' => 3_000_000, 'total_commission' => 90_000]);
+        $dR = $this->dr1(['accepted_status' => 'R', 'registration_date' => '2026-08-12', 'property_value' => 3_000_000, 'total_commission' => 90_000]);
         $this->dr1(['accepted_status' => 'D', 'property_value' => 4_000_000, 'total_commission' => 10_000]);
         // precedence: has BOTH granted_at and registration_date -> Registered wins, not Granted
-        $this->dr1(['accepted_status' => 'G', 'granted_at' => '2026-08-05', 'registration_date' => '2026-08-14', 'property_value' => 5_000_000, 'total_commission' => 100_000]);
+        $dGR = $this->dr1(['accepted_status' => 'G', 'granted_at' => '2026-08-05', 'registration_date' => '2026-08-14', 'property_value' => 5_000_000, 'total_commission' => 100_000]);
+        // Commission is now GROSS EX-VAT from money lines (reconciles with the KPI), not total_commission.
+        $this->ml($dR, $this->a1->id, 78_000);
+        $this->ml($dGR, $this->a1->id, 87_000);
 
         $out = app(DealStatusBreakdownService::class)->forUsers([$this->a1->id], $this->period(), $this->ag1->id);
         $a1 = $out['perAgent'][$this->a1->id];
@@ -68,18 +80,61 @@ class DealBreakdownAndDrilldownTest extends TestCase
         $this->assertSame(1, $a1['declined']['count']);
         $this->assertEqualsWithDelta(15_000_000.0, $a1['all']['value'], 0.01);
         $this->assertEqualsWithDelta(8_000_000.0, $a1['registered']['value'], 0.01, '3m + 5m registered');
-        $this->assertEqualsWithDelta(190_000.0, $a1['registered']['commission'], 0.01);
+        // commission = money-line ex-VAT for the two registered deals (78k + 87k); other buckets have no money lines
+        $this->assertEqualsWithDelta(165_000.0, $a1['registered']['commission'], 0.01);
+        $this->assertEqualsWithDelta(0.0, $a1['pending']['commission'], 0.01, 'no money line → 0 ex-VAT commission');
+        $this->assertEqualsWithDelta(165_000.0, $a1['all']['commission'], 0.01);
+    }
+
+    public function test_build_rollup_deal_status_carries_commission_per_bucket(): void
+    {
+        // Commission-tile fix: the report rollup's deal_status must expose commission per bucket
+        // (gross ex-VAT from money lines, reconciling with the KPI) so the toggles recompute
+        // commission for selected statuses AND the All-selected total == the Commission KPI.
+        $dR = $this->dr1(['accepted_status' => 'R', 'registration_date' => '2026-08-12', 'property_value' => 3_000_000, 'total_commission' => 90_000]);
+        $dP = $this->dr1(['accepted_status' => 'P', 'property_value' => 1_000_000, 'total_commission' => 40_000]);
+        $this->ml($dR, $this->a1->id, 78_000);   // registered ex-VAT commission
+        $this->ml($dP, $this->a1->id, 30_000);   // pending ex-VAT commission
+
+        $report = app(\App\Services\Performance\AgencyPerformanceReportService::class)
+            ->build(new \App\Services\Performance\PerformanceScope($this->ag1->id), $this->period());
+
+        $ds = $report['company']['deal_status'];
+        $this->assertArrayHasKey('commission', $ds['registered'], 'deal_status buckets must carry commission');
+        $this->assertArrayHasKey('commission', $ds['pending']);
+        $this->assertEqualsWithDelta(78_000.0, $ds['registered']['commission'], 0.01);
+        $this->assertEqualsWithDelta(30_000.0, $ds['pending']['commission'], 0.01);
+        $this->assertEqualsWithDelta(0.0, $ds['granted']['commission'], 0.01);
+        // All-selected commission == the Commission (gross ex-VAT) KPI card total
+        $allComm = $ds['pending']['commission'] + $ds['granted']['commission'] + $ds['registered']['commission'] + $ds['declined']['commission'];
+        $this->assertEqualsWithDelta((float) ($report['company']['commission_gross_ex_vat'] ?? 0), $allComm, 0.01, 'All-selected commission must equal the KPI');
+        // qty + value still intact alongside commission
+        $this->assertSame(1, $ds['registered']['qty']);
+        $this->assertEqualsWithDelta(3_000_000.0, $ds['registered']['value'], 0.01);
     }
 
     public function test_co_agent_deal_counts_for_each_agent_but_distinct_once(): void
     {
         $d = $this->dr1(['accepted_status' => 'G', 'granted_at' => '2026-08-11']);
         DB::table('deal_user')->insert(['deal_id' => $d, 'user_id' => $this->a2->id]); // a2 co-agent
+        // each co-agent has their OWN money line (ex-VAT split)
+        $this->ml($d, $this->a1->id, 50_000);
+        $this->ml($d, $this->a2->id, 40_000);
 
         $out = app(DealStatusBreakdownService::class)->forUsers([$this->a1->id, $this->a2->id], $this->period(), $this->ag1->id);
         $this->assertSame(1, $out['perAgent'][$this->a1->id]['granted']['count']);
         $this->assertSame(1, $out['perAgent'][$this->a2->id]['granted']['count']);
         $this->assertSame(1, $out['distinct']['granted']['count'], 'distinct rollup counts the shared deal once');
+        // per-agent commission = that agent's OWN money line (not the full deal)
+        $this->assertEqualsWithDelta(50_000.0, $out['perAgent'][$this->a1->id]['granted']['commission'], 0.01);
+        $this->assertEqualsWithDelta(40_000.0, $out['perAgent'][$this->a2->id]['granted']['commission'], 0.01);
+
+        // and the COMPANY rollup (sum over agents) must NOT double-count the co-agent deal:
+        // company commission == 50k + 40k == the KPI, not 180k.
+        $report = app(\App\Services\Performance\AgencyPerformanceReportService::class)
+            ->build(new \App\Services\Performance\PerformanceScope($this->ag1->id), $this->period());
+        $this->assertEqualsWithDelta(90_000.0, $report['company']['deal_status']['granted']['commission'], 0.01, 'co-agent commission must not double-count in the company rollup');
+        $this->assertEqualsWithDelta((float) ($report['company']['commission_gross_ex_vat'] ?? 0), $report['company']['deal_status']['granted']['commission'], 0.01, 'company deal_status commission == the KPI');
     }
 
     public function test_breakdown_is_agency_scoped(): void

@@ -579,26 +579,25 @@
   function classifyOwnerIdType(idNumber) {
     if (!idNumber) return null;
     const trimmed = String(idNumber).trim();
-    if (/^\d{13}$/.test(trimmed.replace(/\s+/g, ''))) return 'sa_id';
+    // CIPC company registration (YYYY/NNNNNN/NN) — checked first (has slashes).
     if (/^\d{4}\/\d{6}\/\d{2}$/.test(trimmed)) return 'company_reg';
+    // A bare digit string is an SA ID field — even when it is SHORT/INVALID
+    // (e.g. 721135198089, 12 digits, CMA ref 0701). It is still a person's ID,
+    // NOT a company. Mirrors the server App\Support\OwnerEntityClassifier, which
+    // treats a present bare-digit id as a natural-person signal. Previously this
+    // required EXACTLY 13 digits, so a short ID fell through to null and the
+    // owner was wrongly dropped as a company.
+    if (/^\d{6,13}$/.test(trimmed.replace(/\s+/g, ''))) return 'sa_id';
     return null;
   }
 
-  // COMPANY SCRAPING BLOCK (2026-08-13, interim rule per Johan — proper
-  // company handling is a separate cc3 investigation). The scraper must only
-  // capture NATURAL PERSONS. An owner is treated as non-natural (company / CC
-  // / trust) when EITHER signal fires: the entity-type field says so
-  // (id_type === 'company_reg', the CIPC-format regex above), OR the captured
-  // "ID" simply isn't shaped like a valid 13-digit SA ID number — that catches
-  // trusts/CCs registered under a Master's Office reference or any other
-  // non-SA-ID format the CIPC regex doesn't happen to match. An EMPTY id is
-  // NOT a company signal (that's the pre-existing "no owner ID" case, a
-  // different, allowed scenario) — only a PRESENT-but-wrong-shaped id counts.
-  function isCompanyLikeOwner(idType, idNumber) {
-    if (idType === 'company_reg') return true;
-    if (!idNumber) return false;
-    return !/^\d{13}$/.test(String(idNumber).trim().replace(/\s+/g, ''));
-  }
+  // NOTE (2026-08-14): the former client-side isCompanyLikeOwner() drop was
+  // removed. It flagged any owner whose id was not EXACTLY 13 digits as a
+  // company and dropped it before sending — which wrongly dropped natural
+  // persons with a short/invalid SA ID (721135198089, CMA ref 0701). Owner
+  // classification now lives ONLY on the server (App\Support\OwnerEntityClassifier),
+  // which also captures genuine entities as entity Contacts. The extension is a
+  // dumb scraper: it sends every owner and lets the server decide.
 
   // ══════════════════════════════════════════════════════════
   // ── MULTI-OWNER SPLITTING + NAME PARSING (2026-08-12) ──────
@@ -755,11 +754,13 @@
       }
 
       const idType = classifyOwnerIdType(rawId);
-      if (isCompanyLikeOwner(idType, rawId)) {
-        console.warn('[CoreX] deeds-capture: owner "' + rawName + '" looks like a company/CC/trust (id_type=' + idType + ', id="' + rawId + '") — dropped, not sent. Company scraping is blocked (interim rule).');
-        blockedCompanies.push(rawName || rawId || 'unnamed owner');
-        continue;
-      }
+      // Owner classification (natural person vs juristic entity) is decided
+      // SERVER-SIDE by App\Support\OwnerEntityClassifier — the extension no
+      // longer drops or blocks any owner. It sends every owner (name + id +
+      // inferred id_type hint); the server keeps a real person with a short or
+      // invalid SA ID (e.g. 721135198089, CMA ref 0701) as a natural person and
+      // captures a genuine company/CC/trust as an entity Contact. One decision,
+      // made server-side → future rule changes need no extension reinstall.
 
       const parsed = parsePersonName(rawName);
       if (!parsed.confident && rawName) {
@@ -977,11 +978,11 @@
       const deed = await extractDeed();
       const payload = buildDeedsCapturePayload(deed);
 
-      // COMPANY SCRAPING BLOCK (2026-08-13) — buildOwnersArray() already
-      // dropped any company/CC/trust owner from the payload; surface it to
-      // the agent so a silently-shorter owner list doesn't read as "this
-      // property has no other owners". Property/deed data still captures
-      // normally — only the non-natural-person owner is excluded.
+      // LEGACY no-op (2026-08-14): the client-side company drop was removed —
+      // buildOwnersArray() no longer drops any owner, so blockedCompanies is
+      // always empty here. Every owner is sent; the server classifies natural
+      // vs entity and captures companies as entity Contacts. Kept as a harmless
+      // guard in case an older payload shape ever surfaces the field.
       const blockedCompanies = (payload.captures[0].owners && payload.captures[0].owners.blockedCompanies) || [];
       if (blockedCompanies.length > 0) {
         window.alert('Company scraping is not allowed at this time — coming soon.\n\nSkipped: ' + blockedCompanies.join(', '));
