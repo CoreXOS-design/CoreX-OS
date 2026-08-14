@@ -149,6 +149,27 @@ class AgencyController extends Controller
                     'agency_id' => $agency->id,
                     'is_active' => true,
                 ]);
+
+                // BUG FIX (2026-08-14) — BelongsToAgency::creating() force-
+                // overrides agency_id to the ACTING user's effective agency
+                // whenever they're a scoped owner (isOwnerRole() but with an
+                // active agency-switcher session), which silently clobbered
+                // the explicit agency_id above and put the new agency's first
+                // admin into the CREATOR's own agency instead (root cause of
+                // "Jaco Human" landing in production agency 1 instead of test
+                // agency 17). This create-agency screen is inherently cross-
+                // agency by definition — the admin belongs to the agency just
+                // created above, never the acting owner's own context — so it
+                // needs an unconditional, owner-only correction, not a change
+                // to the shared trait (this route is gated `owner_only`
+                // already; no other caller is affected). A raw column update
+                // bypasses ONLY the Eloquent event pipeline for this one
+                // column, not the user-creation events that already fired
+                // (welcome email, role provisioning, etc.).
+                if ((int) $adminUser->agency_id !== (int) $agency->id) {
+                    DB::table('users')->where('id', $adminUser->id)->update(['agency_id' => $agency->id]);
+                    $adminUser->agency_id = $agency->id;
+                }
             }
 
             return $agency;
