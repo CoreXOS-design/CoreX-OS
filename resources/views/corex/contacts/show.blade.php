@@ -736,6 +736,19 @@
                         <div class="sm:col-span-2 lg:col-span-3">
                             @include('corex.contacts._identifier-repeater', ['kind' => 'emails', 'type' => 'email', 'title' => 'Emails (optional — but a contact needs at least one phone or email)', 'addLabel' => 'email', 'placeholder' => 'e.g. john@example.com', 'existing' => $contact->emails()->orderByDesc('is_primary')->orderBy('id')->get(), 'labels' => $contactIdentifierLabels])
                         </div>
+                        <div class="sm:col-span-2 lg:col-span-3">
+                            <label class="flex items-start gap-2 text-xs" style="color:var(--text-muted);">
+                                <input type="hidden" name="no_contact_details" value="0">
+                                <input type="checkbox" name="no_contact_details" value="1"
+                                       {{ old('no_contact_details', $contact->deadEndFlag ? '1' : '0') === '1' ? 'checked' : '' }}
+                                       class="mt-0.5 rounded" style="accent-color:var(--brand-icon, #0ea5e9);">
+                                <span>
+                                    <span class="font-semibold" style="color:var(--text-primary);">No contact details available</span> —
+                                    save this contact without a phone or email (flags it as a dead end so nobody keeps re-chasing it;
+                                    the flag clears automatically the moment a phone or email is added).
+                                </span>
+                            </label>
+                        </div>
                         <template x-if="contactKind === 'natural_person'">
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID Number <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
