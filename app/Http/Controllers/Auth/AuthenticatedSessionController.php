@@ -76,6 +76,26 @@ class AuthenticatedSessionController extends Controller
             return back()->withErrors(['email' => 'Please accept your invitation first — use the setup link in your invite email.']);
         }
 
+        // Agent Activation Gate (.ai/specs/agent-activation-gate.md) — BEFORE the
+        // is_active gate below, not after. An agent is created inactive and only
+        // activates on a genuine first sign-in: this call's atomic
+        // `first_login_at IS NULL` claim IS that activation (it flips is_active in the
+        // same write), so it must run before the check that would otherwise reject a
+        // legitimate first-time signer-in as "inactive". This is still safe for a
+        // since-deactivated admin/agent: their first_login_at is already set from their
+        // earlier genuine first login, so the atomic claim here naturally no-ops
+        // (0 rows updated) and is_active stays false — the gate below still rejects
+        // them exactly as before. See AgencyAdminFirstLoginService's docblock for why
+        // this is called explicitly here rather than off the generic Login event
+        // (impersonation fires that event too).
+        app(\App\Services\Onboarding\AgencyAdminFirstLoginService::class)->handle(auth()->user());
+
+        // handle() writes is_active via a raw DB::table() update (for its atomic
+        // claim), which does not touch the already-loaded auth()->user() instance —
+        // without this refresh the gate below would read the pre-activation value
+        // straight back out of memory and wrongly reject a legitimate first sign-in.
+        auth()->user()?->refresh();
+
         if (!auth()->user()?->is_active) {
             Auth::guard('web')->logout();
             $request->session()->invalidate();
@@ -83,13 +103,6 @@ class AuthenticatedSessionController extends Controller
 
             return back()->withErrors(['email' => 'Your account is inactive. Please contact the administrator.']);
         }
-
-        // Agency admin email-only invite (.ai/specs/agency-admin-rule.md §R1b) —
-        // AFTER the is_active gate, so a since-deactivated admin who fails
-        // login above never trips this. See AgencyAdminFirstLoginService's
-        // docblock for why this is called explicitly here rather than off the
-        // generic Login event (impersonation fires that event too).
-        app(\App\Services\Onboarding\AgencyAdminFirstLoginService::class)->handle(auth()->user());
 
         $request->session()->regenerate();
 

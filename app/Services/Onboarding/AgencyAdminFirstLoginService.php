@@ -49,10 +49,16 @@ class AgencyAdminFirstLoginService
         // first_login_at from NULL proceeds. Without this, two near-
         // simultaneous logins (double-click, two tabs) could both read it as
         // null before either write commits, and both send the mail.
+        //
+        // Agent Activation Gate (.ai/specs/agent-activation-gate.md) — this is also
+        // THE moment an agent activates: is_active flips in the same atomic write,
+        // reusing this proven claim rather than a second racy read-then-write. A user
+        // reaches here only after authenticate() already verified their real password
+        // (never the unguessable invite placeholder), so this is a genuine first sign-in.
         $claimed = DB::table('users')
             ->where('id', $user->id)
             ->whereNull('first_login_at')
-            ->update(['first_login_at' => now()]);
+            ->update(['first_login_at' => now(), 'is_active' => true]);
 
         if ($claimed !== 1) {
             return; // not this account's first login, or a concurrent request already claimed it
