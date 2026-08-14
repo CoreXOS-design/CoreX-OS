@@ -353,6 +353,10 @@ Route::middleware('auth:sanctum')->group(function () {
         // ── TVA (The Virtual Agent) contact capture — mirrors deeds-capture. ──
         Route::post('/tva-contact-capture', [\App\Http\Controllers\Api\TvaContactCaptureController::class, 'store'])->name('v1.tva-contact-capture');
 
+        // ── TVA company DIRECTORSHIP capture — directors → natural-person
+        //    contacts linked to the company entity contact (representatives). ──
+        Route::post('/tva-company-directors', [\App\Http\Controllers\Api\TvaCompanyDirectorsController::class, 'store'])->name('v1.tva-company-directors');
+
         // ── Properties — portal pull ───────────────────────────────
         Route::post('/properties/pull-from-portal',          [PropertyPullController::class, 'pullFromPortal'])->name('v1.properties.pull-from-portal');
         Route::get('/properties/{propertyId}/pull-status',   [PropertyPullController::class, 'pullStatus'])->name('v1.properties.pull-status');
