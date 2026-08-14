@@ -205,12 +205,20 @@ final class EntryPointController extends Controller
                 ->with('error', "⏳ {$blockerName} is currently pitching this listing. Try again after their lock expires ({$expiresIn}).");
         }
 
+        // MIC ↔ Deeds ↔ Contact loop (Part A) — surface the deed the agent scraped. If a deeds
+        // capture exists for this property, its registered owner(s) (name + SA-ID) are already in
+        // CoreX as contacts; resolve them so the capture screen can offer "Use from deeds" instead
+        // of re-typing. Read-only; failure-isolated (a deed-link hiccup must never break capture).
+        $deedLink = $this->safeDeedLink(fn () => app(\App\Services\Prospecting\DeedsCaptureLinkService::class)
+            ->ownersForListing($agencyId, $listing));
+
         return view('seller-outreach.entry.prospecting-create-contact', [
             'listing'      => $listing,
             // #3 Address-first: when the listing carries no street address, the
             // capture form shows a required address field so we land one before
             // creating the Property.
             'needsAddress' => trim((string) ($listing->address ?? '')) === '',
+            'deedLink'     => $deedLink,
         ]);
     }
 
@@ -556,9 +564,15 @@ final class EntryPointController extends Controller
                 ->with('error', "⏳ {$blockerName} is currently pitching this property. Try again after their lock expires ({$expiresIn}).");
         }
 
+        // MIC ↔ Deeds ↔ Contact loop (Part A) — same deed surfacing for the map T-pin pitch,
+        // resolved directly off the TrackedProperty in hand.
+        $deedLink = $this->safeDeedLink(fn () => app(\App\Services\Prospecting\DeedsCaptureLinkService::class)
+            ->ownersForTrackedProperty($agencyId, $trackedProperty));
+
         return view('seller-outreach.entry.prospecting-create-contact', [
             'listing'         => null,
             'trackedProperty' => $trackedProperty,
+            'deedLink'        => $deedLink,
         ]);
     }
 
@@ -1051,6 +1065,27 @@ final class EntryPointController extends Controller
             ->wherePivotIn('role', self::SELLER_ROLES)
             ->orderBy('contacts.first_name')
             ->get();
+    }
+
+    /**
+     * MIC ↔ Deeds ↔ Contact loop (Part A) — run the deed-owner resolver, never letting a
+     * failure break the capture screen. Returns the empty shape the blade expects on any error.
+     *
+     * @param  callable():array  $resolver
+     * @return array{tracked_property_id: int|null, address: string|null, owners: array<int, array<string, mixed>>}
+     */
+    private function safeDeedLink(callable $resolver): array
+    {
+        $empty = ['tracked_property_id' => null, 'address' => null, 'owners' => []];
+        try {
+            return $resolver() ?: $empty;
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Deeds-capture link resolution failed (compose screen continues without it)', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return $empty;
+        }
     }
 
     private function resolveAgencyId(Request $request): int
