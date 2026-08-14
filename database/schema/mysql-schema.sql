@@ -3917,7 +3917,7 @@ CREATE TABLE `contacts` (
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-/*!50003 CREATE*/ /*!50017 DEFINER=`root`@`localhost`*/ /*!50003 TRIGGER `corex_contact_audit_after_insert` AFTER INSERT ON `contacts` FOR EACH ROW BEGIN
+/*!50003 CREATE*/ /*!50003 TRIGGER `corex_contact_audit_after_insert` AFTER INSERT ON `contacts` FOR EACH ROW BEGIN
     IF (@corex_audit_handled IS NULL OR @corex_audit_handled = 0)
     THEN
         INSERT INTO contact_audit_log
@@ -3949,7 +3949,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-/*!50003 CREATE*/ /*!50017 DEFINER=`root`@`localhost`*/ /*!50003 TRIGGER `corex_contact_audit_after_update` AFTER UPDATE ON `contacts` FOR EACH ROW BEGIN
+/*!50003 CREATE*/ /*!50003 TRIGGER `corex_contact_audit_after_update` AFTER UPDATE ON `contacts` FOR EACH ROW BEGIN
     IF (@corex_audit_handled IS NULL OR @corex_audit_handled = 0)
        AND (
             NOT (NEW.agent_id          <=> OLD.agent_id)
@@ -9772,7 +9772,7 @@ CREATE TABLE `properties` (
   `p24_image_signature` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `access_notes` text COLLATE utf8mb4_unicode_ci,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `properties_external_id_unique` (`external_id`),
+  UNIQUE KEY `properties_agency_ext_uq` (`agency_id`,`external_id`),
   KEY `properties_agent_id_foreign` (`agent_id`),
   KEY `properties_p24_listing_number_index` (`p24_listing_number`),
   KEY `properties_branch_id_foreign` (`branch_id`),
@@ -9809,7 +9809,7 @@ CREATE TABLE `properties` (
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-/*!50003 CREATE*/ /*!50017 DEFINER=`root`@`localhost`*/ /*!50003 TRIGGER `corex_property_audit_after_insert` AFTER INSERT ON `properties` FOR EACH ROW BEGIN
+/*!50003 CREATE*/ /*!50003 TRIGGER `corex_property_audit_after_insert` AFTER INSERT ON `properties` FOR EACH ROW BEGIN
     IF (@corex_audit_handled IS NULL OR @corex_audit_handled = 0)
     THEN
         INSERT INTO property_audit_log
@@ -9840,7 +9840,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-/*!50003 CREATE*/ /*!50017 DEFINER=`root`@`localhost`*/ /*!50003 TRIGGER `corex_property_audit_after_update` AFTER UPDATE ON `properties` FOR EACH ROW BEGIN
+/*!50003 CREATE*/ /*!50003 TRIGGER `corex_property_audit_after_update` AFTER UPDATE ON `properties` FOR EACH ROW BEGIN
     IF (@corex_audit_handled IS NULL OR @corex_audit_handled = 0)
        AND (
             NOT (NEW.agent_id      <=> OLD.agent_id)
@@ -14462,3 +14462,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1077,'2026_08_21_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1078,'2026_08_21_000030_add_last_search_id_to_prospecting_listings',276);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1079,'2026_08_22_000002_add_first_login_at_to_users_table',277);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1080,'2026_08_22_000003_add_invite_email_sent_at_to_agency_onboarding_setups_table',277);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1081,'2026_08_14_162800_scope_properties_external_id_unique_to_agency',278);
