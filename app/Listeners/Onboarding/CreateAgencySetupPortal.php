@@ -60,15 +60,25 @@ class CreateAgencySetupPortal
             return;
         }
 
-        $setup = new AgencyOnboardingSetup();
-        $setup->agency_id        = $agency->id;
-        $setup->token            = AgencyOnboardingSetup::generateToken();
-        $setup->slug             = AgencyOnboardingSetup::generateSlug($agency->name, $agency->id);
-        $setup->created_by       = $event->createdByUserId;
-        $setup->admin_user_id    = $event->adminUser?->id;
-        $setup->current_step     = 1;
-        $setup->completed_steps  = [];
-        $setup->expires_at       = now()->addDays(30);
-        $setup->save();
+        // withoutAgencyStamping: the owner who created $agency may have an
+        // unrelated Agency Switcher session active (session
+        // active_agency_id), which would otherwise force this setup row
+        // onto that agency instead of the one it belongs to. This is the
+        // exact bug that made a new agency's onboarding link resolve to
+        // whichever agency the creating owner was switched into (e.g. Home
+        // Finders Coastal) instead of the new agency. See
+        // BelongsToAgency::withoutAgencyStamping().
+        AgencyOnboardingSetup::withoutAgencyStamping(function () use ($agency, $event) {
+            $setup = new AgencyOnboardingSetup();
+            $setup->agency_id        = $agency->id;
+            $setup->token            = AgencyOnboardingSetup::generateToken();
+            $setup->slug             = AgencyOnboardingSetup::generateSlug($agency->name, $agency->id);
+            $setup->created_by       = $event->createdByUserId;
+            $setup->admin_user_id    = $event->adminUser?->id;
+            $setup->current_step     = 1;
+            $setup->completed_steps  = [];
+            $setup->expires_at       = now()->addDays(30);
+            $setup->save();
+        });
     }
 }
