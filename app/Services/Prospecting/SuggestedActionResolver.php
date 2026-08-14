@@ -48,6 +48,32 @@ final class SuggestedActionResolver
         // isn't genuinely in on-market stock.
         $companyStockPropertyId = $state['company_stock_property_id'] ?? null;
 
+        // PITCHED (Johan 2026-08-14, MIC worklist lifecycle) — the listing
+        // has already been fully worked: "Create & continue" on the compose
+        // screen created the property record and linked the sellers.
+        // Unconditional, HIGHEST-priority short-circuit — deliberately
+        // checked even before R1–R4's personal claim/pitch reminders
+        // (which the EXISTENCE CHECK below is careful to yield to). Once a
+        // real property exists from this exact listing, re-offering
+        // "Pitch Now"/"Continue" reopens the whole contact/deed-linking
+        // compose flow a second time — a duplication risk, not a reminder
+        // worth surfacing. The only sane action left is "go look at the
+        // property you already built."
+        //
+        // Contract with cc2 (owns the row-data/service side that builds the
+        // listing objects — MarketIntelligenceController::work()): rather
+        // than a $state key, cc2 attaches is_pitched (bool) and property_id
+        // (int|null) as dynamic properties directly on the SAME
+        // ProspectingListing object passed in as $listing here (confirmed
+        // against cc2's commit 0eb23ff2f — $listings is paginated straight
+        // off the collection cc2 annotates, so $listing IS that object).
+        // Both optional; absent/false must fall through to today's
+        // behaviour untouched — this resolver has no way to independently
+        // confirm "pitched," it only trusts what the caller hands it.
+        if (($listing->is_pitched ?? false) === true && ($listing->property_id ?? null) !== null) {
+            return $this->buildPitched((int) $listing->property_id);
+        }
+
         // R1 — manager-only, stale listing-status claim
         if ($isManager && $claim
             && ($claim['status'] ?? null) === 'listing'
@@ -399,6 +425,31 @@ final class SuggestedActionResolver
      * "PITCH NOW" — when buyer signal exists, R5 ("PITCH NOW · HIGH") or
      * R6 ("PITCH NOW" + buyer-count tooltip) wins above.
      */
+    /**
+     * PITCHED chip (Johan 2026-08-14) — this exact listing was already
+     * carried through "Create & continue" on the compose screen: the
+     * property record exists and sellers are linked. A done/worked status,
+     * not an action — routes straight to the property record instead of
+     * re-opening compose (which would re-run contact/deed linking a
+     * second time).
+     */
+    private function buildPitched(int $propertyId): SuggestedAction
+    {
+        $tooltip = $this->tooltip(
+            'Already pitched — the property record was created and sellers linked. Open it to continue working the deal.'
+        );
+
+        return new SuggestedAction(
+            rank:        'PITCHED',
+            label:       'Pitched',
+            tier:        'info',
+            icon:        'info',
+            tooltipHtml: $tooltip,
+            clickType:   'anchor',
+            href:        route('corex.properties.show', ['property' => $propertyId]),
+        );
+    }
+
     /**
      * EXISTENCE CHECK chip (Johan 2026-08-13) — the listing matches a property already on HFC's books.
      * Replaces the Pitch Now offer with "already exists → open property", naming who is on it, so a
