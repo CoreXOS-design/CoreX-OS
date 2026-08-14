@@ -109,13 +109,20 @@
 
                         {{-- Owner(s) — multi-owner (2026-08-12): CMA properties can list more than
                              one registered owner; loop tracked_property_owners when present, else
-                             fall back to the single ownerContact (pre-migration captures). --}}
+                             fall back to the single ownerContact (pre-migration captures).
+                             Entity model (2026-08-14): a company is the sole OWNER; its DIRECTORS
+                             are captured on the same deed (role='director') so agents can work them,
+                             but shown as a distinct "Directors" group — never as owners. --}}
+                        @php
+                            $directorRows = $owners->filter(fn ($o) => $o->role === 'director')->values();
+                            $ownerRows    = $owners->reject(fn ($o) => $o->role === 'director')->values();
+                        @endphp
                         <div class="min-w-0" style="min-width: 14rem;">
                             <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">
-                                Owner{{ $owners->count() > 1 ? 's' : '' }}
+                                Owner{{ $ownerRows->count() > 1 ? 's' : '' }}
                             </div>
-                            @if($owners->isNotEmpty())
-                                @foreach($owners as $ownerRow)
+                            @if($ownerRows->isNotEmpty())
+                                @foreach($ownerRows as $ownerRow)
                                     <div @if(!$loop->first) class="mt-2 pt-2" style="border-top:1px solid var(--border);" @endif>
                                         <div class="font-semibold text-sm" style="color: var(--text-primary);">
                                             {{ $ownerRow->contact ? trim($ownerRow->contact->first_name . ' ' . (string) $ownerRow->contact->last_name) : ($ownerRow->name ?? 'Unnamed owner') }}
@@ -160,6 +167,37 @@
                                 <div class="text-xs" style="color: var(--text-muted);">No owner captured.</div>
                             @endif
                         </div>
+
+                        {{-- Directors (entity model 2026-08-14) — a company owner's directors,
+                             captured on the deed as REPRESENTATIVES (not owners). Shown as the
+                             natural persons to work: copy the ID into TVA's person lookup. --}}
+                        @if($directorRows->isNotEmpty())
+                            <div class="min-w-0" style="min-width: 14rem;">
+                                <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--brand-icon, #2563eb);">
+                                    Director{{ $directorRows->count() > 1 ? 's' : '' }} <span style="color: var(--text-muted);">· people to work</span>
+                                </div>
+                                @foreach($directorRows as $directorRow)
+                                    <div @if(!$loop->first) class="mt-2 pt-2" style="border-top:1px solid var(--border);" @endif>
+                                        <div class="font-semibold text-sm" style="color: var(--text-primary);">
+                                            {{ $directorRow->contact ? trim($directorRow->contact->first_name . ' ' . (string) $directorRow->contact->last_name) : ($directorRow->name ?? 'Director') }}
+                                            <span class="text-[10px] font-medium" style="color: var(--text-muted);">— director</span>
+                                        </div>
+                                        <div class="text-xs mt-0.5 flex items-center gap-2" style="color: var(--text-muted);">
+                                            @if($directorRow->id_number)
+                                                <span>ID: {{ $directorRow->id_number }}</span>
+                                                <button type="button" x-data="{ copied: false }"
+                                                        @click="navigator.clipboard.writeText({{ Js::from($directorRow->id_number) }}); copied = true; setTimeout(() => copied = false, 1500)"
+                                                        class="text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                                                        style="border:1px solid var(--border); color: var(--brand-icon, #2563eb);"
+                                                        x-text="copied ? 'Copied!' : 'Copy ID'"></button>
+                                            @else
+                                                <span style="color: var(--ds-amber, #f59e0b);">No ID</span>
+                                            @endif
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
+                        @endif
 
                         {{-- Action --}}
                         <div class="flex-shrink-0 flex flex-col items-end gap-2">

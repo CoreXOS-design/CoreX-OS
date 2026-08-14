@@ -3301,6 +3301,26 @@ CREATE TABLE `contact_contact_type` (
   CONSTRAINT `contact_contact_type_contact_type_id_foreign` FOREIGN KEY (`contact_type_id`) REFERENCES `contact_types` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `contact_dead_end_flags`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `contact_dead_end_flags` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `contact_id` bigint unsigned NOT NULL,
+  `property_id` bigint unsigned DEFAULT NULL,
+  `reason` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'not_in_tva',
+  `source` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `note` text COLLATE utf8mb4_unicode_ci,
+  `created_by_user_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `contact_dead_end_flags_contact_id_unique` (`contact_id`),
+  KEY `contact_dead_end_flags_agency_id_contact_id_index` (`agency_id`,`contact_id`),
+  KEY `contact_dead_end_flags_agency_id_index` (`agency_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `contact_documents`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -3608,6 +3628,8 @@ CREATE TABLE `contact_property` (
   `contact_id` bigint unsigned NOT NULL,
   `property_id` bigint unsigned NOT NULL,
   `role` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `is_primary` tinyint(1) NOT NULL DEFAULT '0',
+  `source` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -10602,7 +10624,11 @@ CREATE TABLE `prospecting_listings` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `matched_property_id` bigint unsigned DEFAULT NULL,
   `tracked_property_id` bigint unsigned DEFAULT NULL,
+  `linked_deed_tracked_property_id` bigint unsigned DEFAULT NULL,
+  `linked_deed_by_user_id` bigint unsigned DEFAULT NULL,
+  `linked_deed_at` timestamp NULL DEFAULT NULL,
   `matched_at` timestamp NULL DEFAULT NULL,
+  `pitched_at` timestamp NULL DEFAULT NULL,
   `agency_id` bigint unsigned NOT NULL,
   `captured_by_user_id` bigint unsigned NOT NULL,
   `portal_source` enum('p24','pp') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -10656,6 +10682,8 @@ CREATE TABLE `prospecting_listings` (
   KEY `idx_prospecting_listings_geo` (`latitude`,`longitude`),
   KEY `prospecting_listings_portal_status_index` (`portal_status`),
   KEY `prospecting_listings_last_search_id_index` (`last_search_id`),
+  KEY `prosp_listings_linked_deed_idx` (`linked_deed_tracked_property_id`),
+  KEY `prosp_listings_pitched_idx` (`pitched_at`),
   CONSTRAINT `prospecting_listings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `prospecting_listings_captured_by_user_id_foreign` FOREIGN KEY (`captured_by_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   CONSTRAINT `prospecting_listings_matched_property_id_foreign` FOREIGN KEY (`matched_property_id`) REFERENCES `properties` (`id`) ON DELETE SET NULL,
@@ -10752,6 +10780,22 @@ CREATE TABLE `prospecting_searches` (
   KEY `prospecting_searches_user_id_index` (`user_id`),
   CONSTRAINT `prospecting_searches_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `prospecting_searches_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `prospecting_seller_removals`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `prospecting_seller_removals` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `prospecting_listing_id` bigint unsigned NOT NULL,
+  `id_number` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `removed_by_user_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `prosp_seller_removal_uniq` (`prospecting_listing_id`,`id_number`),
+  KEY `prospecting_seller_removals_agency_id_index` (`agency_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `public_holidays`;
@@ -12495,6 +12539,7 @@ CREATE TABLE `tracked_property_owners` (
   `id_number` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `id_type` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `is_primary` tinyint(1) NOT NULL DEFAULT '0',
+  `role` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'owner',
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -14571,3 +14616,9 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1082,'2026_08_21_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1083,'2026_08_21_000070_add_stale_claim_thresholds_to_suggested_action_thresholds',250);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1084,'2026_08_21_000080_add_stale_fields_to_prospecting_claims',250);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1085,'2026_08_21_000110_backfill_entity_reg_no_into_duplicate_match_fields',251);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1086,'2026_08_21_000120_add_linked_deed_to_prospecting_listings',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1087,'2026_08_21_000130_create_contact_dead_end_flags_table',253);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1088,'2026_08_21_000140_add_is_primary_to_contact_property',254);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1089,'2026_08_21_000150_add_compose_seller_reversibility',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1090,'2026_08_21_000160_add_pitched_at_to_prospecting_listings',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1091,'2026_08_25_000000_add_role_to_tracked_property_owners',257);
