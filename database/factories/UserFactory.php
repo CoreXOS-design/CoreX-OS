@@ -27,6 +27,13 @@ class UserFactory extends Factory
             'name' => fake()->name(),
             'email' => fake()->unique()->safeEmail(),
             'email_verified_at' => now(),
+            // Agent Activation Gate (.ai/specs/agent-activation-gate.md) — first_login_at
+            // is the "has ever completed activation" marker. Defaulting it here (like
+            // email_verified_at above) means a plain factory user represents a normal,
+            // already-onboarded team member — the assumption almost every existing test
+            // makes. A test representing a genuine still-pending invite must opt in via
+            // pendingInvite() below, which clears both markers together.
+            'first_login_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
             'remember_token' => Str::random(10),
         ];
@@ -39,6 +46,20 @@ class UserFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'email_verified_at' => null,
+        ]);
+    }
+
+    /**
+     * A genuine still-pending invite: never verified, never activated, never
+     * logged in. Mirrors what UserManagementController::store() now creates.
+     */
+    public function pendingInvite(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'email_verified_at' => null,
+            'first_login_at'    => null,
+            'is_active'         => false,
+            'password'          => \App\Models\User::pendingInvitePassword(),
         ]);
     }
 }

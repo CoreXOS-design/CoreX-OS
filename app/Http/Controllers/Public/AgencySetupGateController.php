@@ -80,18 +80,28 @@ class AgencySetupGateController extends Controller
             return $fail('This account is not the Admin for this agency, so it cannot run its setup.');
         }
 
-        if (!$user->is_active) {
-            return $fail('This account is inactive. Contact your CoreX administrator.');
-        }
-
-        Auth::login($user);
-
+        // Agent Activation Gate (.ai/specs/agent-activation-gate.md) — BEFORE the
+        // is_active check below, same reasoning as AuthenticatedSessionController::
+        // store(). This admin was created inactive and only activates on a genuine
+        // first sign-in, which is what this atomic first_login_at claim IS (it flips
+        // is_active in the same write). Safe for a since-deactivated admin too: their
+        // first_login_at is already set, so the claim naturally no-ops and is_active
+        // stays false. handle() writes via DB::table(), so $user must be refreshed
+        // before the check below reads it, or it would see the stale in-memory value.
+        //
         // Agency admin email-only invite (.ai/specs/agency-admin-rule.md §R1b).
         // showWelcomePopup: false — this login already lands the Admin IN the
         // wizard (redirect below), so a "go start onboarding" pop-up on top of
         // the wizard they're already on would be redundant. The mail still
         // sends either way, so the link is in their inbox for later.
         app(\App\Services\Onboarding\AgencyAdminFirstLoginService::class)->handle($user, showWelcomePopup: false);
+        $user->refresh();
+
+        if (!$user->is_active) {
+            return $fail('This account is inactive. Contact your CoreX administrator.');
+        }
+
+        Auth::login($user);
 
         $request->session()->regenerate();
 
