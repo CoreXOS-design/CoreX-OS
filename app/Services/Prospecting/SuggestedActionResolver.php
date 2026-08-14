@@ -214,17 +214,32 @@ final class SuggestedActionResolver
         $human = ($h > 0 ? $h . 'h ' : '') . $m . 'min';
 
         $tooltip = $this->tooltip(
-            'Your claim auto-releases in ' . e($human) . ' without feedback.'
+            'Your claim auto-releases in ' . e($human) . ' without feedback. '
+            . 'Continue working it to renew the clock.'
         );
 
+        // 2026-08-14 (Johan) — the chip used to BE the warning ("CLAIM
+        // EXPIRES SOON") with a dead $dispatch('open-feedback') nothing on
+        // this page ever listened for — a stuck warning with no way to act
+        // on it. The primary click is now "Continue", routed through the
+        // same pitch-entry endpoint PITCH NOW/R5/R6 use; opening it stamps
+        // pitched_at and resets last_updated_at/warned_at as a side effect
+        // of EntryPointController::fromProspecting() -> claimOnPitchNow()
+        // (ProspectingClaimService), so resuming the claim is what renews
+        // it — no separate renewal call needed here. The original warning
+        // text survives as the small statusBadge next to it.
         return new SuggestedAction(
             rank:        'R2',
-            label:       'CLAIM EXPIRES SOON',
-            tier:        'critical',
-            icon:        'alarm-clock',
+            label:       'Continue',
+            tier:        'action',
+            icon:        'target',
             tooltipHtml: $tooltip,
-            clickType:   'alpine',
-            alpineCall:  "\$dispatch('open-feedback', { id: {$listing->id}, status: '" . e((string) ($claim['status'] ?? '')) . "' })",
+            clickType:   'anchor',
+            href:        route('seller-outreach.entry.from-prospecting', [
+                'prospectingListingId' => $listing->id,
+            ]),
+            statusBadgeLabel: 'CLAIM EXPIRES SOON',
+            statusBadgeTier:  'critical',
         );
     }
 
@@ -256,17 +271,24 @@ final class SuggestedActionResolver
 
         $tooltip = $this->tooltip(
             'Your claim in <em>' . e($statusLabel) . '</em> for '
-            . e((string) $days) . ' days. Time to follow up.'
+            . e((string) $days) . ' days. Continue working it to follow up.'
         );
 
+        // Same fix as R2 (see its comment) — "FOLLOW UP CLAIM" used to be
+        // the (dead) click target itself. Continue now routes through the
+        // real pitch-entry endpoint and survives as the small statusBadge.
         return new SuggestedAction(
             rank:        'R4',
-            label:       'FOLLOW UP CLAIM',
+            label:       'Continue',
             tier:        'action',
             icon:        'target',
             tooltipHtml: $tooltip,
-            clickType:   'alpine',
-            alpineCall:  "\$dispatch('open-feedback', { id: {$listing->id}, status: '" . e((string) ($claim['status'] ?? '')) . "' })",
+            clickType:   'anchor',
+            href:        route('seller-outreach.entry.from-prospecting', [
+                'prospectingListingId' => $listing->id,
+            ]),
+            statusBadgeLabel: 'FOLLOW UP CLAIM',
+            statusBadgeTier:  'await',
         );
     }
 
