@@ -23,11 +23,16 @@ final class TrackedPropertyOwner extends Model
         'id_number',
         'id_type',
         'is_primary',
+        'role',
     ];
 
     protected $casts = [
         'is_primary' => 'boolean',
     ];
+
+    /** Owner-row roles on a deed capture. */
+    public const ROLE_OWNER = 'owner';
+    public const ROLE_DIRECTOR = 'director';
 
     public function trackedProperty(): BelongsTo
     {

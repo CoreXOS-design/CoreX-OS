@@ -1566,6 +1566,50 @@
         @if(\App\Models\PerformanceSetting::get('matches_enabled', 1) && auth()->user()->hasPermission('access_core_matches'))
         <div x-show="activeTab === 'properties'" x-cloak class="p-6 pt-0 space-y-6" id="tab-matches">
 
+            {{-- Company Properties (entity model 2026-08-14) — properties owned by a
+                 company this contact DIRECTS, derived via property→company→director.
+                 A distinct, flagged group so it never reads as personal ownership. --}}
+            @php
+                $companyProperties = $contact->contact_kind === \App\Models\Contact::TYPE_NATURAL_PERSON
+                    ? $contact->companyPropertiesViaDirectorship()
+                    : collect();
+            @endphp
+            @if($companyProperties->isNotEmpty())
+            <div class="rounded-md p-5 space-y-3 mt-4" style="background: color-mix(in srgb, var(--brand-icon,#2563eb) 6%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon,#2563eb) 25%, var(--border));">
+                <div class="flex items-center gap-2 flex-wrap">
+                    <h3 class="text-xs font-bold uppercase tracking-widest" style="color: var(--brand-icon,#2563eb);">🏢 Company Properties</h3>
+                    <span class="text-[11px]" style="color:var(--text-muted);">via a company this contact directs — not personally owned</span>
+                </div>
+                @foreach($companyProperties as $cp)
+                    @php
+                        $prop = $cp['property'];
+                        $isPromoted = $cp['kind'] === 'property';
+                        $addr = trim(($prop->street_number ?? '') . ' ' . ($prop->street_name ?? ''));
+                        if ($addr === '') { $addr = $prop->title ?? ('Property #' . $prop->id); }
+                        if (!$isPromoted && !empty($prop->suburb)) { $addr .= ', ' . $prop->suburb; }
+                    @endphp
+                    <div class="rounded-md p-3 flex items-start justify-between gap-3" style="background:var(--surface); border:1px solid var(--border);">
+                        <div class="min-w-0">
+                            <div class="font-semibold text-sm" style="color:var(--text-primary);">
+                                @if($isPromoted)
+                                    <a href="{{ route('corex.properties.show', $prop->id) }}" style="color:var(--brand-icon,#2563eb);">{{ $addr }}</a>
+                                @else
+                                    {{ $addr }}
+                                @endif
+                            </div>
+                            <div class="text-[11px] mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-semibold"
+                                 style="background: color-mix(in srgb, var(--brand-icon,#2563eb) 14%, transparent); color: var(--brand-icon,#2563eb);">
+                                Company property · via {{ $cp['company_name'] }}
+                            </div>
+                        </div>
+                        @unless($isPromoted)
+                            <span class="text-[10px] px-2 py-0.5 rounded-md whitespace-nowrap flex-shrink-0" style="background:var(--surface-2); color:var(--text-muted);">Tracked (deeds)</span>
+                        @endunless
+                    </div>
+                @endforeach
+            </div>
+            @endif
+
             {{-- Core Matches section header --}}
             <div class="pt-2 border-t" style="border-color:var(--border);">
                 <h3 class="text-sm font-bold uppercase tracking-wide pt-4" style="color:var(--text-primary);">Core Matches</h3>

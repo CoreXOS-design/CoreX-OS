@@ -139,11 +139,15 @@ final class TvaCompanyDirectorsTest extends TestCase
         $resp->assertOk();
         $this->assertSame($tpId, $resp->json('tracked_property_id'), 'directors matched to the company property by reg-no');
 
-        // Each director now surfaces on that property (deeds-capture list), non-primary.
-        $this->assertDatabaseHas('tracked_property_owners', ['tracked_property_id' => $tpId, 'id_number' => '7004065141082']);
-        $this->assertDatabaseHas('tracked_property_owners', ['tracked_property_id' => $tpId, 'id_number' => '8202025009087']);
+        // Each director now surfaces on that property (deeds-capture list) as a DIRECTOR, not an owner.
+        $this->assertDatabaseHas('tracked_property_owners', ['tracked_property_id' => $tpId, 'id_number' => '7004065141082', 'role' => 'director']);
+        $this->assertDatabaseHas('tracked_property_owners', ['tracked_property_id' => $tpId, 'id_number' => '8202025009087', 'role' => 'director']);
         $pret = DB::table('tracked_property_owners')->where('tracked_property_id', $tpId)->where('id_number', '7004065141082')->first();
-        $this->assertEquals(0, (int) $pret->is_primary, 'director is a non-primary owner; the company owner stays primary');
+        $this->assertEquals(0, (int) $pret->is_primary, 'director is not primary');
+        $this->assertSame('director', $pret->role, 'director row is role=director, NOT owner');
+        // The company owner row stays role=owner — the company is the sole owner.
+        $companyRow = DB::table('tracked_property_owners')->where('tracked_property_id', $tpId)->where('id_number', self::REG_NO)->first();
+        $this->assertSame('owner', $companyRow->role, 'the company is the sole owner');
         $this->assertTrue(collect($resp->json('directors'))->firstWhere('id_number', '7004065141082')['landed_in_deeds']);
 
         // Re-capture does not duplicate the owner row.

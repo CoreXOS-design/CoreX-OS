@@ -158,6 +158,10 @@ class TvaCompanyDirectorsController extends Controller
                 'name'       => $name !== '' ? $name : null,
                 'id_type'    => 'sa_id',
                 'is_primary' => false,
+                // The director is a REPRESENTATIVE on the deed, NOT an owner —
+                // the company is the sole owner. Deeds-capture lists them as
+                // people to work, never as owners of the property.
+                'role'       => \App\Models\Prospecting\TrackedPropertyOwner::ROLE_DIRECTOR,
             ]
         );
     }
