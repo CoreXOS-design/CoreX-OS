@@ -25,11 +25,26 @@ use Illuminate\Support\Facades\Auth;
  */
 trait BelongsToAgency
 {
+    /**
+     * Per-class suppression flag for the write-side auto-stamp (see
+     * withoutAgencyStamping()). Traits give each using class its own copy of
+     * a static property, so setting this on AgencyOnboardingSetup does not
+     * leak into User or any other model sharing the trait.
+     */
+    protected static bool $agencyStampingSuppressed = false;
+
     protected static function bootBelongsToAgency(): void
     {
         static::addGlobalScope(new AgencyScope());
 
         static::creating(function ($model) {
+            if (static::$agencyStampingSuppressed) {
+                // Caller has explicitly vouched for $model->agency_id via
+                // withoutAgencyStamping() — trust it verbatim, bypassing the
+                // acting-user auto-stamp below. See that method's docblock.
+                return;
+            }
+
             $user = Auth::user();
             if ($user && !static::isUnscopedOwner($user)) {
                 $agencyId = method_exists($user, 'effectiveAgencyId')
@@ -138,5 +153,35 @@ trait BelongsToAgency
     public static function queryWithoutAgencyScope()
     {
         return (new static)->newQueryWithoutAgencyScope();
+    }
+
+    /**
+     * Write-side counterpart to queryWithoutAgencyScope(): lets trusted
+     * server-authored code (e.g. provisioning a BRAND NEW agency's own
+     * records) set an explicit agency_id that is honoured verbatim, instead
+     * of being silently overwritten by the acting user's effectiveAgencyId().
+     *
+     * Needed because an owner who currently has an Agency Switcher session
+     * active (session('active_agency_id') — a completely normal "view as
+     * agency X" workflow) is NOT an unscoped owner per isUnscopedOwner(), so
+     * the creating() hook would otherwise force every new row onto agency X
+     * even when the caller explicitly set a different, correct agency_id
+     * (e.g. the just-created agency's own id). This is how a brand-new
+     * agency's admin User and AgencyOnboardingSetup could end up stamped
+     * onto whichever agency the creating owner happened to be switched into.
+     *
+     * Callers MUST have already validated the agency_id they set (e.g. it
+     * came from an Agency model just persisted in this request) — this is
+     * NOT a general-purpose tenant-spoofing bypass for request input.
+     */
+    public static function withoutAgencyStamping(\Closure $callback)
+    {
+        $previous = static::$agencyStampingSuppressed;
+        static::$agencyStampingSuppressed = true;
+        try {
+            return $callback();
+        } finally {
+            static::$agencyStampingSuppressed = $previous;
+        }
     }
 }
