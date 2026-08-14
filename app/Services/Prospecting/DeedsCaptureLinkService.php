@@ -345,7 +345,7 @@ class DeedsCaptureLinkService
             $contacts = Contact::withoutGlobalScope(ContactScope::class)
                 ->where('agency_id', $agencyId)
                 ->whereIn('id', $contactIds)
-                ->get(['id', 'first_name', 'last_name', 'id_number', 'id_type'])
+                ->get(['id', 'first_name', 'last_name', 'id_number', 'id_type', 'contact_kind', 'entity_name', 'entity_reg_no'])
                 ->keyBy('id');
 
             // Part B — mark owners already recorded as a dead end so the compose panels warn a
@@ -374,11 +374,26 @@ class DeedsCaptureLinkService
                 'label'  => \App\Models\ContactDeadEndFlag::reasonLabel($deadEnds[$contactId]->reason),
             ] : null;
 
+            // Entity foundation (cc6) — a company/CC/trust owner is captured as an entity Contact
+            // (contact_kind='entity', entity_name, entity_reg_no). Surface that here so the orange
+            // block can label it "Reg:" and the seller-link keys on the entity, not a 13-digit SA ID.
+            // Fall back to the tracked_property_owners.id_type flag for a not-yet-resolved capture.
+            $isEntity = ($contact && $contact->contact_kind === Contact::TYPE_ENTITY)
+                || (string) ($row->id_type ?? '') === 'company_reg';
+            $entityRegNo = $contact && $contact->entity_reg_no !== null && $contact->entity_reg_no !== ''
+                ? (string) $contact->entity_reg_no
+                : ($isEntity && $row->id_number !== null && $row->id_number !== '' ? (string) $row->id_number : null);
+
             $owners[] = [
                 'tracked_property_id' => (int) $row->tracked_property_id,
                 'name'                => (string) $row->name,
                 'first_name'          => trim($first),
                 'last_name'           => trim($last),
+                'is_entity'           => $isEntity,
+                'display_name'        => $isEntity
+                    ? (string) (($contact->entity_name ?? null) ?: $row->name)
+                    : (trim($first . ' ' . $last) ?: (string) $row->name),
+                'entity_reg_no'       => $entityRegNo,
                 'id_number'           => $row->id_number !== null && $row->id_number !== '' ? (string) $row->id_number : null,
                 'id_type'             => $row->id_type ?? ($contact->id_type ?? null),
                 'is_primary'          => (bool) $row->is_primary,
