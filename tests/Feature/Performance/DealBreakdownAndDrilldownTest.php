@@ -71,6 +71,27 @@ class DealBreakdownAndDrilldownTest extends TestCase
         $this->assertEqualsWithDelta(190_000.0, $a1['registered']['commission'], 0.01);
     }
 
+    public function test_build_rollup_deal_status_carries_commission_per_bucket(): void
+    {
+        // Commission-tile fix: the report rollup's deal_status must expose commission per
+        // bucket (not just qty+value) so the toggles can recompute commission for selected statuses.
+        $this->dr1(['accepted_status' => 'R', 'registration_date' => '2026-08-12', 'property_value' => 3_000_000, 'total_commission' => 90_000]);
+        $this->dr1(['accepted_status' => 'P', 'property_value' => 1_000_000, 'total_commission' => 40_000]);
+
+        $report = app(\App\Services\Performance\AgencyPerformanceReportService::class)
+            ->build(new \App\Services\Performance\PerformanceScope($this->ag1->id), $this->period());
+
+        $ds = $report['company']['deal_status'];
+        $this->assertArrayHasKey('commission', $ds['registered'], 'deal_status buckets must carry commission');
+        $this->assertArrayHasKey('commission', $ds['pending']);
+        $this->assertEqualsWithDelta(90_000.0, $ds['registered']['commission'], 0.01);
+        $this->assertEqualsWithDelta(40_000.0, $ds['pending']['commission'], 0.01);
+        $this->assertEqualsWithDelta(0.0, $ds['granted']['commission'], 0.01);
+        // qty + value still intact alongside commission
+        $this->assertSame(1, $ds['registered']['qty']);
+        $this->assertEqualsWithDelta(3_000_000.0, $ds['registered']['value'], 0.01);
+    }
+
     public function test_co_agent_deal_counts_for_each_agent_but_distinct_once(): void
     {
         $d = $this->dr1(['accepted_status' => 'G', 'granted_at' => '2026-08-11']);

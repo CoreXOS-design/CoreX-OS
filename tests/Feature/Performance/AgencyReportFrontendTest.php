@@ -68,6 +68,9 @@ class AgencyReportFrontendTest extends TestCase
             ->assertSee('toggleAll(', false)
             ->assertSee('statusKeys', false)
             ->assertSee('deals (selected)', false)
+            ->assertSee('value (selected)', false)
+            ->assertSee('commission (selected)', false)   // Commission tile reacts to the ticks
+            ->assertSee('statusCommission(', false)       // commission recompute wired like qty/value
             ->assertSee('hasDealStatus', false)
             // #9 drilldown modal + click wiring + the contract endpoint path
             ->assertSee('drill(', false)

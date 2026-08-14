@@ -21,22 +21,23 @@ class AgencyPerformanceReportService
         private readonly DealStatusBreakdownService $dealStatus,
     ) {}
 
-    /** Empty {qty,value} per status bucket (AT-366 §A frontend contract shape). */
+    /** Empty {qty,value,commission} per status bucket (AT-366 §A frontend contract shape). */
     private function emptyDealStatus(): array
     {
         return [
-            'pending'    => ['qty' => 0, 'value' => 0.0],
-            'granted'    => ['qty' => 0, 'value' => 0.0],
-            'registered' => ['qty' => 0, 'value' => 0.0],
-            'declined'   => ['qty' => 0, 'value' => 0.0],
+            'pending'    => ['qty' => 0, 'value' => 0.0, 'commission' => 0.0],
+            'granted'    => ['qty' => 0, 'value' => 0.0, 'commission' => 0.0],
+            'registered' => ['qty' => 0, 'value' => 0.0, 'commission' => 0.0],
+            'declined'   => ['qty' => 0, 'value' => 0.0, 'commission' => 0.0],
         ];
     }
 
     private function addDealStatus(array &$acc, array $ds): void
     {
         foreach (['pending', 'granted', 'registered', 'declined'] as $b) {
-            $acc[$b]['qty']   += $ds[$b]['qty'];
-            $acc[$b]['value'] += $ds[$b]['value'];
+            $acc[$b]['qty']        += $ds[$b]['qty'];
+            $acc[$b]['value']      += $ds[$b]['value'];
+            $acc[$b]['commission'] += $ds[$b]['commission'];
         }
     }
 
@@ -81,7 +82,7 @@ class AgencyPerformanceReportService
             $agentDs = $this->emptyDealStatus();
             if ($pa) {
                 foreach (['pending', 'granted', 'registered', 'declined'] as $b) {
-                    $agentDs[$b] = ['qty' => (int) $pa[$b]['count'], 'value' => (float) $pa[$b]['value']];
+                    $agentDs[$b] = ['qty' => (int) $pa[$b]['count'], 'value' => (float) $pa[$b]['value'], 'commission' => (float) $pa[$b]['commission']];
                 }
             }
 
