@@ -17,8 +17,9 @@
     // yet — the modal degrades to "coming soon" on 404 until cc6 lands the route.
     $drillQuery = array_filter(['period' => $preset, 'start' => request('start'), 'end' => request('end')]);
     $drilldownBase = url('/corex/performance/agency-report/drilldown') . '?' . http_build_query($drillQuery);
+    $hasCustomDates = request()->filled('start') || request()->filled('end');
 @endphp
-<div class="p-6 space-y-6"
+<div class="p-4 lg:p-6 space-y-5 max-w-full"
      x-data="agencyReport({
         branches: {{ Illuminate\Support\Js::from($branchRows) }},
         agents: {{ Illuminate\Support\Js::from($agentRows) }},
@@ -27,54 +28,67 @@
         companyStatus: {{ Illuminate\Support\Js::from($report['company']['deal_status'] ?? null) }},
         branchUrlBase: @js($branchUrlBase),
         agentUrlBase: @js($agentUrlBase),
-        drilldownBase: @js($drilldownBase)
+        drilldownBase: @js($drilldownBase),
+        currentPreset: @js($preset),
+        hasCustomDates: {{ $hasCustomDates ? 'true' : 'false' }},
+        defaultUrl: @js(route('performance.agency-report'))
      })">
 
-    <div class="flex items-center justify-between flex-wrap gap-3">
-        <div>
-            <h1 class="text-xl font-bold" style="color:var(--text-primary);">Agency Performance &amp; ROI</h1>
-            <p class="text-xs" style="color:var(--text-muted);">
-                {{ $report['period']['label'] }} · {{ ucfirst($report['scope']['level']) }} view
-            </p>
-        </div>
-
-        <div class="flex items-center gap-2 flex-wrap">
-            <a href="{{ route('performance.agency-report.print', ['period' => $preset]) }}" target="_blank"
-               class="text-[11px] px-3 py-2 rounded no-underline print:hidden"
-               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
-               title="Print the whole-company report">🖨 Print report</a>
-            {{-- Period selector (cc5-owned partial — DO NOT edit here) --}}
-            @include('performance.agency-report._period-selector', ['preset' => $preset, 'presets' => $presets])
-        </div>
-    </div>
-
-    @if(session('period_error'))
-        <div class="text-xs px-3 py-2 rounded" style="background:#fee; color:#900;">{{ session('period_error') }}</div>
-    @endif
-
-    {{-- #6 DEAL-STATUS TOGGLES — live QTY + VALUE recompute from cc6's per-status data.
-         Hidden gracefully until cc6 ships `deal_status` on the rollup (contract §A). --}}
-    <div x-show="hasDealStatus" x-cloak class="rounded p-4 print:hidden" style="background:var(--surface-2); border:1px solid var(--border);">
+    {{-- STICKY TOP BLOCK — period selector + deal-status toggles stay pinned while the long
+         agent list scrolls beneath (fix #2). Everything from here down to (not incl.) Company. --}}
+    <div class="sticky top-0 z-30 -mx-4 lg:-mx-6 px-4 lg:px-6 pt-1 pb-3 space-y-3"
+         style="background:var(--bg,#f4f6fb); border-bottom:1px solid var(--border);">
         <div class="flex items-center justify-between flex-wrap gap-3">
-            <div class="flex items-center gap-3 flex-wrap" role="group" aria-label="Deal status filter">
-                <span class="text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Deals</span>
-                <label class="text-[11px] flex items-center gap-1" style="color:var(--text-primary);">
-                    <input type="checkbox" @change="toggleAll($event.target.checked)" :checked="allStatusesOn()"> All
-                </label>
-                <template x-for="st in statusKeys" :key="st">
-                    <label class="text-[11px] flex items-center gap-1 capitalize" style="color:var(--text-primary);">
-                        <input type="checkbox" x-model="statusOn[st]"> <span x-text="st"></span>
-                    </label>
-                </template>
+            <div class="min-w-0">
+                <h1 class="text-lg lg:text-xl font-bold truncate" style="color:var(--text-primary);">Agency Performance &amp; ROI</h1>
+                <p class="text-xs" style="color:var(--text-muted);">
+                    {{ $report['period']['label'] }} · {{ ucfirst($report['scope']['level']) }} view
+                </p>
             </div>
-            <div class="flex items-center gap-6">
-                <div class="text-right">
-                    <div class="text-2xl font-bold" style="color:var(--text-primary);" x-text="statusQty().toLocaleString()"></div>
-                    <div class="text-[10px]" style="color:var(--text-muted);">deals (selected)</div>
+
+            <div class="flex items-center gap-2 flex-wrap print:hidden">
+                {{-- #3 Reset view — back to default period (this month) + clear sort/filter/toggles --}}
+                <button type="button" @click="resetView()"
+                        class="text-[11px] px-3 py-2 rounded"
+                        style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                        title="Reset period, sort, filters and toggles to default">↺ Reset view</button>
+                <a href="{{ route('performance.agency-report.print', ['period' => $preset]) }}" target="_blank"
+                   class="text-[11px] px-3 py-2 rounded no-underline"
+                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                   title="Print the whole-company report">🖨 Print report</a>
+                {{-- Period selector (cc5-owned partial — DO NOT edit here, only include it) --}}
+                @include('performance.agency-report._period-selector', ['preset' => $preset, 'presets' => $presets])
+            </div>
+        </div>
+
+        @if(session('period_error'))
+            <div class="text-xs px-3 py-2 rounded" style="background:#fee; color:#900;">{{ session('period_error') }}</div>
+        @endif
+
+        {{-- #6 DEAL-STATUS TOGGLES — live QTY + VALUE recompute from cc6's per-status data.
+             Hidden gracefully until cc6 ships `deal_status` on the rollup (contract §A). --}}
+        <div x-show="hasDealStatus" x-cloak class="rounded p-3" style="background:var(--surface-2); border:1px solid var(--border);">
+            <div class="flex items-center justify-between flex-wrap gap-3">
+                <div class="flex items-center gap-3 flex-wrap" role="group" aria-label="Deal status filter">
+                    <span class="text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Deals</span>
+                    <label class="text-[11px] flex items-center gap-1" style="color:var(--text-primary);">
+                        <input type="checkbox" @change="toggleAll($event.target.checked)" :checked="allStatusesOn()"> All
+                    </label>
+                    <template x-for="st in statusKeys" :key="st">
+                        <label class="text-[11px] flex items-center gap-1 capitalize" style="color:var(--text-primary);">
+                            <input type="checkbox" x-model="statusOn[st]"> <span x-text="st"></span>
+                        </label>
+                    </template>
                 </div>
-                <div class="text-right">
-                    <div class="text-2xl font-bold" style="color:var(--text-primary);" x-text="'R ' + statusValue().toLocaleString()"></div>
-                    <div class="text-[10px]" style="color:var(--text-muted);">value (selected)</div>
+                <div class="flex items-center gap-6 flex-wrap">
+                    <div class="text-right">
+                        <div class="text-xl font-bold" style="color:var(--text-primary);" x-text="statusQty().toLocaleString()"></div>
+                        <div class="text-[10px]" style="color:var(--text-muted);">deals (selected)</div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-xl font-bold" style="color:var(--text-primary);" x-text="'R ' + statusValue().toLocaleString()"></div>
+                        <div class="text-[10px]" style="color:var(--text-muted);">value (selected)</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -86,9 +100,9 @@
         <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
             @foreach($report['metrics'] as $m)
                 <button type="button" @click="drill('{{ $m['key'] }}', 'company', null, @js($m['label']))"
-                        class="rounded p-4 text-left" style="background:var(--surface-2); border:1px solid var(--border); cursor:pointer;"
+                        class="rounded p-3 text-left" style="background:var(--surface-2); border:1px solid var(--border); cursor:pointer;"
                         title="Click to see the detail">
-                    <div class="text-2xl font-bold" style="color:var(--text-primary);">{{ $report['company'][$m['key']] ?? 0 }}</div>
+                    <div class="text-xl font-bold" style="color:var(--text-primary);">{{ $report['company'][$m['key']] ?? 0 }}</div>
                     <div class="text-[11px]" style="color:var(--text-muted);">{{ $m['label'] }}</div>
                 </button>
             @endforeach
@@ -98,18 +112,18 @@
     {{-- AT-366-E — company buyer-activity summary --}}
     @includeWhen(isset($buyer), 'performance.agency-report._buyer-summary')
 
-    {{-- Branch rollup (sortable, drillable) --}}
+    {{-- Branch rollup (sortable, drillable) — contained horizontal scroll (fix #1) --}}
     <div>
         <h2 class="text-xs font-bold uppercase tracking-widest mb-2" style="color:var(--text-muted);">By branch</h2>
-        <div class="overflow-x-auto rounded" style="border:1px solid var(--border);">
-            <table class="w-full text-xs">
+        <div class="overflow-x-auto rounded max-w-full" style="border:1px solid var(--border);">
+            <table class="w-full text-[11px]" style="border-collapse:collapse;">
                 <thead>
                     <tr style="background:var(--surface-2);">
-                        <th class="text-left px-3 py-2 cursor-pointer select-none" @click="sortBranch('label')" :aria-sort="ariaBranch('label')" style="color:var(--text-muted);">
+                        <th class="text-left px-2 py-1.5 cursor-pointer select-none text-[10px] uppercase tracking-wide" @click="sortBranch('label')" :aria-sort="ariaBranch('label')" style="color:var(--text-muted);">
                             Branch <span x-text="branchArrow('label')"></span>
                         </th>
                         <template x-for="m in metrics" :key="m.key">
-                            <th class="text-right px-3 py-2 cursor-pointer select-none" @click="sortBranch(m.key)" :aria-sort="ariaBranch(m.key)" style="color:var(--text-muted);">
+                            <th class="text-right px-2 py-1.5 cursor-pointer select-none text-[10px] uppercase tracking-wide" @click="sortBranch(m.key)" :aria-sort="ariaBranch(m.key)" style="color:var(--text-muted);">
                                 <span x-text="m.label"></span> <span x-text="branchArrow(m.key)"></span>
                             </th>
                         </template>
@@ -118,18 +132,18 @@
                 <tbody>
                     <template x-for="b in branchDisplay()" :key="b.key">
                         <tr style="border-top:1px solid var(--border);">
-                            <td class="px-3 py-2">
+                            <td class="px-2 py-1.5 whitespace-nowrap">
                                 <a :href="branchUrl(b.key)" class="no-underline" style="color:var(--brand, #3b82f6);" x-text="b.label"></a>
                             </td>
                             <template x-for="m in metrics" :key="m.key">
-                                <td class="text-right px-3 py-2" style="color:var(--text-primary); cursor:pointer;"
+                                <td class="text-right px-2 py-1.5" style="color:var(--text-primary); cursor:pointer;"
                                     @click="drill(m.key, 'branch', b.key, m.label + ' — ' + b.label)"
                                     x-text="fmt(b.metrics[m.key])"></td>
                             </template>
                         </tr>
                     </template>
                     <tr x-show="branchDisplay().length === 0">
-                        <td class="px-3 py-4 text-center" style="color:var(--text-muted);" :colspan="metrics.length + 1">No branches in scope.</td>
+                        <td class="px-2 py-3 text-center" style="color:var(--text-muted);" :colspan="metrics.length + 1">No branches in scope.</td>
                     </tr>
                 </tbody>
             </table>
@@ -160,18 +174,18 @@
                 <span class="text-[11px]" style="color:var(--text-muted);" x-text="agentDisplay().length + ' / ' + agents.length"></span>
             </div>
         </div>
-        <div class="overflow-x-auto rounded" style="border:1px solid var(--border);">
-            <table class="w-full text-xs">
+        <div class="overflow-x-auto rounded max-w-full" style="border:1px solid var(--border);">
+            <table class="w-full text-[11px]" style="border-collapse:collapse;">
                 <thead>
                     <tr style="background:var(--surface-2);">
-                        <th class="text-left px-3 py-2 cursor-pointer select-none" @click="sortAgent('name')" :aria-sort="ariaAgent('name')" style="color:var(--text-muted);">
+                        <th class="text-left px-2 py-1.5 cursor-pointer select-none text-[10px] uppercase tracking-wide" @click="sortAgent('name')" :aria-sort="ariaAgent('name')" style="color:var(--text-muted);">
                             Agent <span x-text="agentArrow('name')"></span>
                         </th>
-                        <th class="text-left px-3 py-2 cursor-pointer select-none" @click="sortAgent('branch')" :aria-sort="ariaAgent('branch')" style="color:var(--text-muted);">
+                        <th class="text-left px-2 py-1.5 cursor-pointer select-none text-[10px] uppercase tracking-wide" @click="sortAgent('branch')" :aria-sort="ariaAgent('branch')" style="color:var(--text-muted);">
                             Branch <span x-text="agentArrow('branch')"></span>
                         </th>
                         <template x-for="m in metrics" :key="m.key">
-                            <th class="text-right px-3 py-2 cursor-pointer select-none" @click="sortAgent(m.key)" :aria-sort="ariaAgent(m.key)" style="color:var(--text-muted);">
+                            <th class="text-right px-2 py-1.5 cursor-pointer select-none text-[10px] uppercase tracking-wide" @click="sortAgent(m.key)" :aria-sort="ariaAgent(m.key)" style="color:var(--text-muted);">
                                 <span x-text="m.label"></span> <span x-text="agentArrow(m.key)"></span>
                             </th>
                         </template>
@@ -180,19 +194,19 @@
                 <tbody>
                     <template x-for="a in agentDisplay()" :key="a.user_id">
                         <tr style="border-top:1px solid var(--border);">
-                            <td class="px-3 py-2">
+                            <td class="px-2 py-1.5 whitespace-nowrap">
                                 <a :href="agentUrl(a.user_id)" class="no-underline" style="color:var(--brand, #3b82f6);" x-text="a.name"></a>
                             </td>
-                            <td class="px-3 py-2" style="color:var(--text-muted);" x-text="a.branch_label"></td>
+                            <td class="px-2 py-1.5 whitespace-nowrap" style="color:var(--text-muted);" x-text="a.branch_label"></td>
                             <template x-for="m in metrics" :key="m.key">
-                                <td class="text-right px-3 py-2" style="color:var(--text-primary); cursor:pointer;"
+                                <td class="text-right px-2 py-1.5" style="color:var(--text-primary); cursor:pointer;"
                                     @click="drill(m.key, 'agent', a.user_id, m.label + ' — ' + a.name)"
                                     x-text="fmt(a.metrics[m.key])"></td>
                             </template>
                         </tr>
                     </template>
                     <tr x-show="agentDisplay().length === 0">
-                        <td class="px-3 py-4 text-center" style="color:var(--text-muted);" :colspan="metrics.length + 2">No agents match the current filters.</td>
+                        <td class="px-2 py-3 text-center" style="color:var(--text-muted);" :colspan="metrics.length + 2">No agents match the current filters.</td>
                     </tr>
                 </tbody>
             </table>
@@ -252,9 +266,9 @@
 </div>
 
 <script>
-/* AT-366 report frontend (cc1) — sort/filter (#7), status toggles (#6), drilldown (#9).
-   Pure presentation over cc6's already-agency-scoped rollup. Endpoints per
-   .ai/specs/at366-report-frontend-contract.md; degrades gracefully until cc6 ships them. */
+/* AT-366 report frontend (cc1) — sort/filter (#7), status toggles (#6), drilldown (#9),
+   sticky header + reset view (layout fixes). Pure presentation over cc6's already-agency-scoped
+   rollup. Endpoints per .ai/specs/at366-report-frontend-contract.md; degrades gracefully. */
 function agencyReport(cfg) {
     return {
         branches: cfg.branches || [],
@@ -265,6 +279,9 @@ function agencyReport(cfg) {
         branchUrlBase: cfg.branchUrlBase,
         agentUrlBase: cfg.agentUrlBase,
         drilldownBase: cfg.drilldownBase,
+        currentPreset: cfg.currentPreset || 'this_month',
+        hasCustomDates: !!cfg.hasCustomDates,
+        defaultUrl: cfg.defaultUrl,
 
         // ---- #7 sort / filter ----
         bSort: 'label', bDir: 'asc', aSort: 'name', aDir: 'asc',
@@ -311,6 +328,19 @@ function agencyReport(cfg) {
             return [...seen.entries()].map(([id, label]) => ({ id, label })).sort((x, y) => x.label.localeCompare(y.label));
         },
         resetFilters() { this.search = ''; this.branchFilter = ''; this.minActivity = 0; },
+
+        // ---- #3 reset view: default period (this month) + clear all sort/filter/toggle state ----
+        resetView() {
+            this.bSort = 'label'; this.bDir = 'asc'; this.aSort = 'name'; this.aDir = 'asc';
+            this.resetFilters();
+            this.statusKeys.forEach(k => this.statusOn[k] = true);
+            this.closeDrill();
+            // Default period is "this month". If we're on any other period (or a custom range),
+            // reload the report at its default URL so the server-rendered period resets too.
+            if (this.currentPreset !== 'this_month' || this.hasCustomDates) {
+                window.location.href = this.defaultUrl;
+            }
+        },
 
         // ---- #6 deal-status toggles ----
         statusKeys: ['pending', 'granted', 'registered', 'declined'],

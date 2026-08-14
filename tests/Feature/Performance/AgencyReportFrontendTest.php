@@ -108,6 +108,17 @@ class AgencyReportFrontendTest extends TestCase
         ]))->assertStatus(422);
     }
 
+    public function test_index_has_sticky_header_and_reset_view(): void
+    {
+        $res = $this->actingAs($this->admin)->get(route('performance.agency-report'));
+
+        $res->assertOk()
+            ->assertSee('sticky top-0', false)          // #2 pinned top block
+            ->assertSee('Reset view', false)            // #3 reset button
+            ->assertSee('resetView(', false)            // reset handler wired
+            ->assertSee('overflow-x-auto rounded max-w-full', false);  // #1 contained horizontal scroll
+    }
+
     public function test_whole_company_print_renders_with_company_header(): void
     {
         $res = $this->actingAs($this->admin)->get(route('performance.agency-report.print'));
