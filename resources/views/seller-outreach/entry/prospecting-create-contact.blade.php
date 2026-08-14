@@ -166,13 +166,13 @@
               deadEndSellerUrl: @js($deadEndSellerUrl ?? null),
               tvaPicks: {},
               sellerBusy: false,
-              // When sellers are already linked, the manual "Seller contact" form is collapsed and
+              // When sellers are already linked, the manual seller-contact form is collapsed and
               // NOT a required gate — continue runs off the linked sellers.
               showManualForm: false,
               async setPrimary(contactId) {
                   if (!this.primarySellerUrl || this.sellerBusy) return;
                   // Optimistic single-primary — one click flips it instantly (others unset locally),
-                  // then the server confirms. Fixes the "had to click repeatedly" flakiness.
+                  // then the server confirms. Fixes the click-repeatedly flakiness.
                   this.sellers = this.sellers.map(s => ({ ...s, is_primary: s.contact_id === contactId }));
                   this.sellerBusy = true;
                   try {
