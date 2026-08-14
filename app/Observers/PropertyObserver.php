@@ -701,6 +701,22 @@ class PropertyObserver
     }
 
     /**
+     * Referential integrity (2026-08-14) — a PERMANENTLY removed property must not leave dangling
+     * contact_property links behind (a contact would otherwise carry a link to a property that no
+     * longer exists). Soft-delete deliberately KEEPS the links (archive is restore-able, and the
+     * contact-page list already hides soft-deleted properties via the belongsToMany SoftDeletingScope);
+     * a force-delete is permanent, so its links are cleaned here.
+     */
+    public function forceDeleted(Property $property): void
+    {
+        try {
+            \Illuminate\Support\Facades\DB::table('contact_property')->where('property_id', $property->id)->delete();
+        } catch (\Throwable $e) {
+            Log::warning("contact_property cleanup failed on force-delete of property #{$property->id}: {$e->getMessage()}");
+        }
+    }
+
+    /**
      * Off-market = no longer actively for sale / to let. These must come off the
      * portals. Substring match mirrors Property24ListingMapper::getP24Status so
      * status-string variants (e.g. "Sold", "sold • cash") all resolve.

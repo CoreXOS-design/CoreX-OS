@@ -250,9 +250,14 @@ class ContactController extends Controller
         // to a property via ANY role is effectively a stakeholder in that
         // property's viewing feedback.
         $sellerViewings = collect();
-        $ownedPropertyIds = \DB::table('contact_property')
-            ->where('contact_id', $contact->id)
-            ->pluck('property_id');
+        // Referential guard (2026-08-14) — read the pivot THROUGH properties so soft-deleted /
+        // removed properties never surface a broken link (mirrors the belongsToMany relation used
+        // for the Properties list). Prevents an archived/merged property leaking into this raw read.
+        $ownedPropertyIds = \DB::table('contact_property as cp')
+            ->join('properties as p', 'p.id', '=', 'cp.property_id')
+            ->where('cp.contact_id', $contact->id)
+            ->whereNull('p.deleted_at')
+            ->pluck('cp.property_id');
 
         if ($ownedPropertyIds->isNotEmpty()) {
             $sellerEventIds = \DB::table('calendar_event_links')
