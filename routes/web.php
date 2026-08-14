@@ -1206,6 +1206,9 @@ Route::middleware(['auth'])->group(function () {
     // AT-366 — Agency Performance & ROI report (per-agent → branch → company, any period).
     Route::get('/corex/performance/agency-report', [\App\Http\Controllers\Performance\AgencyPerformanceReportController::class, 'index'])
         ->middleware('permission:view_performance')->name('performance.agency-report');
+    // AT-366 §B (#9) — read-only drilldown JSON (rows behind a clicked figure), agency-scoped.
+    Route::get('/corex/performance/agency-report/drilldown', [\App\Http\Controllers\Performance\AgencyPerformanceReportController::class, 'drilldown'])
+        ->middleware('permission:view_performance')->name('performance.agency-report.drilldown');
     // AT-366-D — branch drill-down (branch rollup + prior-period trend + its agents).
     Route::get('/corex/performance/agency-report/branch/{branch}', [\App\Http\Controllers\Performance\AgencyPerformanceReportController::class, 'branch'])
         ->where('branch', '[0-9]+|unassigned')

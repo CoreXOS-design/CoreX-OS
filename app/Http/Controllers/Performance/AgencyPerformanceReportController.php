@@ -8,8 +8,10 @@ use App\Services\Performance\AgencyPerformanceReportService;
 use App\Services\Performance\BuyerActivityService;
 use App\Services\Performance\Period;
 use App\Services\Performance\PeriodResolver;
+use App\Services\Performance\PerformanceDrilldownService;
 use App\Services\Performance\PerformanceScope;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 /**
  * AT-366 — Agency Performance & ROI report. Renders the scope + period selector
@@ -154,6 +156,112 @@ class AgencyPerformanceReportController extends Controller
     }
 
     /** @return array{0: Period, 1: string} resolved period + effective preset */
+    /**
+     * AT-366 §B (#9) — read-only drilldown rows behind a clicked figure.
+     * GET /corex/performance/agency-report/drilldown?metric=&level=&id=&period=&start=&end=&status=
+     * Returns {title,total,columns,rows} per the frontend contract. Strictly agency-scoped.
+     */
+    public function drilldown(Request $request, PeriodResolver $periods, PerformanceDrilldownService $drill)
+    {
+        $agencyId = (int) ($request->user()?->effectiveAgencyId() ?? 0);
+        abort_if(!$agencyId, 403, 'No agency context.');
+
+        $map = [
+            'deals' => 'deals', 'contacts' => 'contacts_created', 'properties' => 'properties_created',
+            'fica' => 'fica_submissions', 'buyers' => 'buyers_added', 'viewings' => 'viewings',
+        ];
+        $metricIn = (string) $request->query('metric', '');
+        $metric   = $map[$metricIn] ?? $metricIn; // accept the short alias OR the full metric key
+        abort_unless(in_array($metric, PerformanceDrilldownService::METRICS, true), 422, 'Unknown metric.');
+
+        $status = $request->filled('status') ? (string) $request->query('status') : null;
+        abort_if($status !== null && !in_array($status, ['pending', 'granted', 'registered', 'declined', 'all'], true), 422, 'Unknown status.');
+
+        $level = (string) $request->query('level', 'company');
+        $id    = $request->filled('id') ? (int) $request->query('id') : null;
+        $agentId = null; $branchId = null;
+        if ($level === 'agent') {
+            abort_unless($id && DB::table('users')->where('id', $id)->where('agency_id', $agencyId)->exists(), 404, 'Agent not in agency.');
+            $agentId = $id;
+        } elseif ($level === 'branch' && $id !== null) {
+            abort_unless(DB::table('branches')->where('id', $id)->where('agency_id', $agencyId)->exists(), 404, 'Branch not in agency.');
+            $branchId = $id;
+        }
+
+        [$period] = $this->resolvePeriod($request, $periods);
+        $cohort   = $drill->cohort($agencyId, $branchId, $agentId);
+        $res      = $drill->rows($metric, $cohort, $period, $agencyId, $metric === 'deals' ? $status : null);
+
+        return response()->json([
+            'title'   => $this->drilldownTitle($metric, $status, $level, $id, $period, $res['count']),
+            'total'   => $res['count'],
+            'columns' => $this->drilldownColumns($metric),
+            'rows'    => array_map(fn ($r) => $this->drilldownRow($metric, $r), $res['rows']),
+        ]);
+    }
+
+    private function drilldownColumns(string $metric): array
+    {
+        return match ($metric) {
+            'deals' => [
+                ['key' => 'address', 'label' => 'Property', 'align' => 'left'],
+                ['key' => 'price', 'label' => 'Price', 'align' => 'right', 'format' => 'currency'],
+                ['key' => 'commission', 'label' => 'Commission', 'align' => 'right', 'format' => 'currency'],
+                ['key' => 'status', 'label' => 'Status', 'align' => 'left', 'format' => 'badge'],
+            ],
+            'contacts_created' => [
+                ['key' => 'name', 'label' => 'Contact', 'align' => 'left'],
+                ['key' => 'created', 'label' => 'Created', 'align' => 'left', 'format' => 'date'],
+            ],
+            'properties_created' => [
+                ['key' => 'address', 'label' => 'Property', 'align' => 'left'],
+                ['key' => 'status', 'label' => 'Status', 'align' => 'left', 'format' => 'badge'],
+                ['key' => 'listed', 'label' => 'Listed', 'align' => 'left', 'format' => 'date'],
+            ],
+            'fica_submissions' => [
+                ['key' => 'contact', 'label' => 'Contact', 'align' => 'left'],
+                ['key' => 'status', 'label' => 'Status', 'align' => 'left', 'format' => 'badge'],
+                ['key' => 'created', 'label' => 'Created', 'align' => 'left', 'format' => 'date'],
+            ],
+            'buyers_added' => [
+                ['key' => 'name', 'label' => 'Buyer', 'align' => 'left'],
+                ['key' => 'entered', 'label' => 'Added', 'align' => 'left', 'format' => 'date'],
+            ],
+            'viewings' => [
+                ['key' => 'title', 'label' => 'Viewing', 'align' => 'left'],
+                ['key' => 'date', 'label' => 'Date', 'align' => 'left', 'format' => 'date'],
+            ],
+            default => [],
+        };
+    }
+
+    private function drilldownRow(string $metric, array $r): array
+    {
+        return match ($metric) {
+            'deals' => ['address' => $r['address'] ?? ('Deal ' . ($r['ref'] ?? $r['id'])), 'price' => $r['price'], 'commission' => $r['commission'], 'status' => ucfirst((string) $r['status']), 'href' => $r['url']],
+            'contacts_created' => ['name' => $r['name'], 'created' => $r['created_at'], 'href' => $r['url']],
+            'properties_created' => ['address' => $r['address'], 'status' => ucfirst((string) $r['status']), 'listed' => $r['listed_date'], 'href' => $r['url']],
+            'fica_submissions' => ['contact' => $r['contact_name'], 'status' => ucfirst((string) $r['status']), 'created' => $r['created_at'], 'href' => $r['url']],
+            'buyers_added' => ['name' => $r['name'], 'entered' => $r['entered_at'], 'href' => $r['url']],
+            'viewings' => ['title' => $r['title'], 'date' => $r['event_date'], 'href' => $r['url']],
+            default => $r,
+        };
+    }
+
+    private function drilldownTitle(string $metric, ?string $status, string $level, ?int $id, Period $period, int $total): string
+    {
+        $noun = ['deals' => 'deals', 'contacts_created' => 'contacts', 'properties_created' => 'properties', 'fica_submissions' => 'FICA submissions', 'buyers_added' => 'buyers', 'viewings' => 'viewings'][$metric] ?? $metric;
+        $statusWord = ($metric === 'deals' && $status && $status !== 'all') ? ($status . ' ') : '';
+        $who = 'Company';
+        if ($level === 'agent' && $id) {
+            $who = (string) (DB::table('users')->where('id', $id)->value('name') ?? 'Agent');
+        } elseif ($level === 'branch' && $id) {
+            $who = (string) (DB::table('branches')->where('id', $id)->value('name') ?? 'Branch');
+        }
+
+        return trim("{$total} {$statusWord}{$noun}") . " — {$who} · " . $period->label;
+    }
+
     private function resolvePeriod(Request $request, PeriodResolver $periods): array
     {
         $preset = (string) $request->query('period', 'this_month');

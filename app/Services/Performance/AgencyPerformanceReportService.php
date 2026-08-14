@@ -18,7 +18,27 @@ class AgencyPerformanceReportService
         private readonly HierarchyResolver $hierarchy,
         private readonly MetricProviderRegistry $registry,
         private readonly BranchAttributionResolver $branchAttribution,
+        private readonly DealStatusBreakdownService $dealStatus,
     ) {}
+
+    /** Empty {qty,value} per status bucket (AT-366 §A frontend contract shape). */
+    private function emptyDealStatus(): array
+    {
+        return [
+            'pending'    => ['qty' => 0, 'value' => 0.0],
+            'granted'    => ['qty' => 0, 'value' => 0.0],
+            'registered' => ['qty' => 0, 'value' => 0.0],
+            'declined'   => ['qty' => 0, 'value' => 0.0],
+        ];
+    }
+
+    private function addDealStatus(array &$acc, array $ds): void
+    {
+        foreach (['pending', 'granted', 'registered', 'declined'] as $b) {
+            $acc[$b]['qty']   += $ds[$b]['qty'];
+            $acc[$b]['value'] += $ds[$b]['value'];
+        }
+    }
 
     public function build(PerformanceScope $scope, Period $period): array
     {
@@ -33,11 +53,15 @@ class AgencyPerformanceReportService
         }
         $metricMeta = array_map(fn ($p) => ['key' => $p->key(), 'label' => $p->label()], $providers);
 
+        // AT-366 §A — per-agent deal status breakdown (qty+value per bucket) for the toggle bar.
+        $dealBreak = $this->dealStatus->forUsers($userIds, $period, $scope->agencyId)['perAgent'];
+
         $branchNames = $this->hierarchy->branchNames($scope->agencyId);
 
         $agentRows = [];
         $branchAgg = [];
         $companyAgg = [];
+        $companyDs  = $this->emptyDealStatus();
 
         foreach ($agents as $agent) {
             $uid = (int) $agent->id;
@@ -52,12 +76,22 @@ class AgencyPerformanceReportService
             $branchKey     = $branchId !== null ? (string) $branchId : 'unassigned';
             $branchLabel   = $branchId !== null ? ($branchNames[$branchId] ?? ('Branch #' . $branchId)) : 'Unassigned';
 
+            // AT-366 §A — this agent's deal status {qty,value} per bucket (from the breakdown service).
+            $pa = $dealBreak[$uid] ?? null;
+            $agentDs = $this->emptyDealStatus();
+            if ($pa) {
+                foreach (['pending', 'granted', 'registered', 'declined'] as $b) {
+                    $agentDs[$b] = ['qty' => (int) $pa[$b]['count'], 'value' => (float) $pa[$b]['value']];
+                }
+            }
+
             $agentRows[] = [
                 'user_id'      => $uid,
                 'name'         => $agent->name,
                 'branch_id'    => $branchId,
                 'branch_label' => $branchLabel,
                 'metrics'      => $metrics,
+                'deal_status'  => $agentDs,
             ];
 
             foreach ($metrics as $key => $value) {
@@ -65,7 +99,14 @@ class AgencyPerformanceReportService
                 $branchAgg[$branchKey]['metrics'][$key]  = ($branchAgg[$branchKey]['metrics'][$key] ?? 0) + $value;
                 $companyAgg[$key]                        = ($companyAgg[$key] ?? 0) + $value;
             }
+            if (!isset($branchAgg[$branchKey]['deal_status'])) {
+                $branchAgg[$branchKey]['deal_status'] = $this->emptyDealStatus();
+            }
+            $this->addDealStatus($branchAgg[$branchKey]['deal_status'], $agentDs);
+            $this->addDealStatus($companyDs, $agentDs);
         }
+
+        $companyAgg['deal_status'] = $companyDs; // AT-366 §A company rollup row
 
         return [
             'period'   => $period->toArray(),
