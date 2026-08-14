@@ -223,6 +223,106 @@ final class MicComposeMultiSellerTest extends TestCase
             ->assertRedirect(route('seller-outreach.entry.pitch-ready-prospecting', ['prospectingListingId' => $listingId]));
     }
 
+    // ── R1/R2/R3 reversibility ───────────────────────────────────────────
+
+    /** R1 — selecting a deed auto-links its owners as sellers and follows the deed; reselect replaces. */
+    public function test_select_deed_links_owners_and_reselect_replaces(): void
+    {
+        [$agencyId, $userId] = $this->seedAgency();
+        $listingId = $this->seedListing($agencyId, 'R1 Portal Road');
+        $deedA = $this->seedDeed($agencyId, [['Alpha One', '8001015009087'], ['Alpha Two', '9001010001088']]);
+        $deedB = $this->seedDeed($agencyId, [['Beta Solo', '6904050051082']]);
+        $url = fn () => route('seller-outreach.entry.link-deed-prospecting', ['prospectingListingId' => $listingId]);
+
+        $this->actingAs(User::find($userId))->postJson($url(), ['tracked_property_id' => $deedA])->assertOk()
+            ->assertJsonPath('linked_deed.tracked_property_id', $deedA);
+        $pid = (int) DB::table('prospecting_listings')->where('id', $listingId)->value('matched_property_id');
+        $this->assertSame(2, DB::table('contact_property')->where('property_id', $pid)->where('role', 'seller')->count());
+
+        // Reselect deed B → sellers REPLACE (deed-sourced Alpha owners dropped, Beta added).
+        $this->actingAs(User::find($userId))->postJson($url(), ['tracked_property_id' => $deedB])->assertOk();
+        $this->assertSame(1, DB::table('contact_property')->where('property_id', $pid)->where('role', 'seller')->count());
+        $this->assertDatabaseHas('contact_property', ['property_id' => $pid, 'role' => 'seller', 'contact_id' => Contact::where('id_number', '6904050051082')->value('id')]);
+    }
+
+    /** R1 — unlink the deed drops deed-sourced sellers (keeps manual) and clears the link. */
+    public function test_unlink_deed_reverts(): void
+    {
+        [$agencyId, $userId] = $this->seedAgency();
+        $listingId = $this->seedListing($agencyId, 'R1u Road');
+        $deed = $this->seedDeed($agencyId, [['Deed Owner', '8001015009087']]);
+        $this->actingAs(User::find($userId))->postJson(route('seller-outreach.entry.link-deed-prospecting', ['prospectingListingId' => $listingId]), ['tracked_property_id' => $deed])->assertOk();
+        $pid = (int) DB::table('prospecting_listings')->where('id', $listingId)->value('matched_property_id');
+
+        $this->actingAs(User::find($userId))->postJson(route('seller-outreach.entry.unlink-deed-prospecting', ['prospectingListingId' => $listingId]), [])->assertOk()
+            ->assertJsonPath('linked_deed', null);
+        $this->assertSame(0, DB::table('contact_property')->where('property_id', $pid)->where('role', 'seller')->count());
+        $this->assertNull(DB::table('prospecting_listings')->where('id', $listingId)->value('linked_deed_tracked_property_id'));
+    }
+
+    /** R2 — a removed deed owner stays removed; the deed re-link does not re-add them. */
+    public function test_removal_is_sticky_against_deed_relink(): void
+    {
+        [$agencyId, $userId] = $this->seedAgency();
+        $listingId = $this->seedListing($agencyId, 'R2 Road');
+        $deed = $this->seedDeed($agencyId, [['Keep Me', '8001015009087'], ['Remove Me', '9001010001088']]);
+        $url = fn () => route('seller-outreach.entry.link-deed-prospecting', ['prospectingListingId' => $listingId]);
+        $this->actingAs(User::find($userId))->postJson($url(), ['tracked_property_id' => $deed])->assertOk();
+        $pid = (int) DB::table('prospecting_listings')->where('id', $listingId)->value('matched_property_id');
+        $removeMe = Contact::where('id_number', '9001010001088')->value('id');
+
+        // Remove, then re-link the SAME deed — the removed owner must NOT come back.
+        $this->actingAs(User::find($userId))->postJson(route('seller-outreach.entry.unlink-seller-prospecting', ['prospectingListingId' => $listingId]), ['contact_id' => $removeMe])->assertOk();
+        $this->assertDatabaseHas('prospecting_seller_removals', ['prospecting_listing_id' => $listingId, 'id_number' => '9001010001088']);
+        $this->actingAs(User::find($userId))->postJson($url(), ['tracked_property_id' => $deed])->assertOk();
+        $this->assertSame(1, DB::table('contact_property')->where('property_id', $pid)->where('role', 'seller')->count());
+
+        // A deliberate re-add clears the sticky removal.
+        $this->actingAs(User::find($userId))->postJson(route('seller-outreach.entry.link-seller-prospecting', ['prospectingListingId' => $listingId]), ['contact_id' => $removeMe])->assertOk();
+        $this->assertDatabaseMissing('prospecting_seller_removals', ['prospecting_listing_id' => $listingId, 'id_number' => '9001010001088']);
+        $this->assertSame(2, DB::table('contact_property')->where('property_id', $pid)->where('role', 'seller')->count());
+    }
+
+    /** R3 — remove one number, and set which is primary. */
+    public function test_remove_and_primary_number(): void
+    {
+        [$agencyId, $userId] = $this->seedAgency();
+        $listingId = $this->seedListing($agencyId, 'R3 Road');
+        $this->actingAs(User::find($userId))->postJson(route('seller-outreach.entry.link-seller-prospecting', ['prospectingListingId' => $listingId]),
+            ['first_name' => 'Num', 'last_name' => 'Seller', 'id_number' => '8001015009087'])->assertOk();
+        $contact = Contact::withoutGlobalScopes()->where('id_number', '8001015009087')->first();
+        $contact->phones()->create(['agency_id' => $agencyId, 'phone' => '0820000001', 'label' => 't']);
+        $contact->phones()->create(['agency_id' => $agencyId, 'phone' => '0820000002', 'label' => 't']);
+
+        $this->actingAs(User::find($userId))->postJson(route('seller-outreach.entry.primary-number-prospecting', ['prospectingListingId' => $listingId]),
+            ['contact_id' => $contact->id, 'type' => 'phone', 'value' => '0820000002'])->assertOk();
+        $this->assertTrue((bool) $contact->phones()->where('phone', '0820000002')->value('is_primary'));
+        $this->assertFalse((bool) $contact->phones()->where('phone', '0820000001')->value('is_primary'));
+
+        $this->actingAs(User::find($userId))->postJson(route('seller-outreach.entry.remove-number-prospecting', ['prospectingListingId' => $listingId]),
+            ['contact_id' => $contact->id, 'type' => 'phone', 'value' => '0820000001'])->assertOk();
+        $this->assertSame(1, $contact->phones()->count());
+        $this->assertDatabaseMissing('contact_phones', ['contact_id' => $contact->id, 'phone' => '0820000001']);
+    }
+
+    /** Seed a deeds tracked_property with owners; returns its id. */
+    private function seedDeed(int $agencyId, array $owners): int
+    {
+        $tpId = (int) DB::table('tracked_properties')->insertGetId([
+            'agency_id' => $agencyId, 'capture_kind' => 'deeds_capture', 'erf_number' => '659',
+            'street_number' => '20', 'street_name' => 'Lilliecrona Drive', 'suburb' => 'Manaba Beach',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        foreach ($owners as $i => [$name, $idn]) {
+            DB::table('tracked_property_owners')->insert([
+                'tracked_property_id' => $tpId, 'name' => $name, 'id_number' => $idn, 'id_type' => 'sa_id',
+                'is_primary' => $i === 0, 'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        return $tpId;
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     /** @return array{0:int,1:int} */
