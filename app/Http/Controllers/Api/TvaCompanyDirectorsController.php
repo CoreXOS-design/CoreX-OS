@@ -10,6 +10,7 @@ use App\Models\ContactRepresentative;
 use App\Services\ContactDuplicateService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -61,6 +62,16 @@ class TvaCompanyDirectorsController extends Controller
 
         $entityId = $this->resolveEntityContact($agencyId, $user, $companyName, $regNo, $dupes);
 
+        // The VISIBLE landing (Johan): directors must appear on /corex/deeds-capture
+        // under the company's property/deed, exactly like scraped deed owners. The
+        // CMA/deeds capture stored the company's registration number as its owner-row
+        // id_number, so we match the SAME tracked_property on the reg-no and add each
+        // director as a tracked_property_owner (natural person to work). This also
+        // wires the existing person-number flow: when the agent later runs the TVA
+        // person scrape on a director, that capture nests under this property by
+        // matching the director's id_number as an owner here.
+        $trackedPropertyId = $this->matchCompanyProperty($agencyId, $regNo);
+
         // Only stamp is_primary if the entity has no primary representative yet.
         $entityHasPrimary = ContactRepresentative::where('entity_contact_id', $entityId)
             ->where('is_primary', true)->exists();
@@ -83,10 +94,19 @@ class TvaCompanyDirectorsController extends Controller
                 }
                 $linkId = $this->linkDirector($entityId, $directorId, $primary);
 
+                // Land the director in DEEDS — as a person to work on the company's
+                // property (visible on /corex/deeds-capture).
+                $landedInDeeds = false;
+                if ($trackedPropertyId !== null && $id !== '') {
+                    $this->addDirectorAsPropertyOwner($trackedPropertyId, $directorId, $name, $id);
+                    $landedInDeeds = true;
+                }
+
                 $out[] = [
-                    'id_number'             => $id !== '' ? $id : null,
-                    'contact_id'            => $directorId,
+                    'id_number'              => $id !== '' ? $id : null,
+                    'contact_id'             => $directorId,
                     'representative_link_id' => $linkId,
+                    'landed_in_deeds'        => $landedInDeeds,
                 ];
             } catch (\Throwable $e) {
                 Log::warning('TVA director capture failed', ['id_number' => $id, 'error' => $e->getMessage()]);
@@ -95,11 +115,51 @@ class TvaCompanyDirectorsController extends Controller
         }
 
         return response()->json([
-            'ok'                => true,
-            'entity_contact_id' => $entityId,
-            'company'           => ['registration_number' => $regNo, 'name' => $companyName],
-            'directors'         => $out,
+            'ok'                  => true,
+            'entity_contact_id'   => $entityId,
+            'tracked_property_id' => $trackedPropertyId,
+            'company'             => ['registration_number' => $regNo, 'name' => $companyName],
+            'directors'           => $out,
         ]);
+    }
+
+    /**
+     * Match the company's tracked property/deed by registration number. The
+     * CMA/deeds capture records the company owner's reg-no as the owner-row
+     * id_number, so directors land on the SAME deed the property was captured
+     * under. Returns null when the company property hasn't been CMA-captured yet
+     * (directors still capture as contacts + the entity link).
+     */
+    private function matchCompanyProperty(int $agencyId, string $regNo): ?int
+    {
+        $id = DB::table('tracked_property_owners as o')
+            ->join('tracked_properties as t', 't.id', '=', 'o.tracked_property_id')
+            ->where('t.agency_id', $agencyId)
+            ->whereNull('t.deleted_at')
+            ->where('t.capture_kind', 'deeds_capture')
+            ->where('o.id_number', $regNo)
+            ->orderByDesc('t.id')
+            ->value('o.tracked_property_id');
+
+        return $id !== null ? (int) $id : null;
+    }
+
+    /**
+     * Add a director as a (non-primary) owner-row on the company's deed so it
+     * surfaces on /corex/deeds-capture as a natural person to work. Keyed on
+     * (tracked_property_id, id_number) so re-capture updates, never duplicates.
+     */
+    private function addDirectorAsPropertyOwner(int $trackedPropertyId, int $contactId, string $name, string $idNumber): void
+    {
+        \App\Models\Prospecting\TrackedPropertyOwner::updateOrCreate(
+            ['tracked_property_id' => $trackedPropertyId, 'id_number' => $idNumber],
+            [
+                'contact_id' => $contactId,
+                'name'       => $name !== '' ? $name : null,
+                'id_type'    => 'sa_id',
+                'is_primary' => false,
+            ]
+        );
     }
 
     /** Match-or-create the company entity Contact on its CIPC reg-no. */

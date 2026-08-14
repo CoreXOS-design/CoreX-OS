@@ -115,6 +115,53 @@ final class TvaCompanyDirectorsTest extends TestCase
         $this->assertSame(2, ContactRepresentative::where('entity_contact_id', $this->entity()->id)->count(), 'no duplicate links');
     }
 
+    public function test_directors_land_in_deeds_on_the_reg_matched_property(): void
+    {
+        // CMA/deeds capture already created the company's property, with the
+        // company owner-row keyed on the registration number (as id_number).
+        $companyOwner = Contact::create([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->agencyId,
+            'contact_kind' => Contact::TYPE_NATURAL_PERSON, 'first_name' => 'Beaumont Prop Cc', 'last_name' => '1502',
+            'phone' => '', 'id_number' => self::REG_NO,
+        ]);
+        $tpId = (int) DB::table('tracked_properties')->insertGetId([
+            'agency_id' => $this->agencyId, 'external_id' => (string) Str::uuid(),
+            'street_number' => '1502', 'street_name' => 'Beaumont Drive', 'suburb' => 'Ramsgate',
+            'capture_kind' => 'deeds_capture', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('tracked_property_owners')->insert([
+            'tracked_property_id' => $tpId, 'contact_id' => $companyOwner->id,
+            'name' => 'Beaumont Prop Cc 1502', 'id_number' => self::REG_NO, 'is_primary' => true,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $resp = $this->postJson(route('v1.tva-company-directors'), $this->payload());
+        $resp->assertOk();
+        $this->assertSame($tpId, $resp->json('tracked_property_id'), 'directors matched to the company property by reg-no');
+
+        // Each director now surfaces on that property (deeds-capture list), non-primary.
+        $this->assertDatabaseHas('tracked_property_owners', ['tracked_property_id' => $tpId, 'id_number' => '7004065141082']);
+        $this->assertDatabaseHas('tracked_property_owners', ['tracked_property_id' => $tpId, 'id_number' => '8202025009087']);
+        $pret = DB::table('tracked_property_owners')->where('tracked_property_id', $tpId)->where('id_number', '7004065141082')->first();
+        $this->assertEquals(0, (int) $pret->is_primary, 'director is a non-primary owner; the company owner stays primary');
+        $this->assertTrue(collect($resp->json('directors'))->firstWhere('id_number', '7004065141082')['landed_in_deeds']);
+
+        // Re-capture does not duplicate the owner row.
+        $this->postJson(route('v1.tva-company-directors'), $this->payload())->assertOk();
+        $this->assertSame(1, DB::table('tracked_property_owners')->where('tracked_property_id', $tpId)->where('id_number', '7004065141082')->count());
+    }
+
+    public function test_no_property_match_still_captures_contacts_and_links(): void
+    {
+        // Company not CMA-captured yet — tracked_property_id null, but the entity
+        // + director contacts + representative links are still created.
+        $resp = $this->postJson(route('v1.tva-company-directors'), $this->payload());
+        $resp->assertOk();
+        $this->assertNull($resp->json('tracked_property_id'));
+        $this->assertNotNull($this->entity());
+        $this->assertSame(2, ContactRepresentative::where('entity_contact_id', $this->entity()->id)->count());
+    }
+
     public function test_existing_person_by_id_is_reused_not_duplicated(): void
     {
         // The director is already a contact in CoreX (one person, one record — NN#10).
