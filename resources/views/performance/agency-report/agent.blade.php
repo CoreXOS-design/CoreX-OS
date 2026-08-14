@@ -15,11 +15,19 @@
             </p>
         </div>
 
-        @include('performance.agency-report._period-selector', [
-            'preset' => $preset,
-            'presets' => $presets,
-            'formAction' => route('performance.agency-report.agent', $journey['agent']['user_id']),
-        ])
+        <div class="flex items-center gap-2 flex-wrap">
+            {{-- #8 per-agent print — hand the agent their own figures --}}
+            <a href="{{ route('performance.agency-report.agent.print', ['user' => $journey['agent']['user_id'], 'period' => $preset]) }}" target="_blank"
+               class="text-[11px] px-3 py-2 rounded no-underline print:hidden"
+               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+               title="Print this agent's figures">🖨 Print agent</a>
+
+            @include('performance.agency-report._period-selector', [
+                'preset' => $preset,
+                'presets' => $presets,
+                'formAction' => route('performance.agency-report.agent', $journey['agent']['user_id']),
+            ])
+        </div>
     </div>
 
     @if(session('period_error'))

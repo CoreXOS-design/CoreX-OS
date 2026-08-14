@@ -269,6 +269,12 @@ Route::middleware('auth:sanctum')->group(function () {
     // ─────────────────────────────────────────────────────────────
     Route::prefix('v1')->group(function () {
 
+        // AT-366 — interactive agency Performance & ROI report backend (read-only, agency-scoped).
+        Route::get('/performance/deal-breakdown', [\App\Http\Controllers\Api\V1\PerformanceDrilldownController::class, 'dealBreakdown'])
+            ->middleware('permission:view_performance')->name('v1.performance.deal-breakdown');
+        Route::get('/performance/drilldown', [\App\Http\Controllers\Api\V1\PerformanceDrilldownController::class, 'drilldown'])
+            ->middleware('permission:view_performance')->name('v1.performance.drilldown');
+
         // Session-authed "who am I" — fired automatically on every page
         // via resources/js/corex-api.js (see Non-Negotiable #7).
         Route::get('/logged-user', function (Request $request) {
