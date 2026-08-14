@@ -139,6 +139,17 @@
               startDeedPoll() {
                   if (!this.deedPollUrl) return;
                   this._deedTimer = setInterval(() => this.pollDeed(), 5000);
+                  // The agent LEAVES this tab to run the CMA / TVA / deeds scrape, so the capture
+                  // lands while this tab is backgrounded — where the browser freezes or throttles the
+                  // interval to about once a minute. Without an immediate catch-up on return, the panel
+                  // sits stale until the next slow tick and the agent gives up and links the deed by
+                  // hand (Johan 2026-08-14 live blocker). Fire a poll the instant the tab is shown /
+                  // regains focus so a scrape done while away surfaces the moment they are back.
+                  this._onDeedVisible = () => { if (!document.hidden) this.pollDeed(); };
+                  document.addEventListener('visibilitychange', this._onDeedVisible);
+                  window.addEventListener('focus', this._onDeedVisible);
+                  // And poll once now, closing the gap between the server render and the first tick.
+                  this.pollDeed();
               },
               async pollDeed() {
                   if (document.hidden) return;   // don't poll a backgrounded tab
