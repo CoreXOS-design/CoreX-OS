@@ -81,21 +81,27 @@ class DealStatusBreakdownService
         $pivot1 = DB::table('deal_user')->whereIn('user_id', $userIds)
             ->whereIn('deal_id', $dr1->pluck('id'))->get()->groupBy('deal_id');
         // Commission = GROSS EX-VAT from deal_money_lines — the report's canonical commission
-        // (identical source to CommissionGrossProvider) so the status buckets RECONCILE with the
-        // "Commission (gross ex-VAT)" KPI: All-selected == the KPI total. Per-deal sum over the
-        // in-scope agents' money lines (NOT deals.total_commission, which is raw incl-VAT full-deal).
-        $mlByDeal = DB::table('deal_money_lines')->whereNull('deleted_at')
-            ->whereIn('deal_id', $dr1->pluck('id'))->whereIn('user_id', $userIds)
-            ->select('deal_id', DB::raw('SUM(agent_gross_ex_vat) as c'))
-            ->groupBy('deal_id')->pluck('c', 'deal_id');
+        // (identical source to CommissionGrossProvider) so the buckets RECONCILE with the
+        // "Commission (gross ex-VAT)" KPI. PER-AGENT commission = that agent's OWN money line
+        // (agent_gross_ex_vat); since the company rollup sums agents, using the agent's own line
+        // (not the deal's full sum) is what makes All-selected == the KPI and avoids double-counting
+        // a co-agent deal. Distinct rollup uses the deal's full money-line sum (once).
+        $mlByDealUser = [];  // [deal_id][user_id] => ex-VAT
+        $mlByDeal     = [];  // [deal_id] => ex-VAT (all in-scope agents on the deal)
+        foreach (DB::table('deal_money_lines')->whereNull('deleted_at')
+                    ->whereIn('deal_id', $dr1->pluck('id'))->whereIn('user_id', $userIds)
+                    ->get(['deal_id', 'user_id', 'agent_gross_ex_vat']) as $r) {
+            $mlByDealUser[$r->deal_id][(int) $r->user_id] = ($mlByDealUser[$r->deal_id][(int) $r->user_id] ?? 0.0) + (float) $r->agent_gross_ex_vat;
+            $mlByDeal[$r->deal_id] = ($mlByDeal[$r->deal_id] ?? 0.0) + (float) $r->agent_gross_ex_vat;
+        }
         foreach ($dr1 as $d) {
             $bucket = self::dr1Bucket($d);
-            $val = (float) ($d->property_value ?? 0); $comm = (float) ($mlByDeal[$d->id] ?? 0);
+            $val = (float) ($d->property_value ?? 0);
             $agents = [];
             if (in_array((int) $d->managed_by_user_id, $userIds, true)) $agents[(int) $d->managed_by_user_id] = true;
             foreach ($pivot1[$d->id] ?? [] as $p) $agents[(int) $p->user_id] = true;
-            foreach (array_keys($agents) as $uid) $add($perAgent[$uid], $bucket, $val, $comm);
-            if ($agents) { $key = '1:' . $d->id; if (empty($distinctSeen[$key])) { $distinctSeen[$key] = true; $add($distinct, $bucket, $val, $comm); } }
+            foreach (array_keys($agents) as $uid) $add($perAgent[$uid], $bucket, $val, (float) ($mlByDealUser[$d->id][$uid] ?? 0));
+            if ($agents) { $key = '1:' . $d->id; if (empty($distinctSeen[$key])) { $distinctSeen[$key] = true; $add($distinct, $bucket, $val, (float) ($mlByDeal[$d->id] ?? 0)); } }
         }
 
         // ---- DR2 (unlinked only — dedup) ----
