@@ -177,6 +177,14 @@ final class EntryPointController extends Controller
             ->first();
         abort_if(!$listing, 404);
 
+        // PITCHED-state route guard (Johan 2026-08-14) — if this item is already PITCHED (Create &
+        // continue committed: pitched_at set + a property), do NOT restart the linking flow (that
+        // risks duplicating the pitch). A pitched item opens the PROPERTY RECORD. Mid-scratchpad
+        // items (pitched_at null) are unaffected — the agent can still return to compose to edit.
+        if (! empty($listing->pitched_at) && ! empty($listing->matched_property_id)) {
+            return redirect()->route('corex.properties.show', ['property' => (int) $listing->matched_property_id]);
+        }
+
         // A.3.4 — prospect-collision detection. Before the temp-lock fires
         // (which would tie up the listing for the next 30 minutes), check
         // whether HFC already has a relationship to this address. The same
@@ -595,6 +603,11 @@ final class EntryPointController extends Controller
                 ->route('corex.properties.show', ['property' => $property->id])
                 ->with('warning', 'All sellers recorded as dead-ends — property and contacts saved and flagged; nothing to pitch.');
         }
+
+        // PITCHED-state (Johan 2026-08-14) — Create & continue COMMITTED: the property is created +
+        // ≥1 seller linked. Stamp pitched_at (the committed marker driving is_pitched, the deeds-
+        // capture drop, and the compose route-guard). Idempotent.
+        DB::table('prospecting_listings')->where('id', $listing->id)->whereNull('pitched_at')->update(['pitched_at' => now()]);
 
         // → INTERSTITIAL: "Property created · N contacts — pitch to sellers" (pick who to pitch).
         return redirect()

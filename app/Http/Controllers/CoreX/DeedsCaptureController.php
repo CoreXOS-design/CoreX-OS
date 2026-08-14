@@ -35,6 +35,16 @@ final class DeedsCaptureController extends Controller
             ->whereNull('deleted_at')
             ->where('capture_kind', 'deeds_capture')
             ->whereNull('promoted_to_property_id')   // un-promoted only
+            // PITCHED-state (Johan 2026-08-14) — this is a SUSPENSE screen, not a deed-import host.
+            // Drop deeds already CONSUMED by the compose flow: a deed linked to a PITCHED listing
+            // (Create & continue committed) has been worked, so it leaves the suspense screen.
+            ->whereNotExists(function ($q) {
+                $q->select(DB::raw(1))
+                    ->from('prospecting_listings as pl')
+                    ->whereColumn('pl.linked_deed_tracked_property_id', 'tracked_properties.id')
+                    ->whereNotNull('pl.pitched_at')
+                    ->whereNull('pl.deleted_at');
+            })
             ->orderByDesc('last_enriched_at')
             ->paginate(30)
             ->withQueryString();

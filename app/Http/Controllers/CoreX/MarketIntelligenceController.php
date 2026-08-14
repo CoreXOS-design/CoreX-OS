@@ -533,6 +533,11 @@ class MarketIntelligenceController extends Controller
                     'url'    => $l->portal_url,
                 ];
             })->values()->toArray();
+            // PITCHED-state (Johan 2026-08-14) — worklist row flags for cc5 to render the "Pitched"
+            // label + route the click to the property record. is_pitched = Create & continue
+            // committed (pitched_at set); property_id = the linked/created Property.
+            $primary->is_pitched  = ! empty($primary->pitched_at);
+            $primary->property_id = $primary->matched_property_id ? (int) $primary->matched_property_id : null;
             return $primary;
         })->values();
 
