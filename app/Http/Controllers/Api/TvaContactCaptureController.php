@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Contact;
 use App\Models\Prospecting\TrackedProperty;
 use App\Models\Prospecting\TvaContactCapture;
 use App\Models\Prospecting\TvaContactCaptureItem;
@@ -113,6 +114,19 @@ final class TvaContactCaptureController extends Controller
         // confident match; the ingest step enriches it, never overwrites it.
         $matchedContactId = $dupes->findDuplicatesForIdentifiers([], [], $idNumber, $agencyId)->first()?->id;
 
+        // Name enrichment (resolve-and-refresh, NO duplicate) — the TVA company
+        // DIRECTORSHIP scrape only had initials ("HA Pretorius"); the TVA PERSON
+        // scrape (this call, matched on the SAME SA ID) carries the full name
+        // ("Hendrik Pretorius"). Upgrade an initials placeholder to the full
+        // name on the matched contact; never overwrite a real existing name.
+        if ($matchedContactId && !empty($person['first_name'])) {
+            $this->refreshNameFromPersonScrape(
+                (int) $matchedContactId,
+                (string) $person['first_name'],
+                (string) ($person['surname'] ?? '')
+            );
+        }
+
         $capture = TvaContactCapture::create([
             'agency_id'            => $agencyId,
             'captured_by_user_id'  => $user->id,
@@ -149,5 +163,42 @@ final class TvaContactCaptureController extends Controller
             'matched_contact_id'   => $matchedContactId,
             'items_count'          => $capture->items()->count(),
         ];
+    }
+
+    /**
+     * Upgrade an INITIALS-shaped first name (e.g. "HA", captured from the
+     * directorship table as "PRETORIUS, HA") to the full name the TVA PERSON
+     * page carries ("Hendrik"), on the SAME contact matched by SA ID — never a
+     * duplicate, never clobbering a real existing name. Only fires when the
+     * existing first name looks like initials (1-4 capitals) or was a
+     * directorship placeholder, and the incoming name is a real (non-initials)
+     * name.
+     */
+    private function refreshNameFromPersonScrape(int $contactId, string $incomingFirst, string $incomingSurname): void
+    {
+        $incomingFirst = trim($incomingFirst);
+        if ($incomingFirst === '') {
+            return;
+        }
+        $contact = Contact::withoutGlobalScopes()->find($contactId);
+        if (! $contact) {
+            return;
+        }
+
+        $existingFirst = trim((string) $contact->first_name);
+        $existingLooksInitials = preg_match('/^\p{Lu}{1,4}$/u', $existingFirst) === 1
+            || $contact->id_number_source === 'tva_directorship';
+        $incomingLooksInitials = preg_match('/^\p{Lu}{1,4}$/u', $incomingFirst) === 1;
+
+        if (! $existingLooksInitials || $incomingLooksInitials) {
+            return; // don't overwrite a real existing name with (or from) initials
+        }
+
+        $patch = ['first_name' => $incomingFirst];
+        $incomingSurname = trim($incomingSurname);
+        if ($incomingSurname !== '' && (trim((string) $contact->last_name) === '' || $contact->id_number_source === 'tva_directorship')) {
+            $patch['last_name'] = $incomingSurname;
+        }
+        $contact->update($patch);
     }
 }

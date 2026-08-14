@@ -47,7 +47,15 @@ final class OwnerEntityClassifier
      * marker (it is also a common SA given name) — deceased estates are matched
      * as the two-word "Estate Late" / "Boedel" forms only.
      */
-    private const COMPANY_PATTERNS = [
+    /**
+     * STRONG markers — unambiguous company/CC/close-corp forms that never appear
+     * in a natural person's name. Checked BEFORE the SA-ID rule so a company
+     * whose CIPC reg was stuffed into the id field as bare digits (e.g.
+     * "1502 BEAUMONT PROP CC" / reg 201001792823) is still typed as an ENTITY,
+     * not a fake person — while a real person with a short/invalid SA ID and an
+     * ordinary name (SAUNDERS/0701) stays a person.
+     */
+    private const STRONG_COMPANY_PATTERNS = [
         '/\(PTY\)/i', '/\bPTY\b/i', '/\bLTD\b/i', '/\bLIMITED\b/i',
         '/\bEDMS\b/i', '/\bBPK\b/i', '/\bINC\b/i', '/\bNPC\b/i', '/\bSOC\b/i',
         '/\bBELEGGINGS\b/i', '/\bEIENDOMS\b/i', '/\bBOERDERY\b/i',
@@ -55,9 +63,18 @@ final class OwnerEntityClassifier
         '/\bHOME\s*OWNERS?\b/i', '/\bHOA\b/',
         '/\bINVESTMENTS?\b/i', '/\bPROPERT(?:Y|IES)\b/i', '/\bHOLDINGS?\b/i',
         '/\bENTERPRISES?\b/i', '/\bDEVELOPMENTS?\b/i', '/\bTRADING\b/i',
+        '/\sCC$/', '/\sBK$/',
+    ];
+
+    /**
+     * WEAK markers — also SA given names / surnames (a lone "Trust", "Estate"),
+     * and the CMA surname-first layout makes trailing tokens risky. These only
+     * decide a NO-ID owner, so a real person who HAS an SA ID is never re-typed
+     * by their name.
+     */
+    private const WEAK_COMPANY_PATTERNS = [
         '/\bTRUST\b/i', '/\bTESTAMENT\w*\b/i', '/\bINTER\s+VIVOS\b/i',
         '/\bESTATE\s+LATE\b/i', '/\bBOEDEL\b/i', '/\bWYLE\b/i',
-        '/\sCC$/', '/\sBK$/',
     ];
 
     /** True when the owner should be captured as a juristic ENTITY, not a person. */
@@ -70,7 +87,15 @@ final class OwnerEntityClassifier
             return true;
         }
 
-        // 2. An SA ID field is populated → NATURAL PERSON (companies never carry
+        // 2. Unambiguous company NAME marker → ENTITY, even when a bare-digit reg
+        //    sits in the id field ("1502 BEAUMONT PROP CC" / 201001792823). These
+        //    markers never appear in a natural person's name, so this safely
+        //    OVERRIDES the SA-ID rule below.
+        if (self::matchesAny($name, self::STRONG_COMPANY_PATTERNS)) {
+            return true;
+        }
+
+        // 3. An SA ID field is populated → NATURAL PERSON (companies never carry
         //    one; a short/invalid SA ID is still a person's ID — the 0701 fix).
         if ($idType === 'sa_id' && $id !== '') {
             return false;
@@ -79,23 +104,30 @@ final class OwnerEntityClassifier
             return false;
         }
 
-        // 3. No decisive ID — owner-NAME keywords decide.
+        // 4. No decisive ID — softer name markers (trusts/estates) decide too.
         if (self::looksLikeCompany($name)) {
             return true;
         }
 
-        // 4. Default: natural person.
+        // 5. Default: natural person.
         return false;
     }
 
-    /** Does the owner NAME carry an unambiguous company/CC/trust/estate marker? */
+    /** Does the owner NAME carry ANY company/CC/trust/estate marker (strong or weak)? */
     public static function looksLikeCompany(?string $name): bool
+    {
+        return self::matchesAny($name, self::STRONG_COMPANY_PATTERNS)
+            || self::matchesAny($name, self::WEAK_COMPANY_PATTERNS);
+    }
+
+    /** @param array<string> $patterns */
+    private static function matchesAny(?string $name, array $patterns): bool
     {
         $name = trim((string) $name);
         if ($name === '') {
             return false;
         }
-        foreach (self::COMPANY_PATTERNS as $pattern) {
+        foreach ($patterns as $pattern) {
             if (preg_match($pattern, $name) === 1) {
                 return true;
             }

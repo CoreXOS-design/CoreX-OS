@@ -36,6 +36,10 @@ final class OwnerEntityClassifierTest extends TestCase
             'given name Estate, no id → natural'                 => ['Estate Mahlangu', null, null, false],
 
             // ── genuine entities — must be flagged entity ──
+            // BUG 1: company name wins over a bare-digit reg stuffed in the id field.
+            'BEAUMONT bare reg in id → entity'   => ['1502 BEAUMONT PROP CC', null, '201001792823', true],
+            'BEAUMONT sa_id-flagged reg → entity' => ['1502 BEAUMONT PROP CC', 'sa_id', '201001792823', true],
+            'Pty Ltd with a bare id → entity'    => ['ACME (PTY) LTD', null, '8202025009087', true],
             'company_reg flag + CIPC no'     => ['Acme', 'company_reg', '2015/123456/07', true],
             'company_reg flag beats bare id' => ['Acme', 'company_reg', '201512345607', true],
             'CIPC-format id, no flag'        => ['Acme', null, '2015/123456/07', true],

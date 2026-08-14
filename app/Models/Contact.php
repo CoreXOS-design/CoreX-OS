@@ -591,6 +591,59 @@ class Contact extends Model
         )->using(ContactRepresentative::class)->withPivot('is_primary')->withTimestamps()->wherePivotNull('deleted_at');
     }
 
+    /**
+     * DERIVED "company properties" (property → company → director), for the
+     * entity model Johan approved (2026-08-14). Returns the properties owned by
+     * any company (entity) THIS natural-person contact represents as a director,
+     * each flagged "Company property · via {Company}" so a display can keep them
+     * DISTINCT from properties the person owns PERSONALLY (a direct
+     * contact_property link). Covers both promoted agency-stock Properties
+     * (contact_property role=owner on the company) and un-promoted tracked
+     * properties (tracked_property_owners.contact_id = the company).
+     *
+     * This is a READ-ONLY derivation — no ownership is ever written onto the
+     * director; the canonical single owner stays the company.
+     *
+     * @return \Illuminate\Support\Collection<int, array{kind:string, property:mixed, company_contact_id:int, company_name:string, flag:string}>
+     */
+    public function companyPropertiesViaDirectorship(): \Illuminate\Support\Collection
+    {
+        $out = collect();
+
+        foreach ($this->representedEntities()->get() as $company) {
+            $companyName = $company->full_name;
+            $flag = 'Company property · via ' . $companyName;
+
+            // Promoted agency-stock Properties owned by the company.
+            foreach ($company->properties()->wherePivot('role', 'owner')->get() as $property) {
+                $out->push([
+                    'kind'               => 'property',
+                    'property'           => $property,
+                    'company_contact_id' => (int) $company->id,
+                    'company_name'       => $companyName,
+                    'flag'               => $flag,
+                ]);
+            }
+
+            // Un-promoted tracked properties owned by the company (CMA/deeds).
+            $tracked = \App\Models\Prospecting\TrackedProperty::withoutGlobalScopes()
+                ->whereNull('deleted_at')
+                ->whereHas('owners', fn ($q) => $q->where('contact_id', $company->id))
+                ->get();
+            foreach ($tracked as $tp) {
+                $out->push([
+                    'kind'               => 'tracked_property',
+                    'property'           => $tp,
+                    'company_contact_id' => (int) $company->id,
+                    'company_name'       => $companyName,
+                    'flag'               => $flag,
+                ]);
+            }
+        }
+
+        return $out->values();
+    }
+
     public function getInitialsAttribute(): string
     {
         return strtoupper(substr($this->first_name, 0, 1) . substr($this->last_name, 0, 1));
