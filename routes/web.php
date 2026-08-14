@@ -2625,6 +2625,20 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                 [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'ingestTvaForProspecting'])
                 ->where('prospectingListingId', '\d+')
                 ->name('tva-ingest-prospecting');
+            // Compose redesign — click-to-make-primary, per-seller "No contact details", and the
+            // post-continue interstitial ("Property created · N contacts — pitch to sellers").
+            Route::post('/prospecting/{prospectingListingId}/outreach/sellers/primary',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'setPrimarySellerForProspecting'])
+                ->where('prospectingListingId', '\d+')
+                ->name('primary-seller-prospecting');
+            Route::post('/prospecting/{prospectingListingId}/outreach/sellers/dead-end',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'markSellerDeadEndForProspecting'])
+                ->where('prospectingListingId', '\d+')
+                ->name('dead-end-seller-prospecting');
+            Route::get('/prospecting/{prospectingListingId}/outreach/pitch-ready',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'pitchReadyForProspecting'])
+                ->where('prospectingListingId', '\d+')
+                ->name('pitch-ready-prospecting');
 
             // Map Workspace Phase B (Fix 2+3) — T-pin WhatsApp / Pitch flow.
             // Mirrors the prospecting entry point but the source is a

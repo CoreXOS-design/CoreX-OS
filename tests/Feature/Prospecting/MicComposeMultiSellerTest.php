@@ -129,6 +129,100 @@ final class MicComposeMultiSellerTest extends TestCase
         $this->assertDatabaseMissing('contact_phones', ['contact_id' => $stranger->id, 'phone' => '0820000000']);
     }
 
+    // ── Compose redesign: working-set gate + primary + interstitial ──────
+
+    /** Continue passes on LINKED sellers with numbers even with an EMPTY form, and lands on the interstitial. */
+    public function test_continue_uses_linked_sellers_with_numbers_and_empty_form(): void
+    {
+        [$agencyId, $userId] = $this->seedAgency();
+        $listingId = $this->seedListing($agencyId, '1486 Beaumont Drive');
+        $link = route('seller-outreach.entry.link-seller-prospecting', ['prospectingListingId' => $listingId]);
+
+        $this->actingAs(User::find($userId))->postJson($link, ['first_name' => 'Marcelle', 'last_name' => 'Petersen', 'id_number' => '8001015009087'])->assertOk();
+        $this->actingAs(User::find($userId))->postJson($link, ['first_name' => 'Dudley', 'last_name' => 'Petersen', 'id_number' => '9001010001088'])->assertOk();
+        $propertyId = (int) DB::table('prospecting_listings')->where('id', $listingId)->value('matched_property_id');
+
+        // Each seller gets a number (as if ticked from TVA onto its own contact).
+        foreach (['8001015009087' => '0820000001', '9001010001088' => '0820000002'] as $idn => $num) {
+            Contact::withoutGlobalScopes()->where('id_number', $idn)->first()->phones()->create(['agency_id' => $agencyId, 'phone' => $num, 'label' => 'TVA']);
+        }
+
+        // Create & continue with an EMPTY form — the old phone/email gate is gone.
+        $this->actingAs(User::find($userId))
+            ->post(route('seller-outreach.entry.store-from-prospecting', ['prospectingListingId' => $listingId]), [])
+            ->assertRedirect(route('seller-outreach.entry.pitch-ready', ['prospectingListingId' => $listingId]));
+
+        $this->assertSame(2, DB::table('contact_property')->where('property_id', $propertyId)->where('role', 'seller')->count());
+        $this->assertSame(1, DB::table('contact_property')->where('property_id', $propertyId)->where('role', 'seller')->where('is_primary', true)->count());
+    }
+
+    /** Continue is BLOCKED (back with error) when a linked seller has no number and no dead-end. */
+    public function test_continue_blocks_a_seller_with_no_number_and_no_dead_end(): void
+    {
+        [$agencyId, $userId] = $this->seedAgency();
+        $listingId = $this->seedListing($agencyId, '1486 Beaumont Drive');
+        $this->actingAs(User::find($userId))->postJson(route('seller-outreach.entry.link-seller-prospecting', ['prospectingListingId' => $listingId]),
+            ['first_name' => 'Marcelle', 'last_name' => 'Petersen', 'id_number' => '8001015009087'])->assertOk();
+
+        $this->actingAs(User::find($userId))
+            ->post(route('seller-outreach.entry.store-from-prospecting', ['prospectingListingId' => $listingId]), [])
+            ->assertRedirect(route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $listingId]))
+            ->assertSessionHas('error');
+    }
+
+    /** A per-seller "No contact details" acknowledgement lets continue through (seller has nothing to reach). */
+    public function test_per_seller_dead_end_unblocks_continue(): void
+    {
+        [$agencyId, $userId] = $this->seedAgency();
+        $listingId = $this->seedListing($agencyId, '1486 Beaumont Drive');
+        $this->actingAs(User::find($userId))->postJson(route('seller-outreach.entry.link-seller-prospecting', ['prospectingListingId' => $listingId]),
+            ['first_name' => 'Marcelle', 'last_name' => 'Petersen', 'id_number' => '8001015009087'])->assertOk();
+        $contact = Contact::withoutGlobalScopes()->where('id_number', '8001015009087')->first();
+
+        // Mark the seller "No contact details".
+        $this->actingAs(User::find($userId))->postJson(route('seller-outreach.entry.dead-end-seller-prospecting', ['prospectingListingId' => $listingId]),
+            ['contact_id' => $contact->id, 'reason' => 'not_in_tva'])->assertOk();
+        $this->assertDatabaseHas('contact_dead_end_flags', ['contact_id' => $contact->id, 'reason' => 'not_in_tva']);
+
+        // Continue no longer blocks — all sellers dead-end → lands on the property (nothing to pitch).
+        $this->actingAs(User::find($userId))
+            ->post(route('seller-outreach.entry.store-from-prospecting', ['prospectingListingId' => $listingId]), [])
+            ->assertRedirectContains('/properties/');
+    }
+
+    /** Click-to-make-primary persists on contact_property. */
+    public function test_set_primary_persists(): void
+    {
+        [$agencyId, $userId] = $this->seedAgency();
+        $listingId = $this->seedListing($agencyId, '1486 Beaumont Drive');
+        $link = route('seller-outreach.entry.link-seller-prospecting', ['prospectingListingId' => $listingId]);
+        $this->actingAs(User::find($userId))->postJson($link, ['first_name' => 'Marcelle', 'last_name' => 'Petersen', 'id_number' => '8001015009087'])->assertOk();
+        $this->actingAs(User::find($userId))->postJson($link, ['first_name' => 'Dudley', 'last_name' => 'Petersen', 'id_number' => '9001010001088'])->assertOk();
+
+        $propertyId = (int) DB::table('prospecting_listings')->where('id', $listingId)->value('matched_property_id');
+        $dudley = Contact::withoutGlobalScopes()->where('id_number', '9001010001088')->first();
+
+        $this->actingAs(User::find($userId))->postJson(route('seller-outreach.entry.primary-seller-prospecting', ['prospectingListingId' => $listingId]),
+            ['contact_id' => $dudley->id])->assertOk();
+
+        $this->assertSame(1, DB::table('contact_property')->where('property_id', $propertyId)->where('is_primary', true)->count());
+        $this->assertTrue((bool) DB::table('contact_property')->where('property_id', $propertyId)->where('contact_id', $dudley->id)->value('is_primary'));
+    }
+
+    /** Single-seller case still flows cleanly to the interstitial (with a number). */
+    public function test_single_seller_still_flows_to_interstitial(): void
+    {
+        [$agencyId, $userId] = $this->seedAgency();
+        $listingId = $this->seedListing($agencyId, '1486 Beaumont Drive');
+        $this->actingAs(User::find($userId))->postJson(route('seller-outreach.entry.link-seller-prospecting', ['prospectingListingId' => $listingId]),
+            ['first_name' => 'Marcelle', 'last_name' => 'Petersen', 'id_number' => '8001015009087'])->assertOk();
+        Contact::withoutGlobalScopes()->where('id_number', '8001015009087')->first()->phones()->create(['agency_id' => $agencyId, 'phone' => '0820000009', 'label' => 'TVA']);
+
+        $this->actingAs(User::find($userId))
+            ->post(route('seller-outreach.entry.store-from-prospecting', ['prospectingListingId' => $listingId]), [])
+            ->assertRedirect(route('seller-outreach.entry.pitch-ready', ['prospectingListingId' => $listingId]));
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     /** @return array{0:int,1:int} */

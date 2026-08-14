@@ -247,6 +247,8 @@ final class EntryPointController extends Controller
             'linkSellerUrl'  => route('seller-outreach.entry.link-seller-prospecting', ['prospectingListingId' => $listing->id]),
             'unlinkSellerUrl' => route('seller-outreach.entry.unlink-seller-prospecting', ['prospectingListingId' => $listing->id]),
             'tvaIngestUrl'   => route('seller-outreach.entry.tva-ingest-prospecting', ['prospectingListingId' => $listing->id]),
+            'primarySellerUrl' => route('seller-outreach.entry.primary-seller-prospecting', ['prospectingListingId' => $listing->id]),
+            'deadEndSellerUrl' => route('seller-outreach.entry.dead-end-seller-prospecting', ['prospectingListingId' => $listing->id]),
         ]);
     }
 
@@ -293,46 +295,43 @@ final class EntryPointController extends Controller
             $captureAddress = $this->composeAddress($sa);
         }
 
-        // The agent may either PICK an existing contact (search) or CAPTURE a new
-        // one. A chosen contact_id short-circuits the new-contact validation.
-        // Part B — the deliberate "No contact details available" dead-end override (only in the
-        // create-new path; a picked existing contact already has a record).
+        // Compose redesign (Johan 2026-08-14) — the WORKING SET of linked sellers is the source of
+        // truth, not a single form. The manual create-new form is now OPTIONAL: it runs only when
+        // the agent actually picked an existing contact or typed a new one. Deed sellers are added
+        // via "+ Link as seller" (contact_property role=seller) before this submit. The old
+        // "provide a phone or email" hard gate is replaced by the working-set gate below (a linked
+        // seller with a ticked TVA number satisfies "continue" — never a retype).
         $isDeadEnd     = false;
         $deadEndReason = null;
+        $existing      = null;
+        $idNumber      = null;
+        $validated     = [];
+        $isNew         = false;
+        $formEngaged   = false;
+
+        $linkedPropertyId = ! empty($listing->matched_property_id) ? (int) $listing->matched_property_id : null;
+        $hasLinkedSellers = $linkedPropertyId !== null && DB::table('contact_property')
+            ->where('property_id', $linkedPropertyId)->where('role', 'seller')->exists();
 
         $linked = $this->resolveLinkedExistingContact($request, $agencyId);
         if ($linked !== null) {
-            $validated = [];
-            $idNumber  = null;
-            $existing  = $linked;
-            $isNew     = false;
-        } else {
+            $existing = $linked;
+            $formEngaged = true;
+        } elseif ($request->filled('first_name')) {
+            $formEngaged = true;
             $validated = $request->validate([
                 'first_name' => 'required|string|max:100',
                 'last_name'  => 'nullable|string|max:100',
                 'phone'      => 'nullable|string|max:30',
                 'email'      => 'nullable|email|max:255',
-                // A.2.5 — optional SA ID number with format + checksum validation.
                 'id_number'  => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
-                // Part B — deliberate dead-end override + its reason (agent picks; default not_in_tva).
                 'no_contact_details' => 'nullable|boolean',
                 'dead_end_reason'    => 'nullable|string|in:opted_out,not_in_tva,no_record_found',
             ]);
-
             $idNumber = isset($validated['id_number']) ? preg_replace('/\s+/', '', (string) $validated['id_number']) : null;
 
-            // Part B — the tick only makes sense as a dead-end path: if a phone or email IS
-            // entered, real details win and the tick is ignored. When it genuinely applies, the
-            // phone/email requirement is lifted, but a name + SA ID (from the deed) are required so
-            // the contact is still ID-keyed and dedupes onto the deed owner — never an orphan ghost.
-            $isDeadEnd = $request->boolean('no_contact_details')
-                && empty($validated['phone']) && empty($validated['email']);
-
-            if (! $isDeadEnd && empty($validated['phone']) && empty($validated['email'])) {
-                return back()
-                    ->withErrors(['contact_required' => 'Provide a phone or email so we can dedupe and reach the seller.'])
-                    ->withInput();
-            }
+            // Dead-end tick still means "nothing to enter": needs a name + SA ID (still ID-keyed).
+            $isDeadEnd = $request->boolean('no_contact_details') && empty($validated['phone']) && empty($validated['email']);
             if ($isDeadEnd && empty($idNumber)) {
                 return back()
                     ->withErrors(['contact_required' => 'A dead-end contact needs the owner’s name and SA ID number from the deed.'])
@@ -340,32 +339,25 @@ final class EntryPointController extends Controller
             }
 
             if ($isDeadEnd) {
-                // Resolve-or-create on the SA ID: the deed owner is already an id_number-keyed
-                // contact, so this dedupes onto that same record (never a duplicate). No blocking
-                // duplicate panel — the ID is the authoritative identity here.
                 $deadEndReason = \App\Models\ContactDeadEndFlag::normaliseReason($validated['dead_end_reason'] ?? null);
                 $existing = app(\App\Services\ContactDuplicateService::class)
-                    ->findDuplicatesForIdentifiers([], [], $idNumber, $agencyId)
-                    ->first();
+                    ->findDuplicatesForIdentifiers([], [], $idNumber, $agencyId)->first();
             } else {
-                // Blocking duplicate check AT ADD TIME (parity with the Contacts
-                // screen and the DR2 party-picker). Replaces the old silent
-                // findExistingContact() match-or-create, whose only signal was a
-                // "Linked to existing contact" toast one screen later on the
-                // composer — the deferral behind the duplicate-contact report.
                 $gate = $this->duplicateGate(
-                    $request,
-                    $agencyId,
-                    $validated,
-                    $idNumber,
+                    $request, $agencyId, $validated, $idNumber,
                     route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $prospectingListingId]),
                 );
                 if ($gate instanceof \Illuminate\Http\RedirectResponse) {
                     return $gate;   // blocking duplicate panel — back to the capture page
                 }
-                $existing = $gate;  // Contact (auto_link match) or null (create new)
+                $existing = $gate;
             }
             $isNew = $existing === null;
+        } elseif (! $hasLinkedSellers) {
+            // No manual entry and no linked sellers → nothing to continue with.
+            return back()
+                ->withErrors(['contact_required' => 'Link at least one seller from the deed (“+ Link as seller”), or capture one, before continuing.'])
+                ->withInput();
         }
 
         // Johan's ruling (2026-08-12, the "14 Chesapeake" incident) — the ONLY
@@ -382,49 +374,43 @@ final class EntryPointController extends Controller
         // any case") — this only marks the outcome (withdrawn + notes) and tells
         // the agent immediately instead of leaving them to discover it later on
         // the composer screen.
-        $isOptedOut = $existing !== null && $existing->communicationStatus() !== Contact::COMM_OPTED_IN;
+        $isOptedOut = $formEngaged && $existing !== null && $existing->communicationStatus() !== Contact::COMM_OPTED_IN;
 
-        $result = DB::transaction(function () use ($request, $agencyId, $listing, $validated, $existing, $idNumber, $captureAddress, $structuredAddress, $isOptedOut, $isDeadEnd, $deadEndReason) {
+        $result = DB::transaction(function () use ($request, $agencyId, $listing, $validated, $existing, $idNumber, $captureAddress, $structuredAddress, $isOptedOut, $isDeadEnd, $deadEndReason, $formEngaged) {
             // Branch context is mandatory on Contact rows in CoreX schema.
             $branchId = $request->user()->branch_id;
 
-            // contacts.last_name + contacts.phone are NOT NULL in the schema —
-            // they must reach Contact::create even when empty, so we merge the
-            // NOT-NULL columns AFTER the array_filter that strips empty values
-            // from the optional ones. Same shape as storeFromTrackedProperty
-            // below. The A.2.5 commit (ea2b0295) introduced the array_filter
-            // wrapper to keep id_number+audit fields out when empty, and in
-            // doing so accidentally stripped last_name='' and phone=null,
-            // causing SQL 1364 on every Pitch Now submit where the agent
-            // skipped last_name or used email-only contact.
-            $contact = $existing ?: Contact::create(array_merge(
-                array_filter([
-                    'agency_id'             => $agencyId,
-                    'branch_id'             => $branchId,
-                    'first_name'            => $validated['first_name'],
-                    'email'                 => $validated['email'] ?? null,
-                    'created_by_user_id'    => $request->user()->id,
-                    // A.2.5 — POPIA audit. captured_at + source are only set when
-                    // the agent actually filled in the ID; null otherwise.
-                    'id_number'             => $idNumber,
-                    'id_number_captured_at' => $idNumber ? now() : null,
-                    'id_number_source'      => $idNumber ? 'seller_outreach_entry' : null,
-                ], static fn ($v) => $v !== null && $v !== ''),
-                [
-                    'last_name' => $validated['last_name'] ?? '',
-                    'phone'     => $validated['phone'] ?? '',
-                ],
-            ));
+            // The manual form contact is OPTIONAL now — created only when the agent picked/typed one.
+            // Deed sellers are already linked (contact_property role=seller) via "+ Link as seller".
+            $contact = null;
+            if ($formEngaged) {
+                // contacts.last_name + contacts.phone are NOT NULL — merge the NOT-NULL columns
+                // AFTER the array_filter that strips empty optional ones (SQL 1364 guard, ea2b0295).
+                $contact = $existing ?: Contact::create(array_merge(
+                    array_filter([
+                        'agency_id'             => $agencyId,
+                        'branch_id'             => $branchId,
+                        'first_name'            => $validated['first_name'],
+                        'email'                 => $validated['email'] ?? null,
+                        'created_by_user_id'    => $request->user()->id,
+                        'id_number'             => $idNumber,
+                        'id_number_captured_at' => $idNumber ? now() : null,
+                        'id_number_source'      => $idNumber ? 'seller_outreach_entry' : null,
+                    ], static fn ($v) => $v !== null && $v !== ''),
+                    [
+                        'last_name' => $validated['last_name'] ?? '',
+                        'phone'     => $validated['phone'] ?? '',
+                    ],
+                ));
 
-            // If the contact ALREADY existed (deduped) but the agent supplied
-            // an ID at this entry point, capture-fill it on the existing row
-            // when previously absent — never overwrite.
-            if ($existing && $idNumber && empty($existing->id_number)) {
-                $existing->update([
-                    'id_number'             => $idNumber,
-                    'id_number_captured_at' => now(),
-                    'id_number_source'      => 'seller_outreach_entry',
-                ]);
+                // Capture-fill an ID onto an existing deduped contact when previously absent.
+                if ($existing && $idNumber && empty($existing->id_number)) {
+                    $existing->update([
+                        'id_number'             => $idNumber,
+                        'id_number_captured_at' => now(),
+                        'id_number_source'      => 'seller_outreach_entry',
+                    ]);
+                }
             }
 
             $property = $this->promoteListingToProperty($agencyId, $listing, $request->user(), $captureAddress, $structuredAddress);
@@ -510,19 +496,14 @@ final class EntryPointController extends Controller
                 ]);
             }
 
-            // Link contact ↔ property via the contact_property pivot with role=seller.
-            // Idempotent — re-running the flow for the same pair updates role only.
-            DB::table('contact_property')->updateOrInsert(
-                [
-                    'contact_id'  => $contact->id,
-                    'property_id' => $property->id,
-                ],
-                [
-                    'role'       => 'seller',
-                    'updated_at' => now(),
-                    'created_at' => now(),
-                ]
-            );
+            // Link the FORM contact (when engaged) ↔ property as seller. Deed sellers are already
+            // linked via "+ Link as seller". Idempotent.
+            if ($contact) {
+                DB::table('contact_property')->updateOrInsert(
+                    ['contact_id' => $contact->id, 'property_id' => $property->id],
+                    ['role' => 'seller', 'updated_at' => now(), 'created_at' => now()],
+                );
+            }
 
             // Close the loop: mark the listing as matched to the promoted Property
             // AND link it to the TrackedProperty (so the listing → TP → property chain is whole).
@@ -539,7 +520,7 @@ final class EntryPointController extends Controller
             // Part B — persist the dead-end marker on the ONE canonical contact so any future
             // agent immediately sees it's been chased with nothing contactable. One active flag
             // per contact (updateOrCreate), plus a note for the compounding human history.
-            if ($isDeadEnd) {
+            if ($isDeadEnd && $contact) {
                 \App\Models\ContactDeadEndFlag::updateOrCreate(
                     ['contact_id' => $contact->id],
                     [
@@ -565,62 +546,57 @@ final class EntryPointController extends Controller
         [$contact, $property] = $result;
         $property->refresh(); // pick up the withdrawn-status write made inside the transaction
 
-        $name = trim($contact->first_name . ' ' . (string) $contact->last_name);
+        $svc = app(\App\Services\Prospecting\ComposeSellerService::class);
+        $svc->ensurePrimaryDefault((int) $property->id);
 
-        // Pitch lock: capturing + linking a contact via "Pitch now" PERMANENTLY
-        // claims this MIC listing to the agent — it drops out of the default
-        // canvassing pool (MarketIntelligenceController::work hides active
-        // pitched claims) and is exempt from the 48h no-feedback expiry
-        // (ProspectingClaim::isExpired). Consuming the temp lock now (rather than
-        // only at composer-send) is what makes the lock stick the moment the
-        // contact is linked. Failure-isolated: a claim hiccup must never break
-        // the contact/property work or the composer redirect. The later
-        // composer-send call to the same method is idempotent.
+        // WORKING-SET GATE (redesign) — replaces the single-form phone/email gate. Every linked
+        // seller must be reachable (a ticked TVA / typed number or email) OR acknowledged "No
+        // contact details". Data already ticked is NEVER retyped.
+        $needing = $svc->sellersNeedingContact($agencyId, (int) $property->id);
+        if (! empty($needing)) {
+            return redirect()
+                ->route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $listing->id])
+                ->with('error', 'Still need a number (tick a TVA number) or “No contact details” for: ' . implode(', ', $needing) . '.');
+        }
+
+        $sellers = $svc->linkedSellers($agencyId, (int) $property->id);
+        $primary = collect($sellers)->firstWhere('is_primary', true) ?? ($sellers[0] ?? null);
+        $primaryName = $primary ? (trim(($primary['first_name'] ?? '') . ' ' . ($primary['last_name'] ?? '')) ?: 'seller') : 'seller';
+
+        // Consume the durable Pitch-Now claim (idempotent with FIX 1's claimOnPitchNow).
         try {
             app(ProspectingClaimService::class)->consumeLockAsPermanentClaim(
                 listingId:    (int) $listing->id,
                 userId:       (int) $request->user()->id,
                 agencyId:     $agencyId,
-                pitchContext: ['recipient_name' => $name],
+                pitchContext: ['recipient_name' => $primaryName],
             );
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('Pitch-lock claim from prospecting capture failed', [
                 'listing_id' => $listing->id,
-                'contact_id' => $contact->id,
                 'error'      => $e->getMessage(),
             ]);
         }
 
-        // Opted-out outcome: show the agent immediately rather than letting them
-        // land on a compose screen for someone who was just marked uncontactable.
-        // The property/claim/link all still happened exactly as normal above —
-        // only the destination and the message differ.
+        // Opted-out (a form-picked contact) — hard dead outcome; land on the property.
         if ($isOptedOut) {
             return redirect()
                 ->route('corex.properties.show', ['property' => $property->id])
-                ->with('warning', "Linked to existing contact: {$name} — {$name} has opted out of marketing. "
-                    . 'This property has been marked Withdrawn and a note was added to both records.');
+                ->with('warning', "{$primaryName} has opted out of marketing — this property was marked Withdrawn.");
         }
 
-        // Part B — dead-end outcome: there is nothing to send (no phone/email), so land on the
-        // property with the record + flag saved rather than a composer that can't compose.
-        if ($isDeadEnd) {
-            $reasonLabel = \App\Models\ContactDeadEndFlag::reasonLabel($deadEndReason);
-
+        // Every seller a dead-end → nothing to pitch; land on the property (records + flags saved).
+        $contactableCount = collect($sellers)->where('contactable', true)->count();
+        if ($contactableCount === 0) {
             return redirect()
                 ->route('corex.properties.show', ['property' => $property->id])
-                ->with('warning', "Recorded {$name} as a dead-end — no contact details available ({$reasonLabel}). "
-                    . 'The property and contact were saved and flagged; there is nothing to send.');
+                ->with('warning', 'All sellers recorded as dead-ends — property and contacts saved and flagged; nothing to pitch.');
         }
 
+        // → INTERSTITIAL: "Property created · N contacts — pitch to sellers" (pick who to pitch).
         return redirect()
-            ->route('seller-outreach.composer.show', [
-                'contact'     => $contact->id,
-                'property_id' => $property->id,
-            ])
-            ->with('status', $isNew
-                ? "Created new contact: {$name}"
-                : "Linked to existing contact: {$name}");
+            ->route('seller-outreach.entry.pitch-ready', ['prospectingListingId' => $listing->id])
+            ->with('status', count($sellers) . ' seller' . (count($sellers) > 1 ? 's' : '') . ' ready — pick who to pitch.');
     }
 
     /**
@@ -1377,6 +1353,84 @@ final class EntryPointController extends Controller
         $svc->ingestPickedNumbers($agencyId, $contact, array_map('intval', $data['item_ids']));
 
         return response()->json($svc->payload($agencyId, $listing));
+    }
+
+    /** Compose redesign — click-to-make-primary a seller on the property. */
+    public function setPrimarySellerForProspecting(Request $request, int $prospectingListingId)
+    {
+        $agencyId = $this->resolveAgencyId($request);
+        $listing = DB::table('prospecting_listings')
+            ->where('id', $prospectingListingId)->where('agency_id', $agencyId)->whereNull('deleted_at')->first();
+        abort_if(! $listing, 404);
+
+        $data = $request->validate(['contact_id' => 'required|integer']);
+        $svc = app(\App\Services\Prospecting\ComposeSellerService::class);
+
+        if (! empty($listing->matched_property_id)) {
+            $isSeller = DB::table('contact_property')
+                ->where('property_id', (int) $listing->matched_property_id)
+                ->where('contact_id', (int) $data['contact_id'])->where('role', 'seller')->exists();
+            abort_unless($isSeller, 422, 'That contact is not a seller on this property.');
+            $svc->markPrimary((int) $listing->matched_property_id, (int) $data['contact_id']);
+        }
+
+        return response()->json($svc->payload($agencyId, $listing));
+    }
+
+    /** Compose redesign — per-seller "No contact details" dead-end (or clear it). */
+    public function markSellerDeadEndForProspecting(Request $request, int $prospectingListingId)
+    {
+        $agencyId = $this->resolveAgencyId($request);
+        $listing = DB::table('prospecting_listings')
+            ->where('id', $prospectingListingId)->where('agency_id', $agencyId)->whereNull('deleted_at')->first();
+        abort_if(! $listing, 404);
+
+        $data = $request->validate([
+            'contact_id' => 'required|integer',
+            'reason'     => 'nullable|string|in:opted_out,not_in_tva,no_record_found',
+            'clear'      => 'nullable|boolean',
+        ]);
+
+        abort_if(empty($listing->matched_property_id), 422, 'Link the seller to the property first.');
+        $isSeller = DB::table('contact_property')
+            ->where('property_id', (int) $listing->matched_property_id)
+            ->where('contact_id', (int) $data['contact_id'])->where('role', 'seller')->exists();
+        abort_unless($isSeller, 422, 'That contact is not a seller on this property.');
+
+        $svc = app(\App\Services\Prospecting\ComposeSellerService::class);
+        if ($request->boolean('clear')) {
+            $svc->clearSellerDeadEnd($agencyId, (int) $data['contact_id']);
+        } else {
+            $svc->markSellerDeadEnd($agencyId, (int) $data['contact_id'], (int) $listing->matched_property_id, $data['reason'] ?? 'not_in_tva', (int) $request->user()->id);
+        }
+
+        return response()->json($svc->payload($agencyId, $listing));
+    }
+
+    /**
+     * Compose redesign — the post-continue interstitial. "Property created · N contacts — pitch to
+     * sellers": lists the linked sellers (primary badged), each clickable → the composer on THAT
+     * contact. Replaces dropping straight into a single composer.
+     */
+    public function pitchReadyForProspecting(Request $request, int $prospectingListingId)
+    {
+        $agencyId = $this->resolveAgencyId($request);
+        $listing = DB::table('prospecting_listings')
+            ->where('id', $prospectingListingId)->where('agency_id', $agencyId)->whereNull('deleted_at')->first();
+        abort_if(! $listing, 404);
+        abort_if(empty($listing->matched_property_id), 404);
+
+        $property = Property::withoutGlobalScopes()
+            ->where('agency_id', $agencyId)->find((int) $listing->matched_property_id);
+        abort_if($property === null, 404);
+
+        $sellers = app(\App\Services\Prospecting\ComposeSellerService::class)
+            ->linkedSellers($agencyId, (int) $property->id);
+
+        return view('seller-outreach.entry.pitch-ready', [
+            'property' => $property,
+            'sellers'  => $sellers,
+        ]);
     }
 
     /**

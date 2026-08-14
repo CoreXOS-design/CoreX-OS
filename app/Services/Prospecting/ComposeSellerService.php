@@ -59,32 +59,107 @@ class ComposeSellerService
      */
     public function linkedSellers(int $agencyId, int $propertyId): array
     {
-        $contactIds = DB::table('contact_property')
+        $links = DB::table('contact_property')
             ->where('property_id', $propertyId)
             ->where('role', 'seller')
-            ->pluck('contact_id')
-            ->map(fn ($v) => (int) $v)
-            ->all();
+            ->get(['contact_id', 'is_primary'])
+            ->keyBy('contact_id');
 
-        if ($contactIds === []) {
+        if ($links->isEmpty()) {
             return [];
         }
 
         $contacts = Contact::withoutGlobalScope(ContactScope::class)
             ->where('agency_id', $agencyId)
-            ->whereIn('id', $contactIds)
+            ->whereIn('id', $links->keys()->all())
             ->with(['phones', 'emails', 'deadEndFlag'])
             ->get();
 
-        return $contacts->map(fn (Contact $c) => [
-            'contact_id' => (int) $c->id,
-            'first_name' => (string) ($c->first_name ?? ''),
-            'last_name'  => (string) ($c->last_name ?? ''),
-            'id_number'  => $c->id_number !== null && $c->id_number !== '' ? (string) $c->id_number : null,
-            'phones'     => $c->phones->map(fn ($p) => ['value' => $p->phone, 'label' => $p->label])->values()->all(),
-            'emails'     => $c->emails->map(fn ($e) => ['value' => $e->email, 'label' => $e->label])->values()->all(),
-            'dead_end'   => $c->deadEndFlag ? ['reason' => $c->deadEndFlag->reason, 'label' => ContactDeadEndFlag::reasonLabel($c->deadEndFlag->reason)] : null,
-        ])->values()->all();
+        return $contacts->map(function (Contact $c) use ($links) {
+            // Contactable = the seller has at least one way to reach them (a ticked TVA/typed number
+            // or email). This — not the empty single-form input — is the redesigned "continue" gate.
+            $contactable = $c->phones->isNotEmpty() || $c->emails->isNotEmpty()
+                || trim((string) $c->phone) !== '' || trim((string) $c->email) !== '';
+
+            return [
+                'contact_id'  => (int) $c->id,
+                'first_name'  => (string) ($c->first_name ?? ''),
+                'last_name'   => (string) ($c->last_name ?? ''),
+                'id_number'   => $c->id_number !== null && $c->id_number !== '' ? (string) $c->id_number : null,
+                'phones'      => $c->phones->map(fn ($p) => ['value' => $p->phone, 'label' => $p->label])->values()->all(),
+                'emails'      => $c->emails->map(fn ($e) => ['value' => $e->email, 'label' => $e->label])->values()->all(),
+                'dead_end'    => $c->deadEndFlag ? ['reason' => $c->deadEndFlag->reason, 'label' => ContactDeadEndFlag::reasonLabel($c->deadEndFlag->reason)] : null,
+                'is_primary'  => (bool) ($links[$c->id]->is_primary ?? false),
+                'contactable' => $contactable,
+            ];
+        })->sortByDesc('is_primary')->values()->all();
+    }
+
+    /** Make ONE seller the primary for the property (others become secondary). */
+    public function markPrimary(int $propertyId, int $contactId): void
+    {
+        DB::transaction(function () use ($propertyId, $contactId) {
+            DB::table('contact_property')->where('property_id', $propertyId)->where('role', 'seller')
+                ->update(['is_primary' => false, 'updated_at' => now()]);
+            DB::table('contact_property')->where('property_id', $propertyId)->where('role', 'seller')
+                ->where('contact_id', $contactId)
+                ->update(['is_primary' => true, 'updated_at' => now()]);
+        });
+    }
+
+    /** Default the primary to the first-linked seller when none is designated yet. */
+    public function ensurePrimaryDefault(int $propertyId): void
+    {
+        $hasPrimary = DB::table('contact_property')->where('property_id', $propertyId)->where('role', 'seller')
+            ->where('is_primary', true)->exists();
+        if ($hasPrimary) {
+            return;
+        }
+        $firstId = DB::table('contact_property')->where('property_id', $propertyId)->where('role', 'seller')
+            ->orderBy('id')->value('contact_id');
+        if ($firstId) {
+            $this->markPrimary($propertyId, (int) $firstId);
+        }
+    }
+
+    /** Per-seller "No contact details" dead-end acknowledgement (a seller with nothing to reach). */
+    public function markSellerDeadEnd(int $agencyId, int $contactId, ?int $propertyId, string $reason, int $userId): void
+    {
+        ContactDeadEndFlag::updateOrCreate(
+            ['contact_id' => $contactId],
+            [
+                'agency_id'          => $agencyId,
+                'property_id'        => $propertyId,
+                'reason'             => ContactDeadEndFlag::normaliseReason($reason),
+                'source'             => 'seller_outreach',
+                'created_by_user_id' => $userId,
+            ],
+        );
+    }
+
+    /** Clear a dead-end flag (the seller became contactable, e.g. a number was ticked). */
+    public function clearSellerDeadEnd(int $agencyId, int $contactId): void
+    {
+        ContactDeadEndFlag::withoutGlobalScopes()
+            ->where('agency_id', $agencyId)->where('contact_id', $contactId)->delete();
+    }
+
+    /**
+     * The redesigned continue gate: seller names that are NOT reachable and NOT dead-end-flagged.
+     * Empty array → every linked seller is either contactable or acknowledged as a dead end.
+     *
+     * @return array<int,string>
+     */
+    public function sellersNeedingContact(int $agencyId, int $propertyId): array
+    {
+        $names = [];
+        foreach ($this->linkedSellers($agencyId, $propertyId) as $s) {
+            if (! $s['contactable'] && empty($s['dead_end'])) {
+                $names[] = trim($s['first_name'] . ' ' . $s['last_name']) ?: ('Contact #' . $s['contact_id']);
+            }
+        }
+
+        return $names;
     }
 
     /**
@@ -234,6 +309,11 @@ class ComposeSellerService
         }
         if ($addedEmails) {
             $this->identifiers->reconcileEmails($contact->id);
+        }
+
+        // A seller that now has a number is no longer a dead end — clear any acknowledgement.
+        if ($added > 0) {
+            $this->clearSellerDeadEnd($agencyId, (int) $contact->id);
         }
 
         return $added;

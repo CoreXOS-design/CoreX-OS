@@ -162,8 +162,34 @@
               linkSellerUrl: @js($linkSellerUrl ?? null),
               unlinkSellerUrl: @js($unlinkSellerUrl ?? null),
               tvaIngestUrl: @js($tvaIngestUrl ?? null),
+              primarySellerUrl: @js($primarySellerUrl ?? null),
+              deadEndSellerUrl: @js($deadEndSellerUrl ?? null),
               tvaPicks: {},
               sellerBusy: false,
+              async setPrimary(contactId) {
+                  if (!this.primarySellerUrl || this.sellerBusy) return;
+                  this.sellerBusy = true;
+                  try {
+                      const res = await fetch(this.primarySellerUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify({ contact_id: contactId }) });
+                      if (res.ok) this.applySellerState(await res.json());
+                  } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
+              },
+              async markSellerDeadEnd(contactId, reason) {
+                  if (!this.deadEndSellerUrl || this.sellerBusy) return;
+                  this.sellerBusy = true;
+                  try {
+                      const res = await fetch(this.deadEndSellerUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify({ contact_id: contactId, reason: reason || 'not_in_tva' }) });
+                      if (res.ok) this.applySellerState(await res.json());
+                  } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
+              },
+              async clearSellerDeadEnd(contactId) {
+                  if (!this.deadEndSellerUrl || this.sellerBusy) return;
+                  this.sellerBusy = true;
+                  try {
+                      const res = await fetch(this.deadEndSellerUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify({ contact_id: contactId, clear: true }) });
+                      if (res.ok) this.applySellerState(await res.json());
+                  } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
+              },
               _postHeaders() {
                   return { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest',
                            'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content || '' };
@@ -295,9 +321,6 @@
                                 <span class="px-3 py-1.5 text-xs font-semibold rounded-md text-center"
                                       style="background: color-mix(in srgb, #10b981 18%, transparent); color: var(--text-primary);">✓ Seller linked</span>
                             </template>
-                            <button type="button" @click="useDeedOwner(owner)"
-                                    class="px-3 py-1.5 text-xs font-semibold rounded-md"
-                                    style="background: transparent; color: var(--text-secondary); border:1px solid var(--border); cursor:pointer;">Use in form</button>
                         </div>
                     </div>
                 </template>
@@ -346,9 +369,6 @@
                                         <span class="px-3 py-1.5 text-xs font-semibold rounded-md text-center"
                                               style="background: color-mix(in srgb, #10b981 18%, transparent); color: var(--text-primary);">✓ Seller linked</span>
                                     </template>
-                                    <button type="button" @click="useDeedOwner(owner)"
-                                            class="px-3 py-1.5 text-xs font-semibold rounded-md"
-                                            style="background: transparent; color: var(--text-secondary); border:1px solid var(--border); cursor:pointer;">Use in form</button>
                                 </div>
                             </div>
                         </template>
@@ -372,17 +392,28 @@
                     <div class="rounded-md p-3" style="background: var(--surface); border:1px solid var(--border);">
                         <div class="flex items-start justify-between gap-3">
                             <div class="min-w-0">
-                                <div class="text-sm font-semibold" style="color: var(--text-primary);">
+                                <div class="text-sm font-semibold flex items-center gap-1 flex-wrap" style="color: var(--text-primary);">
+                                    <button type="button" @click="setPrimary(s.contact_id)" :disabled="sellerBusy"
+                                            :title="s.is_primary ? 'Primary seller' : 'Make primary'"
+                                            class="text-base leading-none" style="background:none; border:0; cursor:pointer;"
+                                            :style="s.is_primary ? 'color:#f59e0b;' : 'color: var(--text-muted);'"
+                                            x-text="s.is_primary ? '★' : '☆'"></button>
                                     <span x-text="((s.first_name || '') + ' ' + (s.last_name || '')).trim() || 'Seller'"></span>
-                                    <template x-if="s.dead_end"><span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-primary);">⚠ Dead end · <span x-text="s.dead_end && s.dead_end.label"></span></span></template>
+                                    <template x-if="s.is_primary"><span class="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded" style="background:#10b981; color:#fff;">Primary</span></template>
+                                    <template x-if="s.dead_end"><span class="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-primary);">⚠ Dead end · <span x-text="s.dead_end && s.dead_end.label"></span></span></template>
                                 </div>
                                 <div class="text-xs mt-0.5" style="color: var(--text-muted);">
                                     <template x-if="s.id_number"><span>ID: <span class="font-mono" x-text="s.id_number"></span></span></template>
                                 </div>
-                                <div class="flex flex-wrap gap-1 mt-1">
+                                <div class="flex flex-wrap gap-1 mt-1 items-center">
                                     <template x-for="p in s.phones" :key="'p' + p.value"><span class="text-[11px] px-1.5 py-0.5 rounded font-mono" style="background: var(--surface-2); color: var(--text-secondary);">📞 <span x-text="p.value"></span></span></template>
                                     <template x-for="e in s.emails" :key="'e' + e.value"><span class="text-[11px] px-1.5 py-0.5 rounded" style="background: var(--surface-2); color: var(--text-secondary);">✉ <span x-text="e.value"></span></span></template>
-                                    <span x-show="!s.phones.length && !s.emails.length" class="text-[11px] italic" style="color: var(--text-muted);">No numbers yet</span>
+                                    <span x-show="!s.contactable && !s.dead_end" class="text-[11px] italic" style="color: var(--text-muted);">No number yet —</span>
+                                    {{-- Per-seller dead-end: a seller with nothing to reach can be acknowledged so continue isn't blocked. --}}
+                                    <button type="button" x-show="!s.contactable && !s.dead_end" @click="markSellerDeadEnd(s.contact_id, 'not_in_tva')" :disabled="sellerBusy"
+                                            class="text-[11px] font-semibold" style="color: var(--ds-amber, #f59e0b); background:none; border:0; cursor:pointer;">mark “No contact details”</button>
+                                    <button type="button" x-show="s.dead_end" @click="clearSellerDeadEnd(s.contact_id)" :disabled="sellerBusy"
+                                            class="text-[11px] font-semibold" style="color: var(--brand-icon, #0ea5e9); background:none; border:0; cursor:pointer;">clear dead-end</button>
                                 </div>
                             </div>
                             <button type="button" @click="unlinkSeller(s.contact_id)" :disabled="sellerBusy"
@@ -626,7 +657,7 @@
                     :style="(mode === 'search' && !selected)
                         ? 'background: var(--surface-2); color: var(--text-muted); cursor:not-allowed;'
                         : 'background: var(--brand-button, #0ea5e9); color:#ffffff; cursor:pointer;'">
-                <span x-text="mode === 'search' ? 'Link & continue →' : 'Create / link & continue →'"></span>
+                <span x-text="(sellers.length && mode !== 'search') ? 'Create &amp; continue →' : (mode === 'search' ? 'Link &amp; continue →' : 'Create &amp; continue →')"></span>
             </button>
             <a href="{{ url()->previous() }}" class="text-sm" style="color: var(--text-muted);">Cancel</a>
         </div>
