@@ -211,6 +211,57 @@ final class DeedsCaptureLinkServiceTest extends TestCase
         $this->assertSame([], $result['candidates']);
     }
 
+    /** A remembered manual link (linked_deed_tracked_property_id) is a confirmed match, no candidates. */
+    public function test_remembered_manual_link_is_confirmed(): void
+    {
+        // Portal TP the listing points at (no owners) + a divergent deed the agent manually linked.
+        $portalTp = TrackedProperty::create([
+            'agency_id' => $this->agencyId, 'street_number' => '516', 'street_name' => 'Bream Crescent',
+            'suburb' => 'Ramsgate', 'address' => '516 Bream Crescent, Ramsgate',
+        ]);
+        $deedsTp = TrackedProperty::create([
+            'agency_id' => $this->agencyId, 'street_number' => '516', 'street_name' => 'Bidstone',
+            'suburb' => 'Ramsgate Beach', 'erf_number' => '516', 'capture_kind' => 'deeds_capture',
+        ]);
+        $this->addOwner($deedsTp, 'Robyn Ann Bailey', '6904050051082', null);
+
+        $listing = $this->listing($portalTp->id);
+        $listing->linked_deed_tracked_property_id = $deedsTp->id;   // remembered choice
+
+        $result = $this->service()->ownersForListing($this->agencyId, $listing);
+
+        $this->assertSame($deedsTp->id, $result['tracked_property_id']);
+        $this->assertSame('6904050051082', $result['owners'][0]['id_number']);
+        $this->assertSame([], $result['candidates']);
+    }
+
+    /** The manual-modal list surfaces owner-bearing deeds with clean, searchable rows. */
+    public function test_available_deeds_lists_owner_bearing_deeds(): void
+    {
+        $deed = TrackedProperty::create([
+            'agency_id' => $this->agencyId, 'street_number' => '516', 'street_name' => 'Bidstone',
+            'scheme_name' => 'THE NEST', 'suburb' => 'Ramsgate Beach', 'erf_number' => '516',
+            'capture_kind' => 'deeds_capture', 'last_known_sold_price' => '705000.00',
+        ]);
+        $this->addOwner($deed, 'Robyn Ann Bailey', '6904050051082', null);
+        // An owner-less TP must NOT appear in the list.
+        TrackedProperty::create([
+            'agency_id' => $this->agencyId, 'street_number' => '9', 'street_name' => 'Empty Road', 'suburb' => 'Ramsgate',
+        ]);
+
+        $deeds = $this->service()->availableDeeds($this->agencyId);
+
+        $this->assertCount(1, $deeds);
+        $row = $deeds[0];
+        $this->assertSame($deed->id, $row['tracked_property_id']);
+        $this->assertStringContainsString('THE NEST', $row['address']);
+        $this->assertSame('516', $row['erf']);
+        $this->assertStringContainsString('Robyn Ann Bailey', $row['owner_names']);
+        // The search blob is lower-cased and includes owner + erf + address for client filtering.
+        $this->assertStringContainsString('robyn', $row['search']);
+        $this->assertStringContainsString('516', $row['search']);
+    }
+
     /** Agency isolation — a deed owner in another agency is never surfaced. */
     public function test_does_not_cross_agency(): void
     {

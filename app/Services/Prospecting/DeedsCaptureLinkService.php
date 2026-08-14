@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Prospecting;
 
 use App\Models\Contact;
+use App\Models\ProspectingListing;
 use App\Models\Prospecting\TrackedProperty;
 use App\Models\Scopes\ContactScope;
 use Illuminate\Support\Facades\DB;
@@ -41,6 +42,18 @@ class DeedsCaptureLinkService
      */
     public function ownersForListing(int $agencyId, object $listing): array
     {
+        // Remembered manual link (teaches the matcher): a deed the agent previously linked to this
+        // listing via the "Link a deed" modal is a definitive confirmed match on every later visit.
+        if (! empty($listing->linked_deed_tracked_property_id)) {
+            $linked = TrackedProperty::withoutGlobalScopes()
+                ->where('agency_id', $agencyId)
+                ->whereKey((int) $listing->linked_deed_tracked_property_id)
+                ->first();
+            if ($linked && $this->trackedPropertyHasOwners((int) $linked->id)) {
+                return $this->owners($agencyId, $linked) + ['candidates' => []];
+            }
+        }
+
         $seedTp = null;
         if (! empty($listing->tracked_property_id)) {
             $seedTp = TrackedProperty::withoutGlobalScopes()
@@ -50,9 +63,10 @@ class DeedsCaptureLinkService
         }
 
         $facts = [
-            'address'       => $listing->address ?? null,
-            'suburb'        => $listing->suburb ?? null,
-            'street_number' => ProspectingListing::parseStreetNumber($listing->address ?? null),
+            'address'             => $listing->address ?? null,
+            'suburb'              => $listing->suburb ?? null,
+            'street_number'       => ProspectingListing::parseStreetNumber($listing->address ?? null),
+            'matched_property_id' => $listing->matched_property_id ?? null,
         ];
 
         return $this->resolve($agencyId, $seedTp, $facts);
@@ -67,9 +81,10 @@ class DeedsCaptureLinkService
     public function ownersForTrackedProperty(int $agencyId, TrackedProperty $trackedProperty): array
     {
         return $this->resolve($agencyId, $trackedProperty, [
-            'address'       => $trackedProperty->address,
-            'suburb'        => $trackedProperty->suburb,
-            'street_number' => $trackedProperty->street_number,
+            'address'             => $trackedProperty->address,
+            'suburb'              => $trackedProperty->suburb,
+            'street_number'       => $trackedProperty->street_number,
+            'matched_property_id' => $trackedProperty->promoted_to_property_id ?? null,
         ]);
     }
 
@@ -91,7 +106,7 @@ class DeedsCaptureLinkService
      *                   SA-ID to a property), so they are shown as "verify this is the same property"
      *                   and only used when the agent actively clicks — never silently linked.
      *
-     * @param  array{address: ?string, suburb: ?string, street_number: ?string}  $facts
+     * @param  array{address: ?string, suburb: ?string, street_number: ?string, matched_property_id?: int|null}  $facts
      * @return array{tracked_property_id: int|null, address: string|null, owners: array<int, array<string, mixed>>, candidates: array<int, array<string, mixed>>}
      */
     private function resolve(int $agencyId, ?TrackedProperty $seedTp, array $facts): array
@@ -102,7 +117,20 @@ class DeedsCaptureLinkService
             return $this->owners($agencyId, $seedTp) + ['candidates' => []];
         }
 
-        // 2) Otherwise find a deeds-capture sibling — a TrackedProperty in the same agency that
+        // 2) PROPERTY-PILLAR link (Johan 2026-08-14) — if this asset resolves to a canonical
+        //    Property (explicit listing link, a promoted seed TP, or via the reconciliation spine),
+        //    a deed promoted to that SAME Property is a definitive match. This matches through the
+        //    property pillar, NOT any address string, so the P24-vs-deeds-office address divergence
+        //    is bridged by identity rather than text.
+        $propertyId = $this->resolveCanonicalPropertyId($agencyId, $seedTp, $facts);
+        if ($propertyId) {
+            $deedTp = $this->deedTrackedPropertyForProperty($agencyId, $propertyId);
+            if ($deedTp) {
+                return $this->owners($agencyId, $deedTp) + ['candidates' => []];
+            }
+        }
+
+        // 3) Otherwise find a deeds-capture sibling — a TrackedProperty in the same agency that
         //    HAS owners and shares this asset's identity (erf+suburb, street+suburb, or GPS ~5m).
         //    Prefer an actual deeds_capture, then most-recently-updated.
         $sibling = $this->findOwnerBearingSibling($agencyId, $seedTp, $facts);
@@ -110,13 +138,65 @@ class DeedsCaptureLinkService
             return $this->owners($agencyId, $sibling) + ['candidates' => []];
         }
 
-        // 3) No confirmed match — surface possible matches for the agent to verify (never link).
+        // 4) No confirmed match — surface possible matches for the agent to verify (never link).
+        //    This is the tier that fires for Johan's real case (portal "516 Bream Crescent,
+        //    Ramsgate" vs deed "516 Bidstone, The Nest, Ramsgate Beach"): neither is promoted, they
+        //    share no erf/GPS, so the only signal is street number + suburb — shown for the agent
+        //    to confirm, never silently linked.
         return [
             'tracked_property_id' => null,
             'address'             => null,
             'owners'              => [],
             'candidates'          => $this->findCandidates($agencyId, $seedTp, $facts),
         ];
+    }
+
+    /**
+     * Resolve the canonical Property id for this asset: an explicit listing/TP link, a promoted
+     * seed TP, or the reconciliation spine (the SAME resolver deeds promote uses). Read-only;
+     * returns null when the asset has not resolved to a property yet (e.g. Johan's un-promoted case).
+     *
+     * @param  array{address: ?string, suburb: ?string, street_number: ?string, matched_property_id?: int|null}  $facts
+     */
+    private function resolveCanonicalPropertyId(int $agencyId, ?TrackedProperty $seedTp, array $facts): ?int
+    {
+        if (! empty($facts['matched_property_id'])) {
+            return (int) $facts['matched_property_id'];
+        }
+        if ($seedTp && ! empty($seedTp->promoted_to_property_id)) {
+            return (int) $seedTp->promoted_to_property_id;
+        }
+
+        try {
+            $p = app(MicPropertyReconciliationService::class)->resolveExistingProperty($agencyId, array_filter([
+                'address'       => $facts['address'] ?? null,
+                'suburb'        => $facts['suburb'] ?? ($seedTp->suburb ?? null),
+                'street_number' => $facts['street_number'] ?? ($seedTp->street_number ?? null),
+                'street_name'   => $seedTp->street_name ?? null,
+                'latitude'      => $seedTp->latitude ?? null,
+                'longitude'     => $seedTp->longitude ?? null,
+            ], static fn ($v) => $v !== null && $v !== ''));
+
+            return $p?->id;
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    /** An owner-bearing deeds TrackedProperty promoted to the given canonical property, if any. */
+    private function deedTrackedPropertyForProperty(int $agencyId, int $propertyId): ?TrackedProperty
+    {
+        return TrackedProperty::withoutGlobalScopes()
+            ->where('agency_id', $agencyId)
+            ->where('promoted_to_property_id', $propertyId)
+            ->whereExists(function ($q) {
+                $q->select(DB::raw(1))
+                    ->from('tracked_property_owners as tpo')
+                    ->whereColumn('tpo.tracked_property_id', 'tracked_properties.id');
+            })
+            ->orderByRaw("CASE WHEN capture_kind = 'deeds_capture' THEN 0 ELSE 1 END")
+            ->orderByDesc('updated_at')
+            ->first();
     }
 
     /**
@@ -241,6 +321,23 @@ class DeedsCaptureLinkService
             ->orderBy('id')
             ->get();
 
+        return [
+            'tracked_property_id' => (int) $tp->id,
+            'address'             => $tp->address ?: ($tp->displayAddress() ?? null),
+            'owners'              => $this->enrichOwnerRows($agencyId, $rows),
+        ];
+    }
+
+    /**
+     * Enrich raw tracked_property_owners rows with each owner's linked-contact first/last name
+     * (falling back to splitting the deed's full-name string). Loads all needed contacts in ONE
+     * query — safe to pass rows spanning multiple TrackedProperties.
+     *
+     * @param  \Illuminate\Support\Collection<int, object>  $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function enrichOwnerRows(int $agencyId, $rows): array
+    {
         $contactIds = $rows->pluck('contact_id')->filter()->map(fn ($v) => (int) $v)->unique()->all();
         $contacts = [];
         if ($contactIds !== []) {
@@ -263,21 +360,92 @@ class DeedsCaptureLinkService
             }
 
             $owners[] = [
-                'name'       => (string) $row->name,
-                'first_name' => trim($first),
-                'last_name'  => trim($last),
-                'id_number'  => $row->id_number !== null && $row->id_number !== '' ? (string) $row->id_number : null,
-                'id_type'    => $row->id_type ?? ($contact->id_type ?? null),
-                'is_primary' => (bool) $row->is_primary,
-                'contact_id' => $contact?->id ?? ($row->contact_id ? (int) $row->contact_id : null),
+                'tracked_property_id' => (int) $row->tracked_property_id,
+                'name'                => (string) $row->name,
+                'first_name'          => trim($first),
+                'last_name'           => trim($last),
+                'id_number'           => $row->id_number !== null && $row->id_number !== '' ? (string) $row->id_number : null,
+                'id_type'             => $row->id_type ?? ($contact->id_type ?? null),
+                'is_primary'          => (bool) $row->is_primary,
+                'contact_id'          => $contact?->id ?? ($row->contact_id ? (int) $row->contact_id : null),
             ];
         }
 
-        return [
-            'tracked_property_id' => (int) $tp->id,
-            'address'             => $tp->address ?: ($tp->displayAddress() ?? null),
-            'owners'              => $owners,
-        ];
+        return $owners;
+    }
+
+    /**
+     * Clean deeds list for the manual "Link a deed" modal — every owner-bearing deeds capture in
+     * the agency, with enough to identify it at a glance (scheme/address, erf, owner name(s), sold
+     * price/date) plus a lower-cased `search` blob for client-side filtering. Batched (no N+1);
+     * deeds captures first, most recent next. Read-only.
+     *
+     * @return array<int, array{tracked_property_id:int, address:string, erf:?string, scheme:?string, suburb:?string, sold_price:?string, sold_date:?string, owner_names:string, owners:array<int,array<string,mixed>>, search:string}>
+     */
+    public function availableDeeds(int $agencyId, int $limit = 500): array
+    {
+        $tps = TrackedProperty::withoutGlobalScopes()
+            ->where('agency_id', $agencyId)
+            ->whereExists(function ($q) {
+                $q->select(DB::raw(1))
+                    ->from('tracked_property_owners as tpo')
+                    ->whereColumn('tpo.tracked_property_id', 'tracked_properties.id');
+            })
+            ->orderByRaw("CASE WHEN capture_kind = 'deeds_capture' THEN 0 ELSE 1 END")
+            ->orderByDesc('updated_at')
+            ->limit($limit)
+            ->get(['id', 'erf_number', 'scheme_name', 'complex_name', 'street_number', 'street_name',
+                'suburb', 'town', 'last_known_sold_price', 'last_known_sold_date']);
+
+        if ($tps->isEmpty()) {
+            return [];
+        }
+
+        $ownerRows = DB::table('tracked_property_owners')
+            ->whereIn('tracked_property_id', $tps->pluck('id')->all())
+            ->orderByDesc('is_primary')
+            ->orderBy('id')
+            ->get();
+        $enriched = $this->enrichOwnerRows($agencyId, $ownerRows);
+
+        $ownersByTp = [];
+        foreach ($enriched as $o) {
+            $ownersByTp[$o['tracked_property_id']][] = $o;
+        }
+
+        $out = [];
+        foreach ($tps as $tp) {
+            $owners = $ownersByTp[(int) $tp->id] ?? [];
+
+            $streetLine = trim(implode(' ', array_filter([$tp->street_number, $tp->street_name])));
+            $scheme     = $tp->scheme_name ?: $tp->complex_name;
+            $address    = trim(implode(', ', array_filter([$streetLine, $scheme, $tp->suburb]))) ?: (string) ($tp->town ?? '');
+
+            $ownerNames = implode('; ', array_map(
+                fn ($o) => trim($o['first_name'] . ' ' . $o['last_name']) ?: $o['name'],
+                $owners
+            ));
+
+            $search = mb_strtolower(implode(' ', array_filter([
+                $address, $scheme, $tp->suburb, $tp->erf_number, $ownerNames,
+                implode(' ', array_map(fn ($o) => (string) $o['id_number'], $owners)),
+            ])));
+
+            $out[] = [
+                'tracked_property_id' => (int) $tp->id,
+                'address'             => $address,
+                'erf'                 => $tp->erf_number ? (string) $tp->erf_number : null,
+                'scheme'              => $scheme ?: null,
+                'suburb'              => $tp->suburb ? (string) $tp->suburb : null,
+                'sold_price'          => $tp->last_known_sold_price !== null ? (string) $tp->last_known_sold_price : null,
+                'sold_date'           => $tp->last_known_sold_date ? (string) $tp->last_known_sold_date : null,
+                'owner_names'         => $ownerNames,
+                'owners'              => $owners,
+                'search'              => $search,
+            ];
+        }
+
+        return $out;
     }
 
     /**

@@ -219,6 +219,10 @@ final class EntryPointController extends Controller
             // creating the Property.
             'needsAddress' => trim((string) ($listing->address ?? '')) === '',
             'deedLink'     => $deedLink,
+            // Manual "Link a deed" fallback — the full deeds list + the endpoint that remembers
+            // the agent's choice on this listing.
+            'deeds'        => $this->safeAvailableDeeds($agencyId),
+            'linkDeedUrl'  => route('seller-outreach.entry.link-deed-prospecting', ['prospectingListingId' => $listing->id]),
         ]);
     }
 
@@ -573,6 +577,10 @@ final class EntryPointController extends Controller
             'listing'         => null,
             'trackedProperty' => $trackedProperty,
             'deedLink'        => $deedLink,
+            // Manual "Link a deed" modal is available here too (prefill only — no listing to
+            // remember the link on; the T-pin flow persists the owner via storeFromTrackedProperty).
+            'deeds'           => $this->safeAvailableDeeds($agencyId),
+            'linkDeedUrl'     => null,
         ]);
     }
 
@@ -1086,6 +1094,74 @@ final class EntryPointController extends Controller
 
             return $empty;
         }
+    }
+
+    /**
+     * The agency's deeds list for the manual "Link a deed" modal, failure-isolated so a hiccup
+     * never breaks the compose screen.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function safeAvailableDeeds(int $agencyId): array
+    {
+        try {
+            return app(\App\Services\Prospecting\DeedsCaptureLinkService::class)->availableDeeds($agencyId);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Deeds list for manual link failed (modal will be empty)', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return [];
+        }
+    }
+
+    /**
+     * MIC ↔ Deeds ↔ Contact loop (Part A, manual link) — the agent picked a deed from the modal.
+     * Remember it on this prospecting listing (teaches the matcher so it auto-surfaces next time)
+     * and return the deed's owner(s) for the form prefill. Agency-scoped; a stale/forged deed id or
+     * an owner-less deed 404/422s rather than linking the wrong tenant's record.
+     */
+    public function linkDeedToProspecting(Request $request, int $prospectingListingId)
+    {
+        $agencyId = $this->resolveAgencyId($request);
+
+        $listing = DB::table('prospecting_listings')
+            ->where('id', $prospectingListingId)
+            ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->first();
+        abort_if(! $listing, 404);
+
+        $validated = $request->validate([
+            'tracked_property_id' => 'required|integer',
+        ]);
+
+        $deedTp = TrackedProperty::withoutGlobalScopes()
+            ->where('agency_id', $agencyId)
+            ->whereKey((int) $validated['tracked_property_id'])
+            ->first();
+        abort_if($deedTp === null, 404, 'Deed not found in this agency.');
+
+        $link = app(\App\Services\Prospecting\DeedsCaptureLinkService::class);
+        $payload = $link->ownersForTrackedProperty($agencyId, $deedTp);
+        if (empty($payload['owners'])) {
+            return response()->json(['ok' => false, 'error' => 'That deed has no registered owner to use.'], 422);
+        }
+
+        DB::table('prospecting_listings')
+            ->where('id', $listing->id)
+            ->update([
+                'linked_deed_tracked_property_id' => $deedTp->id,
+                'linked_deed_by_user_id'          => (int) $request->user()->id,
+                'linked_deed_at'                  => now(),
+                'updated_at'                      => now(),
+            ]);
+
+        return response()->json([
+            'ok'                  => true,
+            'tracked_property_id' => (int) $deedTp->id,
+            'owners'              => $payload['owners'],
+        ]);
     }
 
     private function resolveAgencyId(Request $request): int

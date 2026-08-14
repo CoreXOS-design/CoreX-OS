@@ -2597,6 +2597,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                 [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'storeFromProspecting'])
                 ->where('prospectingListingId', '\d+')
                 ->name('store-from-prospecting');
+            // MIC ↔ Deeds ↔ Contact loop (Part A, manual link) — remember the deed the agent
+            // picks from the "Link a deed" modal so it auto-surfaces on later visits.
+            Route::post('/prospecting/{prospectingListingId}/outreach/link-deed',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'linkDeedToProspecting'])
+                ->where('prospectingListingId', '\d+')
+                ->name('link-deed-prospecting');
 
             // Map Workspace Phase B (Fix 2+3) — T-pin WhatsApp / Pitch flow.
             // Mirrors the prospecting entry point but the source is a

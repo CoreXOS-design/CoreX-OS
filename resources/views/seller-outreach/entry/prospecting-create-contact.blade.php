@@ -126,6 +126,34 @@
                       if (this.$refs.firstName) this.$refs.firstName.focus();
                   });
               },
+              // ── Manual 'Link a deed' modal ──
+              showDeedModal: false,
+              deedSearch: '',
+              deeds: @js($deeds ?? []),
+              linkDeedUrl: @js($linkDeedUrl ?? null),
+              filteredDeeds() {
+                  const q = this.deedSearch.trim().toLowerCase();
+                  if (!q) return this.deeds;
+                  return this.deeds.filter(d => (d.search || '').includes(q));
+              },
+              pickDeed(deed) {
+                  const owner = (deed.owners && deed.owners.length) ? deed.owners[0] : null;
+                  if (owner) this.useDeedOwner(owner);
+                  this.showDeedModal = false;
+                  // Remember the link so it auto-surfaces next time (best-effort; never blocks the prefill).
+                  if (this.linkDeedUrl && deed.tracked_property_id) {
+                      fetch(this.linkDeedUrl, {
+                          method: 'POST',
+                          headers: {
+                              'Content-Type': 'application/json',
+                              'Accept': 'application/json',
+                              'X-Requested-With': 'XMLHttpRequest',
+                              'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content || '',
+                          },
+                          body: JSON.stringify({ tracked_property_id: deed.tracked_property_id }),
+                      }).catch(() => {});
+                  }
+              },
           }"
           action="{{ !empty($trackedProperty)
               ? route('seller-outreach.entry.store-from-tracked-property', $trackedProperty->id)
@@ -249,6 +277,27 @@
                         </div>
                     @endforeach
                 </div>
+            </div>
+        @endif
+
+        {{-- Manual "Link a deed" fallback — ALWAYS available so the agent can pick the right deed
+             when auto-match doesn't fire (P24 marketing address vs deeds-office scheme address). --}}
+        @if(!empty($deeds))
+            <div class="flex items-center justify-between gap-3 flex-wrap mb-4 rounded-md p-3"
+                 style="background: var(--surface); border: 1px dashed var(--border);">
+                <div class="text-xs" style="color: var(--text-muted);">
+                    @if(empty($deedLink['owners']) && empty($deedLink['candidates']))
+                        No deed auto-matched to this property —
+                    @else
+                        Not the right owner?
+                    @endif
+                    pick the scraped deed yourself.
+                </div>
+                <button type="button" @click="showDeedModal = true"
+                        class="shrink-0 px-3 py-1.5 text-xs font-semibold rounded-md border-0"
+                        style="background: var(--brand-default, #0b2a4a); color:#fff; cursor:pointer;">
+                    🔍 Link a deed
+                </button>
             </div>
         @endif
 
@@ -421,6 +470,50 @@
                 <span x-text="mode === 'search' ? 'Link & continue →' : 'Create / link & continue →'"></span>
             </button>
             <a href="{{ url()->previous() }}" class="text-sm" style="color: var(--text-muted);">Cancel</a>
+        </div>
+
+        {{-- Manual deed-picker modal — clean, searchable, scrollable list of the agency's deeds.
+             Inside the form so it shares the Alpine scope (prefills the fields via useDeedOwner). --}}
+        <div x-show="showDeedModal" x-cloak
+             class="fixed inset-0 z-50 flex items-start justify-center p-4"
+             style="background: rgba(0,0,0,0.5);"
+             @keydown.escape.window="showDeedModal = false">
+            <div class="w-full max-w-2xl rounded-lg mt-10 flex flex-col"
+                 style="background: var(--surface); border:1px solid var(--border); max-height: 80vh;"
+                 @click.outside="showDeedModal = false">
+                <div class="flex items-center justify-between gap-3 px-4 py-3" style="border-bottom:1px solid var(--border);">
+                    <h3 class="text-base font-semibold" style="color: var(--text-primary);">Link a deed to this property</h3>
+                    <button type="button" @click="showDeedModal = false" class="text-sm"
+                            style="color: var(--text-muted); background:none;border:0;cursor:pointer;">✕</button>
+                </div>
+                <div class="px-4 py-3" style="border-bottom:1px solid var(--border);">
+                    <input type="text" x-model="deedSearch" placeholder="Search address, owner, erf, suburb…" autocomplete="off"
+                           class="w-full px-3 py-2 text-sm rounded-md"
+                           style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
+                </div>
+                <div class="overflow-y-auto px-2 py-2" style="min-height: 120px;">
+                    <template x-for="deed in filteredDeeds()" :key="deed.tracked_property_id">
+                        <button type="button" @click="pickDeed(deed)"
+                                class="w-full text-left px-3 py-2 rounded-md mb-1 block"
+                                style="background: var(--surface-2); border:1px solid var(--border); cursor:pointer;">
+                            <div class="text-sm font-semibold" style="color: var(--text-primary);" x-text="deed.address || '(no address)'"></div>
+                            <div class="text-xs mt-0.5" style="color: var(--text-muted);">
+                                <template x-if="deed.erf"><span>Erf <span x-text="deed.erf"></span> · </span></template>
+                                <span x-text="deed.suburb || ''"></span>
+                                <template x-if="deed.sold_price"><span> · Sold R<span x-text="Number(deed.sold_price).toLocaleString()"></span></span></template>
+                                <template x-if="deed.sold_date"><span> · <span x-text="deed.sold_date"></span></span></template>
+                            </div>
+                            <div class="text-xs mt-0.5 font-medium" style="color: var(--brand-icon, #0ea5e9);" x-text="deed.owner_names"></div>
+                        </button>
+                    </template>
+                    <div x-show="filteredDeeds().length === 0" class="px-3 py-6 text-center text-sm" style="color: var(--text-muted);">
+                        No deeds match “<span x-text="deedSearch"></span>”.
+                    </div>
+                </div>
+                <div class="px-4 py-2 text-xs" style="border-top:1px solid var(--border); color: var(--text-muted);">
+                    Picking a deed prefills the seller from its registered owner and remembers the link.
+                </div>
+            </div>
         </div>
     </form>
 </div>
