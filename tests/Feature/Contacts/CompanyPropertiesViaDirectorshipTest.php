@@ -94,6 +94,55 @@ final class CompanyPropertiesViaDirectorshipTest extends TestCase
         $this->assertNotContains($ownProp->id, $derivedPropertyIds, 'personal ownership is not a company property');
     }
 
+    public function test_dedupe_keys_catch_same_address_across_tracked_and_promoted(): void
+    {
+        $company = Contact::create([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->agencyId,
+            'contact_kind' => Contact::TYPE_ENTITY, 'entity_name' => '1502 BEAUMONT PROP CC',
+            'entity_reg_no' => '201001792823', 'first_name' => '1502 BEAUMONT PROP CC', 'last_name' => '', 'phone' => '',
+        ]);
+        $director = Contact::create([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->agencyId,
+            'contact_kind' => Contact::TYPE_NATURAL_PERSON, 'first_name' => 'Hendrik', 'last_name' => 'Pretorius', 'phone' => '',
+        ]);
+        ContactRepresentative::create(['entity_contact_id' => $company->id, 'representative_contact_id' => $director->id, 'is_primary' => true]);
+
+        // Company owns a TRACKED property at 1502 Beaumont Drive (un-promoted).
+        $tpId = (int) DB::table('tracked_properties')->insertGetId([
+            'agency_id' => $this->agencyId, 'external_id' => (string) Str::uuid(),
+            'street_number' => '1502', 'street_name' => 'Beaumont Drive', 'capture_kind' => 'deeds_capture',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('tracked_property_owners')->insert([
+            'tracked_property_id' => $tpId, 'contact_id' => $company->id, 'id_number' => '201001792823',
+            'name' => '1502 BEAUMONT PROP CC', 'is_primary' => true, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        // The director ALSO has a personal contact_property link to a PROMOTED
+        // Property at the SAME address (different record/id) + a genuinely
+        // different personal property.
+        $sameAddr = $this->property('CALLING ALL INVESTORS');
+        $sameAddr->update(['street_number' => '1502', 'street_name' => 'Beaumont Drive']);
+        $director->properties()->attach($sameAddr->id, ['role' => 'seller']);
+
+        $other = $this->property('Genuinely Personal');
+        $other->update(['street_number' => '99', 'street_name' => 'Other Road']);
+        $director->properties()->attach($other->id, ['role' => 'seller']);
+
+        $keys = $director->companyPropertyDedupeKeys();
+        $this->assertContains('1502 beaumont drive', $keys['addresses']);
+
+        // Replicate the partial's reject: the same-address promoted property is
+        // excluded from Linked; the genuinely-personal one stays.
+        $reject = function ($p) use ($keys) {
+            if (in_array((int) $p->id, $keys['ids'], true)) return true;
+            $addr = Contact::normalizePropertyStreet($p->street_number ?? null, $p->street_name ?? null);
+            return $addr !== '' && in_array($addr, $keys['addresses'], true);
+        };
+        $this->assertTrue($reject($sameAddr->fresh()), '1502 Beaumont (personal, same address) is deduped out of Linked');
+        $this->assertFalse($reject($other->fresh()), 'a genuinely personal property at a different address stays in Linked');
+    }
+
     public function test_no_directorship_returns_empty(): void
     {
         $person = Contact::create([

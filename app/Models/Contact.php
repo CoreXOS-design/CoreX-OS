@@ -644,6 +644,45 @@ class Contact extends Model
         return $out->values();
     }
 
+    /** Normalized "street_number street_name" — the display-dedupe address key. */
+    public static function normalizePropertyStreet(?string $number, ?string $street): string
+    {
+        $s = trim(($number ?? '') . ' ' . ($street ?? ''));
+        return strtolower((string) preg_replace('/\s+/', ' ', $s));
+    }
+
+    /**
+     * Identity keys of properties that are COMPANY-OWNED-VIA-DIRECTORSHIP for
+     * this contact — used to DEDUPE the display so such a property shows ONLY in
+     * the flagged "Company Properties" group, never also as a personal Linked
+     * Property. Returns canonical Property ids AND normalized street addresses:
+     * the address key bridges the tracked-vs-promoted split (the same physical
+     * property can exist as a tracked_property and a promoted Property with
+     * different ids). Read-only — the contact_property link is untouched
+     * (outreach still needs it).
+     *
+     * @return array{ids: array<int>, addresses: array<string>}
+     */
+    public function companyPropertyDedupeKeys(): array
+    {
+        $ids = [];
+        $addresses = [];
+        foreach ($this->companyPropertiesViaDirectorship() as $row) {
+            $prop = $row['property'];
+            if ($row['kind'] === 'property') {
+                $ids[] = (int) $prop->id;
+            } elseif (!empty($prop->promoted_to_property_id)) {
+                $ids[] = (int) $prop->promoted_to_property_id;
+            }
+            $addr = self::normalizePropertyStreet($prop->street_number ?? null, $prop->street_name ?? null);
+            if ($addr !== '') {
+                $addresses[] = $addr;
+            }
+        }
+
+        return ['ids' => array_values(array_unique($ids)), 'addresses' => array_values(array_unique($addresses))];
+    }
+
     public function getInitialsAttribute(): string
     {
         return strtoupper(substr($this->first_name, 0, 1) . substr($this->last_name, 0, 1));
