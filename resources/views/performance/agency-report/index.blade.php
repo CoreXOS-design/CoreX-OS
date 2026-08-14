@@ -36,7 +36,7 @@
 
     {{-- STICKY TOP BLOCK — period selector + deal-status toggles stay pinned while the long
          agent list scrolls beneath (fix #2). Everything from here down to (not incl.) Company. --}}
-    <div class="sticky top-0 z-30 -mx-4 lg:-mx-6 px-4 lg:px-6 pt-1 pb-3 space-y-3"
+    <div x-ref="topBlock" class="sticky top-0 z-30 -mx-4 lg:-mx-6 px-4 lg:px-6 pt-1 pb-3 space-y-3"
          style="background:var(--bg,#f4f6fb); border-bottom:1px solid var(--border);">
         <div class="flex items-center justify-between flex-wrap gap-3">
             <div class="min-w-0">
@@ -174,7 +174,17 @@
                 <span class="text-[11px]" style="color:var(--text-muted);" x-text="agentDisplay().length + ' / ' + agents.length"></span>
             </div>
         </div>
-        <div class="overflow-x-auto rounded max-w-full" style="border:1px solid var(--border);">
+        {{-- Sticky column headers: the by-agent grid is a bounded box that pins flush BELOW the
+             sticky top block (top = the measured --report-top-h CSS var, no magic number) and
+             scrolls internally, so the column-header row (sticky top:0 inside the box, theme-aware
+             --surface-2 bg) stays visible while the agent rows scroll. Contained horizontal scroll too. --}}
+        <style>
+            .report-agent-scroll thead th { position: sticky; top: 0; z-index: 10; background: var(--surface-2); }
+        </style>
+        <div class="report-agent-scroll rounded max-w-full"
+             style="border:1px solid var(--border); background:var(--bg,#f4f6fb);
+                    position:sticky; top:var(--report-top-h, 0px); z-index:20;
+                    max-height:calc(100vh - var(--report-top-h, 0px) - 1.5rem); overflow:auto;">
             <table class="w-full text-[11px]" style="border-collapse:collapse;">
                 <thead>
                     <tr style="background:var(--surface-2);">
@@ -282,6 +292,23 @@ function agencyReport(cfg) {
         currentPreset: cfg.currentPreset || 'this_month',
         hasCustomDates: !!cfg.hasCustomDates,
         defaultUrl: cfg.defaultUrl,
+
+        // Measure the sticky top block's height into a CSS var (--report-top-h) so the by-agent
+        // column headers pin flush directly beneath it at every scroll position / viewport /
+        // light-or-dark mode — driven by the real measured height, never a brittle magic number.
+        init() {
+            const root = this.$el;
+            const measure = () => {
+                const tb = this.$refs.topBlock;
+                if (tb && root) root.style.setProperty('--report-top-h', tb.offsetHeight + 'px');
+            };
+            this.$nextTick(measure);
+            if (window.ResizeObserver) {
+                this._ro = new ResizeObserver(measure);
+                this.$nextTick(() => { if (this.$refs.topBlock) this._ro.observe(this.$refs.topBlock); });
+            }
+            window.addEventListener('resize', measure);
+        },
 
         // ---- #7 sort / filter ----
         bSort: 'label', bDir: 'asc', aSort: 'name', aDir: 'asc',

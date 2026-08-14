@@ -113,10 +113,22 @@ class AgencyReportFrontendTest extends TestCase
         $res = $this->actingAs($this->admin)->get(route('performance.agency-report'));
 
         $res->assertOk()
-            ->assertSee('sticky top-0', false)          // #2 pinned top block
-            ->assertSee('Reset view', false)            // #3 reset button
-            ->assertSee('resetView(', false)            // reset handler wired
-            ->assertSee('overflow-x-auto rounded max-w-full', false);  // #1 contained horizontal scroll
+            ->assertSee('sticky top-0', false)          // #2 pinned top block (unchanged)
+            ->assertSee('Reset view', false)            // #3 reset button (unchanged)
+            ->assertSee('resetView(', false)            // reset handler wired (unchanged)
+            ->assertSee('x-ref="topBlock"', false);     // top block measured for the sticky offset
+    }
+
+    public function test_by_agent_column_headers_are_sticky_below_the_top_block(): void
+    {
+        $res = $this->actingAs($this->admin)->get(route('performance.agency-report'));
+
+        $res->assertOk()
+            // the by-agent grid is a sticky bounded box, offset by the measured top-block height
+            ->assertSee('report-agent-scroll', false)
+            ->assertSee('top:var(--report-top-h', false)          // pins flush below the top block (no magic number)
+            ->assertSee('--report-top-h', false)                   // measured CSS var is set/consumed
+            ->assertSee('.report-agent-scroll thead th { position: sticky; top: 0;', false); // headers stay while rows scroll
     }
 
     public function test_whole_company_print_renders_with_company_header(): void
