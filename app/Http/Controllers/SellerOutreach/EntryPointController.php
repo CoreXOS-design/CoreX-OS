@@ -595,7 +595,7 @@ final class EntryPointController extends Controller
 
         // → INTERSTITIAL: "Property created · N contacts — pitch to sellers" (pick who to pitch).
         return redirect()
-            ->route('seller-outreach.entry.pitch-ready', ['prospectingListingId' => $listing->id])
+            ->route('seller-outreach.entry.pitch-ready-prospecting', ['prospectingListingId' => $listing->id])
             ->with('status', count($sellers) . ' seller' . (count($sellers) > 1 ? 's' : '') . ' ready — pick who to pitch.');
     }
 

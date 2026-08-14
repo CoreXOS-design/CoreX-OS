@@ -150,7 +150,7 @@ final class MicComposeMultiSellerTest extends TestCase
         // Create & continue with an EMPTY form — the old phone/email gate is gone.
         $this->actingAs(User::find($userId))
             ->post(route('seller-outreach.entry.store-from-prospecting', ['prospectingListingId' => $listingId]), [])
-            ->assertRedirect(route('seller-outreach.entry.pitch-ready', ['prospectingListingId' => $listingId]));
+            ->assertRedirect(route('seller-outreach.entry.pitch-ready-prospecting', ['prospectingListingId' => $listingId]));
 
         $this->assertSame(2, DB::table('contact_property')->where('property_id', $propertyId)->where('role', 'seller')->count());
         $this->assertSame(1, DB::table('contact_property')->where('property_id', $propertyId)->where('role', 'seller')->where('is_primary', true)->count());
@@ -220,7 +220,7 @@ final class MicComposeMultiSellerTest extends TestCase
 
         $this->actingAs(User::find($userId))
             ->post(route('seller-outreach.entry.store-from-prospecting', ['prospectingListingId' => $listingId]), [])
-            ->assertRedirect(route('seller-outreach.entry.pitch-ready', ['prospectingListingId' => $listingId]));
+            ->assertRedirect(route('seller-outreach.entry.pitch-ready-prospecting', ['prospectingListingId' => $listingId]));
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────
