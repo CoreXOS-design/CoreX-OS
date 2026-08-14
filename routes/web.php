@@ -2610,6 +2610,21 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                 [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'pollDeedsForProspecting'])
                 ->where('prospectingListingId', '\d+')
                 ->name('deed-poll-prospecting');
+            // Multi-seller link (Part A) + TVA number picker (Part B) — a property can have several
+            // sellers, each its own ID-keyed contact; the agent links/unlinks each and assigns
+            // scraped TVA numbers to the respective contact.
+            Route::post('/prospecting/{prospectingListingId}/outreach/sellers/link',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'linkSellerToProspecting'])
+                ->where('prospectingListingId', '\d+')
+                ->name('link-seller-prospecting');
+            Route::post('/prospecting/{prospectingListingId}/outreach/sellers/unlink',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'unlinkSellerFromProspecting'])
+                ->where('prospectingListingId', '\d+')
+                ->name('unlink-seller-prospecting');
+            Route::post('/prospecting/{prospectingListingId}/outreach/tva/ingest',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'ingestTvaForProspecting'])
+                ->where('prospectingListingId', '\d+')
+                ->name('tva-ingest-prospecting');
 
             // Map Workspace Phase B (Fix 2+3) — T-pin WhatsApp / Pitch flow.
             // Mirrors the prospecting entry point but the source is a

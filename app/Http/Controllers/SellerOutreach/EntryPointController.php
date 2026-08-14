@@ -242,6 +242,11 @@ final class EntryPointController extends Controller
             'linkDeedUrl'  => route('seller-outreach.entry.link-deed-prospecting', ['prospectingListingId' => $listing->id]),
             // FIX 2 — poll endpoint so a deed/TVA scrape auto-surfaces while the screen is open.
             'deedPollUrl'  => route('seller-outreach.entry.deed-poll-prospecting', ['prospectingListingId' => $listing->id]),
+            // Multi-seller (Part A) + TVA picker (Part B) — initial state + endpoints.
+            'sellerState'    => app(\App\Services\Prospecting\ComposeSellerService::class)->payload($agencyId, $listing),
+            'linkSellerUrl'  => route('seller-outreach.entry.link-seller-prospecting', ['prospectingListingId' => $listing->id]),
+            'unlinkSellerUrl' => route('seller-outreach.entry.unlink-seller-prospecting', ['prospectingListingId' => $listing->id]),
+            'tvaIngestUrl'   => route('seller-outreach.entry.tva-ingest-prospecting', ['prospectingListingId' => $listing->id]),
         ]);
     }
 
@@ -1267,11 +1272,130 @@ final class EntryPointController extends Controller
         $deedLink = $this->safeDeedLink(fn () => app(\App\Services\Prospecting\DeedsCaptureLinkService::class)
             ->ownersForListing($agencyId, $listing));
 
+        $sellers = app(\App\Services\Prospecting\ComposeSellerService::class)->payload($agencyId, $listing);
+
         return response()->json([
-            'owners'     => $deedLink['owners'],
-            'candidates' => $deedLink['candidates'],
-            'deeds'      => $this->safeAvailableDeeds($agencyId),
+            'owners'      => $deedLink['owners'],
+            'candidates'  => $deedLink['candidates'],
+            'deeds'       => $this->safeAvailableDeeds($agencyId),
+            'property_id' => $sellers['property_id'],
+            'sellers'     => $sellers['sellers'],
+            'tva'         => $sellers['tva'],
         ]);
+    }
+
+    /**
+     * PART A — link a seller (its own ID-keyed Contact) to the ONE property. A property can carry
+     * many sellers; this resolve-or-creates the contact on its SA ID (never merging two sellers)
+     * and links it via contact_property role=seller, promoting the listing to a Property on first
+     * link. Returns the refreshed seller + TVA state as JSON.
+     */
+    public function linkSellerToProspecting(Request $request, int $prospectingListingId)
+    {
+        $agencyId = $this->resolveAgencyId($request);
+        $listing = DB::table('prospecting_listings')
+            ->where('id', $prospectingListingId)->where('agency_id', $agencyId)->whereNull('deleted_at')->first();
+        abort_if(! $listing, 404);
+
+        $svc = app(\App\Services\Prospecting\ComposeSellerService::class);
+
+        if ($request->filled('contact_id')) {
+            $contact = Contact::withoutGlobalScope(\App\Models\Scopes\ContactScope::class)
+                ->where('agency_id', $agencyId)->find((int) $request->input('contact_id'));
+            abort_if($contact === null, 404, 'Contact not found in this agency.');
+        } else {
+            $data = $request->validate([
+                'first_name' => 'required|string|max:100',
+                'last_name'  => 'nullable|string|max:100',
+                'id_number'  => ['required', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
+            ]);
+            $idNumber = preg_replace('/\s+/', '', (string) $data['id_number']);
+            $contact = $svc->resolveOrCreateSellerContact(
+                $agencyId, $request->user()->branch_id, (int) $request->user()->id,
+                $data['first_name'], $data['last_name'] ?? '', $idNumber,
+            );
+        }
+
+        $propertyId = $this->ensurePropertyForListing($agencyId, $listing, $request->user());
+        $svc->linkSellerToProperty((int) $contact->id, $propertyId);
+
+        $listing = DB::table('prospecting_listings')->where('id', $prospectingListingId)->first();
+
+        return response()->json($svc->payload($agencyId, $listing));
+    }
+
+    /** PART A — remove ONE seller link (contact + property both survive). Returns refreshed state. */
+    public function unlinkSellerFromProspecting(Request $request, int $prospectingListingId)
+    {
+        $agencyId = $this->resolveAgencyId($request);
+        $listing = DB::table('prospecting_listings')
+            ->where('id', $prospectingListingId)->where('agency_id', $agencyId)->whereNull('deleted_at')->first();
+        abort_if(! $listing, 404);
+
+        $data = $request->validate(['contact_id' => 'required|integer']);
+        $svc = app(\App\Services\Prospecting\ComposeSellerService::class);
+
+        if (! empty($listing->matched_property_id)) {
+            $svc->unlinkSeller((int) $data['contact_id'], (int) $listing->matched_property_id);
+        }
+
+        return response()->json($svc->payload($agencyId, $listing));
+    }
+
+    /**
+     * PART B — write the agent-picked TVA numbers onto ONE specific seller Contact. The contact
+     * must be a seller on this listing's property (so numbers are never written to an arbitrary
+     * contact). Returns the refreshed state so the picker updates in place.
+     */
+    public function ingestTvaForProspecting(Request $request, int $prospectingListingId)
+    {
+        $agencyId = $this->resolveAgencyId($request);
+        $listing = DB::table('prospecting_listings')
+            ->where('id', $prospectingListingId)->where('agency_id', $agencyId)->whereNull('deleted_at')->first();
+        abort_if(! $listing, 404);
+
+        $data = $request->validate([
+            'contact_id'  => 'required|integer',
+            'item_ids'    => 'required|array|min:1',
+            'item_ids.*'  => 'integer',
+        ]);
+
+        abort_if(empty($listing->matched_property_id), 422, 'Link the seller to the property first.');
+
+        $contact = Contact::withoutGlobalScope(\App\Models\Scopes\ContactScope::class)
+            ->where('agency_id', $agencyId)->find((int) $data['contact_id']);
+        abort_if($contact === null, 404, 'Contact not found in this agency.');
+
+        $isSeller = DB::table('contact_property')
+            ->where('property_id', (int) $listing->matched_property_id)
+            ->where('contact_id', (int) $contact->id)
+            ->where('role', 'seller')
+            ->exists();
+        abort_unless($isSeller, 422, 'That contact is not a seller on this property.');
+
+        $svc = app(\App\Services\Prospecting\ComposeSellerService::class);
+        $svc->ingestPickedNumbers($agencyId, $contact, array_map('intval', $data['item_ids']));
+
+        return response()->json($svc->payload($agencyId, $listing));
+    }
+
+    /**
+     * Ensure the listing has a promoted Property to link sellers to. Idempotent — reuses the
+     * existing matched Property, else promotes the listing (external_id-keyed) and records the link.
+     */
+    private function ensurePropertyForListing(int $agencyId, object $listing, $actor): int
+    {
+        if (! empty($listing->matched_property_id)) {
+            return (int) $listing->matched_property_id;
+        }
+
+        $property = $this->promoteListingToProperty($agencyId, $listing, $actor);
+        DB::table('prospecting_listings')
+            ->where('id', $listing->id)
+            ->whereNull('matched_property_id')
+            ->update(['matched_property_id' => $property->id, 'matched_at' => now(), 'updated_at' => now()]);
+
+        return (int) $property->id;
     }
 
     private function resolveAgencyId(Request $request): int

@@ -149,7 +149,67 @@
                       this.deed.owners = d.owners || [];
                       this.deed.candidates = d.candidates || [];
                       if (Array.isArray(d.deeds)) this.deeds = d.deeds;
+                      // Multi-seller (Part A) + TVA (Part B) live state.
+                      if (d.sellers) this.sellers = d.sellers;
+                      if (d.tva) this.tva = d.tva;
+                      if (d.property_id) this.propertyId = d.property_id;
                   } catch (e) { /* transient — keep polling */ }
+              },
+              // ── Multi-seller link (Part A) + TVA number picker (Part B) ──
+              sellers: @js($sellerState['sellers'] ?? []),
+              tva: @js($sellerState['tva'] ?? (object)[]),
+              propertyId: @js($sellerState['property_id'] ?? null),
+              linkSellerUrl: @js($linkSellerUrl ?? null),
+              unlinkSellerUrl: @js($unlinkSellerUrl ?? null),
+              tvaIngestUrl: @js($tvaIngestUrl ?? null),
+              tvaPicks: {},
+              sellerBusy: false,
+              _postHeaders() {
+                  return { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest',
+                           'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content || '' };
+              },
+              applySellerState(d) {
+                  this.sellers = d.sellers || [];
+                  this.tva = d.tva || {};
+                  if (d.property_id) this.propertyId = d.property_id;
+              },
+              isSellerLinked(idNumber) { return !!idNumber && this.sellers.some(s => s.id_number === idNumber); },
+              async linkSeller(owner) {
+                  if (!this.linkSellerUrl || this.sellerBusy) return;
+                  if (!owner.id_number) { window.alert('This owner has no SA ID on the deed — cannot link as a distinct seller.'); return; }
+                  this.sellerBusy = true;
+                  try {
+                      const res = await fetch(this.linkSellerUrl, { method: 'POST', headers: this._postHeaders(),
+                          body: JSON.stringify({ first_name: owner.first_name, last_name: owner.last_name, id_number: owner.id_number }) });
+                      if (res.ok) this.applySellerState(await res.json());
+                  } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
+              },
+              async unlinkSeller(contactId) {
+                  if (!this.unlinkSellerUrl || this.sellerBusy) return;
+                  this.sellerBusy = true;
+                  try {
+                      const res = await fetch(this.unlinkSellerUrl, { method: 'POST', headers: this._postHeaders(),
+                          body: JSON.stringify({ contact_id: contactId }) });
+                      if (res.ok) this.applySellerState(await res.json());
+                  } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
+              },
+              tvaFor(idNumber) { return (idNumber && this.tva[idNumber]) ? this.tva[idNumber] : null; },
+              toggleTvaPick(contactId, itemId) {
+                  if (!this.tvaPicks[contactId]) this.tvaPicks[contactId] = [];
+                  const arr = this.tvaPicks[contactId];
+                  const i = arr.indexOf(itemId);
+                  if (i >= 0) arr.splice(i, 1); else arr.push(itemId);
+              },
+              isTvaPicked(contactId, itemId) { return (this.tvaPicks[contactId] || []).includes(itemId); },
+              async saveTvaNumbers(contactId) {
+                  const ids = this.tvaPicks[contactId] || [];
+                  if (!ids.length || !this.tvaIngestUrl || this.sellerBusy) return;
+                  this.sellerBusy = true;
+                  try {
+                      const res = await fetch(this.tvaIngestUrl, { method: 'POST', headers: this._postHeaders(),
+                          body: JSON.stringify({ contact_id: contactId, item_ids: ids }) });
+                      if (res.ok) { this.applySellerState(await res.json()); this.tvaPicks[contactId] = []; }
+                  } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
               },
               filteredDeeds() {
                   const q = this.deedSearch.trim().toLowerCase();
@@ -225,9 +285,20 @@
                                 <template x-if="!owner.id_number"><span class="italic">No ID on the deed record</span></template>
                             </div>
                         </div>
-                        <button type="button" @click="useDeedOwner(owner)"
-                                class="shrink-0 px-3 py-1.5 text-xs font-semibold rounded-md border-0"
-                                style="background: var(--brand-icon, #0ea5e9); color:#fff; cursor:pointer;">Use from deeds</button>
+                        <div class="shrink-0 flex flex-col gap-1">
+                            <template x-if="!isSellerLinked(owner.id_number)">
+                                <button type="button" @click="linkSeller(owner)" :disabled="sellerBusy"
+                                        class="px-3 py-1.5 text-xs font-semibold rounded-md border-0"
+                                        style="background: var(--brand-icon, #0ea5e9); color:#fff; cursor:pointer;">+ Link as seller</button>
+                            </template>
+                            <template x-if="isSellerLinked(owner.id_number)">
+                                <span class="px-3 py-1.5 text-xs font-semibold rounded-md text-center"
+                                      style="background: color-mix(in srgb, #10b981 18%, transparent); color: var(--text-primary);">✓ Seller linked</span>
+                            </template>
+                            <button type="button" @click="useDeedOwner(owner)"
+                                    class="px-3 py-1.5 text-xs font-semibold rounded-md"
+                                    style="background: transparent; color: var(--text-secondary); border:1px solid var(--border); cursor:pointer;">Use in form</button>
+                        </div>
                     </div>
                 </template>
             </div>
@@ -265,9 +336,75 @@
                                         <template x-if="!owner.id_number"><span class="italic">No ID on the deed record</span></template>
                                     </div>
                                 </div>
-                                <button type="button" @click="useDeedOwner(owner)"
-                                        class="shrink-0 px-3 py-1.5 text-xs font-semibold rounded-md"
-                                        style="background: transparent; color: var(--text-primary); border:1px solid var(--ds-amber, #f59e0b); cursor:pointer;">Use from deeds</button>
+                                <div class="shrink-0 flex flex-col gap-1">
+                                    <template x-if="!isSellerLinked(owner.id_number)">
+                                        <button type="button" @click="linkSeller(owner)" :disabled="sellerBusy"
+                                                class="px-3 py-1.5 text-xs font-semibold rounded-md"
+                                                style="background: transparent; color: var(--text-primary); border:1px solid var(--ds-amber, #f59e0b); cursor:pointer;">+ Link as seller</button>
+                                    </template>
+                                    <template x-if="isSellerLinked(owner.id_number)">
+                                        <span class="px-3 py-1.5 text-xs font-semibold rounded-md text-center"
+                                              style="background: color-mix(in srgb, #10b981 18%, transparent); color: var(--text-primary);">✓ Seller linked</span>
+                                    </template>
+                                    <button type="button" @click="useDeedOwner(owner)"
+                                            class="px-3 py-1.5 text-xs font-semibold rounded-md"
+                                            style="background: transparent; color: var(--text-secondary); border:1px solid var(--border); cursor:pointer;">Use in form</button>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        {{-- ── Sellers on this property (Part A multi-seller + Part B TVA picker) ──
+             Property → many seller-links → many standalone Contacts (each ID-keyed, never merged).
+             Reactive: updated by link/unlink + the poll. Each seller shows its own numbers and, when
+             TVA scraped numbers matched its SA ID, a per-seller picker to add chosen numbers. --}}
+        <div x-show="sellers.length" x-cloak class="rounded-md p-4 mb-4"
+             style="background: color-mix(in srgb, #10b981 6%, var(--surface)); border:1px solid color-mix(in srgb, #10b981 40%, var(--border));">
+            <div class="flex items-center gap-2 mb-2 flex-wrap">
+                <span class="text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded" style="background:#10b981; color:#fff;">Sellers on this property</span>
+                <span class="text-xs" style="color: var(--text-muted);">Each seller is its own contact — link as many as the property has</span>
+            </div>
+            <div class="space-y-3">
+                <template x-for="s in sellers" :key="s.contact_id">
+                    <div class="rounded-md p-3" style="background: var(--surface); border:1px solid var(--border);">
+                        <div class="flex items-start justify-between gap-3">
+                            <div class="min-w-0">
+                                <div class="text-sm font-semibold" style="color: var(--text-primary);">
+                                    <span x-text="((s.first_name || '') + ' ' + (s.last_name || '')).trim() || 'Seller'"></span>
+                                    <template x-if="s.dead_end"><span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-primary);">⚠ Dead end · <span x-text="s.dead_end && s.dead_end.label"></span></span></template>
+                                </div>
+                                <div class="text-xs mt-0.5" style="color: var(--text-muted);">
+                                    <template x-if="s.id_number"><span>ID: <span class="font-mono" x-text="s.id_number"></span></span></template>
+                                </div>
+                                <div class="flex flex-wrap gap-1 mt-1">
+                                    <template x-for="p in s.phones" :key="'p' + p.value"><span class="text-[11px] px-1.5 py-0.5 rounded font-mono" style="background: var(--surface-2); color: var(--text-secondary);">📞 <span x-text="p.value"></span></span></template>
+                                    <template x-for="e in s.emails" :key="'e' + e.value"><span class="text-[11px] px-1.5 py-0.5 rounded" style="background: var(--surface-2); color: var(--text-secondary);">✉ <span x-text="e.value"></span></span></template>
+                                    <span x-show="!s.phones.length && !s.emails.length" class="text-[11px] italic" style="color: var(--text-muted);">No numbers yet</span>
+                                </div>
+                            </div>
+                            <button type="button" @click="unlinkSeller(s.contact_id)" :disabled="sellerBusy"
+                                    class="shrink-0 text-xs font-semibold" style="color: var(--ds-crimson); background:none; border:0; cursor:pointer;">Remove</button>
+                        </div>
+
+                        {{-- TVA numbers matched to THIS seller by ID — agent picks which to write onto this contact. --}}
+                        <template x-if="tvaFor(s.id_number)">
+                            <div class="mt-2 pt-2" style="border-top:1px dashed var(--border);">
+                                <div class="text-[11px] font-semibold mb-1" style="color: var(--text-secondary);">TVA numbers scraped for this seller — tick which to add:</div>
+                                <template x-for="item in tvaFor(s.id_number).items" :key="item.id">
+                                    <label class="flex items-center gap-2 text-xs py-0.5" style="cursor:pointer;">
+                                        <input type="checkbox" :checked="isTvaPicked(s.contact_id, item.id)" @change="toggleTvaPick(s.contact_id, item.id)">
+                                        <span x-text="item.type === 'email' ? '✉' : '📞'"></span>
+                                        <span class="font-mono" x-text="item.value"></span>
+                                        <span class="text-[10px]" style="color: var(--text-muted);" x-show="item.link_date">· linked <span x-text="item.link_date"></span></span>
+                                    </label>
+                                </template>
+                                <button type="button" @click="saveTvaNumbers(s.contact_id)"
+                                        :disabled="sellerBusy || !((tvaPicks[s.contact_id] || []).length)"
+                                        class="mt-1 px-3 py-1 text-xs font-semibold rounded-md border-0"
+                                        style="background:#10b981; color:#fff; cursor:pointer;">Add picked numbers to this seller</button>
                             </div>
                         </template>
                     </div>
