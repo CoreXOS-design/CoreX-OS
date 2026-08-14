@@ -30,6 +30,17 @@
     button is visibly disabled and a plain-language hint shows until both
     dates are actually complete — the failure is now seen, not silent.
 
+    2026-08-14 follow-up #2: the enabled Apply button used var(--brand),
+    which is never defined anywhere in corex.css (only --brand-button,
+    --brand-default, --brand-sidebar, --brand-icon exist). With --brand
+    undefined, `background` fell through to whatever ambient surface color
+    cascaded in, while color:#fff stayed hardcoded — invisible white-on-
+    light-grey in light mode, only legible in dark mode by coincidence.
+    Fix: use var(--brand-button, #0ea5e9), the same variable + fallback
+    every other primary action button in the app uses (see
+    .corex-btn-primary in corex.css), which is a proper solid blue with
+    real contrast against white text in both themes.
+
     Expects: $preset (string), $presets (array).
     Optional: $formAction — the branch/agent pages need next requests to
     keep hitting their own drill-down route, not the company report; omit it
@@ -60,7 +71,7 @@
                        class="block mt-1 text-xs rounded px-2 py-1" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
             </label>
             <button type="submit" :disabled="!start || !end"
-                    :style="(!start || !end) ? 'background:var(--surface-2); color:var(--text-muted); cursor:not-allowed; border:1px solid var(--border);' : 'background:var(--brand); color:#fff;'"
+                    :style="(!start || !end) ? 'background:var(--surface-2); color:var(--text-muted); cursor:not-allowed; border:1px solid var(--border);' : 'background:var(--brand-button, #0ea5e9); color:#fff;'"
                     class="text-xs px-3 py-1 rounded">Apply</button>
             <span x-show="!start || !end" class="text-[11px]" style="color:var(--text-muted);">Pick both a start and end date</span>
         </div>
