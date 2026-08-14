@@ -131,6 +131,24 @@ class AgencyReportFrontendTest extends TestCase
             ->assertSee('.report-agent-scroll thead th { position: sticky; top: 0;', false); // headers stay while rows scroll
     }
 
+    public function test_metric_columns_fit_rotated_qty_headers_money_stays_wide(): void
+    {
+        $res = $this->actingAs($this->admin)->get(route('performance.agency-report'));
+
+        $res->assertOk()
+            ->assertSee('report-metric-table', false)                       // both tables opt into the fit styles
+            ->assertSee('metric-qty', false)                                // narrow qty columns
+            ->assertSee("isMoney(m.key) ? '' : 'th-rot'", false)            // qty headers rotate, money stays flat
+            ->assertSee('writing-mode: vertical-rl', false)                 // vertical rotation
+            ->assertSee('metric-money', false)                              // money column kept wide
+            ->assertSee('isMoney(', false)                                  // money detector wired
+            ->assertSee('fmtMoney(', false)                                 // money values formatted (R …)
+            // rotation must not break sort or drilldown: handlers still present on the metric cells
+            ->assertSee("sortAgent(m.key)", false)
+            ->assertSee("drill(m.key, 'agent'", false)
+            ->assertSee("drill(m.key, 'branch'", false);
+    }
+
     public function test_whole_company_print_renders_with_company_header(): void
     {
         $res = $this->actingAs($this->admin)->get(route('performance.agency-report.print'));

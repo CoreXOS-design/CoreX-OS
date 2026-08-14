@@ -116,15 +116,15 @@
     <div>
         <h2 class="text-xs font-bold uppercase tracking-widest mb-2" style="color:var(--text-muted);">By branch</h2>
         <div class="overflow-x-auto rounded max-w-full" style="border:1px solid var(--border);">
-            <table class="w-full text-[11px]" style="border-collapse:collapse;">
+            <table class="w-full text-[11px] report-metric-table" style="border-collapse:collapse;">
                 <thead>
                     <tr style="background:var(--surface-2);">
                         <th class="text-left px-2 py-1.5 cursor-pointer select-none text-[10px] uppercase tracking-wide" @click="sortBranch('label')" :aria-sort="ariaBranch('label')" style="color:var(--text-muted);">
                             Branch <span x-text="branchArrow('label')"></span>
                         </th>
                         <template x-for="m in metrics" :key="m.key">
-                            <th class="text-right px-2 py-1.5 cursor-pointer select-none text-[10px] uppercase tracking-wide" @click="sortBranch(m.key)" :aria-sort="ariaBranch(m.key)" style="color:var(--text-muted);">
-                                <span x-text="m.label"></span> <span x-text="branchArrow(m.key)"></span>
+                            <th :class="isMoney(m.key) ? 'metric-th metric-money' : 'metric-th metric-qty'" @click="sortBranch(m.key)" :aria-sort="ariaBranch(m.key)">
+                                <div :class="isMoney(m.key) ? '' : 'th-rot'"><span x-text="m.label"></span> <span x-text="branchArrow(m.key)"></span></div>
                             </th>
                         </template>
                     </tr>
@@ -136,9 +136,9 @@
                                 <a :href="branchUrl(b.key)" class="no-underline" style="color:var(--brand, #3b82f6);" x-text="b.label"></a>
                             </td>
                             <template x-for="m in metrics" :key="m.key">
-                                <td class="text-right px-2 py-1.5" style="color:var(--text-primary); cursor:pointer;"
+                                <td :class="isMoney(m.key) ? 'num-money' : 'num-qty'"
                                     @click="drill(m.key, 'branch', b.key, m.label + ' — ' + b.label)"
-                                    x-text="fmt(b.metrics[m.key])"></td>
+                                    x-text="isMoney(m.key) ? fmtMoney(b.metrics[m.key]) : fmt(b.metrics[m.key])"></td>
                             </template>
                         </tr>
                     </template>
@@ -179,13 +179,22 @@
              scrolls internally, so the column-header row (sticky top:0 inside the box, theme-aware
              --surface-2 bg) stays visible while the agent rows scroll. Contained horizontal scroll too. --}}
         <style>
+            /* Sticky by-agent column headers (pin under the top block) */
             .report-agent-scroll thead th { position: sticky; top: 0; z-index: 10; background: var(--surface-2); }
+            /* Column-fit (both tables): narrow, vertically-rotated QTY headers so ~5-digit counts
+               fit on a standard desktop width. Identity + money columns stay horizontal + wide. */
+            .report-metric-table .metric-th { cursor: pointer; user-select: none; vertical-align: bottom; color: var(--text-muted); font-size: 10px; letter-spacing: .02em; text-transform: uppercase; }
+            .report-metric-table .metric-qty { width: 2.5rem; min-width: 2.5rem; padding: .375rem .25rem; text-align: center; }
+            .report-metric-table .metric-qty .th-rot { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; display: inline-block; text-align: left; line-height: 1.1; }
+            .report-metric-table .metric-money { min-width: 6rem; padding: .375rem .5rem; text-align: right; white-space: normal; }
+            .report-metric-table td.num-qty { text-align: right; white-space: nowrap; padding: .375rem .25rem; color: var(--text-primary); cursor: pointer; }
+            .report-metric-table td.num-money { text-align: right; white-space: nowrap; padding: .375rem .5rem; color: var(--text-primary); cursor: pointer; font-variant-numeric: tabular-nums; }
         </style>
         <div class="report-agent-scroll rounded max-w-full"
              style="border:1px solid var(--border); background:var(--bg,#f4f6fb);
                     position:sticky; top:var(--report-top-h, 0px); z-index:20;
                     max-height:calc(100vh - var(--report-top-h, 0px) - 1.5rem); overflow:auto;">
-            <table class="w-full text-[11px]" style="border-collapse:collapse;">
+            <table class="w-full text-[11px] report-metric-table" style="border-collapse:collapse;">
                 <thead>
                     <tr style="background:var(--surface-2);">
                         <th class="text-left px-2 py-1.5 cursor-pointer select-none text-[10px] uppercase tracking-wide" @click="sortAgent('name')" :aria-sort="ariaAgent('name')" style="color:var(--text-muted);">
@@ -195,8 +204,8 @@
                             Branch <span x-text="agentArrow('branch')"></span>
                         </th>
                         <template x-for="m in metrics" :key="m.key">
-                            <th class="text-right px-2 py-1.5 cursor-pointer select-none text-[10px] uppercase tracking-wide" @click="sortAgent(m.key)" :aria-sort="ariaAgent(m.key)" style="color:var(--text-muted);">
-                                <span x-text="m.label"></span> <span x-text="agentArrow(m.key)"></span>
+                            <th :class="isMoney(m.key) ? 'metric-th metric-money' : 'metric-th metric-qty'" @click="sortAgent(m.key)" :aria-sort="ariaAgent(m.key)">
+                                <div :class="isMoney(m.key) ? '' : 'th-rot'"><span x-text="m.label"></span> <span x-text="agentArrow(m.key)"></span></div>
                             </th>
                         </template>
                     </tr>
@@ -209,9 +218,9 @@
                             </td>
                             <td class="px-2 py-1.5 whitespace-nowrap" style="color:var(--text-muted);" x-text="a.branch_label"></td>
                             <template x-for="m in metrics" :key="m.key">
-                                <td class="text-right px-2 py-1.5" style="color:var(--text-primary); cursor:pointer;"
+                                <td :class="isMoney(m.key) ? 'num-money' : 'num-qty'"
                                     @click="drill(m.key, 'agent', a.user_id, m.label + ' — ' + a.name)"
-                                    x-text="fmt(a.metrics[m.key])"></td>
+                                    x-text="isMoney(m.key) ? fmtMoney(a.metrics[m.key]) : fmt(a.metrics[m.key])"></td>
                             </template>
                         </tr>
                     </template>
@@ -315,6 +324,10 @@ function agencyReport(cfg) {
         search: '', branchFilter: '', minActivity: 0,
 
         fmt(v) { return Number(v ?? 0).toLocaleString(); },
+        // Money columns (commission / any deal value) stay wide + horizontal; everything else is a
+        // narrow rotated qty column. Key-based so it needs no extra flag from cc6's metric metadata.
+        isMoney(key) { return /commission|value|gross|amount|revenue|rand|_zar/i.test(key || ''); },
+        fmtMoney(v) { return 'R ' + Number(v ?? 0).toLocaleString(); },
         branchUrl(key) { return this.branchUrlBase.replace('__KEY__', encodeURIComponent(key)); },
         agentUrl(id)  { return this.agentUrlBase.replace('__UID__', encodeURIComponent(id)); },
         _val(row, key, labelKey) {
