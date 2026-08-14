@@ -263,6 +263,15 @@ class Contact extends Model
         return $this->hasMany(ContactTestimonial::class)->latest();
     }
 
+    /**
+     * MIC ↔ Deeds ↔ Contact loop (Part B) — the "No contact details available" dead-end marker,
+     * if this contact has been recorded as a dead end (nothing contactable). One active flag.
+     */
+    public function deadEndFlag(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(ContactDeadEndFlag::class);
+    }
+
     /** @deprecated Use documents() instead. Kept for backward compat during transition. */
     public function legacyDocuments(): HasMany
     {

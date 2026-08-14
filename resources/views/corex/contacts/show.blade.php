@@ -1134,6 +1134,8 @@
 
             @include('corex.contacts._held-address-warning')
 
+            @include('corex.contacts._dead-end-warning')
+
             <div class="rounded-md p-5" style="background: var(--surface-2); border: 1px solid var(--border);"
                  x-data="contactAddress({{ Js::from([
                     'unitNumber'       => old('unit_number',        $contact->unit_number ?? ''),

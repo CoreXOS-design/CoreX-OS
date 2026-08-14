@@ -271,6 +271,11 @@ final class EntryPointController extends Controller
 
         // The agent may either PICK an existing contact (search) or CAPTURE a new
         // one. A chosen contact_id short-circuits the new-contact validation.
+        // Part B — the deliberate "No contact details available" dead-end override (only in the
+        // create-new path; a picked existing contact already has a record).
+        $isDeadEnd     = false;
+        $deadEndReason = null;
+
         $linked = $this->resolveLinkedExistingContact($request, $agencyId);
         if ($linked !== null) {
             $validated = [];
@@ -285,32 +290,57 @@ final class EntryPointController extends Controller
                 'email'      => 'nullable|email|max:255',
                 // A.2.5 — optional SA ID number with format + checksum validation.
                 'id_number'  => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
+                // Part B — deliberate dead-end override + its reason (agent picks; default not_in_tva).
+                'no_contact_details' => 'nullable|boolean',
+                'dead_end_reason'    => 'nullable|string|in:opted_out,not_in_tva,no_record_found',
             ]);
 
             $idNumber = isset($validated['id_number']) ? preg_replace('/\s+/', '', (string) $validated['id_number']) : null;
 
-            if (empty($validated['phone']) && empty($validated['email'])) {
+            // Part B — the tick only makes sense as a dead-end path: if a phone or email IS
+            // entered, real details win and the tick is ignored. When it genuinely applies, the
+            // phone/email requirement is lifted, but a name + SA ID (from the deed) are required so
+            // the contact is still ID-keyed and dedupes onto the deed owner — never an orphan ghost.
+            $isDeadEnd = $request->boolean('no_contact_details')
+                && empty($validated['phone']) && empty($validated['email']);
+
+            if (! $isDeadEnd && empty($validated['phone']) && empty($validated['email'])) {
                 return back()
                     ->withErrors(['contact_required' => 'Provide a phone or email so we can dedupe and reach the seller.'])
                     ->withInput();
             }
-
-            // Blocking duplicate check AT ADD TIME (parity with the Contacts
-            // screen and the DR2 party-picker). Replaces the old silent
-            // findExistingContact() match-or-create, whose only signal was a
-            // "Linked to existing contact" toast one screen later on the
-            // composer — the deferral behind the duplicate-contact report.
-            $gate = $this->duplicateGate(
-                $request,
-                $agencyId,
-                $validated,
-                $idNumber,
-                route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $prospectingListingId]),
-            );
-            if ($gate instanceof \Illuminate\Http\RedirectResponse) {
-                return $gate;   // blocking duplicate panel — back to the capture page
+            if ($isDeadEnd && empty($idNumber)) {
+                return back()
+                    ->withErrors(['contact_required' => 'A dead-end contact needs the owner’s name and SA ID number from the deed.'])
+                    ->withInput();
             }
-            $existing = $gate;  // Contact (auto_link match) or null (create new)
+
+            if ($isDeadEnd) {
+                // Resolve-or-create on the SA ID: the deed owner is already an id_number-keyed
+                // contact, so this dedupes onto that same record (never a duplicate). No blocking
+                // duplicate panel — the ID is the authoritative identity here.
+                $deadEndReason = \App\Models\ContactDeadEndFlag::normaliseReason($validated['dead_end_reason'] ?? null);
+                $existing = app(\App\Services\ContactDuplicateService::class)
+                    ->findDuplicatesForIdentifiers([], [], $idNumber, $agencyId)
+                    ->first();
+            } else {
+                // Blocking duplicate check AT ADD TIME (parity with the Contacts
+                // screen and the DR2 party-picker). Replaces the old silent
+                // findExistingContact() match-or-create, whose only signal was a
+                // "Linked to existing contact" toast one screen later on the
+                // composer — the deferral behind the duplicate-contact report.
+                $gate = $this->duplicateGate(
+                    $request,
+                    $agencyId,
+                    $validated,
+                    $idNumber,
+                    route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $prospectingListingId]),
+                );
+                if ($gate instanceof \Illuminate\Http\RedirectResponse) {
+                    return $gate;   // blocking duplicate panel — back to the capture page
+                }
+                $existing = $gate;  // Contact (auto_link match) or null (create new)
+            }
             $isNew = $existing === null;
         }
 
@@ -330,7 +360,7 @@ final class EntryPointController extends Controller
         // the composer screen.
         $isOptedOut = $existing !== null && $existing->communicationStatus() !== Contact::COMM_OPTED_IN;
 
-        $result = DB::transaction(function () use ($request, $agencyId, $listing, $validated, $existing, $idNumber, $captureAddress, $structuredAddress, $isOptedOut) {
+        $result = DB::transaction(function () use ($request, $agencyId, $listing, $validated, $existing, $idNumber, $captureAddress, $structuredAddress, $isOptedOut, $isDeadEnd, $deadEndReason) {
             // Branch context is mandatory on Contact rows in CoreX schema.
             $branchId = $request->user()->branch_id;
 
@@ -482,6 +512,29 @@ final class EntryPointController extends Controller
                     'updated_at'           => now(),
                 ], fn ($v) => $v !== null));
 
+            // Part B — persist the dead-end marker on the ONE canonical contact so any future
+            // agent immediately sees it's been chased with nothing contactable. One active flag
+            // per contact (updateOrCreate), plus a note for the compounding human history.
+            if ($isDeadEnd) {
+                \App\Models\ContactDeadEndFlag::updateOrCreate(
+                    ['contact_id' => $contact->id],
+                    [
+                        'agency_id'          => $agencyId,
+                        'property_id'        => $property->id,
+                        'reason'             => $deadEndReason,
+                        'source'             => 'seller_outreach',
+                        'created_by_user_id' => $request->user()->id,
+                    ],
+                );
+
+                ContactNote::create([
+                    'contact_id' => $contact->id,
+                    'user_id'    => $request->user()->id,
+                    'body'       => 'Marked as a dead-end — no contact details available ('
+                        . \App\Models\ContactDeadEndFlag::reasonLabel($deadEndReason) . '). Captured from the deed; nothing to reach.',
+                ]);
+            }
+
             return [$contact, $property];
         });
 
@@ -523,6 +576,17 @@ final class EntryPointController extends Controller
                 ->route('corex.properties.show', ['property' => $property->id])
                 ->with('warning', "Linked to existing contact: {$name} — {$name} has opted out of marketing. "
                     . 'This property has been marked Withdrawn and a note was added to both records.');
+        }
+
+        // Part B — dead-end outcome: there is nothing to send (no phone/email), so land on the
+        // property with the record + flag saved rather than a composer that can't compose.
+        if ($isDeadEnd) {
+            $reasonLabel = \App\Models\ContactDeadEndFlag::reasonLabel($deadEndReason);
+
+            return redirect()
+                ->route('corex.properties.show', ['property' => $property->id])
+                ->with('warning', "Recorded {$name} as a dead-end — no contact details available ({$reasonLabel}). "
+                    . 'The property and contact were saved and flagged; there is nothing to send.');
         }
 
         return redirect()

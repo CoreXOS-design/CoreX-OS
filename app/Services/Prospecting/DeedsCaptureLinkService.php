@@ -340,12 +340,21 @@ class DeedsCaptureLinkService
     {
         $contactIds = $rows->pluck('contact_id')->filter()->map(fn ($v) => (int) $v)->unique()->all();
         $contacts = [];
+        $deadEnds = [];
         if ($contactIds !== []) {
             $contacts = Contact::withoutGlobalScope(ContactScope::class)
                 ->where('agency_id', $agencyId)
                 ->whereIn('id', $contactIds)
                 ->get(['id', 'first_name', 'last_name', 'id_number', 'id_type'])
                 ->keyBy('id');
+
+            // Part B — mark owners already recorded as a dead end so the compose panels warn a
+            // future agent immediately (nothing contactable here).
+            $deadEnds = \App\Models\ContactDeadEndFlag::withoutGlobalScopes()
+                ->where('agency_id', $agencyId)
+                ->whereIn('contact_id', $contactIds)
+                ->get(['contact_id', 'reason'])
+                ->keyBy('contact_id');
         }
 
         $owners = [];
@@ -359,6 +368,12 @@ class DeedsCaptureLinkService
                 [$first, $last] = $this->splitName((string) $row->name);
             }
 
+            $contactId = $contact?->id ?? ($row->contact_id ? (int) $row->contact_id : null);
+            $deadEnd = ($contactId !== null && isset($deadEnds[$contactId])) ? [
+                'reason' => $deadEnds[$contactId]->reason,
+                'label'  => \App\Models\ContactDeadEndFlag::reasonLabel($deadEnds[$contactId]->reason),
+            ] : null;
+
             $owners[] = [
                 'tracked_property_id' => (int) $row->tracked_property_id,
                 'name'                => (string) $row->name,
@@ -367,7 +382,8 @@ class DeedsCaptureLinkService
                 'id_number'           => $row->id_number !== null && $row->id_number !== '' ? (string) $row->id_number : null,
                 'id_type'             => $row->id_type ?? ($contact->id_type ?? null),
                 'is_primary'          => (bool) $row->is_primary,
-                'contact_id'          => $contact?->id ?? ($row->contact_id ? (int) $row->contact_id : null),
+                'contact_id'          => $contactId,
+                'dead_end'            => $deadEnd,
             ];
         }
 

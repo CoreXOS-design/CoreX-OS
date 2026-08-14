@@ -1,6 +1,9 @@
 @extends('layouts.corex')
 
 @section('corex-content')
+@if($property->exists ?? false)
+    @include('corex.properties.partials._dead-end-warning', ['property' => $property])
+@endif
 @php
     $isNew = !$property->exists;
     // Saving a compliant, Active listing makes its portal copies stale that instant.

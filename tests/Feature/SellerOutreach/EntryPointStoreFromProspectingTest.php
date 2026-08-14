@@ -234,6 +234,102 @@ final class EntryPointStoreFromProspectingTest extends TestCase
             ->assertNotFound();
     }
 
+    // ── Part B: 'No contact details available' dead-end override ──────────
+
+    /** Tick ON + deed data (name + SA ID) + no phone/email → contact created from the deed and flagged. */
+    public function test_dead_end_tick_creates_flagged_contact_without_phone_or_email(): void
+    {
+        [$agencyId, $userId] = $this->seedAgency();
+        $listingId = $this->seedProspectingListing($agencyId, ['address' => '516 Bream Crescent', 'suburb' => 'Ramsgate']);
+
+        $resp = $this->actingAs(User::find($userId))
+            ->post(route('seller-outreach.entry.store-from-prospecting', ['prospectingListingId' => $listingId]), [
+                'first_name'         => 'Robyn Ann',
+                'last_name'          => 'Bailey',
+                'id_number'          => '8001015009087',
+                'no_contact_details' => '1',
+                'dead_end_reason'    => 'not_in_tva',
+                // NO phone, NO email — the dead-end path.
+            ]);
+
+        $resp->assertStatus(302);
+
+        $contact = Contact::where('id_number', '8001015009087')->first();
+        $this->assertNotNull($contact, 'contact created from the deed data');
+        $this->assertSame('', (string) $contact->phone);
+        $this->assertTrue(empty($contact->email), 'no email set on a dead-end contact');
+
+        // Dead-end lands on the property (nothing to send), not the composer.
+        $matchedPropertyId = (int) DB::table('prospecting_listings')->where('id', $listingId)->value('matched_property_id');
+        $this->assertNotSame(0, $matchedPropertyId);
+        $resp->assertRedirect(route('corex.properties.show', ['property' => $matchedPropertyId]));
+
+        // Persistent flag on the ONE contact + the seller pivot.
+        $this->assertDatabaseHas('contact_dead_end_flags', ['contact_id' => $contact->id, 'reason' => 'not_in_tva']);
+        $this->assertDatabaseHas('contact_property', ['contact_id' => $contact->id, 'property_id' => $matchedPropertyId, 'role' => 'seller']);
+    }
+
+    /** The dead-end resolves-or-creates on the SA ID: an existing deed-owner contact is REUSED, never duplicated. */
+    public function test_dead_end_dedupes_onto_existing_id_keyed_contact(): void
+    {
+        [$agencyId, $userId] = $this->seedAgency();
+        $listingId = $this->seedProspectingListing($agencyId, ['address' => '516 Bream Crescent', 'suburb' => 'Ramsgate']);
+
+        // The deed owner already exists as an id_number-keyed contact (as deeds capture creates it).
+        $deedOwner = Contact::create([
+            'agency_id' => $agencyId, 'branch_id' => $agencyId,
+            'first_name' => 'Robyn Ann', 'last_name' => 'Bailey', 'phone' => '', 'id_number' => '6904050051082',
+        ]);
+        $countBefore = Contact::count();
+
+        $this->actingAs(User::find($userId))
+            ->post(route('seller-outreach.entry.store-from-prospecting', ['prospectingListingId' => $listingId]), [
+                'first_name' => 'Robyn Ann', 'last_name' => 'Bailey',
+                'id_number' => '6904050051082',
+                'no_contact_details' => '1', 'dead_end_reason' => 'opted_out',
+            ])->assertStatus(302);
+
+        $this->assertSame($countBefore, Contact::count(), 'dead-end must dedupe onto the existing ID contact, not duplicate');
+        $this->assertDatabaseHas('contact_dead_end_flags', ['contact_id' => $deedOwner->id, 'reason' => 'opted_out']);
+    }
+
+    /** Real details win — a phone entered alongside the tick ignores the dead-end (normal flow, no flag). */
+    public function test_dead_end_tick_ignored_when_phone_is_entered(): void
+    {
+        [$agencyId, $userId] = $this->seedAgency();
+        $listingId = $this->seedProspectingListing($agencyId, ['address' => '9 Real Details Road', 'suburb' => 'Margate']);
+
+        $resp = $this->actingAs(User::find($userId))
+            ->post(route('seller-outreach.entry.store-from-prospecting', ['prospectingListingId' => $listingId]), [
+                'first_name' => 'Reachable', 'phone' => '0821234567',
+                'no_contact_details' => '1', 'dead_end_reason' => 'not_in_tva',
+            ]);
+
+        $resp->assertStatus(302);
+        $resp->assertRedirectContains('/outreach/compose');   // normal composer flow, not the dead-end redirect
+
+        $contact = Contact::where('first_name', 'Reachable')->first();
+        $this->assertNotNull($contact);
+        $this->assertSame('0821234567', $contact->phone);
+        $this->assertDatabaseMissing('contact_dead_end_flags', ['contact_id' => $contact->id]);
+    }
+
+    /** A dead-end needs the owner's SA ID (the ID-keyed identity) — no ID and no phone/email bounces. */
+    public function test_dead_end_requires_id_number(): void
+    {
+        [$agencyId, $userId] = $this->seedAgency();
+        $listingId = $this->seedProspectingListing($agencyId, ['address' => '3 No Id Street']);
+
+        $this->actingAs(User::find($userId))
+            ->post(route('seller-outreach.entry.store-from-prospecting', ['prospectingListingId' => $listingId]), [
+                'first_name' => 'NoIdDeadEnd',
+                'no_contact_details' => '1', 'dead_end_reason' => 'not_in_tva',
+            ])->assertSessionHasErrors('contact_required');
+
+        $this->assertSame(0, Contact::where('first_name', 'NoIdDeadEnd')->count());
+        $this->assertSame(0, DB::table('contact_dead_end_flags')->count());
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     /** @return array{0:int,1:int} */

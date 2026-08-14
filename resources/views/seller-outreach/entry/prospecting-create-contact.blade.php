@@ -154,6 +154,14 @@
                       }).catch(() => {});
                   }
               },
+              // ── Part B: 'No contact details available' dead-end override ──
+              noContactDetails: false,
+              deadEndReason: 'not_in_tva',
+              contactTyped: {{ (trim((string) old('phone','')) !== '' || trim((string) old('email','')) !== '') ? 'true' : 'false' }},
+              hasTypedContact() {
+                  return !!((this.$refs.phone && this.$refs.phone.value.trim())
+                      || (this.$refs.email && this.$refs.email.value.trim()));
+              },
           }"
           action="{{ !empty($trackedProperty)
               ? route('seller-outreach.entry.store-from-tracked-property', $trackedProperty->id)
@@ -194,6 +202,10 @@
                                     @if(!empty($owner['is_primary']))
                                         <span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded"
                                               style="background: var(--surface-2); color: var(--text-muted);">Primary</span>
+                                    @endif
+                                    @if(!empty($owner['dead_end']))
+                                        <span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded"
+                                              style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-primary);">⚠ Dead end · {{ $owner['dead_end']['label'] }}</span>
                                     @endif
                                 </div>
                                 <div class="text-xs mt-0.5" style="color: var(--text-muted);">
@@ -255,6 +267,10 @@
                                             @if(!empty($owner['is_primary']))
                                                 <span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded"
                                                       style="background: var(--surface-2); color: var(--text-muted);">Primary</span>
+                                            @endif
+                                            @if(!empty($owner['dead_end']))
+                                                <span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded"
+                                                      style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-primary);">⚠ Dead end · {{ $owner['dead_end']['label'] }}</span>
                                             @endif
                                         </div>
                                         <div class="text-xs mt-0.5" style="color: var(--text-muted);">
@@ -430,13 +446,15 @@
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">Phone</label>
-                    <input type="tel" name="phone" value="{{ old('phone') }}" maxlength="30" placeholder="082 123 4567"
+                    <input type="tel" name="phone" x-ref="phone" value="{{ old('phone') }}" maxlength="30" placeholder="082 123 4567"
+                           @input="contactTyped = hasTypedContact(); if (contactTyped) noContactDetails = false"
                            class="w-full px-3 py-2 text-sm rounded-md"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 </div>
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">Email</label>
-                    <input type="email" name="email" value="{{ old('email') }}" maxlength="255"
+                    <input type="email" name="email" x-ref="email" value="{{ old('email') }}" maxlength="255"
+                           @input="contactTyped = hasTypedContact(); if (contactTyped) noContactDetails = false"
                            class="w-full px-3 py-2 text-sm rounded-md"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 </div>
@@ -453,8 +471,38 @@
                 <p class="text-[11px] mt-1" style="color: var(--text-muted);">SA ID — 13 digits. Leave blank if not known.</p>
             </div>
 
+            {{-- Part B — deliberate dead-end override. Only meaningful when NO phone/email is
+                 entered (real details win: typing either clears + disables the tick). When on, the
+                 seller is still created from the deed (name + ID, deduped on ID) and flagged so no
+                 future agent re-chases a genuinely uncontactable owner. --}}
+            <div class="rounded-md p-3"
+                 style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 8%, var(--surface-2)); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 40%, var(--border));">
+                <label class="flex items-start gap-2" style="cursor:pointer;">
+                    <input type="checkbox" name="no_contact_details" value="1" x-model="noContactDetails"
+                           :disabled="contactTyped"
+                           @change="if (contactTyped) noContactDetails = false"
+                           class="mt-0.5">
+                    <span class="text-xs" style="color: var(--text-primary);">
+                        <span class="font-semibold">No contact details available</span>
+                        — dead end (no TVA record / opted out / nothing to enter). The seller is still
+                        saved from the deed and flagged so nobody chases it again.
+                    </span>
+                </label>
+                <div x-show="noContactDetails" x-cloak class="mt-2" style="padding-left: 1.5rem;">
+                    <label class="block text-[11px] font-semibold mb-1" style="color: var(--text-secondary);">Reason</label>
+                    <select name="dead_end_reason" x-model="deadEndReason"
+                            class="w-full px-3 py-2 text-sm rounded-md"
+                            style="background: var(--surface); border:1px solid var(--border); color: var(--text-primary);">
+                        <option value="not_in_tva">Not in TVA</option>
+                        <option value="opted_out">Opted out</option>
+                        <option value="no_record_found">No record found</option>
+                    </select>
+                </div>
+            </div>
+
             <div class="text-xs" style="color: var(--text-muted);">
-                Provide at least a phone or email. We'll check if this person already exists in your contacts.
+                <span x-show="!noContactDetails">Provide at least a phone or email — we'll check if this person already exists in your contacts.</span>
+                <span x-show="noContactDetails" x-cloak>Dead-end mode: no phone/email needed. The owner's name + SA ID (from the deed) are required so the contact is ID-keyed and deduped.</span>
             </div>
             </div>{{-- /create-new --}}
         </div>
