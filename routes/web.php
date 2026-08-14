@@ -1213,6 +1213,11 @@ Route::middleware(['auth'])->group(function () {
     // AT-366-C — single-agent journey drill-down (metrics + prior-period trend).
     Route::get('/corex/performance/agency-report/agent/{user}', [\App\Http\Controllers\Performance\AgencyPerformanceReportController::class, 'agent'])
         ->middleware('permission:view_performance')->name('performance.agency-report.agent');
+    // AT-366 (cc1 frontend #8) — print surfaces: whole-company + single-agent printables.
+    Route::get('/corex/performance/agency-report/print', [\App\Http\Controllers\Performance\AgencyPerformanceReportController::class, 'print'])
+        ->middleware('permission:view_performance')->name('performance.agency-report.print');
+    Route::get('/corex/performance/agency-report/agent/{user}/print', [\App\Http\Controllers\Performance\AgencyPerformanceReportController::class, 'agentPrint'])
+        ->middleware('permission:view_performance')->name('performance.agency-report.agent.print');
           Route::get('/bm/worksheet-market', [\App\Http\Controllers\BM\WorksheetMarketController::class, 'index'])
           ->middleware('permission:access_worksheet_market')->name('bm.worksheet.market');
       Route::post('/bm/worksheet-market', [\App\Http\Controllers\BM\WorksheetMarketController::class, 'save'])
