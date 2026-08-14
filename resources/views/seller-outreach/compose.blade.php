@@ -147,6 +147,21 @@ function composerState(init) {
                 return;
             }
             this.sending = true;
+
+            // WA-OPEN FIX — open the WhatsApp tab NOW, synchronously inside the
+            // click gesture, BEFORE the awaited POST. window.open() called AFTER an
+            // await runs outside the browser's transient user-activation, so the
+            // popup is silently blocked and WhatsApp never launches (the page still
+            // fell through to the sent/confirm screen — the reported live bug).
+            // We grab the named-tab handle up front (unblocked), then point it at
+            // the server-minted client_url once the POST returns. Mirrors the
+            // working AT-323 Core-Match pattern (open first, record after). Email
+            // is sent server-side — no client tab to open.
+            let waTab = null;
+            if (this.channel === 'whatsapp') {
+                waTab = window.open('', 'corex_whatsapp_web'); // reuse ONE named tab
+            }
+
             try {
                 const res = await fetch(this.submitUrl, {
                     method: 'POST',
@@ -168,18 +183,25 @@ function composerState(init) {
                 });
                 const data = await res.json();
                 if (!res.ok) {
+                    if (waTab) waTab.close(); // don't strand a blank tab on failure
                     alert(data.message || 'Send failed.');
                     return;
                 }
-                // Email is sent server-side (branded HTML) — no client URL to open.
-                // WhatsApp: reuse ONE named tab ('corex_whatsapp_web') so repeated
-                // sends target the agent's existing WhatsApp Web tab instead of
-                // spawning a new tab each time.
-                if (data.client_url) {
+                // Navigate the pre-opened tab to the per-send WhatsApp URL (the body
+                // carries minted tracking/opt-out links, only known after the POST).
+                if (data.client_url && waTab) {
+                    waTab.location = data.client_url;
+                } else if (data.client_url) {
+                    // Fallback (tab handle unavailable): best-effort open. May be
+                    // popup-blocked post-await, but keeps the single named tab.
                     window.open(data.client_url, 'corex_whatsapp_web');
+                } else if (waTab) {
+                    // No client URL (e.g. email) — close the blank WA tab we opened.
+                    waTab.close();
                 }
                 window.location.href = this.sentUrlBase + '/' + data.send_id;
             } catch (e) {
+                if (waTab) waTab.close();
                 alert('Network error — try again.');
             } finally {
                 this.sending = false;
