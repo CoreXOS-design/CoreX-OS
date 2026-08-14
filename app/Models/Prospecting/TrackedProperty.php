@@ -56,6 +56,9 @@ final class TrackedProperty extends Model
         'source_chain', 'first_seen_at', 'last_enriched_at', 'last_enrichment_source',
         'status', 'duplicate_of_tracked_property_id',
         'is_demo',
+        // CMA / deeds capture (phase 1)
+        'capture_kind', 'deeds_office', 'scheme_name', 'scheme_number', 'section_number',
+        'bond_holder', 'bond_amount', 'sale_type', 'deeds_registered_date',
     ];
 
     protected $casts = [
@@ -79,6 +82,8 @@ final class TrackedProperty extends Model
         'source_chain'             => 'array',
         'first_seen_at'            => 'datetime',
         'last_enriched_at'         => 'datetime',
+        'bond_amount'              => 'decimal:2',
+        'deeds_registered_date'    => 'date',
     ];
 
     protected static function booted(): void
@@ -180,6 +185,17 @@ final class TrackedProperty extends Model
     public function ownerContact(): BelongsTo
     {
         return $this->belongsTo(\App\Models\Contact::class, 'owner_contact_id');
+    }
+
+    /**
+     * CMA deeds-capture multi-owner support (2026-08-12) — a property can carry
+     * more than one registered owner (CMA joins them with " ; "). owner_contact_id
+     * stays pointed at the FIRST/primary owner for backward compatibility with
+     * every existing consumer of that column; this relation is the full list.
+     */
+    public function owners(): HasMany
+    {
+        return $this->hasMany(TrackedPropertyOwner::class, 'tracked_property_id');
     }
 
     public function isPromoted(): bool

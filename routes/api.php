@@ -350,6 +350,16 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/prospecting/import',      [ProspectingApiController::class, 'import'])->middleware('deny_assistant_property_write')->name('v1.prospecting.import');
         Route::get('/prospecting/check-search', [ProspectingApiController::class, 'checkSearch'])->name('v1.prospecting.check-search');
 
+        // ── CMA / deeds capture (phase 1) — mirrors the portal-capture ingest. ──
+        Route::post('/deeds-capture', [\App\Http\Controllers\Api\DeedsCaptureController::class, 'store'])->name('v1.deeds-capture');
+
+        // ── TVA (The Virtual Agent) contact capture — mirrors deeds-capture. ──
+        Route::post('/tva-contact-capture', [\App\Http\Controllers\Api\TvaContactCaptureController::class, 'store'])->name('v1.tva-contact-capture');
+
+        // ── TVA company DIRECTORSHIP capture — directors → natural-person
+        //    contacts linked to the company entity contact (representatives). ──
+        Route::post('/tva-company-directors', [\App\Http\Controllers\Api\TvaCompanyDirectorsController::class, 'store'])->name('v1.tva-company-directors');
+
         // ── Properties — portal pull ───────────────────────────────
         // AT-267 — pulls a listing off a portal INTO a property. Same rule, same reason: no
         // permission key of its own, and it creates stock.

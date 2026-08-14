@@ -18,6 +18,7 @@ class SignatureTemplate extends Model
         'status',
         'parties_json',
         'signing_order_json',
+        'group_order_json',
         'created_by',
         'is_candidate_flow',
         'supervisor_user_id',
@@ -35,15 +36,19 @@ class SignatureTemplate extends Model
         'cancellation_reason',
         'cancelled_by',
         'cancelled_at',
+        'legal_deadline_at',
+        'deadline_source',
     ];
 
     protected $casts = [
         'parties_json' => 'array',
         'signing_order_json' => 'array',
+        'group_order_json' => 'array',
         'flattened_pages_json' => 'array',
         'sections_json' => 'array',
         'is_candidate_flow' => 'boolean',
         'completed_at' => 'datetime',
+        'legal_deadline_at' => 'datetime',
         'rejected_at' => 'datetime',
         'cancelled_at' => 'datetime',
     ];
@@ -71,6 +76,35 @@ class SignatureTemplate extends Model
     // initial only the changed regions (focused view, not full re-sign).
     const STATUS_AMENDMENT_INITIALING = 'amendment_initialing';
     const STATUS_CANCELLED = 'cancelled';
+
+    // AT-373 (recipient wet-ink amend → edit-re-enters-the-loop). Generic over the approval chain.
+    // amendment_chain_review — a wet-ink edit authored at a party's turn is walking the approval
+    //   chain (A1..Am) for approval; each node places its initial before the sequential recipient
+    //   re-initial cascade begins. m=1 (no candidate) → full-status is the sole/top node.
+    const STATUS_AMENDMENT_CHAIN_REVIEW = 'amendment_chain_review';
+    // editor_reacceptance — a chain node REJECTED the edit; it was reverted and the editing party
+    //   must RE-ACCEPT the reverted-accepted document via a second mandatory ECT-Act acknowledgment.
+    const STATUS_EDITOR_REACCEPTANCE = 'editor_reacceptance';
+
+    // Track C (§11-A) — the legal-deadline lifecycle. A LAPSED ceremony cannot be signed; the only
+    // way back is a party-initialled date extension (revived), which can itself re-lapse.
+    const STATUS_LAPSED = 'lapsed';
+    const STATUS_EXTENSION_PROPOSED = 'extension_proposed';
+    const STATUS_REVIVED = 'revived';
+    const STATUS_RE_LAPSED = 're_lapsed';
+
+    /**
+     * States a ceremony can never come back FROM — a past legal deadline no longer means anything
+     * once the ceremony is here. Note 'lapsed'/'re_lapsed' are NOT terminal: they are past-deadline
+     * live states, so isLapsed() still reports true for them (they ARE lapsed).
+     */
+    const TERMINAL_STATUSES = [
+        self::STATUS_COMPLETED,
+        self::STATUS_CANCELLED,
+        self::STATUS_DECLINED,
+        self::STATUS_REJECTED,
+        self::STATUS_EXPIRED,
+    ];
 
     // amendment_status (the secondary column, varchar(255)) carries finer
     // amendment-phase state.
@@ -109,6 +143,143 @@ class SignatureTemplate extends Model
     public function requests()
     {
         return $this->hasMany(SignatureRequest::class);
+    }
+
+    /**
+     * Track C (§11-A.1) — has this ceremony's LEGAL deadline passed while it is still live?
+     *
+     * This is a COMPUTED predicate on `legal_deadline_at`, deliberately independent of the stored
+     * status. The pen must stop the instant the deadline passes — not only after the nightly sweeper
+     * (HD-11) gets around to writing status='lapsed'. A mark collected at 00:01 past a midnight
+     * deadline is exactly as void as one collected a week later; the guard cannot wait for a cron.
+     *
+     * Terminal ceremonies (completed/cancelled/declined/rejected/expired) are never "lapsed" — a
+     * past date no longer means anything once the ceremony is done. But 'lapsed'/'re_lapsed'
+     * themselves are NOT terminal, so this correctly keeps reporting true for them.
+     */
+    public function isLapsed(): bool
+    {
+        if ($this->legal_deadline_at === null) {
+            return false; // No legal clock set → nothing to lapse against (today's behaviour).
+        }
+
+        if (in_array($this->status, self::TERMINAL_STATUSES, true)) {
+            return false;
+        }
+
+        return $this->legal_deadline_at->isPast();
+    }
+
+    /**
+     * HD-6 (§4) — the LOCKED group order for a mandate: the sellers sign as one group, then the agent.
+     *
+     * Joint sellers on one mandate are one group, so the agent is not asked to authorise the gap
+     * between two people signing the same document for the same reason (HD-5). The agent is a group of
+     * their own, which is what puts the checkpoint where doctrine wants it: `sellers → agent`.
+     *
+     * There is deliberately NO order here for an OTP. Doctrine §4 specifies one
+     * (`purchasers → agent → sellers → agent`), but an OTP is an alienation document: it may not be
+     * e-signed at all under ECTA §13(1) — `Template::isEsignBlocked()` refuses it, and HD-2 closed the
+     * pack path that was letting one through. A group order for a ceremony that can never legally run
+     * would be dead code that looks like a feature. It gets written the day the law changes.
+     */
+    public const GROUP_ORDER_MANDATE = [['seller'], ['agent']];
+
+    /**
+     * Ceremony CHECKPOINT pseudo-roles — a party_role that is the SAME human as a
+     * base role, signing at a later ROUTING checkpoint rather than being a second
+     * person. `supervisor_final` is the authorising practitioner's post-external-
+     * parties signoff; it is the same identity as `supervisor` (their initial
+     * authorisation). Maps a checkpoint role → its base signing identity.
+     *
+     * This governs RENDERING/ENUMERATION identity ONLY (per-page initials, per-
+     * condition initials, parity signature blocks). The routing signature_requests
+     * rows are unaffected. Without the collapse, one human renders a phantom SECOND
+     * initial box / signature surface (the candidate-flow "two Authorised
+     * Practitioner initials" defect). Generalises to any future checkpoint role.
+     */
+    public const CHECKPOINT_ROLE_ALIASES = [
+        'supervisor_final' => 'supervisor',
+    ];
+
+    /**
+     * Neutral DISPLAY label for a checkpoint-family base identity — used wherever a
+     * party label would otherwise leak the internal "supervisor" role token into the
+     * UI (e.g. the per-page initials placeholder). The authorising party is named by
+     * DESIGNATION (Johan 2026-08); the specific designation binds at sign time, so
+     * this neutral role label renders until then, never the raw "Supervisor" string.
+     */
+    public const CHECKPOINT_DISPLAY_LABELS = [
+        'supervisor' => 'Authorising Practitioner',
+    ];
+
+    /**
+     * The distinct SIGNING IDENTITIES for surface enumeration — parties_json with
+     * checkpoint pseudo-roles ([[CHECKPOINT_ROLE_ALIASES]]) collapsed onto their
+     * base identity and deduped by the resulting role. Same-role recipients that
+     * are genuinely different people (seller / seller_2) carry distinct roles and
+     * are preserved; only checkpoint aliases collapse. Every consumer that lays out
+     * per-party marks (per-page initials, per-condition initials, parity signature
+     * blocks) MUST enumerate through this so an authorising practitioner appears
+     * exactly ONCE, never twice, never zero.
+     *
+     * @return array<int, array<string, mixed>> parties_json entries, role rewritten to base
+     */
+    public function enumeratedSigningParties(): array
+    {
+        $seen = [];
+        $out  = [];
+        foreach ($this->parties_json ?? [] as $party) {
+            $role = (string) ($party['role'] ?? '');
+            if ($role === '') {
+                continue;
+            }
+            $base = self::CHECKPOINT_ROLE_ALIASES[strtolower($role)] ?? $role;
+            if (isset($seen[$base])) {
+                continue; // a checkpoint pseudo-role folded onto an already-seen identity
+            }
+            $seen[$base]   = true;
+            $party['role'] = $base;
+            // Never surface the raw "supervisor" token as a party label.
+            if (isset(self::CHECKPOINT_DISPLAY_LABELS[$base])) {
+                $party['role_label'] = self::CHECKPOINT_DISPLAY_LABELS[$base];
+            }
+            $out[]         = $party;
+        }
+        return $out;
+    }
+
+    /**
+     * The group a party signs in for THIS ceremony, or null when the ceremony has no group plan.
+     *
+     * Null is the default and the safe answer: an ungrouped party is a group of one and reaches the
+     * agent checkpoint on its own, exactly as every ceremony does today. Grouping only ever happens
+     * because a ceremony deliberately said so.
+     */
+    public function groupFor(string $partyRole): ?int
+    {
+        $plan = $this->group_order_json;
+
+        if (! is_array($plan) || empty($plan)) {
+            return null;
+        }
+
+        $role = strtolower(trim($partyRole));
+
+        foreach (array_values($plan) as $i => $group) {
+            $members = array_map(
+                static fn ($m) => strtolower(trim((string) $m)),
+                is_array($group) ? $group : [$group],
+            );
+
+            if (in_array($role, $members, true)) {
+                return $i + 1; // groups are 1-based; 0 would be indistinguishable from "no group"
+            }
+        }
+
+        // A party the plan does not mention (a witness, a supervisor) is not forced into someone
+        // else's group — it stands alone and checkpoints alone.
+        return null;
     }
 
     public function signatures()
@@ -239,9 +410,30 @@ class SignatureTemplate extends Model
 
         foreach ($parties as $party) {
             $role = $party['role'];
-            $request = $this->requests->firstWhere('party_role', $role);
 
-            $partyMarkers = $this->markers->where('assigned_party', $role);
+            // ESIGN-WETINK BUG3 — resolve the CORRECT request for a multi-same-role
+            // party. parties_json names N same-role parties "seller", "seller_2",
+            // "seller_3", … but every one of them is stored as a SignatureRequest
+            // with party_role="seller" + role_index=1..N. A plain
+            // firstWhere('party_role', $role) therefore (a) never matches
+            // "seller_2"/"seller_3" (no request has that literal party_role) — so a
+            // signed second seller shows "waiting" forever — and (b) returns an
+            // arbitrary seller for the base "seller" key. Parse the trailing _N as
+            // the role_index (bare = index 1) and match on base-role + index, so
+            // each party's status/completed_at come from ITS OWN request. N-party,
+            // no seller_1/seller_2 assumption.
+            if (preg_match('/^(.*)_(\d+)$/', (string) $role, $mm)) {
+                $baseRole = $mm[1];
+                $roleIndex = (int) $mm[2];
+            } else {
+                $baseRole = (string) $role;
+                $roleIndex = 1;
+            }
+            $request = $this->requests->first(
+                fn ($r) => $r->party_role === $baseRole && (int) ($r->role_index ?? 1) === $roleIndex
+            ) ?? $this->requests->firstWhere('party_role', $role);
+
+            $partyMarkers = $this->markers->where('assigned_party', $baseRole);
             $totalRequired = $partyMarkers->where('required', true)->count();
             $signedMarkerIds = $this->signatures
                 ->whereIn('signature_marker_id', $partyMarkers->pluck('id'))

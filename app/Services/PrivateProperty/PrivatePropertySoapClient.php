@@ -203,6 +203,23 @@ class PrivatePropertySoapClient
     }
 
     /**
+     * AT-282 — push an arbitrary lifecycle PropertyStatus (ForSale / ToLet /
+     * PendingOffer / Inactive) so under-offer/sold transitions reach PP, not only
+     * the hardcoded Inactive/ForSale of deactivate/reactivate. Same WSDL op.
+     * WSDL: ListingStatusUpdate { guid BranchId, string PropertyId, ListingType ListingType, PropertyStatus PropertyStatus, SecurityToken Token }
+     */
+    public function setListingStatus(string $propertyId, string $listingType, string $propertyStatus): array
+    {
+        return $this->call('ListingStatusUpdate', [
+            'BranchId'       => $this->branchGuid(),
+            'PropertyId'     => $propertyId,
+            'ListingType'    => $listingType,
+            'PropertyStatus' => $propertyStatus,
+            'Token'          => $this->buildToken(),
+        ]);
+    }
+
+    /**
      * Get listing event feed for the branch.
      * WSDL: GetListingEventFeedByBranch { guid UniqueBranchId, SecurityToken Token, string continuationKey, dateTime startDateTime }
      */

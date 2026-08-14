@@ -18,7 +18,7 @@
             </div>
         </div>
         <div class="flex items-center gap-3">
-            @if($template->signed_pdf_path)
+            @if($template->signed_pdf_client_path || $template->signed_pdf_path)
                 <a href="{{ route('docuperfect.signatures.download', $document) }}"
                    class="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2 rounded-xl text-sm transition">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -27,9 +27,28 @@
                     </svg>
                     Download Signed PDF
                 </a>
+                {{-- The e-signature certificate is a SEPARATE, on-request download — it is
+                     deliberately NOT stapled onto the signed document above. --}}
+                <a href="{{ route('docuperfect.signatures.certificate', $document) }}"
+                   class="inline-flex items-center gap-2 bg-white hover:bg-slate-50 text-slate-700 font-semibold px-4 py-2 rounded-xl text-sm border border-slate-300 transition">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.031 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                    </svg>
+                    Download Certificate
+                </a>
             @endif
-            <a href="{{ route('docuperfect.rental') }}"
-               class="text-sm text-white/70 hover:text-white">Back to Rental</a>
+            @php
+                // Back target must follow the document TYPE — this audit trail serves
+                // sales AND rental documents; a hardcoded "Back to Rental" stranded
+                // sales docs in the wrong dashboard (AT-365). Same derivation as
+                // signatures/review.blade.php.
+                $auditType      = $document->template?->template_type ?? 'rentals';
+                $auditBackRoute = $auditType === 'sales' ? route('docuperfect.sales') : route('docuperfect.rental');
+                $auditBackLabel = $auditType === 'sales' ? 'Back to Sales' : 'Back to Rental';
+            @endphp
+            <a href="{{ $auditBackRoute }}"
+               class="text-sm text-white/70 hover:text-white">{{ $auditBackLabel }}</a>
         </div>
     </div>
 
@@ -254,10 +273,11 @@
         </div>
         <div class="divide-y divide-[color:var(--border)]">
             @foreach($versions as $version)
+                @php $isSupporting = ($version->kind ?? null) === \App\Models\Docuperfect\SignedDocumentVersion::KIND_SUPPORTING; @endphp
                 <div class="px-6 py-4 flex items-center justify-between">
                     <div>
                         <div class="text-sm font-semibold" style="color:var(--text-primary)">
-                            Version {{ $version->version_number }}
+                            {{ $isSupporting ? 'Supporting document' : 'Version ' . $version->version_number }}
                             <span class="text-xs font-normal ml-2" style="color:var(--text-muted)">{{ strtoupper($version->file_type) }}</span>
                         </div>
                         <div class="text-xs" style="color:var(--text-muted)">
@@ -267,7 +287,12 @@
                         </div>
                     </div>
                     <div>
-                        @if($version->agent_approved)
+                        @if($isSupporting)
+                            <a href="{{ route('signatures.supporting.download', ['document' => $document->id, 'version' => $version->id]) }}"
+                               class="text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-700 font-semibold hover:bg-slate-200 transition-colors">
+                                Download
+                            </a>
+                        @elseif($version->agent_approved)
                             <span class="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-semibold">
                                 Approved {{ $version->agent_approved_at?->format('d M Y') }}
                             </span>

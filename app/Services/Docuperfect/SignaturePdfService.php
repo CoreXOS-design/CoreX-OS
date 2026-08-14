@@ -25,14 +25,7 @@ class SignaturePdfService
             $docTemplate = $document->template;
 
             $webTemplateData = $document->web_template_data ?? [];
-            // §19 Option 2 — generate the PDF from the EXACT signed-and-
-            // paginated DOM the signer saw (per-document .corex-a4-page +
-            // per-page initials). Fall back to canonical merged_html for
-            // legacy / never-web-signed documents. No server re-pagination.
-            $signedPaginated = $document->signed_paginated_html;
-            $renderHtml = (is_string($signedPaginated) && trim($signedPaginated) !== '')
-                ? $signedPaginated
-                : ($webTemplateData['merged_html'] ?? '');
+            $renderHtml = $this->resolveRenderHtml($template);
             $hasMergedHtml = trim((string) $renderHtml) !== '';
             $hasDocPages = !empty($webTemplateData['flattened_page_count']);
             $isWebTemplate = $docTemplate && ($docTemplate->render_type ?? 'pdf') === 'web';
@@ -111,6 +104,15 @@ class SignaturePdfService
     {
         $signingController = app(\App\Http\Controllers\Docuperfect\SigningController::class);
 
+        // AT-324/AT-325 — the PDF renders the UN-paginated canonical, which has no
+        // page-break initial slots (those are created only by the client
+        // paginateDocument() during signing). Run the SAME shared pagination +
+        // signed_initials restore inside Puppeteer so every captured initial
+        // renders IN its real page-break slot on the PDF — exactly as the review
+        // and the ceremony show it. Fail-open: on any error the PDF still renders
+        // the canonical unchanged.
+        $mergedHtml = $this->injectInitialsPagination($template, $document, $mergedHtml);
+
         // Per-step timing (the ~83s gap between copy 1 finishing and copy 2
         // starting was unexplained — measure each step, do not assume).
         $step = function (string $label, callable $fn) use ($template, $document) {
@@ -125,8 +127,11 @@ class SignaturePdfService
             return $result;
         };
 
-        // 1. Client copy — document with signatures (no audit certificate)
-        $clientTempPath = $step('copy1_generatePdfFromHtml', fn () => $signingController->generatePdfFromHtml($mergedHtml, $document->id));
+        // 1. Client copy — document with signatures (no audit certificate). FIX A (Johan 2026-08-06): the
+        //    "Schedule of Amendments" appendix is EXCLUDED from the recipient-emailed copy (kept only on the
+        //    audit/internal copy below). Recipients receive the document; CoreX retains the full record.
+        $clientHtml = $this->stripAmendmentSchedule($mergedHtml);
+        $clientTempPath = $step('copy1_generatePdfFromHtml', fn () => $signingController->generatePdfFromHtml($clientHtml, $document->id));
         if (!$clientTempPath || !file_exists($clientTempPath)) {
             Log::error('SignaturePdfService: Puppeteer client PDF generation failed', [
                 'template_id' => $template->id,
@@ -179,6 +184,234 @@ class SignaturePdfService
             'internal' => $internalStoragePath,
             'client' => $clientStoragePath,
         ];
+    }
+
+    /**
+     * FIX A (Johan 2026-08-06) — remove the appended "Schedule of Amendments" appendix from the copy sent to
+     * recipients. The appendix is a self-contained `.change-history-page` block (DocumentChangeHighlighter::
+     * appendixHtml) that always ends `…</table></div>`; this strips exactly that block and leaves the rest of
+     * the document HTML byte-identical, so the client PDF is the document WITHOUT the amendment report while
+     * the internal/audit copy (generated from the unstripped $mergedHtml) keeps it. Fail-open: returns the
+     * input unchanged when no appendix is present.
+     */
+    private function stripAmendmentSchedule(string $html): string
+    {
+        if (!str_contains($html, 'change-history-page')) {
+            return $html;
+        }
+        $stripped = preg_replace(
+            '#<div class="change-history-page"[^>]*>.*?</table>\s*</div>#is',
+            '',
+            $html,
+        );
+        return is_string($stripped) ? $stripped : $html;
+    }
+
+    /**
+     * AT-324/AT-325 — wrap the canonical body and append the SHARED pagination JS
+     * (paginateDocument + restoreStoredInitials, lifted verbatim from the
+     * a4-page-styles partial the ceremony/review use) plus a bootstrap that runs
+     * them against signed_initials. Puppeteer executes this before print, so the
+     * PDF gets the same paginated document with every recipient's initials in their
+     * own page-break box. No-op when there are no captured initials; fail-open in
+     * the browser (try/catch) so the PDF always at least renders the canonical.
+     */
+    /**
+     * Resolve the faithful render source — THE SAME HTML the agent-approval review
+     * screen renders (SignatureController::review → CanonicalDocumentRenderer::forDisplay).
+     *
+     * The signed PDF is a faithful PRINT of the exact page the agent approved, NOT a
+     * re-derivation. One source of truth: screen == PDF, by construction.
+     *
+     * Previously the PDF read signed_paginated_html (only the LAST signer's frozen,
+     * partial browser DOM — missing earlier same-role parties) and then re-stamped
+     * ceremony_values over it. ceremony_values keys by role ("seller_"), so two
+     * same-role parties (seller#1 + seller#2) collapsed into one — bleeding one
+     * party's place/date across the other and blanking the rest, and dropping an
+     * address to a "seller address" placeholder. The accumulated canonical
+     * (forDisplay) already carries EVERY party's signature, initials, location,
+     * date and address, identity-scoped (seller_1 vs seller_2), so we print it
+     * directly and touch nothing. Chromium re-flows the page breaks
+     * (injectInitialsPagination) exactly as the review screen paginates it.
+     */
+    public function resolveRenderHtml(SignatureTemplate $template): string
+    {
+        $canonical = app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)->forDisplay($template);
+        if (trim($canonical) !== '') {
+            return $canonical;
+        }
+
+        // Mirror the review screen's own fallback for legacy / pre-canonical docs.
+        return (string) (($template->document?->web_template_data ?? [])['merged_html'] ?? '');
+    }
+
+    /**
+     * The ONE render-source + measure-and-fit-pagination pipeline, shared by the
+     * completion-email/filed PDF (generate) AND the live re-render+download route
+     * (SigningController::downloadWebPdf). Returns HTML ready for
+     * generatePdfFromHtml() — the signed content re-paginated through the corrected
+     * engine WITHOUT re-signing (pagination is presentation; ink flows with clauses).
+     */
+    public function buildInjectedRenderHtml(SignatureTemplate $template): string
+    {
+        $template->loadMissing('document');
+        $document = $template->document;
+        if (!$document) {
+            return '';
+        }
+        return $this->injectInitialsPagination($template, $document, $this->resolveRenderHtml($template));
+    }
+
+    private function injectInitialsPagination(SignatureTemplate $template, $document, string $html): string
+    {
+        $js = $this->esignPaginationJs();
+        if (trim($js) === '') {
+            return $html; // could not read the shared JS — do not risk the PDF
+        }
+
+        // AT-332 fix — ALWAYS re-paginate through the shared engine inside Chromium,
+        // including an already-paginated signed_paginated_html. Pagination is
+        // PRESENTATION, not signed content: the signed content is the clause text +
+        // the ink placed against those clauses, and those flow with the content when
+        // it re-paginates. Rendering the signer's frozen DOM VERBATIM was the bug —
+        // its .corex-a4-page boxes were sized by the signing browser's fonts, then
+        // the emailed PDF renders with SUBSTITUTE (taller) fonts, so each box
+        // overflowed one physical A4 sheet and spilled its footer/initials onto a
+        // near-blank next page (Premilla's doc: 4 logical pages → 6 physical). Re-
+        // paginating in the SAME engine that prints the PDF makes measured height ==
+        // rendered height, so every logical page fits exactly one physical sheet.
+        //
+        // Legacy docs are re-rendered without re-signing: a client cannot be asked to
+        // re-sign because our renderer was broken (Johan's hard requirement).
+        $webData = $document->web_template_data ?? [];
+        $signed = $webData['signed_initials'] ?? [];
+        if (!is_array($signed)) {
+            $signed = [];
+        }
+        // §20 disclosure answers — restored read-only exactly as the agent-review
+        // screen does (SignatureController::review hands web_template_data
+        // .disclosure_answers to restoreStoredDisclosure), so the printed PDF
+        // matches the approved page. Empty for docs without a disclosure block.
+        $disclosure = $webData['disclosure_answers'] ?? [];
+        if (!is_array($disclosure)) {
+            $disclosure = [];
+        }
+
+        // Always paginate + restore — the SAME unconditional pass the agent-review
+        // screen runs on this canonical (paginateDocument + restoreStoredInitials +
+        // restoreStoredDisclosure). forDisplay is now the one source, so print ==
+        // screen by construction; there is no raw-canonical short-circuit that could
+        // diverge from what the agent approved.
+
+        // Same party set the review passes to paginateDocument().
+        $parties = collect($template->parties_json ?? [])
+            ->filter(fn ($p) => ($p['role'] ?? '') !== 'supervisor_final')
+            ->map(fn ($p) => [
+                'role'  => $p['role'] ?? '',
+                'label' => ucfirst(str_replace('_', ' ', $p['role_label'] ?? $p['role'] ?? '')),
+            ])
+            ->unique('role')->values()->all();
+
+        // Default json_encode escapes '/', so any "</script>" inside a data: URI is
+        // emitted as "<\/script>" and cannot break out of the script context.
+        $partiesJson    = json_encode($parties);
+        $storedJson     = json_encode($signed);
+        $disclosureJson = json_encode($disclosure);
+
+        // When the source is already paginated, mark the container so paginateDocument
+        // takes its idempotent re-anchor path: it snapshots every applied initial /
+        // signature by stable key, de-paginates the frozen .corex-a4-page boxes back to
+        // flat content, re-paginates with the corrected engine, then re-applies the ink.
+        // restoreStoredInitials then backfills any initials box by PARTY (robust to a
+        // changed page count) from signed_initials. Ink stays attached to its clauses.
+        // run() is idempotent (paginateDocument re-anchors on re-run). It is exposed
+        // as window.__corexRepaginate so html-to-pdf.mjs can fire it AFTER fonts +
+        // print media are applied (measure with the fonts the PDF actually prints).
+        // A document.fonts.ready fallback covers any caller that does not use the hook.
+        $boot = '<script>(function(){function run(){var c=document.getElementById("pdfDocContent")||document.body;'
+            . 'try{'
+            // Step 2 (Johan) — the print-from-approved artifact carries NO interactive
+            // chrome: strip every add-condition control + any screen-only guidance
+            // (the "one condition at a time" hint) before paginating, so they can never
+            // reach the PDF regardless of what the served canonical held. Bug 3 extends
+            // this to the disclosure "Propose change" pill (client-injected on interactive
+            // screens) and the per-condition initial affordance (the active signer's
+            // clickable box + other parties' "pending" placeholders) — all editor chrome,
+            // never legal content. The FILLED per-condition ink is a separate
+            // .condition-initial.initial-filled node and is left untouched.
+            . 'c.querySelectorAll(".btn-add-condition,.condition-add-guidance,[data-screen-only],.corex-propose-btn,.btn-add-initial.initial-active,.initial-slot.initial-pending").forEach(function(e){e.remove();});'
+            // Bug 3 — flatten any residual Other-Conditions "editing panel" so it prints
+            // as plain document content. Fresh bakes already render the static block flat
+            // (InsertableBlockRenderer CONTEXT_PDF_RENDER); this catches canonicals that
+            // were baked before that fix (the peach panel: coloured left rule + tinted
+            // background + uppercase block label). Universal — no per-template CSS.
+            . 'c.querySelectorAll(".insertable-block").forEach(function(e){e.style.background="transparent";e.style.border="none";e.style.borderLeft="none";e.style.padding="0";e.style.margin="4pt 0 0";var h=e.querySelector(".block-header");if(h){h.style.display="none";}});'
+            . 'if(c.querySelector(".corex-a4-page")){c.dataset.paginated="true";}'
+            . 'paginateDocument(c,' . $partiesJson . ');restoreStoredInitials(c,' . $storedJson . ');'
+            . 'try{restoreStoredDisclosure(c,' . $disclosureJson . ');}catch(e){}}catch(e){}}'
+            . 'window.__corexRepaginate=run;'
+            . 'if(document.fonts&&document.fonts.ready){document.fonts.ready.then(run).catch(run);}'
+            . 'else if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",run);}else{run();}})();</script>';
+
+        // MARK-RENDER CONTRACT (2026-08-03) — the signing/review SCREENS @include the whole
+        // a4-page-styles partial (its <style> + <script>); this PDF path previously lifted only
+        // the <script> (pagination JS), so the uniform MARK-render CSS (signature line + initial
+        // box sizing, ink-image sizing) never reached the PDF. corex-document.css carries only
+        // LEGACY mark classes (.corex-signature-line / .corex-initial-block) that do NOT match the
+        // real marks ([data-marker-type], .corex-ink--*, .sig-cell-line, .corex-page-initials), so
+        // in the PDF every mark fell back to its DIVERGENT origin styling (component .sig-cell-line
+        // vs MDF .mdf-sig-line vs baked inline 56/38px vs per-page 84x40 box) — signatures and
+        // initials rendered inconsistently mark-to-mark / page-to-page. Lift the mark CSS too so
+        // the PDF matches the screen ("print == screen", by construction). Only the mark region is
+        // lifted (the page-layout CSS above it conflicts with the PDF page shell).
+        $markCss = $this->esignMarkRenderCss();
+
+        return ($markCss !== '' ? '<style>' . $markCss . '</style>' : '')
+            . '<div id="pdfDocContent">' . $html . '</div>'
+            . '<script>' . $js . '</script>'
+            . $boot;
+    }
+
+    /**
+     * The uniform MARK-RENDER CSS, lifted verbatim from the ONE partial the ceremony and
+     * agent-review screens use (a4-page-styles.blade.php), between its PDF-MARK-CSS-START /
+     * PDF-MARK-CSS-END delimiters. Single source of truth — the PDF cannot drift from the screen.
+     * Only the mark-sizing region is lifted; the page-layout CSS (.corex-a4-page / @media print)
+     * above the delimiter is deliberately excluded (it conflicts with wrapHtmlForPdf's page shell).
+     */
+    private function esignMarkRenderCss(): string
+    {
+        static $cached = null;
+        if ($cached !== null) {
+            return $cached;
+        }
+        $path = resource_path('views/docuperfect/signatures/partials/a4-page-styles.blade.php');
+        $content = is_file($path) ? (string) file_get_contents($path) : '';
+        $cached = preg_match('/\/\*\s*PDF-MARK-CSS-START.*?\*\/(.*?)\/\*\s*PDF-MARK-CSS-END\s*\*\//is', $content, $m)
+            ? trim($m[1])
+            : '';
+
+        return $cached;
+    }
+
+    /**
+     * The shared page-break pagination + initial-restore JS, lifted verbatim from
+     * the ONE partial the ceremony and agent-review already use
+     * (resources/views/docuperfect/signatures/partials/a4-page-styles.blade.php).
+     * The <script> body is pure JS (no Blade), so a straight read is safe and keeps
+     * a single source of truth — the PDF cannot drift from what signers saw.
+     */
+    private function esignPaginationJs(): string
+    {
+        static $cached = null;
+        if ($cached !== null) {
+            return $cached;
+        }
+        $path = resource_path('views/docuperfect/signatures/partials/a4-page-styles.blade.php');
+        $content = is_file($path) ? (string) file_get_contents($path) : '';
+        $cached = preg_match('/<script\b[^>]*>(.*)<\/script>/is', $content, $m) ? $m[1] : '';
+
+        return $cached;
     }
 
     /**
@@ -262,6 +495,35 @@ class SignaturePdfService
         }
 
         return $pages;
+    }
+
+    /**
+     * Render the electronic-signature CERTIFICATE as a STANDALONE PDF (audit pages only),
+     * on request. This is deliberately SEPARATE from the clean signed document — the
+     * certificate is never stapled onto the distributed/emailed/downloaded copy; it is
+     * downloaded on demand (SignatureController::downloadCertificate) from the live audit
+     * data, so it always reflects the current record. Returns a temp PDF path or null.
+     */
+    public function generateCertificatePdf(SignatureTemplate $template): ?string
+    {
+        try {
+            $template->loadMissing(['document.template', 'markers.signatures', 'requests', 'signatures', 'auditLogs']);
+            $document = $template->document;
+            if (!$document) {
+                return null;
+            }
+            $auditData = $this->buildAuditData($template, $document);
+            $auditHtml = view('docuperfect.signatures.pdf.audit-certificate', $auditData)->render();
+
+            return app(\App\Http\Controllers\Docuperfect\SigningController::class)
+                ->generatePdfFromHtml($auditHtml, (int) $document->id);
+        } catch (\Throwable $e) {
+            Log::error('SignaturePdfService: certificate-only PDF generation failed', [
+                'template_id' => $template->id,
+                'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
     }
 
     /**

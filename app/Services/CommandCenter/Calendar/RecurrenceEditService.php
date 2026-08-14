@@ -160,26 +160,7 @@ class RecurrenceEditService
     /** DELETE "this occurrence": a dismissed tombstone child skips the date (no hard delete). */
     public function deleteOccurrence(CalendarEvent $parent, string $occurrenceDate, User $user): void
     {
-        $date = Carbon::parse($occurrenceDate)->toDateString();
-        DB::transaction(function () use ($parent, $date, $user) {
-            $child = $this->findException($parent, $date);
-            $meta = $child && is_array($child->metadata) ? $child->metadata : (is_array($parent->metadata ?? null) ? $parent->metadata : []);
-            $meta['recurrence_override_date'] = $date;
-            $meta['recurrence_cancelled'] = true;
-            if ($child) {
-                $child->update(['status' => 'dismissed', 'metadata' => $meta]);
-            } else {
-                CalendarEvent::create([
-                    'parent_event_id' => $parent->id, 'is_recurring' => false, 'recurrence_rule' => null,
-                    'event_type' => $parent->event_type, 'category' => $parent->category,
-                    'title' => $parent->title, 'event_date' => $this->occurrenceStart($parent, $date),
-                    'end_date' => $this->occurrenceEnd($parent, $date), 'all_day' => (bool) $parent->all_day,
-                    'priority' => $parent->priority, 'status' => 'dismissed', 'source_type' => 'manual',
-                    'user_id' => $parent->user_id, 'created_by_id' => $parent->created_by_id ?: $user->id,
-                    'agency_id' => $parent->agency_id, 'branch_id' => $parent->branch_id, 'metadata' => $meta,
-                ]);
-            }
-        });
+        $this->setOccurrenceStatus($parent, $occurrenceDate, 'dismissed', $user);
     }
 
     /** DELETE "this and future": truncate the parent to end the day before this occurrence. */
@@ -209,7 +190,97 @@ class RecurrenceEditService
         });
     }
 
+    /**
+     * AT-335 — COMPLETE "this occurrence": a completed exception child takes the
+     * date, exactly like deleteOccurrence()'s tombstone but status='completed'
+     * instead of 'dismissed'. The series and every other occurrence are
+     * untouched; only this one date renders done. Offered scope is this/all
+     * only (no "future") — pre-emptively marking occurrences that haven't
+     * happened yet as done is not a real-world intent the way rescheduling or
+     * removing a future block is.
+     */
+    public function completeOccurrence(CalendarEvent $parent, string $occurrenceDate, User $user): CalendarEvent
+    {
+        return $this->setOccurrenceStatus($parent, $occurrenceDate, 'completed', $user);
+    }
+
+    /**
+     * COMPLETE "all": the parent's own status flips to completed — a deliberate
+     * choice now reachable only via this explicit scope (previously the default,
+     * accidental behaviour of every single-occurrence Complete click). Combined
+     * with CalendarEventService's parent-expansion exclusion, a completed parent
+     * stops generating future occurrences instead of leaving a trail of
+     * struck-through tiles for dates that haven't happened.
+     */
+    public function completeAll(CalendarEvent $parent): void
+    {
+        $parent->update(['status' => 'completed']);
+    }
+
+    /**
+     * DISMISS "this occurrence": same tombstone-child mechanism as
+     * deleteOccurrence() (status='dismissed', recurrence_cancelled=true so the
+     * date is skipped on the grid, not just struck through — CAL-8's "keep
+     * completed visible" rule does not apply to a dismissed date). Kept as its
+     * own named method so a Dismiss call site never reads as calling Delete,
+     * even though the two currently share an identical outcome for "this".
+     */
+    public function dismissOccurrence(CalendarEvent $parent, string $occurrenceDate, User $user): CalendarEvent
+    {
+        return $this->setOccurrenceStatus($parent, $occurrenceDate, 'dismissed', $user);
+    }
+
+    /**
+     * DISMISS "all": the parent's own status flips to dismissed. NOT the same
+     * as deleteAll() — Dismiss and Delete are different actions (dismiss never
+     * soft-deletes the row). Already excluded from expansion before AT-335 (the
+     * dismissed exclusion predates this fix); listed here for symmetry with
+     * completeAll() and so the controller has one consistent scope-dispatch
+     * shape for both actions.
+     */
+    public function dismissAll(CalendarEvent $parent): void
+    {
+        $parent->update(['status' => 'dismissed']);
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────
+
+    /**
+     * Shared "this occurrence only" status-setter behind deleteOccurrence(),
+     * completeOccurrence(), and dismissOccurrence(). Creates (or updates) an
+     * exception child carrying $status for the date — the series and every
+     * other occurrence are untouched. recurrence_cancelled is set ONLY for a
+     * dismissed date (CalendarEventService rejects any event whose metadata
+     * carries it, hiding it from the grid entirely) — a completed occurrence
+     * must stay visible, struck through, same as any other completed event.
+     */
+    private function setOccurrenceStatus(CalendarEvent $parent, string $occurrenceDate, string $status, User $user): CalendarEvent
+    {
+        $date = Carbon::parse($occurrenceDate)->toDateString();
+        return DB::transaction(function () use ($parent, $date, $status, $user) {
+            $child = $this->findException($parent, $date);
+            $meta = $child && is_array($child->metadata) ? $child->metadata : (is_array($parent->metadata ?? null) ? $parent->metadata : []);
+            $meta['recurrence_override_date'] = $date;
+            if ($status === 'dismissed') {
+                $meta['recurrence_cancelled'] = true;
+            } else {
+                unset($meta['recurrence_cancelled']);
+            }
+            if ($child) {
+                $child->update(['status' => $status, 'metadata' => $meta]);
+                return $child->fresh();
+            }
+            return CalendarEvent::create([
+                'parent_event_id' => $parent->id, 'is_recurring' => false, 'recurrence_rule' => null,
+                'event_type' => $parent->event_type, 'category' => $parent->category,
+                'title' => $parent->title, 'event_date' => $this->occurrenceStart($parent, $date),
+                'end_date' => $this->occurrenceEnd($parent, $date), 'all_day' => (bool) $parent->all_day,
+                'priority' => $parent->priority, 'status' => $status, 'source_type' => 'manual',
+                'user_id' => $parent->user_id, 'created_by_id' => $parent->created_by_id ?: $user->id,
+                'agency_id' => $parent->agency_id, 'branch_id' => $parent->branch_id, 'metadata' => $meta,
+            ]);
+        });
+    }
 
     private function findException(CalendarEvent $parent, string $date): ?CalendarEvent
     {

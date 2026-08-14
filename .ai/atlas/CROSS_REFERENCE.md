@@ -336,3 +336,24 @@ arc, FCM push, open-hours-droppable).
 | Presentations — GPS backfill | `latitude`, `longitude` | (TODO verify) |
 | Match-or-Create — `promoteToStock` | mints new `Property` (`status='draft'`) | — |
 | Browser autofill (not CoreX) | `unit_section_block` | No (client-side) ⚠ AT-78 |
+
+---
+
+## Pillar identity & capture paths (see [PILLARS_AND_CAPTURE_IMPACT.md](PILLARS_AND_CAPTURE_IMPACT.md))
+
+Reverse lookup for the two physical pillars' identity/capture surfaces. Full facts + collisions + open
+decisions in the companion doc; this table is the "who touches identity/capture" index.
+
+| Table / column | READERS (identity/match) | WRITERS (capture) |
+|----------------|--------------------------|-------------------|
+| `contacts` identity — `phone`/`email`/`id_number` (+ `ContactPhone.phone_normalised`, `ContactEmail.email_normalised`) | **ContactDuplicateService** dedup, agency-scoped, default `[phone,email,id_number]` (`:38,~71-76,~120-137`); mode via `resolveMode` (`:~140`) | Contact create/update; child-identifier tables; `contact_duplicate_log` (`logAttempt :~158`) |
+| `contacts` **structured address** (`street_number/street_name/unit_number/complex_name/suburb/city/province/p24_*_id`) | MIC address-only pitch composer (`SellerOutreachComposerService.php:57-59`) | address-unlock capture (migration `2026_06_19_120000`) — describes the *pitched property*, no `properties` row |
+| `seller_outreach_sends` (`property_id` NULL, `address_snapshot`, `suburb_snapshot`) | outreach history / claim surfaces | `SellerOutreachSenderService.php:103,117-118` (migration `2026_06_19_090000`) |
+| `properties` **identity** | **NONE universal** — only sold-importer on `p24_listing_number` within agency (`SoldPropertyImporter.php:132-135`); `external_id` = surrogate UUID | manual `Property::create` (free dupes); `promoteToStock` (`TrackedPropertyMatchOrCreateService.php:~735-766`) |
+| `properties` **freshness** | staleness checks (none queryable) | only `status`, `last_activity_at`, `published_at`, P24-sync stamps — **no `last_seen`/`off_market`/`expiry`** |
+| `tracked_properties` identity (6-strategy) | **TrackedPropertyMatchOrCreateService** `matchOrCreate/resolveMatch` (`:83,~127-263`); `MapProspectStatusService` collision | deeds/CMA/portal ingest `create/enrich` (`:~525-549`); T-pin `owner_contact_id` (`EntryPointController.php:657-659`) |
+| `tracked_property_external_refs` (`source_ref`) | Match-or-Create strategy 1 (`:~147-152`) | `writeExternalRef` (`:~607-636`) |
+| `tracked_properties.source_chain` / deeds fields (`title_deed_number`, `erf_number`, `scheme_*`, `deeds_registered_date`) | **stored/enriched, NOT match keys** for deed/cadastral | deeds capture (migration `2026_08_12_000001`); `buildSourceChainEntry` (`:~638-646`) |
+| `p24_listings` (`first_seen_date`/`last_seen_date`/`times_seen`/`listing_status`) | **nothing downstream — invisible to scorers** (AT-81 §1.4) | `P24ImapImportService` (never Match-or-Create) ⚠ |
+| `prospecting_listings` freshness (`first_seen_at`/`last_seen_at`/`is_active`/`portal_status`/`off_market_at`/`last_search_id`/`mandate_type`) | MIC "IN STOCK" (`ProspectingStockMatchService::matchProspect`); stale detection | scraper capture; `FlagStaleProspectingListings` (30-day) — ⚠ only writer that unsets `is_active` |
+| `properties` P24 provenance (`p24_listing_number`, `p24_ref`, `compliance_snapshot_data.source='p24_go_live_migration'`) | (no queryable `source` col — inferred) | `ConfirmP24PropertyRowJob.php:119,133-134` |

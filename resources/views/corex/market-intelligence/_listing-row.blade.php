@@ -260,11 +260,24 @@
             @endif
 
             {{-- Demand microbar — strong / mid counts. Phase E3: hover loads
-                 a one-sentence AI tooltip explaining why the buyers match. --}}
+                 a one-sentence AI tooltip explaining why the buyers match.
+
+                 2026-08-14: the tooltip used to be a one-way latch — `load()`
+                 set `tooltip` once and nothing ever cleared it, so
+                 x-show="tooltip || loading" stayed permanently true after the
+                 first hover, leaving a blank card stuck on top of the row(s)
+                 below with no way to close it. Fixed to a proper hover-reveal:
+                 `open` tracks mouseenter/mouseleave (and focusin/focusout for
+                 keyboard users) and gates visibility, while the fetched text
+                 is still cached per-listing so re-hovering doesn't re-fetch.
+                 max-height/overflow caps it so a long AI sentence can't grow
+                 into a multi-row-covering block. --}}
             @if(($tiers['strong'] + $tiers['mid']) > 0)
             <span x-data="micMatchTooltip({{ $listing->id }})"
-                  @mouseenter="load()"
-                  @focusin="load()"
+                  @mouseenter="show()"
+                  @mouseleave="hide()"
+                  @focusin="show()"
+                  @focusout="hide()"
                   style="position: relative; display: inline-block;">
                 <button type="button"
                         @click.stop="openBuyerPanel({{ $listing->id }})"
@@ -284,9 +297,9 @@
                         {{ $srcDemand['portal_lead'] }} via portal lead
                     </span>
                 @endif
-                <span x-show="tooltip || loading" x-cloak
+                <span x-show="open && (tooltip || loading)" x-cloak
                       style="position: absolute; top: 100%; left: 0; margin-top: 4px; z-index: 20;
-                             width: 280px; padding: 8px 10px; font-size: 0.6875rem; line-height: 1.4;
+                             width: 280px; max-height: 120px; overflow-y: auto; padding: 8px 10px; font-size: 0.6875rem; line-height: 1.4;
                              background: var(--surface); color: var(--text-primary);
                              border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 30%, var(--border));
                              border-radius: 4px; box-shadow: 0 4px 10px rgba(0,0,0,0.12);">

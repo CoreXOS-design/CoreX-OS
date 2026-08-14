@@ -187,13 +187,42 @@
 6. Completion → returns to agent for review
 
 ### Agent Approval Gate
-- After each external party signs, document returns to agent
-- Status: `pending_agent_approval`
-- Agent reviews what party filled/signed (SignatureController:2004 review())
-- Agent approves (SignatureController:2199 approve()) → advances to next party via approveAndAdvance()
+
+Two distinct checkpoints, by design:
+
+**a) Between-recipient — PASS-THROUGH on a clean accept (Elize Ruling #1).**
+A recipient who signs with NO flag and NO strikeout/amendment hands the pen STRAIGHT to
+the next recipient — the agent is NOT a checkpoint between every signer (friction with no
+decision in it). The agent is pulled back mid-ceremony ONLY when a flag/strikeout raised a
+PENDING amendment. `SignatureService::handlePartyCompletion()` clean-accept branch.
+
+**b) FINAL agent-review gate — ALWAYS, at the very end (AT-322, epic AT-322).**
+When the **last** recipient completes a **clean electronic** document, it is HELD at
+`pending_agent_approval` instead of self-finalising. It lands in the agent's **"Needs Your
+Approval"** (My Documents `pending_approval` bucket). The agent reviews the finished document
+and clicks **Review & Approve** (`SignatureController::approve()` → `approveAndAdvance()` →
+`completeDocument()`), and ONLY THEN does the document:
+- generate + **auto-file** the PDF (`autoFileSignedDocument`), and
+- **email the completion notice** to the recipients (`sendCompletionEmails`).
+
+Both the file and the recipient completion emails live INSIDE `completeDocument()`, so holding
+the finalize holds BOTH — nothing files and no recipient completion email is sent before the
+agent approves. This is the single source of truth: a clean fully-signed doc must never
+self-complete/self-file/self-email without the agent's final review.
+
+Implementation: `SignatureService::advanceToNextParty()` takes `$gateFinalizeForAgentReview`;
+the recipient clean-accept caller passes it (web-only — `signing_method !== 'wet_ink'`), and the
+finalize branch routes to `holdForFinalAgentReview()` (status + audit `final_clean_complete` +
+in-app agent notification) instead of `completeDocument()`. The AGENT-approval path
+(`approveAndAdvance`) is unaffected and completes/files/emails as normal.
+
+**Wet-ink: EXEMPT / unchanged** — a wet-ink completion already passes through the agent's own
+upload-review, which serves as the agent approval, so it completes as before (not re-gated).
+**OPEN QUESTION (not ruled): should wet-ink also route through this final gate?**
+
 - Agent can return to party with notes
 - Also handles candidate practitioner flow (awaiting_supervisor, awaiting_supervisor_final)
-- Status: WORKING
+- Status: WORKING (final gate re-added under AT-322)
 
 ### Delivery Modes
 | Mode | How It Works | Status |
@@ -227,6 +256,57 @@ The codebase has four separate mechanisms that produce signature elements:
   - external/sign.blade.php:411
 - Markers placed before the 210mm width fix may be slightly mispositioned
 - New markers placed after the fix are consistent across all views
+
+### Identity-Scoped Marker Interactivity + Never-Clobber-Signed (ESIGN-WETINK, AT-300)
+
+E-sign replicates a real hard-copy pack: what recipient 1 SUBMITS after signing is
+EXACTLY what recipient 2 opens and works on — recipient 1's marks present and
+**locked**. The canonical artifact already accumulates every signer's ink
+(`CanonicalInkComposer::bakeInk` writes each signer's captures back into
+`canonical_html` by `data-name` / `data-recipient-identity`). The recipient signing
+view (`resources/views/docuperfect/signatures/external/sign.blade.php`) must render
+that canonical faithfully. Two rules govern the client-side marker/initial
+interactivity (`_makeWebElementsInteractive`, `_makeWebInitialsInteractive`):
+
+1. **Ownership is decided by signer IDENTITY, never by bare party role.** A marker
+   is "mine" iff — in this priority — `data-name === signer_name`, else
+   `data-recipient-identity === currentRoleIdentity`, else (only for un-stamped
+   single-block templates) the party-role alias fallback (`isMyWebSigBlock`). This
+   is the exact JS mirror of `CanonicalInkComposer::markerBelongsToSigner`
+   (see `_isMyMarker`). Deciding by bare party role let recipient 2 (seller_2)
+   claim recipient 1's (seller_1) same-role positions — offering them as
+   "Click to sign" AND mislabelling recipient 2's own suffixed block as
+   "Awaiting seller 2". For an N-same-role pack (2 sellers), `data-name` is the
+   reliable per-person key — the markers are name-bound, not identity-stamped.
+
+2. **Never clobber a signed marker.** Before making any marker interactive, a
+   marker already carrying baked ink — `data-signed="true"` OR an embedded
+   `img.web-sig-signed-img` / `img.corex-ink` (see `_isMarkerSigned`) — is left
+   EXACTLY as the canonical composed it: no innerHTML overwrite, no dimming, not
+   counted as outstanding. This holds for a prior recipient's ink AND the current
+   signer's own already-signed blocks (e.g. after refresh). Only the current
+   signer's UNSIGNED markers get the "Click to sign / Click to initial" prompt.
+
+Result: recipient 2 opens the pack and sees every completed mark from recipient 1
+and the agent baked and locked inline, with ONLY their own outstanding markers
+actionable. (Ceremony "Thus done and signed" fields were identity-scoped earlier in
+fd9cf176 by the same rule; these two render paths were the remaining bare-role
+holdouts — AT-300 closed them.)
+
+**Page-break INITIAL boxes are a special case (`_isMyInitialBox`).** Unlike
+signature markers, per-page initial boxes are built CLIENT-SIDE at pagination
+(`_buildInitialsRow` in `partials/a4-page-styles.blade.php`) and carry ONLY
+`data-marker-party` — no `data-name` / `data-recipient-identity`. Their party is the
+`parties_json` role, where a role's FIRST instance is the bare role (`seller`) and
+later instances are suffixed (`seller_2`). So `_isMyMarker`'s bare-role fallback
+`isMyWebSigBlock` breaks for recipient 2: their box is `seller_2` while their
+`signerRole` is `seller` (suffix mismatch) → their own initial is greyed, AND the
+bare `seller` box could be claimed by both sellers. `_isMyInitialBox` resolves the
+box's party to a role_identity (`{role}_{n}` stays; a bare `{role}` → `{role}_1`) and
+matches SOLELY on `currentRoleIdentity` — so each signer's own unsigned box is
+"Click to initial", prior signers' stay locked, and no same-role sibling is claimed.
+(When a box carries explicit identity/name keys those win; when the viewer has no
+identity — single-recipient/pre-identity docs — it falls back to the bare-role check.)
 
 ---
 

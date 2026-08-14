@@ -95,7 +95,10 @@
                     </div>
                     <div class="p-2 space-y-2 max-h-[60vh] overflow-y-auto">
                         @forelse($stateItems as $buyer)
-                            @php $buyerRisk = $riskScores[$buyer->id] ?? null; @endphp
+                            @php
+                                $buyerRisk = $riskScores[$buyer->id] ?? null;
+                                $buyerPrimaryWishlist = $buyer->matches->firstWhere('is_primary', true) ?? $buyer->matches->first();
+                            @endphp
                             <a href="{{ route('command-center.buyers.show', $buyer) }}"
                                draggable="true"
                                @dragstart="startDrag({{ $buyer->id }}, '{{ $stateKey }}')"
@@ -130,11 +133,20 @@
                                     <span>{{ number_format($coreMatchCounts->get($buyer->id, 0)) }} matches</span>
                                 </div>
                             </a>
-                            <a href="{{ route('command-center.calendar', ['view' => 'day', 'prefill_contact_id' => $buyer->id, 'prefill_class' => 'viewing']) }}"
-                               class="block mt-1 text-center text-[10px] font-medium py-1 rounded-md no-underline hover:opacity-80 transition"
-                               style="color: var(--ds-green, #059669); background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent);">
-                                Schedule Viewing
-                            </a>
+                            <div class="grid grid-cols-2 gap-1 mt-1">
+                                @if($buyerPrimaryWishlist)
+                                <a href="{{ route('corex.contacts.matches.results', [$buyer, $buyerPrimaryWishlist]) }}"
+                                   class="block text-center text-[10px] font-medium py-1 rounded-md no-underline hover:opacity-80 transition"
+                                   style="color: var(--brand-icon, #0ea5e9); background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, transparent);">
+                                    View Matches
+                                </a>
+                                @endif
+                                <a href="{{ route('command-center.calendar', ['view' => 'day', 'prefill_contact_id' => $buyer->id, 'prefill_class' => 'viewing']) }}"
+                                   class="block text-center text-[10px] font-medium py-1 rounded-md no-underline hover:opacity-80 transition {{ $buyerPrimaryWishlist ? '' : 'col-span-2' }}"
+                                   style="color: var(--ds-green, #059669); background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent);">
+                                    Schedule Viewing
+                                </a>
+                            </div>
                         @empty
                             <div class="py-6 text-center text-xs" style="color: var(--text-muted);">No buyers in this state</div>
                         @endforelse
@@ -154,6 +166,7 @@
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Agent</th>
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Last Activity</th>
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Core Matches</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -164,8 +177,10 @@
                                 'warm' => 'ds-badge-success',
                                 'cold' => 'ds-badge-warning',
                                 'lost' => 'ds-badge-danger',
+                                'won' => 'ds-badge-success',
                                 default => 'ds-badge-default',
                             };
+                            $buyerPrimaryWishlist = $buyer->matches->firstWhere('is_primary', true) ?? $buyer->matches->first();
                         @endphp
                         <tr style="border-bottom: 1px solid var(--border);">
                             <td class="px-4 py-3">
@@ -186,9 +201,19 @@
                             <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $buyer->agent?->name ?? 'Unassigned' }}</td>
                             <td class="px-4 py-3 text-xs" style="color: var(--text-muted);">{{ $buyer->last_activity_at?->diffForHumans() ?? 'Never' }}</td>
                             <td class="px-4 py-3 text-xs" style="color: var(--text-muted);">{{ number_format($coreMatchCounts->get($buyer->id, 0)) }}</td>
+                            <td class="px-4 py-3">
+                                @if($buyerPrimaryWishlist)
+                                <a href="{{ route('corex.contacts.matches.results', [$buyer, $buyerPrimaryWishlist]) }}"
+                                   class="corex-btn-outline text-xs no-underline inline-flex items-center gap-1.5">
+                                    View Matches
+                                </a>
+                                @else
+                                <span class="text-xs" style="color: var(--text-muted);">—</span>
+                                @endif
+                            </td>
                         </tr>
                     @empty
-                        <tr><td colspan="5" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">No buyers found.</td></tr>
+                        <tr><td colspan="6" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">No buyers found.</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -198,6 +223,36 @@
             @endif
         </div>
     @endif
+
+    {{-- Won / Success section (Johan 2026-08-13) — buyers who converted (linked to / bought a
+         property) live HERE, out of the active pipeline above. Fed by BuyerStateService::markWon
+         off the ContactLinkedToProperty(role:buyer) event; terminal state, never decayed by cron. --}}
+    @php $wonBuyers = $wonBuyers ?? collect(); @endphp
+    <div class="mt-6 rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="px-4 py-3 flex items-center justify-between" style="border-bottom: 2px solid var(--ds-green, #059669);">
+            <span class="text-sm font-semibold" style="color: var(--text-primary);">🏆 Won / Success</span>
+            <span class="text-xs px-2 py-0.5 rounded-full font-bold whitespace-nowrap" style="background: color-mix(in srgb, var(--ds-green, #059669) 15%, transparent); color: var(--ds-green, #059669);">{{ number_format($counts['won'] ?? $wonBuyers->count()) }}</span>
+        </div>
+        @if($wonBuyers->isEmpty())
+            <div class="px-4 py-4 text-xs" style="color: var(--text-muted);">No won buyers yet. When a buyer is linked to a property, they move here automatically.</div>
+        @else
+            <div class="p-2 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                @foreach($wonBuyers as $buyer)
+                    <a href="{{ route('command-center.buyers.show', $buyer) }}"
+                       class="block p-3 rounded-md transition hover:opacity-80 no-underline"
+                       style="background: var(--surface-2); border: 1px solid var(--border);">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-sm font-semibold truncate" style="color: var(--text-primary);">{{ $buyer->full_name }}</span>
+                            <span class="ds-badge ds-badge-success text-[10px] whitespace-nowrap">Won</span>
+                        </div>
+                        <div class="text-xs mt-0.5 truncate" style="color: var(--text-muted);">
+                            {{ $buyer->agent->name ?? 'Unassigned' }}@if($buyer->last_activity_at) · {{ $buyer->last_activity_at->format('d M Y') }}@endif
+                        </div>
+                    </a>
+                @endforeach
+            </div>
+        @endif
+    </div>
 </div>
 
 <script>

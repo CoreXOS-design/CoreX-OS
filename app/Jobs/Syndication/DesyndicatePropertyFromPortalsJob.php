@@ -54,6 +54,10 @@ class DesyndicatePropertyFromPortalsJob implements ShouldQueue
     public function __construct(
         public readonly Property $property,
         public readonly bool $removeFromWebsite = true,
+        // AT-282 (Johan) — when a plain SOLD status change triggers this job, PP keeps the listing as
+        // 'Sold' (set by SyncPpListingStatusJob) instead of being de-listed. Default false so the
+        // mandate-expiry / manual-delist callers still remove PP even for a sold listing.
+        public readonly bool $keepPpForSold = false,
     ) {
     }
 
@@ -120,6 +124,15 @@ class DesyndicatePropertyFromPortalsJob implements ShouldQueue
     private function delistPrivateProperty(Property $property, array &$failures): void
     {
         if (! $property->pp_syndication_enabled || ! $property->mayBeLiveOnPp()) {
+            return;
+        }
+
+        // AT-282 (Johan) — a SOLD listing stays on PP as 'Sold' (pushed by SyncPpListingStatusJob), so a
+        // plain sold status change must NOT de-list it here. Only skips when the caller opted in
+        // (the observer's off-market status change); mandate-expiry / manual delist still remove.
+        if ($this->keepPpForSold
+            && \App\Services\Syndication\ListingLifecycle::resolve($property->status, $property->status_label)
+                === \App\Services\Syndication\ListingLifecycle::SOLD) {
             return;
         }
 

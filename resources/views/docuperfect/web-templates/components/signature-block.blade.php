@@ -198,29 +198,19 @@
         </div>
     @endforeach
 
-    {{-- Supervisor Signature Zone — only renders for candidate practitioner flows --}}
-    @if(!empty($is_candidate_flow))
-        @php $supervisorDisplayName = $supervisor_name ?? 'Supervisor'; @endphp
-        <div class="sig-party-block">
-            <p class="sig-text">
-                Thus authorised and signed by the Supervising Practitioner ({{ $supervisorDisplayName }}) at
-                <span class="sig-field" data-marker-party="supervisor" data-marker-type="location"></span>
-                on this
-                <span class="sig-field sig-field-short" data-marker-party="supervisor" data-marker-type="day"></span>
-                day of
-                <span class="sig-field sig-field-medium" data-marker-party="supervisor" data-marker-type="month"></span>
-                20<span class="sig-field sig-field-year" data-marker-party="supervisor" data-marker-type="year"></span>
-                at
-                <span class="sig-field sig-field-short" data-marker-party="supervisor" data-marker-type="time"></span>
-                am / pm.
-            </p>
+    {{-- Authorising-practitioner parity — candidate practitioner flows.
+         The authoriser is a FULL-PARITY signer: for EVERY signature/initial the candidate
+         makes, the authoriser makes the SAME mark at the SAME place. That is now enforced
+         MARK-LEVEL and structure-agnostically at compose time by
+         App\Services\Docuperfect\CandidateAuthoriserSurfaceInjector, which mirrors every
+         candidate mark (wherever it sits — component, mid-body, or an imported non-component
+         doc) and injects one authoriser ceremony attestation per segment.
 
-            <div class="sig-row-adaptive cols-1">
-                <div class="sig-cell">
-                    <div class="sig-cell-line" data-marker-party="supervisor" data-marker-type="signature" data-marker-index="supervisor-0" data-name="{{ $supervisorDisplayName }}"></div>
-                    <div class="sig-cell-label">{{ $supervisorDisplayName }}<br><em style="font-size:8pt;">Supervising Practitioner</em></div>
-                </div>
-            </div>
-        </div>
-    @endif
+         The old component-only authoriser sig-party-block was DELIBERATELY REMOVED here: it
+         provisioned exactly ONE authoriser surface at the tail of the block, so a document
+         with candidate signatures mid-body (or authored without this component) left those
+         marks unmirrored (the "3 mid-body signature blocks" defect). Re-adding a fixed block
+         here would also DOUBLE the injector's per-mark mirror of the candidate's final
+         signature. The injector is the single authoriser authority — do not reinstate a
+         hardcoded authoriser block in this component. --}}
 </div>

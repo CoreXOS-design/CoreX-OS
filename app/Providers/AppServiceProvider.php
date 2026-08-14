@@ -116,6 +116,18 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(\App\Services\SellerOutreach\SellerOutreachLandingService::class);
         $this->app->singleton(\App\Services\SellerOutreach\SellerOutreachOptOutService::class);
 
+        // Pipeline Dashboard Phase 1 — the event normalizer. PipelineEventService aggregates the
+        // registered PipelineEventSource list into one chronological stream. Comments are the live
+        // source today; email + WhatsApp sources plug in HERE later (add to the array) without any
+        // change to the DTO or the aggregator. Spec: .ai/specs/pipeline-dashboard.md §3.3
+        $this->app->singleton(\App\Services\Deal\Pipeline\PipelineEventService::class, function ($app) {
+            return new \App\Services\Deal\Pipeline\PipelineEventService([
+                $app->make(\App\Services\Deal\Pipeline\CommentEventSource::class),
+                // Phase 4 — email + WhatsApp (comms archive via communication_links → the DR2 twin).
+                $app->make(\App\Services\Deal\Pipeline\CommunicationEventSource::class),
+            ]);
+        });
+
         // MIC Phase B1 — Anthropic gateway + cost aggregator. Singletons so
         // the cache lookup, retry config, and pricing table resolve once per
         // request. The gateway is stateless; the cost aggregator is read-only.
@@ -147,6 +159,19 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        // ── DESTRUCTIVE-SCHEMA GUARD (post-incident 2026-08-05: hfc_staging wiped by a
+        // migrate:fresh run directly against it) ────────────────────────────────────────
+        // Hard-block the destructive schema commands — migrate:fresh, migrate:refresh,
+        // migrate:reset, db:wipe — in PRODUCTION and STAGING. Laravel's native guard makes
+        // them THROW immediately (before any table is touched) regardless of --force, so an
+        // accidental or mistaken full-schema reset can never wipe a real database again.
+        // Deliberately NOT gated on local/qa/dev: migrate:fresh stays available for local
+        // dev and the QA1 rebuild. (Demo, if ever on this line, must run APP_ENV != production
+        // /staging so its migrate:fresh rebuild still works — flagged for the demo box.)
+        if ($this->app->environment(['production', 'staging'])) {
+            \Illuminate\Support\Facades\DB::prohibitDestructiveCommands();
+        }
+
         // AT-321 — attribute property writes made outside an HTTP request. Queue
         // jobs and console commands have no auth()->user(); stamp a clear source
         // label ("job:<Name>" / "console:<signature>") so every audit row — app
@@ -269,6 +294,12 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Contact\ContactLinkedToProperty::class,
             \App\Listeners\Contact\PromoteOwnerToSellerOnPropertyLink::class,
         );
+        // Buyer WON (Johan 2026-08-13) — a buyer linked to a property converts: mark buyer_state 'won'
+        // and move them into the pipeline's success section. Covers property-page links AND DR2 deals.
+        Event::listen(
+            \App\Events\Contact\ContactLinkedToProperty::class,
+            \App\Listeners\Contact\MarkBuyerWonOnPropertyLink::class,
+        );
         Event::listen(
             \App\Events\Mandate\MandateExpired::class,
             \App\Listeners\Mandate\DesyndicateExpiredMandate::class,
@@ -288,6 +319,12 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(
             \App\Events\Demo\DemoAccessGranted::class,
             \App\Listeners\Demo\SendDemoAccessGrantEmail::class,
+        );
+        // E-sign supporting docs (Part B) — the PDF splitter filed a recipient batch it pulled in
+        // via intake-by-reference; flip those SignedDocumentVersion rows to filed (subset-safe).
+        Event::listen(
+            \App\Events\Docuperfect\SupportingBatchFiled::class,
+            \App\Listeners\Document\FileSupportingBatchOnSplitterCompletion::class,
         );
 
         // The domain-event logging family — every one of these was discovery-only.

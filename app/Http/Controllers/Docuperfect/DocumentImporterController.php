@@ -76,7 +76,20 @@ class DocumentImporterController extends Controller
             abort(403);
         }
 
-        $request->validate(['document' => 'required|file|mimes:docx']);
+        // AT-262-cds — validate by CLIENT EXTENSION, not sniffed content MIME.
+        //
+        // `mimes:docx` checks the MIME php-fileinfo guesses from the file's CONTENT
+        // and maps it back to an extension. A .docx is a ZIP container, and real Word
+        // documents very often sniff as `application/zip` (→ extension `zip`), so
+        // `mimes:docx` SILENTLY REJECTS a perfectly valid .docx: the validator
+        // redirects back to /import with an error the author never sees, and the page
+        // just sits there — the exact "hit Import, nothing happens" symptom.
+        //
+        // The working standard-import path (parse()) has always validated by the
+        // client-supplied extension for this reason; this brings the CDS import into
+        // line with it. `extensions:docx` checks getClientOriginalExtension(), immune
+        // to the sniffing gotcha; the parser fails gracefully on a non-docx anyway.
+        $request->validate(['document' => 'required|file|extensions:docx']);
 
         $parser = app(CdsParserService::class);
         $cds = $parser->parse($request->file('document')->getPathname());
@@ -89,6 +102,15 @@ class DocumentImporterController extends Controller
             'cds_json' => $cds,
             'status' => 'draft',
         ]);
+
+        // AT-262 near-miss guard — a marker-like sequence that did NOT parse (wrong
+        // tilde count, a stray ~, an empty ~~~~~~~~) is the single most likely thing
+        // an agent's first real doc gets wrong. Surface each with WHY, on the builder
+        // they land on, so they can fix it — never silently drop it.
+        $nearMisses = $parser->detectNearMissMarkers((string) ($cds['original_text'] ?? ''));
+        if (! empty($nearMisses)) {
+            session()->flash('cds_near_misses', $nearMisses);
+        }
 
         return redirect()->route('docuperfect.cds.builder', $draft);
     }
@@ -222,6 +244,17 @@ class DocumentImporterController extends Controller
                 ->where('created_at', '<', now()->subHours(4))
                 ->forceDelete();
 
+            // AT-177 (Johan, 2026-07-17) — CONVERGENCE POINT for attribute binding. Whatever parser
+            // produced these fields — DocxParser+Claude (.docx), ClaudeVision (PDF), the regex
+            // fallback — they ALL meet here before the draft (and the builder's suggested bindings)
+            // are stored. A party marker the detector bound to the NAME is refined to the attribute
+            // its surrounding words name (Physical address → contact.address, Telephone → phone,
+            // Email → email, ID → id_number, "in words" → price_in_words). This is the ONE place the
+            // fix cannot be bypassed by a parser-specific path — the unit-vs-real divergence that
+            // failed the Stage-1 gate. It only ever refines a GENERIC binding; a specific one is
+            // never touched, and the party (Seller/Buyer) is resolved downstream.
+            $result['fields'] = $this->refineAttributeBindingsFromContext($result['fields']);
+
             // Store in database instead of session — survives session expiry
             $claudeOriginals = collect($result['fields'])->map(fn($f, $i) => [
                 'index' => $i,
@@ -249,15 +282,48 @@ class DocumentImporterController extends Controller
             @unlink($fullPath);
 
             $redirect = route('docuperfect.import.review');
+
+            // AT-262 — ZERO-FIELD GUARD.
+            //
+            // An import that detected nothing was still reported as a success and the
+            // author was redirected straight to a review screen with nothing on it.
+            // The document was almost always fine — it simply had no MARKERS in it,
+            // because the author had never been told what a marker is. Silence taught
+            // them nothing; they concluded the importer was broken.
+            //
+            // So: warn, and TEACH. The accepted syntaxes come with the warning, from
+            // the parser's own definition. The draft is still saved and the author may
+            // continue (a static document with no fill-ins is a legitimate template) —
+            // but they can no longer be told "ready" when nothing was found.
+            $fieldCount = count($result['fields'] ?? []);
+            $blockCount = count($result['insertable_blocks'] ?? []);
+            $zeroFields = ($fieldCount + $blockCount) === 0;
+
+            // AT-262 near-miss — marker-like sequences that did NOT parse, named with
+            // WHY. Surfaced whenever any exist (not only at zero) — a doc can detect
+            // some fields and still have a few mistyped ones the agent needs to fix.
+            $nearMisses = app(CdsParserService::class)->detectNearMissMarkers(
+                (string) ($result['plain_text'] ?? strip_tags($result['html'] ?? ''))
+            );
+
             \Log::info('[DocumentImporter] SUCCESS — draft saved to DB', [
-                'draft_id' => $draft->id,
-                'redirect' => $redirect,
+                'draft_id'    => $draft->id,
+                'redirect'    => $redirect,
+                'field_count' => $fieldCount,
+                'block_count' => $blockCount,
+                'zero_fields' => $zeroFields,
+                'near_misses' => count($nearMisses),
             ]);
 
             return response()->json([
-                'success'  => true,
-                'redirect' => $redirect,
-                'warnings' => $result['warnings'] ?? [],
+                'success'          => true,
+                'redirect'         => $redirect,
+                'warnings'         => $result['warnings'] ?? [],
+                'field_count'      => $fieldCount,
+                'block_count'      => $blockCount,
+                'zero_fields'      => $zeroFields,
+                'accepted_markers' => ($zeroFields || $nearMisses) ? CdsParserService::acceptedMarkers() : [],
+                'near_misses'      => $nearMisses,
             ]);
 
         } catch (\Throwable $e) {
@@ -1243,5 +1309,59 @@ class DocumentImporterController extends Controller
             $rows[] = '</ol>';
         }
         return implode("\n", $rows);
+    }
+
+    /**
+     * AT-177 — refine each imported field's binding to the ATTRIBUTE its surrounding context names.
+     *
+     * Runs at the import convergence point (every parser's fields meet here), so it is
+     * parser-agnostic. It ONLY refines a GENERIC binding — a blank the detector left as a party
+     * name, a custom slug, or unbound — whose context clearly names an attribute. An already-specific
+     * binding (contact.address, property.erf_number, …) is never touched, and the party (Seller/Buyer)
+     * is resolved downstream, so this fixes only the attribute half that defaulted to the name.
+     *
+     * @param  array<int,array<string,mixed>>  $fields
+     * @return array<int,array<string,mixed>>
+     */
+    private function refineAttributeBindingsFromContext(array $fields): array
+    {
+        foreach ($fields as &$field) {
+            $current = (string) ($field['suggested_key'] ?? $field['key'] ?? '');
+            $k = strtolower(trim($current));
+            $isGeneric = $k === ''
+                || in_array($k, ['contact.full_names', 'contact.full_name', 'contact.name', 'contact.names'], true)
+                || str_starts_with($k, 'custom.')
+                || str_starts_with($k, 'manual.');
+            if (! $isGeneric) {
+                continue;
+            }
+
+            $ctx = strtolower(trim(
+                ($field['context'] ?? '') . ' ' . ($field['context_before'] ?? '') . ' '
+                . ($field['suggested_label'] ?? '') . ' ' . ($field['context_after'] ?? '')
+            ));
+            if ($ctx === '') {
+                continue;
+            }
+
+            // Email BEFORE address ("Email address" contains "address"); "in words" → the words var.
+            $new = match (true) {
+                (bool) preg_match('/\bin\s*words\b/', $ctx)                                          => 'property.price_in_words',
+                (bool) preg_match('/\be-?mail\b/', $ctx)                                             => 'contact.email',
+                (bool) preg_match('/\b(tel|telephone|phone|cell|mobile|landline|contact\s*number)\b/', $ctx) => 'contact.phone',
+                (bool) preg_match('/\b(id|identity)\s*(number|no)?\b|passport|registration\s*number/', $ctx) => 'contact.id_number',
+                (bool) preg_match('/\b(physical|residential|postal)?\s*address\b/', $ctx)           => 'contact.address',
+                default                                                                             => null,
+            };
+
+            if ($new !== null && $new !== $current) {
+                $field['suggested_key'] = $new;
+                if (isset($field['key'])) {
+                    $field['key'] = $new;
+                }
+            }
+        }
+
+        return $fields;
     }
 }

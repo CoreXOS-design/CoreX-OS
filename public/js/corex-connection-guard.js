@@ -112,6 +112,17 @@
                 });
             });
             card.appendChild(btn);
+            // Secondary fallback guidance — if reconnect keeps failing (e.g. after a
+            // long time offline), opening CoreX in a NEW browser tab and signing in
+            // restores the connection without disturbing this screen's work.
+            var note = document.createElement('div');
+            note.style.cssText =
+                'font-size:.78rem;color:#64748b;line-height:1.45;margin-top:.85rem;padding-top:.85rem;' +
+                'border-top:1px solid #e2e8f0;text-align:left;';
+            note.innerHTML =
+                'Still not reconnecting? Open CoreX in a <strong>new browser tab</strong> and sign in ' +
+                'to restore your connection. Your work on this screen stays safe — just don’t refresh this tab.';
+            card.appendChild(note);
             overlay.appendChild(card);
             document.body.appendChild(overlay);
         },

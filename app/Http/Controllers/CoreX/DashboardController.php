@@ -40,22 +40,74 @@ class DashboardController extends Controller
         $candidateService = new CandidatePractitionerService();
         $candidateDocs = collect();
 
-        if ($candidateService->canAuthorise($user)) {
+        // Supervised candidates' IN-PROGRESS documents (read-only walk-through surface).
+        // AT-352b (greenlit): a full-status authoriser can open a supervised candidate's live
+        // document — read-only, via the view-live mirror — BEFORE it reaches their authorisation
+        // turn, so they can walk the party through it. Additive: separate from (and does NOT
+        // disturb) the "needs authorisation" queue above. Deliberately EXCLUDES the two
+        // AWAITING_SUPERVISOR(_FINAL) statuses (those already surface in $candidateDocs) and all
+        // terminal/pre-send statuses. Agency-scoped via the candidate (creator) so an authoriser
+        // only ever sees their own agency's candidates — mirrors getEligibleAuthorisers' scope.
+        $candidateInProgressDocs = collect();
+
+        // BRANCH-SCOPED authorisation surface (confirmed model, 2026-08-03): a viewer sees exactly
+        // the candidate documents they are eligible to authorise —
+        //   - agency admins (admin/super_admin/principal/owner): agency-wide,
+        //   - Branch Managers / full-status practitioners: their branch(es) only.
+        // This mirrors getEligibleAuthorisers so the dashboard queue matches the in-app notification
+        // pool (never showing a branch agent another branch's candidate docs). A null agency, or a
+        // non-admin with no authorising branch, resolves to nothing rather than every agency's.
+        $agencyId = $user->effectiveAgencyId();
+        if ($candidateService->canAuthorise($user) && $agencyId) {
+            if ($candidateService->isAgencyAdmin($user)) {
+                $creatorScope = function ($q) use ($agencyId) {
+                    $q->where('agency_id', $agencyId)
+                        ->orWhereHas('branch', fn ($b) => $b->where('agency_id', $agencyId));
+                };
+            } else {
+                // -1 sentinel → matches no branch when the viewer manages none (empty result).
+                $branchIds = $candidateService->authorisingBranchIds($user) ?: [-1];
+                $creatorScope = function ($q) use ($branchIds) {
+                    $q->whereIn('branch_id', $branchIds);
+                };
+            }
+
             $candidateDocs = SignatureTemplate::with(['document', 'creator'])
                 ->where('is_candidate_flow', true)
                 ->whereIn('status', [
                     SignatureTemplate::STATUS_AWAITING_SUPERVISOR,
                     SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL,
                 ])
+                ->whereHas('creator', $creatorScope)
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            $candidateInProgressDocs = SignatureTemplate::with(['document', 'creator'])
+                ->where('is_candidate_flow', true)
+                ->whereIn('status', [
+                    SignatureTemplate::STATUS_SIGNING,
+                    SignatureTemplate::STATUS_AWAITING_TENANT,
+                    SignatureTemplate::STATUS_AWAITING_LANDLORD,
+                    SignatureTemplate::STATUS_AWAITING_BUYER,
+                    SignatureTemplate::STATUS_AWAITING_SELLER,
+                    SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL,
+                    SignatureTemplate::STATUS_RETURNED_TO_CANDIDATE,
+                    SignatureTemplate::STATUS_AWAITING_DEFERRED,
+                    SignatureTemplate::STATUS_AMENDMENT_REVIEW,
+                    SignatureTemplate::STATUS_AMENDMENT_INITIALING,
+                    SignatureTemplate::STATUS_PARTIAL,
+                ])
+                ->whereHas('creator', $creatorScope)
                 ->orderBy('created_at', 'desc')
                 ->get();
         }
 
         return view('corex.dashboard', [
-            'mtdPoints'     => $mtdPoints,
-            'monthlyTarget' => $monthlyTarget,
-            'period'        => $period,
-            'candidateDocs' => $candidateDocs,
+            'mtdPoints'                => $mtdPoints,
+            'monthlyTarget'            => $monthlyTarget,
+            'period'                   => $period,
+            'candidateDocs'            => $candidateDocs,
+            'candidateInProgressDocs'  => $candidateInProgressDocs,
         ]);
     }
 }

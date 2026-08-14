@@ -637,3 +637,83 @@ the deal picker on `access_deal_register_v2`, exactly as before.
 - EDIT `tests/Feature/Tools/PdfSplitterDestinationRoutingTest.php` — the 3
   real-HTTP `link()` tests updated to `session(['splitter_batch' => [$id]])`
   and nested `labels[$id][page]` / `contacts[$id][page][]`.
+
+---
+
+# WIRING HOOKS — batch intake by reference (2026-08-11, QA1)
+
+Three ADDITIVE hooks so the e-sign "Recipient additional docs" flow (cc2) can
+hand a batch of already-stored uploads to the splitter without a browser
+re-upload. **Hard rule honoured: the existing `/run` (direct multipart
+upload) → `review()` (session-driven) → `link()` (files + FICA) flow is
+byte-for-byte unchanged in behaviour** — every addition is either a new
+parallel entry point, a new optional session key nothing else reads, or a
+new array key alongside existing ones. cc2's `SignatureController`/
+`myDocuments` were not touched — this is splitter-side only.
+
+## Hook 1 — Intake by reference
+
+`POST /tools/pdf-splitter/intake-supporting` (`tools.pdf_splitter.intake_supporting`),
+`PdfSplitterController::intakeSupporting()`. Payload: `signature_request_id`
+(required int), `version_ids[]` (required array of `SignedDocumentVersion`
+ids), `property_id` (optional int, explicit override — see Hook 2).
+
+Every version is re-verified server-side against BOTH
+`kind='supporting'` AND the stated `signature_request_id` (`scopeSupporting()`
++ `where('signature_request_id', ...)`) — a version id alone is never
+sufficient to pull a file in. Each file is copied from its `file_path` on the
+`local` disk into the splitter's own `private/splitter/originals/` (same
+convention `run()` uses) and OCR/classified via the SAME private
+`buildManifestForFile()` `run()` calls — no duplicated OCR logic. Lands in
+the identical `session(['splitter_batch' => [...], 'splitter_skipped' => [...]])`
+shape `run()` produces, then redirects to the SAME `review()`. A brand new
+`splitter_context` session key (`signature_request_id`, `version_ids`,
+`property_id`) rides alongside — `run()` never sets this key, so it does not
+exist for a normal upload and every consumer of it is null-safe.
+
+## Hook 2 — Property prefill
+
+`review()` reads `session('splitter_context')['property_id']` (present only
+for an intake-by-reference batch) and, if it resolves via the normal
+`Property::visibleTo()` scope, passes a `$prefillProperty` shaped via the
+SAME `Property::toSearchResult()` the client-side search endpoint already
+uses — so it is indistinguishable from a manually-picked result to every
+other part of the Alpine component. The blade seeds `property:
+@json($prefillProperty ?? null)` (null for every existing flow) and a new
+`init()` hook calls the EXISTING `loadContacts()` when a property is
+prefilled — mirrors `pickProp()` exactly, no new contact-loading path. The
+agent can still search/clear/repick freely; this is a default, not a lock.
+
+`property_id` resolution: explicit param wins; otherwise falls back to the
+first version's parent `docuperfect_documents.property_id` **read as a raw
+column**, not via `Document::property()` (that relation targets
+`RentalProperty`, a different table — verified mismatched against real QA1
+data, id 6060 exists in `properties`, not `rental_properties`; not fixed,
+out of scope, flagged here so nobody trusts that relation for this purpose).
+
+## Hook 3 — Completion correlation
+
+`fileGroupsToDestinations()` gained one additive key, `document_ids` (the
+created `Document::id` for every group filed — `DealDocumentService::
+fileClassifiedDocument()` already returned the `Document` model, just wasn't
+being collected). At the end of `link()`, if `splitter_context` is present,
+dispatches `App\Events\Docuperfect\SupportingBatchFiled` (extends the house
+`AbstractDomainEvent`, auto-audited to `domain_event_log`) carrying
+`signature_request_id`, the pulled-in `version_ids`, the newly created
+`document_ids`, `property_id`, actor, agency — then clears `splitter_context`
+(one-shot; never leaks into the agent's next unrelated upload). Fires even
+when nothing was filed (0 documents) — the recipient-docs side decides what
+that means for its own bookkeeping. **No listener registered here** — cc2
+owns subscribing and stamping `SignedDocumentVersion::filed_at` /
+`filed_by_user_id`; the splitter only fires the signal.
+
+## Files (wiring hooks)
+
+- NEW `app/Events/Docuperfect/SupportingBatchFiled.php`
+- EDIT `app/Http/Controllers/Tools/PdfSplitterController.php` — new
+  `intakeSupporting()`; `review()` gains `$prefillProperty`; `link()`
+  dispatches the event + clears `splitter_context`;
+  `fileGroupsToDestinations()` collects `document_ids`.
+- EDIT `routes/web.php` — new `tools.pdf_splitter.intake_supporting`.
+- EDIT `resources/views/tools/pdf_splitter_review.blade.php` — `property`
+  seeded from `$prefillProperty`; new Alpine `init()`.

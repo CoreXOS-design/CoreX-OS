@@ -144,6 +144,10 @@ class AgencyController extends Controller
                 // active_agency_id), which would otherwise force this brand
                 // new admin onto that agency instead of the one just
                 // created above. See BelongsToAgency::withoutAgencyStamping().
+                // (This supersedes QA1's post-create raw-DB agency_id correction:
+                // withoutAgencyStamping PREVENTS the clobber during create, and
+                // this is the live email-only invite flow — pendingInvitePassword
+                // + invited_at — which must be preserved.)
                 $adminUser = User::withoutAgencyStamping(fn () => User::create([
                     'name'       => $adminPayload['name'],
                     'email'      => $adminPayload['email'],

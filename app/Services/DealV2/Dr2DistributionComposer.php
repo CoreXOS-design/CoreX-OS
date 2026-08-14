@@ -26,6 +26,8 @@ class Dr2DistributionComposer
         'buyer'             => 'Buyer',
         'transfer_attorney' => 'Transferring Attorney',
         'bond_originator'   => 'Bond Originator',
+        'external_agency'   => 'External Agency',
+        'bond_attorney'     => 'Bond Attorney',
     ];
 
     public function __construct(private DocumentDistributionMatrix $matrix) {}
@@ -72,17 +74,57 @@ class Dr2DistributionComposer
             'buyer'             => $this->contactRecipients($deal, 'buyer'),
             'transfer_attorney' => $this->providerRecipient($deal->attorney_provider_id, $deal->attorney_contact_id),
             'bond_originator'   => $this->providerRecipient($deal->bond_originator_provider_id, $deal->bond_originator_contact_id),
+            'external_agency'   => $this->externalAgencyRecipients($deal),
+            'bond_attorney'     => $this->providerRecipient($deal->bond_attorney_provider_id, $deal->bond_attorney_contact_id),
             default             => [],
         };
     }
 
     private function contactRecipients(Deal $deal, string $contactRole): array
     {
-        $property = $deal->property;
-        if (! $property) {
-            return [];
+        // AT-334 — the DEAL owns its transaction parties (AT-243, deal_contacts), synced on
+        // every save (syncDealParties add/remove). Resolve buyers/sellers from the DEAL, NOT
+        // the property: a property accumulates buyers across offers (and syncPartyLinks is
+        // append-only), so reading the property showed unselected/removed buyers on Email
+        // Parties. Reading deal_contacts means Email Parties reflects EXACTLY this deal's
+        // current parties — an unselected buyer never appears, a removed buyer drops off.
+        $dealRole = $contactRole === 'seller_owner' ? 'seller' : $contactRole;
+
+        // A "party-managed" deal owns its parties on deal_contacts — a DR2 deal (has a
+        // twin or a deal_type) or any deal that has ever recorded a party. For these,
+        // deal_contacts is AUTHORITATIVE: an empty role = no recipient (so a buyer removed
+        // on edit truly drops off — never a property fallback that resurrects it). Only a
+        // genuinely-legacy DR1 deal (no twin, no deal_type, no recorded parties) falls back
+        // to the property, where its parties historically lived.
+        $hasDealParties = \Illuminate\Support\Facades\DB::table('deal_contacts')
+            ->where('deal_id', $deal->id)->exists();
+        $partyManaged = $hasDealParties || $deal->deal_v2_id !== null || $deal->deal_type !== null;
+
+        if ($partyManaged) {
+            $ids = \Illuminate\Support\Facades\DB::table('deal_contacts')
+                ->where('deal_id', $deal->id)->where('role', $dealRole)->pluck('contact_id');
+            $contacts = $ids->isEmpty()
+                ? collect()
+                : \App\Models\Contact::withoutGlobalScopes()->whereIn('id', $ids)->get();
+
+            // AT-334 seller-only fallback. A buyer accumulates on the property across offers, so
+            // an empty buyer role on deal_contacts genuinely means "none" — the 25c2d4a8 read is
+            // authoritative and MUST NOT fall back (a property fallback would resurrect unselected
+            // buyers). A seller is different: singular, and frequently linked only on the PROPERTY
+            // + deals.seller_name (captured as a name, never picked as a seller_contact_id), so it
+            // never reached deal_contacts. For the SELLER role ONLY, when the deal records no
+            // seller, fall back to the property's seller so the party surfaces. Buyer path untouched.
+            if ($contacts->isEmpty() && $dealRole === 'seller') {
+                $property = $deal->property;
+                $contacts = $property ? $property->contactsForRole($contactRole) : collect();
+            }
+        } else {
+            // Legacy pre-AT-243 DR1 deal: parties were recorded only on the property.
+            $property = $deal->property;
+            $contacts = $property ? $property->contactsForRole($contactRole) : collect();
         }
-        return $property->contactsForRole($contactRole)
+
+        return $contacts
             ->map(fn ($c) => [
                 'type'  => 'contact',
                 'id'    => $c->id,
@@ -118,6 +160,37 @@ class Dr2DistributionComposer
             'email'       => $email,
             'phone'       => $phone,
         ]];
+    }
+
+    /**
+     * External Agency is captured PER SIDE (listing + selling) in "Sides, Splits & Agents",
+     * each a firm+contact provider pick (mirror of attorney / bond originator). The single
+     * External Agency party surfaces BOTH sides' agencies as recipients, deduped (both sides
+     * may name the same firm). Deals saved under the retired top-level external-agency field
+     * still surface (legacy fallback) when no per-side pick exists, so emailability is never lost.
+     */
+    private function externalAgencyRecipients(Deal $deal): array
+    {
+        $recipients = array_merge(
+            $this->providerRecipient($deal->listing_external_agency_provider_id, $deal->listing_external_agency_contact_id),
+            $this->providerRecipient($deal->selling_external_agency_provider_id, $deal->selling_external_agency_contact_id),
+        );
+
+        if (empty($recipients)) {
+            $recipients = $this->providerRecipient($deal->external_agency_provider_id, $deal->external_agency_contact_id);
+        }
+
+        $seen = [];
+        $out  = [];
+        foreach ($recipients as $r) {
+            $key = ($r['id'] ?? '') . ':' . ($r['contact_id'] ?? '');
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $out[] = $r;
+        }
+        return $out;
     }
 
     /**

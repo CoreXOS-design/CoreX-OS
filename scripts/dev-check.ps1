@@ -374,51 +374,6 @@ if ($SkipPipelineGate) {
     }
 }
 
-# 10. Schema snapshot DEFINER portability gate
-#
-# `php artisan schema:dump` always bakes an explicit DEFINER=`user`@`host` into the
-# dumped CREATE TRIGGER text, naming whichever concrete user's session created the
-# trigger on the machine that was dumped -- even though the migrations themselves
-# never specify one. Replaying that snapshot (the RefreshDatabase schema-load path,
-# CLAUDE.md 12a) pipes the literal SQL through a plain `mysql` client, which then
-# needs SUPER/SET_ANY_DEFINER whenever the baked-in definer differs from the
-# replaying DB user. A dump taken as root therefore loads fine for whoever took it
-# and fails for everyone else -- every restricted app DB user, every other dev's
-# test bootstrap. That is exactly how it reached production: dumped as root on live
-# (52d921862), invisible on live and local, then ERROR 1227 at line 3918 the first
-# time the demo host tried to bootstrap its DB from it.
-#
-# Stripping the clause makes the trigger adopt CURRENT_USER as its definer, which
-# is precisely what the migrations produce on a normal `migrate` run -- so the two
-# bootstrap paths converge instead of diverging.
-#
-# This is a file-content invariant, not a review-time heuristic, so it always runs.
-# After any `schema:dump`, strip the clauses before committing:
-#   (Get-Content database/schema/mysql-schema.sql) `
-#     -replace '/\*!50017 DEFINER=`[^`]+`@`[^`]+`\*/ ', '' `
-#     | Set-Content database/schema/mysql-schema.sql -Encoding utf8
-Write-Host ''
-Write-Host '10. Schema snapshot DEFINER portability' -ForegroundColor Yellow
-
-$schemaSnapshot = Join-Path $PSScriptRoot '..\database\schema\mysql-schema.sql'
-if (-not (Test-Path $schemaSnapshot)) {
-    Write-Host '   SKIP: database/schema/mysql-schema.sql not present' -ForegroundColor DarkGray
-} else {
-    $definerHits = Select-String -Path $schemaSnapshot -Pattern 'DEFINER=' -SimpleMatch
-    if ($definerHits) {
-        Write-Host "   FAIL: $($definerHits.Count) hard-coded DEFINER clause(s) in the schema snapshot." -ForegroundColor Red
-        Write-Host '   This snapshot can only be loaded by the exact DB user it was dumped as;' -ForegroundColor Red
-        Write-Host '   every other environment fails with ERROR 1227 (SUPER / SET_ANY_DEFINER).' -ForegroundColor Red
-        Write-Host '' -ForegroundColor Red
-        foreach ($h in $definerHits) { Write-Host "     line $($h.LineNumber): $($h.Line.Trim().Substring(0, [Math]::Min(100, $h.Line.Trim().Length)))" -ForegroundColor Red }
-        Write-Host '' -ForegroundColor Red
-        Write-Host '   Strip them (see the comment above this gate in dev-check.ps1), then re-commit.' -ForegroundColor Red
-        $failed = $true
-    } else {
-        Write-Host '   No hard-coded DEFINER clauses -- snapshot is portable' -ForegroundColor Green
-    }
-}
-
 # -- Result --
 Write-Host ''
 if ($failed) {

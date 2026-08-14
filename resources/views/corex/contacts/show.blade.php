@@ -484,7 +484,8 @@
 
             @include('corex.contacts._recent-sends')
 
-            <form method="POST" action="{{ route('corex.contacts.update', $contact) }}" class="space-y-6">
+            <form method="POST" action="{{ route('corex.contacts.update', $contact) }}" class="space-y-6"
+                  x-data="{ contactKind: '{{ old('contact_kind', $contact->contact_kind ?? 'natural_person') }}' }">
                 @csrf @method('PUT')
                 <input type="hidden" name="_from_show" value="1">
 
@@ -492,18 +493,53 @@
                 <div>
                     <h3 class="text-xs font-bold uppercase tracking-widest mb-4" style="color:var(--text-muted);">Basic Information</h3>
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <div class="sm:col-span-2 lg:col-span-3">
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Contact Is <span class="text-red-500">*</span></label>
+                            <div class="flex items-center gap-4">
+                                <label class="inline-flex items-center gap-1.5 text-sm" style="color:var(--text-primary);">
+                                    <input type="radio" name="contact_kind" value="natural_person" x-model="contactKind">
+                                    Natural person
+                                </label>
+                                <label class="inline-flex items-center gap-1.5 text-sm" style="color:var(--text-primary);">
+                                    <input type="radio" name="contact_kind" value="entity" x-model="contactKind">
+                                    Entity <span style="color:var(--text-muted); font-weight:400;">(company / CC / trust)</span>
+                                </label>
+                            </div>
+                        </div>
+                        <template x-if="contactKind === 'natural_person'">
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">First Name <span class="text-red-500">*</span></label>
-                            <input type="text" name="first_name" value="{{ old('first_name', $contact->first_name) }}" required
+                            <input type="text" name="first_name" value="{{ old('first_name', $contact->first_name) }}" :required="contactKind === 'natural_person'"
                                    class="w-full rounded-md px-3 py-2 text-sm"
                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                         </div>
+                        </template>
+                        <template x-if="contactKind === 'natural_person'">
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Surname <span class="text-red-500">*</span></label>
-                            <input type="text" name="last_name" value="{{ old('last_name', $contact->last_name) }}" required
+                            <input type="text" name="last_name" value="{{ old('last_name', $contact->last_name) }}" :required="contactKind === 'natural_person'"
                                    class="w-full rounded-md px-3 py-2 text-sm"
                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                         </div>
+                        </template>
+                        <template x-if="contactKind === 'entity'">
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Entity Name <span class="text-red-500">*</span></label>
+                            <input type="text" name="entity_name" value="{{ old('entity_name', $contact->entity_name) }}" :required="contactKind === 'entity'"
+                                   placeholder="e.g. Coastal Holdings (Pty) Ltd"
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                        </div>
+                        </template>
+                        <template x-if="contactKind === 'entity'">
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Registration Number <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
+                            <input type="text" name="entity_reg_no" value="{{ old('entity_reg_no', $contact->entity_reg_no) }}"
+                                   placeholder="e.g. 2015/123456/07"
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                        </div>
+                        </template>
                         <div class="sm:col-span-2 lg:col-span-3">
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Contact Type <span class="text-red-500">*</span></label>
                             @include('corex.contacts._type_picker', ['contactTypes' => $contactTypes, 'contact' => $contact])
@@ -515,6 +551,20 @@
                         <div class="sm:col-span-2 lg:col-span-3">
                             @include('corex.contacts._identifier-repeater', ['kind' => 'emails', 'type' => 'email', 'title' => 'Emails (optional — but a contact needs at least one phone or email)', 'addLabel' => 'email', 'placeholder' => 'e.g. john@example.com', 'existing' => $contact->emails()->orderByDesc('is_primary')->orderBy('id')->get(), 'labels' => $contactIdentifierLabels])
                         </div>
+                        <div class="sm:col-span-2 lg:col-span-3">
+                            <label class="flex items-start gap-2 text-xs" style="color:var(--text-muted);">
+                                <input type="hidden" name="no_contact_details" value="0">
+                                <input type="checkbox" name="no_contact_details" value="1"
+                                       {{ old('no_contact_details', $contact->deadEndFlag ? '1' : '0') === '1' ? 'checked' : '' }}
+                                       class="mt-0.5 rounded" style="accent-color:var(--brand-icon, #0ea5e9);">
+                                <span>
+                                    <span class="font-semibold" style="color:var(--text-primary);">No contact details available</span> —
+                                    save this contact without a phone or email (flags it as a dead end so nobody keeps re-chasing it;
+                                    the flag clears automatically the moment a phone or email is added).
+                                </span>
+                            </label>
+                        </div>
+                        <template x-if="contactKind === 'natural_person'">
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID Number <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
                             <input type="text" name="id_number" value="{{ old('id_number', $contact->id_number) }}"
@@ -522,6 +572,7 @@
                                    class="w-full rounded-md px-3 py-2 text-sm"
                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                         </div>
+                        </template>
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Date of Birth <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
                             <input type="date" name="birthday" value="{{ old('birthday', $contact->birthday?->format('Y-m-d')) }}"
@@ -666,6 +717,199 @@
                 </div>
             </form>
 
+            @if($contact->isEntity())
+            {{-- Entity-type foundation (.ai/specs/contact-entity-type.md) —
+                 the entity <-> natural-person representative link. Reflects
+                 the SAVED contact_kind (not the live radio above the form) —
+                 a representative can only be linked once the entity itself
+                 has been saved. --}}
+            <div class="rounded-md p-5" style="background: var(--surface-2); border: 1px solid var(--border);"
+                 x-data="{ repSearch: '', repResults: [], repLoading: false, repSearched: false, showCreateRep: false,
+                     async searchReps() {
+                         if (this.repSearch.length < 2) { this.repResults = []; this.repSearched = false; return; }
+                         this.repLoading = true;
+                         try {
+                             const r = await fetch('{{ route('corex.contacts.representatives.search', $contact) }}?q=' + encodeURIComponent(this.repSearch), { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                             this.repResults = await r.json();
+                             this.repSearched = true;
+                         } finally { this.repLoading = false; }
+                     }
+                 }">
+                <h3 class="text-xs font-bold uppercase tracking-widest mb-1" style="color:var(--text-muted);">Representatives</h3>
+                <p class="text-xs mb-4" style="color:var(--text-muted);">The natural person(s) who sign on this entity's behalf (director/trustee/partner).</p>
+
+                @if($contact->representatives->isNotEmpty())
+                <div class="rounded-md overflow-hidden mb-4" style="border:1px solid var(--border);">
+                    @foreach($contact->representatives as $rep)
+                    <div class="flex items-center gap-3 px-4 py-3" style="border-bottom:1px solid var(--border); background:var(--surface);">
+                        <div class="flex-1 min-w-0">
+                            <a href="{{ route('corex.contacts.show', $rep) }}" class="text-sm font-semibold hover:underline" style="color:var(--text-primary);">{{ $rep->full_name }}</a>
+                            @if($rep->pivot->is_primary)
+                            <span class="ml-2 text-[11px] font-semibold px-1.5 py-0.5 rounded" style="background:var(--brand-icon,#0ea5e9)22; color:var(--brand-icon,#0ea5e9);">Primary signatory</span>
+                            @endif
+                        </div>
+                        <form method="POST" action="{{ route('corex.contacts.representatives.unlink', [$contact, $rep]) }}" onsubmit="return confirm('Unlink {{ addslashes($rep->full_name) }} as a representative?');">
+                            @csrf @method('DELETE')
+                            <button type="submit" class="text-xs font-semibold" style="color:var(--ds-crimson, #c41e3a);">Unlink</button>
+                        </form>
+                    </div>
+                    @endforeach
+                </div>
+                @else
+                <p class="text-xs mb-4" style="color:var(--text-muted);">No representative linked yet — the scraper/capture case (entity owner known, director unknown) is valid; add one here when known.</p>
+                @endif
+
+                <div class="relative mb-3">
+                    <input type="text" x-model="repSearch" @input.debounce.300ms="searchReps()"
+                           placeholder="Search natural-person contacts by name, phone or email…"
+                           class="w-full rounded-md px-3 py-2 text-sm pr-10"
+                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                    <div x-show="repLoading" class="absolute right-3 top-2.5">
+                        <svg class="animate-spin w-4 h-4" style="color:var(--text-muted);" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                    </div>
+                </div>
+
+                <div x-show="repResults.length > 0" class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
+                    <template x-for="r in repResults" :key="r.id">
+                        <form method="POST" action="{{ route('corex.contacts.representatives.link', $contact) }}">
+                            @csrf
+                            <input type="hidden" name="representative_contact_id" :value="r.id">
+                            <button type="submit" class="w-full flex items-center gap-3 px-4 py-3 text-left hover:opacity-80 transition-colors"
+                                    style="border-bottom:1px solid var(--border); background:var(--surface);">
+                                <div class="flex-1 min-w-0">
+                                    <div class="text-sm font-semibold" style="color:var(--text-primary);" x-text="r.label || r.name"></div>
+                                    <div class="text-xs mt-0.5" style="color:var(--text-muted);" x-text="(r.identifier || r.phone || r.email || '')"></div>
+                                </div>
+                                <span class="text-xs font-semibold flex-shrink-0" style="color:var(--brand-icon, #0ea5e9);">+ Link</span>
+                            </button>
+                        </form>
+                    </template>
+                </div>
+
+                <div x-show="repSearched && repResults.length === 0" class="text-sm mb-3" style="color:var(--text-muted);">
+                    No matching natural-person contacts found.
+                </div>
+
+                {{-- Create-on-the-fly (Match-or-Create, Non-Negotiable #10) — no
+                     need to leave this page to capture a not-yet-known director. --}}
+                <button type="button" @click="showCreateRep = !showCreateRep" class="text-xs font-semibold" style="color:var(--brand-icon, #0ea5e9);" x-text="showCreateRep ? 'Cancel' : '+ Create new representative'"></button>
+                <form x-show="showCreateRep" x-cloak method="POST" action="{{ route('corex.contacts.representatives.create-and-link', $contact) }}" class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    @csrf
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">First Name <span class="text-red-500">*</span></label>
+                        <input type="text" name="first_name" required class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Surname</label>
+                        <input type="text" name="last_name" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Phone</label>
+                        <input type="text" name="phone" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Email</label>
+                        <input type="email" name="email" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                    </div>
+                    <div class="sm:col-span-2">
+                        <button type="submit" class="corex-btn-primary text-xs">Create &amp; Link</button>
+                    </div>
+                </form>
+            </div>
+            @endif
+
+            @if(!$contact->isEntity())
+            {{-- Entity-type foundation (.ai/specs/contact-entity-type.md) —
+                 the SAME contact_representatives pivot as the entity's
+                 "Representatives" panel above, viewed from the natural-
+                 person side. Linking/unlinking here writes the identical
+                 rows — there is no second relationship. --}}
+            <div class="rounded-md p-5" style="background: var(--surface-2); border: 1px solid var(--border);"
+                 x-data="{ entSearch: '', entResults: [], entLoading: false, entSearched: false, showCreateEntity: false,
+                     async searchEntities() {
+                         if (this.entSearch.length < 2) { this.entResults = []; this.entSearched = false; return; }
+                         this.entLoading = true;
+                         try {
+                             const r = await fetch('{{ route('corex.contacts.representatives.search-entities', $contact) }}?q=' + encodeURIComponent(this.entSearch), { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                             this.entResults = await r.json();
+                             this.entSearched = true;
+                         } finally { this.entLoading = false; }
+                     }
+                 }">
+                <h3 class="text-xs font-bold uppercase tracking-widest mb-1" style="color:var(--text-muted);">Linked Entities</h3>
+                <p class="text-xs mb-4" style="color:var(--text-muted);">Companies / CCs / trusts this person represents (director/trustee/partner).</p>
+
+                @if($contact->representedEntities->isNotEmpty())
+                <div class="rounded-md overflow-hidden mb-4" style="border:1px solid var(--border);">
+                    @foreach($contact->representedEntities as $entity)
+                    <div class="flex items-center gap-3 px-4 py-3" style="border-bottom:1px solid var(--border); background:var(--surface);">
+                        <div class="flex-1 min-w-0">
+                            <a href="{{ route('corex.contacts.show', $entity) }}" class="text-sm font-semibold hover:underline" style="color:var(--text-primary);">{{ $entity->full_name }}</a>
+                            @if($entity->pivot->is_primary)
+                            <span class="ml-2 text-[11px] font-semibold px-1.5 py-0.5 rounded" style="background:var(--brand-icon,#0ea5e9)22; color:var(--brand-icon,#0ea5e9);">Primary signatory</span>
+                            @endif
+                        </div>
+                        <form method="POST" action="{{ route('corex.contacts.representatives.unlink', [$entity, $contact]) }}" onsubmit="return confirm('Unlink from {{ addslashes($entity->full_name) }}?');">
+                            @csrf @method('DELETE')
+                            <button type="submit" class="text-xs font-semibold" style="color:var(--ds-crimson, #c41e3a);">Unlink</button>
+                        </form>
+                    </div>
+                    @endforeach
+                </div>
+                @else
+                <p class="text-xs mb-4" style="color:var(--text-muted);">Not linked to any entity yet.</p>
+                @endif
+
+                <div class="relative mb-3">
+                    <input type="text" x-model="entSearch" @input.debounce.300ms="searchEntities()"
+                           placeholder="Search entity contacts by name or registration number…"
+                           class="w-full rounded-md px-3 py-2 text-sm pr-10"
+                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                    <div x-show="entLoading" class="absolute right-3 top-2.5">
+                        <svg class="animate-spin w-4 h-4" style="color:var(--text-muted);" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                    </div>
+                </div>
+
+                <div x-show="entResults.length > 0" class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
+                    <template x-for="r in entResults" :key="r.id">
+                        <form :action="'{{ url('corex/contacts') }}/' + r.id + '/representatives/link'" method="POST">
+                            @csrf
+                            <input type="hidden" name="representative_contact_id" value="{{ $contact->id }}">
+                            <button type="submit" class="w-full flex items-center gap-3 px-4 py-3 text-left hover:opacity-80 transition-colors"
+                                    style="border-bottom:1px solid var(--border); background:var(--surface);">
+                                <div class="flex-1 min-w-0">
+                                    <div class="text-sm font-semibold" style="color:var(--text-primary);" x-text="r.label || r.name"></div>
+                                    <div class="text-xs mt-0.5" style="color:var(--text-muted);" x-text="(r.registration || '')"></div>
+                                </div>
+                                <span class="text-xs font-semibold flex-shrink-0" style="color:var(--brand-icon, #0ea5e9);">+ Link</span>
+                            </button>
+                        </form>
+                    </template>
+                </div>
+
+                <div x-show="entSearched && entResults.length === 0" class="text-sm mb-3" style="color:var(--text-muted);">
+                    No matching entity contacts found.
+                </div>
+
+                {{-- Create-on-the-fly (Match-or-Create, Non-Negotiable #10). --}}
+                <button type="button" @click="showCreateEntity = !showCreateEntity" class="text-xs font-semibold" style="color:var(--brand-icon, #0ea5e9);" x-text="showCreateEntity ? 'Cancel' : '+ Create new entity'"></button>
+                <form x-show="showCreateEntity" x-cloak method="POST" action="{{ route('corex.contacts.representatives.create-and-link-entity', $contact) }}" class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    @csrf
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Entity Name <span class="text-red-500">*</span></label>
+                        <input type="text" name="entity_name" required placeholder="e.g. Coastal Holdings (Pty) Ltd" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Registration Number</label>
+                        <input type="text" name="entity_reg_no" placeholder="e.g. 2015/123456/07" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                    </div>
+                    <div class="sm:col-span-2">
+                        <button type="submit" class="corex-btn-primary text-xs">Create &amp; Link</button>
+                    </div>
+                </form>
+            </div>
+            @endif
+
             @include('corex.contacts.partials.client-app-access', ['contact' => $contact])
         </div>
 
@@ -717,6 +961,8 @@
             </div>
 
             @include('corex.contacts._held-address-warning')
+
+            @include('corex.contacts._dead-end-warning')
 
             <div class="rounded-md p-5" style="background: var(--surface-2); border: 1px solid var(--border);"
                  x-data="contactAddress({{ Js::from([
@@ -1134,6 +1380,50 @@
              ════════════════════════════ --}}
         @if(\App\Models\PerformanceSetting::get('matches_enabled', 1) && auth()->user()->hasPermission('access_core_matches'))
         <div x-show="activeTab === 'properties'" x-cloak class="p-6 pt-0 space-y-6" id="tab-matches">
+
+            {{-- Company Properties (entity model 2026-08-14) — properties owned by a
+                 company this contact DIRECTS, derived via property→company→director.
+                 A distinct, flagged group so it never reads as personal ownership. --}}
+            @php
+                $companyProperties = $contact->contact_kind === \App\Models\Contact::TYPE_NATURAL_PERSON
+                    ? $contact->companyPropertiesViaDirectorship()
+                    : collect();
+            @endphp
+            @if($companyProperties->isNotEmpty())
+            <div class="rounded-md p-5 space-y-3 mt-4" style="background: color-mix(in srgb, var(--brand-icon,#2563eb) 6%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon,#2563eb) 25%, var(--border));">
+                <div class="flex items-center gap-2 flex-wrap">
+                    <h3 class="text-xs font-bold uppercase tracking-widest" style="color: var(--brand-icon,#2563eb);">🏢 Company Properties</h3>
+                    <span class="text-[11px]" style="color:var(--text-muted);">via a company this contact directs — not personally owned</span>
+                </div>
+                @foreach($companyProperties as $cp)
+                    @php
+                        $prop = $cp['property'];
+                        $isPromoted = $cp['kind'] === 'property';
+                        $addr = trim(($prop->street_number ?? '') . ' ' . ($prop->street_name ?? ''));
+                        if ($addr === '') { $addr = $prop->title ?? ('Property #' . $prop->id); }
+                        if (!$isPromoted && !empty($prop->suburb)) { $addr .= ', ' . $prop->suburb; }
+                    @endphp
+                    <div class="rounded-md p-3 flex items-start justify-between gap-3" style="background:var(--surface); border:1px solid var(--border);">
+                        <div class="min-w-0">
+                            <div class="font-semibold text-sm" style="color:var(--text-primary);">
+                                @if($isPromoted)
+                                    <a href="{{ route('corex.properties.show', $prop->id) }}" style="color:var(--brand-icon,#2563eb);">{{ $addr }}</a>
+                                @else
+                                    {{ $addr }}
+                                @endif
+                            </div>
+                            <div class="text-[11px] mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-semibold"
+                                 style="background: color-mix(in srgb, var(--brand-icon,#2563eb) 14%, transparent); color: var(--brand-icon,#2563eb);">
+                                Company property · via {{ $cp['company_name'] }}
+                            </div>
+                        </div>
+                        @unless($isPromoted)
+                            <span class="text-[10px] px-2 py-0.5 rounded-md whitespace-nowrap flex-shrink-0" style="background:var(--surface-2); color:var(--text-muted);">Tracked (deeds)</span>
+                        @endunless
+                    </div>
+                @endforeach
+            </div>
+            @endif
 
             {{-- Core Matches section header --}}
             <div class="pt-2 border-t" style="border-color:var(--border);">

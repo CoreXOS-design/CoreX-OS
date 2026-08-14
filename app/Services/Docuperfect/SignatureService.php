@@ -16,6 +16,7 @@ use App\Models\Docuperfect\SignatureAuditLog;
 use App\Models\Docuperfect\SignatureMarker;
 use App\Models\Docuperfect\SignatureRequest;
 use App\Models\Docuperfect\SignatureTemplate;
+use Illuminate\Support\Collection;
 use App\Models\Docuperfect\SignatureZone;
 use App\Models\Docuperfect\TemplateSignatureZone;
 use App\Models\Docuperfect\WetInkInspection;
@@ -681,22 +682,59 @@ class SignatureService
     }
 
     /**
-     * Count signature locations per role by reading the template's blade view.
+     * Count signature locations per role.
      *
-     * Inline signature-line includes use: ['party' => 'seller']
-     * Final signature-block includes use: ["parties" => ["Seller", "Agent"]]
+     * PRIMARY (engine-side, structure-agnostic): count the ACTUAL signature marks in the
+     * composed document (merged_html) — every party's real `data-marker-type="signature"`
+     * markers, wherever they sit. This holds for ANY imported document.
+     *
+     * FALLBACK (PDF templates only): the former blade-file grep for the `signature-line` /
+     * `signature-block` partial names — used ONLY when the composed HTML carries no marks
+     * (e.g. a coordinate-based PDF template), so PDF placement is unchanged. That grep was
+     * document-coupled: it returned [] for any template not authored with those exact HFC
+     * partials, collapsing every role to one location.
      *
      * Returns ['seller' => 3, 'agent' => 1, ...] — total distinct locations per role.
      */
     protected function countSignatureLocationsPerRole(SignatureTemplate $sigTemplate): array
     {
-        $counts = [];
-
-        // Navigate to the Template model via Document
         $document = $sigTemplate->document;
         if (!$document) {
-            return $counts;
+            return [];
         }
+
+        // Primary: count real marks in the composed document.
+        $html = $document->web_template_data['merged_html']
+            ?? $document->web_template_data['canonical_html']
+            ?? '';
+        if (trim($html) !== '') {
+            $counts = [];
+            $dom = new \DOMDocument();
+            @$dom->loadHTML(
+                '<?xml encoding="utf-8"?>' . $html,
+                LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING
+            );
+            $xp = new \DOMXPath($dom);
+            foreach ($xp->query('//*[@data-marker-type="signature"][@data-marker-party]') as $el) {
+                if (!$el instanceof \DOMElement) {
+                    continue;
+                }
+                $party = strtolower(trim($el->getAttribute('data-marker-party')));
+                if ($party === '') {
+                    continue;
+                }
+                $role = (string) preg_replace('/_\d+$/', '', $party);
+                // Fold checkpoint family to base identity (supervisor_final -> supervisor).
+                $role = SignatureTemplate::CHECKPOINT_ROLE_ALIASES[$role] ?? $role;
+                $counts[$role] = ($counts[$role] ?? 0) + 1;
+            }
+            if ($counts !== []) {
+                return $counts;
+            }
+        }
+
+        // Fallback: blade-file grep (PDF/coordinate templates with no composed marks).
+        $counts = [];
 
         $template = $document->template;
         if (!$template || !$template->blade_view) {
@@ -849,6 +887,10 @@ class SignatureService
             'party_role' => $partyRole,
             'role_index' => $roleIndex,
             'signing_order' => $signingOrder,
+            // HD-6 — the group this party signs in, read off the ceremony's own plan. NULL when the
+            // ceremony has no plan, which is every ceremony that exists today: an ungrouped party is
+            // a group of one and checkpoints alone, exactly as it always has.
+            'signing_group' => $template->groupFor($partyRole),
             'signer_name' => $signerName,
             'signer_email' => $signerEmail,
             'signer_id_number' => $signerIdNumber,
@@ -881,9 +923,38 @@ class SignatureService
      */
     public function sendSigningRequest(SignatureRequest $request): void
     {
+        // AT-294 — ABSORB an email-less recipient instead of firing a doomed
+        // Mail::to('') that throws and is swallowed (silently parking the
+        // ceremony as a healthy-looking awaiting_* with no link and no
+        // agent-visible error). Route it into the EXISTING deferred machinery:
+        // request → DEFERRED, template → AWAITING_DEFERRED — the same
+        // recoverable state as "sign later". The token was minted at creation,
+        // so nothing is lost; the agent adds an email and resumes via
+        // resumeDeferredSigning(). Defence-in-depth with the controller PREVENT
+        // guard. Guard the primitive, not one call site (BUILD_STANDARD §6).
+        if (trim((string) $request->signer_email) === '') {
+            $request->update(['status' => SignatureRequest::STATUS_DEFERRED]);
+            $template = $request->template;
+            if ($template) {
+                $template->update(['status' => SignatureTemplate::STATUS_AWAITING_DEFERRED]);
+                SignatureAuditLog::log(
+                    $template,
+                    'send_skipped_missing_email',
+                    SignatureAuditLog::ACTOR_SYSTEM,
+                    'System',
+                    requestId: $request->id,
+                    metadata: ['party_role' => $request->party_role],
+                );
+            }
+            return;
+        }
+
+        // AT-294 — sent_at is written by sendSigningRequestEmail AFTER a
+        // successful send (was set here BEFORE the send, so a swallowed failure
+        // still read "sent"). Status + expiry are set now; delivery outcome is
+        // recorded honestly on invite_send_status.
         $request->update([
             'status' => SignatureRequest::STATUS_PENDING,
-            'sent_at' => now(),
             'token_expires_at' => now()->addDays(14),
         ]);
 
@@ -918,6 +989,19 @@ class SignatureService
                 'status' => SignatureTemplate::STATUS_SIGNING,
             ]);
 
+            // Track C (HD-9) — stamp the LEGAL deadline the moment the ceremony goes out. From here
+            // on, a signature after this date is void (§11-A), independent of the 14-day link TTL.
+            $this->stampLegalDeadline($template);
+
+            // ESIGN-WETINK Phase 1a — compose the CANONICAL document artifact
+            // ONCE at send (v0), fully-expanded + viewer-agnostic, and store it
+            // as web_template_data['canonical_html']. This is the single-render
+            // spine the surfaces will serve verbatim (Phase 1b) and party ink
+            // will bake into by data-recipient-identity (Phase 1c). Stored
+            // alongside merged_html and served by nothing yet, so NO behaviour
+            // change today (zero regression risk to live signing).
+            app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)->composeAndStore($template);
+
             // Find or create the agent's request and send it
             $agentRequest = $template->requests()
                 ->where('party_role', 'agent')
@@ -935,6 +1019,44 @@ class SignatureService
                 ]);
             }
         });
+    }
+
+    /**
+     * Track C (HD-9) — set the ceremony's legal deadline from its source, at dispatch.
+     *
+     * A mandate's legal clock is the property's mandate expiry (`properties.expiry_date`, verified to
+     * exist). Only a mandate is wired today: an OTP is an alienation document that may not be
+     * e-signed at all (ECTA §13(1) — `isEsignBlocked()`), so its irrevocable-date clock has nothing
+     * to run against yet, and a lease has no single legal-lapse date. Absorb, never break: if there
+     * is no derivable date, leave it null and the ceremony simply never lapses (today's behaviour).
+     * Never overwrite a deadline already set (an extension/revival owns it after HD-12).
+     */
+    private function stampLegalDeadline(SignatureTemplate $template): void
+    {
+        if ($template->legal_deadline_at !== null) {
+            return;
+        }
+
+        $document = $template->document;
+        $docType  = strtolower((string) ($document?->template?->documentType?->slug
+            ?? $document?->template?->template_type ?? ''));
+
+        if ($docType !== 'mandate') {
+            return; // Only mandates carry a wired legal clock at launch.
+        }
+
+        $property = $document?->property_id ? \App\Models\Property::find($document->property_id) : null;
+        $expiry   = $property?->expiry_date;
+
+        if (! $expiry) {
+            return; // No mandate expiry on the property → nothing to lapse against.
+        }
+
+        // The document is valid for signing UP TO AND INCLUDING the expiry day.
+        $template->update([
+            'legal_deadline_at' => \Illuminate\Support\Carbon::parse($expiry)->endOfDay(),
+            'deadline_source'   => 'mandate_expiry',
+        ]);
     }
 
     // ──────────────────────────────────────────────
@@ -1055,7 +1177,7 @@ class SignatureService
     public function isFullyComplete(SignatureTemplate $template): bool
     {
         // Document is fully complete when zero waiting/pending/deferred requests remain
-        return !$template->requests()
+        $noOpenRequests = !$template->requests()
             ->whereIn('status', [
                 SignatureRequest::STATUS_WAITING,
                 SignatureRequest::STATUS_PENDING,
@@ -1063,6 +1185,84 @@ class SignatureService
                 SignatureRequest::STATUS_PARTIALLY_SIGNED,
                 SignatureRequest::STATUS_DEFERRED,
             ])
+            ->exists();
+
+        // AT-303 — GUARDED mark-amendment gate. A document carrying an UNRESOLVED
+        // MDF disclosure-mark amendment (section_reference 'Disclosure', still
+        // pending) cannot complete until every affected party has counter-initialled
+        // it. VACUOUSLY TRUE for any document with no mark amendments, so no other
+        // ceremony's completion changes.
+        $noPendingMarkAmendments = !$template->amendments()
+            ->where('section_reference', 'Disclosure')
+            ->where('status', DocumentAmendment::STATUS_PENDING)
+            ->exists();
+
+        return $noOpenRequests && $noPendingMarkAmendments;
+    }
+
+    /**
+     * AT-373 — GENERIC APPROVAL CHAIN
+     * -----------------------------------------------------------------------
+     * The signing loop is [approval chain A1..Am] -> [recipients R1..Rn] -> back
+     * to the chain TOP (A1) for final approval -> file + email. The "approval chain"
+     * is the ordered set of APPROVER requests (the agent/candidate prep node plus any
+     * authorisers) that sit above the recipients in signing order. These resolvers
+     * replace the hardcoded is_candidate_flow / literal-role branches so the loop is
+     * generic over chain length: 1 node (plain agent, or full-status-only), 2 nodes
+     * (candidate + full-status), or m nodes in future.
+     *
+     * BEHAVIOUR-PRESERVING: for today's configs these return exactly what the literal
+     * branches assumed — a candidate flow creates authoriser node(s) (supervisor /
+     * supervisor_final), a non-candidate flow does not, so chainHasAuthoriser() is
+     * equivalent to is_candidate_flow at the routing points it replaces.
+     */
+    public const APPROVAL_ROLES = ['agent', 'supervisor', 'supervisor_final'];
+
+    /** Authoriser roles = the approvers ABOVE the top prep (agent/candidate) node. */
+    public const AUTHORISER_ROLES = ['supervisor', 'supervisor_final'];
+
+    /** party_role is stored as a base token; strip a stray _N defensively. */
+    private function basePartyRole(?string $role): ?string
+    {
+        return $role === null ? null : preg_replace('/_\d+$/', '', $role);
+    }
+
+    /** Is this an APPROVAL-chain role (the prep node or an authoriser)? */
+    public function isApprovalRole(?string $role): bool
+    {
+        return in_array($this->basePartyRole($role), self::APPROVAL_ROLES, true);
+    }
+
+    /** Is this an AUTHORISER role (an approver above the top prep node)? */
+    public function isAuthoriserRole(?string $role): bool
+    {
+        return in_array($this->basePartyRole($role), self::AUTHORISER_ROLES, true);
+    }
+
+    /** Is this a RECIPIENT — a signing party that is NOT part of the approval chain? */
+    public function isRecipientRole(?string $role): bool
+    {
+        return $role !== null && ! $this->isApprovalRole($role);
+    }
+
+    /** The ordered approval chain (approver requests above the recipients), by signing order. */
+    public function approvalChain(SignatureTemplate $template): Collection
+    {
+        return $template->requests()
+            ->whereIn('party_role', self::APPROVAL_ROLES)
+            ->orderBy('signing_order')
+            ->get();
+    }
+
+    /**
+     * Does the approval chain continue past the top prep node — i.e. is there an
+     * authoriser? Chain-derived equivalent of is_candidate_flow at the agent-routing
+     * points (a candidate flow always has authoriser node(s); a plain flow has none).
+     */
+    public function chainHasAuthoriser(SignatureTemplate $template): bool
+    {
+        return $template->requests()
+            ->whereIn('party_role', self::AUTHORISER_ROLES)
             ->exists();
     }
 
@@ -1091,8 +1291,114 @@ class SignatureService
                 ]);
             }
 
-            // If an external party (non-agent, non-supervisor) just completed, require agent approval
-            if ($completedParty !== 'agent' && $completedParty !== 'supervisor' && $completedParty !== 'supervisor_final') {
+            // AT-373 (inc4) — a party completing an initial-only turn DURING the SEQUENTIAL re-initial
+            // cascade advances the cascade (hand the pen to the next owed already-signed recipient, one
+            // at a time), never the normal recipient logic. Gated tightly on OUR cascade marker
+            // (amendment_cycle.phase === recipient_cascade), so the legacy parallel path is untouched.
+            $cyc = $this->amendmentCycle($template);
+            if ($request
+                && $template->status === SignatureTemplate::STATUS_AMENDMENT_INITIALING
+                && ($cyc['phase'] ?? null) === 'recipient_cascade') {
+                // BOUNDED edit model v1 (Johan 2026-08-10) — at most ONE recipient edit + ONE agent re-edit
+                // per document. During the re-initial cascade a recipient can ONLY accept-and-initial or
+                // DECLINE — there is NO third edit (the edit tool is closed for this round; a disagreement
+                // takes the decline → new-document off-ramp). So a completing party here simply advances the
+                // sequential cascade; there is no loop back to the agent.
+                $this->advanceSequentialInitialing($template, $request);
+                return;
+            }
+
+            // If a RECIPIENT (a party outside the approval chain) just completed, require agent approval
+            if ($this->isRecipientRole($completedParty)) {
+
+                // AT-373 (Issue C) — the amendment-approval gate takes PRECEDENCE over the joint-signer
+                // group-handoff. If this recipient raised ANY amendment on their turn — a wet-ink
+                // strike/reword OR an added Other Condition — the document RETURNS TO THE AGENT for
+                // approval BEFORE it advances, EVEN to a co-signer in the SAME signing_group. Previously
+                // the HD-5 group-handoff (below) ran first and returned early, so a joint seller's
+                // amendment was skipped and the pen handed straight to the next co-signer (the doc 718
+                // bug). The chain approves, then the SEQUENTIAL cascade (inc4) re-initials the
+                // already-signed recipients — including on the added condition — before the flow
+                // continues forward. A CLEAN joint accept (no amendment) still hands to the group below.
+                if ($request) {
+                    $signal = $this->recipientPendingAmendmentSignal($template, $request);
+                    if ($signal !== null) {
+                        $this->openAmendmentCycle($template, $request, $signal['change_ids'], $signal['condition']);
+                        return;
+                    }
+                }
+
+                // HD-5 (§4) — the checkpoint fires between GROUPS, not between people.
+                //
+                // Joint sellers signing the same mandate are one group: asking the agent to authorise
+                // the gap between seller 1 and seller 2 is friction with no decision in it. So if this
+                // party's group still has someone to sign, hand straight on to them — no checkpoint.
+                //
+                // A party with NO group (signing_group NULL) is a group of one and checkpoints on its
+                // own, exactly as every ceremony does today. That is the default, so nothing that
+                // exists changes behaviour until a ceremony deliberately groups its parties.
+                $nextInGroup = $request ? $this->nextWaitingInGroup($template, $request) : null;
+
+                if ($nextInGroup) {
+                    SignatureAuditLog::log(
+                        $template,
+                        'group_member_completed',
+                        SignatureAuditLog::ACTOR_SYSTEM,
+                        'System',
+                        metadata: [
+                            'completed_party' => $completedParty,
+                            'signer_name'     => $request?->signer_name,
+                            'signing_group'   => $request?->signing_group,
+                            'next_in_group'   => $nextInGroup->signer_name,
+                        ],
+                    );
+
+                    // Hand the pen to the next member of the SAME group. Sequential within the group is
+                    // deliberate: two people inside one signing view at once is how captured-but-unsaved
+                    // signatures get destroyed (STANDARDS, the P0 signing-view invariant).
+                    $this->advanceToNextParty($template, $completedParty, $nextInGroup);
+
+                    return;
+                }
+
+                // ESIGN-WETINK Ruling #1 (Elize flow optimisation) — a CLEAN accept
+                // (the party signed with NO flag and NO strikeout/amendment) flows
+                // STRAIGHT to the next recipient. The agent is NOT a checkpoint on
+                // every completion — that was friction with no decision in it. The
+                // agent is pulled back in ONLY when a flag or a strikeout has raised a
+                // PENDING amendment (which freezes the chain and routes here); the
+                // amendment-ripple then runs as specced. Wet-ink sequential flow: the
+                // agent prepares + signs first, each recipient accepts in turn, and
+                // only a concrete concern (flag/strikeout) interrupts for agent review.
+                $hasPendingReview = DocumentAmendment::query()
+                    ->where('signature_template_id', $template->id)
+                    ->where('status', DocumentAmendment::STATUS_PENDING)
+                    ->exists();
+
+                if (! $hasPendingReview) {
+                    SignatureAuditLog::log(
+                        $template,
+                        'clean_accept_advanced',
+                        SignatureAuditLog::ACTOR_SYSTEM,
+                        'System',
+                        metadata: [
+                            'completed_party' => $completedParty,
+                            'signer_name'     => $request?->signer_name,
+                        ],
+                    );
+                    // Clean accept: pass the pen straight to the next waiting recipient,
+                    // exactly as Elize's ruling requires — NO between-recipient checkpoint.
+                    // BUT (AT-322) when THIS was the LAST recipient, the finalize is HELD for
+                    // the agent's Review & Approve instead of self-completing — so the finished
+                    // doc lands in "Needs Your Approval" and NOTHING files or emails until the
+                    // agent approves. Wet-ink is EXEMPT (its own review already serves as the
+                    // agent approval — AT-322 open question); it completes as before.
+                    $gateFinalForAgentReview = ($request?->signing_method !== 'wet_ink');
+                    $this->advanceToNextParty($template, $completedParty, null, $gateFinalForAgentReview);
+                    return;
+                }
+
+                // A flag / strikeout raised a PENDING amendment → agent checkpoint.
                 $template->update(['status' => SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL]);
 
                 SignatureAuditLog::log(
@@ -1103,6 +1409,7 @@ class SignatureService
                     metadata: [
                         'completed_party' => $completedParty,
                         'signer_name' => $request?->signer_name,
+                        'reason' => 'flag_or_strikeout',
                     ],
                 );
 
@@ -1135,6 +1442,10 @@ class SignatureService
                         'authorised_by' => $request?->authorised_by,
                     ],
                 );
+                // WET-INK: the authoriser just co-signed → this baked canonical becomes the new
+                // last-authorised baseline (P1 seal), so clear the field-diff flag; cc1's highlight
+                // resolves empty until the NEXT edit. Clause strike-outs stay (they are content).
+                $this->setAmendmentRender($template->document, false);
                 $this->advanceToNextParty($template, $completedParty);
                 return;
             }
@@ -1167,12 +1478,16 @@ class SignatureService
                 return;
             }
 
-            // Agent just finished signing
-            if ($template->is_candidate_flow) {
-                // Candidate flow: route to supervisor for initial review (not directly to external parties)
+            // Agent (chain TOP prep node) just finished. If the approval chain continues
+            // past the agent — an authoriser awaits (the candidate -> full-status case) —
+            // route up the chain; otherwise release straight to the recipients. Chain-derived
+            // replacement for the former is_candidate_flow branch (equivalent: a candidate flow
+            // has authoriser node(s), a plain flow has none).
+            if ($this->chainHasAuthoriser($template)) {
+                // Chain continues: route to the authoriser for review (not directly to recipients).
                 $this->advanceToSupervisor($template);
             } else {
-                // Full status flow: auto-advance to the first external party
+                // Single-node chain: auto-advance to the first recipient.
                 $this->advanceToNextParty($template, $completedParty);
             }
         });
@@ -1209,8 +1524,8 @@ class SignatureService
                 $newStatus = $statusMap[$nextRequest->party_role] ?? SignatureTemplate::STATUS_SIGNING;
                 $template->update(['status' => $newStatus]);
 
-                // Supervisor steps: notify all eligible authorisers (shared queue)
-                if (in_array($nextRequest->party_role, ['supervisor', 'supervisor_final'])) {
+                // Authoriser steps: notify all eligible authorisers (shared queue)
+                if ($this->isAuthoriserRole($nextRequest->party_role)) {
                     $nextRequest->update([
                         'status'  => SignatureRequest::STATUS_PENDING,
                         'sent_at' => now(),
@@ -1234,8 +1549,10 @@ class SignatureService
                 return ['action' => 'sent', 'next_party' => $nextRequest->party_role, 'next_name' => $nextRequest->signer_name];
             }
 
-            // Candidate flow: route to authorisation queue for final sign-off instead of completing
-            if ($template->is_candidate_flow) {
+            // Chain has an authoriser: route to the authorisation queue for final sign-off
+            // instead of completing (the inner check self-guards on the supervisor_final node).
+            // Chain-derived replacement for the former is_candidate_flow branch.
+            if ($this->chainHasAuthoriser($template)) {
                 $supervisorFinalRequest = $template->requests()
                     ->where('party_role', 'supervisor_final')
                     ->whereIn('status', [SignatureRequest::STATUS_WAITING, SignatureRequest::STATUS_PENDING])
@@ -1367,11 +1684,39 @@ class SignatureService
     /**
      * Advance to next party in signing order (used after agent signs).
      */
-    private function advanceToNextParty(SignatureTemplate $template, string $completedParty): void
+    /**
+     * HD-5 — the next party still to sign INSIDE this request's group, or null if the group is done.
+     *
+     * NULL `signing_group` is not "group zero" — it means the party stands alone, so it never has a
+     * next-in-group and always reaches the agent checkpoint. This is what makes the feature opt-in
+     * and every existing ceremony byte-for-byte unchanged.
+     */
+    private function nextWaitingInGroup(SignatureTemplate $template, SignatureRequest $completed): ?SignatureRequest
+    {
+        if ($completed->signing_group === null) {
+            return null;
+        }
+
+        return $template->requests()
+            ->where('signing_group', $completed->signing_group)
+            ->where('status', SignatureRequest::STATUS_WAITING)
+            ->orderBy('signing_order', 'asc')
+            ->first();
+    }
+
+    /**
+     * @param  SignatureRequest|null  $only  HD-5 — release THIS request specifically (the next member of
+     *                                       the completing party's group). Without it the method takes
+     *                                       the next waiting request globally, which is right at a group
+     *                                       boundary but would skip a group whose members are not
+     *                                       contiguous in signing_order. Passing the target explicitly
+     *                                       means the caller's intent cannot be lost to a data ordering.
+     */
+    private function advanceToNextParty(SignatureTemplate $template, string $completedParty, ?SignatureRequest $only = null, bool $gateFinalizeForAgentReview = false): void
     {
         // Find the next WAITING request by signing_order — not by role name
         // This correctly handles co-owners who share the same party_role string
-        $nextRequest = $template->requests()
+        $nextRequest = $only ?: $template->requests()
             ->where('status', SignatureRequest::STATUS_WAITING)
             ->orderBy('signing_order', 'asc')
             ->first();
@@ -1403,7 +1748,17 @@ class SignatureService
             }
 
             if ($this->isFullyComplete($template)) {
-                $this->completeDocument($template);
+                if ($gateFinalizeForAgentReview) {
+                    // AT-322 — FINAL agent-review gate. The last recipient signed a CLEAN
+                    // electronic document; hold it at pending_agent_approval so it lands in
+                    // the agent's "Needs Your Approval". completeDocument() — which BOTH files
+                    // the PDF (autoFileSignedDocument) AND sends the recipient completion
+                    // emails (sendCompletionEmails is INSIDE it) — runs ONLY after the agent
+                    // approves via approveAndAdvance(). Nothing files or emails before review.
+                    $this->holdForFinalAgentReview($template, $completedParty);
+                } else {
+                    $this->completeDocument($template);
+                }
             }
             return;
         }
@@ -1437,11 +1792,47 @@ class SignatureService
     }
 
     /**
+     * AT-322 — hold a fully-signed CLEAN document at the FINAL agent-review gate.
+     *
+     * Sets status to pending_agent_approval (so it surfaces in the agent's "Needs Your
+     * Approval" on My Documents), audits it, and fires the in-app agent notification.
+     * It deliberately does NOT call completeDocument(): the PDF file
+     * (autoFileSignedDocument) and the recipient completion emails (sendCompletionEmails)
+     * BOTH live inside completeDocument(), so holding here holds BOTH until the agent
+     * clicks Review & Approve — which routes through approveAndAdvance() -> completeDocument().
+     * Failure-isolated is unnecessary here (single status write); the caller's transaction
+     * covers it.
+     */
+    private function holdForFinalAgentReview(SignatureTemplate $template, string $completedParty): void
+    {
+        $template->update(['status' => SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL]);
+
+        SignatureAuditLog::log(
+            $template,
+            'pending_agent_approval',
+            SignatureAuditLog::ACTOR_SYSTEM,
+            'System',
+            metadata: [
+                'completed_party' => $completedParty,
+                'reason'          => 'final_clean_complete',
+            ],
+        );
+
+        // In-app notification to the agent — no PDF, no completion email to recipients yet.
+        $this->sendAgentApprovalNotification($template, $completedParty, null);
+    }
+
+    /**
      * Candidate flow: advance to authorisation queue after candidate signs.
      * Shared queue: emails ALL eligible authorisers in the branch.
      */
     private function advanceToSupervisor(SignatureTemplate $template): void
     {
+        // A RESUBMIT is a junior re-sign while the doc sits in returned_to_candidate. Detect it
+        // BEFORE flipping the status, so the audit / notification / thread reflect the loop hop
+        // (resubmission) rather than a first submission (Johan 2026-08-04).
+        $isResubmit = $template->status === SignatureTemplate::STATUS_RETURNED_TO_CANDIDATE;
+
         $supervisorRequest = $template->requests()
             ->where('party_role', 'supervisor')
             ->where('status', SignatureRequest::STATUS_WAITING)
@@ -1459,19 +1850,36 @@ class SignatureService
                 'sent_at' => now(),
             ]);
 
-            // Notify ALL eligible authorisers in the branch
-            $this->notifyEligibleAuthorisers($template, 'initial_review');
+            // Notify ALL eligible authorisers in the branch. reviewType distinguishes a
+            // resubmission from the first submission in the authoriser's notification bell.
+            $this->notifyEligibleAuthorisers($template, $isResubmit ? 'resubmission' : 'initial_review');
 
-            SignatureAuditLog::log(
-                $template,
-                'candidate_routed_to_authorisation_queue',
-                SignatureAuditLog::ACTOR_SYSTEM,
-                'System',
-                metadata: [
-                    'candidate_name' => $template->creator?->name,
-                    'notification' => 'all_eligible_authorisers',
-                ],
-            );
+            if ($isResubmit) {
+                $this->appendReturnThread($template, 'resubmitted', $template->creator, $this->summariseChanges($template));
+                SignatureAuditLog::log(
+                    $template,
+                    'candidate_resubmitted_to_authoriser',
+                    SignatureAuditLog::ACTOR_USER,
+                    $template->creator?->name ?? 'Candidate',
+                    $template->creator?->email,
+                    $template->creator?->id,
+                    metadata: [
+                        'candidate_name' => $template->creator?->name,
+                        'notification'   => 'all_eligible_authorisers',
+                    ],
+                );
+            } else {
+                SignatureAuditLog::log(
+                    $template,
+                    'candidate_routed_to_authorisation_queue',
+                    SignatureAuditLog::ACTOR_SYSTEM,
+                    'System',
+                    metadata: [
+                        'candidate_name' => $template->creator?->name,
+                        'notification' => 'all_eligible_authorisers',
+                    ],
+                );
+            }
         } else {
             // Supervisor already completed — advance to external parties
             $this->advanceToNextParty($template, 'supervisor');
@@ -1484,74 +1892,156 @@ class SignatureService
      */
     private function notifyEligibleAuthorisers(SignatureTemplate $template, string $type = 'initial_review'): void
     {
-        try {
-            $candidateUser = $template->creator;
-            if (!$candidateUser) {
-                return;
-            }
-
-            $candidateService = app(CandidatePractitionerService::class);
-            $authorisers = $candidateService->getEligibleAuthorisers($candidateUser);
-            $documentName = $template->document->name ?? 'Document';
-            $dashboardUrl = route('docuperfect.rental');
-
-            // ES-7 — dedicated SupervisorApprovalMail (replaces placeholder
-            // copy that previously rode on SigningRequestMail with a
-            // subject like "Please sign: [Candidate Authorisation] ...").
-            $document        = $template->document;
-            $documentType    = $document?->document_type ?? null;
-            $documentTypeLbl = $documentType
-                ? ucwords(str_replace('_', ' ', $documentType))
-                : null;
-
-            // Best-effort recipient + property surfacing for the email body
-            $firstRequest = $template->requests()
-                ->whereNotIn('party_role', ['agent', 'supervisor', 'supervisor_final', 'witness'])
-                ->orderBy('signing_order')
-                ->first();
-            $contactName     = $firstRequest?->signer_name;
-            $propertyAddress = $document?->property_address;
-
-            foreach ($authorisers as $authoriser) {
-                try {
-                    Mail::to($authoriser->email)->send(
-                        (new \App\Mail\Signatures\SupervisorApprovalMail(
-                            supervisorName:    $authoriser->name,
-                            candidateName:     $candidateUser->name,
-                            documentName:      $documentName,
-                            documentTypeLabel: $documentTypeLbl,
-                            contactName:       $contactName,
-                            propertyAddress:   $propertyAddress,
-                            candidatePhone:    $candidateUser->phone ?? $candidateUser->cell ?? null,
-                            reviewUrl:         $dashboardUrl,
-                            expiresAt:         now()->addDays(7),
-                            reviewType:        $type,
-                        ))->fromAgent($candidateUser)
-                    );
-                } catch (\Throwable $e) {
-                    Log::error('Failed to send authorisation notification', [
-                        'authoriser_id' => $authoriser->id,
-                        'template_id' => $template->id,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
-            }
-
-            SignatureAuditLog::log(
-                $template,
-                'authorisation_notifications_sent',
-                SignatureAuditLog::ACTOR_SYSTEM,
-                'System',
-                metadata: [
-                    'type' => $type,
-                    'notified_count' => $authorisers->count(),
-                    'notified_users' => $authorisers->pluck('name')->toArray(),
-                ],
+        // Bug 2 (2026-08-03): this used to wrap its ENTIRE body in a swallowing try/catch,
+        // so when the authoriser pool resolved empty (getEligibleAuthorisers throws) the
+        // failure vanished into a Log::error — no mail, no status, nothing the candidate
+        // could see, and the document sat in AWAITING_SUPERVISOR forever. The pool resolution
+        // is now OUTSIDE the send loop, and every "nobody was notified" outcome raises a LOUD,
+        // VISIBLE condition (invite_send_status='failed' on the supervisor request + a distinct
+        // audit action) instead of disappearing. Guarantee: >=1 authoriser is emailed, OR an
+        // unresolved-authoriser condition is surfaced.
+        $candidateUser = $template->creator;
+        if (!$candidateUser) {
+            $this->flagAuthoriserNotificationUnresolved(
+                $template, $type, 'candidate_user_missing',
+                'The candidate practitioner (document creator) could not be resolved.'
             );
+            return;
+        }
+
+        try {
+            $authorisers = app(CandidatePractitionerService::class)->getEligibleAuthorisers($candidateUser);
         } catch (\Throwable $e) {
-            Log::error('Failed to notify eligible authorisers', [
+            $this->flagAuthoriserNotificationUnresolved($template, $type, 'no_eligible_authoriser', $e->getMessage());
+            return;
+        }
+        if ($authorisers->isEmpty()) {
+            $this->flagAuthoriserNotificationUnresolved(
+                $template, $type, 'no_eligible_authoriser',
+                'The eligible-authoriser pool resolved empty for this agency/branch.'
+            );
+            return;
+        }
+
+        // ES-7 — dedicated SupervisorApprovalMail. Per-document deep link to the review
+        // gate (Bug 2 improvement — was a generic dashboard URL) so the authoriser lands
+        // on THIS document's accept/authorise screen.
+        $document        = $template->document;
+        $documentName    = $document->name ?? 'Document';
+        $documentType    = $document?->document_type ?? null;
+        $documentTypeLbl = $documentType ? ucwords(str_replace('_', ' ', $documentType)) : null;
+        $reviewUrl       = $document
+            ? route('docuperfect.signatures.review', $document)
+            : route('docuperfect.rental');
+
+        // Best-effort recipient + property surfacing for the email body
+        $firstRequest = $template->requests()
+            ->whereNotIn('party_role', ['agent', 'supervisor', 'supervisor_final', 'witness'])
+            ->orderBy('signing_order')
+            ->first();
+        $contactName     = $firstRequest?->signer_name;
+        $propertyAddress = $document?->property_address;
+
+        $sent = 0;
+        $failures = [];
+        foreach ($authorisers as $authoriser) {
+            try {
+                // Branch-scoped authoriser model — IN-APP notification only (no email). The eligible
+                // Branch Managers / branch full-status / agency admins see this in their notification
+                // bell and action it from the dashboard authorisation queue. External-recipient and
+                // completion emails are separate and unaffected.
+                $authoriser->notify(\App\Notifications\SignatureActivityNotification::candidateNeedsAuthorisation(
+                    $candidateUser->name,
+                    $documentName,
+                    (int) $template->document_id,
+                    $reviewUrl,
+                    $type,
+                ));
+                $sent++;
+            } catch (\Throwable $e) {
+                $failures[] = ('user#' . $authoriser->id) . ': ' . $e->getMessage();
+                Log::error('Failed to send authorisation notification', [
+                    'authoriser_id' => $authoriser->id,
+                    'template_id'   => $template->id,
+                    'error'         => $e->getMessage(),
+                ]);
+            }
+        }
+
+        // The pool was non-empty but nothing actually went out — still a loud, visible failure.
+        if ($sent === 0) {
+            $this->flagAuthoriserNotificationUnresolved(
+                $template, $type, 'all_sends_failed',
+                'Resolved ' . $authorisers->count() . ' authoriser(s) but every send failed: ' . implode(' | ', $failures)
+            );
+            return;
+        }
+
+        $this->markSupervisorInviteStatus($template, 'sent', $failures === [] ? null : ('partial: ' . implode(' | ', $failures)));
+        SignatureAuditLog::log(
+            $template,
+            'authorisation_notifications_sent',
+            SignatureAuditLog::ACTOR_SYSTEM,
+            'System',
+            metadata: [
+                'type'             => $type,
+                'notified_count'   => $sent,
+                'eligible_count'   => $authorisers->count(),
+                'notified_users'   => $authorisers->pluck('name')->toArray(),
+                'partial_failures' => $failures,
+            ],
+        );
+    }
+
+    /**
+     * Bug 2 — surface a "nobody was notified" outcome LOUDLY instead of swallowing it:
+     * mark the supervisor request(s) invite_send_status='failed' (the AT-294 visible-status
+     * surface) and write a distinct, queryable audit action, plus an ACTION-REQUIRED error log.
+     */
+    private function flagAuthoriserNotificationUnresolved(
+        SignatureTemplate $template,
+        string $type,
+        string $reason,
+        string $detail
+    ): void {
+        $this->markSupervisorInviteStatus($template, 'failed', $reason . ': ' . $detail);
+
+        SignatureAuditLog::log(
+            $template,
+            'authorisation_notification_unresolved',
+            SignatureAuditLog::ACTOR_SYSTEM,
+            'System',
+            metadata: [
+                'type'   => $type,
+                'reason' => $reason,
+                'detail' => $detail,
+            ],
+        );
+
+        Log::error('AUTHORISER_NOTIFICATION_UNRESOLVED — no authorising practitioner was notified; the candidate document is stuck awaiting authorisation. ACTION REQUIRED.', [
+            'template_id' => $template->id,
+            'document_id' => $template->document_id,
+            'candidate'   => $template->creator?->name,
+            'reason'      => $reason,
+            'detail'      => $detail,
+        ]);
+    }
+
+    /** Stamp the AT-294 invite send-status onto the supervisor / supervisor_final request(s). */
+    private function markSupervisorInviteStatus(SignatureTemplate $template, string $status, ?string $error): void
+    {
+        try {
+            $template->requests()
+                ->whereIn('party_role', ['supervisor', 'supervisor_final'])
+                ->get()
+                ->each(fn ($r) => $r->update([
+                    'invite_send_status' => $status,
+                    'invite_send_error'  => $error,
+                ]));
+        } catch (\Throwable $e) {
+            Log::warning('Failed to stamp supervisor invite_send_status', [
                 'template_id' => $template->id,
-                'error' => $e->getMessage(),
+                'error'       => $e->getMessage(),
             ]);
         }
     }
@@ -1566,35 +2056,50 @@ class SignatureService
             $candidateUser = $template->creator;
             $candidateName = $candidateUser?->name ?? 'Candidate';
 
-            // Set the supervisor's request back to waiting
-            $supervisorRequest = $template->requests()
-                ->where('party_role', 'supervisor')
-                ->where('status', SignatureRequest::STATUS_COMPLETED)
-                ->first();
-
-            if ($supervisorRequest) {
-                $supervisorRequest->update([
-                    'status' => SignatureRequest::STATUS_WAITING,
-                    'completed_at' => null,
+            // REOPEN the authoriser (supervisor) request → WAITING, whatever state it is in
+            // (PENDING after the candidate routed it to the queue, or COMPLETED on a legacy
+            // supervisor_final). advanceToSupervisor re-routes back to the authorisation queue
+            // ONLY when it finds a WAITING supervisor request; a request left PENDING would send
+            // the junior's resubmit straight past the senior to the recipients — the exact chain
+            // break Johan called out. So force it back to WAITING here (Johan 2026-08-04).
+            foreach ($template->requests()->whereIn('party_role', ['supervisor', 'supervisor_final'])->get() as $supReq) {
+                $supReq->update([
+                    'status'         => SignatureRequest::STATUS_WAITING,
+                    'completed_at'   => null,
                     'returned_notes' => $notes,
                 ]);
             }
 
-            // Set the candidate's (agent) request to a returned state
-            $candidateRequest = $template->requests()
-                ->where('party_role', 'agent')
-                ->first();
-
+            // WET-INK (Johan 2026-08-04): SIGNED STAYS SIGNED. Do NOT reset the junior's signature —
+            // keep status/completed_at intact. The junior does NOT re-sign the whole document; they
+            // EDIT and INITIAL only the CHANGES, then RESUBMIT explicitly (resubmitToAuthoriser). The
+            // prior signature + P1 seals remain valid. We only record the note for the sign-screen
+            // banner. (This REPLACES the earlier reset — see esign-returned-doc-edit-flow.md §5.1/§10.)
+            $candidateRequest = $template->requests()->where('party_role', 'agent')->first();
             if ($candidateRequest) {
                 $candidateRequest->update([
-                    'returned_notes' => $notes,
+                    'returned_notes' => $notes, // latest note — the sign-screen banner reads this
                 ]);
             }
 
-            // Update template status
+            // Back to the editable/draft state.
             $template->update([
                 'status' => SignatureTemplate::STATUS_RETURNED_TO_CANDIDATE,
             ]);
+
+            // cc1 render contract (esign-returned-doc-change-highlight.md §-baseline): pin the field-diff
+            // baseline to the latest seal AT SEND-BACK, so cc1's FIELD highlight has a baseline even on the
+            // FIRST candidate round — before any authoriser seal exists. Null-safe: if no seal yet, cc1
+            // falls back to its own resolution. Clause strike-outs are self-contained content (no baseline).
+            $latestSeal = \App\Models\Docuperfect\DocumentSealedVersion::latestFor((int) $template->document_id);
+            if ($latestSeal && $template->document) {
+                $wtd = is_array($template->document->web_template_data) ? $template->document->web_template_data : [];
+                $wtd['change_baseline_seal_id'] = $latestSeal->id;
+                $template->document->update(['web_template_data' => $wtd]);
+            }
+
+            // Running notes THREAD — every round preserved as audit evidence, never latest-only.
+            $round = $this->appendReturnThread($template, 'sent_back', $supervisor, $notes);
 
             SignatureAuditLog::log(
                 $template,
@@ -1606,17 +2111,1297 @@ class SignatureService
                 metadata: [
                     'notes' => $notes,
                     'candidate_name' => $candidateName,
+                    'round' => $round,
                 ],
             );
 
-            // TODO: Send email notification to candidate about the return
-            // Mail::to($candidateUser->email)->send(new SupervisorReturnedDocumentMail(...));
+            // Notify the junior IN-APP (replaces the dead // TODO email; matches the §11.2
+            // in-app-only candidate channel). The link lands them on their sign screen to fix + re-sign.
+            if ($candidateUser) {
+                $fixUrl = $template->document
+                    ? route('docuperfect.signatures.sign', $template->document)
+                    : route('docuperfect.rental');
+                $candidateUser->notify(\App\Notifications\SignatureActivityNotification::documentReturnedToCandidate(
+                    $supervisor->name,
+                    $template->document?->name ?? 'Document',
+                    (int) $template->document_id,
+                    $fixUrl,
+                    $notes,
+                ));
+            }
 
             return [
                 'candidate_name' => $candidateName,
                 'notes' => $notes,
+                'round' => $round,
             ];
         });
+    }
+
+    /**
+     * WET-INK explicit RESUBMIT (Johan 2026-08-04) — the junior finished editing + initialling their
+     * CHANGES on a returned doc and sends it back to the authoriser. There is NO re-sign of the whole
+     * document (prior signatures + P1 seals stay valid), so resubmit is an explicit action, not a
+     * signature side-effect. Routes back to the branch-scoped authorisation queue via
+     * advanceToSupervisor (which detects the resubmit via the returned status, re-notifies the pool,
+     * appends the thread hop + `candidate_resubmitted_to_authoriser` audit). Guarded to the creator.
+     */
+    public function resubmitToAuthoriser(SignatureTemplate $template, User $candidate): array
+    {
+        if (! $template->is_candidate_flow) {
+            return ['ok' => false, 'error' => 'Not a candidate-flow document.'];
+        }
+        if ($template->status !== SignatureTemplate::STATUS_RETURNED_TO_CANDIDATE) {
+            return ['ok' => false, 'error' => 'This document is not in a returned state.'];
+        }
+        if ((int) $template->created_by !== (int) $candidate->id) {
+            return ['ok' => false, 'error' => 'Only the document creator can resubmit it.'];
+        }
+
+        return DB::transaction(function () use ($template) {
+            // advanceToSupervisor sees status === returned_to_candidate → treats this as a RESUBMIT:
+            // awaiting_supervisor, notify pool ('resubmission'), thread hop + audit. Signatures untouched.
+            $this->advanceToSupervisor($template);
+            $template->refresh();
+            return ['ok' => true, 'status' => $template->status];
+        });
+    }
+
+    // ───────────────────────────────────────────────────────────────────────────
+    // AT-373 — recipient wet-ink amend → GENERIC edit-re-enters-the-loop engine.
+    //
+    // The wet-ink change spine (SelectionEditService::strikeSelection) authors an
+    // edit into document.web_template_data['pending_body_changes'][] with a
+    // change_id + a full-width per-party initial row. When the party who authored
+    // the edit completes their turn, that edit must be APPROVED by walking the
+    // ordered approval chain (A1..Am) BEFORE any already-signed recipient re-initials
+    // it (inc3: the two-stage gate). Each chain node approves by placing its OWN
+    // initial via the standard modal (decision i — approval IS an initial). The
+    // engine is generic over the chain length: full loop [candidate, full-status],
+    // no-candidate [full-status] (m=1), legacy [agent] (m=1). Reject → revert the
+    // change (inc6, SelectionEditService::revertChange) and route the editor to
+    // re-acceptance (inc5). Built on the wet-ink spine, never the legacy flag path.
+    // ───────────────────────────────────────────────────────────────────────────
+
+    /** Read the document's web_template_data as an array (never null). */
+    private function docWtd(SignatureTemplate $template): array
+    {
+        $wtd = $template->document?->web_template_data;
+        return is_array($wtd) ? $wtd : [];
+    }
+
+    /** Persist a web_template_data array back onto the document. */
+    private function writeDocWtd(SignatureTemplate $template, array $wtd): void
+    {
+        $template->document?->update(['web_template_data' => $wtd]);
+    }
+
+    /**
+     * AT-373 — is the amendment turn-gate relaxed to PER-PARTY for this document? During an
+     * in-flight amendment cycle/cascade (or when the acting party is raising a fresh edit), the
+     * blanket "no completing while ANY party owes an initial" gate would deadlock the sequential
+     * flow: earlier already-signed recipients legitimately owe initials they can only place once
+     * the cascade re-engages them. In those states a signer gates ONLY on their OWN slots; the
+     * global invariant stays enforced by completeDocument()'s hard throw at finalisation.
+     */
+    public function isAmendmentTurnGateRelaxed(SignatureTemplate $template): bool
+    {
+        if (in_array($template->status, [
+            SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW,
+            SignatureTemplate::STATUS_AMENDMENT_INITIALING,
+            SignatureTemplate::STATUS_EDITOR_REACCEPTANCE,
+        ], true)) {
+            return true;
+        }
+        return $this->amendmentCycle($template) !== null || $this->unreviewedWetInkChangeIds($template) !== [];
+    }
+
+    /** The active amendment cycle marker (['change_ids','has_condition','editor_key','editor_request_id','chain_pos','phase']) or null. */
+    public function amendmentCycle(SignatureTemplate $template): ?array
+    {
+        $cycle = $this->docWtd($template)['amendment_cycle'] ?? null;
+        // A cycle is active when it carries a wet-ink change OR an added Other Condition (a
+        // condition-only amendment has no wet-ink change_ids but must still hold for approval).
+        return is_array($cycle) && (! empty($cycle['change_ids']) || ! empty($cycle['has_condition']))
+            ? $cycle : null;
+    }
+
+    /**
+     * AT-373 (Issue C) — does this recipient's just-completed turn carry an UNREVIEWED amendment that
+     * must return to the agent? Two amendment mechanisms qualify:
+     *   - wet-ink strike/reword → pending_body_changes (unreviewedWetInkChangeIds), and/or
+     *   - an added Other Condition → a live DocumentCondition this request authored (added_via
+     *     recipient_signing) whose backing DocumentAmendment is still pending review.
+     * Returns ['change_ids' => string[], 'condition' => bool] when an amendment is present, else null.
+     */
+    public function recipientPendingAmendmentSignal(SignatureTemplate $template, SignatureRequest $request): ?array
+    {
+        $changeIds = $this->unreviewedWetInkChangeIds($template);
+
+        $addedCondition = \App\Models\Docuperfect\DocumentCondition::query()
+            ->where('signature_template_id', $template->id)
+            ->where('added_by_party_id', $request->id)
+            ->where('added_via', 'recipient_signing')
+            ->whereNull('superseded_at')
+            ->whereNull('deleted_at')
+            ->exists();
+
+        if ($changeIds === [] && ! $addedCondition) {
+            return null;
+        }
+        return ['change_ids' => $changeIds, 'condition' => $addedCondition];
+    }
+
+    /**
+     * Change ids the acting party has AUTHORED this turn that still need chain approval:
+     * present in pending_body_changes, NOT reverted, NOT yet chain-approved, and NOT
+     * already carried by an in-flight cycle. Because the editing party amends + signs
+     * together (decision i), at their completion these are exactly this turn's edits.
+     */
+    public function unreviewedWetInkChangeIds(SignatureTemplate $template): array
+    {
+        $wtd     = $this->docWtd($template);
+        $changes = is_array($wtd['pending_body_changes'] ?? null) ? $wtd['pending_body_changes'] : [];
+        $cycling = [];
+        if (is_array($wtd['amendment_cycle']['change_ids'] ?? null)) {
+            $cycling = array_flip($wtd['amendment_cycle']['change_ids']);
+        }
+        $ids = [];
+        foreach ($changes as $c) {
+            if (! is_array($c)) {
+                continue;
+            }
+            $cid = (string) ($c['change_id'] ?? '');
+            if ($cid === '' || ! empty($c['reverted']) || ! empty($c['chain_approved_at']) || isset($cycling[$cid])) {
+                continue;
+            }
+            $ids[$cid] = true;
+        }
+        return array_keys($ids);
+    }
+
+    /**
+     * The ordered approval chain that sits ABOVE the recipients — the pre-recipient
+     * approval nodes an edit is routed up through. Derived from signing_order: every
+     * approval-role request whose order is below the first recipient's. A1 = top =
+     * prep node (candidate/agent); Am = last authoriser before the recipients. The
+     * post-recipient supervisor_final node is the AT-322 FINAL gate, NOT part of this
+     * mid-loop chain, so it is excluded here.
+     */
+    public function preRecipientApprovalChain(SignatureTemplate $template): \Illuminate\Support\Collection
+    {
+        $requests = $template->requests()->orderBy('signing_order')->get();
+        $firstRecipientOrder = $requests
+            ->first(fn ($r) => $this->isRecipientRole($r->party_role))?->signing_order;
+        return $requests->filter(function ($r) use ($firstRecipientOrder) {
+            if (! $this->isApprovalRole($r->party_role)) {
+                return false;
+            }
+            // No recipients at all (approval-only doc) → the whole approval chain qualifies.
+            return $firstRecipientOrder === null || $r->signing_order < $firstRecipientOrder;
+        })->values();
+    }
+
+    /**
+     * INC 3 / Issue C — open the two-stage edit-approval cycle. The editing party K has completed
+     * (signed) with a fresh amendment — a wet-ink edit ($changeIds) and/or an added Other Condition
+     * ($hasCondition). Route it to the TOP of the approval chain (A1) for approval before any
+     * re-initialing. Generic over chain length; if the chain is empty (no approver above the
+     * recipients — should not happen for a real ceremony) the edit is treated as self-approved.
+     */
+    public function openAmendmentCycle(SignatureTemplate $template, SignatureRequest $editor, array $changeIds, bool $hasCondition = false): void
+    {
+        $chain = $this->preRecipientApprovalChain($template);
+        if ($chain->isEmpty()) {
+            // Degenerate: nobody above the recipients to approve. Stamp approved + resume.
+            $this->stampChainApproved($template, $changeIds);
+            $this->proceedAfterChainApproval($template, $editor);
+            return;
+        }
+
+        $wtd = $this->docWtd($template);
+        $wtd['amendment_cycle'] = [
+            'change_ids'        => array_values($changeIds),
+            'has_condition'     => $hasCondition,
+            'editor_key'        => $editor->canonicalPartyKey(),
+            'editor_request_id' => $editor->id,
+            'chain_pos'         => 0,
+            'phase'             => 'chain_review',
+        ];
+        $this->writeDocWtd($template, $wtd);
+
+        SignatureAuditLog::log(
+            $template,
+            'amendment_cycle_opened',
+            SignatureAuditLog::ACTOR_SYSTEM,
+            'System',
+            metadata: [
+                'change_ids'    => array_values($changeIds),
+                'has_condition' => $hasCondition,
+                'editor_key'    => $editor->canonicalPartyKey(),
+                'editor_name'   => $editor->signer_name,
+                'chain_size'    => $chain->count(),
+            ],
+        );
+
+        $this->activateAmendmentChainNode($template, $chain->first());
+    }
+
+    /**
+     * SYMMETRIC edit-upon-edit (Johan 2026-08-10) — record a change made by the CURRENT REVIEWER
+     * (the agent / an authoriser) DURING chain review into the active cycle, so the cascade later
+     * re-circulates it to every party that owes an initial on it. The reviewer edits with the SAME
+     * amend tool a recipient uses; their edit is not a "reject" — it is another mark on the document
+     * face that everyone must initial. No routing change here: the reviewer stays on the review page
+     * and keeps actioning items; they initial their own new mark (Accept & Initial on it) and the
+     * approve gate (outstandingForPartyOnChanges) already blocks approval until they have. Idempotent.
+     */
+    public function addEditToActiveCycle(SignatureTemplate $template, string $changeId, bool $isCondition = false): void
+    {
+        $cycle = $this->amendmentCycle($template);
+        if ($cycle === null || $template->status !== SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW) {
+            return; // only meaningful while a reviewer holds the doc for chain review
+        }
+        $wtd = $this->docWtd($template);
+        $ids = array_values(array_map('strval', $wtd['amendment_cycle']['change_ids'] ?? []));
+        if ($changeId !== '' && ! in_array($changeId, $ids, true)) {
+            $ids[] = $changeId;
+        }
+        $wtd['amendment_cycle']['change_ids']    = $ids;
+        $wtd['amendment_cycle']['has_condition'] = ($wtd['amendment_cycle']['has_condition'] ?? false) || $isCondition;
+        $this->writeDocWtd($template, $wtd);
+
+        SignatureAuditLog::log(
+            $template,
+            'amendment_reviewer_edit_added',
+            SignatureAuditLog::ACTOR_USER,
+            'Reviewer',
+            metadata: ['change_id' => $changeId, 'is_condition' => $isCondition],
+        );
+    }
+
+    /** The approval node currently reviewing the active cycle (approvalChain[chain_pos]), or null. */
+    public function currentAmendmentChainNode(SignatureTemplate $template): ?SignatureRequest
+    {
+        $cycle = $this->amendmentCycle($template);
+        if ($cycle === null) {
+            return null;
+        }
+        return $this->preRecipientApprovalChain($template)->get((int) $cycle['chain_pos']);
+    }
+
+    /** Route the doc to a chain node for amendment review — status + notify (agent vs authoriser pool). */
+    private function activateAmendmentChainNode(SignatureTemplate $template, SignatureRequest $node): void
+    {
+        $template->update(['status' => SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW]);
+
+        if ($this->isAuthoriserRole($node->party_role)) {
+            // Authoriser node — notify the shared branch pool (in-app), exactly like the initial review.
+            $this->notifyEligibleAuthorisers($template, 'amendment_review');
+        } else {
+            // Prep node (candidate/agent) — the document creator reviews from "Amendment approval".
+            // In-app notification (dashboard bell) + an EMAIL so the return is never missed: the recipient
+            // changed the doc and it is HELD until the agent approves (Issue C — Johan got no email/no
+            // dashboard entry, so the ceremony sat stuck + invisible).
+            $this->sendAgentApprovalNotification($template, $node->party_role, $node);
+            $this->emailAgentAmendmentReturned($template, $node);
+        }
+
+        SignatureAuditLog::log(
+            $template,
+            'amendment_chain_node_activated',
+            SignatureAuditLog::ACTOR_SYSTEM,
+            'System',
+            metadata: ['node_role' => $node->party_role, 'node_name' => $node->signer_name],
+        );
+    }
+
+    /**
+     * Issue C — email the agent (document creator) that a recipient's amendment has RETURNED for
+     * approval, with a deep link to the review/approve surface. In-app-only was not enough (Johan
+     * missed it entirely). Best-effort — a mail failure never blocks the routing.
+     */
+    private function emailAgentAmendmentReturned(SignatureTemplate $template, SignatureRequest $node): void
+    {
+        try {
+            $template->loadMissing(['document', 'creator']);
+            $agent = $template->creator;
+            if (! $agent || empty($agent->email)) {
+                return;
+            }
+            $editor = $template->requests()->find($this->amendmentCycle($template)['editor_request_id'] ?? 0);
+            $reviewUrl = url("/docuperfect/documents/{$template->document_id}/signatures/review");
+            Mail::to($agent->email)->send(new \App\Mail\Signatures\PartySignedNotificationMail(
+                agentName:    $agent->name ?? 'Agent',
+                partyRole:    $editor?->party_role ?? 'recipient',
+                partyName:    $editor?->signer_name ?? 'A recipient',
+                documentName: $template->document->name ?? 'Document',
+                reviewUrl:    $reviewUrl,
+            ));
+            SignatureAuditLog::log(
+                $template,
+                'amendment_return_email_sent',
+                SignatureAuditLog::ACTOR_SYSTEM,
+                'System',
+                metadata: ['to' => $agent->email],
+            );
+        } catch (\Throwable $e) {
+            Log::warning('AT-373 amendment-return agent email failed', [
+                'template_id' => $template->id,
+                'error'       => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * INC 3 — the current chain node APPROVES the amendment. Decision (i): approval IS an
+     * initial — the node must already have placed its initial on every cycle change via the
+     * standard modal (recordChangeInitial). We gate on the node owing ZERO outstanding on the
+     * cycle's changes, then advance: next chain node, or — when the chain is exhausted — stamp
+     * the changes chain-approved and proceed (inc3: resume the walk; inc4: sequential cascade).
+     */
+    public function approveAmendmentNode(SignatureTemplate $template, User $approver): array
+    {
+        $cycle = $this->amendmentCycle($template);
+        if ($cycle === null || $template->status !== SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW) {
+            return ['ok' => false, 'error' => 'No amendment is awaiting chain approval on this document.'];
+        }
+        $node = $this->currentAmendmentChainNode($template);
+        if ($node === null) {
+            return ['ok' => false, 'error' => 'The reviewing approval node could not be resolved.'];
+        }
+
+        // Decision (i) — the approver must have placed their OWN initial on every cycle change first:
+        // both the wet-ink body amendments (cir-slots) AND any added Other Condition (condition-initial).
+        $owed = $this->outstandingForPartyOnChanges($template, $node->canonicalPartyKey(), $cycle['change_ids']);
+        if (! empty($cycle['has_condition']) && $this->partyOwesConditionInitial($template, $node->canonicalPartyKey())) {
+            $owed++;
+        }
+        if ($owed > 0) {
+            return ['ok' => false, 'error' => 'Initial each change — body amendment and Other Condition — before approving.'];
+        }
+
+        return DB::transaction(function () use ($template, $cycle, $node, $approver) {
+            // Record who authorised this node (audit parity with the normal chain).
+            $node->update([
+                'authorised_by' => $node->authorised_by ?? $approver->id,
+                'authorised_at' => $node->authorised_at ?? now(),
+            ]);
+
+            SignatureAuditLog::log(
+                $template,
+                'amendment_node_approved',
+                SignatureAuditLog::ACTOR_USER,
+                $approver->name ?? 'Approver',
+                $approver->email,
+                $approver->id,
+                metadata: ['node_role' => $node->party_role, 'change_ids' => $cycle['change_ids']],
+            );
+
+            $chain   = $this->preRecipientApprovalChain($template);
+            $nextPos = (int) $cycle['chain_pos'] + 1;
+            $editor  = $template->requests()->find($cycle['editor_request_id']);
+
+            if ($nextPos < $chain->count()) {
+                // Walk down to the next authoriser node.
+                $wtd = $this->docWtd($template);
+                $wtd['amendment_cycle']['chain_pos'] = $nextPos;
+                $this->writeDocWtd($template, $wtd);
+                $this->activateAmendmentChainNode($template, $chain->get($nextPos));
+                return ['ok' => true, 'action' => 'advanced_chain', 'next_node' => $chain->get($nextPos)->party_role];
+            }
+
+            // Chain exhausted → the amendment is APPROVED. Stamp it and hand to the recipient pass.
+            $this->stampChainApproved($template, $cycle['change_ids']);
+            $this->proceedAfterChainApproval($template, $editor);
+            return ['ok' => true, 'action' => 'chain_approved'];
+        });
+    }
+
+    /**
+     * INC 3 — the current chain node REJECTS the amendment. Revert each cycle change on the
+     * wet-ink spine (inc6 — restore the original text, RETAIN the attempt in audit), clear the
+     * cycle, and route the EDITING party to re-acceptance (inc5). Existing signatures untouched.
+     */
+    public function rejectAmendmentNode(SignatureTemplate $template, User $approver, ?string $reason = null): array
+    {
+        $cycle = $this->amendmentCycle($template);
+        if ($cycle === null || $template->status !== SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW) {
+            return ['ok' => false, 'error' => 'No amendment is awaiting chain approval on this document.'];
+        }
+
+        return DB::transaction(function () use ($template, $cycle, $approver, $reason) {
+            $sel = app(SelectionEditService::class);
+            foreach ($cycle['change_ids'] as $cid) {
+                $sel->revertChange($template, (string) $cid, $approver);
+            }
+
+            SignatureAuditLog::log(
+                $template,
+                'amendment_node_rejected',
+                SignatureAuditLog::ACTOR_USER,
+                $approver->name ?? 'Approver',
+                $approver->email,
+                $approver->id,
+                metadata: ['change_ids' => $cycle['change_ids'], 'reason' => $reason],
+            );
+
+            // Route the editor to the re-acceptance screen (inc5). Keep the cycle marker (now
+            // 'rejected' phase) so the re-acceptance screen knows which changes were removed.
+            $editor = $template->requests()->find($cycle['editor_request_id']);
+            $this->routeEditorToReacceptance($template, $editor, $cycle, $reason);
+
+            return ['ok' => true, 'action' => 'rejected', 'editor' => $editor?->canonicalPartyKey()];
+        });
+    }
+
+    /**
+     * AT-373 (Part 3) — AGENT BOUNCE-BACK. The reviewing node disagrees with a recipient's
+     * amendment and (after an out-of-band conversation — Johan's flow) sends the document BACK to
+     * the amendment's AUTHOR so THEY remove their own edit (the Part 1/2 recipient revert path) and
+     * re-sign clean. Distinct from rejectAmendmentNode(), which reverts the change server-side and
+     * routes the editor to a re-acceptance screen — here the recipient does the removal themselves.
+     *
+     * Chain-safety (validated against this state machine): at STATUS_AMENDMENT_CHAIN_REVIEW the
+     * signing walk is PAUSED — no party after the editor has signed — so re-opening the editor
+     * disturbs nothing downstream, and earlier signers' signatures stand untouched. We ABANDON the
+     * amendment_cycle (a routing marker only) but LEAVE pending_body_changes in place so the editor
+     * can revert them on their signing screen, then drop the template back to STATUS_SIGNING with the
+     * editor re-opened PENDING — the exact transition ratifyMarkAmendment() uses to hand a completed
+     * party back to finish signing. If the editor re-signs WITHOUT reverting, completeWeb() opens a
+     * fresh cycle (a new amendment) — the machine self-heals either way.
+     */
+    public function bounceAmendmentToRecipient(SignatureTemplate $template, User $agent, ?string $note = null): array
+    {
+        $cycle = $this->amendmentCycle($template);
+        if ($cycle === null || $template->status !== SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW) {
+            return ['ok' => false, 'error' => 'No amendment is awaiting review on this document.'];
+        }
+        // Authoritative author of the amendment (not a "most-recently-completed" heuristic).
+        $editor = $template->requests()->find($cycle['editor_request_id'] ?? 0);
+        if ($editor === null) {
+            return ['ok' => false, 'error' => 'The recipient who proposed the amendment could not be resolved.'];
+        }
+
+        // AT-373 reject flow (Johan 2026-08-12) — gather EXACTLY the changes the agent rejected. The
+        // recipient must Remove each of these before re-signing; accepted-and-initialed changes stay.
+        $wtdNow = $this->docWtd($template);
+        $rejectedChangeIds = [];
+        foreach (($wtdNow['pending_body_changes'] ?? []) as $c) {
+            if (is_array($c) && ! empty($c['rejected']) && empty($c['reverted'])) {
+                $cid = (string) ($c['change_id'] ?? '');
+                if ($cid !== '') {
+                    $rejectedChangeIds[] = $cid;
+                }
+            }
+        }
+        $rejectedConditionIds = \App\Models\Docuperfect\DocumentCondition::where('signature_template_id', $template->id)
+            ->whereNotNull('rejected_at')
+            ->whereNull('superseded_at')
+            ->pluck('id')->map(fn ($id) => (int) $id)->all();
+
+        if (empty($rejectedChangeIds) && empty($rejectedConditionIds)) {
+            return ['ok' => false, 'error' => 'Reject at least one change before sending the document back.'];
+        }
+
+        DB::transaction(function () use ($template, $editor, $agent, $cycle, $rejectedChangeIds, $rejectedConditionIds) {
+            // Abandon the chain-review routing marker ONLY — pending_body_changes stay so the editor
+            // can revert them on their signing screen. Stamp the reject-return marker so the recipient's
+            // signing screen shows EXACTLY the rejected items with a Remove action, and gates re-signing
+            // until all are removed.
+            $wtd = $this->docWtd($template);
+            unset($wtd['amendment_cycle']);
+            $wtd['amendment_reject_return'] = [
+                'editor_request_id'      => (int) $editor->id,
+                'rejected_change_ids'    => array_values($rejectedChangeIds),
+                'rejected_condition_ids' => array_values($rejectedConditionIds),
+                'at'                     => now()->toIso8601String(),
+                'by'                     => (int) $agent->id,
+            ];
+            $this->writeDocWtd($template, $wtd);
+
+            // Back to the signing walk (same proven transition as ratifyMarkAmendment).
+            $template->update(['status' => SignatureTemplate::STATUS_SIGNING]);
+
+            SignatureAuditLog::log(
+                $template,
+                'amendment_rejected_sent_back',
+                SignatureAuditLog::ACTOR_USER,
+                $agent->name ?? 'Agent',
+                $agent->email,
+                $agent->id,
+                metadata: [
+                    'editor_request_id'      => $editor->id,
+                    'editor_name'            => $editor->signer_name,
+                    'rejected_change_ids'    => array_values($rejectedChangeIds),
+                    'rejected_condition_ids' => array_values($rejectedConditionIds),
+                ],
+            );
+        });
+
+        // Re-open the author PENDING with a fresh token + email (the agent already spoke to them).
+        $this->reactivateRequestForMark(
+            $editor,
+            $template,
+            $note ?: 'Your agent has sent this document back to you. Please open your signing link, remove the change you made, and sign again.',
+        );
+
+        return ['ok' => true, 'editor' => $editor->signer_name];
+    }
+
+    /** Stamp chain_approved_at onto each named change in pending_body_changes (audit + gate marker). */
+    private function stampChainApproved(SignatureTemplate $template, array $changeIds): void
+    {
+        $wtd     = $this->docWtd($template);
+        $changes = is_array($wtd['pending_body_changes'] ?? null) ? $wtd['pending_body_changes'] : [];
+        $flip    = array_flip(array_map('strval', $changeIds));
+        foreach ($changes as &$c) {
+            if (is_array($c) && isset($flip[(string) ($c['change_id'] ?? '')])) {
+                $c['chain_approved_at'] = now()->toIso8601String();
+            }
+        }
+        unset($c);
+        $wtd['pending_body_changes'] = $changes;
+        $this->writeDocWtd($template, $wtd);
+    }
+
+    /**
+     * INC 3 terminal — the approval chain has approved the amendment. Clear the cycle and
+     * resume the signing walk. When already-signed recipients owe an initial on the change,
+     * inc4 overrides this with the SEQUENTIAL re-initial cascade; here (inc3) — reached only
+     * when no earlier recipient signed (the editor was the first/only recipient) — it resumes
+     * the normal walk, which routes not-yet-reached recipients and finally the AT-322 gate.
+     */
+    protected function proceedAfterChainApproval(SignatureTemplate $template, ?SignatureRequest $editor): void
+    {
+        // Issue C — when the amendment includes an added Other Condition, mark its pending backing
+        // DocumentAmendment(s) approved (chain-reviewed) so the condition is now agreed; the prior
+        // recipients then re-initial it in the cascade below (driven by orderedRecipientsOwingInitial).
+        $cycle = $this->amendmentCycle($template);
+        if (! empty($cycle['has_condition'])) {
+            $this->approvePendingRecipientConditions($template);
+        }
+
+        // inc4 replaces the body of this branch with beginSequentialAmendmentInitialing().
+        if ($this->hasAlreadySignedRecipientsOwingInitial($template)) {
+            $this->beginSequentialAmendmentInitialing($template);
+            return;
+        }
+
+        $this->clearAmendmentCycle($template);
+        // Resume the walk from the editor's completion — route the next waiting recipient, or
+        // (all recipients done) hold at the AT-322 final gate for the chain-top approval.
+        $this->advanceToNextParty($template, $editor?->party_role ?? 'system', null, true);
+    }
+
+    /** Are there COMPLETED recipients (other than the editor) that still owe an initial on the active cycle's changes? */
+    private function hasAlreadySignedRecipientsOwingInitial(SignatureTemplate $template): bool
+    {
+        $cycle = $this->amendmentCycle($template);
+        if ($cycle === null) {
+            return false;
+        }
+        return $this->orderedRecipientsOwingInitial($template, $cycle)->isNotEmpty();
+    }
+
+    /**
+     * Ordered (signing_order asc) already-signed recipients that owe an initial on the cycle's
+     * amendment — the sequential cascade worklist. A prior recipient owes when they have an unfilled
+     * wet-ink cir-slot on a cycle change, OR (Issue C) the cycle added an Other Condition they have
+     * not yet initialed (a live DocumentCondition with no ConditionInitial for their party key).
+     * Excludes not-yet-reached recipients (WAITING).
+     *
+     * SYMMETRIC edit-upon-edit model (Johan 2026-08-10): authorship is decided PER CHANGE, not
+     * per cycle. A party owes a change iff they hold an UNFILLED cir-slot on it — and the author
+     * of a change fills their own slot at edit time, so the author is naturally excluded from their
+     * OWN change while still owing every OTHER party's change. This is why the old per-cycle
+     * `editor_key` exclusion is gone: a cycle can now carry changes from MORE THAN ONE editor (the
+     * recipient's original edit AND the agent's counter-edit), and the original editor MUST come back
+     * to initial the agent's new mark. The per-change slot check already models exactly that, so the
+     * blanket editor exclusion would have WRONGLY skipped a party who owes a later co-editor's change.
+     */
+    private function orderedRecipientsOwingInitial(SignatureTemplate $template, array $cycle): \Illuminate\Support\Collection
+    {
+        $sel  = app(SelectionEditService::class);
+        $html = CanonicalDocumentRenderer::amendSource($this->docWtd($template))['html'];
+
+        // Live conditions the cascade must re-circulate (only when the cycle carries an added condition).
+        $liveConditionIds = collect();
+        if (! empty($cycle['has_condition'])) {
+            $liveConditionIds = \App\Models\Docuperfect\DocumentCondition::query()
+                ->where('signature_template_id', $template->id)
+                ->whereNull('superseded_at')
+                ->whereNull('deleted_at')
+                ->pluck('id');
+        }
+
+        if ($html === '' && $liveConditionIds->isEmpty()) {
+            return collect();
+        }
+
+        return $template->requests()
+            ->where('status', SignatureRequest::STATUS_COMPLETED)
+            ->orderBy('signing_order')
+            ->get()
+            ->filter(function ($r) use ($sel, $html, $cycle, $template, $liveConditionIds) {
+                if (! $this->isRecipientRole($r->party_role)) {
+                    return false;
+                }
+                // NOTE: no per-cycle editor exclusion — authorship is per-change (see doc-comment). A party
+                // who authored one change but owes a co-editor's change on the SAME cycle must still return.
+                // (a) owes a wet-ink cir-slot initial on a cycle change?
+                if ($html !== '') {
+                    foreach (($cycle['change_ids'] ?? []) as $cid) {
+                        if ($sel->hasRowSlot($html, (string) $cid, $r->canonicalPartyKey())
+                            && ! $sel->rowSlotFilled($html, (string) $cid, $r->canonicalPartyKey())) {
+                            return true;
+                        }
+                    }
+                }
+                // (b) owes a condition initial on an added Other Condition?
+                if ($liveConditionIds->isNotEmpty()) {
+                    $condKey = \App\Services\Docuperfect\InsertableBlockRenderer::partyKeyForViewer(
+                        $template->parties_json, (string) $r->party_role, (int) ($r->role_index ?? 1),
+                    );
+                    $mineInitialed = \App\Models\Docuperfect\ConditionInitial::query()
+                        ->where('initialable_type', \App\Models\Docuperfect\DocumentCondition::class)
+                        ->whereIn('initialable_id', $liveConditionIds)
+                        ->where('party_key', $condKey)
+                        ->pluck('initialable_id');
+                    if ($liveConditionIds->diff($mineInitialed)->isNotEmpty()) {
+                        return true;
+                    }
+                }
+                return false;
+            })
+            ->values();
+    }
+
+    /**
+     * Issue C — mark the pending recipient-added Other Condition DocumentAmendment(s) as accepted
+     * (chain-reviewed). RETAIN audit; the condition itself stays live and is re-initialed by the
+     * prior recipients in the cascade. Idempotent.
+     */
+    private function approvePendingRecipientConditions(SignatureTemplate $template): void
+    {
+        $pending = \App\Models\Docuperfect\DocumentAmendment::query()
+            ->where('signature_template_id', $template->id)
+            ->where('amendment_type', \App\Models\Docuperfect\DocumentAmendment::TYPE_ADDITION)
+            ->where('status', \App\Models\Docuperfect\DocumentAmendment::STATUS_PENDING)
+            ->get();
+        foreach ($pending as $amendment) {
+            $amendment->update(['status' => \App\Models\Docuperfect\DocumentAmendment::STATUS_ACCEPTED]);
+        }
+        if ($pending->isNotEmpty()) {
+            SignatureAuditLog::log(
+                $template,
+                'amendment_conditions_approved',
+                SignatureAuditLog::ACTOR_USER,
+                'Agent',
+                metadata: ['amendment_ids' => $pending->pluck('id')->all()],
+            );
+        }
+    }
+
+    /** Outstanding initial count for ONE party across a set of changes (their own unfilled row slots). */
+    private function outstandingForPartyOnChanges(SignatureTemplate $template, string $partyKey, array $changeIds): int
+    {
+        $sel  = app(SelectionEditService::class);
+        $html = CanonicalDocumentRenderer::amendSource($this->docWtd($template))['html'];
+        if ($html === '') {
+            return 0;
+        }
+        $owed = 0;
+        foreach ($changeIds as $cid) {
+            if ($sel->hasRowSlot($html, (string) $cid, $partyKey) && ! $sel->rowSlotFilled($html, (string) $cid, $partyKey)) {
+                $owed++;
+            }
+        }
+        return $owed;
+    }
+
+    /**
+     * AT-373 — does this party still owe an initial on any live recipient-added Other Condition?
+     * (A live DocumentCondition with no ConditionInitial for the party's key.) $partyKey is the party's
+     * canonicalPartyKey — the SAME key the internal condition-initial endpoint writes with.
+     */
+    public function partyOwesConditionInitial(SignatureTemplate $template, string $partyKey): bool
+    {
+        $liveConditionIds = \App\Models\Docuperfect\DocumentCondition::query()
+            ->where('signature_template_id', $template->id)
+            ->whereNull('superseded_at')
+            ->whereNull('deleted_at')
+            ->pluck('id');
+        if ($liveConditionIds->isEmpty()) {
+            return false;
+        }
+        $mineInitialed = \App\Models\Docuperfect\ConditionInitial::query()
+            ->where('initialable_type', \App\Models\Docuperfect\DocumentCondition::class)
+            ->whereIn('initialable_id', $liveConditionIds)
+            ->where('party_key', $partyKey)
+            ->pluck('initialable_id');
+        return $liveConditionIds->diff($mineInitialed)->isNotEmpty();
+    }
+
+    /**
+     * AT-373 — PER-ITEM reject of an added Other Condition (agent curating the recipient's changes).
+     * Supersede the condition so it drops out of the render + every initial gate, and mark its backing
+     * DocumentAmendment rejected. Retained in audit (no hard delete); the other changes proceed.
+     */
+    public function rejectRecipientCondition(SignatureTemplate $template, \App\Models\Docuperfect\DocumentCondition $condition, ?User $actor = null): array
+    {
+        return DB::transaction(function () use ($template, $condition, $actor) {
+            $condition->update(['superseded_at' => now()]);
+            if ($condition->amendment_id) {
+                \App\Models\Docuperfect\DocumentAmendment::where('id', $condition->amendment_id)
+                    ->update(['status' => \App\Models\Docuperfect\DocumentAmendment::STATUS_REJECTED]);
+            }
+            SignatureAuditLog::log(
+                $template,
+                'amendment_condition_rejected',
+                SignatureAuditLog::ACTOR_USER,
+                $actor?->name ?? 'Agent',
+                $actor?->email,
+                $actor?->id,
+                metadata: ['condition_id' => $condition->id],
+            );
+            return ['ok' => true, 'condition_id' => $condition->id];
+        });
+    }
+
+    /**
+     * AT-373 — the REAL next step after the agent approves the current amendment, for the approve-button
+     * label. After approval the PRIOR recipients (everyone who signed before the amender — INCLUDING joint
+     * co-signers) re-initial the change FIRST; only once none owe does a not-yet-reached recipient sign,
+     * and only when neither remains does the document finalise. So the button must say "Send to <prior> to
+     * initial" for a last-recipient amendment, never "Finalise" while a prior still owes.
+     * @return array{key:string,name:string,action:string}|null  null ⇒ the agent is genuinely the last action.
+     */
+    public function amendmentApprovalNextStep(SignatureTemplate $template): ?array
+    {
+        $cycle = $this->amendmentCycle($template);
+        if ($cycle === null) {
+            return null;
+        }
+        $prior = $this->orderedRecipientsOwingInitial($template, $cycle)->first();
+        if ($prior) {
+            return ['key' => $prior->canonicalPartyKey(), 'name' => $prior->signer_name ?: ucfirst((string) $prior->party_role), 'action' => 'initial'];
+        }
+        $next = $template->requests()
+            ->where('status', SignatureRequest::STATUS_WAITING)
+            ->orderBy('signing_order')
+            ->get()
+            ->first(fn ($r) => $this->isRecipientRole($r->party_role));
+        if ($next) {
+            return ['key' => $next->canonicalPartyKey(), 'name' => $next->signer_name ?: ucfirst((string) $next->party_role), 'action' => 'sign'];
+        }
+        return null;
+    }
+
+    /** Remove the amendment-cycle marker from the document. */
+    private function clearAmendmentCycle(SignatureTemplate $template): void
+    {
+        $wtd = $this->docWtd($template);
+        unset($wtd['amendment_cycle']);
+        $this->writeDocWtd($template, $wtd);
+    }
+
+    /**
+     * INC 4 — begin the SEQUENTIAL re-initial cascade over already-signed recipients.
+     *
+     * Decision (ii) — LEGAL: the cascade advances ONE party at a time in signing_order, NEVER in
+     * parallel (the legacy requeueAllPartiesForInitialing broadcast to everyone at once — that is
+     * retired in inc7). Restart the recipient walk at the lowest-order already-signed recipient who
+     * owes an initial on the approved change; activate ONLY them. Each completes a focused
+     * initial-only turn (their captured signature preserved), then advanceSequentialInitialing hands
+     * the pen to the next owed signer. When the already-signed worklist is exhausted the cascade
+     * concludes and the normal walk resumes into the not-yet-reached recipients (full signing).
+     */
+    public function beginSequentialAmendmentInitialing(SignatureTemplate $template): void
+    {
+        $cycle = $this->amendmentCycle($template);
+        if ($cycle === null) {
+            // Defensive — nothing to cascade; resume the walk.
+            $this->advanceToNextParty($template, 'system', null, true);
+            return;
+        }
+
+        // Mark the cascade phase so a completing party routes back through the sequential advance.
+        $wtd = $this->docWtd($template);
+        $wtd['amendment_cycle']['phase'] = 'recipient_cascade';
+        $this->writeDocWtd($template, $wtd);
+        $template->update(['status' => SignatureTemplate::STATUS_AMENDMENT_INITIALING]);
+
+        $worklist = $this->orderedRecipientsOwingInitial($template, $cycle);
+        if ($worklist->isEmpty()) {
+            $this->concludeSequentialCascade($template, null);
+            return;
+        }
+
+        SignatureAuditLog::log(
+            $template,
+            'amendment_cascade_started',
+            SignatureAuditLog::ACTOR_SYSTEM,
+            'System',
+            metadata: [
+                'change_ids'   => $cycle['change_ids'],
+                'worklist'     => $worklist->map(fn ($r) => $r->canonicalPartyKey())->values()->all(),
+                'first_signer' => $worklist->first()->canonicalPartyKey(),
+            ],
+        );
+
+        $this->activateInitialingParty($template, $worklist->first());
+    }
+
+    /**
+     * INC 4 — advance the sequential cascade: a party has completed their initial-only turn; hand
+     * the pen to the NEXT already-signed recipient who still owes an initial (lowest signing_order
+     * remaining). When none remain, conclude and resume the normal walk. One active party only.
+     */
+    private function advanceSequentialInitialing(SignatureTemplate $template, SignatureRequest $justCompleted): void
+    {
+        $cycle = $this->amendmentCycle($template);
+        if ($cycle === null) {
+            $this->advanceToNextParty($template, $justCompleted->party_role, null, true);
+            return;
+        }
+
+        // orderedRecipientsOwingInitial already excludes filled slots, so the just-completed party
+        // (who just filled theirs) is gone from the list; the next is simply the lowest remaining.
+        $next = $this->orderedRecipientsOwingInitial($template, $cycle)->first();
+        if ($next !== null) {
+            $this->activateInitialingParty($template, $next);
+            return;
+        }
+
+        $this->concludeSequentialCascade($template, $justCompleted);
+    }
+
+    /**
+     * INC 4 — reactivate ONE already-signed recipient for a focused initial-only turn: fresh token,
+     * PENDING, email. They land on their signing view showing their captured signature in place plus
+     * the outstanding amendment initial to fill (the standard modal). Status stays amendment_initialing.
+     */
+    private function activateInitialingParty(SignatureTemplate $template, SignatureRequest $req): void
+    {
+        $token = $this->generateToken();
+        $req->update([
+            'token'            => $token,
+            'token_expires_at' => now()->addDays(14),
+            'status'           => SignatureRequest::STATUS_PENDING,
+        ]);
+
+        try {
+            $url = route('signatures.external', $token);
+            Mail::to($req->signer_email)->send(
+                (new SigningRequestMail(
+                    signerName:      $req->signer_name,
+                    documentName:    $template->document->name ?? 'Document',
+                    signingUrl:      $url,
+                    personalMessage: 'A change to this document was approved. Please initial the change to confirm — your original signature stays in place.',
+                    expiresAt:       $req->token_expires_at,
+                ))->fromAgent($template->creator)
+            );
+        } catch (\Throwable $e) {
+            Log::warning('AT-373 sequential-initialing mail send failed', [
+                'template_id' => $template->id,
+                'request_id'  => $req->id,
+                'error'       => $e->getMessage(),
+            ]);
+        }
+
+        SignatureAuditLog::log(
+            $template,
+            'amendment_initialing_activated',
+            SignatureAuditLog::ACTOR_SYSTEM,
+            'System',
+            metadata: ['party_role' => $req->party_role, 'signer_name' => $req->signer_name],
+        );
+    }
+
+    /**
+     * INC 4 — the already-signed worklist is exhausted. Clear the cycle and resume the normal walk:
+     * the not-yet-reached recipients full-sign (they see the approved amendment and their normal sign
+     * covers it), last recipient → AT-322 final gate → chain-top approval → file.
+     */
+    private function concludeSequentialCascade(SignatureTemplate $template, ?SignatureRequest $justCompleted): void
+    {
+        $this->clearAmendmentCycle($template);
+
+        SignatureAuditLog::log(
+            $template,
+            'amendment_cascade_complete',
+            SignatureAuditLog::ACTOR_SYSTEM,
+            'System',
+            metadata: ['last_initialer' => $justCompleted?->canonicalPartyKey()],
+        );
+
+        // Resume the walk — route the next WAITING recipient, or (all done) hold at the AT-322 gate.
+        $this->advanceToNextParty($template, $justCompleted?->party_role ?? 'system', null, true);
+    }
+
+    /**
+     * INC 5 — route the editing party to the RE-ACCEPTANCE screen after a chain node rejected
+     * their amendment. The change is already reverted (rejectAmendmentNode → revertChange). Hold
+     * the document at editor_reacceptance, park the cycle as rejected (so the view knows which
+     * signer + reason), and reactivate the editor's request (fresh token, PENDING, email) so they
+     * land on the reverted document and must re-accept via a SECOND mandatory ECT-Act tick (inc5
+     * view). Their captured signature is untouched — re-acceptance is a consent, not a re-sign.
+     */
+    protected function routeEditorToReacceptance(SignatureTemplate $template, ?SignatureRequest $editor, array $cycle, ?string $reason): void
+    {
+        $wtd = $this->docWtd($template);
+        if (isset($wtd['amendment_cycle'])) {
+            $wtd['amendment_cycle']['phase']         = 'rejected';
+            $wtd['amendment_cycle']['reject_reason'] = $reason;
+            $this->writeDocWtd($template, $wtd);
+        }
+        $template->update(['status' => SignatureTemplate::STATUS_EDITOR_REACCEPTANCE]);
+
+        if ($editor) {
+            $token = $this->generateToken();
+            $editor->update([
+                'token'            => $token,
+                'token_expires_at' => now()->addDays(14),
+                'status'           => SignatureRequest::STATUS_PENDING,
+            ]);
+            try {
+                $url = route('signatures.external', $token);
+                Mail::to($editor->signer_email)->send(
+                    (new SigningRequestMail(
+                        signerName:      $editor->signer_name,
+                        documentName:    $template->document->name ?? 'Document',
+                        signingUrl:      $url,
+                        personalMessage: 'Your proposed amendment was not approved and has been removed. Please review the document and re-accept it without your proposed change — your signature stays in place.',
+                        expiresAt:       $editor->token_expires_at,
+                    ))->fromAgent($template->creator)
+                );
+            } catch (\Throwable $e) {
+                Log::warning('AT-373 editor re-acceptance mail send failed', [
+                    'template_id' => $template->id,
+                    'request_id'  => $editor->id,
+                    'error'       => $e->getMessage(),
+                ]);
+            }
+
+            SignatureAuditLog::log(
+                $template,
+                'editor_routed_to_reacceptance',
+                SignatureAuditLog::ACTOR_SYSTEM,
+                'System',
+                metadata: ['editor_key' => $editor->canonicalPartyKey(), 'reason' => $reason],
+            );
+        }
+    }
+
+    /**
+     * INC 5 — the editing party RE-ACCEPTS the reverted document (both mandatory ticks captured by
+     * the controller). Audit the distinct re-acceptance, clear the (rejected) cycle, restore the
+     * editor's COMPLETED status (their signature never left), and resume the normal walk from their
+     * position — the next waiting recipient, or (all done) the AT-322 final gate. Existing
+     * signatures/initials untouched.
+     */
+    public function editorReaccept(SignatureTemplate $template, SignatureRequest $editor): array
+    {
+        if ($template->status !== SignatureTemplate::STATUS_EDITOR_REACCEPTANCE) {
+            return ['ok' => false, 'error' => 'This document is not awaiting re-acceptance.'];
+        }
+        $cycle = $this->docWtd($template)['amendment_cycle'] ?? null;
+        if (! is_array($cycle) || (int) ($cycle['editor_request_id'] ?? 0) !== (int) $editor->id) {
+            return ['ok' => false, 'error' => 'Only the signer whose amendment was removed can re-accept.'];
+        }
+
+        return DB::transaction(function () use ($template, $editor, $cycle) {
+            SignatureAuditLog::log(
+                $template,
+                'editor_reaccepted_after_reject',
+                SignatureAuditLog::ACTOR_SIGNER,
+                $editor->signer_name ?? 'Signer',
+                metadata: [
+                    'editor_key'    => $editor->canonicalPartyKey(),
+                    'change_ids'    => $cycle['change_ids'] ?? [],
+                    'reject_reason' => $cycle['reject_reason'] ?? null,
+                ],
+            );
+
+            // The editor already signed — re-acceptance restores their completed state (no new mark).
+            $editor->update([
+                'status'       => SignatureRequest::STATUS_COMPLETED,
+                'completed_at' => $editor->completed_at ?? now(),
+            ]);
+
+            $this->clearAmendmentCycle($template);
+            // Resume the walk from the editor's position — next waiting recipient, or AT-322 gate.
+            $this->advanceToNextParty($template, $editor->party_role, null, true);
+
+            return ['ok' => true, 'action' => 'reaccepted'];
+        });
+    }
+
+    /**
+     * Append one hop to the running authoriser-return THREAD, stored on the document
+     * (`web_template_data['return_thread']`). Every send-back and every resubmit is
+     * preserved in order — audit evidence for the junior↔senior loop, never latest-only.
+     * The immutable SignatureAuditLog carries the same hops; this ordered thread is the
+     * human-readable record the review + sign screens render. Returns the current round
+     * (count of send-backs so far).
+     */
+    private function appendReturnThread(SignatureTemplate $template, string $direction, ?User $actor, ?string $note): int
+    {
+        $document = $template->document;
+        if (! $document) {
+            return 0;
+        }
+        $wtd    = is_array($document->web_template_data) ? $document->web_template_data : [];
+        $thread = $wtd['return_thread'] ?? [];
+        if (! is_array($thread)) {
+            $thread = [];
+        }
+        $round = collect($thread)->where('direction', 'sent_back')->count();
+        if ($direction === 'sent_back') {
+            $round++;
+        }
+        $thread[] = [
+            'round'      => $round,
+            'direction'  => $direction, // 'sent_back' (senior→junior) | 'resubmitted' (junior→senior)
+            'actor_id'   => $actor?->id,
+            'actor_name' => $actor?->name,
+            'note'       => $note,
+            'at'         => now()->toIso8601String(),
+        ];
+        $wtd['return_thread'] = $thread;
+        $document->update(['web_template_data' => $wtd]);
+
+        return $round;
+    }
+
+    /**
+     * WET-INK amendment-render flag — the cc1 render contract (esign-returned-doc-edit-flow.md §6).
+     * Set TRUE when the agent edits a RETURNED/amendment doc so cc1's DocumentChangeHighlighter
+     * (`compose()` step 6) marks the changed FIELD values against the last-authorised seal; cleared on
+     * re-authorisation so the diff goes empty. Clause strike-outs are document content (rendered by
+     * `applyStrikethroughs`) and STAY visible regardless of this flag. No-op without a document.
+     */
+    public function setAmendmentRender(?Document $document, bool $on): void
+    {
+        if (! $document) {
+            return;
+        }
+        $wtd = is_array($document->web_template_data) ? $document->web_template_data : [];
+        if ($on) {
+            $wtd['amendment_render'] = true;
+        } else {
+            unset($wtd['amendment_render']);
+        }
+        $document->update(['web_template_data' => $wtd]);
+    }
+
+    /**
+     * WET-INK per-change INITIAL (cc1 contract, esign-returned-doc-change-highlight.md §14): the affected
+     * party initials ONE change. Writes the SHARED map
+     *   web_template_data['change_initials'][<data-change-id>] = ['name'=>…, 'at'=>…]
+     * exactly as cc1's render reads it to show "Initialed by {name}" on that change (field marks). For
+     * cc6-authored CLAUSE strike marks (which cc1 defers to via data-strikethrough-applied) we also stamp
+     * the pill straight into merged_html so those marks show it too — one shared map, each lane renders its
+     * own marks. Prior signatures are UNTOUCHED — a per-change consent, never a re-sign.
+     */
+    public function recordChangeInitial(SignatureTemplate $template, string $changeId, string $name, ?string $partyKey = null, ?string $imageDataUrl = null): array
+    {
+        $document = $template->document;
+        if (! $document) {
+            return ['ok' => false, 'error' => 'Document not found.'];
+        }
+        $changeId = trim($changeId);
+        if ($changeId === '') {
+            return ['ok' => false, 'error' => 'Missing change id.'];
+        }
+
+        $wtd = is_array($document->web_template_data) ? $document->web_template_data : [];
+        // Keep the LOCKED cc1 contract (change_initials[id] = {name, at}) — cc1 reads this for its field marks.
+        $map = is_array($wtd['change_initials'] ?? null) ? $wtd['change_initials'] : [];
+        $at  = now()->toIso8601String();
+        $map[$changeId] = ['name' => $name, 'at' => $at];
+        $wtd['change_initials'] = $map;
+
+        // WET-INK per-party ROW slot: this party applies their OWN REAL initial in their own slot,
+        // independently of the others (the captured image is the same ink the rest of the doc uses). A
+        // legacy clause mark (no margin slots) falls back to the shared "Initialed by {name}" pill.
+        $selSvc = app(SelectionEditService::class);
+        $applyFill = function (string $html) use ($selSvc, $changeId, $partyKey, $name, $imageDataUrl): string {
+            if ($html === '' || ! str_contains($html, 'data-change-id="' . $changeId . '"')) {
+                return $html;
+            }
+            if ($partyKey !== null && $partyKey !== '' && $selSvc->hasRowSlot($html, $changeId, $partyKey)) {
+                return $selSvc->fillRowSlot($html, $changeId, $partyKey, $name, $imageDataUrl);
+            }
+            return app(ClauseEditService::class)->stampInitialPill($html, $changeId, $name);
+        };
+
+        // Fill the initial into the artifact the amend was authored onto (the signed canonical when ink
+        // is baked, so every signature + the location carry through), via writeAmend (version semantics).
+        $canvas = CanonicalDocumentRenderer::amendSource($wtd);
+        $html   = $canvas['html'];
+        if ($html !== '' && str_contains($html, 'data-change-id="' . $changeId . '"')) {
+            $wtd = CanonicalDocumentRenderer::writeAmend($wtd, $applyFill($html), $canvas['baked']);
+        }
+
+        // AT-373 amendment-initial DROP fix — keep the SAME fill in BOTH canonical_html AND merged_html.
+        // recordChangeInitial used to write ONLY the amendSource artifact (merged_html before a party has
+        // baked, canonical_html after). But completeWeb bakes the STORED canonical_html and freezes it at
+        // version >= 1; a fill recorded while the doc was still v0 lived only in merged_html and was
+        // dropped from the served/baked canonical — so the 1st recipient's amendment-initials vanished on
+        // the final PDF while a later party (who initialed post-bake, straight into canonical) survived.
+        // Filling the OTHER artifact in place (slot fill only — canonical_version untouched) makes the
+        // per-party initial durable regardless of the bake boundary or which artifact a surface serves.
+        $secondaryKey = $canvas['baked'] ? 'merged_html' : 'canonical_html';
+        if (is_string($wtd[$secondaryKey] ?? null) && $wtd[$secondaryKey] !== '') {
+            $wtd[$secondaryKey] = $applyFill($wtd[$secondaryKey]);
+        }
+
+        $document->update(['web_template_data' => $wtd]);
+
+        SignatureAuditLog::log(
+            $template,
+            'change_initialed',
+            SignatureAuditLog::ACTOR_USER,
+            $name,
+            metadata: ['change_id' => $changeId, 'at' => $at],
+        );
+
+        return ['ok' => true, 'change_id' => $changeId, 'name' => $name, 'at' => $at];
+    }
+
+    /**
+     * WET-INK COMPLETION GATE (Johan 2026-08-05) — a document with amendments cannot be finalised while any
+     * required party still owes an initial on any change. "Required" = a party who has REACHED their signing
+     * turn (status not waiting/deferred/declined/expired); a party still queued for a future turn is not yet
+     * expected to have initialed, so gating on them would deadlock the flow. By the time the LAST party
+     * completes, every party is required and every change-slot must be filled — no finalising unsigned
+     * amendments. Universal: candidate→authoriser AND recipient-initiated amendments run through one row.
+     *
+     * @return array{count:int, by_party:array<string,int>, names:array<string,string>}
+     */
+    public function outstandingChangeInitials(SignatureTemplate $template): array
+    {
+        $document = $template->document;
+        $wtd = is_array($document?->web_template_data) ? $document->web_template_data : [];
+        // Read the SERVED artifact (signed canonical when baked, else merged_html) — that's where the rows live.
+        $html = CanonicalDocumentRenderer::amendSource($wtd)['html'];
+        $changes = is_array($wtd['pending_body_changes'] ?? null) ? $wtd['pending_body_changes'] : [];
+        $result = ['count' => 0, 'by_party' => [], 'names' => []];
+        if ($html === '' || $changes === []) {
+            return $result;
+        }
+
+        // Parties who have reached their turn — everyone the amendment is currently binding on.
+        $notYet = [
+            SignatureRequest::STATUS_WAITING,
+            SignatureRequest::STATUS_DEFERRED,
+            SignatureRequest::STATUS_DECLINED,
+            SignatureRequest::STATUS_EXPIRED,
+        ];
+        $requiredKeys = [];
+        foreach ($template->requests()->get() as $r) {
+            if (in_array($r->status, $notYet, true)) {
+                continue;
+            }
+            $key = method_exists($r, 'canonicalPartyKey') ? $r->canonicalPartyKey() : (string) $r->party_role;
+            $requiredKeys[$key] = (string) ($r->signer_name ?: ucfirst((string) $r->party_role));
+        }
+        if ($requiredKeys === []) {
+            return $result;
+        }
+
+        $sel = app(SelectionEditService::class);
+        $seen = [];
+        foreach ($changes as $c) {
+            $cid = is_array($c) ? ($c['change_id'] ?? null) : null;
+            if (! $cid || isset($seen[$cid])) {
+                continue;
+            }
+            $seen[$cid] = true;
+            foreach ($requiredKeys as $key => $name) {
+                if (! $sel->hasRowSlot($html, $cid, $key)) {
+                    continue; // this change carries no slot for this party (legacy pill change) — nothing owed
+                }
+                if (! $sel->rowSlotFilled($html, $cid, $key)) {
+                    $result['count']++;
+                    $result['by_party'][$key] = ($result['by_party'][$key] ?? 0) + 1;
+                    $result['names'][$key] = $name;
+                }
+            }
+        }
+        return $result;
+    }
+
+    /** Human message for an outstanding-initials count (empty string when nothing is owed). */
+    public function outstandingChangeInitialsMessage(SignatureTemplate $template, ?string $actingPartyKey = null): string
+    {
+        $o = $this->outstandingChangeInitials($template);
+        if ($o['count'] === 0) {
+            return '';
+        }
+        if ($actingPartyKey !== null && ! empty($o['by_party'][$actingPartyKey])) {
+            $mine = $o['by_party'][$actingPartyKey];
+            return "You still have {$mine} amendment initial" . ($mine === 1 ? '' : 's')
+                . " outstanding — initial each change before completing.";
+        }
+        $n = $o['count'];
+        $parties = implode(', ', array_values($o['names']));
+        return "{$n} amendment initial" . ($n === 1 ? '' : 's') . " still outstanding"
+            . ($parties !== '' ? " ({$parties})" : '')
+            . " — every change must be initialed by all parties before this document can be finalised.";
+    }
+
+    /** A doc the agent may re-edit under the wet-ink model — a returned or amendment-review state. */
+    public function isReEditState(SignatureTemplate $template): bool
+    {
+        return in_array($template->status, [
+            SignatureTemplate::STATUS_RETURNED_TO_CANDIDATE,
+            SignatureTemplate::STATUS_AMENDMENT_REVIEW,
+            // SYMMETRIC edit-upon-edit (Johan 2026-08-10) — the reviewing agent uses the SAME amend tool
+            // as recipients on the review page (edit replaces reject). So chain review is an editable state
+            // for the current reviewer; the controller still authorises the acting user, and the acting
+            // party can only edit while they hold the doc for review.
+            SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW,
+        ], true);
+    }
+
+    /**
+     * Human-legible summary of the changes the agent authored this cycle, for the return thread +
+     * notification. cc6-side facts only (struck clauses + agent-added conditions + whether field values
+     * were edited). The authoritative field diff is cc1's render; this is the running change log.
+     */
+    public function summariseChanges(SignatureTemplate $template): ?string
+    {
+        $parts = [];
+
+        $strikes = \App\Models\Docuperfect\DocumentClauseStrikethrough::query()
+            ->where('signature_template_id', $template->id)
+            ->whereIn('status', [
+                \App\Models\Docuperfect\DocumentClauseStrikethrough::STATUS_PROPOSED,
+                \App\Models\Docuperfect\DocumentClauseStrikethrough::STATUS_APPROVED,
+            ])
+            ->pluck('clause_ref')->filter()->unique()->values();
+        if ($strikes->isNotEmpty()) {
+            $parts[] = 'struck clause' . ($strikes->count() > 1 ? 's' : '') . ' ' . $strikes->implode(', ');
+        }
+
+        $conds = \App\Models\Docuperfect\DocumentCondition::query()
+            ->where('signature_template_id', $template->id)
+            ->whereNull('superseded_at')->whereNull('deleted_at')
+            ->whereIn('added_via', ['agent_preparation', 'agent_signing'])
+            ->count();
+        if ($conds > 0) {
+            $parts[] = $conds . ' condition' . ($conds > 1 ? 's' : '') . ' added/edited';
+        }
+
+        $wtd = $template->document?->web_template_data ?? [];
+        if (! empty($wtd['amendment_render'])) {
+            $parts[] = 'field values edited';
+        }
+
+        return $parts === [] ? null : implode('; ', $parts);
     }
 
     /**
@@ -1667,6 +3452,42 @@ class SignatureService
      */
     public function completeDocument(SignatureTemplate $template): void
     {
+        // WET-INK HARD GATE (backstop) — a document with amendments may NOT reach the terminal completed
+        // state while any required party still owes an initial. The completion/authorise endpoints pre-check
+        // and refuse cleanly; this throw guarantees no path (agent approve, external ceremony, crafted POST)
+        // can finalise unsigned amendments even if a pre-check is ever missed. At this point every party is
+        // required, so a non-zero count means a genuinely un-initialed change.
+        $outstanding = $this->outstandingChangeInitials($template);
+        if ($outstanding['count'] > 0) {
+            throw new \App\Exceptions\Docuperfect\ChangeInitialsOutstandingException(
+                $this->outstandingChangeInitialsMessage($template),
+                $outstanding['count'],
+            );
+        }
+
+        // Authoriser-parity completeness guard (candidate flows) — the bank-reject rule.
+        // Every candidate signature/initial mark must carry a FILLED authoriser mark at its
+        // OWN anchor. CandidateAuthoriserSurfaceInjector guarantees those surfaces at compose
+        // time and the mark-level bake fills them, so this should never trip; if the FINAL
+        // document nonetheless carries an unmirrored/unfilled candidate mark the document is
+        // incomplete and a bank/conveyancer rejects the whole thing — surface it LOUDLY (with
+        // the exact anchors) so it can never ship silently. Non-blocking: completion is the
+        // durable legal record and must not be lost; the alarm drives the fix.
+        if ($template->is_candidate_flow) {
+            $wtd = $template->document?->web_template_data ?? [];
+            $finalHtml = $wtd['canonical_html'] ?? $wtd['merged_html'] ?? '';
+            $violations = CandidateAuthoriserSurfaceInjector::unmirroredCandidateMarks($finalHtml);
+            if ($violations !== []) {
+                \Illuminate\Support\Facades\Log::error('AUTHORISER_PARITY_INCOMPLETE', [
+                    'signature_template_id' => $template->id,
+                    'document_id'           => $template->document_id,
+                    'unmirrored_marks'      => count($violations),
+                    'anchors'               => array_slice($violations, 0, 20),
+                    'note'                  => 'candidate signature/initial mark(s) lack a filled authoriser mark at their anchor — bank/conveyancer reject risk',
+                ]);
+            }
+        }
+
         // 1. Lock the document
         $template->update([
             'status' => SignatureTemplate::STATUS_COMPLETED,
@@ -1680,6 +3501,22 @@ class SignatureService
             'System',
             documentHash: $template->document_hash,
         );
+
+        // E-Sign P1 — seal the FINAL completed copy as a distinct terminal version
+        // (additive, passive, fail-open). Captures "the copy at completion" even when
+        // the last hop produced no new bake, and closes the hash chain for the document.
+        if ($template->document) {
+            app(\App\Services\Docuperfect\DocumentSealService::class)->seal(
+                $template->document,
+                \App\Services\Docuperfect\DocumentSealService::EVENT_COMPLETED,
+                [
+                    'template'   => $template,
+                    'actor_type' => SignatureAuditLog::ACTOR_SYSTEM,
+                    'actor_name' => 'System',
+                    'actor_role' => 'completion',
+                ]
+            );
+        }
 
         // Steps 2-6 run AFTER the completion commits. Completion (status +
         // audit above) is the legal record and must be durable on its own.
@@ -1725,14 +3562,20 @@ class SignatureService
                     ]);
                 }
 
-                // 3. Email signed copies — client to signers, internal to agent
-                $this->sendCompletionEmails($template, $pdfPaths);
-
-                // 4. Link document to contacts via pivot (FICA / compliance)
+                // 3. Link document to contacts via pivot (FICA / compliance)
                 $this->linkDocumentToContacts($template, $pdfPaths);
 
-                // 5. Auto-file signed document to Contact + Property Drive
-                $this->autoFileSignedDocument($template, $pdfPaths);
+                // 4. Auto-file signed document to Contact + Property Drive.
+                //
+                // HD-7 (§11-B) — THIS NOW RUNS BEFORE THE EMAIL, AND THAT REORDER *IS* THE FIX.
+                // Filing is what produces the per-document PDFs; emailing used to run first, so the
+                // only file that existed when the parties were written to was the one merged PDF of
+                // the whole pack. The ceremony was not CHOOSING to send a stapled document — it was
+                // sending the only thing that existed yet. File first, and the documents are there.
+                $signedDocuments = $this->autoFileSignedDocument($template, $pdfPaths);
+
+                // 5. Email signed copies — client to signers, internal to agent.
+                $this->sendCompletionEmails($template, $pdfPaths, $signedDocuments);
 
                 // 6. Extract lease data if this is a lease/rental document
                 if ($this->isLeaseDocument($template)) {
@@ -1803,12 +3646,17 @@ class SignatureService
      * Auto-file signed document to Contact Drive and Property Drive.
      * Creates ONE Document record, links to all signing contacts and property via pivots.
      */
-    private function autoFileSignedDocument(SignatureTemplate $template, ?array $pdfPaths): void
+    /**
+     * @return array<int,array{path:string,name:string,template_id:?int,is_signed_document:bool}>
+     *   HD-7 — the documents this actually FILED. It already wrote them; it simply threw the paths
+     *   away, which is why completion had nothing to attach but the merged PDF. Now it hands them back.
+     */
+    private function autoFileSignedDocument(SignatureTemplate $template, ?array $pdfPaths): array
     {
-        if (!$pdfPaths || empty($pdfPaths['client'])) return;
+        if (!$pdfPaths || empty($pdfPaths['client'])) return [];
 
         $document = $template->document;
-        if (!$document) return;
+        if (!$document) return [];
 
         $webTemplateData = $document->web_template_data ?? [];
         $templateIds = $webTemplateData['template_ids'] ?? [];
@@ -1827,16 +3675,19 @@ class SignatureService
 
         // Pack flow: split into individual documents per template
         if (count($templateIds) > 1 && $mergedHtml) {
-            $this->filePackDocuments($template, $document, $templateIds, $mergedHtml, $propertyId, $contactLinks, $pdfPaths);
-            return;
+            return $this->filePackDocuments($template, $document, $templateIds, $mergedHtml, $propertyId, $contactLinks, $pdfPaths);
         }
 
         // Single template: file one document using the merged PDF
-        $this->fileSingleDocument($template, $document, $pdfPaths['client'], $propertyId, $contactLinks);
+        $filed = $this->fileSingleDocument($template, $document, $pdfPaths['client'], $propertyId, $contactLinks);
+
+        return $filed ? [$filed] : [];
     }
 
     /**
      * File a single document (non-pack or single-template pack).
+     *
+     * @return array{path:string,name:string,template_id:?int,is_signed_document:bool}|null
      */
     private function fileSingleDocument(
         SignatureTemplate $template,
@@ -1844,10 +3695,10 @@ class SignatureService
         string $pdfPath,
         ?int $propertyId,
         array $contactLinks,
-    ): void {
+    ): ?array {
         // Avoid duplicate filings
         if (\App\Models\Document::where('storage_path', $pdfPath)->where('source_type', 'esign')->exists()) {
-            return;
+            return null;
         }
 
         $docTemplate = $document->template;
@@ -1866,7 +3717,7 @@ class SignatureService
                 'storage_path' => $pdfPath,
                 'recoverable'  => true,
             ]);
-            return;
+            return null;
         }
 
         $filedDoc = \App\Models\Document::create([
@@ -1891,11 +3742,21 @@ class SignatureService
             'property_id' => $propertyId,
             'contact_count' => count($contactLinks),
         ]);
+
+        return [
+            'path'               => $pdfPath,
+            'name'               => $docName,
+            'template_id'        => $docTemplate?->id,
+            'is_signed_document' => true,
+        ];
     }
 
     /**
      * File individual documents for each template in a web pack.
      * Splits the merged HTML, generates individual PDFs, creates one Document record per template.
+     */
+    /**
+     * @return array<int,array{path:string,name:string,template_id:?int,is_signed_document:bool}>
      */
     private function filePackDocuments(
         SignatureTemplate $template,
@@ -1905,7 +3766,9 @@ class SignatureService
         ?int $propertyId,
         array $contactLinks,
         array $pdfPaths,
-    ): void {
+    ): array {
+        $filed = [];
+
         $htmlFragments = $this->splitMergedHtml($mergedHtml, count($templateIds));
 
         if (count($htmlFragments) !== count($templateIds)) {
@@ -1915,8 +3778,9 @@ class SignatureService
                 'fragments' => count($htmlFragments),
                 'expected' => count($templateIds),
             ]);
-            $this->fileSingleDocument($template, $document, $pdfPaths['client'], $propertyId, $contactLinks);
-            return;
+            $single = $this->fileSingleDocument($template, $document, $pdfPaths['client'], $propertyId, $contactLinks);
+
+            return $single ? [$single] : [];
         }
 
         $signingController = app(\App\Http\Controllers\Docuperfect\SigningController::class);
@@ -2003,7 +3867,21 @@ class SignatureService
                 'contact_count' => count($contactLinks),
                 'pdf_size' => $fileSize,
             ]);
+
+            $filed[] = [
+                'path'               => $individualPdfPath,
+                'name'               => $docName,
+                'template_id'        => (int) $tplId,
+                // HD-7 §11-B — the EXPLICIT marker that this is a document the parties SIGNED, and
+                // therefore may be mailed back to all of them. It is not "true because everything in
+                // this array happens to be signed" — that is luck, and luck is one refactor away from
+                // mailing one party's FICA evidence to every other signer. Distribution filters on
+                // this flag, so a supporting attachment can never be swept into the loop by accident.
+                'is_signed_document' => true,
+            ];
         }
+
+        return $filed;
     }
 
     /**
@@ -2383,6 +4261,57 @@ class SignatureService
      * Expire all outstanding requests past their expiry date.
      * Returns the number of expired requests.
      */
+    /**
+     * Track C (HD-11) — transition ceremonies whose LEGAL deadline has passed to a recorded lapse.
+     *
+     * The pen is already stopped the instant the deadline passes (HD-10, computed isLapsed()). This
+     * is the RECORD of that fact: a nightly sweep that moves a past-deadline live ceremony to
+     * 'lapsed' — or 're_lapsed' if it had been revived and lapsed again — with an audit row, so the
+     * tracker shows "Lapsed" and the evidence timeline (HD-13) can attribute the delay. A lapse is a
+     * transition, never a silent expiry.
+     */
+    public function lapseExpiredCeremonies(): int
+    {
+        $lapsed = 0;
+
+        // Live, past-deadline, and not already recorded as lapsed. Terminal states are excluded — a
+        // past date means nothing once a ceremony is done.
+        $alreadyRecorded = [SignatureTemplate::STATUS_LAPSED, SignatureTemplate::STATUS_RE_LAPSED];
+        $skip = array_merge(SignatureTemplate::TERMINAL_STATUSES, $alreadyRecorded);
+
+        $candidates = SignatureTemplate::query()
+            ->whereNotNull('legal_deadline_at')
+            ->where('legal_deadline_at', '<', now())
+            ->whereNotIn('status', $skip)
+            ->get();
+
+        foreach ($candidates as $template) {
+            $wasRevived = $template->status === SignatureTemplate::STATUS_REVIVED;
+            $newStatus  = $wasRevived ? SignatureTemplate::STATUS_RE_LAPSED : SignatureTemplate::STATUS_LAPSED;
+            $fromStatus = $template->status;
+
+            $template->update(['status' => $newStatus]);
+
+            SignatureAuditLog::log(
+                $template,
+                'ceremony_lapsed',
+                SignatureAuditLog::ACTOR_SYSTEM,
+                'System',
+                metadata: [
+                    'from_status'       => $fromStatus,
+                    'to_status'         => $newStatus,
+                    'legal_deadline_at' => optional($template->legal_deadline_at)->toDateTimeString(),
+                    'deadline_source'   => $template->deadline_source,
+                ],
+                documentHash: $template->document_hash,
+            );
+
+            $lapsed++;
+        }
+
+        return $lapsed;
+    }
+
     public function expireOutstandingRequests(): int
     {
         $expired = 0;
@@ -2692,11 +4621,80 @@ class SignatureService
                     expiresAt: $request->token_expires_at,
                 ))->fromAgent($agent)
             );
+
+            // AT-294 — record the honest outcome: sent_at only now (after success),
+            // status 'sent', clear any prior failure.
+            $request->update([
+                'sent_at' => now(),
+                'invite_send_status' => 'sent',
+                'invite_send_error' => null,
+            ]);
         } catch (\Throwable $e) {
+            // AT-294 — surface the failure instead of swallowing it: the agent sees
+            // "Send failed — {reason}" on the document/party view and can Resend.
             Log::error('Failed to send signing request email', [
                 'request_id' => $request->id,
                 'signer_email' => $request->signer_email,
                 'error' => $e->getMessage(),
+            ]);
+            $request->update([
+                'invite_send_status' => 'failed',
+                'invite_send_error' => \Illuminate\Support\Str::limit($e->getMessage(), 480),
+            ]);
+        }
+    }
+
+    /**
+     * AT-294 — RESEND the signing INVITATION to one recipient.
+     * Re-delivers the SAME invitation with the SAME token (no regeneration/churn);
+     * sendSigningRequestEmail records the outcome on invite_send_status.
+     */
+    public function resendInvitationEmail(SignatureRequest $request): void
+    {
+        $this->sendSigningRequestEmail($request);
+    }
+
+    /**
+     * AT-294 — RESEND the completed signed-document email to one recipient.
+     * Re-sends the SAME stored client PDF (template->signed_pdf_client_path); records
+     * the outcome on completion_send_status. Never throws — the controller reads the
+     * refreshed status to tell the agent whether the resend went out.
+     */
+    public function resendCompletionEmail(SignatureRequest $request): void
+    {
+        $template = $request->template;
+        $template->loadMissing(['document', 'creator']);
+        $agent = $template->creator;
+        $documentName = $template->document->name ?? 'Document';
+        $progress = $template->partyProgress();
+
+        $disk = \Illuminate\Support\Facades\Storage::disk('local');
+        $clientRel = $template->signed_pdf_client_path;
+        $clientPdfPath = ($clientRel && $disk->exists($clientRel)) ? $disk->path($clientRel) : null;
+        $pdfFilename = "Signed - {$documentName}.pdf";
+
+        try {
+            $mail = (new SignedDocumentMail(
+                recipientName: $request->signer_name,
+                documentName: $documentName,
+                envelopeUrl: null,
+                progress: $progress,
+                pdfPath: $clientPdfPath,
+                pdfFilename: $clientPdfPath ? $pdfFilename : null,
+                documents: $clientPdfPath ? [['path' => $clientPdfPath, 'name' => $pdfFilename]] : [],
+            ))->fromAgent($agent);
+
+            Mail::to($request->signer_email)->send($mail);
+            $request->update(['completion_send_status' => 'sent', 'completion_send_error' => null]);
+        } catch (\Throwable $e) {
+            Log::error('Failed to resend completion email', [
+                'request_id' => $request->id,
+                'signer_email' => $request->signer_email,
+                'error' => $e->getMessage(),
+            ]);
+            $request->update([
+                'completion_send_status' => 'failed',
+                'completion_send_error' => \Illuminate\Support\Str::limit($e->getMessage(), 480),
             ]);
         }
     }
@@ -2706,6 +4704,13 @@ class SignatureService
      */
     public function sendReminderEmail(SignatureRequest $request): void
     {
+        // AT-294 — a reminder to an email-less party would hit Mail::to('') and
+        // be swallowed; skip cleanly (the party is parked deferred until an
+        // email is added — nothing to remind yet).
+        if (trim((string) $request->signer_email) === '') {
+            Log::warning('Reminder skipped — recipient has no email', ['request_id' => $request->id]);
+            return;
+        }
         try {
             $request->loadMissing(['template.document', 'template.creator']);
             $template = $request->template;
@@ -2735,6 +4740,11 @@ class SignatureService
      */
     private function sendManualReminderEmail(SignatureRequest $request): void
     {
+        // AT-294 — see sendReminderEmail: skip an email-less party cleanly.
+        if (trim((string) $request->signer_email) === '') {
+            Log::warning('Manual reminder skipped — recipient has no email', ['request_id' => $request->id]);
+            return;
+        }
         try {
             $request->loadMissing(['template.document', 'template.creator']);
             $template = $request->template;
@@ -2794,6 +4804,35 @@ class SignatureService
     public function notifyWetInkUploaded(SignatureRequest $request): void
     {
         $this->sendWetInkUploadedNotification($request);
+    }
+
+    /**
+     * Notify the agent that a recipient uploaded optional supporting documents.
+     * In-app only, failure-isolated — an upload must never fail on the nudge.
+     */
+    public function notifySupportingDocumentsUploaded(SignatureRequest $request, int $fileCount): void
+    {
+        try {
+            $request->loadMissing(['template.document', 'template.creator']);
+            $template = $request->template;
+            $agent = $template?->creator;
+
+            if (! $agent || ! $template->document) {
+                return;
+            }
+
+            $documentName = $template->document->name ?? 'Document';
+            $inspectUrl = url("/docuperfect/documents/{$template->document_id}/signatures/inspect/{$request->id}");
+
+            $agent->notify(SignatureActivityNotification::supportingDocumentsUploaded(
+                $request->signer_name, $documentName, $template->document_id, $fileCount, $inspectUrl,
+            ));
+        } catch (\Throwable $e) {
+            Log::error('Failed to send supporting-documents uploaded notification', [
+                'request_id' => $request->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
@@ -2861,7 +4900,12 @@ class SignatureService
     /**
      * Send completion emails to all signers + the agent, with signed PDF attached.
      */
-    private function sendCompletionEmails(SignatureTemplate $template, ?array $pdfPaths = null): void
+    /**
+     * @param  array<int,array{path:string,name:string,template_id:?int,is_signed_document:bool}>  $signedDocuments
+     *   HD-7 (§11-B) — what `autoFileSignedDocument()` actually filed, which now runs FIRST. A pack
+     *   signed as one ceremony is distributed as the many documents it really is.
+     */
+    private function sendCompletionEmails(SignatureTemplate $template, ?array $pdfPaths = null, array $signedDocuments = []): void
     {
         try {
             $template->loadMissing(['document', 'creator', 'requests']);
@@ -2878,20 +4922,65 @@ class SignatureService
             $clientPdfPath = ($pdfPaths && !empty($pdfPaths['client']) && $disk->exists($pdfPaths['client']))
                 ? $disk->path($pdfPaths['client']) : null;
 
-            // Internal copy — for agent (with audit trail)
-            $internalPdfPath = ($pdfPaths && !empty($pdfPaths['internal']) && $disk->exists($pdfPaths['internal']))
-                ? $disk->path($pdfPaths['internal']) : null;
-
             $pdfFilename = "Signed - {$documentName}.pdf";
 
-            // Email external signers only — attach client copy (no audit trail)
+            // HD-7 — the attachment set: every document the parties SIGNED, each under its own name.
+            //
+            // The filter on `is_signed_document` is deliberate and load-bearing (§11-B). A pack holds
+            // supporting ATTACHMENT slots as well as signed documents — a party's FICA evidence, an ID
+            // copy. Those are attached to the ceremony; they are not products of it, and mailing them
+            // to every other signer would be a POPIA breach delivered by the system itself. Excluding
+            // them because "they don't happen to be in this array" is luck. This is the explicit
+            // refusal, and it survives whatever anyone later files.
+            $attachments = [];
+            foreach ($signedDocuments as $doc) {
+                if (($doc['is_signed_document'] ?? false) !== true) {
+                    continue; // Not a signed product of this ceremony — it is never distributed.
+                }
+                if (empty($doc['path']) || ! $disk->exists($doc['path'])) {
+                    continue; // A missing file never blocks a completed signing's delivery.
+                }
+
+                $attachments[] = [
+                    'path' => $disk->path($doc['path']),
+                    'name' => $doc['name'] ?? $pdfFilename,
+                ];
+            }
+
+            // Fallback — a single-template signing, or a pack whose split failed and was filed merged.
+            // One document IS the honest answer there; this is not a degraded path.
+            if (empty($attachments) && $clientPdfPath) {
+                $attachments = [['path' => $clientPdfPath, 'name' => $pdfFilename]];
+            }
+
+            // Email external signers only — attach client copies (no audit trail)
+            //
+            // #10b — DEDUP by email. One person can hold MORE THAN ONE completed request on the same
+            // ceremony (e.g. an authoriser who signs both `supervisor` and `supervisor_final`, or a
+            // party who is also an authoriser). Emailing per-request sent them the signed copy twice.
+            // Send once per distinct address; mark the duplicate request 'sent' (they received it)
+            // without a second delivery.
+            $emailedTo = [];
             foreach ($template->requests as $request) {
                 if ($request->status !== SignatureRequest::STATUS_COMPLETED) {
                     continue;
                 }
-                // Skip agent — agents get in-app notification only
-                if ($request->party_role === 'agent') {
+                // Skip agent (in-app notification only) and the AUTHORISER (supervisor /
+                // supervisor_final) — the authoriser is not a document recipient and must not
+                // receive the final completion copy (Bug #11). The real recipients are the
+                // seller/buyer/lessor/lessee parties; the candidate/creator is reached in-app
+                // via $template->creator below, never through this per-request loop.
+                if (in_array($request->party_role, ['agent', 'supervisor', 'supervisor_final'], true)) {
                     continue;
+                }
+
+                $emailKey = strtolower(trim((string) $request->signer_email));
+                if ($emailKey !== '' && isset($emailedTo[$emailKey])) {
+                    $request->update(['completion_send_status' => 'sent', 'completion_send_error' => null]);
+                    continue;
+                }
+                if ($emailKey !== '') {
+                    $emailedTo[$emailKey] = true;
                 }
 
                 $mail = (new SignedDocumentMail(
@@ -2901,23 +4990,64 @@ class SignatureService
                     progress: $progress,
                     pdfPath: $clientPdfPath,
                     pdfFilename: $clientPdfPath ? $pdfFilename : null,
+                    documents: $attachments,
                 ))->fromAgent($agent);
 
-                Mail::to($request->signer_email)->send($mail);
+                // AT-294 — per-recipient try/catch: a single failed send records
+                // 'failed' + reason on THAT recipient and moves on; it never aborts
+                // the remaining recipients (the whole loop used to sit under one
+                // catch, so the first failure silently dropped everyone after it).
+                try {
+                    Mail::to($request->signer_email)->send($mail);
+                    $request->update(['completion_send_status' => 'sent', 'completion_send_error' => null]);
+                } catch (\Throwable $e) {
+                    Log::error('Failed to send completion email to recipient', [
+                        'request_id' => $request->id,
+                        'signer_email' => $request->signer_email,
+                        'error' => $e->getMessage(),
+                    ]);
+                    $request->update([
+                        'completion_send_status' => 'failed',
+                        'completion_send_error' => \Illuminate\Support\Str::limit($e->getMessage(), 480),
+                    ]);
+                    continue;
+                }
 
-                SignatureAuditLog::log(
-                    $template,
-                    SignatureAuditLog::ACTION_SIGNED_PDF_EMAILED,
-                    SignatureAuditLog::ACTOR_SYSTEM,
-                    'System',
-                    metadata: [
-                        'recipient_role' => $request->party_role,
-                        'recipient_name' => $request->signer_name,
-                        'recipient_email' => $request->signer_email,
-                        'pdf_attached' => $clientPdfPath !== null,
-                        'pdf_version' => 'client',
-                    ],
-                );
+                // HD-7 — one audit row PER DOCUMENT per recipient, so the evidence timeline can answer
+                // "was the Disclosure sent to the purchaser?" and not merely "was something sent?".
+                if (empty($attachments)) {
+                    SignatureAuditLog::log(
+                        $template,
+                        SignatureAuditLog::ACTION_SIGNED_PDF_EMAILED,
+                        SignatureAuditLog::ACTOR_SYSTEM,
+                        'System',
+                        metadata: [
+                            'recipient_role'  => $request->party_role,
+                            'recipient_name'  => $request->signer_name,
+                            'recipient_email' => $request->signer_email,
+                            'pdf_attached'    => false,
+                            'pdf_version'     => 'client',
+                        ],
+                    );
+                    continue;
+                }
+
+                foreach ($attachments as $attachment) {
+                    SignatureAuditLog::log(
+                        $template,
+                        SignatureAuditLog::ACTION_SIGNED_PDF_EMAILED,
+                        SignatureAuditLog::ACTOR_SYSTEM,
+                        'System',
+                        metadata: [
+                            'recipient_role'  => $request->party_role,
+                            'recipient_name'  => $request->signer_name,
+                            'recipient_email' => $request->signer_email,
+                            'pdf_attached'    => true,
+                            'pdf_version'     => 'client',
+                            'document_name'   => $attachment['name'],
+                        ],
+                    );
+                }
             }
 
             // In-app notification to agent — no email
@@ -3076,14 +5206,19 @@ class SignatureService
                 // Send notification email
                 try {
                     $signingUrl = route('signatures.external.amendment-review', $resignToken);
+                    // AT-291 ITEMS 1+2 — stamp the acting agent so the
+                    // amendment re-send carries the agent From (subject to the
+                    // company-domain SPF/DKIM rule) and the agent Reply-To,
+                    // matching every other send site. Without ->fromAgent()
+                    // both headers collapse to the system default.
                     Mail::to($previousRequest->signer_email)->send(
-                        new SigningRequestMail(
+                        (new SigningRequestMail(
                             signerName: $previousRequest->signer_name,
                             documentName: $template->document->name ?? 'Document',
                             signingUrl: $signingUrl,
                             personalMessage: "{$amendingRequest->signer_name} has added conditions to this document. Please review and initial each amendment to continue.",
                             expiresAt: $previousRequest->token_expires_at,
-                        )
+                        ))->fromAgent($template->creator)
                     );
 
                     SignatureAuditLog::log(
@@ -3109,6 +5244,183 @@ class SignatureService
 
             // Also notify the agent
             $this->sendAgentAmendmentNotification($template, $amendment, $amendingRequest);
+        });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // AT-303 — MDF disclosure-MARK amendment routing (Stages 2/3).
+    //
+    // Self-contained and GUARDED: these methods are called ONLY for mark
+    // amendments (DocumentAmendment section_reference === 'Disclosure') from the
+    // mark endpoints. They deliberately do NOT touch the text-condition /
+    // clause-flag cascade (checkInitialingCascadeComplete / checkAmendmentResolution),
+    // so no other ceremony's behaviour changes. Counter-initials are tracked per
+    // AmendmentAcceptance (keyed by signature_request_id), so joint co-owners are
+    // attributed individually and never collapse to one required initial.
+    // ─────────────────────────────────────────────────────────────────────
+
+    /** Re-open a signing request with a fresh token, PENDING, and an email. */
+    public function reactivateRequestForMark(
+        SignatureRequest $request,
+        SignatureTemplate $template,
+        string $personalMessage
+    ): void {
+        $token = $this->generateToken();
+        $request->update([
+            'token' => $token,
+            'token_expires_at' => now()->addDays(14),
+            'status' => SignatureRequest::STATUS_PENDING,
+        ]);
+        try {
+            $url = route('signatures.external', $token);
+            Mail::to($request->signer_email)->send(
+                (new SigningRequestMail(
+                    signerName: $request->signer_name,
+                    documentName: $template->document->name ?? 'Document',
+                    signingUrl: $url,
+                    personalMessage: $personalMessage,
+                    expiresAt: $request->token_expires_at,
+                ))->fromAgent($template->creator)
+            );
+        } catch (\Throwable $e) {
+            Log::error('AT-303 mark reactivation email failed', [
+                'request_id' => $request->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * An earlier signer COUNTER-INITIALS a mark amendment (agrees). Ratifies
+     * only once EVERY affected party (by identity) has counter-initialled.
+     */
+    public function markAmendmentAccept(
+        DocumentAmendment $amendment,
+        SignatureRequest $signerRequest,
+        ?string $initialImage
+    ): void {
+        DB::transaction(function () use ($amendment, $signerRequest, $initialImage) {
+            $acceptance = AmendmentAcceptance::firstOrCreate(
+                ['amendment_id' => $amendment->id, 'signature_request_id' => $signerRequest->id],
+                ['accepted' => false, 'rejected' => false],
+            );
+            $acceptance->update(['accepted' => true, 'rejected' => false, 'initial_image' => $initialImage]);
+
+            SignatureAuditLog::log(
+                $amendment->template,
+                'disclosure_mark_counter_initialled',
+                SignatureAuditLog::ACTOR_SIGNER,
+                $signerRequest->signer_name ?? 'Unknown',
+                metadata: ['amendment_id' => $amendment->id, 'signature_request_id' => $signerRequest->id],
+            );
+
+            if ($amendment->fresh()->isFullyAccepted()) {
+                $this->ratifyMarkAmendment($amendment);
+            }
+        });
+    }
+
+    /**
+     * All affected parties have counter-initialled — the amended mark STANDS.
+     * The new value becomes the document truth and re-locks the snapshot; the
+     * proposer is routed back to complete their signature on the settled doc.
+     */
+    private function ratifyMarkAmendment(DocumentAmendment $amendment): void
+    {
+        $template = $amendment->template;
+        $document = $template->document;
+        $amendment->update(['status' => DocumentAmendment::STATUS_ACCEPTED]);
+
+        $key = $amendment->flag_clause_ref;
+        $webData = $document->web_template_data ?? [];
+        $marks = $webData['disclosure_mark_amendments'] ?? [];
+        if ($key !== null && isset($marks[$key]['new'])) {
+            $webData['disclosure_answers'][$key] = $marks[$key]['new'];
+            if (isset($webData['disclosure_lock']['answers']) && is_array($webData['disclosure_lock']['answers'])) {
+                $webData['disclosure_lock']['answers'][$key] = $marks[$key]['new'];
+            }
+            $marks[$key]['status'] = 'ratified';
+            $webData['disclosure_mark_amendments'] = $marks;
+            $document->update(['web_template_data' => $webData]);
+        }
+
+        // Restore every earlier signer who counter-initialled to COMPLETED
+        // (their original signature stands) — but NOT the proposer.
+        $acceptedIds = $amendment->acceptances()->where('accepted', true)->pluck('signature_request_id');
+        $template->requests()
+            ->whereIn('id', $acceptedIds)
+            ->where('id', '!=', $amendment->amended_by_request_id)
+            ->where('status', SignatureRequest::STATUS_PENDING)
+            ->update(['status' => SignatureRequest::STATUS_COMPLETED]);
+
+        // Hand back to the proposer to finish signing the now-settled document.
+        $proposer = $amendment->amendedByRequest;
+        if ($proposer) {
+            $this->reactivateRequestForMark(
+                $proposer,
+                $template,
+                'The disclosure change you proposed was agreed. Please return to your signing link to complete your signature.',
+            );
+        }
+        $template->update(['status' => SignatureTemplate::STATUS_SIGNING]);
+    }
+
+    /**
+     * An earlier signer DECLINES a mark amendment. Johan's rule: no ping-pong,
+     * no auto-void — the amendment REVERTS to the original mark (which stands)
+     * and routes BACK to the proposer, who accepts-and-signs the original or
+     * proposes a different change (agreed offline). No automated negotiation.
+     */
+    public function markAmendmentDecline(
+        DocumentAmendment $amendment,
+        SignatureRequest $signerRequest,
+        string $reason
+    ): void {
+        DB::transaction(function () use ($amendment, $signerRequest, $reason) {
+            $acceptance = AmendmentAcceptance::firstOrCreate(
+                ['amendment_id' => $amendment->id, 'signature_request_id' => $signerRequest->id],
+                ['accepted' => false, 'rejected' => false],
+            );
+            $acceptance->update(['accepted' => false, 'rejected' => true, 'rejection_reason' => $reason]);
+            $amendment->update(['status' => DocumentAmendment::STATUS_REJECTED]);
+
+            $template = $amendment->template;
+            $document = $template->document;
+            $webData = $document->web_template_data ?? [];
+            $key = $amendment->flag_clause_ref;
+            if ($key !== null && isset($webData['disclosure_mark_amendments'][$key])) {
+                $webData['disclosure_mark_amendments'][$key]['status'] = 'reverted';
+                $webData['disclosure_mark_amendments'][$key]['reverted_reason'] = $reason;
+                // The original answer is untouched in disclosure_answers — it stands.
+                $document->update(['web_template_data' => $webData]);
+            }
+
+            SignatureAuditLog::log(
+                $template,
+                'disclosure_mark_amendment_declined',
+                SignatureAuditLog::ACTOR_SIGNER,
+                $signerRequest->signer_name ?? 'Unknown',
+                metadata: ['amendment_id' => $amendment->id, 'signature_request_id' => $signerRequest->id, 'reason' => $reason],
+            );
+
+            // Restore every reopened earlier signer to COMPLETED (originals stand).
+            $reopenedIds = $amendment->acceptances()->pluck('signature_request_id');
+            $template->requests()
+                ->whereIn('id', $reopenedIds)
+                ->where('id', '!=', $amendment->amended_by_request_id)
+                ->where('status', SignatureRequest::STATUS_PENDING)
+                ->update(['status' => SignatureRequest::STATUS_COMPLETED]);
+
+            // Back to the proposer.
+            $proposer = $amendment->amendedByRequest;
+            if ($proposer) {
+                $this->reactivateRequestForMark(
+                    $proposer,
+                    $template,
+                    'Your proposed disclosure change was declined, so the original answer stands. Please return to your signing link to accept it and sign, or propose a different change you have agreed with the other party.',
+                );
+            }
+            $template->update(['status' => SignatureTemplate::STATUS_SIGNING]);
         });
     }
 
@@ -3177,14 +5489,28 @@ class SignatureService
                 // view we render server-side from the same surface.
                 try {
                     $url = route('signatures.external.amendment-review', $initialingToken);
+                    // Step 2 (Johan) — "new condition" email variant. When the
+                    // approved amendment is an ADDED CONDITION (the KICKER: a
+                    // party added a condition mid-signing, the agent approved
+                    // it), tell the re-engaged party plainly that a NEW CONDITION
+                    // needs their initial — not a generic "a change was made".
+                    // Their captured signature is untouched; this is initial-only.
+                    $isNewCondition = ($amendment->amendment_type ?? null) === DocumentAmendment::TYPE_ADDITION;
+                    $personalMessage = $isNewCondition
+                        ? 'A new condition was added to this document and approved by the agent. Please initial the new condition to confirm — your original signature stays in place.'
+                        : 'A change to this document was approved. Please initial the changed sections to confirm — your original signature stays in place.';
+                    // AT-291 ITEMS 1+2 — stamp the acting agent (From +
+                    // Reply-To) on the initialing re-send, matching every
+                    // other send site; without it both headers fall back to
+                    // the system default.
                     Mail::to($previousRequest->signer_email)->send(
-                        new SigningRequestMail(
+                        (new SigningRequestMail(
                             signerName:      $previousRequest->signer_name,
                             documentName:    $template->document->name ?? 'Document',
                             signingUrl:      $url,
-                            personalMessage: 'A change to this document was approved. Please initial the changed sections to confirm — your original signature stays in place.',
+                            personalMessage: $personalMessage,
                             expiresAt:       $previousRequest->token_expires_at,
-                        )
+                        ))->fromAgent($template->creator)
                     );
                 } catch (\Throwable $e) {
                     Log::warning('Initialing cascade — mail send failed', [
@@ -3525,6 +5851,19 @@ class SignatureService
                 ];
             });
 
+            // Attribution: prefer the direct amended_by_request link; a recipient-added Other Condition
+            // (Issue C / P2) leaves that null — the author is on the backing DocumentCondition
+            // (added_by_party_id → the signing request), so resolve it there rather than show "Unknown".
+            $author = $amendment->amendedByRequest;
+            if (! $author) {
+                $condition = \App\Models\Docuperfect\DocumentCondition::where('amendment_id', $amendment->id)
+                    ->whereNotNull('added_by_party_id')
+                    ->latest('id')->first();
+                if ($condition && $condition->added_by_party_id) {
+                    $author = \App\Models\Docuperfect\SignatureRequest::find($condition->added_by_party_id);
+                }
+            }
+
             return [
                 'id' => $amendment->id,
                 'type' => $amendment->amendment_type,
@@ -3532,8 +5871,8 @@ class SignatureService
                 'original_text' => $amendment->original_text,
                 'new_text' => $amendment->new_text,
                 'status' => $amendment->status,
-                'amended_by' => $amendment->amendedByRequest->signer_name ?? 'Unknown',
-                'amended_by_role' => $amendment->amendedByRequest->party_role ?? '',
+                'amended_by' => $author->signer_name ?? 'Unknown',
+                'amended_by_role' => $author->party_role ?? '',
                 'version_before' => $amendment->document_version_before,
                 'version_after' => $amendment->document_version_after,
                 'created_at' => $amendment->created_at?->format('Y-m-d H:i'),

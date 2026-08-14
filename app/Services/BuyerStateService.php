@@ -10,6 +10,9 @@ use Illuminate\Support\Carbon;
 
 class BuyerStateService
 {
+    /** Terminal "converted" state — set when a buyer is linked to a property (Johan 2026-08-13). */
+    public const WON = 'won';
+
     /**
      * Resolve the current buyer state based on last_activity_at and agency thresholds.
      */
@@ -213,6 +216,13 @@ class BuyerStateService
      */
     public function recomputeState(Contact $contact): void
     {
+        // 'won' is a TERMINAL state (Johan 2026-08-13) — a converted buyer must never be decayed
+        // back to warm/cold/lost by the nightly recompute. resolveState() only ever yields
+        // new/warm/cold/lost, so without this short-circuit the cron would clobber the win.
+        if ($contact->buyer_state === self::WON) {
+            return;
+        }
+
         if ($this->isManualPlacementProtected($contact)) {
             return;
         }
@@ -221,6 +231,35 @@ class BuyerStateService
         if ($newState && $newState !== $contact->buyer_state) {
             $this->transitionTo($contact, $newState, 'auto_recompute');
         }
+    }
+
+    /**
+     * Buyer WON (Johan 2026-08-13) — the buyer converted (linked to / bought a property). Mark the
+     * buyer_state 'won' (terminal) and ensure they are ON the pipeline so they surface in the
+     * success section. Idempotent: a buyer already 'won' is left alone. Mirrors landOnPipeline()'s
+     * is_buyer / pipeline-entry stamping, then transitions unconditionally (a win beats any prior
+     * state — new/warm/cold/lost). Reason 'property_linked' is audited in buyer_state_transitions.
+     */
+    public function markWon(Contact $contact, ?int $userId = null, string $reason = 'property_linked'): bool
+    {
+        if ($contact->buyer_state === self::WON) {
+            return false;
+        }
+
+        $updates = [];
+        if (! $contact->is_buyer) {
+            $updates['is_buyer'] = true;
+        }
+        if (! $contact->buyer_pipeline_entered_at) {
+            $updates['buyer_pipeline_entered_at'] = now();
+        }
+        if ($updates) {
+            $contact->updateQuietly($updates);
+            $contact->refresh();
+        }
+
+        $this->transitionTo($contact, self::WON, $reason, $userId);
+        return true;
     }
 
     /**

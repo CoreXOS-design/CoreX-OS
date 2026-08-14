@@ -1284,10 +1284,25 @@ class CalendarController extends Controller
             foreach ($data['feedback'] as $row) {
                 $contactId = $row['contact_id'];
                 $contact = \App\Models\Contact::withoutGlobalScopes()->find($contactId);
-                if ($contact && $contact->is_buyer) {
+                // AT-253 (STANDARDS Rule 17) — buyer_activity_logs.agency_id is NOT NULL, and the
+                // old `?? 1` filed this viewing feedback into AGENCY 1's buyer history whenever
+                // the event carried no tenant. Derive it from the domain: the EVENT owns the
+                // feedback, and failing that the CONTACT the feedback is about. With neither
+                // there is nothing honest to write, so the row is SKIPPED and logged rather than
+                // invented — an audit entry under the wrong tenant is worse than a missing one.
+                $logAgencyId = $calendarEvent->agency_id ?: ($contact->agency_id ?? null);
+
+                if ($contact && $contact->is_buyer && ! $logAgencyId) {
+                    \Log::warning('AT-253 buyer-activity (viewing feedback) skipped: no agency to derive from', [
+                        'calendar_event_id' => $calendarEvent->id,
+                        'contact_id'        => $contactId,
+                    ]);
+                }
+
+                if ($contact && $contact->is_buyer && $logAgencyId) {
                     \App\Models\BuyerActivityLog::create([
                         'contact_id' => $contactId,
-                        'agency_id' => $calendarEvent->agency_id ?? 1,
+                        'agency_id' => $logAgencyId,
                         'activity_type' => 'feedback_captured',
                         'activity_date' => now(),
                         'related_event_id' => $calendarEvent->id,
@@ -1373,10 +1388,11 @@ class CalendarController extends Controller
                             || !$property->agent) {
                             continue;
                         }
-                        $addr = $property->address;
-                        if (blank($addr)) {
-                            $addr = trim(trim(($property->street_number ?? '') . ' ' . ($property->street_name ?? '')) . ', ' . ($property->suburb ?? ''), ' ,');
-                        }
+                        // AT-266 — canonical display address; buildDisplayAddress already
+                        // falls back to title, so no inline street/suburb re-compose.
+                        $addr = trim((string) $property->address) !== ''
+                            ? $property->address
+                            : $property->buildDisplayAddress();
                         $addr = $addr ?: ($property->title ?: ('Property #' . $property->id));
                         $buyer = $buyerByProperty[$pid] ?? null;
                         $dispatcher->fire(
@@ -1796,6 +1812,25 @@ class CalendarController extends Controller
 
     public function complete(Request $request, CalendarEvent $calendarEvent)
     {
+        // AT-335 — recurring scope: "this" completes only the clicked occurrence
+        // (an exception child, series untouched); "all" completes the whole
+        // series (today's previous behaviour, now reachable only as an explicit
+        // choice). No "future" — pre-emptively marking unoccurred events done
+        // is not a real intent the way rescheduling/removing a future block is.
+        $scope = $request->input('recur_scope');
+        $occ   = $request->input('occurrence_date');
+        if ($calendarEvent->is_recurring && in_array($scope, ['this', 'all'], true)) {
+            $svc = app(\App\Services\CommandCenter\Calendar\RecurrenceEditService::class);
+            if ($scope === 'this' && $occ) {
+                $svc->completeOccurrence($calendarEvent, $occ, $request->user());
+            } else {
+                $svc->completeAll($calendarEvent);
+            }
+            return $request->wantsJson()
+                ? response()->json(['ok' => true])
+                : back()->with('success', 'Event completed.');
+        }
+
         // Deal step bridge: if this calendar event is linked to a DealStepInstance,
         // complete the deal step instead (observer will cascade to calendar event)
         if ($calendarEvent->source_type === \App\Models\DealV2\DealStepInstance::class && $calendarEvent->source_id) {
@@ -1829,8 +1864,24 @@ class CalendarController extends Controller
             : back()->with('success', 'Event completed.');
     }
 
-    public function dismiss(CalendarEvent $calendarEvent)
+    public function dismiss(Request $request, CalendarEvent $calendarEvent)
     {
+        // AT-335 — same this/all recurring-scope gate as complete() above; dismiss
+        // shares the identical gap (no scope prompt) and the identical fix shape.
+        $scope = $request->input('recur_scope');
+        $occ   = $request->input('occurrence_date');
+        if ($calendarEvent->is_recurring && in_array($scope, ['this', 'all'], true)) {
+            $svc = app(\App\Services\CommandCenter\Calendar\RecurrenceEditService::class);
+            if ($scope === 'this' && $occ) {
+                $svc->dismissOccurrence($calendarEvent, $occ, $request->user());
+            } else {
+                $svc->dismissAll($calendarEvent);
+            }
+            return $request->wantsJson()
+                ? response()->json(['ok' => true])
+                : back()->with('success', 'Event dismissed.');
+        }
+
         $calendarEvent->markDismissed();
         return back()->with('success', 'Event dismissed.');
     }
@@ -2250,28 +2301,16 @@ class CalendarController extends Controller
             }
         }
 
-        // Conflict markers: mark events that overlap another appointment-type event for this user.
-        // Single sweep — no additional queries.
-        // Markers/reminders (occupies_time=false) never count as conflicts —
-        // reads the explicit flag (decoupled from actor_role). A category with no
-        // settings row is treated as an appointment (unchanged behaviour).
-        $nonOccupyingClasses = CalendarEventClassSetting::withoutGlobalScopes()
-            ->where('occupies_time', false)->pluck('event_class')->toArray();
-        $appointments = $result->filter(fn($e) => !in_array($e->category, $nonOccupyingClasses))
-            ->sortBy('event_date')->values();
-        $conflictIds = [];
-        for ($i = 0; $i < $appointments->count(); $i++) {
-            for ($j = $i + 1; $j < $appointments->count(); $j++) {
-                $a = $appointments[$i];
-                $b = $appointments[$j];
-                if ($b->event_date < ($a->end_date ?? $a->event_date)) {
-                    $conflictIds[$a->id] = true;
-                    $conflictIds[$b->id] = true;
-                } else {
-                    break; // sorted, no further overlaps for $i
-                }
-            }
-        }
+        // AT-335 — the $event->has_conflict sweep that used to live here was removed:
+        // it never checked status (would have flagged completed/dismissed events as
+        // conflicting, same bug as the lane-packing fix elsewhere in this ticket) AND
+        // was dead — nothing read $event->has_conflict anywhere in the app. The real,
+        // live conflict badges (self-conflict warning, attendee badge, invitations
+        // banner) all go through ConflictDetectionService::checkUserConflicts(), which
+        // already excludes completed/dismissed correctly. If a grid-level conflict
+        // badge is wanted later, wire it to that service rather than reintroducing a
+        // second, independent detector here.
+
         // Unacknowledged decline markers (batch lookup)
         $unackDeclines = [];
         if (!empty($eventIds)) {
@@ -2286,7 +2325,6 @@ class CalendarController extends Controller
         }
 
         foreach ($result as $event) {
-            $event->has_conflict = isset($conflictIds[$event->id]);
             $event->has_unack_decline = isset($unackDeclines[$event->id]);
             $event->unack_decline_count = $unackDeclines[$event->id] ?? 0;
             // AT-164 Gate 6 — authoritative layer classification, computed ONCE at the
@@ -2609,7 +2647,9 @@ class CalendarController extends Controller
             return response()->json([]);
         }
 
-        $agencyId = $user->agency_id ?: 1;
+        // AT-253 (STANDARDS Rule 17) — same leak, on a silent JSON endpoint: a null-agency user
+        // was served agency 1's contacts. Sentinel 0 → no tenant, no results.
+        $agencyId = (int) ($user->agency_id ?: 0);
 
         // Search contacts — AT-131 canonical (all identifiers via child tables +
         // relevance + newest-first). 'type'=>'contact' is the attendee KIND

@@ -266,6 +266,45 @@
                             </div>
                         </div>
 
+                        {{-- AT-229 — per-step supplier work orders. A step can trigger SEVERAL
+                             (e.g. a "Certificates of Compliance" step → Electrical + Gas + Beetle +
+                             Plumbing), each its own service + timing. Repeatable list; the supplier
+                             is still picked/captured at send time, per entry. --}}
+                        <div class="rounded-md p-3 mb-4" style="background: var(--surface-2); border: 1px solid var(--border);">
+                            <div class="flex items-center justify-between">
+                                <span class="text-sm font-medium" style="color: var(--text-secondary);">Supplier work orders on this step</span>
+                                <button type="button" @click="editForm.work_orders = (editForm.work_orders || []); editForm.work_orders.push({ service_type: '', trigger_point: 'activated' })"
+                                        class="text-xs px-2 py-1 rounded" style="background: var(--surface); border: 1px solid var(--border); color: #0f766e;">+ Add work order</button>
+                            </div>
+                            <p x-show="!editForm.work_orders || editForm.work_orders.length === 0" class="text-xs mt-2" style="color: var(--text-muted);">None — this step offers no work order. Add one per certificate the step triggers.</p>
+                            <template x-for="(wo, i) in (editForm.work_orders || [])" :key="i">
+                                <div class="flex items-end gap-2 mt-3">
+                                    <div class="flex-1">
+                                        <label class="block text-xs mb-1" style="color: var(--text-muted);">Service type</label>
+                                        <select x-model="wo.service_type" class="w-full rounded-md text-sm px-2 py-1.5 focus:outline-none"
+                                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                            <option value="">— select —</option>
+                                            {{-- AT-229 — agency-configurable list (Settings → COC / Service Types). --}}
+                                            @foreach($serviceTypes as $st)
+                                            <option value="{{ $st['code'] }}">{{ $st['label'] }}</option>
+                                            @endforeach
+                                        </select>
+                                    </div>
+                                    <div class="flex-1">
+                                        <label class="block text-xs mb-1" style="color: var(--text-muted);">Offer when step is</label>
+                                        <select x-model="wo.trigger_point" class="w-full rounded-md text-sm px-2 py-1.5 focus:outline-none"
+                                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                            <option value="activated">Activated</option>
+                                            <option value="completed">Completed</option>
+                                        </select>
+                                    </div>
+                                    <button type="button" @click="editForm.work_orders.splice(i, 1)" title="Remove"
+                                            class="px-2 py-1.5 rounded text-xs" style="background: var(--surface); border: 1px solid var(--border); color: #b91c1c;">✕</button>
+                                </div>
+                            </template>
+                            <p x-show="editForm.work_orders && editForm.work_orders.length" class="text-xs mt-2" style="color: var(--text-muted);">Agent stays in control — each work order is optional and its supplier is chosen (or captured) at send time.</p>
+                        </div>
+
                         {{-- Deal Status --}}
                         <div class="rounded-md p-3 mb-4" style="background: var(--surface-2); border: 1px solid var(--border);">
                             <div class="text-xs font-medium uppercase tracking-wider mb-2" style="color: var(--text-muted);">Deal Status</div>
@@ -420,6 +459,13 @@
                                 requires_bm_approval: this.editForm.requires_bm_approval ? 1 : 0,
                                 document_type_id: ['document_upload','document_signed'].includes(this.editForm.completion_type)
                                     ? (this.editForm.expected_document_type_id || null) : null,
+                                // AT-229 — the repeatable supplier work-order collection was never
+                                // sent, so syncWorkOrders early-returned and the config never persisted
+                                // (the step row saved → "saved" toast, but the work orders vanished on
+                                // refresh). Post it so the collection is rebuilt from the UI.
+                                work_orders: (this.editForm.work_orders || [])
+                                    .filter(w => w.service_type)
+                                    .map(w => ({ service_type: w.service_type, trigger_point: w.trigger_point || 'activated' })),
                             },
                         });
 

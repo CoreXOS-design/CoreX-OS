@@ -91,6 +91,17 @@ class AnalysisDataService
         $isSectional = ($presentation->property?->title_type === 'sectional_title')
             || ($fields->get('vicinity.property_type')?->final_value === 'sectional');
 
+        // Code-gate hardening (item 3) — the subject's Level-1 category,
+        // freshly derived (never trusting the cached title_type column — see
+        // the Uvonique root-cause report), used ONLY to hard-filter cross-type
+        // comps out of the rendered comparable-sales table below. Deliberately
+        // separate from $isSectional above (which drives the CMA valuation
+        // sizing basis and is left untouched here — a different, higher-risk
+        // surface that needs its own dedicated pass).
+        $subjectCategory = $presentation->property
+            ? app(\App\Services\TitleTypeClassifier::class)->forProperty($presentation->property)
+            : null;
+
         // Build 8a + tick-wire fix — CoreX's independent CMA compute engine
         // now honours the version's included_comp_ids_json whitelist so
         // the agent's tick UI flows into the computed bands. Mirrors the
@@ -159,6 +170,13 @@ class AnalysisDataService
                 // the agency's existing cma_compute_iqr_multiplier.
                 array_map('intval', $cmaComputed['outlier_excluded_comp_ids'] ?? []),
                 (bool) ($presentation->agency?->cma_hide_display_outliers ?? true),
+                // Code-gate hardening (item 3) — hard-exclude cross-type
+                // comps from the render unless the agent EXPLICITLY chose to
+                // include them (the raw whitelist, not $inPoolComps — a null
+                // whitelist means "no opinion yet", which must default to
+                // EXCLUDING cross-type junk, not including it).
+                $subjectCategory,
+                $whitelist,
             ),
             'cma_valuation'      => $cmaValuation,
             'cma_computed'       => $cmaComputed,
@@ -268,8 +286,20 @@ class AnalysisDataService
      *   Complex membership is SAME-SCHEME ONLY: a comp lands in the complex group
      *   iff its scheme_name matches this (case-insensitive, trimmed). A sectional
      *   comp from a DIFFERENT scheme is a vicinity sale, never a complex sale.
+     * @param  ?string  $subjectCategory  Code-gate hardening (item 3) — the
+     *   subject's freshly-derived Level-1 category (TitleTypeClassifier::TITLE_*).
+     *   A comp whose OWN category is known and differs is hard-excluded from
+     *   this render UNLESS its id appears in $explicitlyIncludedIds. Null
+     *   (unresolvable subject category) disables this filter entirely — same
+     *   fail-open-on-unknown posture as CompPoolBuilder's Stage A.1 gate.
+     * @param  ?array  $explicitlyIncludedIds  The version's raw
+     *   included_comp_ids_json (NOT the already-whitelist-filtered $soldComps).
+     *   Null means "the agent has no opinion yet" — cross-type comps are
+     *   excluded by default in that state, not included. A populated array is
+     *   the agent's own explicit tick list; a cross-type comp that's ID is in
+     *   it was a deliberate human choice and is honoured.
      */
-    private function compileComparableSales(Collection $soldComps, ?string $subjectAddress = null, bool $separateComplex = true, ?string $subjectScheme = null, array $excludedOutlierIds = [], bool $hideOutliers = true): array
+    private function compileComparableSales(Collection $soldComps, ?string $subjectAddress = null, bool $separateComplex = true, ?string $subjectScheme = null, array $excludedOutlierIds = [], bool $hideOutliers = true, ?string $subjectCategory = null, ?array $explicitlyIncludedIds = null): array
     {
         $groups = [
             'vicinity'     => [],
@@ -287,6 +317,16 @@ class AnalysisDataService
         $outlierSet     = ($hideOutliers && !empty($excludedOutlierIds)) ? array_flip($excludedOutlierIds) : [];
         $hiddenOutliers = 0;
 
+        // Code-gate hardening (item 3) — the explicit-inclusion allowlist for
+        // cross-type comps. Only a NON-null whitelist counts as "the agent has
+        // reviewed this" — see the docblock above for why null must exclude,
+        // not include.
+        $explicitCrossTypeAllow = $explicitlyIncludedIds !== null
+            ? array_flip(array_map('intval', $explicitlyIncludedIds))
+            : null;
+        $hiddenCrossType = 0;
+        $classifier      = app(\App\Services\TitleTypeClassifier::class);
+
         foreach ($soldComps as $comp) {
             if (!empty($outlierSet) && isset($outlierSet[(int) $comp->id])) {
                 $hiddenOutliers++;
@@ -295,6 +335,31 @@ class AnalysisDataService
             $raw    = is_string($comp->raw_row_json) ? json_decode($comp->raw_row_json, true) : ($comp->raw_row_json ?? []);
             $source = $raw['source'] ?? 'unknown';
             $sizeM2 = $comp->size_m2 ?: ($raw['extent_m2'] ?? null);
+
+            // Code-gate hardening (item 3) — the genuine HARD filter. Upstream
+            // gates (CompPoolBuilder, the deal-register gate) should already
+            // have kept cross-type rows out, but this is the actual final
+            // choke point before the client sees the table/PDF — nothing
+            // downstream re-checks type, so a row that slipped through any
+            // upstream gap (a future bug, a legacy pre-hardening row, manual
+            // upload) must not reach the render un-checked. Auto-excluded
+            // unless the agent explicitly re-included it.
+            if ($subjectCategory !== null) {
+                $compCategory = $classifier->categoryForComp(
+                    $comp->property_type ?? null,
+                    $raw['scheme_name'] ?? null,
+                    $raw['section_number'] ?? null,
+                );
+                $isCrossType = $compCategory !== null && $compCategory !== $subjectCategory;
+                if ($isCrossType) {
+                    $explicitlyIncluded = $explicitCrossTypeAllow !== null
+                        && isset($explicitCrossTypeAllow[(int) $comp->id]);
+                    if (!$explicitlyIncluded) {
+                        $hiddenCrossType++;
+                        continue;
+                    }
+                }
+            }
 
             // Build a never-blank display label so sectional comps with
             // scheme+section but no street address still identify on the
@@ -414,6 +479,11 @@ class AnalysisDataService
         if ($hiddenOutliers > 0) {
             \Illuminate\Support\Facades\Log::info('[PRES] hid valuation-outlier comps from display table', [
                 'hidden_count' => $hiddenOutliers,
+            ]);
+        }
+        if ($hiddenCrossType > 0) {
+            \Illuminate\Support\Facades\Log::info('[PRES] hid cross-type comps from display table (code-gate hardening)', [
+                'hidden_count' => $hiddenCrossType,
             ]);
         }
 

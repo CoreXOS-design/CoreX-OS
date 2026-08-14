@@ -188,7 +188,7 @@ abstract class BaseSignatureMail extends Mailable
                 'fax'              => null,
                 'ffc_number'       => null,
                 'agency_ppra_number' => $agencyPpra,
-                'website'          => null,
+                'website'          => $agency->website ?? null, // AT-296 — never leak the agency admin@ inbox as a "website"
                 'agent_photo_url'  => null,
                 'logo_url'         => null,
                 'email_disclaimer' => null,
@@ -208,7 +208,7 @@ abstract class BaseSignatureMail extends Mailable
             'fax'              => $agent->fax ?? null,
             'ffc_number'       => $agent->ffc_number ?? null,
             'agency_ppra_number' => $agencyPpra,
-            'website'          => $agent->website ?? $agency?->email,
+            'website'          => $agent->website ?? ($agency->website ?? null), // AT-296 — agent's own site, else agency site; never the admin@ inbox
             'agent_photo_url'  => $agent->agent_photo_path ? asset('storage/' . $agent->agent_photo_path) : null,
             'logo_url'         => $agency?->logo_path ? asset('storage/' . $agency->logo_path) : null,
             'email_disclaimer' => $agency?->email_disclaimer,

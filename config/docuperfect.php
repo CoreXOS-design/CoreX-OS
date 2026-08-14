@@ -32,8 +32,8 @@ return [
                 'body'    => 'Any field highlighted in your colour is yours to complete. Locked fields belong to other parties — you cannot edit those.',
             ],
             [
-                'title'   => 'Flag any concerns',
-                'body'    => 'Hover any clause to flag a change. The agent reviews flags before final sign-off, so nothing leaves you uncomfortable.',
+                'title'   => 'Amend the wording',
+                'body'    => 'Not happy with something? Highlight any word, phrase or clause, then click "Amend highlighted text" to strike it out or reword it. Your change is marked on the document and every party initials it before final sign-off — nothing is final until everyone agrees.',
             ],
             [
                 'title'   => 'Initial each page',

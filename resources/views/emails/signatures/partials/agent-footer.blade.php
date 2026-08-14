@@ -20,6 +20,10 @@
                             @if(!empty($agentFooter['designation']))
                                 <p style="margin: 0 0 6px; font-size: 12px; color: #666; font-style: italic;">{{ $agentFooter['designation'] }}</p>
                             @endif
+                            {{-- AT-296 — show the SENDER's own email (outward_email), not the agency admin@ inbox. --}}
+                            @if(!empty($agentFooter['email']))
+                                <p style="margin: 0 0 1px; font-size: 12px; color: #555;">Email: <a href="mailto:{{ $agentFooter['email'] }}" style="color: #1a365d; text-decoration: none;">{{ $agentFooter['email'] }}</a></p>
+                            @endif
                             @if(!empty($agentFooter['phone']))
                                 <p style="margin: 0 0 1px; font-size: 12px; color: #555;">Landline: {{ $agentFooter['phone'] }}</p>
                             @endif

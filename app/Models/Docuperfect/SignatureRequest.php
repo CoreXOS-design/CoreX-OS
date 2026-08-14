@@ -17,6 +17,7 @@ class SignatureRequest extends Model
         'party_role',
         'role_index',
         'signing_order',
+        'signing_group',
         'signer_name',
         'signer_email',
         'signer_id_number',
@@ -24,6 +25,10 @@ class SignatureRequest extends Model
         'token_expires_at',
         'status',
         'sent_at',
+        'invite_send_status',
+        'invite_send_error',
+        'completion_send_status',
+        'completion_send_error',
         'viewed_at',
         'completed_at',
         'reminder_sent_at',
@@ -38,6 +43,7 @@ class SignatureRequest extends Model
         'wet_ink_rejection_note',
         'reviewed_by',
         'reviewed_at',
+        'returned_notes',
         'team_alerted_at',
         'authorised_by',
         'authorised_at',
@@ -48,6 +54,8 @@ class SignatureRequest extends Model
 
     protected $casts = [
         'role_index' => 'integer',
+        // HD-5 — NULL is meaningful: "a group of one" (checkpoints on its own, today's behaviour).
+        'signing_group' => 'integer',
         'token_expires_at' => 'datetime',
         'sent_at' => 'datetime',
         'viewed_at' => 'datetime',
@@ -148,9 +156,43 @@ class SignatureRequest extends Model
         return $this->token_expires_at && $this->token_expires_at->isPast();
     }
 
+    /**
+     * Track C (HD-10) — may this request accept a signature RIGHT NOW?
+     *
+     * Two independent clocks stop the pen: the 14-day link TTL (`isExpired()`) and the ceremony's
+     * LEGAL deadline (`template->isLapsed()`). A mark blocked by either is worthless, so the signing
+     * pipeline gates on this, not on `isExpired()` alone. `isExpired()` is left as pure link-TTL —
+     * its other callers (reminders, sales-doc flow) must not start treating a lapse as a dead link.
+     */
+    public function isSigningBlocked(): bool
+    {
+        return $this->isExpired() || (bool) $this->template?->isLapsed();
+    }
+
     public function isComplete(): bool
     {
         return $this->status === self::STATUS_COMPLETED;
+    }
+
+    /**
+     * AT-324/AT-325 — the ONE canonical per-recipient key.
+     *
+     * N same-role recipients are stored as N SignatureRequest rows sharing the
+     * base party_role ("seller") but carrying a distinct role_index (1..N). Every
+     * OTHER surface — signing_order_json, parties_json, partyProgress(),
+     * signed_initials — identifies them by the composite key ("seller",
+     * "seller_2", "seller_3", …: bare = index 1). This method is the single place
+     * that maps a request back to that key, so a completed 2nd-same-role recipient
+     * is never misread as the next signer. Consumers comparing a request against
+     * the signing order MUST key through this, never raw party_role.
+     */
+    public function canonicalPartyKey(): string
+    {
+        $index = (int) ($this->role_index ?? 1);
+
+        return $index > 1
+            ? $this->party_role . '_' . $index
+            : (string) $this->party_role;
     }
 
     public function isWetInk(): bool

@@ -246,6 +246,67 @@ final class RoleBlockExpansionService
         };
     }
 
+    /**
+     * AT-291 ITEM 6 — collapse every vocabulary a party can be stamped under
+     * (raw wizard token OR canonical token) to ONE stable canonical party
+     * key, so `seller`/`lessor`/`landlord`/`owner_party` are recognised as
+     * the same party (and likewise the acquiring side). Used to detect
+     * same-party role-block nesting.
+     */
+    private function canonicalParty(string $role): string
+    {
+        return match ($role) {
+            'seller', 'lessor', 'landlord', 'owner_party'      => 'owner_party',
+            'buyer', 'lessee', 'tenant', 'acquiring_party'     => 'acquiring_party',
+            default                                            => $role,
+        };
+    }
+
+    /**
+     * AT-300b — true when THIS block contains a COLLECTIVE "<role>_full" field:
+     * a single field the CDS generator fills with EVERY recipient joined
+     * ("Anine ... and Andre ..."). Such a block is a shared clause (e.g. the
+     * "I / We ..." mandate clause) and must render ONCE, untouched — NOT looped
+     * per recipient. Scoped to the block (not the whole role) so per-seller
+     * DETAIL blocks (address/tel/email — no "_full") still loop. Loop-templates
+     * (indexed / per-attribute fields, no "_full") are never affected.
+     */
+    private function blockHasCollectiveField(DOMElement $block, string $role): bool
+    {
+        $xpath = new DOMXPath($block->ownerDocument);
+        $names = array_unique([$role . '_full', $this->canonicalParty($role) . '_full']);
+        foreach ($names as $fieldName) {
+            $q = $xpath->query('.//*[@data-field="' . $fieldName . '"] | self::*[@data-field="' . $fieldName . '"]', $block);
+            if ($q !== false && $q->length > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * AT-291 ITEM 6 — true when $block sits inside another `[data-role-block]`
+     * element that resolves to the SAME canonical party. Such a nested block
+     * is a mixed-vocabulary duplicate: its content is already emitted when the
+     * ancestor block is cloned per recipient, so expanding it independently
+     * would render the party a second time.
+     */
+    private function hasSamePartyRoleBlockAncestor(DOMElement $block, string $role): bool
+    {
+        $canonical = $this->canonicalParty($role);
+        $parent = $block->parentNode;
+        while ($parent instanceof DOMElement) {
+            if ($parent->hasAttribute('data-role-block')) {
+                $ancestorRole = strtolower($parent->getAttribute('data-role-block'));
+                if ($ancestorRole !== '' && $this->canonicalParty($ancestorRole) === $canonical) {
+                    return true;
+                }
+            }
+            $parent = $parent->parentNode;
+        }
+        return false;
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     // B2.5 — DOM-based loop expansion
     // ─────────────────────────────────────────────────────────────────────
@@ -306,6 +367,20 @@ final class RoleBlockExpansionService
                 if ($role === '') {
                     continue;
                 }
+                // AT-291 ITEM 6 — skip a role-block nested INSIDE another
+                // role-block of the SAME canonical party. Mixed-vocabulary
+                // stamping (a `seller` block nested in an `owner_party` block,
+                // or vice-versa — both map to the same party) otherwise clones
+                // the inner content once WITH its parent AND again on its own
+                // pass, so the seller renders twice. Same-party nesting is
+                // always a duplicate; different-party nesting is left intact.
+                if ($this->hasSamePartyRoleBlockAncestor($block, $role)) {
+                    $structuralLog[] = [
+                        'role' => $role,
+                        'case' => 'nested-same-party-duplicate-skipped',
+                    ];
+                    continue;
+                }
                 $blocksByRole[$role] ??= [];
                 $blocksByRole[$role][] = $block;
             }
@@ -354,6 +429,19 @@ final class RoleBlockExpansionService
             );
         }
 
+        // ESIGN-WETINK BUG2 — split a SHARED signature-attestation block ("Thus
+        // done and signed by the Seller/s (A), (B) … on this __ day of __ at __")
+        // into ONE complete block PER recipient. Runs after role-block expansion,
+        // fail-safe (leaves the block untouched on any anomaly).
+        try {
+            $this->expandAttestationBlocksPerRecipient($dom, $recipients);
+        } catch (\Throwable $e) {
+            Log::warning('RoleBlockExpansionService: attestation split failed (non-fatal, block left shared)', [
+                'template_id' => $template?->id,
+                'error'       => $e->getMessage(),
+            ]);
+        }
+
         if (!empty($structuralLog)) {
             Log::info('RoleBlockExpansionService: structural notes during expansion', [
                 'template_id' => $template?->id,
@@ -361,6 +449,215 @@ final class RoleBlockExpansionService
             ]);
         }
 
+        return $this->detector->serializeFragment($dom);
+    }
+
+    /**
+     * ESIGN-WETINK BUG2 — per-recipient signature-attestation blocks (N-party).
+     *
+     * The "Thus done and signed by the Seller/s (Anine …), (Andre …) at __ on this
+     * __ day of __ 20__ at __" block renders ONCE, shared across all same-role
+     * recipients — one place/date/time line for everybody. Johan's ruling: EVERY
+     * recipient gets their OWN complete attestation block (own place/date/time
+     * fields + own signature line), exactly like the agent has. So for a role with
+     * N>1 recipients we clone its `.sig-party-block` N times and, per clone:
+     *   - rewrite the "Seller/s (all names)" lead-in to "Seller (this name)";
+     *   - stamp every ceremony marker (location/day/month/year/time) with this
+     *     recipient's data-name + data-recipient-identity so each fills their OWN;
+     *   - keep ONLY this recipient's signature cell (drop the others' cells).
+     * A single-recipient role's block is already individual → left untouched.
+     */
+    private function expandAttestationBlocksPerRecipient(DOMDocument $dom, Collection $recipients): void
+    {
+        $xpath  = new DOMXPath($dom);
+        $blocks = $xpath->query('//*[contains(concat(" ", normalize-space(@class), " "), " sig-party-block ")]');
+        if ($blocks === false || $blocks->length === 0) {
+            return;
+        }
+        $byRole = $this->groupRecipientsByRole($recipients);
+
+        // Snapshot to a plain array — we mutate the DOM while iterating.
+        $blockEls = [];
+        foreach ($blocks as $b) {
+            if ($b instanceof DOMElement) {
+                $blockEls[] = $b;
+            }
+        }
+
+        foreach ($blockEls as $block) {
+            // Which party does this attestation block belong to? Read the first
+            // ceremony/signature marker's party.
+            $marker = $xpath->query('.//*[@data-marker-party]', $block)->item(0);
+            if (! $marker instanceof DOMElement) {
+                continue;
+            }
+            $markerParty = strtolower($marker->getAttribute('data-marker-party'));
+            $role = self::CANONICAL_FOR_VIEWER[$markerParty] ?? $markerParty;
+
+            // Resolve recipients for this block's role (match by canonical role or raw token).
+            $recips = $byRole[$markerParty] ?? $byRole[$role] ?? collect();
+            if ($recips->count() < 2) {
+                continue; // single recipient (or agent) → already an individual block
+            }
+
+            $parent = $block->parentNode;
+            if (! $parent instanceof DOMNode) {
+                continue;
+            }
+            $allNames = $recips->map(fn ($r) => (string) ($r->signer_name ?? ''))->filter()->values()->all();
+
+            $insertAfter = $block;
+            $index = 0;
+            foreach ($recips as $recipient) {
+                $index++;
+                $name = (string) ($recipient->signer_name ?? '');
+                $identity = strtolower($markerParty) . '_' . $index;
+
+                $clone = $block->cloneNode(true);
+                if (! $clone instanceof DOMElement) {
+                    continue;
+                }
+
+                // 1) Rewrite the "Seller/s (all names)" lead-in to this recipient only.
+                $this->rewriteAttestationNames($clone, $name, $allNames, $markerParty);
+
+                // 2) Scope every ceremony marker to this recipient (own place/date/time).
+                $cloneXp = new DOMXPath($dom);
+                foreach ($cloneXp->query('.//*[@data-marker-party]', $clone) as $m) {
+                    if (! $m instanceof DOMElement) {
+                        continue;
+                    }
+                    $mtype = $m->getAttribute('data-marker-type');
+                    if ($mtype === 'signature' || $mtype === 'initial') {
+                        // 3) Signature/initial: keep ONLY this recipient's, drop others' cells.
+                        $mn = $this->attestNameKey($m->getAttribute('data-name'));
+                        if ($mn !== '' && $mn !== $this->attestNameKey($name)) {
+                            $cell = $this->closestSigCell($m);
+                            ($cell ?? $m)->parentNode?->removeChild($cell ?? $m);
+                            continue;
+                        }
+                        $m->setAttribute('data-name', $name);
+                        $m->setAttribute('data-recipient-identity', $identity);
+                    } else {
+                        // Ceremony field → this recipient's own.
+                        $m->setAttribute('data-name', $name);
+                        $m->setAttribute('data-recipient-identity', $identity);
+                    }
+                }
+
+                if ($insertAfter->nextSibling !== null) {
+                    $parent->insertBefore($clone, $insertAfter->nextSibling);
+                } else {
+                    $parent->appendChild($clone);
+                }
+                $insertAfter = $clone;
+            }
+
+            // Remove the original shared block — replaced by the per-recipient clones.
+            $parent->removeChild($block);
+        }
+    }
+
+    /** Normalised name key for attestation matching. */
+    private function attestNameKey(string $name): string
+    {
+        return strtolower(trim((string) preg_replace('/\s+/', ' ', $name)));
+    }
+
+    /** Nearest ancestor sig-cell (or the marker itself if none). */
+    private function closestSigCell(DOMElement $el): ?DOMElement
+    {
+        $n = $el;
+        while ($n instanceof DOMElement) {
+            $cls = ' ' . trim($n->getAttribute('class')) . ' ';
+            if (str_contains($cls, ' sig-cell ')) {
+                return $n;
+            }
+            $n = $n->parentNode instanceof DOMElement ? $n->parentNode : null;
+        }
+        return null;
+    }
+
+    /**
+     * Rewrite the attestation lead-in text so a per-recipient clone names ONLY its
+     * own recipient: strip every OTHER recipient's "(name)" and collapse the joined
+     * list, and singularise "Seller/s" → "Seller". Operates on text nodes only.
+     */
+    private function rewriteAttestationNames(DOMElement $clone, string $keepName, array $allNames, string $role): void
+    {
+        $xp = new DOMXPath($clone->ownerDocument);
+        foreach ($xp->query('.//text()[contains(., "signed") or contains(., "/s") or contains(., "(")]', $clone) as $node) {
+            $t = $node->nodeValue;
+            if ($t === null || trim($t) === '') {
+                continue;
+            }
+            $before = $t;
+            foreach ($allNames as $other) {
+                if ($this->attestNameKey($other) === $this->attestNameKey($keepName)) {
+                    continue;
+                }
+                $t = str_replace('(' . $other . ')', '', $t);
+                $t = str_replace($other, '', $t);
+            }
+            // Tidy the joined-list punctuation left behind.
+            $t = preg_replace('/\(\s*\)/', '', (string) $t);
+            $t = preg_replace('/\s*,\s*,\s*/', ', ', (string) $t);
+            $t = preg_replace('/\(\s*,\s*/', '(', (string) $t);
+            $t = preg_replace('/\s*,\s*(at\b|on this\b)/i', ' $1', (string) $t);
+            $t = str_replace(['Seller/s', 'Purchaser/s', 'Buyer/s', 'Lessor/s', 'Lessee/s', 'Tenant/s', 'Landlord/s'],
+                             ['Seller', 'Purchaser', 'Buyer', 'Lessor', 'Lessee', 'Tenant', 'Landlord'], (string) $t);
+            // Strip a leftover comma between the (now singular) role label and the
+            // kept name — e.g. "Seller , (Andre Roets)" → "Seller (Andre Roets)" —
+            // which is what removing an EARLIER recipient's name leaves behind.
+            $t = preg_replace('/\b(Seller|Purchaser|Buyer|Lessor|Lessee|Tenant|Landlord)\s*,\s*/', '$1 ', (string) $t);
+            $t = preg_replace('/\s{2,}/', ' ', (string) $t);
+            if ($t !== $before) {
+                $node->nodeValue = $t;
+            }
+        }
+    }
+
+    /**
+     * ESIGN-WETINK Phase 1b — viewer-editability DISPLAY overlay.
+     *
+     * The canonical artifact (CanonicalDocumentRenderer::compose) is
+     * VIEWER-AGNOSTIC: it carries NO `data-viewer-editable` stamp, so served
+     * as-is NO field is editable by anyone. This method applies editability
+     * as a per-viewer overlay ON TOP of the stored canonical HTML at
+     * display time — it does NOT re-run expansion, letterhead, insertable or
+     * normalisation. The document body is untouched; only `data-viewer-editable`
+     * attributes are stamped, exactly as `expandWithLooping` would have when
+     * given a `$currentViewer`.
+     *
+     * Reuses the SAME scoping logic (`stampViewerEditability`) the expansion
+     * path uses — so per-recipient identity scoping (seller_1 edits only
+     * seller_1's instance, respecting `data-recipient-identity`) is honoured
+     * with zero duplicated rules. The server-side persist gate remains the
+     * security ceiling; this overlay is a display affordance only.
+     *
+     * Returns the input HTML unchanged when it cannot be parsed (fail-safe:
+     * a document that renders read-only is safer than a 500).
+     */
+    public function applyViewerEditabilityOverlay(
+        string $html,
+        SignatureRequest $viewer,
+        array $fieldMappings = [],
+    ): string {
+        if (trim($html) === '') {
+            return $html;
+        }
+        $dom = $this->detector->loadFragment($html);
+        if ($dom === null) {
+            Log::warning('RoleBlockExpansionService: overlay DOM parse failure — serving read-only', [
+                'viewer_request_id' => $viewer->id ?? null,
+            ]);
+            return $html;
+        }
+        $this->stampViewerEditability(
+            $dom,
+            $viewer,
+            $this->buildFieldMappingsLookup($fieldMappings),
+        );
         return $this->detector->serializeFragment($dom);
     }
 
@@ -396,15 +693,43 @@ final class RoleBlockExpansionService
             }
             $n = $recipients->count();
 
+            // AT-300 — COLLECTIVE templates. The CDS generator can bind a single
+            // joined "<role>_full" field that already contains EVERY recipient
+            // (e.g. "Anine … and Andre …"), yet still mark the clause
+            // data-role-block. Looping such a role per recipient renders the
+            // shared I/We clause (and address/phone) ONCE PER seller — the
+            // reported duplicate. When the document carries a collective
+            // "<role>_full" field, render this role's blocks ONCE, with no
+            // per-recipient name header (the joined field already names
+            // everyone). Loop-templates (indexed / per-attribute fields, no
+            // "_full") are unaffected.
+            // AT-300b — collectivity is PER-BLOCK, not per-role. The CDS
+            // generator binds a single joined "<role>_full" field already
+            // containing EVERY recipient ("I / We Anine ... and Andre ..."). ONLY
+            // the block containing that field is a collective clause: render it
+            // ONCE, untouched — no clone, no per-recipient prefill (which would
+            // overwrite the joined value with one seller's name), no header. The
+            // OTHER seller blocks (per-seller DETAIL: address/tel/email under
+            // Domicilium) still loop per recipient. Leaving collective blocks in
+            // place preserves their baked both-names content.
+            $loopable = [];
+            foreach ($blocks as $b) {
+                if ($this->blockHasCollectiveField($b, $role)) {
+                    $structuralLog[] = ['role' => $role, 'case' => 'collective-clause-left-once'];
+                    continue; // leave in place — renders once with both names
+                }
+                $loopable[] = $b;
+            }
+            if (empty($loopable)) {
+                continue;
+            }
+
             // Group adjacent same-parent blocks so segment headers share
             // a single "Seller - Name" per recipient at the top.
-            $groups = $this->groupAdjacentRoleBlocks($blocks);
+            $groups = $this->groupAdjacentRoleBlocks($loopable);
 
             foreach (array_reverse($groups) as $group) {
                 if (count($group) === 1) {
-                    // Single-block group — clone-per-recipient with a
-                    // header on each clone (mutateCloneForInstance with
-                    // prependHeader=true by default).
                     $this->duplicateBlockForRecipients(
                         $dom,
                         $group[0],
@@ -414,7 +739,6 @@ final class RoleBlockExpansionService
                         $n,
                     );
                 } else {
-                    // Multi-block group — segments share one header.
                     $this->duplicateUnitGroupForRecipients(
                         $dom,
                         $group,
@@ -429,6 +753,7 @@ final class RoleBlockExpansionService
                 'role'      => $role,
                 'case'      => 'contract',
                 'blocks'    => count($blocks),
+                'loopable'  => count($loopable),
                 'groups'    => count($groups),
                 'recipients'=> $n,
             ];
@@ -568,7 +893,7 @@ final class RoleBlockExpansionService
         array $editableByByField,
     ): void {
         $xpath = new DOMXPath($dom);
-        $fields = $xpath->query('//*[@data-field]');
+        $fields = $xpath->query('//*[@data-field] | //*[@data-field-name]');   // both shapes (CDS writes data-field-name)
         if ($fields === false) {
             return;
         }
@@ -1190,7 +1515,7 @@ final class RoleBlockExpansionService
     private function subtreeOnlyContainsRoleIndex(DOMElement $node, string $role, int $idx): bool
     {
         $xpath = new DOMXPath($node->ownerDocument);
-        $allFields = $xpath->query('.//*[@data-field]', $node);
+        $allFields = $xpath->query('.//*[@data-field] | .//*[@data-field-name]', $node);   // both shapes
         if ($allFields === false) {
             return false;
         }
@@ -1224,6 +1549,7 @@ final class RoleBlockExpansionService
         Collection $recipients,
         bool $isSales,
         int $totalInstances,
+        bool $prependHeader = true, // AT-300 — false for collective ("_full") roles
     ): void {
         $parent = $blockNode->parentNode;
         if (!$parent instanceof DOMNode) {
@@ -1247,6 +1573,7 @@ final class RoleBlockExpansionService
                 $isSales,
                 strippingForeignIndices: false,
                 sourceInstanceIndex: 1,
+                prependHeader: $prependHeader,
             );
             $clones[] = $clone;
         }
@@ -1287,6 +1614,7 @@ final class RoleBlockExpansionService
         Collection $recipients,
         bool $isSales,
         int $totalInstances,
+        bool $suppressHeader = false, // AT-300 — true for collective ("_full") roles
     ): void {
         if (empty($groupUnits)) {
             return;
@@ -1323,7 +1651,7 @@ final class RoleBlockExpansionService
                     $isSales,
                     strippingForeignIndices: false,
                     sourceInstanceIndex: 1,
-                    prependHeader: ($unitIdx === 0),
+                    prependHeader: (!$suppressHeader && $unitIdx === 0),
                 );
                 $allClones[] = $clone;
             }
@@ -1620,6 +1948,34 @@ final class RoleBlockExpansionService
             trim($existingClass . ' recipient-instance recipient-instance--' . $role)
         );
 
+        // ESIGN-WETINK Phase 1c — stamp identity onto this instance's INK
+        // MARKERS (signature / initial / ceremony surfaces), not only its
+        // data-field nodes. Historically only data-field elements were
+        // identity-stamped, so a cloned seller_2 block kept its signature
+        // markers carrying ONLY data-marker-party="seller" — indistinguishable
+        // from seller_1's. That is exactly why one signer's ink bled onto every
+        // same-party surface (ESIGN-WETINK gap audit finding (b)). Stamping
+        // data-recipient-identity on every marker inside the clone makes each
+        // recipient's ink positions distinctly addressable, so
+        // CanonicalInkComposer::bakeInk writes party N's ink into ONLY party N's
+        // markers. N-party safe: `$identity` is the runtime-built
+        // "{role}_{instanceIndex}", never a hard-coded pair. Done BEFORE the
+        // data-field query's early-return so marker-only blocks are covered too.
+        $markers = $xpath->query(
+            'descendant-or-self::*[@data-marker-party] | descendant-or-self::*[@data-marker-type]',
+            $clone,
+        );
+        if ($markers !== false) {
+            foreach ($markers as $m) {
+                if ($m instanceof DOMElement) {
+                    $m->setAttribute('data-recipient-identity', $identity);
+                    if ($m->getAttribute('data-role-token') === '') {
+                        $m->setAttribute('data-role-token', $role);
+                    }
+                }
+            }
+        }
+
         // Label rewrite — rewrite indexed role labels from the source
         // instance to the target instance. This closes B2.5's known
         // limitation: Case D.2 clones used to carry the source block's
@@ -1634,7 +1990,7 @@ final class RoleBlockExpansionService
 
         // descendant-or-self so a clone whose root IS the field element
         // (single-field cluster edge case) still gets stamped.
-        $fields = $xpath->query('descendant-or-self::*[@data-field]', $clone);
+        $fields = $xpath->query('descendant-or-self::*[@data-field] | descendant-or-self::*[@data-field-name]', $clone);   // both shapes
         if ($fields === false) {
             return;
         }
@@ -1644,7 +2000,13 @@ final class RoleBlockExpansionService
                 continue;
             }
             $origName = $f->getAttribute('data-field');
-            $parsed = $this->detector->parseFieldName($origName);
+            // Resolve through the canonical bridge, NOT parseFieldName() alone. A CDS-named
+            // field (`contact.first_name` + `data-contact-type="Seller"`) is invisible to
+            // parseFieldName, so every such field was skipped here: the block cloned, but the
+            // fields inside kept the SAME data-field across clones — colliding in the DOM, so
+            // the second seller's input would land on the first seller's field — and were
+            // never identity-stamped or prefilled. Same root cause as the normalizer's.
+            $parsed = $this->detector->resolveFieldElement($f);
             if ($parsed['role_base'] === null) {
                 continue;
             }
@@ -1657,6 +2019,17 @@ final class RoleBlockExpansionService
             // Pre-fill from contact if mapping recognised.
             if ($contact !== null && $parsed['sub_name'] !== null) {
                 $value = $this->resolveContactValue($contact, $parsed['sub_name']);
+                // AT-292 — headline couple's-mandate fix. When the matched
+                // Contact has no id_number, fall back to the ID the signer
+                // typed in the wizard (persisted on the SignatureRequest) so
+                // the second seller still renders their ID even on historical
+                // data where the span was never baked with it.
+                if ($value === null
+                    && $recipient !== null
+                    && in_array($parsed['sub_name'], ['id', 'id_number'], true)
+                ) {
+                    $value = $this->blankToNull($recipient->signer_id_number);
+                }
                 if ($value !== null) {
                     $this->replaceTextContent($f, $value);
                 }
@@ -1811,34 +2184,57 @@ final class RoleBlockExpansionService
     private function resolveContactValue(Contact $contact, string $subName): ?string
     {
         $key = strtolower($subName);
+        // AT-292 — return null (NOT '') whenever the Contact column is empty so
+        // the caller's `if ($value !== null)` guard PRESERVES the value the
+        // wizard baked into merged_html instead of overwriting it with blank.
+        // A couple's second seller is commonly matched to an EXISTING Contact
+        // whose id_number is empty; the typed ID lives in the span and must
+        // survive. The pre-fix `(string)` casts turned an empty column into ''
+        // which passed the guard and wiped the ID (name/email/address/phone too).
         switch ($key) {
             case 'first_name':
-                return (string) $contact->first_name;
+                return $this->blankToNull($contact->first_name);
             case 'last_name':
             case 'surname':
-                return (string) $contact->last_name;
+                return $this->blankToNull($contact->last_name);
             case 'name':
             case 'full_name':
-                return trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? ''));
+            // The composite full-name column the CDS generator really emits for a party's
+            // name blank — without this the seller's name simply never prefills.
+            case 'first_name+last_name':
+                return $this->blankToNull(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? ''));
             case 'name_surname_id':
                 $full = trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? ''));
-                $id = (string) ($contact->id_number ?? '');
-                return $id !== '' ? ($full . ' (ID: ' . $id . ')') : $full;
+                $id = trim((string) ($contact->id_number ?? ''));
+                return $this->blankToNull($id !== '' ? ($full . ' (ID: ' . $id . ')') : $full);
             case 'id':
             case 'id_number':
-                return (string) $contact->id_number;
+                return $this->blankToNull($contact->id_number);
             case 'email':
-                return (string) $contact->email;
+                return $this->blankToNull($contact->email);
             case 'phone':
+            case 'cell':          // AT-292 — a `seller_cell` field was recognised by the normalizer but had no case here, so it never re-sourced (couples showed seller 1's number).
             case 'cell_phone':
             case 'mobile':
-                return (string) $contact->phone;
+                return $this->blankToNull($contact->phone);
             case 'address':
             case 'address_1':
             case 'address_line_1':
             case 'physical_address':
-                return (string) $contact->address;
+                return $this->blankToNull($contact->address);
         }
         return null;
+    }
+
+    /**
+     * AT-292 — normalise a Contact column to a non-empty trimmed string or
+     * null. Returning null (rather than '') is the choke point that lets the
+     * per-recipient prefill preserve the wizard-baked span for any identity
+     * field the Contact happens to be missing.
+     */
+    private function blankToNull(?string $value): ?string
+    {
+        $trimmed = trim((string) $value);
+        return $trimmed === '' ? null : $trimmed;
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Docuperfect;
 
+use App\Exceptions\Docuperfect\WebPackSlotException;
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\Docuperfect\Document;
@@ -19,6 +20,7 @@ use App\Models\Rental\RentalProperty;
 use App\Services\CandidatePractitionerService;
 use App\Services\Docuperfect\SignatureService;
 use App\Services\Docuperfect\SignatureSurfaceNormalizer;
+use App\Services\Docuperfect\WebPackSlotResolver;
 
 use App\Models\FicaSubmission;
 use App\Services\WebTemplateDataService;
@@ -124,7 +126,7 @@ class ESignWizardController extends Controller
     /**
      * Create a new flow from step 1 and redirect to step 2.
      */
-    public function store(Request $request)
+    public function store(Request $request, WebPackSlotResolver $slotResolver)
     {
         $packId = $request->input('pack_id');
         $isPackFlow = $request->boolean('is_pack_flow');
@@ -144,25 +146,24 @@ class ESignWizardController extends Controller
         }
 
         if ($isPackFlow && $packId) {
-            // Web Pack flow — merge multiple templates
-            $pack = \App\Models\Docuperfect\WebPack::with('items.template')
-                ->findOrFail($packId);
+            // Web Pack flow — merge multiple templates.
+            // The pack's SLOTS decide what goes out, and the server decides the slots: the agent's
+            // picks are an input to WebPackSlotResolver, never the answer. It enforces pack
+            // membership, sends every required document whether or not the client asked for it,
+            // takes exactly one member of each selectable group, and re-runs the e-sign legal gate
+            // on the RESOLVED set — which this path never did, leaving a sale agreement inside a
+            // web pack e-signable (and therefore void). See WebPackSlotResolver.
+            $pack = \App\Models\Docuperfect\WebPack::findOrFail($packId);
 
-            // Use resolved template IDs if provided (slot selection)
             $resolvedIds = $request->input('resolved_template_ids');
-            if (!empty($resolvedIds) && is_array($resolvedIds)) {
-                // Filter and order items by the resolved selection
-                $templates = collect($resolvedIds)
-                    ->map(fn($id) => Template::find($id))
-                    ->filter();
-            } else {
-                $templates = $pack->items->sortBy('sort_order')
-                    ->map(fn($item) => $item->template)
-                    ->filter(); // remove any null templates
-            }
 
-            if ($templates->isEmpty()) {
-                return response()->json(['error' => 'This web pack has no templates.'], 422);
+            try {
+                $templates = $slotResolver->resolve($pack, is_array($resolvedIds) ? $resolvedIds : null);
+            } catch (WebPackSlotException $e) {
+                return response()->json(array_filter([
+                    'error'         => $e->getMessage(),
+                    'esign_blocked' => $e->esignBlocked ?: null,
+                ]), 422);
             }
 
             $primaryTemplate = $templates->first();
@@ -503,37 +504,9 @@ class ESignWizardController extends Controller
 
                     // Agent is always first recipient (added by JS), so just add linked contacts
                     foreach ($prop->contacts as $contact) {
-                        // AT-79: a contact can hold MULTIPLE parent types (Seller AND
-                        // Buyer). Resolve the role from the contact_contact_type pivot,
-                        // preferring the parent whose esign_role the template needs.
-                        // Falls back to the legacy single mirror for pre-migration data.
-                        $parentRows = DB::table('contact_contact_type as cct')
-                            ->join('contact_types as ct', 'ct.id', '=', 'cct.contact_type_id')
-                            ->where('cct.contact_id', $contact->id)
-                            ->whereNull('ct.deleted_at')
-                            ->orderBy('ct.sort_order')
-                            ->get(['ct.name', 'ct.esign_role']);
-
-                        if ($parentRows->isEmpty() && $contact->contact_type_id) {
-                            $legacy = DB::table('contact_types')->where('id', $contact->contact_type_id)->first(['name', 'esign_role']);
-                            if ($legacy) {
-                                $parentRows = collect([$legacy]);
-                            }
-                        }
-
-                        // Choose the parent matching the template's allowed roles.
-                        if (!empty($allowedEsignRoles)) {
-                            $chosen = $parentRows->first(fn ($r) => $r->esign_role && in_array($r->esign_role, $allowedEsignRoles));
-                            if (!$chosen) {
-                                continue; // Contact has no role this template needs.
-                            }
-                        } else {
-                            $chosen = $parentRows->first();
-                        }
-
-                        $recipientRole = $chosen ? strtolower(trim($chosen->name)) : '';
-                        if (empty($recipientRole)) {
-                            $recipientRole = $defaultOwnerRole;
+                        $recipientRole = $this->resolveLinkedContactRole($contact, $allowedEsignRoles, $defaultOwnerRole);
+                        if ($recipientRole === null) {
+                            continue; // Not a party this document needs.
                         }
 
                         $recipients[] = [
@@ -763,7 +736,24 @@ class ESignWizardController extends Controller
 
         // Merge step data into flow
         $stepData = $flow->step_data ?? [];
+
+        // WET-INK FLOW-THROUGH (Johan 2026-08-06) — the Fill & Review body strike/reword amendments live under
+        // step_data['fill_review']['body_strikes'], authored SERVER-SIDE by the bodyStrike endpoint. The step-5
+        // save payload (getStepData case 5) carries fieldValues / clauses / other_conditions — but NOT
+        // body_strikes. A wholesale $stepData['fill_review'] = $data therefore WIPED them the instant the agent
+        // advanced Fill & Review -> Sign & Send (CLAUDE.md §6.1: the step posts a SUBSET), so the strike showed
+        // transiently at authoring then vanished from Sign & Send, the signing view and the signed document.
+        // Preserve the server-authored strikes across the wholesale save (the client never removes a strike
+        // through this path; the only remover is a future dedicated endpoint, which would carry its own key).
+        $preservedBodyStrikes = ($stepKey === 'fill_review' && ! isset($data['body_strikes']))
+            ? ($stepData['fill_review']['body_strikes'] ?? null)
+            : null;
+
         $stepData[$stepKey] = $data;
+
+        if ($preservedBodyStrikes !== null) {
+            $stepData['fill_review']['body_strikes'] = $preservedBodyStrikes;
+        }
 
         // Sort recipients by SA signing convention when saving step 3
         if ($stepKey === 'recipients' && !empty($data['recipients'])) {
@@ -779,6 +769,11 @@ class ESignWizardController extends Controller
                     continue;
                 }
                 if (!empty($r['_contact_id'])) {
+                    // AT-292 — a pre-linked Contact still gets the typed ID
+                    // backfilled when its own id_number is blank (fill-if-blank),
+                    // so a couple's second seller renders their ID and FICA/deals
+                    // resolve it downstream.
+                    $this->backfillContactIdNumber((int) $r['_contact_id'], (string) ($r['id_number'] ?? ''));
                     continue;
                 }
 
@@ -806,6 +801,9 @@ class ESignWizardController extends Controller
 
                 if ($existing) {
                     $r['_contact_id'] = $existing->id;
+                    // AT-292 — matched an existing Contact by email/ID; persist the
+                    // typed id_number onto it when blank (fill-if-blank).
+                    $this->backfillContactIdNumber((int) $existing->id, $idNumber);
                 } else {
                     // Split name: first space separates first_name from last_name
                     $nameParts = explode(' ', $name, 2);
@@ -840,6 +838,9 @@ class ESignWizardController extends Controller
                         $contact = $dupExisting;
                         $match = $dupSvc->identifyMatch($dupData, $dupExisting, $dupAgencyId);
                         $dupSvc->logAttempt($dupAgencyId, $request->user()?->id ?? 0, 'auto_link', $match['field'], $match['value'], $dupExisting->id, $dupData, 'auto_linked');
+                        // AT-292 — auto-linked to a duplicate Contact; backfill the
+                        // typed id_number when blank (fill-if-blank).
+                        $this->backfillContactIdNumber((int) $dupExisting->id, $idNumber);
                     } else {
                         $contact = Contact::create([
                             'first_name' => $firstName,
@@ -879,13 +880,29 @@ class ESignWizardController extends Controller
 
             if (!empty($data['fieldValues'])) {
                 foreach ($data['fieldValues'] as $fieldId => $value) {
+                    $matched = false;
                     foreach ($fields as &$field) {
                         if (($field['id'] ?? null) == $fieldId) {
                             $field['value'] = $value;
+                            $matched = true;
                             break;
                         }
                     }
                     unset($field);
+
+                    // AT-360b — per-recipient instance edits are keyed "{base}__r{n}"; the base field
+                    // holds no single value for them. Record each on the base field's instance map so
+                    // fields_json audit retains every recipient's typed value (additive; base 'value'
+                    // untouched for single-recipient fields).
+                    if (!$matched && preg_match('/^(.*)__r(\d+)$/', (string) $fieldId, $m)) {
+                        foreach ($fields as &$field) {
+                            if (($field['id'] ?? null) == $m[1]) {
+                                $field['instance_values'][(int) $m[2]] = $value;
+                                break;
+                            }
+                        }
+                        unset($field);
+                    }
                 }
             }
 
@@ -893,7 +910,17 @@ class ESignWizardController extends Controller
                 foreach ($data['partyOverrides'] as $fieldId => $party) {
                     foreach ($fields as &$field) {
                         if (($field['id'] ?? null) == $fieldId) {
-                            $field['assignedTo'] = $party;
+                            // AT multi-party — an override is now the FULL party set
+                            // (array). Preserve it as editable_by (multi, signing-time)
+                            // and derive the single prep-filler for assignedTo.
+                            $parties = is_array($party)
+                                ? array_values(array_filter($party, fn ($r) => is_string($r) && $r !== ''))
+                                : (is_string($party) && $party !== '' ? [$party] : []);
+                            if (!empty($parties)) {
+                                $field['editableBy']  = $parties;
+                                $field['editable_by'] = $parties;
+                                $field['assignedTo']  = in_array('agent', $parties, true) ? 'agent' : $parties[0];
+                            }
                             break;
                         }
                     }
@@ -961,6 +988,30 @@ class ESignWizardController extends Controller
     }
 
     /**
+     * AT-292 — durable data fix for the couple's-mandate seller ID-drop.
+     * When a wizard recipient is linked to a pre-existing / matched / auto-
+     * duplicate Contact whose id_number is empty, persist the ID the signer
+     * typed in the wizard onto that Contact. FILL-IF-BLANK ONLY — a non-empty
+     * Contact id_number is never overwritten. This closes the drop at the data
+     * source so the render, FICA and downstream deal uses all resolve the ID.
+     */
+    private function backfillContactIdNumber(?int $contactId, string $typedIdNumber): void
+    {
+        $typedIdNumber = trim($typedIdNumber);
+        if ($contactId === null || $contactId <= 0 || $typedIdNumber === '') {
+            return;
+        }
+        $contact = Contact::find($contactId);
+        if ($contact === null) {
+            return;
+        }
+        if (trim((string) $contact->id_number) === '') {
+            $contact->id_number = $typedIdNumber;
+            $contact->save();
+        }
+    }
+
+    /**
      * Save current step as draft without advancing.
      */
     public function saveDraft(Request $request, $flowId)
@@ -985,13 +1036,29 @@ class ESignWizardController extends Controller
 
             if (!empty($data['fieldValues'])) {
                 foreach ($data['fieldValues'] as $fieldId => $value) {
+                    $matched = false;
                     foreach ($fields as &$field) {
                         if (($field['id'] ?? null) == $fieldId) {
                             $field['value'] = $value;
+                            $matched = true;
                             break;
                         }
                     }
                     unset($field);
+
+                    // AT-360b — per-recipient instance edits are keyed "{base}__r{n}"; the base field
+                    // holds no single value for them. Record each on the base field's instance map so
+                    // fields_json audit retains every recipient's typed value (additive; base 'value'
+                    // untouched for single-recipient fields).
+                    if (!$matched && preg_match('/^(.*)__r(\d+)$/', (string) $fieldId, $m)) {
+                        foreach ($fields as &$field) {
+                            if (($field['id'] ?? null) == $m[1]) {
+                                $field['instance_values'][(int) $m[2]] = $value;
+                                break;
+                            }
+                        }
+                        unset($field);
+                    }
                 }
             }
 
@@ -999,7 +1066,17 @@ class ESignWizardController extends Controller
                 foreach ($data['partyOverrides'] as $fieldId => $party) {
                     foreach ($fields as &$field) {
                         if (($field['id'] ?? null) == $fieldId) {
-                            $field['assignedTo'] = $party;
+                            // AT multi-party — an override is now the FULL party set
+                            // (array). Preserve it as editable_by (multi, signing-time)
+                            // and derive the single prep-filler for assignedTo.
+                            $parties = is_array($party)
+                                ? array_values(array_filter($party, fn ($r) => is_string($r) && $r !== ''))
+                                : (is_string($party) && $party !== '' ? [$party] : []);
+                            if (!empty($parties)) {
+                                $field['editableBy']  = $parties;
+                                $field['editable_by'] = $parties;
+                                $field['assignedTo']  = in_array('agent', $parties, true) ? 'agent' : $parties[0];
+                            }
                             break;
                         }
                     }
@@ -1066,7 +1143,17 @@ class ESignWizardController extends Controller
                 'source'            => 'properties',
                 'address'           => $p->buildDisplayAddress(),
                 'suburb'            => $p->suburb ?? '',
+                // B1 — the property's area also lives in town/city (set via the city/town selector).
+                // The panel only carried `suburb`, so a property whose area is in `town` rendered a
+                // blank TOWNSHIP. Carry both so township can resolve from whichever the agent filled.
+                'town'              => $p->town ?? '',
+                'city'              => $p->city ?? '',
+                // AT-177 — the sf:property address components the CDS split needs to resolve.
+                'street_name'       => $p->street_name ?? '',
+                'district'          => $p->district ?? '',
+                'erf'               => $p->property_number ?? '',
                 'erf_no'            => $p->property_number ?? '',
+                'property_number'   => $p->property_number ?? '',
                 'complex_name'      => $p->complex_name ?? '',
                 'unit_number'       => $p->unit_number ?? '',
                 'property_type'     => $p->property_type ?? '',
@@ -1307,7 +1394,9 @@ class ESignWizardController extends Controller
                         $propSrc = $stepData['property']['_property_source'] ?? null;
                         $tplData['document_context'] = $tpl->isSalesDocument($propSrc) ? 'sales' : 'rental';
                     }
-                    $html = view($tpl->blade_view, $tplData)->render();
+                    // Blank-preview fix: regenerate the generated blade if its file is
+                    // missing, and never blank on a render failure (stored-HTML fallback).
+                    $html = app(\App\Services\Docuperfect\WebTemplateBladeEnsurer::class)->renderOrFallback($tpl, $tplData);
                     $styles = '';
                     preg_match_all('/<style[^>]*>.*?<\/style>/si', $html, $sm);
                     if (!empty($sm[0])) {
@@ -1323,6 +1412,15 @@ class ESignWizardController extends Controller
                     $mergedHtml .= $styles . "\n" . $bodyHtml . $pageBreak;
                 }
 
+                // Fill & Review strike-outs — replay the agent's creation-time strikes onto the live pack
+                // preview via the SAME universal engine as the single-doc preview (:replayBodyStrikes below),
+                // so what the agent sees in the pack preview is byte-identical to what the signed pack carries.
+                $mergedHtml = $this->replayBodyStrikes(
+                    $mergedHtml,
+                    $stepData,
+                    $this->buildFillReviewSigningParties($stepData, $template, $user),
+                );
+
                 return response()->json([
                     'render_type' => 'web',
                     'html'        => $mergedHtml,
@@ -1336,18 +1434,16 @@ class ESignWizardController extends Controller
                 $viewData = app(WebTemplateDataService::class)
                     ->resolve($template->id, $stepData, $user);
 
-                // Overlay fill_review field values (field_id → field_name → blade variable)
-                $frValues = $stepData['fill_review']['fieldValues'] ?? [];
-                if (!empty($frValues)) {
-                    $fieldsJson = $stepData['fields'] ?? ($template->fields_json ?? []);
-                    foreach ($fieldsJson as $field) {
-                        $fieldId = $field['id'] ?? null;
-                        $fieldName = $field['field_name'] ?? null;
-                        if ($fieldId && $fieldName && isset($frValues[$fieldId]) && $frValues[$fieldId] !== '') {
-                            $viewData[$fieldName] = $frValues[$fieldId];
-                        }
-                    }
+                // AT-360b — overlay fill_review typed values via the SAME shared method the send
+                // path uses, so the wizard preview matches the signed document exactly. This also
+                // carries the sanitised-var keying (AT-359b) and the per-recipient "{base}__r{n}"
+                // instance handling — the previous inline loop keyed by the raw field_name and the
+                // base id only, so a composite name or a multi-recipient edit did not preview.
+                $stepForOverlay = $stepData;
+                if (empty($stepForOverlay['fields'])) {
+                    $stepForOverlay['fields'] = $template->fields_json ?? [];
                 }
+                $viewData = $this->overlayFillReviewValues($viewData, $stepForOverlay);
             }
 
             // Web templates render full HTML documents (DOCTYPE/html/head/body).
@@ -1357,7 +1453,9 @@ class ESignWizardController extends Controller
                 $propSrc = $stepData['property']['_property_source'] ?? null;
                 $viewData['document_context'] = $template->isSalesDocument($propSrc) ? 'sales' : 'rental';
             }
-            $fullHtml = view($template->blade_view, $viewData)->render();
+            // Blank-preview fix: regenerate the generated blade if its file is missing,
+            // and never blank on a render failure (stored-HTML fallback).
+            $fullHtml = app(\App\Services\Docuperfect\WebTemplateBladeEnsurer::class)->renderOrFallback($template, $viewData);
             $bodyHtml = $fullHtml;
             if (preg_match('/<body[^>]*>(.*)<\/body>/si', $fullHtml, $m)) {
                 $bodyHtml = trim($m[1]);
@@ -1404,6 +1502,20 @@ class ESignWizardController extends Controller
                     $stepData['recipients']['recipients'] ?? [],
                 );
                 if ($wizardRecipients->isNotEmpty()) {
+                    // AT-295 — stamp the data-role-block contract onto the raw
+                    // preview HTML BEFORE expansion. Imported blades carry no
+                    // contract (0/39 web-templates have data-role-block; it is
+                    // only stamped into merged_html at document generation), so
+                    // without this the preview enters expandWithLooping with
+                    // $hasContract=false and falls to the LEGACY clustering path
+                    // where AT-291 ⑥'s same-party dedup never runs — the seller
+                    // block renders TWICE on the agent pre-send screen. Running
+                    // the same normalizer the recipient path uses routes BOTH
+                    // surfaces through the one corrected contract renderer
+                    // (bug-class, not instance): a single seller renders once,
+                    // genuine multi-seller still expands N times.
+                    $previewHtml = app(\App\Services\Docuperfect\RoleBlockNormalizer::class)
+                        ->normalize($previewHtml);
                     $previewHtml = app(\App\Services\Docuperfect\RoleBlockExpansionService::class)
                         ->expandWithLooping(
                             $template,
@@ -1411,6 +1523,28 @@ class ESignWizardController extends Controller
                             $wizardRecipients,
                         );
                 }
+            }
+
+            // AT-360c — the Fill & Review preview is a SEPARATE render surface from compose(), but it
+            // has the SAME defect: expandWithLooping (above) re-resolves each recipient's contact fields
+            // straight from the Contact model, clobbering the agent's per-recipient "{var}__r{n}" edits
+            // (Seller 2's phone showed the DB value, not the edit). Re-assert the authoritative overlay
+            // as the LAST word — the identical pass compose() runs at signing — so the preview is
+            // what-you-see-equals-what-you-get with the signed document. No-op when nothing was edited.
+            $previewHtml = app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)
+                ->applyFillReviewAuthoritativeOverlay(
+                    $previewHtml,
+                    is_array($viewData['_fill_review_overlay'] ?? null) ? $viewData['_fill_review_overlay'] : [],
+                );
+
+            // Fill & Review strike-outs — replay the agent's creation-time strikes onto the live preview so
+            // what they see is what the signed document carries (same universal engine as the sign screen).
+            if ($flow) {
+                $previewHtml = $this->replayBodyStrikes(
+                    $previewHtml,
+                    $stepData,
+                    $this->buildFillReviewSigningParties($stepData, $template, $user),
+                );
             }
 
             return response()->json([
@@ -1472,6 +1606,295 @@ class ESignWizardController extends Controller
         $flow->save();
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * FILL & REVIEW strike-out (Johan 2026-08-05) — the agent striking out an unwanted section AT CREATION
+     * time. Stores the strike (highlighted text + context + mode) on the flow's step_data so it is replayed,
+     * via the SAME universal engine (SelectionEditService::applyStrikeToHtml), onto every compose — the live
+     * preview AND the final signed document. 'inline' = strike + reword; 'strike' = pure removal. The
+     * full-width per-party initial row is authored with the strike (all parties initial the change).
+     */
+    public function bodyStrike(Request $request, $flowId)
+    {
+        $user = $request->user();
+        $flow = Flow::where('user_id', $user->id)->findOrFail($flowId);
+
+        $v = $request->validate([
+            'selected'    => ['required', 'string', 'max:8000'],
+            'prefix'      => ['nullable', 'string', 'max:200'],
+            'suffix'      => ['nullable', 'string', 'max:200'],
+            'replacement' => ['nullable', 'string', 'max:8000', 'required_unless:mode,strike'],
+            'mode'        => ['nullable', 'in:inline,strike'],
+        ]);
+        $mode = ($v['mode'] ?? 'inline') === 'strike' ? 'strike' : 'inline';
+
+        $stepData = $flow->step_data ?? [];
+        $stepData['fill_review'] = $stepData['fill_review'] ?? [];
+        $strikes = $stepData['fill_review']['body_strikes'] ?? [];
+        $strikes[] = [
+            'selected'    => trim($v['selected']),
+            'prefix'      => $v['prefix'] ?? '',
+            'suffix'      => $v['suffix'] ?? '',
+            'replacement' => $mode === 'strike' ? '' : ($v['replacement'] ?? ''),
+            'mode'        => $mode,
+            'at'          => now()->toIso8601String(),
+        ];
+        $stepData['fill_review']['body_strikes'] = $strikes;
+        $flow->step_data = $stepData;
+        $flow->save();
+
+        return response()->json(['ok' => true, 'count' => count($strikes)]);
+    }
+
+    /**
+     * EDIT an applied Fill & Review amendment (Johan 2026-08-06) — change its replacement text / switch it
+     * between reword and pure strike-out. Keyed by the change-id the clicked mark carries (derived the same way
+     * the render stamps it), so the edit reflects on every surface (preview replay now, baked at send). Other
+     * amendments in the doc are untouched — each body strike is independent and replayed on its own.
+     */
+    public function bodyStrikeEdit(Request $request, $flowId)
+    {
+        $user = $request->user();
+        $flow = Flow::where('user_id', $user->id)->findOrFail($flowId);
+
+        $v = $request->validate([
+            'change_id'   => ['required', 'string', 'max:64'],
+            'replacement' => ['nullable', 'string', 'max:8000', 'required_unless:mode,strike'],
+            'mode'        => ['nullable', 'in:inline,strike'],
+        ]);
+        $mode = ($v['mode'] ?? 'inline') === 'strike' ? 'strike' : 'inline';
+
+        $stepData = $flow->step_data ?? [];
+        $strikes = $stepData['fill_review']['body_strikes'] ?? [];
+        $found = false;
+        foreach ($strikes as &$s) {
+            if (! is_array($s)) {
+                continue;
+            }
+            $cid = \App\Services\Docuperfect\SelectionEditService::changeId(
+                (string) ($s['prefix'] ?? ''),
+                (string) ($s['selected'] ?? ''),
+                (string) ($s['replacement'] ?? ''),
+            );
+            if ($cid === $v['change_id']) {
+                $s['replacement'] = $mode === 'strike' ? '' : trim((string) ($v['replacement'] ?? ''));
+                $s['mode']        = $mode;
+                $s['at']          = now()->toIso8601String();
+                $found = true;
+                break;
+            }
+        }
+        unset($s);
+
+        if (! $found) {
+            return response()->json(['ok' => false, 'error' => 'Amendment not found.'], 404);
+        }
+        $stepData['fill_review']['body_strikes'] = $strikes;
+        $flow->step_data = $stepData;
+        $flow->save();
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * REMOVE an applied Fill & Review amendment (Johan 2026-08-06) — revert that section to its original text
+     * and drop its strike/insert + the per-party "Initial this change" block, everywhere. The strike is deleted
+     * from step_data so the replay no longer applies it (the original source text shows through); the send bakes
+     * the reduced set. Other amendments are unaffected.
+     */
+    public function bodyStrikeRemove(Request $request, $flowId)
+    {
+        $user = $request->user();
+        $flow = Flow::where('user_id', $user->id)->findOrFail($flowId);
+
+        $v = $request->validate(['change_id' => ['required', 'string', 'max:64']]);
+
+        $stepData = $flow->step_data ?? [];
+        $strikes = $stepData['fill_review']['body_strikes'] ?? [];
+        $before = is_array($strikes) ? count($strikes) : 0;
+        $strikes = array_values(array_filter(is_array($strikes) ? $strikes : [], function ($s) use ($v) {
+            if (! is_array($s)) {
+                return false;
+            }
+            $cid = \App\Services\Docuperfect\SelectionEditService::changeId(
+                (string) ($s['prefix'] ?? ''),
+                (string) ($s['selected'] ?? ''),
+                (string) ($s['replacement'] ?? ''),
+            );
+            return $cid !== $v['change_id'];
+        }));
+
+        $stepData['fill_review'] = $stepData['fill_review'] ?? [];
+        $stepData['fill_review']['body_strikes'] = $strikes;
+        $flow->step_data = $stepData;
+        $flow->save();
+
+        return response()->json(['ok' => true, 'removed' => $before - count($strikes), 'count' => count($strikes)]);
+    }
+
+    /**
+     * Replay the flow's stored Fill & Review strike-outs onto a composed HTML body. Reuses the sign-screen
+     * amend engine verbatim, so a creation-time strike renders identically to a returned-doc strike (struck
+     * <del> + optional <ins> + the per-party initial row). Idempotent: applyStrikeToHtml skips text already
+     * inside a change mark, so re-composing never double-strikes. Non-fatal — a strike that no longer locates
+     * (the underlying text changed) is simply skipped.
+     */
+    private function replayBodyStrikes(string $html, array $stepData, array $partiesForSigning): string
+    {
+        $strikes = $stepData['fill_review']['body_strikes'] ?? [];
+        if (empty($strikes) || ! is_array($strikes) || trim($html) === '') {
+            return $html;
+        }
+        $parties = $this->fillReviewInitialParties($partiesForSigning);
+        $svc = app(\App\Services\Docuperfect\SelectionEditService::class);
+        foreach ($strikes as $s) {
+            if (! is_array($s)) {
+                continue;
+            }
+            $out = $svc->applyStrikeToHtml(
+                $html,
+                (string) ($s['selected'] ?? ''),
+                (string) ($s['prefix'] ?? ''),
+                (string) ($s['suffix'] ?? ''),
+                (string) ($s['replacement'] ?? ''),
+                (string) ($s['mode'] ?? 'inline'),
+                $parties,
+            );
+            if ($out !== null) {
+                $html = $out['html'];
+            }
+        }
+        return $html;
+    }
+
+    /** Map the send-path party list [{role, name, display}] → the initial-row party set [{key, name}] (role_N for duplicates). */
+    private function fillReviewInitialParties(array $partiesForSigning): array
+    {
+        $counts = [];
+        $out = [];
+        foreach ($partiesForSigning as $p) {
+            $role = (string) ($p['role'] ?? 'party');
+            $counts[$role] = ($counts[$role] ?? 0) + 1;
+            $key = $counts[$role] > 1 ? $role . '_' . $counts[$role] : $role;
+            $out[] = ['key' => $key, 'name' => (string) ($p['display'] ?? $p['name'] ?? ucfirst($role))];
+        }
+        return $out;
+    }
+
+    /** The signing-party set for a flow at Fill & Review: the agent + each recipient with its concrete role. */
+    private function buildFillReviewSigningParties(array $stepData, Template $template, $user): array
+    {
+        $propSource = $stepData['property']['_property_source'] ?? null;
+        $isSalesContext = ($propSource === 'properties')
+            || (! $propSource && str_contains(strtolower($template->name ?? ''), 'sell'));
+        $parties = [['role' => 'agent', 'name' => $user->name, 'display' => $user->name]];
+        foreach ($stepData['recipients']['recipients'] ?? [] as $r) {
+            $role = $r['role'] ?? 'party';
+            if ($role === 'owner_party') {
+                $role = $isSalesContext ? 'seller' : 'landlord';
+            } elseif ($role === 'acquiring_party') {
+                $role = $isSalesContext ? 'buyer' : 'tenant';
+            }
+            $parties[] = ['role' => $role, 'name' => $r['name'] ?? ucfirst($role), 'display' => $r['name'] ?? ucfirst($role)];
+        }
+        return $parties;
+    }
+
+    /**
+     * AT-360 — overlay the agent's Fill & Review typed values onto a resolved web_template_data
+     * array, keyed by each field's blade variable name.
+     *
+     * WebTemplateDataService::resolve() rebuilds web_template_data from the Property / Contact / Deal
+     * pillars ONLY. A value the agent TYPED on Fill & Review for a field with no pillar source
+     * (lessee alternate address, occupancy counts, escalation month, fee overrides, …) was written to
+     * Document.fields_json but never reached web_template_data — so it rendered BLANK on the agent
+     * signing view. The wizard PREVIEW path already applied this overlay; the document-creation path
+     * (prepareSigning) did NOT. This is the one shared implementation both prepareSigning paths use so
+     * they cannot drift.
+     *
+     * The key is sanitised to a valid PHP identifier (AT-359b), so a composite field_name such as
+     * "property_address+suburb" lands under the same "property_address_suburb" the blade emits. Typed
+     * values override the pillar-resolved value for the same field (the agent's explicit input wins);
+     * an empty typed value is ignored so it can never clobber a resolved value.
+     *
+     * @param array    $data                resolved web_template_data
+     * @param array    $stepData            the wizard flow step_data
+     * @param int|null $onlyPackTemplateId  when set, only fields tagged for this pack template apply
+     */
+    private function overlayFillReviewValues(array $data, array $stepData, ?int $onlyPackTemplateId = null): array
+    {
+        $frValues = $stepData['fill_review']['fieldValues'] ?? [];
+        if (empty($frValues)) {
+            return $data;
+        }
+
+        // AT-360c — the AUTHORITATIVE fill-review overlay map. Every value written below is ALSO
+        // recorded here, keyed EXACTLY as the document's data-field attribute (base `{var}` and
+        // per-recipient `{var}__r{n}`). This map is persisted on web_template_data and re-applied
+        // as the LAST word by CanonicalDocumentRenderer::compose() AFTER role-block expansion — so a
+        // fill-review edit ALWAYS wins on the rendered document and can never be clobbered by the
+        // per-recipient contact re-resolution in RoleBlockExpansionService (which pulls from the
+        // Contact model and previously overwrote the agent's edit). Universal: property, details,
+        // single-recipient contact AND multi-recipient contact all flow through here.
+        $overlay = is_array($data['_fill_review_overlay'] ?? null) ? $data['_fill_review_overlay'] : [];
+
+        foreach (($stepData['fields'] ?? []) as $field) {
+            $fieldId   = $field['id'] ?? null;
+            $fieldName = $field['field_name'] ?? null;
+            if (!$fieldId || !$fieldName) {
+                continue;
+            }
+            // NB: no early "has a value?" guard here — a role-bound field with 2+ recipients has
+            // NO base-id value (only "{base}__r{n}" instance values), so an early base-only check
+            // would wrongly skip it before the per-recipient loop below. The writes are conditional.
+            if ($onlyPackTemplateId !== null) {
+                $fTplId = $field['_pack_template_id'] ?? null;
+                if ($fTplId !== null && (int) $fTplId !== $onlyPackTemplateId) {
+                    continue;
+                }
+            }
+
+            // Match the blade variable EXACTLY: sanitise the field_name to a valid PHP identifier
+            // (same rule as TemplateController::deriveBladeName, AT-359b).
+            $var = preg_replace('/[^a-zA-Z0-9_]/', '_', $fieldName);
+            if ($var !== '' && is_numeric($var[0])) {
+                $var = 'f_' . $var;
+            }
+            if ($var === '') {
+                continue;
+            }
+
+            // Single-recipient / non-expanded field — value keyed by the base id.
+            if (isset($frValues[$fieldId]) && $frValues[$fieldId] !== '') {
+                $data[$var] = $frValues[$fieldId];
+                $overlay[$var] = $frValues[$fieldId];
+            }
+
+            // AT-360b — PER-RECIPIENT instances. A role-bound field with 2+ recipients is expanded
+            // in the wizard to one field per recipient, each keyed "{base_id}__r{n}" (1-based, see
+            // expandWizardFieldsPerRecipient). The signing surface renders each instance as
+            // "{var}__r{n}" (RoleBlockExpansionService). Without this, an edit to seller-2's field
+            // was stored under "{base}__r2" but the overlay only looked up "{base}", so the change
+            // never reached web_template_data. Map each instance edit to its own "{var}__r{n}".
+            $prefix = $fieldId . '__r';
+            foreach ($frValues as $frKey => $frVal) {
+                if ($frVal === '' || ! is_string($frKey)) {
+                    continue;
+                }
+                if (str_starts_with($frKey, $prefix)) {
+                    $suffix = substr($frKey, strlen($fieldId)); // "__r{n}"
+                    if (preg_match('/^__r\d+$/', $suffix)) {
+                        $data[$var . $suffix] = $frVal;
+                        $overlay[$var . $suffix] = $frVal;
+                    }
+                }
+            }
+        }
+
+        $data['_fill_review_overlay'] = $overlay;
+
+        return $data;
     }
 
     /**
@@ -1543,9 +1966,22 @@ class ESignWizardController extends Controller
         // Apply party overrides from fill_review
         $partyOverrides = $stepData['fill_review']['partyOverrides'] ?? [];
         foreach ($partyOverrides as $fieldId => $party) {
+            // AT multi-party — the override is the FULL party set (array). Preserve
+            // it as editable_by (multi, what the signing view enforces) and derive
+            // the single prep-filler for assignedTo, so a seller+agent field stays
+            // editable by BOTH at signing.
+            $parties = is_array($party)
+                ? array_values(array_filter($party, fn ($r) => is_string($r) && $r !== ''))
+                : (is_string($party) && $party !== '' ? [$party] : []);
+            if (empty($parties)) {
+                continue;
+            }
+            $filler = in_array('agent', $parties, true) ? 'agent' : $parties[0];
             foreach ($fields as &$field) {
                 if (($field['id'] ?? null) == $fieldId) {
-                    $field['assignedTo'] = $party;
+                    $field['editableBy']  = $parties;
+                    $field['editable_by'] = $parties;
+                    $field['assignedTo']  = $filler;
                 }
             }
             unset($field);
@@ -1597,12 +2033,21 @@ class ESignWizardController extends Controller
             $templateIds = $stepData['template_ids'];
             $mergedHtml = '';
             $packTemplateData = [];
+            // AT-360c — accumulate every segment's authoritative fill-review overlay map so the pack
+            // Document (whose web_template_data is a fresh 4-key array below) still carries it, and
+            // compose() can re-assert fill-review edits on the expanded pack HTML. Keyed by data-field
+            // attribute (base + __r{n}); union across segments (per-template scoping already applied).
+            $packFillReviewOverlay = [];
 
             foreach ($templateIds as $idx => $tplId) {
                 $tpl = Template::find($tplId);
                 if (!$tpl || !$tpl->blade_view) continue;
 
                 $tplData = $webTemplateDataService->resolve($tplId, $stepData, $user);
+                // AT-360 — same Fill & Review typed-value overlay as the single-doc path, scoped to
+                // this pack template's fields so a value only lands on the document it was typed for.
+                $tplData = $this->overlayFillReviewValues($tplData, $stepData, (int) $tplId);
+                $packFillReviewOverlay = array_merge($packFillReviewOverlay, $tplData['_fill_review_overlay'] ?? []);
                 $segIsSales = false;
                 if (!empty($tpl->signing_parties)) {
                     $tplData['signing_parties'] = $tpl->signing_parties;
@@ -1662,6 +2107,16 @@ class ESignWizardController extends Controller
                 }
                 $segRecipientsByRole['agent'] = [['name' => $user->name, 'role' => 'agent', 'email' => $user->email ?? '']];
                 $tplData['recipients_by_role'] = $segRecipientsByRole;
+                // Candidate flow — every pack segment gets the authorising-practitioner
+                // parity block too (single-doc path sets this at ~1904; the pack loop
+                // must mirror it or a candidate PACK renders NO authoriser surface and
+                // the authoriser's marks land nowhere). Neutral until the claiming
+                // practitioner's designation binds at sign time; bound by role-identity.
+                $tplData['is_candidate_flow'] = $isCandidateFlow;
+                if ($isCandidateFlow) {
+                    $tplData['authorising_designation'] = 'Authorising Practitioner';
+                    $tplData['authorising_identity']    = 'supervisor';
+                }
 
                 $segParties = [['role' => 'agent', 'name' => $user->name, 'display' => $user->name]];
                 foreach ($recipients as $r) {
@@ -1735,6 +2190,17 @@ class ESignWizardController extends Controller
             // segment is signable by the actual recipients.
             $mergedHtml = $this->normalizePackMarkerParties($mergedHtml, $recipients);
 
+            // Candidate flow — guarantee the authorising practitioner a full-parity
+            // signature surface on EVERY signing segment, even imported segments that
+            // do NOT render the shared mandate signature-block component (a Mandatory
+            // Disclosure / Addendum). Idempotent: component segments already carrying an
+            // authoriser surface are skipped. Without this the authoriser's ink binds to
+            // nothing on such segments and drops from the final document.
+            if ($isCandidateFlow) {
+                $mergedHtml = app(\App\Services\Docuperfect\CandidateAuthoriserSurfaceInjector::class)
+                    ->inject($mergedHtml, 'supervisor', 'Authorising Practitioner');
+            }
+
             // §20 — stamp each segment's .corex-document-wrapper with an
             // instance-stable docKey so the client keys disclosure rows
             // intrinsically per document (disclosure_<docKey>_<n>). One
@@ -1742,14 +2208,35 @@ class ESignWizardController extends Controller
             // pack get distinct, stable keys; never DOM-position-derived.
             $mergedHtml = $this->stampDisclosureDocKeys($mergedHtml);
 
+            // PER-DOCUMENT other-conditions: scope each segment's OTHER_CONDITIONS
+            // marker to its wrapper docKey so a condition added to one pack document
+            // never bleeds into another (independent frames + initials per segment).
+            $mergedHtml = $this->scopePackOtherConditionsMarkers($mergedHtml);
+
+            // Fill & Review strike-outs — bake the agent's creation-time strikes into the FINAL pack body via
+            // the SAME universal engine the single-doc path uses (:replayBodyStrikes at the single-doc merge
+            // below), so a strike authored on a pack renders identically on the signed pack document — struck
+            // <del> + optional <ins> + the full-width per-party initial row. Runs on the fully-assembled merge
+            // (after marker scoping / docKeys / authoriser injection) so a strike can land in ANY segment.
+            $mergedHtml = $this->replayBodyStrikes(
+                $mergedHtml,
+                $stepData,
+                $this->buildFillReviewSigningParties($stepData, $template, $user),
+            );
+
             $webTemplateData = [
-                'merged_html'        => $mergedHtml,
-                'template_ids'       => $templateIds,
-                'pack_id'            => $stepData['pack_id'] ?? null,
-                'pack_template_data' => $packTemplateData,
+                'merged_html'         => $mergedHtml,
+                'template_ids'        => $templateIds,
+                'pack_id'             => $stepData['pack_id'] ?? null,
+                'pack_template_data'  => $packTemplateData,
+                '_fill_review_overlay' => $packFillReviewOverlay,
             ];
         } elseif ($template->render_type === 'web' && $template->blade_view) {
             $webTemplateData = $webTemplateDataService->resolve($template->id, $stepData, $user);
+
+            // AT-360 — overlay the agent's Fill & Review typed values (pillar-less fields the
+            // agent hand-typed) so they reach the signed document, not just Document.fields_json.
+            $webTemplateData = $this->overlayFillReviewValues($webTemplateData, $stepData);
 
             // Build parties list for initials/signature processing
             // Resolve generic roles (owner_party, acquiring_party) to concrete roles
@@ -1829,7 +2316,14 @@ class ESignWizardController extends Controller
             $viewData['recipients_by_role'] = $recipientsByRole;
             $viewData['is_candidate_flow'] = $isCandidateFlow;
             if ($isCandidateFlow) {
-                $viewData['supervisor_name'] = 'Authorised Practitioner (shared queue)';
+                // The authorising practitioner is drawn from the shared authorisation
+                // queue at sign time, so no specific person/designation is known at
+                // document creation — a neutral role label renders until the claiming
+                // practitioner's DESIGNATION + name are stamped when their ink bakes
+                // (CanonicalInkComposer). The authoriser binds by ROLE-IDENTITY, never
+                // this label, so a placeholder here can never mis-bind their marks.
+                $viewData['authorising_designation'] = 'Authorising Practitioner';
+                $viewData['authorising_identity']    = 'supervisor';
             }
             $fullHtml = view($template->blade_view, $viewData)->render();
 
@@ -1858,7 +2352,13 @@ class ESignWizardController extends Controller
                     $otherConditionsText = implode("\n\n", array_map(fn($c) => $c['text'] ?? $c['content'] ?? '', $selectedClauses));
                 }
             }
-            if (!empty($otherConditionsText)) {
+            // Step 2 (Johan) — skip the legacy static "Additional Conditions"
+            // injection when the template carries an ~~~~OTHER_CONDITIONS~~~~
+            // marker: the InsertableBlockRenderer expands that marker into the
+            // structured condition rows (with per-party initials), so injecting
+            // here as well would render the conditions TWICE. No-marker (legacy)
+            // templates keep the injection as their only way to show conditions.
+            if (!empty($otherConditionsText) && ! str_contains($bodyHtml, 'OTHER_CONDITIONS')) {
                 // Split by double-newline for individual clause blocks
                 $clauseBlocks = array_values(array_filter(array_map('trim', preg_split('/\n\s*\n/', $otherConditionsText))));
                 $clauseHtml = '<div class="corex-additional-clauses" style="margin-top:16pt;">';
@@ -1889,6 +2389,15 @@ class ESignWizardController extends Controller
             $bodyHtml = app(\App\Services\Docuperfect\SigningSurfaceResolver::class)
                 ->resolve($bodyHtml, $recipients, $user->name, $isSalesContext);
 
+            // Candidate flow — same authoriser-surface guarantee as the pack path:
+            // an imported single document that omits the mandate signature-block
+            // component still yields exactly one full-parity authoriser surface
+            // (idempotent where the component already rendered one).
+            if ($isCandidateFlow) {
+                $bodyHtml = app(\App\Services\Docuperfect\CandidateAuthoriserSurfaceInjector::class)
+                    ->inject($bodyHtml, 'supervisor', 'Authorising Practitioner');
+            }
+
             // §20 — stamp the document's .corex-document-wrapper with an
             // instance-stable docKey (same scheme as the pack path) so a
             // single doc keys disclosure rows identically to when it is a
@@ -1898,13 +2407,48 @@ class ESignWizardController extends Controller
             // Store as merged_html so SignatureController uses it directly
             $webTemplateData['merged_html'] = $styles . $bodyHtml;
 
+            // Fill & Review strike-outs — bake the agent's creation-time strikes into the FINAL document body
+            // so they persist onto the signed document (identical engine to the preview + the sign-screen amend).
+            $webTemplateData['merged_html'] = $this->replayBodyStrikes(
+                $webTemplateData['merged_html'],
+                $stepData,
+                $partiesForSigning,
+            );
+
             // Store field_mappings with editable_by so the signing view knows
             // which fields each party role can edit (CDS templates only)
             if (!empty($template->field_mappings)) {
-                $webTemplateData['field_mappings'] = $template->field_mappings;
+                $fm = $template->field_mappings;
+                // AT multi-party — overlay each field's per-send editable_by (the
+                // fill&review "who this field belongs to" checkboxes) onto the
+                // template's field_mappings, so the multi party set chosen for THIS
+                // send governs signing-time edit rights. Non-overridden fields carry
+                // the template's own editable_by unchanged (idempotent).
+                if (is_array($fm)) {
+                    foreach ($fields as $wf) {
+                        $tagId = $wf['id'] ?? null;
+                        $eb = $wf['editable_by'] ?? $wf['editableBy'] ?? null;
+                        if ($tagId !== null && isset($fm[$tagId]) && is_array($fm[$tagId])
+                            && is_array($eb) && !empty($eb)) {
+                            $fm[$tagId]['editable_by'] = array_values($eb);
+                        }
+                    }
+                }
+                $webTemplateData['field_mappings'] = $fm;
                 $webTemplateData['template_type'] = $template->template_type;
             }
         }
+
+        // CONVERGENCE (Johan 2026-08-06) — persist the Fill & Review creation-time strikes onto the
+        // document so compose() (the ONE serve path every surface routes through) can replay them AFTER
+        // role-block expansion. The send-time bake into merged_html above STAYS (it handles within-clause
+        // strikes), but it runs on the UN-expanded merged_html: a selection that spans a role-block — the
+        // whole Seller domicilium block, whose per-recipient instances (Seller 1/Seller 2) only exist
+        // after expandWithLooping — cannot locate there, so the strike silently drops at send time and the
+        // Seller block renders un-struck on the signing + recipient views. Replaying inside compose(),
+        // after expansion, locates against the exact expanded structure the agent authored on, so a
+        // whole-Seller-block strike survives to every served surface. Empty when no strikes were authored.
+        $webTemplateData['body_strikes'] = $stepData['fill_review']['body_strikes'] ?? [];
 
         $packInstanceId = ($isPackFlow || $isPdfPack) ? (int) round(microtime(true) * 1000) : null;
 
@@ -1933,7 +2477,7 @@ class ESignWizardController extends Controller
             $resolvedPropertyId = $stepData['property']['property_id'];
         }
 
-        $result = DB::transaction(function () use ($user, $flow, $template, $fields, $recipients, $signingSetup, $docName, $propertyAddress, $signatureService, $webTemplateData, $packInstanceId, $resolvedDocType, $resolvedPropertyId, $candidateService, $isCandidateFlow) {
+        $result = DB::transaction(function () use ($user, $flow, $template, $fields, $recipients, $signingSetup, $docName, $propertyAddress, $signatureService, $webTemplateData, $packInstanceId, $resolvedDocType, $resolvedPropertyId, $candidateService, $isCandidateFlow, $stepData) {
             // 1. Create Document
             $document = Document::create([
                 'name'             => $docName,
@@ -2035,19 +2579,16 @@ class ESignWizardController extends Controller
                     'id_number'  => '',
                 ];
 
-                // Rebuild signing order: agent → supervisor → external parties
+                // Rebuild signing order: agent → supervisor → external parties.
+                //
+                // No supervisor_final (confirmed model, 2026-08-03): the authoriser co-signs ONCE at
+                // the initial 'supervisor' review, right after the candidate signs. After all external
+                // parties sign, the CANDIDATE's own final approval completes the document — with no
+                // edits, nothing changed from what the authoriser already co-signed, so the final
+                // version IS what the authoriser signed. (approveAndAdvance falls through to
+                // completeDocument when no supervisor_final request exists.)
                 $externalParties = array_filter($signingOrder, fn($r) => $r !== 'agent');
                 $signingOrder = array_merge(['agent', 'supervisor'], array_values($externalParties));
-
-                // Also add supervisor_final as the last step (after all external parties)
-                $signingOrder[] = 'supervisor_final';
-                $parties[] = [
-                    'role'       => 'supervisor_final',
-                    'role_label' => 'supervisor',
-                    'name'       => 'Authorised Practitioner',
-                    'email'      => '',
-                    'id_number'  => '',
-                ];
             }
 
             $documentHash = hash('sha256', json_encode($fields, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
@@ -2058,6 +2599,13 @@ class ESignWizardController extends Controller
                 'status'              => SignatureTemplate::STATUS_DRAFT,
                 'parties_json'        => $parties,
                 'signing_order_json'  => $signingOrder,
+                // HD-6 (§4) — a MANDATE signs `sellers → agent`: joint sellers are one group, so the
+                // agent is not asked to authorise the gap between two people signing the same document
+                // for the same reason. Scoped to mandates ON PURPOSE — every other ceremony (leases in
+                // particular) gets NULL and keeps today's checkpoint-after-every-party behaviour
+                // unchanged, because changing how a live lease flow checkpoints is not a side effect
+                // this ticket is entitled to.
+                'group_order_json'    => $this->groupOrderForCeremony($template),
                 'created_by'          => $user->id,
                 'is_candidate_flow'   => $isCandidateFlow,
                 'supervisor_user_id'  => null,
@@ -2065,12 +2613,22 @@ class ESignWizardController extends Controller
                 'other_conditions_text' => trim($stepData['fill_review']['other_conditions_text'] ?? '') ?: null,
             ]);
 
-            // Phase 1B.5 — bridge the legacy textarea content into structured
-            // document_conditions rows so the recipient-signing surface (which
-            // reads from those rows, not other_conditions_text) renders them.
+            // Phase 1B.5 / Step 2 (Johan) — persist the agent's other-conditions
+            // into structured document_conditions rows so the signing surface
+            // (which reads those rows, not other_conditions_text) renders them,
+            // one row per condition (each initialled per-party). Prefer the
+            // discrete FRAMES the wizard now submits (one frame = one row, with
+            // clause-library provenance); fall back to the legacy text bridge
+            // only when no frames are present (older step data / other flows).
             try {
-                app(\App\Services\Docuperfect\LegacyOtherConditionsBridge::class)
-                    ->syncToStructuredRows($sigTemplate);
+                $frames = $stepData['fill_review']['other_condition_frames'] ?? [];
+                if (is_array($frames) && $frames !== []) {
+                    app(\App\Services\Docuperfect\LegacyOtherConditionsBridge::class)
+                        ->syncFramesToStructuredRows($sigTemplate, $frames);
+                } else {
+                    app(\App\Services\Docuperfect\LegacyOtherConditionsBridge::class)
+                        ->syncToStructuredRows($sigTemplate);
+                }
             } catch (\Throwable $e) {
                 \Log::warning('LegacyOtherConditionsBridge sync failed (non-fatal)', [
                     'sig_template_id' => $sigTemplate->id,
@@ -2207,19 +2765,11 @@ class ESignWizardController extends Controller
                 }
             }
 
-            // Candidate flow: create supervisor_final request (last in chain)
-            // Shared queue — any eligible authoriser can claim.
-            if ($isCandidateFlow) {
-                $signatureService->createSigningRequest(
-                    $sigTemplate,
-                    'supervisor_final',
-                    'Authorised Practitioner',
-                    '',
-                    null,
-                    null,
-                    $user
-                );
-            }
+            // No supervisor_final request (confirmed model, 2026-08-03) — the authoriser co-signs ONCE
+            // at the initial 'supervisor' review; the candidate's final approval completes the doc.
+            // NOTE for the future edit path (wet-ink re-sign): if the document is later EDITED, the
+            // authoriser must re-sign wherever the candidate signs and recipients re-sign — reopen the
+            // 'supervisor' checkpoint at that point; do not resurrect a distinct supervisor_final step.
 
             // 4a. Set required flags on sign/initial fields based on contact count per role
             $fields = $this->setSignatureRequiredFlags($fields, $recipients);
@@ -2473,6 +3023,98 @@ class ESignWizardController extends Controller
      */
 
     /**
+     * HD-6 (§4) — the locked group order for this ceremony, or null to leave it ungrouped.
+     *
+     * Only a MANDATE is grouped today (`sellers → agent`). Everything else returns null and keeps the
+     * checkpoint-after-every-party behaviour it has now — silently changing how a live lease ceremony
+     * checkpoints is not something this ticket is entitled to do as a side effect.
+     *
+     * Matched on the classified document_type slug FIRST (DocumentTypeClassifier owns that answer, and
+     * a classified mandate stays a mandate whatever it is renamed), with the template's own type
+     * string as the fallback for templates that predate classification.
+     */
+    private function groupOrderForCeremony(?Template $template): ?array
+    {
+        if (! $template) {
+            return null;
+        }
+
+        $slug = strtolower(trim((string) ($template->documentType?->slug ?? $template->template_type ?? '')));
+
+        return $slug === 'mandate' ? SignatureTemplate::GROUP_ORDER_MANDATE : null;
+    }
+
+    /**
+     * The role a property-linked contact is offered to sign as — from the PROPERTY-LINK role.
+     *
+     * §2.1 doctrine (esign-ceremony-v3): a party's role is the role they hold ON THIS
+     * PROPERTY, not the type they carry globally. A contact typed "Seller" because they sold
+     * a different house last year, but linked to THIS property as a buyer, is a BUYER here.
+     * The global contact type answers "what is this person, generally?" — a question the
+     * document never asks. Only the property link knows who they are to THIS document.
+     *
+     * The global type therefore survives as a FALLBACK for one case only: a link that predates
+     * the role being mandatory and so carries no role at all. It is never the primary source.
+     *
+     * Returns the recipient role label (seller|buyer|lessor|lessee, matching the ContactType
+     * canon the rest of the wizard speaks), or NULL to skip the contact entirely — they are a
+     * lead, or they hold no role this template signs.
+     */
+    private function resolveLinkedContactRole(Contact $contact, array $allowedEsignRoles, string $defaultOwnerRole): ?string
+    {
+        $pivotRole = strtolower(trim((string) ($contact->pivot->role ?? '')));
+
+        // PRIMARY — the property link states who they are here.
+        $linkRole = Property::esignRoleForPivotRole($pivotRole);
+
+        if ($linkRole === null && in_array($pivotRole, Property::PIVOT_NON_SIGNING_ROLES, true)) {
+            // An explicit "not a party" (a portal lead who enquired about the listing). This is
+            // a statement, not a gap — never fall through to the global type, which would offer
+            // a P24 lead typed "Buyer" as a purchaser on the mandate.
+            return null;
+        }
+
+        if ($linkRole !== null) {
+            if (!empty($allowedEsignRoles) && !in_array($linkRole, $allowedEsignRoles, true)) {
+                return null; // Real party on this property, but not one this template signs.
+            }
+
+            return $linkRole;
+        }
+
+        // FALLBACK — the link carries no usable role (a pre-mandatory-role legacy row, or
+        // free-text the backfill flagged AMBIGUOUS and refused to guess at). Only now do we ask
+        // what the contact is globally. AT-79: a contact may hold several parent types, so we
+        // take the one whose esign_role this template actually needs.
+        $parentRows = DB::table('contact_contact_type as cct')
+            ->join('contact_types as ct', 'ct.id', '=', 'cct.contact_type_id')
+            ->where('cct.contact_id', $contact->id)
+            ->whereNull('ct.deleted_at')
+            ->orderBy('ct.sort_order')
+            ->get(['ct.name', 'ct.esign_role']);
+
+        if ($parentRows->isEmpty() && $contact->contact_type_id) {
+            $legacy = DB::table('contact_types')->where('id', $contact->contact_type_id)->first(['name', 'esign_role']);
+            if ($legacy) {
+                $parentRows = collect([$legacy]);
+            }
+        }
+
+        if (!empty($allowedEsignRoles)) {
+            $chosen = $parentRows->first(fn ($r) => $r->esign_role && in_array($r->esign_role, $allowedEsignRoles, true));
+            if (!$chosen) {
+                return null; // Contact has no role this template needs.
+            }
+        } else {
+            $chosen = $parentRows->first();
+        }
+
+        $recipientRole = $chosen ? strtolower(trim((string) $chosen->name)) : '';
+
+        return $recipientRole !== '' ? $recipientRole : $defaultOwnerRole;
+    }
+
+    /**
      * Map template signing_parties to allowed esign_role values on contact_types.
      * Returns empty array if signing_parties is null/empty (= show all contacts, legacy fallback).
      */
@@ -2647,6 +3289,44 @@ class ESignWizardController extends Controller
         }
     }
 
+    /**
+     * PER-DOCUMENT other-conditions in a PACK. Each pack SEGMENT
+     * (`.corex-document-wrapper[data-disclosure-doc]`) has its own
+     * `~~~~OTHER_CONDITIONS~~~~` marker. Left bare, every segment resolves to the
+     * SAME `other_conditions` block_id, so a condition added to one document bleeds
+     * into all of them. This scopes each segment's marker to its wrapper's docKey —
+     * `~~~~OTHER_CONDITIONS__<docKey>~~~~` — so InsertableBlockRenderer derives an
+     * independent block_id per document (its own frames + per-frame initials +
+     * re-engagement, no cross-document bleed).
+     *
+     * Forward pass: each marker takes the nearest PRECEDING `data-disclosure-doc`
+     * (its enclosing wrapper, opened just before it in document order). Only runs
+     * for real packs (≥2 wrappers); a single document keeps the bare marker so its
+     * `other_conditions` block_id is unchanged (backward-compatible).
+     */
+    private function scopePackOtherConditionsMarkers(string $html): string
+    {
+        if (trim($html) === '' || substr_count($html, 'corex-document-wrapper') < 2) {
+            return $html;
+        }
+        $currentKey = null;
+        $out = preg_replace_callback(
+            '/data-disclosure-doc="([^"]+)"|~{4,}\s*OTHER_CONDITIONS\s*~{4,}/i',
+            function ($m) use (&$currentKey) {
+                if (isset($m[1]) && $m[1] !== '') {
+                    $currentKey = preg_replace('/[^A-Za-z0-9_]/', '', $m[1]);
+                    return $m[0];
+                }
+                if ($currentKey === null || $currentKey === '') {
+                    return $m[0];
+                }
+                return '~~~~OTHER_CONDITIONS__' . $currentKey . '~~~~';
+            },
+            $html
+        );
+        return $out ?? $html;
+    }
+
     private function autoFillFields(array $fields, array $stepData): array
     {
         // Load named field source mappings (non-manual for auto-resolve)
@@ -2787,7 +3467,7 @@ class ESignWizardController extends Controller
             if ($detailKey === '_commission_words') {
                 $commVal = $details['commission'] ?? '';
                 if ($commVal !== '' && is_numeric($commVal)) {
-                    $field['value'] = $this->numberToWords((int) $commVal);
+                    $field['value'] = $this->numberToWords($commVal);
                 }
             } elseif (isset($details[$detailKey]) && $details[$detailKey] !== '') {
                 $field['value'] = (string) $details[$detailKey];
@@ -2941,29 +3621,19 @@ class ESignWizardController extends Controller
             'lease_start_day' => $leaseStart ? (int) date('d', strtotime($leaseStart)) : '',
             'lease_start_month' => $leaseStart ? date('F', strtotime($leaseStart)) : '',
             'lease_start_year' => $leaseStart ? date('Y', strtotime($leaseStart)) : '',
-            'price_in_words' => $price ? $this->numberToWords((int) $price) : '',
+            'price_in_words' => $price ? $this->numberToWords($price) : '',
             default => '',
         };
     }
 
-    private function numberToWords(int $number): string
+    /**
+     * HD-4 — one converter, one rounding rule. Delegates to App\Support\AmountInWords (rounds
+     * half-up to whole rands, appends " Rand", no cents — Johan's document house rule). This was a
+     * byte-identical copy of WebTemplateDataService's; both now share the one implementation.
+     */
+    private function numberToWords(int|float|string|null $number): string
     {
-        if ($number === 0) return 'zero';
-
-        $ones = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
-                 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen',
-                 'seventeen', 'eighteen', 'nineteen'];
-        $tens = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
-
-        $convert = function (int $n) use (&$convert, $ones, $tens): string {
-            if ($n < 20) return $ones[$n];
-            if ($n < 100) return $tens[(int)($n / 10)] . ($n % 10 ? '-' . $ones[$n % 10] : '');
-            if ($n < 1000) return $ones[(int)($n / 100)] . ' hundred' . ($n % 100 ? ' and ' . $convert($n % 100) : '');
-            if ($n < 1000000) return $convert((int)($n / 1000)) . ' thousand' . ($n % 1000 ? ' ' . $convert($n % 1000) : '');
-            return $convert((int)($n / 1000000)) . ' million' . ($n % 1000000 ? ' ' . $convert($n % 1000000) : '');
-        };
-
-        return ucfirst($convert($number));
+        return \App\Support\AmountInWords::rands($number);
     }
 
     /**
@@ -3590,7 +4260,10 @@ class ESignWizardController extends Controller
             if (empty($editableByArray)) {
                 $editableByArray = ['agent'];
             }
-            $editableBy = $editableByArray[0];
+            // AT multi-party — assignedTo is the single derived PREP-FILLER, not a
+            // silent "first tick". Agent fills when they are one of the parties,
+            // else the first party. The full multi set rides on `editableBy` below.
+            $editableBy = in_array('agent', $editableByArray, true) ? 'agent' : $editableByArray[0];
 
             // Label: derive from named field if this is a group member with no override
             $label = $m['label'] ?? $m['manualLabel'] ?? '';
@@ -3699,6 +4372,26 @@ class ESignWizardController extends Controller
         foreach ($allWizardFields as $field) {
             $editableBy = $field['editableBy'] ?? null;
             if (!is_array($editableBy) || empty($editableBy)) {
+                $expanded[] = $field;
+                continue;
+            }
+
+            // Per-recipient split is ONLY valid for CONTACT-sourced fields — those whose value
+            // genuinely differs per recipient (name, id, phone, email, address of that person).
+            // A document-level field (property / deal / computed / manual / static / agent source)
+            // carries ONE value shared by all recipients and renders as a single base occurrence;
+            // splitting it into "{id}__r{n}" instances strands any edit on an instance the document
+            // never renders (the commission-% bug: editableBy names owner_party, so a property-source
+            // rate was cloned per seller and the edited "__r2" value never reached the base var the
+            // blade prints). editableBy governs WHO may edit, not HOW MANY instances exist. Resolve
+            // the authoritative source_type (named-field catalogue first, coarse field 'source' as
+            // fallback) and skip expansion for anything that is not contact-sourced.
+            $sourceType = strtolower((string) ($field['source'] ?? ''));
+            $nfId = $field['named_field_id'] ?? null;
+            if ($nfId && isset($namedFieldMap[$nfId])) {
+                $sourceType = strtolower((string) $namedFieldMap[$nfId]->source_type);
+            }
+            if ($sourceType !== 'contact') {
                 $expanded[] = $field;
                 continue;
             }
@@ -4179,7 +4872,9 @@ class ESignWizardController extends Controller
                     $otherConditionsText2 = implode("\n\n", array_map(fn($c) => $c['text'] ?? $c['content'] ?? '', $legacyClauses));
                 }
             }
-            if (!empty($otherConditionsText2)) {
+            // Step 2 (Johan) — skip legacy injection when a marker is present
+            // (renderer expands it to rows; injecting here too = double render).
+            if (!empty($otherConditionsText2) && ! str_contains($bodyHtml, 'OTHER_CONDITIONS')) {
                 $clauseBlocks = array_values(array_filter(array_map('trim', preg_split('/\n\s*\n/', $otherConditionsText2))));
                 $clauseHtml = '<div class="corex-additional-clauses" style="margin-top:16pt;">';
                 $clauseHtml .= '<h3 style="font-weight:bold;margin-top:12pt;margin-bottom:8pt;">Additional Conditions</h3>';
@@ -4351,7 +5046,9 @@ class ESignWizardController extends Controller
                     $otherConditionsText3 = implode("\n\n", array_map(fn($c) => $c['text'] ?? $c['content'] ?? '', $legacyClauses));
                 }
             }
-            if (!empty($otherConditionsText3)) {
+            // Step 2 (Johan) — skip legacy injection when a marker is present
+            // (renderer expands it to rows; injecting here too = double render).
+            if (!empty($otherConditionsText3) && ! str_contains($bodyHtml, 'OTHER_CONDITIONS')) {
                 $clauseBlocks = array_values(array_filter(array_map('trim', preg_split('/\n\s*\n/', $otherConditionsText3))));
                 $clauseHtml = '<div class="corex-additional-clauses" style="margin-top:16pt;">';
                 $clauseHtml .= '<h3 style="font-weight:bold;margin-top:12pt;margin-bottom:8pt;">Additional Conditions</h3>';
@@ -4394,7 +5091,7 @@ class ESignWizardController extends Controller
             'spouse' => 'spouse', 'other' => 'other',
         ];
 
-        $result = DB::transaction(function () use ($user, $flow, $template, $fields, $recipients, $signingSetup, $docName, $propertyAddress, $signatureService, $webTemplateData, $resolvedDocType, $resolvedPropertyId, $roleAliases) {
+        $result = DB::transaction(function () use ($user, $flow, $template, $fields, $recipients, $signingSetup, $docName, $propertyAddress, $signatureService, $webTemplateData, $resolvedDocType, $resolvedPropertyId, $roleAliases, $stepData) {
             // 1. Create Document
             $document = Document::create([
                 'name'             => $docName,
@@ -4467,10 +5164,19 @@ class ESignWizardController extends Controller
                 'other_conditions_text' => trim($stepData['fill_review']['other_conditions_text'] ?? '') ?: null,
             ]);
 
-            // Phase 1B.5 — bridge to structured document_conditions rows
+            // Phase 1B.5 / Step 2 (Johan) — persist to structured
+            // document_conditions rows; prefer discrete frames (one row per
+            // condition + clause-library provenance), fall back to the legacy
+            // text bridge when no frames were submitted.
             try {
-                app(\App\Services\Docuperfect\LegacyOtherConditionsBridge::class)
-                    ->syncToStructuredRows($sigTemplate);
+                $frames = $stepData['fill_review']['other_condition_frames'] ?? [];
+                if (is_array($frames) && $frames !== []) {
+                    app(\App\Services\Docuperfect\LegacyOtherConditionsBridge::class)
+                        ->syncFramesToStructuredRows($sigTemplate, $frames);
+                } else {
+                    app(\App\Services\Docuperfect\LegacyOtherConditionsBridge::class)
+                        ->syncToStructuredRows($sigTemplate);
+                }
             } catch (\Throwable $e) {
                 \Log::warning('LegacyOtherConditionsBridge sync failed (wet-ink path)', [
                     'sig_template_id' => $sigTemplate->id,
@@ -4759,10 +5465,60 @@ class ESignWizardController extends Controller
             SignatureTemplate::STATUS_AWAITING_SUPERVISOR,
             SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL,
             SignatureTemplate::STATUS_AWAITING_DEFERRED,
+            // AT-373 (re-circulation surfacing) — after the agent APPROVES a recipient's amendment the
+            // document is sent BACK to a prior recipient to re-initial the change (amendment_initialing), or
+            // — if a chain node rejected the amendment — to the editor to re-accept (editor_reacceptance).
+            // Both are genuinely OUT WITH A PARTY (a recipient holds the pen), yet neither was in ANY bucket
+            // — same orphaned-state defect class as the AT-299 flagged-doc and BUG-2 returned-doc gaps above
+            // — so the doc VANISHED from My E-Sign Documents the moment it re-circulated, and the agent lost
+            // all visibility of an outstanding flow. Surface them as Awaiting Signatures (in-progress): the
+            // per-party progress render already shows the re-activated recipient holding it. They leave
+            // "outstanding" only on genuine completion (STATUS_COMPLETED) or cancellation.
+            SignatureTemplate::STATUS_AMENDMENT_INITIALING,
+            SignatureTemplate::STATUS_EDITOR_REACCEPTANCE,
         ];
 
         // Group templates by status category
         $groups = [
+            // AT-299 — a document frozen by a recipient's clause flag
+            // (STATUS_AMENDMENT_REVIEW) was in NO bucket, so it fell out of the
+            // list entirely and the agent could not see the frozen ceremony.
+            // Surface it FIRST as "FLAGGED — review required".
+            'flagged'          => $allTemplates->where('status', SignatureTemplate::STATUS_AMENDMENT_REVIEW)
+                ->each(function ($tpl) {
+                    // AT-300 — attach the pending flag amendment so the list CTA
+                    // deep-links to the FLAG-RESOLVE view (AmendmentController::review).
+                    // The doc-level signatures.review REJECTS an AMENDMENT_REVIEW
+                    // status (redirects "not pending approval") — that is why the
+                    // Review Flag button did nothing.
+                    $tpl->flag_amendment_id = \App\Models\Docuperfect\DocumentAmendment::query()
+                        ->where('signature_template_id', $tpl->id)
+                        ->where('amendment_type', \App\Models\Docuperfect\DocumentAmendment::TYPE_FLAG_RAISED)
+                        ->where('status', \App\Models\Docuperfect\DocumentAmendment::STATUS_PENDING)
+                        ->latest('id')->value('id');
+                })
+                ->values(),
+            // BUG 2 (Johan 2026-08-04) — a candidate-flow doc SENT BACK by the authoriser
+            // (STATUS_RETURNED_TO_CANDIDATE) was in NO bucket, so it fell out of the list
+            // entirely and the candidate could not find their own returned document to fix.
+            // Same defect class as the AT-299 flagged-doc gap. Surface it FIRST as
+            // "Returned — needs fixing", deep-linking to the sign screen to fix + re-sign.
+            'returned'         => $allTemplates->where('status', SignatureTemplate::STATUS_RETURNED_TO_CANDIDATE)->values(),
+            // AT-373 (Issue C surfacing) — a recipient's amendment RETURNED to the agent for approval
+            // (STATUS_AMENDMENT_CHAIN_REVIEW) was in NO bucket, so — exactly like the AT-299 flagged-doc
+            // gap above — it fell out of the list entirely: the agent had no entry point to see or approve
+            // it while the ceremony sat held. Surface it FIRST as an actionable "Amendment approval"
+            // bucket (Review & Approve deep-links to the agent amendment-approval surface). Only the docs
+            // whose CURRENT chain node is the agent/prep (the creator's turn) belong here; a candidate
+            // flow whose current node is a supervisor surfaces in Needs Authorisation below.
+            'amendment_approval' => $allTemplates->where('status', SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW)
+                ->each(function ($tpl) {
+                    $tpl->amendment_node_role = optional(
+                        app(SignatureService::class)->currentAmendmentChainNode($tpl)
+                    )->party_role;
+                })
+                ->filter(fn ($tpl) => ($tpl->amendment_node_role ?? 'agent') === 'agent')
+                ->values(),
             'pending_approval' => $allTemplates->where('status', SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL)->values(),
             'draft'            => $allTemplates->where('status', SignatureTemplate::STATUS_DRAFT)->values(),
             'ready_to_sign'    => $allTemplates->where('status', SignatureTemplate::STATUS_READY)->values(),
@@ -4781,14 +5537,86 @@ class ESignWizardController extends Controller
                 ->whereIn('status', [
                     SignatureTemplate::STATUS_AWAITING_SUPERVISOR,
                     SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL,
+                    // AT-373 — a candidate-flow recipient amendment whose CURRENT chain node is a
+                    // supervisor authoriser belongs in the authoriser queue too (the agent-node docs
+                    // surface on the creator's Amendment approval bucket above).
+                    SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW,
                 ])
                 ->orderByDesc('created_at')
-                ->get();
+                ->get()
+                ->filter(function ($tpl) {
+                    if ($tpl->status !== SignatureTemplate::STATUS_AMENDMENT_CHAIN_REVIEW) {
+                        return true;
+                    }
+                    return app(SignatureService::class)->isAuthoriserRole(
+                        optional(app(SignatureService::class)->currentAmendmentChainNode($tpl))->party_role
+                    );
+                })
+                ->values();
         }
 
         $groups['needs_authorisation'] = $needsAuthorisation;
 
+        // Recipient supporting-document uploads (SignedDocumentVersion kind='supporting') —
+        // the optional docs recipients attach on the signing screen. Surface them to the
+        // agent HERE (badge on the doc + a dedicated section), not just in the audit log.
+        $docIds = $allTemplates->pluck('document.id')->filter()->values();
+        $supporting = collect();
+        if ($docIds->isNotEmpty()) {
+            $supporting = \App\Models\Docuperfect\SignedDocumentVersion::whereIn('document_id', $docIds->all())
+                ->where('kind', \App\Models\Docuperfect\SignedDocumentVersion::KIND_SUPPORTING)
+                ->orderByDesc('uploaded_at')
+                ->orderByDesc('id')
+                ->get();
+        }
+        $templatesByDocId = $allTemplates->keyBy(fn ($t) => $t->document?->id);
+        // Badge counts only UNFILED uploads (the ones still needing to be worked / filed).
+        $supportingByDoc = $supporting->whereNull('filed_at')->groupBy('document_id');
+
+        // BATCH BY RECIPIENT (Johan item 5) — one row per signing request. FILED state (Part A): a
+        // batch is "filed" once EVERY upload in it carries filed_at; those drop off the working
+        // "to file" list into the "Filed additional docs" archive. A later re-upload (an unfiled
+        // version on a filed request) flips the whole batch back to "to file" until re-filed.
+        // Part B — resolve the property prefill once per batch so "Send to splitter" hands the
+        // splitter what CoreX already knows (property_id + the batch's version ids).
+        $prefillResolver = app(\App\Services\Docuperfect\SupportingBatchPrefillResolver::class);
+        // Split PER-DOCUMENT by filed state (not all-or-nothing per request): the splitter may file
+        // only SOME of a batch (its qpdf page-count check skips a PDF), so the docs it DID file must
+        // still move to "Filed additional docs" — only the not-yet-filed stragglers stay "to file".
+        $buildBatch = function ($versions, $requestId, bool $isFiled) use ($templatesByDocId, $prefillResolver) {
+            $first = $versions->first();
+            $tpl = $templatesByDocId->get($first->document_id);
+            if (! $tpl || ! $tpl->document) {
+                return null;
+            }
+            $prefill = $prefillResolver->forDocument($tpl->document);
+            return (object) [
+                'request_id'   => (int) $requestId,
+                'document'     => $tpl->document,
+                'template'     => $tpl,
+                'signer_name'  => $first->uploaded_by_name ?: 'Recipient',
+                'count'        => $versions->count(),
+                'latest_at'    => $versions->pluck('uploaded_at')->filter()->max(),
+                'filed_at'     => $isFiled ? $versions->pluck('filed_at')->filter()->max() : null,
+                // Splitter hand-off + view/download scope: this row's own version ids.
+                'version_ids'  => $versions->pluck('id')->all(),
+                'prefill_property_id' => $prefill['property_id'] ?? null,
+            ];
+        };
+        $withRequest = $supporting->filter(fn ($v) => $v->signature_request_id !== null);
+        $supportingToFile = $withRequest->whereNull('filed_at')
+            ->groupBy('signature_request_id')
+            ->map(fn ($versions, $rid) => $buildBatch($versions, $rid, false))
+            ->filter()->sortByDesc('latest_at')->values();
+        $supportingFiled = $withRequest->whereNotNull('filed_at')
+            ->groupBy('signature_request_id')
+            ->map(fn ($versions, $rid) => $buildBatch($versions, $rid, true))
+            ->filter()->sortByDesc('filed_at')->values();
+
         $counts = [
+            'flagged'             => $groups['flagged']->count(), // AT-299
+            'returned'            => $groups['returned']->count(), // BUG 2 — returned-to-candidate
+            'amendment_approval'  => $groups['amendment_approval']->count(), // AT-373 — recipient amendment returned to agent
             'needs_authorisation' => $groups['needs_authorisation']->count(),
             'pending_approval'    => $groups['pending_approval']->count(),
             'draft'               => $groups['draft']->count(),
@@ -4803,6 +5631,9 @@ class ESignWizardController extends Controller
             'counts' => $counts,
             'user'   => $user,
             'showOnlyAuthorisation' => $request->query('filter') === 'authorisation',
+            'supportingByDoc'   => $supportingByDoc,
+            'supportingToFile'  => $supportingToFile,
+            'supportingFiled'   => $supportingFiled,
         ]);
     }
 

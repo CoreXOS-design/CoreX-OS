@@ -6,6 +6,7 @@ namespace App\Services\Docuperfect;
 
 use App\Models\Docuperfect\DocumentCondition;
 use App\Models\Docuperfect\SignatureTemplate;
+use Illuminate\Support\Str;
 
 /**
  * E-Sign V3 Phase 1B.5 — bridge between the legacy
@@ -118,6 +119,164 @@ final class LegacyOtherConditionsBridge
             ->update(['custom_label' => '_bridge:' . $signature]);
 
         return $count;
+    }
+
+    /**
+     * Step 2 (Johan) — sync DISCRETE agent-preparation condition FRAMES into
+     * structured rows: exactly ONE document_conditions row per frame (never a
+     * blank-line re-split), preserving clause-library provenance (source +
+     * library_clause_id). Used INSTEAD of syncToStructuredRows() when the wizard
+     * submits an explicit frames array, so each "+ Add condition" / inserted
+     * clause is one row that carries its own per-party initials.
+     *
+     * Bridge-owned + idempotent exactly like syncToStructuredRows(): replaces
+     * only prior agent_preparation _bridge rows; recipient-added rows (added_via
+     * recipient_signing/agent_signing) are NEVER touched.
+     *
+     * @param array<int, array<string, mixed>> $frames
+     */
+    public function syncFramesToStructuredRows(SignatureTemplate $doc, array $frames): int
+    {
+        // Per-document scope keys for a PACK (empty for single-doc). Each pack
+        // SEGMENT's other-conditions block is scoped to its wrapper docKey
+        // (`other_conditions__<docKey>`); the fill-and-review selector tags each
+        // frame with `target_doc_index` (0-based into the pack's documents, in
+        // document order — the SAME order the merge stamps data-disclosure-doc).
+        $docKeys     = $this->resolvePackDocKeys($doc);
+        $bareBlockId = $this->resolveOtherConditionsBlockId($doc);
+
+        // Normalise → [content, source, library_clause_id, target_doc_index, block_id],
+        // dropping blanks. target_doc_index is preserved so a re-sync detects a
+        // routing change; block_id is the resolved TARGET block for this frame.
+        $clean = [];
+        foreach ($frames as $f) {
+            if (! is_array($f)) {
+                continue;
+            }
+            $content = trim((string) ($f['content'] ?? $f['text'] ?? ''));
+            if ($content === '') {
+                continue;
+            }
+            $isLibrary = ($f['source'] ?? null) === 'library';
+            $target    = $f['target_doc_index'] ?? null;
+            $targetIdx = is_numeric($target) ? (int) $target : null;
+            $clean[] = [
+                'content'           => $content,
+                'source'            => $isLibrary ? 'library' : 'custom',
+                'library_clause_id' => $isLibrary ? ($f['library_clause_id'] ?? null) : null,
+                'target_doc_index'  => $targetIdx,
+                'block_id'          => $this->blockIdForFrame($targetIdx, $docKeys, $bareBlockId),
+            ];
+        }
+
+        $agencyId = $this->resolveAgencyId($doc);
+
+        if ($clean === []) {
+            // Clear ALL bridge-owned rows (every scoped block) for this doc.
+            $this->clearBridgeOwnedRows($doc);
+            return 0;
+        }
+
+        // Idempotency over the full frame set (content + provenance + ORDER + target).
+        $signature = sha1((string) json_encode($clean));
+        $existing = DocumentCondition::query()
+            ->where('signature_template_id', $doc->id)
+            ->where('added_via', 'agent_preparation')
+            ->where('custom_label', '_bridge:' . $signature)
+            ->exists();
+        if ($existing) {
+            return 0;
+        }
+
+        // Replace ALL prior bridge-owned rows (any block) for this doc — a frame
+        // may have moved between documents since the last sync.
+        $this->clearBridgeOwnedRows($doc);
+
+        // Sequence condition_number per TARGET block (each document's block
+        // numbers its own conditions 1..n).
+        $seqByBlock = [];
+        foreach ($clean as $frame) {
+            $bid = $frame['block_id'];
+            if (! isset($seqByBlock[$bid])) {
+                $seqByBlock[$bid] = (int) DocumentCondition::query()
+                    ->where('signature_template_id', $doc->id)
+                    ->where('block_id', $bid)
+                    ->max('condition_number');
+            }
+            $seqByBlock[$bid]++;
+            DocumentCondition::create([
+                'signature_template_id' => $doc->id,
+                'agency_id'             => $agencyId,
+                'block_id'              => $bid,
+                'block_purpose'         => 'other_conditions',
+                'condition_number'      => $seqByBlock[$bid],
+                'content'               => $frame['content'],
+                'is_locked'             => false,
+                'is_override'           => false,
+                'added_by_user_id'      => $doc->created_by,
+                'added_via'             => 'agent_preparation',
+                'source'                => $frame['source'],
+                'library_clause_id'     => $frame['library_clause_id'],
+                'amendment_id'          => null,
+            ]);
+        }
+
+        // Stamp the idempotency sentinel onto the rows just written, WITHOUT
+        // disturbing their per-row source/library_clause_id provenance.
+        DocumentCondition::query()
+            ->where('signature_template_id', $doc->id)
+            ->where('added_via', 'agent_preparation')
+            ->whereNull('custom_label')
+            ->update(['custom_label' => '_bridge:' . $signature]);
+
+        return count($clean);
+    }
+
+    /**
+     * Ordered per-document scope keys for a PACK, read from the stored
+     * `merged_html` (one `data-disclosure-doc` per pack SEGMENT, in document
+     * order). Returns [] for a single document (no scoping) so the bare
+     * `other_conditions` block_id path stays unchanged.
+     *
+     * @return array<int, string>
+     */
+    private function resolvePackDocKeys(SignatureTemplate $doc): array
+    {
+        $webData = $doc->document?->web_template_data ?? [];
+        if (! is_array($webData)) {
+            $webData = json_decode((string) $webData, true) ?: [];
+        }
+        $merged = (string) ($webData['merged_html'] ?? '');
+        if ($merged === '') {
+            return [];
+        }
+        if (preg_match_all('/data-disclosure-doc="([^"]+)"/', $merged, $m) && count($m[1]) >= 2) {
+            return array_values($m[1]);
+        }
+        return [];
+    }
+
+    /**
+     * Resolve the block_id a frame's structured rows belong to.
+     *
+     * PACK: always route to a per-document scoped block so the condition renders
+     * on ONE document only (never bleeds across the pack). The selector's
+     * `target_doc_index` picks which; an untagged frame defaults to the first
+     * document so it can never land on the (un-rendered) bare block.
+     *
+     * SINGLE DOC: the bare `other_conditions` block (backward-compatible).
+     *
+     * The scoped id mirrors InsertableBlockRenderer::synthBlockFromToken() —
+     * `other_conditions__<slug(docKey)>` — so the persisted rows match the block
+     * the marker expands to at signing.
+     */
+    private function blockIdForFrame(?int $targetIdx, array $docKeys, string $bareBlockId): string
+    {
+        if ($docKeys !== []) {
+            $idx = ($targetIdx !== null && isset($docKeys[$targetIdx])) ? $targetIdx : 0;
+            return 'other_conditions__' . Str::slug($docKeys[$idx], '_');
+        }
+        return $bareBlockId;
     }
 
     /**

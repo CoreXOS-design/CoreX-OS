@@ -115,6 +115,27 @@ class MarketIntelligenceController extends Controller
         // claim-centric action presets (my_claims / expiring / log_outcomes),
         // which exist precisely to surface claimed rows.
         if (! $request->boolean('show_pitched') && ! $presetSuspendsCanvassFilter) {
+            // INSTANT LOCK (Johan 2026-08-13, MIC funnel phase 1) — the moment an agent clicks
+            // "Pitch now", a temp lock is written (EntryPointController::fromProspecting →
+            // ProspectingClaimService::createTempLock) BEFORE the composer opens. Hide any listing
+            // ANOTHER agent is actively pitching (unexpired, unreleased temp lock) from THIS agent's
+            // canvassing pool, so a second agent can't click it in parallel — instant, not after the
+            // pitch is saved. The pitching agent's OWN lock is NOT excluded (they still see their row).
+            // Auto-releases when the temp lock expires (agent abandoned) or is consumed by the pitch;
+            // the agency-configurable warn/release rules are phase 2.
+            $otherAgentLockedListingIds = DB::table('prospecting_pitch_locks')
+                ->where('agency_id', $agencyId)
+                ->whereNull('released_at')
+                ->where('expires_at', '>', now())
+                ->where('user_id', '!=', (int) $request->user()->id)
+                ->whereNotNull('prospecting_listing_id')
+                ->distinct()
+                ->pluck('prospecting_listing_id')
+                ->all();
+            if (! empty($otherAgentLockedListingIds)) {
+                $query->whereNotIn('id', $otherAgentLockedListingIds);
+            }
+
             $query->whereDoesntHave('activeClaim', function ($q) {
                 $q->whereNotNull('pitched_at');
             });
@@ -512,6 +533,11 @@ class MarketIntelligenceController extends Controller
                     'url'    => $l->portal_url,
                 ];
             })->values()->toArray();
+            // PITCHED-state (Johan 2026-08-14) — worklist row flags for cc5 to render the "Pitched"
+            // label + route the click to the property record. is_pitched = Create & continue
+            // committed (pitched_at set); property_id = the linked/created Property.
+            $primary->is_pitched  = ! empty($primary->pitched_at);
+            $primary->property_id = $primary->matched_property_id ? (int) $primary->matched_property_id : null;
             return $primary;
         })->values();
 
@@ -682,14 +708,28 @@ class MarketIntelligenceController extends Controller
         // it IS our stock, show the MATCHED PROPERTY's address: hydrate the row's
         // address from the property when the listing's own address is blank. Only
         // touches company-stock rows; prospecting rows keep their own address.
+        // EXISTENCE CHECK (Johan 2026-08-13, MIC funnel phase 1) — a listing that resolves to an
+        // existing agency property should surface "Already exists → open property (who's on it)"
+        // instead of Pitch Now. Batch-load the matched properties' owning agent here (one query) so
+        // the resolver can name who is already on it. Reuses $companyStockMap (OnMarketStockService's
+        // on-market-gated identity); the authoritative pre-work gate stays the reactive collision
+        // check (EntryPointController::resolveCollisionForListing → TrackedPropertyMatchOrCreateService
+        // ::findExistingMatch) that redirects a pitch-now click on an existing property to the property.
+        $companyStockAgentByListing = [];
         if (! empty($companyStockMap)) {
-            $companyPropAddresses = \App\Models\Property::withoutGlobalScopes()
+            $companyProps = \App\Models\Property::withoutGlobalScopes()
                 ->whereIn('id', array_values($companyStockMap))
-                ->pluck('address', 'id');
+                ->with('agent:id,name')
+                ->get(['id', 'agent_id', 'address']);
+            $companyPropAddresses = $companyProps->pluck('address', 'id');
+            $agentNameByProp = $companyProps->mapWithKeys(fn ($p) => [$p->id => optional($p->agent)->name]);
             foreach ($listings->items() as $__it) {
                 $__pid = $companyStockMap[$__it->id] ?? null;
                 if ($__pid && blank($__it->address) && filled($companyPropAddresses[$__pid] ?? null)) {
                     $__it->address = $companyPropAddresses[$__pid];
+                }
+                if ($__pid) {
+                    $companyStockAgentByListing[$__it->id] = $agentNameByProp[$__pid] ?? null;
                 }
             }
         }
@@ -910,6 +950,8 @@ class MarketIntelligenceController extends Controller
                 // matched_property_id column. Feeds SuggestedActionResolver's
                 // R5/R6/R7/R10 in-stock gate + property links.
                 'company_stock_property_id' => $companyStockMap[$listingItem->id] ?? null,
+                // EXISTENCE CHECK — who is already on the matched property (null = no agent assigned).
+                'company_stock_agent_name'  => $companyStockAgentByListing[$listingItem->id] ?? null,
             ];
             $tierSlice = [
                 'strong'    => $buyerTiers[$listingItem->id]['strong']    ?? 0,
@@ -1165,7 +1207,12 @@ class MarketIntelligenceController extends Controller
         $base = TrackedProperty::query()
             ->withoutGlobalScopes()
             ->where('agency_id', $agencyId)
-            ->whereNull('deleted_at');
+            ->whereNull('deleted_at')
+            // Deeds captures live on their own "Deeds Capture" screen and must never
+            // mix into Opportunities (Johan's directive). Exclude them here.
+            ->where(function ($q) {
+                $q->whereNull('capture_kind')->orWhere('capture_kind', '<>', 'deeds_capture');
+            });
 
         $query = (clone $base)
             ->with(['primaryAddress', 'externalRefs'])

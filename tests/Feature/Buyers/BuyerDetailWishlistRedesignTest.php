@@ -40,6 +40,12 @@ use Tests\TestCase;
  *      real <script> block, never inline in the x-data="..." HTML attribute
  *      (its own HTML-string literals collided with x-data's own
  *      double-quote delimiter and leaked as visible page text).
+ *   6. The wishlist accordion renders the SAME rich <x-match-card> component
+ *      (photo, beds/baths/m², agent, View Property in a new tab, Hide) that
+ *      Core Matches results uses — one shared component, not a hand-copied
+ *      look-alike — and "Convert to Deal" is gone from BOTH agent-facing
+ *      match surfaces entirely (it threw a SQL error; deal creation is
+ *      BM/admin-only per spec).
  */
 final class BuyerDetailWishlistRedesignTest extends TestCase
 {
@@ -90,16 +96,30 @@ final class BuyerDetailWishlistRedesignTest extends TestCase
         // asserts the DOM structure itself: the component's JS/HTML-string
         // fragments may appear ONLY inside a real <script> block, never in
         // the surrounding page markup.
+        // Include a real matching Property — NOT just a wishlist — so the
+        // Schedule Viewing picker's "Continue to schedule" button (which
+        // legitimately renders @click="continueToSchedule()", a bare method
+        // INVOCATION) actually appears on the page. Testing against an empty
+        // $matched would let a same-named-substring bug slip through: the
+        // leak markers below must be fragments that exist ONLY inside the
+        // function BODIES, never in a legitimate @click="…()" call.
         [$agencyId, $agent, $suburbId] = $this->fixture();
         $buyer = $this->buyer($agencyId, $agent->id);
-        $this->match($agencyId, $buyer->id, [
+        $wishlist = $this->match($agencyId, $buyer->id, [
             'is_primary' => true, 'price_min' => 1_500_000, 'price_max' => 2_000_000,
             'p24_suburb_ids' => [$suburbId],
         ]);
+        $this->property($agencyId, $agent->id, $suburbId, ['price' => 1_800_000]);
 
         $resp = $this->actingAs($agent)->get(route('command-center.buyers.show', $buyer) . '?tab=wishlists');
         $resp->assertStatus(200);
         $html = $resp->getContent();
+
+        // Sanity: the picker's "Continue to schedule" button — a legitimate
+        // bare method CALL — really is on this page, so the leak-check below
+        // is exercised against the exact button that caused the false
+        // positive during manual QA1 verification, not an empty branch.
+        $resp->assertSee('continueToSchedule()', false);
 
         // The component must be registered in a real <script> block …
         $resp->assertSee("Alpine.data('buyerWishlists'", false);
@@ -112,11 +132,18 @@ final class BuyerDetailWishlistRedesignTest extends TestCase
         );
 
         // Structural proof: strip every <script>…</script> block and confirm
-        // none of the component's JS fragments leak into the remaining body
-        // markup as visible text — this is exactly what would have failed
-        // on the broken version (the leaked script WAS in this remainder).
+        // none of the component's JS IMPLEMENTATION fragments leak into the
+        // remaining body markup as visible text — this is exactly what would
+        // have failed on the broken version (the leaked script WAS in this
+        // remainder). Every marker here exists ONLY inside a function body,
+        // never in a legitimate @click="…()" invocation elsewhere on the page.
         $withoutScripts = preg_replace('#<script\b[^>]*>.*?</script>#is', '', $html);
-        foreach (['continueToSchedule', 'toggleWishlistMatches(id)', 'Loading matches', 'el.innerHTML'] as $leak) {
+        foreach ([
+            'toggleWishlistMatches(id)',   // the function's own parameter name
+            'Loading matches',              // the innerHTML placeholder text
+            'el.innerHTML',                 // only appears inside the function body
+            'cfg.calendarBaseUrl',          // only appears inside continueToSchedule()'s body
+        ] as $leak) {
             $this->assertStringNotContainsString(
                 $leak, $withoutScripts,
                 "\"{$leak}\" leaked outside <script> — the quote-collision bug is back"
@@ -335,6 +362,56 @@ final class BuyerDetailWishlistRedesignTest extends TestCase
             'href="' . route('corex.properties.show', $property) . '" target="_blank" rel="noopener noreferrer"',
             $resultsHtml
         );
+    }
+
+    public function test_wishlist_and_results_screen_render_the_one_shared_match_card_component(): void
+    {
+        // Formalises the "ONE shared component" claim as its own structural
+        // proof — the previous test shows both screens BEHAVE the same
+        // (photo/beds/agent/View-Property/no-Convert-to-Deal), which two
+        // independently hand-copied cards could also satisfy today and
+        // silently drift apart tomorrow. This asserts they render the exact
+        // SAME file: <x-match-card>'s own Alpine scope declaration is
+        // authored in exactly one place — resources/views/components/
+        // match-card.blade.php — so its verbatim appearance in BOTH rendered
+        // pages proves both are the identical component, not a look-alike.
+        [$agencyId, $agent, $suburbId] = $this->fixture();
+        $buyer = $this->buyer($agencyId, $agent->id);
+        $wishlist = $this->match($agencyId, $buyer->id, [
+            'is_primary' => true, 'price_min' => 500_000, 'price_max' => 2_000_000,
+            'p24_suburb_ids' => [$suburbId],
+        ]);
+        $this->property($agencyId, $agent->id, $suburbId, ['title' => 'Shared Card House', 'price' => 1_000_000]);
+
+        $sharedCardSignature = "x-data=\"{ noteOpen: false, hideModalOpen: false, hideReason: '' }\"";
+
+        $wishlistResp = $this->actingAs($agent)->get(route('command-center.buyers.show', $buyer) . '?tab=wishlists');
+        $wishlistResp->assertStatus(200);
+        $this->assertStringContainsString($sharedCardSignature, $wishlistResp->getContent(), 'wishlist accordion must render <x-match-card>');
+
+        $resultsResp = $this->actingAs($agent)->get(route('corex.contacts.matches.results', [$buyer, $wishlist]));
+        $resultsResp->assertStatus(200);
+        $this->assertStringContainsString($sharedCardSignature, $resultsResp->getContent(), 'Core Matches results must render <x-match-card>');
+
+        // Belt-and-braces at the SOURCE level: both host views literally
+        // invoke <x-match-card> — there is exactly one component file behind it.
+        $this->assertFileExists(resource_path('views/components/match-card.blade.php'));
+        $this->assertStringContainsString(
+            '<x-match-card', file_get_contents(resource_path('views/command-center/buyers/_wishlist-match-cards.blade.php'))
+        );
+        $this->assertStringContainsString(
+            '<x-match-card', file_get_contents(resource_path('views/corex/contacts/match-results.blade.php'))
+        );
+
+        // And the Convert-to-Deal FORM/route lives nowhere in the shared
+        // component itself — the removal is structural (in the one shared
+        // file), not a per-surface patch that could regress independently.
+        // Checked by the route/permission-gate markers, not the human label
+        // "Convert to Deal" — that phrase legitimately appears in this very
+        // file's own explanatory comment about WHY the button is gone.
+        $componentSource = file_get_contents(resource_path('views/components/match-card.blade.php'));
+        $this->assertStringNotContainsString('convertToDeal', $componentSource);
+        $this->assertStringNotContainsString('core_matches.convert_to_deal', $componentSource);
     }
 
     public function test_wishlist_over_page_size_shows_first_50_and_load_more_appends_the_rest(): void
