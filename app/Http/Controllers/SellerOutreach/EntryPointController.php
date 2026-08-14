@@ -249,6 +249,9 @@ final class EntryPointController extends Controller
             'tvaIngestUrl'   => route('seller-outreach.entry.tva-ingest-prospecting', ['prospectingListingId' => $listing->id]),
             'primarySellerUrl' => route('seller-outreach.entry.primary-seller-prospecting', ['prospectingListingId' => $listing->id]),
             'deadEndSellerUrl' => route('seller-outreach.entry.dead-end-seller-prospecting', ['prospectingListingId' => $listing->id]),
+            'unlinkDeedUrl'    => route('seller-outreach.entry.unlink-deed-prospecting', ['prospectingListingId' => $listing->id]),
+            'removeNumberUrl'  => route('seller-outreach.entry.remove-number-prospecting', ['prospectingListingId' => $listing->id]),
+            'primaryNumberUrl' => route('seller-outreach.entry.primary-number-prospecting', ['prospectingListingId' => $listing->id]),
         ]);
     }
 
@@ -1206,26 +1209,89 @@ final class EntryPointController extends Controller
             ->first();
         abort_if($deedTp === null, 404, 'Deed not found in this agency.');
 
-        $link = app(\App\Services\Prospecting\DeedsCaptureLinkService::class);
-        $payload = $link->ownersForTrackedProperty($agencyId, $deedTp);
-        if (empty($payload['owners'])) {
+        $svc = app(\App\Services\Prospecting\ComposeSellerService::class);
+        if (empty($svc->deedOwners((int) $deedTp->id))) {
             return response()->json(['ok' => false, 'error' => 'That deed has no registered owner to use.'], 422);
         }
 
-        DB::table('prospecting_listings')
-            ->where('id', $listing->id)
-            ->update([
-                'linked_deed_tracked_property_id' => $deedTp->id,
-                'linked_deed_by_user_id'          => (int) $request->user()->id,
-                'linked_deed_at'                  => now(),
-                'updated_at'                      => now(),
-            ]);
+        // R1 — selecting a deed REPLACES the current deed: it auto-links the deed's owners as sellers
+        // (skipping ones the agent removed) AND pulls the property address from the deeds-office
+        // record, so the Sellers panel + address FOLLOW the selected deed. Returns the full payload.
+        $propertyId = $this->ensurePropertyForListing($agencyId, $listing, $request->user());
+        $svc->selectDeed($agencyId, $listing, $propertyId, (int) $deedTp->id, $request->user()->branch_id, (int) $request->user()->id);
 
-        return response()->json([
-            'ok'                  => true,
-            'tracked_property_id' => (int) $deedTp->id,
-            'owners'              => $payload['owners'],
-        ]);
+        $listing = DB::table('prospecting_listings')->where('id', $prospectingListingId)->first();
+
+        return response()->json($svc->payload($agencyId, $listing));
+    }
+
+    /** R1 — unlink the deed: revert to auto-match, drop deed-sourced sellers, revert the address. */
+    public function unlinkDeedForProspecting(Request $request, int $prospectingListingId)
+    {
+        $agencyId = $this->resolveAgencyId($request);
+        $listing = DB::table('prospecting_listings')
+            ->where('id', $prospectingListingId)->where('agency_id', $agencyId)->whereNull('deleted_at')->first();
+        abort_if(! $listing, 404);
+
+        $svc = app(\App\Services\Prospecting\ComposeSellerService::class);
+        if (! empty($listing->matched_property_id)) {
+            $svc->unlinkDeed($agencyId, $listing, (int) $listing->matched_property_id);
+        } else {
+            DB::table('prospecting_listings')->where('id', $listing->id)->update([
+                'linked_deed_tracked_property_id' => null, 'linked_deed_by_user_id' => null, 'linked_deed_at' => null, 'updated_at' => now(),
+            ]);
+        }
+
+        $listing = DB::table('prospecting_listings')->where('id', $prospectingListingId)->first();
+
+        return response()->json($svc->payload($agencyId, $listing));
+    }
+
+    /** R3 — remove ONE number from a seller (undo a wrong one). Contact must be a seller here. */
+    public function removeNumberForProspecting(Request $request, int $prospectingListingId)
+    {
+        [$agencyId, $listing, $contact, $svc] = $this->sellerNumberContext($request, $prospectingListingId);
+        $data = $request->validate(['value' => 'required|string|max:255', 'type' => 'required|string|in:cell,tel,phone,email']);
+        $svc->removeNumber($contact, $data['type'] === 'email' ? 'email' : 'phone', $data['value']);
+
+        return response()->json($svc->payload($agencyId, $listing));
+    }
+
+    /** R3 — mark which number is primary (primary phone / primary email) for a seller. */
+    public function setPrimaryNumberForProspecting(Request $request, int $prospectingListingId)
+    {
+        [$agencyId, $listing, $contact, $svc] = $this->sellerNumberContext($request, $prospectingListingId);
+        $data = $request->validate(['value' => 'required|string|max:255', 'type' => 'required|string|in:cell,tel,phone,email']);
+        $svc->setPrimaryNumber($contact, $data['type'] === 'email' ? 'email' : 'phone', $data['value']);
+
+        return response()->json($svc->payload($agencyId, $listing));
+    }
+
+    /**
+     * Shared context for the per-number actions: resolves the listing + the seller contact and
+     * guards that the contact really is a seller on this listing's property.
+     *
+     * @return array{0:int,1:object,2:Contact,3:\App\Services\Prospecting\ComposeSellerService}
+     */
+    private function sellerNumberContext(Request $request, int $prospectingListingId): array
+    {
+        $agencyId = $this->resolveAgencyId($request);
+        $listing = DB::table('prospecting_listings')
+            ->where('id', $prospectingListingId)->where('agency_id', $agencyId)->whereNull('deleted_at')->first();
+        abort_if(! $listing, 404);
+        abort_if(empty($listing->matched_property_id), 422, 'No property yet.');
+
+        $contactId = (int) $request->input('contact_id');
+        $contact = Contact::withoutGlobalScope(\App\Models\Scopes\ContactScope::class)
+            ->where('agency_id', $agencyId)->find($contactId);
+        abort_if($contact === null, 404, 'Contact not found in this agency.');
+
+        $isSeller = DB::table('contact_property')
+            ->where('property_id', (int) $listing->matched_property_id)
+            ->where('contact_id', $contactId)->where('role', 'seller')->exists();
+        abort_unless($isSeller, 422, 'That contact is not a seller on this property.');
+
+        return [$agencyId, $listing, $contact, app(\App\Services\Prospecting\ComposeSellerService::class)];
     }
 
     /**
@@ -1257,6 +1323,8 @@ final class EntryPointController extends Controller
             'property_id' => $sellers['property_id'],
             'sellers'     => $sellers['sellers'],
             'tva'         => $sellers['tva'],
+            'linked_deed' => $sellers['linked_deed'],
+            'removed'     => $sellers['removed'],
         ]);
     }
 
@@ -1293,14 +1361,18 @@ final class EntryPointController extends Controller
         }
 
         $propertyId = $this->ensurePropertyForListing($agencyId, $listing, $request->user());
-        $svc->linkSellerToProperty((int) $contact->id, $propertyId);
+        // Manual link (or explicit RE-ADD) — source=manual, and it CLEARS any sticky removal so the
+        // agent's deliberate re-add sticks against the deed auto-link (R2).
+        $svc->linkSellerToProperty((int) $contact->id, $propertyId, 'manual');
+        $svc->clearRemoval((int) $listing->id, $contact->id_number ? (string) $contact->id_number : null);
 
         $listing = DB::table('prospecting_listings')->where('id', $prospectingListingId)->first();
 
         return response()->json($svc->payload($agencyId, $listing));
     }
 
-    /** PART A — remove ONE seller link (contact + property both survive). Returns refreshed state. */
+    /** PART A / R2 — remove ONE seller link and RECORD the removal so the deed auto-link never
+     *  silently re-adds them on reload (sticky until the agent re-adds). Contact + property survive. */
     public function unlinkSellerFromProspecting(Request $request, int $prospectingListingId)
     {
         $agencyId = $this->resolveAgencyId($request);
@@ -1312,7 +1384,10 @@ final class EntryPointController extends Controller
         $svc = app(\App\Services\Prospecting\ComposeSellerService::class);
 
         if (! empty($listing->matched_property_id)) {
+            $idNumber = Contact::withoutGlobalScope(\App\Models\Scopes\ContactScope::class)
+                ->where('agency_id', $agencyId)->where('id', (int) $data['contact_id'])->value('id_number');
             $svc->unlinkSeller((int) $data['contact_id'], (int) $listing->matched_property_id);
+            $svc->recordRemoval($agencyId, (int) $listing->id, $idNumber ? (string) $idNumber : null, (int) $request->user()->id);
         }
 
         return response()->json($svc->payload($agencyId, $listing));

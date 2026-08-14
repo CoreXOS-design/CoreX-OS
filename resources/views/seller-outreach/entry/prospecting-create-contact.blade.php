@@ -149,10 +149,12 @@
                       this.deed.owners = d.owners || [];
                       this.deed.candidates = d.candidates || [];
                       if (Array.isArray(d.deeds)) this.deeds = d.deeds;
-                      // Multi-seller (Part A) + TVA (Part B) live state.
+                      // Multi-seller (Part A) + TVA (Part B) + reversibility (R1/R2) live state.
                       if (d.sellers) this.sellers = d.sellers;
                       if (d.tva) this.tva = d.tva;
                       if (d.property_id) this.propertyId = d.property_id;
+                      if ('linked_deed' in d) this.linkedDeed = d.linked_deed;
+                      if ('removed' in d) this.removed = d.removed || [];
                   } catch (e) { /* transient — keep polling */ }
               },
               // ── Multi-seller link (Part A) + TVA number picker (Part B) ──
@@ -164,6 +166,11 @@
               tvaIngestUrl: @js($tvaIngestUrl ?? null),
               primarySellerUrl: @js($primarySellerUrl ?? null),
               deadEndSellerUrl: @js($deadEndSellerUrl ?? null),
+              unlinkDeedUrl: @js($unlinkDeedUrl ?? null),
+              removeNumberUrl: @js($removeNumberUrl ?? null),
+              primaryNumberUrl: @js($primaryNumberUrl ?? null),
+              linkedDeed: @js($sellerState['linked_deed'] ?? null),
+              removed: @js($sellerState['removed'] ?? []),
               tvaPicks: {},
               sellerBusy: false,
               // When sellers are already linked, the manual seller-contact form is collapsed and
@@ -204,8 +211,37 @@
                   this.sellers = d.sellers || [];
                   this.tva = d.tva || {};
                   if (d.property_id) this.propertyId = d.property_id;
+                  if ('linked_deed' in d) this.linkedDeed = d.linked_deed;
+                  if ('removed' in d) this.removed = d.removed || [];
               },
               isSellerLinked(idNumber) { return !!idNumber && this.sellers.some(s => s.id_number === idNumber); },
+              isRemoved(idNumber) { return !!idNumber && (this.removed || []).includes(idNumber); },
+              async unlinkDeed() {
+                  if (!this.unlinkDeedUrl || this.sellerBusy) return;
+                  if (!window.confirm('Unlink this deed? Its auto-linked sellers are removed and the address reverts. Manual sellers stay.')) return;
+                  this.sellerBusy = true;
+                  try {
+                      const res = await fetch(this.unlinkDeedUrl, { method: 'POST', headers: this._postHeaders(), body: '{}' });
+                      if (res.ok) { this.applySellerState(await res.json()); this.pollDeed(); }
+                  } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
+              },
+              async removeNumber(contactId, type, value) {
+                  if (!this.removeNumberUrl || this.sellerBusy) return;
+                  this.sellerBusy = true;
+                  try {
+                      const res = await fetch(this.removeNumberUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify({ contact_id: contactId, type, value }) });
+                      if (res.ok) this.applySellerState(await res.json());
+                  } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
+              },
+              async setPrimaryNumber(contactId, type, value) {
+                  if (!this.primaryNumberUrl || this.sellerBusy) return;
+                  this.sellerBusy = true;
+                  try {
+                      const res = await fetch(this.primaryNumberUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify({ contact_id: contactId, type, value }) });
+                      if (res.ok) this.applySellerState(await res.json());
+                  } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
+              },
+              waUrl(v) { return 'https://wa.me/' + (v || '').replace(/[^0-9]/g, '').replace(/^0/, '27'); },
               async linkSeller(owner) {
                   if (!this.linkSellerUrl || this.sellerBusy) return;
                   if (!owner.id_number) { window.alert('This owner has no SA ID on the deed — cannot link as a distinct seller.'); return; }
@@ -248,23 +284,16 @@
                   if (!q) return this.deeds;
                   return this.deeds.filter(d => (d.search || '').includes(q));
               },
-              pickDeed(deed) {
-                  const owner = (deed.owners && deed.owners.length) ? deed.owners[0] : null;
-                  if (owner) this.useDeedOwner(owner);
+              async pickDeed(deed) {
                   this.showDeedModal = false;
-                  // Remember the link so it auto-surfaces next time (best-effort; never blocks the prefill).
-                  if (this.linkDeedUrl && deed.tracked_property_id) {
-                      fetch(this.linkDeedUrl, {
-                          method: 'POST',
-                          headers: {
-                              'Content-Type': 'application/json',
-                              'Accept': 'application/json',
-                              'X-Requested-With': 'XMLHttpRequest',
-                              'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content || '',
-                          },
-                          body: JSON.stringify({ tracked_property_id: deed.tracked_property_id }),
-                      }).catch(() => {});
-                  }
+                  if (!this.linkDeedUrl || !deed.tracked_property_id || this.sellerBusy) return;
+                  // R1 — selecting a deed REPLACES the deed: the Sellers panel + address follow it
+                  // (applySellerState) and the deed panels refresh (pollDeed).
+                  this.sellerBusy = true;
+                  try {
+                      const res = await fetch(this.linkDeedUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify({ tracked_property_id: deed.tracked_property_id }) });
+                      if (res.ok) { this.applySellerState(await res.json()); this.pollDeed(); }
+                  } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
               },
               // ── Part B: 'No contact details available' dead-end override ──
               noContactDetails: false,
@@ -282,6 +311,19 @@
                   ? route('seller-outreach.entry.store-from-property', $property->id)
                   : route('seller-outreach.entry.store-from-prospecting', $listing->id)) }}">
         @csrf
+
+        {{-- R1 — explicit LINKED-DEED state + unlink. When a deed is selected the sellers panel +
+             property address follow it; ✕ Unlink reverts to auto-match (confirm-on-click). --}}
+        <div x-show="linkedDeed" x-cloak class="rounded-md p-3 mb-4 flex items-center justify-between gap-3 flex-wrap"
+             style="background: color-mix(in srgb, #10b981 10%, var(--surface)); border:1px solid color-mix(in srgb, #10b981 45%, var(--border));">
+            <div class="min-w-0">
+                <span class="text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded" style="background:#10b981; color:#fff;">Deed linked ✓</span>
+                <span class="text-xs ml-1" style="color: var(--text-secondary);" x-text="linkedDeed && linkedDeed.address"></span>
+                <span class="text-[11px] block mt-0.5" style="color: var(--text-muted);">Sellers + property address follow this deed.</span>
+            </div>
+            <button type="button" @click="unlinkDeed()" :disabled="sellerBusy"
+                    class="shrink-0 text-xs font-semibold" style="color: var(--ds-crimson); background:none; border:0; cursor:pointer;">✕ Unlink deed</button>
+        </div>
 
         {{-- ── MIC ↔ Deeds ↔ Contact loop (Part A + FIX 2) ──
              The deed the agent scraped already landed the registered owner(s) in CoreX (name +
@@ -411,8 +453,25 @@
                                     <template x-if="s.id_number"><span>ID: <span class="font-mono" x-text="s.id_number"></span></span></template>
                                 </div>
                                 <div class="flex flex-wrap gap-1 mt-1 items-center">
-                                    <template x-for="p in s.phones" :key="'p' + p.value"><span class="text-[11px] px-1.5 py-0.5 rounded font-mono" style="background: var(--surface-2); color: var(--text-secondary);">📞 <span x-text="p.value"></span></span></template>
-                                    <template x-for="e in s.emails" :key="'e' + e.value"><span class="text-[11px] px-1.5 py-0.5 rounded" style="background: var(--surface-2); color: var(--text-secondary);">✉ <span x-text="e.value"></span></span></template>
+                                    <template x-for="p in s.phones" :key="'p' + p.value">
+                                        <span class="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded font-mono"
+                                              :style="p.is_primary ? 'background: color-mix(in srgb,#10b981 18%,transparent); color: var(--text-primary);' : 'background: var(--surface-2); color: var(--text-secondary);'">
+                                            <template x-if="s.phones.length > 1"><button type="button" @click="setPrimaryNumber(s.contact_id,'phone',p.value)" :title="p.is_primary?'Primary phone':'Make primary phone'" style="background:none;border:0;cursor:pointer;" x-text="p.is_primary?'★':'☆'"></button></template>
+                                            <span x-text="p.value"></span>
+                                            <a :href="'tel:'+p.value" title="Call" class="no-underline" style="color: var(--brand-icon,#0ea5e9);">📞</a>
+                                            <a :href="waUrl(p.value)" target="_blank" rel="noopener" title="WhatsApp" class="no-underline">🟢</a>
+                                            <button type="button" @click="removeNumber(s.contact_id,'phone',p.value)" :disabled="sellerBusy" title="Remove number" style="background:none;border:0;cursor:pointer; color: var(--ds-crimson); font-weight:bold;">×</button>
+                                        </span>
+                                    </template>
+                                    <template x-for="e in s.emails" :key="'e' + e.value">
+                                        <span class="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded"
+                                              :style="e.is_primary ? 'background: color-mix(in srgb,#10b981 18%,transparent); color: var(--text-primary);' : 'background: var(--surface-2); color: var(--text-secondary);'">
+                                            <template x-if="s.emails.length > 1"><button type="button" @click="setPrimaryNumber(s.contact_id,'email',e.value)" :title="e.is_primary?'Primary email':'Make primary email'" style="background:none;border:0;cursor:pointer;" x-text="e.is_primary?'★':'☆'"></button></template>
+                                            <span x-text="e.value"></span>
+                                            <a :href="'mailto:'+e.value" title="Email" class="no-underline" style="color: var(--brand-icon,#0ea5e9);">✉</a>
+                                            <button type="button" @click="removeNumber(s.contact_id,'email',e.value)" :disabled="sellerBusy" title="Remove email" style="background:none;border:0;cursor:pointer; color: var(--ds-crimson); font-weight:bold;">×</button>
+                                        </span>
+                                    </template>
                                     <span x-show="!s.contactable && !s.dead_end" class="text-[11px] italic" style="color: var(--text-muted);">No number yet —</span>
                                     {{-- Per-seller dead-end: a seller with nothing to reach can be acknowledged so continue isn't blocked. --}}
                                     <button type="button" x-show="!s.contactable && !s.dead_end" @click="markSellerDeadEnd(s.contact_id, 'not_in_tva')" :disabled="sellerBusy"

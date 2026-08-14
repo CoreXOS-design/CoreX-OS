@@ -6,6 +6,8 @@ namespace App\Services\Prospecting;
 
 use App\Models\Contact;
 use App\Models\ContactDeadEndFlag;
+use App\Models\Property;
+use App\Models\Prospecting\TrackedProperty;
 use App\Models\Prospecting\TvaContactCapture;
 use App\Models\Prospecting\TvaContactCaptureItem;
 use App\Models\Scopes\ContactScope;
@@ -45,10 +47,20 @@ class ComposeSellerService
 
         $idNumbers = array_values(array_filter(array_map(fn ($s) => $s['id_number'], $sellers)));
 
+        $linkedDeed = null;
+        if (! empty($listing->linked_deed_tracked_property_id)) {
+            $tp = TrackedProperty::withoutGlobalScopes()->where('agency_id', $agencyId)->find((int) $listing->linked_deed_tracked_property_id);
+            if ($tp) {
+                $linkedDeed = ['tracked_property_id' => (int) $tp->id, 'address' => $this->deedAddressLine($tp)];
+            }
+        }
+
         return [
             'property_id' => $propertyId,
             'sellers'     => $sellers,
             'tva'         => $this->tvaForIdNumbers($agencyId, $idNumbers),
+            'linked_deed' => $linkedDeed,
+            'removed'     => $this->removedIdNumbers((int) $listing->id),
         ];
     }
 
@@ -86,8 +98,8 @@ class ComposeSellerService
                 'first_name'  => (string) ($c->first_name ?? ''),
                 'last_name'   => (string) ($c->last_name ?? ''),
                 'id_number'   => $c->id_number !== null && $c->id_number !== '' ? (string) $c->id_number : null,
-                'phones'      => $c->phones->map(fn ($p) => ['value' => $p->phone, 'label' => $p->label])->values()->all(),
-                'emails'      => $c->emails->map(fn ($e) => ['value' => $e->email, 'label' => $e->label])->values()->all(),
+                'phones'      => $c->phones->map(fn ($p) => ['value' => $p->phone, 'label' => $p->label, 'is_primary' => (bool) $p->is_primary])->values()->all(),
+                'emails'      => $c->emails->map(fn ($e) => ['value' => $e->email, 'label' => $e->label, 'is_primary' => (bool) $e->is_primary])->values()->all(),
                 'dead_end'    => $c->deadEndFlag ? ['reason' => $c->deadEndFlag->reason, 'label' => ContactDeadEndFlag::reasonLabel($c->deadEndFlag->reason)] : null,
                 'is_primary'  => (bool) ($links[$c->id]->is_primary ?? false),
                 'contactable' => $contactable,
@@ -234,12 +246,12 @@ class ComposeSellerService
         ]);
     }
 
-    /** Link a contact to the property as a seller (idempotent). */
-    public function linkSellerToProperty(int $contactId, int $propertyId): void
+    /** Link a contact to the property as a seller (idempotent). `source`: 'deed' | 'manual'. */
+    public function linkSellerToProperty(int $contactId, int $propertyId, string $source = 'manual'): void
     {
         DB::table('contact_property')->updateOrInsert(
             ['contact_id' => $contactId, 'property_id' => $propertyId],
-            ['role' => 'seller', 'updated_at' => now(), 'created_at' => now()],
+            ['role' => 'seller', 'source' => $source, 'updated_at' => now(), 'created_at' => now()],
         );
     }
 
@@ -317,5 +329,189 @@ class ComposeSellerService
         }
 
         return $added;
+    }
+
+    // ── R1: deed select / unselect / reselect (deed drives the sellers + address) ──────────────
+
+    /** Deed owners (name + SA-ID) for a tracked property. */
+    public function deedOwners(int $deedTpId): array
+    {
+        return DB::table('tracked_property_owners')->where('tracked_property_id', $deedTpId)
+            ->orderByDesc('is_primary')->orderBy('id')
+            ->get(['name', 'id_number', 'contact_id', 'is_primary'])
+            ->map(fn ($r) => [
+                'name'       => (string) $r->name,
+                'id_number'  => $r->id_number !== null && $r->id_number !== '' ? (string) $r->id_number : null,
+                'contact_id' => $r->contact_id ? (int) $r->contact_id : null,
+                'is_primary' => (bool) $r->is_primary,
+            ])->all();
+    }
+
+    /** A one-line display address for a deeds tracked property (deeds-office authoritative). */
+    public function deedAddressLine(TrackedProperty $tp): string
+    {
+        $street = trim(implode(' ', array_filter([$tp->street_number, $tp->street_name])));
+        $scheme = $tp->scheme_name ?: $tp->complex_name;
+
+        return trim(implode(', ', array_filter([$street, $scheme, $tp->suburb]))) ?: (string) ($tp->town ?? '');
+    }
+
+    /**
+     * Select a deed (R1): replace the listing's linked deed, sync the deed's owners as sellers
+     * (skipping ones the agent explicitly removed), and populate the property address from the
+     * deeds-office record. Deed-sourced sellers of the PREVIOUS deed that aren't in the new deed are
+     * dropped; manual sellers are always kept.
+     */
+    public function selectDeed(int $agencyId, object $listing, int $propertyId, int $deedTpId, ?int $branchId, int $userId): void
+    {
+        $deedTp = TrackedProperty::withoutGlobalScopes()->where('agency_id', $agencyId)->find($deedTpId);
+        if (! $deedTp) {
+            return;
+        }
+
+        DB::transaction(function () use ($agencyId, $listing, $propertyId, $deedTp, $deedTpId, $branchId, $userId) {
+            DB::table('prospecting_listings')->where('id', $listing->id)->update([
+                'linked_deed_tracked_property_id' => $deedTpId,
+                'linked_deed_by_user_id'          => $userId,
+                'linked_deed_at'                  => now(),
+                'updated_at'                      => now(),
+            ]);
+
+            $owners = $this->deedOwners($deedTpId);
+            $newIds = array_values(array_filter(array_map(fn ($o) => $o['id_number'], $owners)));
+
+            // Drop prior deed-sourced sellers not in the new deed (keep manual sellers).
+            $priorDeedContactIds = DB::table('contact_property')
+                ->where('property_id', $propertyId)->where('role', 'seller')->where('source', 'deed')->pluck('contact_id');
+            foreach ($priorDeedContactIds as $cid) {
+                $idn = Contact::withoutGlobalScopes()->where('id', $cid)->value('id_number');
+                if (! $idn || ! in_array((string) $idn, $newIds, true)) {
+                    DB::table('contact_property')->where('property_id', $propertyId)->where('contact_id', $cid)->where('role', 'seller')->delete();
+                }
+            }
+
+            // Auto-link the new deed's owners as sellers — skipping explicit removals (R2).
+            $removed = $this->removedIdNumbers((int) $listing->id);
+            foreach ($owners as $o) {
+                if (! $o['id_number'] || in_array($o['id_number'], $removed, true)) {
+                    continue;
+                }
+                [$first, $last] = $this->splitName($o['name']);
+                $contact = $this->resolveOrCreateSellerContact($agencyId, $branchId, $userId, $first, $last, $o['id_number']);
+                $this->linkSellerToProperty((int) $contact->id, $propertyId, 'deed');
+            }
+
+            $this->applyDeedAddress($propertyId, $deedTp);
+            $this->ensurePrimaryDefault($propertyId);
+        });
+    }
+
+    /** Unlink the deed (R1 revert): drop deed-sourced sellers (keep manual), clear the link, and
+     *  revert the property address to the listing's portal address. */
+    public function unlinkDeed(int $agencyId, object $listing, int $propertyId): void
+    {
+        DB::transaction(function () use ($listing, $propertyId) {
+            DB::table('contact_property')->where('property_id', $propertyId)->where('role', 'seller')->where('source', 'deed')->delete();
+            DB::table('prospecting_listings')->where('id', $listing->id)->update([
+                'linked_deed_tracked_property_id' => null,
+                'linked_deed_by_user_id'          => null,
+                'linked_deed_at'                  => null,
+                'updated_at'                      => now(),
+            ]);
+            $this->applyListingAddress($propertyId, $listing);
+            $this->ensurePrimaryDefault($propertyId);
+        });
+    }
+
+    private function applyDeedAddress(int $propertyId, TrackedProperty $tp): void
+    {
+        $prop = Property::withoutGlobalScopes()->find($propertyId);
+        if (! $prop) {
+            return;
+        }
+        $prop->update(array_filter([
+            'address'       => $this->deedAddressLine($tp),
+            'street_number' => $tp->street_number,
+            'street_name'   => $tp->street_name,
+            'suburb'        => $tp->suburb,
+        ], fn ($v) => $v !== null && $v !== ''));
+    }
+
+    private function applyListingAddress(int $propertyId, object $listing): void
+    {
+        $prop = Property::withoutGlobalScopes()->find($propertyId);
+        if (! $prop) {
+            return;
+        }
+        $prop->update(array_filter([
+            'address' => $listing->address ?? null,
+            'suburb'  => $listing->suburb ?? null,
+        ], fn ($v) => $v !== null && $v !== ''));
+    }
+
+    // ── R2: sticky removals ────────────────────────────────────────────────────────────────────
+
+    /** @return array<int,string> id_numbers the agent explicitly removed from this listing. */
+    public function removedIdNumbers(int $listingId): array
+    {
+        return DB::table('prospecting_seller_removals')->where('prospecting_listing_id', $listingId)
+            ->pluck('id_number')->map(fn ($v) => (string) $v)->all();
+    }
+
+    public function recordRemoval(int $agencyId, int $listingId, ?string $idNumber, ?int $userId): void
+    {
+        if (empty($idNumber)) {
+            return;
+        }
+        DB::table('prospecting_seller_removals')->updateOrInsert(
+            ['prospecting_listing_id' => $listingId, 'id_number' => $idNumber],
+            ['agency_id' => $agencyId, 'removed_by_user_id' => $userId, 'updated_at' => now(), 'created_at' => now()],
+        );
+    }
+
+    public function clearRemoval(int $listingId, ?string $idNumber): void
+    {
+        if (empty($idNumber)) {
+            return;
+        }
+        DB::table('prospecting_seller_removals')->where('prospecting_listing_id', $listingId)->where('id_number', $idNumber)->delete();
+    }
+
+    // ── R3: per-number remove + primary ────────────────────────────────────────────────────────
+
+    public function removeNumber(Contact $contact, string $type, string $value): void
+    {
+        if ($type === 'email') {
+            $contact->emails()->where('email', $value)->delete();
+        } else {
+            $contact->phones()->where('phone', $value)->delete();
+        }
+    }
+
+    public function setPrimaryNumber(Contact $contact, string $type, string $value): void
+    {
+        if ($type === 'email') {
+            $contact->emails()->update(['is_primary' => false]);
+            $contact->emails()->where('email', $value)->update(['is_primary' => true]);
+        } else {
+            $contact->phones()->update(['is_primary' => false]);
+            $contact->phones()->where('phone', $value)->update(['is_primary' => true]);
+        }
+    }
+
+    /** @return array{0:string,1:string} split a full name into [first, last]. */
+    private function splitName(string $name): array
+    {
+        $name = trim(preg_replace('/\s+/', ' ', $name));
+        if ($name === '') {
+            return ['', ''];
+        }
+        $parts = explode(' ', $name);
+        if (count($parts) === 1) {
+            return [$parts[0], ''];
+        }
+        $last = array_pop($parts);
+
+        return [implode(' ', $parts), $last];
     }
 }

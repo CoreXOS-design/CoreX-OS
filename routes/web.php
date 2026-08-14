@@ -2639,6 +2639,19 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                 [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'pitchReadyForProspecting'])
                 ->where('prospectingListingId', '\d+')
                 ->name('pitch-ready-prospecting');
+            // R1–R3 reversibility: unlink the deed, and per-number remove / set-primary.
+            Route::post('/prospecting/{prospectingListingId}/outreach/deed/unlink',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'unlinkDeedForProspecting'])
+                ->where('prospectingListingId', '\d+')
+                ->name('unlink-deed-prospecting');
+            Route::post('/prospecting/{prospectingListingId}/outreach/numbers/remove',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'removeNumberForProspecting'])
+                ->where('prospectingListingId', '\d+')
+                ->name('remove-number-prospecting');
+            Route::post('/prospecting/{prospectingListingId}/outreach/numbers/primary',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'setPrimaryNumberForProspecting'])
+                ->where('prospectingListingId', '\d+')
+                ->name('primary-number-prospecting');
 
             // Map Workspace Phase B (Fix 2+3) — T-pin WhatsApp / Pitch flow.
             // Mirrors the prospecting entry point but the source is a
