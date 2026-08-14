@@ -120,4 +120,59 @@ class DealBreakdownAndDrilldownTest extends TestCase
         $res = app(PerformanceDrilldownService::class)->rows('contacts_created', [$this->a1->id], $this->period(), $this->ag1->id);
         $this->assertSame(2, $res['count'], 'native + worked-import only; import + other-agency excluded');
     }
+
+    public function test_drilldown_appointments_scoped_by_category_and_agency(): void
+    {
+        $mk = fn (array $x) => DB::table('calendar_events')->insert(array_merge([
+            'agency_id' => $this->ag1->id, 'user_id' => $this->a1->id, 'category' => 'viewing', 'event_type' => 'appointment',
+            'title' => 'Appt', 'event_date' => '2026-08-10', 'created_at' => now(), 'updated_at' => now(),
+        ], $x));
+        $mk(['category' => 'viewing']);                                  // in
+        $mk(['category' => 'meeting']);                                  // in
+        $mk(['category' => 'personal']);                                 // OUT (not an appointment category)
+        $mk(['category' => 'viewing', 'agency_id' => $this->ag2->id]);   // OUT (other agency)
+
+        $res = app(PerformanceDrilldownService::class)->rows('appointments', [$this->a1->id], $this->period(), $this->ag1->id);
+        $this->assertSame(2, $res['count']);
+        $this->assertArrayHasKey('event_date', $res['rows'][0]);
+    }
+
+    public function test_drilldown_outreach_scoped_by_agency(): void
+    {
+        $cid = DB::table('contacts')->insertGetId([
+            'agency_id' => $this->ag1->id, 'branch_id' => $this->b1->id, 'created_by_user_id' => $this->a1->id,
+            'agent_id' => $this->a1->id, 'first_name' => 'Sipho', 'last_name' => 'Ndlovu',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $code = 0;
+        $mk = function (array $x) use ($cid, &$code) {
+            $code++;
+            return DB::table('seller_outreach_sends')->insert(array_merge([
+                'agency_id' => $this->ag1->id, 'agent_id' => $this->a1->id, 'contact_id' => $cid, 'channel' => 'whatsapp',
+                'address_snapshot' => '1 Sea Rd', 'body_snapshot' => 'Hi', 'facts_snapshot' => '{}',
+                'tracking_short_code' => str_pad((string) $code, 6, '0', STR_PAD_LEFT), 'sent_at' => '2026-08-10 09:00:00',
+                'created_at' => now(), 'updated_at' => now(),
+            ], $x));
+        };
+        $mk([]);                                        // in
+        $mk(['channel' => 'email']);                    // in
+        $mk(['agency_id' => $this->ag2->id]);           // OUT (other agency)
+
+        $res = app(PerformanceDrilldownService::class)->rows('outreach_messages', [$this->a1->id], $this->period(), $this->ag1->id);
+        $this->assertSame(2, $res['count']);
+        $this->assertArrayHasKey('channel', $res['rows'][0]);
+    }
+
+    public function test_drilldown_commission_sums_money_lines_agency_scoped(): void
+    {
+        $d1 = $this->dr1(['property_address' => '9 Cliff Ave']);
+        $d2 = $this->dr1(['property_address' => '9 Cliff Ave', 'agency_id' => $this->ag2->id]);
+        DB::table('deal_money_lines')->insert([
+            ['deal_id' => $d1, 'agency_id' => $this->ag1->id, 'period' => '2026-08', 'user_id' => $this->a1->id, 'agent_gross_ex_vat' => 25_000, 'created_at' => now(), 'updated_at' => now()],
+            ['deal_id' => $d2, 'agency_id' => $this->ag2->id, 'period' => '2026-08', 'user_id' => $this->a1->id, 'agent_gross_ex_vat' => 99_000, 'created_at' => now(), 'updated_at' => now()], // other agency deal → OUT
+        ]);
+        $res = app(PerformanceDrilldownService::class)->rows('commission', [$this->a1->id], $this->period(), $this->ag1->id);
+        $this->assertSame(1, $res['count'], 'only the agency-1 deal money line');
+        $this->assertEqualsWithDelta(25_000.0, $res['rows'][0]['commission'], 0.01);
+    }
 }

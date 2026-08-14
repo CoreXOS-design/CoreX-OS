@@ -166,16 +166,26 @@ class AgencyPerformanceReportController extends Controller
         $agencyId = (int) ($request->user()?->effectiveAgencyId() ?? 0);
         abort_if(!$agencyId, 403, 'No agency context.');
 
+        // Accept BOTH the short contract aliases AND every provider/tile key shown on the report.
         $map = [
+            // short aliases
             'deals' => 'deals', 'contacts' => 'contacts_created', 'properties' => 'properties_created',
             'fica' => 'fica_submissions', 'buyers' => 'buyers_added', 'viewings' => 'viewings',
+            // provider keys (tiles + columns)
+            'mic_claims' => 'mic_claims', 'contacts_created' => 'contacts_created', 'properties_created' => 'properties_created',
+            'presentations_created' => 'presentations_created', 'portal_views' => 'portal_views',
+            'buyers_added' => 'buyers_added', 'appointments' => 'appointments', 'outreach_messages' => 'outreach_messages',
+            'fica_submissions' => 'fica_submissions',
+            'deals_created' => 'deals', 'deals_registered' => 'deals', 'commission_gross_ex_vat' => 'commission',
         ];
         $metricIn = (string) $request->query('metric', '');
-        $metric   = $map[$metricIn] ?? $metricIn; // accept the short alias OR the full metric key
+        $metric   = $map[$metricIn] ?? $metricIn; // accept the short alias OR the full metric/tile key
         abort_unless(in_array($metric, PerformanceDrilldownService::METRICS, true), 422, 'Unknown metric.');
 
         $status = $request->filled('status') ? (string) $request->query('status') : null;
         abort_if($status !== null && !in_array($status, ['pending', 'granted', 'registered', 'declined', 'all'], true), 422, 'Unknown status.');
+        // The "deals registered" tile/column is the deals list forced to the registered bucket.
+        if ($metricIn === 'deals_registered') $status = 'registered';
 
         $level = (string) $request->query('level', 'company');
         $id    = $request->filled('id') ? (int) $request->query('id') : null;
@@ -231,6 +241,34 @@ class AgencyPerformanceReportController extends Controller
                 ['key' => 'title', 'label' => 'Viewing', 'align' => 'left'],
                 ['key' => 'date', 'label' => 'Date', 'align' => 'left', 'format' => 'date'],
             ],
+            'mic_claims' => [
+                ['key' => 'address', 'label' => 'Property', 'align' => 'left'],
+                ['key' => 'status', 'label' => 'Status', 'align' => 'left', 'format' => 'badge'],
+                ['key' => 'claimed', 'label' => 'Claimed', 'align' => 'left', 'format' => 'date'],
+            ],
+            'presentations_created' => [
+                ['key' => 'title', 'label' => 'Presentation', 'align' => 'left'],
+                ['key' => 'status', 'label' => 'Status', 'align' => 'left', 'format' => 'badge'],
+                ['key' => 'created', 'label' => 'Created', 'align' => 'left', 'format' => 'date'],
+            ],
+            'portal_views' => [
+                ['key' => 'title', 'label' => 'Listing', 'align' => 'left'],
+                ['key' => 'views', 'label' => 'Views', 'align' => 'right'],
+            ],
+            'appointments' => [
+                ['key' => 'title', 'label' => 'Appointment', 'align' => 'left'],
+                ['key' => 'category', 'label' => 'Type', 'align' => 'left', 'format' => 'badge'],
+                ['key' => 'date', 'label' => 'Date', 'align' => 'left', 'format' => 'date'],
+            ],
+            'outreach_messages' => [
+                ['key' => 'contact', 'label' => 'Contact', 'align' => 'left'],
+                ['key' => 'channel', 'label' => 'Channel', 'align' => 'left', 'format' => 'badge'],
+                ['key' => 'sent', 'label' => 'Sent', 'align' => 'left', 'format' => 'date'],
+            ],
+            'commission' => [
+                ['key' => 'address', 'label' => 'Deal', 'align' => 'left'],
+                ['key' => 'commission', 'label' => 'Commission (ex-VAT)', 'align' => 'right', 'format' => 'currency'],
+            ],
             default => [],
         };
     }
@@ -244,13 +282,19 @@ class AgencyPerformanceReportController extends Controller
             'fica_submissions' => ['contact' => $r['contact_name'], 'status' => ucfirst((string) $r['status']), 'created' => $r['created_at'], 'href' => $r['url']],
             'buyers_added' => ['name' => $r['name'], 'entered' => $r['entered_at'], 'href' => $r['url']],
             'viewings' => ['title' => $r['title'], 'date' => $r['event_date'], 'href' => $r['url']],
+            'mic_claims' => ['address' => $r['address'] ?? ('Claim #' . $r['id']), 'status' => ucfirst((string) ($r['status'] ?? '')), 'claimed' => $r['claimed_at'], 'href' => $r['url']],
+            'presentations_created' => ['title' => $r['title'], 'status' => ucfirst((string) ($r['status'] ?? '')), 'created' => $r['created_at'], 'href' => $r['url']],
+            'portal_views' => ['title' => $r['title'], 'views' => $r['views'], 'href' => $r['url']],
+            'appointments' => ['title' => $r['title'], 'category' => ucfirst(str_replace('_', ' ', (string) ($r['category'] ?? ''))), 'date' => $r['event_date'], 'href' => $r['url']],
+            'outreach_messages' => ['contact' => $r['contact'], 'channel' => ucfirst((string) ($r['channel'] ?? '')), 'sent' => $r['sent_at'], 'href' => $r['url']],
+            'commission' => ['address' => $r['address'], 'commission' => $r['commission'], 'href' => $r['url']],
             default => $r,
         };
     }
 
     private function drilldownTitle(string $metric, ?string $status, string $level, ?int $id, Period $period, int $total): string
     {
-        $noun = ['deals' => 'deals', 'contacts_created' => 'contacts', 'properties_created' => 'properties', 'fica_submissions' => 'FICA submissions', 'buyers_added' => 'buyers', 'viewings' => 'viewings'][$metric] ?? $metric;
+        $noun = ['deals' => 'deals', 'contacts_created' => 'contacts', 'properties_created' => 'properties', 'fica_submissions' => 'FICA submissions', 'buyers_added' => 'buyers', 'viewings' => 'viewings', 'mic_claims' => 'MIC claims', 'presentations_created' => 'presentations', 'portal_views' => 'viewed listings', 'appointments' => 'appointments', 'outreach_messages' => 'outreach messages', 'commission' => 'commission lines'][$metric] ?? $metric;
         $statusWord = ($metric === 'deals' && $status && $status !== 'all') ? ($status . ' ') : '';
         $who = 'Company';
         if ($level === 'agent' && $id) {

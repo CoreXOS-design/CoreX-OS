@@ -16,7 +16,12 @@ use Illuminate\Support\Facades\DB;
 class PerformanceDrilldownService
 {
     public const LIMIT = 1000;
-    public const METRICS = ['deals', 'contacts_created', 'properties_created', 'fica_submissions', 'buyers_added', 'viewings'];
+    public const METRICS = [
+        'deals', 'contacts_created', 'properties_created', 'fica_submissions', 'buyers_added', 'viewings',
+        'mic_claims', 'presentations_created', 'portal_views', 'appointments', 'outreach_messages', 'commission',
+    ];
+
+    private const APPOINTMENT_CATEGORIES = ['viewing', 'listing_presentation', 'property_evaluation', 'meeting'];
 
     /** Resolve the in-scope agent ids for this agency (company / one branch / one agent). */
     public function cohort(int $agencyId, ?int $branchId, ?int $agentId): array
@@ -43,6 +48,12 @@ class PerformanceDrilldownService
             'fica_submissions'   => $this->fica($cohort, $s, $e, $agencyId),
             'buyers_added'       => $this->buyers($cohort, $s, $e, $agencyId),
             'viewings'           => $this->viewings($cohort, $s, $e, $agencyId),
+            'mic_claims'         => $this->micClaims($cohort, $s, $e, $agencyId),
+            'presentations_created' => $this->presentations($cohort, $s, $e, $agencyId),
+            'portal_views'       => $this->portalViews($cohort, $period, $agencyId),
+            'appointments'       => $this->appointments($cohort, $s, $e, $agencyId),
+            'outreach_messages'  => $this->outreach($cohort, $s, $e, $agencyId),
+            'commission'         => $this->commission($cohort, $period, $agencyId),
             default              => ['count' => 0, 'rows' => []],
         };
     }
@@ -147,5 +158,78 @@ class PerformanceDrilldownService
         $q->orderByDesc('event_date')->select('id', 'title', 'event_date');
         return $this->pack($q, fn ($r) => ['id' => (int) $r->id, 'title' => $r->title,
             'event_date' => $r->event_date, 'url' => '/calendar/event/' . $r->id]);
+    }
+
+    private function micClaims(array $cohort, string $s, string $e, int $agencyId): array
+    {
+        $q = DB::table('prospecting_claims as pc')
+            ->leftJoin('prospecting_listings as pl', 'pl.id', '=', 'pc.prospecting_listing_id')
+            ->where('pc.agency_id', $agencyId)->whereIn('pc.user_id', $cohort)
+            ->whereBetween('pc.claimed_at', [$s, $e])
+            ->orderByDesc('pc.claimed_at')
+            ->select('pc.id', 'pc.status', 'pc.claimed_at', 'pc.property_id',
+                DB::raw('COALESCE(pl.address, pl.normalized_address) as address'));
+        return $this->pack($q, fn ($r) => ['id' => (int) $r->id, 'address' => $r->address, 'status' => $r->status,
+            'claimed_at' => $r->claimed_at, 'url' => $r->property_id ? '/corex/properties/' . $r->property_id : '/corex/prospecting']);
+    }
+
+    private function presentations(array $cohort, string $s, string $e, int $agencyId): array
+    {
+        $q = DB::table('presentations')->where('agency_id', $agencyId)
+            ->whereIn('created_by_user_id', $cohort)->whereBetween('created_at', [$s, $e])
+            ->orderByDesc('created_at')->select('id', 'title', 'property_address', 'status', 'created_at');
+        return $this->pack($q, fn ($r) => ['id' => (int) $r->id,
+            'title' => $r->title ?: ($r->property_address ?: ('Presentation #' . $r->id)),
+            'status' => $r->status, 'created_at' => $r->created_at, 'url' => '/corex/presentations/' . $r->id]);
+    }
+
+    /** Portal views drilldown = the LISTINGS viewed, with their summed view_count for the period. */
+    private function portalViews(array $cohort, Period $period, int $agencyId): array
+    {
+        $q = DB::table('property_portal_metrics as ppm')->join('properties as p', 'p.id', '=', 'ppm.property_id')
+            ->where('p.agency_id', $agencyId)->whereIn('p.agent_id', $cohort)->whereNull('p.deleted_at')
+            ->whereBetween('ppm.metric_date', [$period->start->toDateString(), $period->end->toDateString()])
+            ->groupBy('p.id', 'p.title')
+            ->orderByDesc(DB::raw('SUM(ppm.view_count)'))
+            ->select('p.id', 'p.title', DB::raw('SUM(ppm.view_count) as views'));
+        return $this->pack($q, fn ($r) => ['id' => (int) $r->id, 'title' => $r->title ?: ('Listing #' . $r->id),
+            'views' => (int) $r->views, 'url' => '/properties/' . $r->id]);
+    }
+
+    private function appointments(array $cohort, string $s, string $e, int $agencyId): array
+    {
+        $q = DB::table('calendar_events')->whereIn('category', self::APPOINTMENT_CATEGORIES)
+            ->whereIn('user_id', $cohort)->whereBetween('event_date', [$s, $e]);
+        if (DB::getSchemaBuilder()->hasColumn('calendar_events', 'agency_id')) $q->where('agency_id', $agencyId);
+        $q->orderByDesc('event_date')->select('id', 'title', 'category', 'event_date');
+        return $this->pack($q, fn ($r) => ['id' => (int) $r->id, 'title' => $r->title,
+            'category' => $r->category, 'event_date' => $r->event_date, 'url' => '/calendar/event/' . $r->id]);
+    }
+
+    private function outreach(array $cohort, string $s, string $e, int $agencyId): array
+    {
+        $q = DB::table('seller_outreach_sends as so')->leftJoin('contacts as c', 'c.id', '=', 'so.contact_id')
+            ->where('so.agency_id', $agencyId)->whereIn('so.agent_id', $cohort)->whereBetween('so.sent_at', [$s, $e])
+            ->orderByDesc('so.sent_at')
+            ->select('so.id', 'so.channel', 'so.sent_at', 'so.address_snapshot', 'so.contact_id',
+                DB::raw("TRIM(CONCAT(COALESCE(c.first_name,''),' ',COALESCE(c.last_name,''))) as contact_name"));
+        return $this->pack($q, fn ($r) => ['id' => (int) $r->id,
+            'contact' => trim((string) $r->contact_name) ?: ($r->address_snapshot ?: 'Contact'),
+            'channel' => $r->channel, 'sent_at' => $r->sent_at,
+            'url' => $r->contact_id ? '/corex/contacts/' . $r->contact_id : '#']);
+    }
+
+    /** Commission drilldown = the money lines (per deal) contributing an agent's gross ex-VAT. */
+    private function commission(array $cohort, Period $period, int $agencyId): array
+    {
+        $q = DB::table('deal_money_lines as ml')->join('deals as d', 'd.id', '=', 'ml.deal_id')
+            ->whereNull('ml.deleted_at')->whereNull('d.deleted_at')->where('d.agency_id', $agencyId)
+            ->whereIn('ml.user_id', $cohort)->whereNotNull('d.deal_date')
+            ->whereBetween('d.deal_date', [$period->start->toDateString(), $period->end->toDateString()])
+            ->orderByDesc('ml.agent_gross_ex_vat')
+            ->select('d.id', 'd.property_address', 'd.deal_no', DB::raw('ml.agent_gross_ex_vat as commission'));
+        return $this->pack($q, fn ($r) => ['id' => (int) $r->id,
+            'address' => $r->property_address ?: ('Deal ' . ($r->deal_no ?: $r->id)),
+            'commission' => (float) $r->commission, 'url' => '/admin/deals/' . $r->id]);
     }
 }

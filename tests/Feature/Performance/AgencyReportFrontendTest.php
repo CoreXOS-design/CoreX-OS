@@ -76,6 +76,38 @@ class AgencyReportFrontendTest extends TestCase
             ->assertSee('agency-report\/drilldown', false);
     }
 
+    /**
+     * The 422 regression: every metric key cc1's tiles AND columns send must be
+     * accepted by the drilldown endpoint and return the {title,total,columns,rows}
+     * envelope — never a 422 "Unknown metric". Covers all 13 providers + the short
+     * aliases + the deals_created/deals_registered/commission_gross_ex_vat tile keys.
+     */
+    public function test_every_tile_and_column_metric_drilldown_loads_without_422(): void
+    {
+        $metrics = [
+            'mic_claims', 'contacts', 'contacts_created', 'properties', 'properties_created',
+            'presentations_created', 'portal_views', 'buyers', 'buyers_added', 'viewings',
+            'appointments', 'outreach_messages', 'fica', 'fica_submissions',
+            'deals', 'deals_created', 'deals_registered', 'commission_gross_ex_vat',
+        ];
+        foreach ($metrics as $m) {
+            $res = $this->actingAs($this->admin)->getJson(route('performance.agency-report.drilldown', [
+                'metric' => $m, 'level' => 'company', 'period' => 'this_month',
+            ]));
+            $res->assertOk();                                     // <- never 422
+            $this->assertIsArray($res->json('columns'), "columns[] missing for metric {$m}");
+            $this->assertArrayHasKey('total', $res->json(), "total missing for metric {$m}");
+            $this->assertArrayHasKey('rows', $res->json(), "rows missing for metric {$m}");
+        }
+    }
+
+    public function test_drilldown_rejects_a_genuinely_unknown_metric(): void
+    {
+        $this->actingAs($this->admin)->getJson(route('performance.agency-report.drilldown', [
+            'metric' => 'not_a_real_metric', 'level' => 'company', 'period' => 'this_month',
+        ]))->assertStatus(422);
+    }
+
     public function test_whole_company_print_renders_with_company_header(): void
     {
         $res = $this->actingAs($this->admin)->get(route('performance.agency-report.print'));
