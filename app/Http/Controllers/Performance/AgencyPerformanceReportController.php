@@ -106,6 +106,53 @@ class AgencyPerformanceReportController extends Controller
         ]);
     }
 
+    /**
+     * AT-366 (cc1 frontend #8) — whole-company printable: the full report, chrome-free,
+     * with a company header. Same agency-scoped build() as index(); print-optimised view.
+     */
+    public function print(Request $request, PeriodResolver $periods, AgencyPerformanceReportService $service, BuyerActivityService $buyers)
+    {
+        $user     = $request->user();
+        $agencyId = $user?->effectiveAgencyId();
+        abort_if(!$agencyId, 403, 'No agency context for the performance report.');
+
+        [$period, $preset] = $this->resolvePeriod($request, $periods);
+
+        $scope  = new PerformanceScope((int) $agencyId, null, null);
+        $report = $service->build($scope, $period);
+        $buyerActivity = $buyers->rollup($scope, $period);
+
+        return view('performance.agency-report.print-company', [
+            'report' => $report,
+            'buyer'  => ['metrics' => $buyerActivity['metrics'], 'aggregate' => $buyerActivity['company']],
+            'agency' => \App\Models\Agency::withoutGlobalScopes()->find((int) $agencyId),
+            'preset' => $preset,
+        ]);
+    }
+
+    /**
+     * AT-366 (cc1 frontend #8) — single-agent printable to hand an agent their own
+     * figures. Agency-scoped exactly like agent(); out-of-agency users 404.
+     */
+    public function agentPrint(Request $request, User $user, PeriodResolver $periods, AgencyPerformanceReportService $service, BuyerActivityService $buyers)
+    {
+        $actor    = $request->user();
+        $agencyId = $actor?->effectiveAgencyId();
+        abort_if(!$agencyId, 403, 'No agency context for the performance report.');
+        abort_unless((int) $user->agency_id === (int) $agencyId, 404);
+
+        [$period, $preset] = $this->resolvePeriod($request, $periods);
+
+        $journey = $service->agentJourney((int) $agencyId, (int) $user->id, $period);
+        abort_if($journey['agent'] === null, 404);
+
+        return view('performance.agency-report.print-agent', [
+            'journey' => $journey,
+            'agency'  => \App\Models\Agency::withoutGlobalScopes()->find((int) $agencyId),
+            'preset'  => $preset,
+        ]);
+    }
+
     /** @return array{0: Period, 1: string} resolved period + effective preset */
     private function resolvePeriod(Request $request, PeriodResolver $periods): array
     {

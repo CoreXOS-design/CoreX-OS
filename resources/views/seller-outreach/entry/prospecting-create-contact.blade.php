@@ -2,6 +2,8 @@
 @extends('layouts.corex')
 
 @section('corex-content')
+@php($deedLink = ($deedLink ?? ['owners' => [], 'candidates' => [], 'tracked_property_id' => null]))
+@php($deedLink = $deedLink + ['owners' => [], 'candidates' => [], 'tracked_property_id' => null])
 <div class="w-full space-y-5">
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <a href="{{ url()->previous() }}" class="inline-flex items-center gap-1 text-xs no-underline" style="color: rgba(255,255,255,0.7);">
@@ -112,6 +114,18 @@
                   this.loading = false;
               },
               choose(c) { this.selected = c; this.results = []; this.q = ''; },
+              // MIC ↔ Deeds ↔ Contact loop (Part A) — prefill the create-new fields from a
+              // scraped deed owner (name + SA ID) so the agent uses what CoreX already ingested.
+              useDeedOwner(o) {
+                  this.mode = 'create';
+                  this.selected = null;
+                  this.$nextTick(() => {
+                      if (this.$refs.firstName) this.$refs.firstName.value = o.first_name || '';
+                      if (this.$refs.lastName)  this.$refs.lastName.value  = o.last_name || '';
+                      if (this.$refs.idNumber)  this.$refs.idNumber.value  = o.id_number || '';
+                      if (this.$refs.firstName) this.$refs.firstName.focus();
+                  });
+              },
           }"
           action="{{ !empty($trackedProperty)
               ? route('seller-outreach.entry.store-from-tracked-property', $trackedProperty->id)
@@ -119,6 +133,124 @@
                   ? route('seller-outreach.entry.store-from-property', $property->id)
                   : route('seller-outreach.entry.store-from-prospecting', $listing->id)) }}">
         @csrf
+
+        {{-- ── MIC ↔ Deeds ↔ Contact loop (Part A) ──
+             The deed the agent scraped (CMA / deeds-office) already landed the registered
+             owner(s) in CoreX (name + SA-ID). Surface them here so the agent USES what was
+             ingested instead of re-typing. "Use from deeds" prefills the Create-new fields;
+             "View full deed" opens the Deeds Capture screen. --}}
+        @if(!empty($deedLink['owners']))
+            <div class="rounded-md p-4 mb-4"
+                 style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, var(--surface)); border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 40%, var(--border));">
+                <div class="flex items-center justify-between gap-3 flex-wrap mb-2">
+                    <div class="flex items-center gap-2">
+                        <span class="text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded"
+                              style="background: var(--brand-icon, #0ea5e9); color:#fff;">From the deed you scraped</span>
+                        <span class="text-xs" style="color: var(--text-muted);">Owner(s) already captured from the deeds record</span>
+                    </div>
+                    @if(auth()->user()->hasPermission('deeds_capture.access'))
+                        <a href="{{ route('corex.deeds-capture.index') }}" target="_blank" rel="noopener"
+                           class="text-xs font-semibold no-underline" style="color: var(--brand-icon, #0ea5e9);">
+                            View full deed →
+                        </a>
+                    @endif
+                </div>
+
+                <div class="space-y-2">
+                    @foreach($deedLink['owners'] as $owner)
+                        <div class="flex items-center justify-between gap-3 rounded-md p-3"
+                             style="background: var(--surface); border: 1px solid var(--border);">
+                            <div class="min-w-0">
+                                <div class="text-sm font-semibold truncate" style="color: var(--text-primary);">
+                                    {{ trim(($owner['first_name'] ?? '') . ' ' . ($owner['last_name'] ?? '')) ?: ($owner['name'] ?? '(unnamed owner)') }}
+                                    @if(!empty($owner['is_primary']))
+                                        <span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded"
+                                              style="background: var(--surface-2); color: var(--text-muted);">Primary</span>
+                                    @endif
+                                </div>
+                                <div class="text-xs mt-0.5" style="color: var(--text-muted);">
+                                    @if(!empty($owner['id_number']))
+                                        {{ strtoupper((string) ($owner['id_type'] ?? 'sa_id')) === 'COMPANY_REG' ? 'Reg' : 'ID' }}:
+                                        <span class="font-mono">{{ $owner['id_number'] }}</span>
+                                    @else
+                                        <span class="italic">No ID on the deed record</span>
+                                    @endif
+                                </div>
+                            </div>
+                            <button type="button"
+                                    @click='useDeedOwner(@json($owner))'
+                                    class="shrink-0 px-3 py-1.5 text-xs font-semibold rounded-md border-0"
+                                    style="background: var(--brand-icon, #0ea5e9); color:#fff; cursor:pointer;">
+                                Use from deeds
+                            </button>
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+        @endif
+
+        {{-- Possible deed match (agent-verified). The deeds-office address routinely differs from
+             the portal/marketing address (e.g. portal "516 Bream Crescent, Ramsgate" vs deed
+             "516 Bidstone, The Nest, Ramsgate Beach"), so these share only street number + suburb
+             and are NOT auto-linked — the agent confirms it's the same property, then "Use from
+             deeds" prefills. --}}
+        @if(empty($deedLink['owners']) && !empty($deedLink['candidates']))
+            <div class="rounded-md p-4 mb-4"
+                 style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 8%, var(--surface)); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 45%, var(--border));">
+                <div class="flex items-center justify-between gap-3 flex-wrap mb-2">
+                    <div class="flex items-center gap-2">
+                        <span class="text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded"
+                              style="background: var(--ds-amber, #f59e0b); color:#111;">Possible deed match</span>
+                        <span class="text-xs" style="color: var(--text-muted);">Same street &amp; suburb — verify this is the same property before using</span>
+                    </div>
+                    @if(auth()->user()->hasPermission('deeds_capture.access'))
+                        <a href="{{ route('corex.deeds-capture.index') }}" target="_blank" rel="noopener"
+                           class="text-xs font-semibold no-underline" style="color: var(--ds-amber, #f59e0b);">
+                            Open Deeds Capture →
+                        </a>
+                    @endif
+                </div>
+
+                <div class="space-y-2">
+                    @foreach($deedLink['candidates'] as $cand)
+                        <div class="rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
+                            @if(!empty($cand['address']))
+                                <div class="text-xs font-semibold mb-1" style="color: var(--text-secondary);">
+                                    Deed: {{ $cand['address'] }}
+                                </div>
+                            @endif
+                            @foreach($cand['owners'] as $owner)
+                                <div class="flex items-center justify-between gap-3 py-1">
+                                    <div class="min-w-0">
+                                        <div class="text-sm font-semibold truncate" style="color: var(--text-primary);">
+                                            {{ trim(($owner['first_name'] ?? '') . ' ' . ($owner['last_name'] ?? '')) ?: ($owner['name'] ?? '(unnamed owner)') }}
+                                            @if(!empty($owner['is_primary']))
+                                                <span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded"
+                                                      style="background: var(--surface-2); color: var(--text-muted);">Primary</span>
+                                            @endif
+                                        </div>
+                                        <div class="text-xs mt-0.5" style="color: var(--text-muted);">
+                                            @if(!empty($owner['id_number']))
+                                                {{ strtoupper((string) ($owner['id_type'] ?? 'sa_id')) === 'COMPANY_REG' ? 'Reg' : 'ID' }}:
+                                                <span class="font-mono">{{ $owner['id_number'] }}</span>
+                                            @else
+                                                <span class="italic">No ID on the deed record</span>
+                                            @endif
+                                        </div>
+                                    </div>
+                                    <button type="button"
+                                            @click='useDeedOwner(@json($owner))'
+                                            class="shrink-0 px-3 py-1.5 text-xs font-semibold rounded-md"
+                                            style="background: transparent; color: var(--text-primary); border:1px solid var(--ds-amber, #f59e0b); cursor:pointer;">
+                                        Use from deeds
+                                    </button>
+                                </div>
+                            @endforeach
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+        @endif
 
         {{-- #3 Address-first: when the source listing carries no street address, capture
              one BEFORE the seller. Reuses the SAME "Property Address" modal + component as
@@ -234,13 +366,13 @@
                     <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">
                         First name <span style="color: var(--ds-crimson);">*</span>
                     </label>
-                    <input type="text" name="first_name" value="{{ old('first_name') }}" :required="mode === 'create'" maxlength="100"
+                    <input type="text" name="first_name" x-ref="firstName" value="{{ old('first_name') }}" :required="mode === 'create'" maxlength="100"
                            class="w-full px-3 py-2 text-sm rounded-md"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 </div>
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">Last name</label>
-                    <input type="text" name="last_name" value="{{ old('last_name') }}" maxlength="100"
+                    <input type="text" name="last_name" x-ref="lastName" value="{{ old('last_name') }}" maxlength="100"
                            class="w-full px-3 py-2 text-sm rounded-md"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 </div>
@@ -264,7 +396,7 @@
             {{-- A.2.5 — optional SA ID number capture at create time. --}}
             <div>
                 <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">ID number (optional)</label>
-                <input type="text" name="id_number" value="{{ old('id_number') }}"
+                <input type="text" name="id_number" x-ref="idNumber" value="{{ old('id_number') }}"
                        inputmode="numeric" maxlength="13" pattern="\d{13}"
                        placeholder="e.g. 7610025020081" title="13 digits — empty is fine"
                        class="w-full px-3 py-2 text-sm rounded-md"
