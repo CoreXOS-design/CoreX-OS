@@ -368,6 +368,72 @@ final class ProspectingClaimService
         return $result;
     }
 
+    /**
+     * FIX 1 (Johan 2026-08-14) — durable anti-poaching claim the MOMENT the agent clicks
+     * "Pitch Now" (opens the compose screen), NOT only at final submit.
+     *
+     * The 30-minute temp lock alone was the whole protection between Pitch Now and submit: an
+     * agent who left the screen to scrape CMA/TVA lost the listing back to the pool once the lock
+     * expired (the pool's durable exclusion keys on `pitched_at`, which was only stamped at submit).
+     * This writes the real prospecting_claims row up front, stamped `pitched_at` so the pool hides
+     * it and the 48h no-feedback expiry is exempted — the listing is held for the agency's stale
+     * window (the phase-2 warn/release rules reclaim it if genuinely abandoned), independent of the
+     * tab staying open.
+     *
+     * Idempotent for the same agent (re-opening refreshes the timer, never duplicates). Throws
+     * ClaimOwnershipConflictException when ANOTHER agent already holds the active claim — the
+     * defence that closes the duplication window. Does NOT release the temp lock (it stays as the
+     * in-session concurrency guard and is consumed later by consumeLockAsPermanentClaim on submit).
+     */
+    public function claimOnPitchNow(int $listingId, int $userId, int $agencyId): ProspectingClaim
+    {
+        return DB::transaction(function () use ($listingId, $userId, $agencyId) {
+            $propertyId = DB::table('prospecting_listings')->where('id', $listingId)->value('matched_property_id');
+            $propertyId = $propertyId !== null ? (int) $propertyId : null;
+
+            $existing = ProspectingClaim::where('prospecting_listing_id', $listingId)
+                ->where('agency_id', $agencyId)
+                ->where('is_active', true)
+                ->whereNull('released_at')
+                ->lockForUpdate()
+                ->first();
+
+            if ($existing) {
+                if ((int) $existing->user_id !== $userId) {
+                    throw new ClaimOwnershipConflictException(currentOwnerUserId: (int) $existing->user_id);
+                }
+                // Same agent re-opening the screen — make sure the claim is durably pitched and
+                // refresh the staleness timer; never duplicate, never un-set pitched_at.
+                if ($existing->pitched_at === null) {
+                    $existing->pitched_at = now();
+                }
+                if ($existing->property_id === null && $propertyId !== null) {
+                    $existing->property_id = $propertyId;
+                }
+                $existing->last_updated_at = now();
+                $existing->warned_at = null;   // working it re-arms the stale timer (phase 2)
+                $existing->save();
+
+                return $existing->refresh();
+            }
+
+            return ProspectingClaim::create([
+                'agency_id'              => $agencyId,
+                'prospecting_listing_id' => $listingId,
+                'property_id'            => $propertyId,
+                'user_id'                => $userId,
+                'status'                 => ProspectingClaim::STATUS_CLAIMED,
+                'notes'                  => '[' . now()->format('Y-m-d H:i') . '] Pitch Now — durable claim opened (anti-poaching; held for the stale window).',
+                'claimed_at'             => now(),
+                // Durable: pitched_at makes the pool hide the listing and exempts the 48h
+                // no-feedback expiry, so leaving to scrape never re-opens the duplication window.
+                'pitched_at'             => now(),
+                'last_updated_at'        => now(),
+                'is_active'              => true,
+            ]);
+        });
+    }
+
     private function computeExpiry(int $agencyId): Carbon
     {
         $minutes = (int) (DB::table('agencies')

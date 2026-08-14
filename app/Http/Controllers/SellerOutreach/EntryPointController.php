@@ -205,6 +205,23 @@ final class EntryPointController extends Controller
                 ->with('error', "⏳ {$blockerName} is currently pitching this listing. Try again after their lock expires ({$expiresIn}).");
         }
 
+        // FIX 1 (Johan 2026-08-14) — DURABLY claim the listing the moment Pitch Now opens the
+        // compose screen, so the agent can leave to scrape CMA/TVA and return with it still theirs
+        // (held for the agency stale window, not the 30-min temp lock). Anti-poaching correctness:
+        // this is what actually closes the duplication window between Pitch Now and submit.
+        try {
+            app(ProspectingClaimService::class)->claimOnPitchNow(
+                listingId: $prospectingListingId,
+                userId: (int) $request->user()->id,
+                agencyId: $agencyId,
+            );
+        } catch (\App\Services\Prospecting\ClaimOwnershipConflictException $e) {
+            $ownerName = DB::table('users')->where('id', $e->currentOwnerUserId)->value('name') ?? 'another agent';
+            return redirect()
+                ->route('market-intelligence.work')
+                ->with('error', "⏳ {$ownerName} has already claimed this listing. Coordinate with them before pitching.");
+        }
+
         // MIC ↔ Deeds ↔ Contact loop (Part A) — surface the deed the agent scraped. If a deeds
         // capture exists for this property, its registered owner(s) (name + SA-ID) are already in
         // CoreX as contacts; resolve them so the capture screen can offer "Use from deeds" instead
