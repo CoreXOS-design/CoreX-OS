@@ -166,8 +166,14 @@
               deadEndSellerUrl: @js($deadEndSellerUrl ?? null),
               tvaPicks: {},
               sellerBusy: false,
+              // When sellers are already linked, the manual "Seller contact" form is collapsed and
+              // NOT a required gate — continue runs off the linked sellers.
+              showManualForm: false,
               async setPrimary(contactId) {
                   if (!this.primarySellerUrl || this.sellerBusy) return;
+                  // Optimistic single-primary — one click flips it instantly (others unset locally),
+                  // then the server confirms. Fixes the "had to click repeatedly" flakiness.
+                  this.sellers = this.sellers.map(s => ({ ...s, is_primary: s.contact_id === contactId }));
                   this.sellerBusy = true;
                   try {
                       const res = await fetch(this.primarySellerUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify({ contact_id: contactId }) });
@@ -303,7 +309,6 @@
                         <div class="min-w-0">
                             <div class="text-sm font-semibold truncate" style="color: var(--text-primary);">
                                 <span x-text="(((owner.first_name || '') + ' ' + (owner.last_name || '')).trim()) || owner.name || '(unnamed owner)'"></span>
-                                <template x-if="owner.is_primary"><span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded" style="background: var(--surface-2); color: var(--text-muted);">Primary</span></template>
                                 <template x-if="owner.dead_end"><span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-primary);">⚠ Dead end · <span x-text="owner.dead_end && owner.dead_end.label"></span></span></template>
                             </div>
                             <div class="text-xs mt-0.5" style="color: var(--text-muted);">
@@ -351,8 +356,7 @@
                                 <div class="min-w-0">
                                     <div class="text-sm font-semibold truncate" style="color: var(--text-primary);">
                                         <span x-text="(((owner.first_name || '') + ' ' + (owner.last_name || '')).trim()) || owner.name || '(unnamed owner)'"></span>
-                                        <template x-if="owner.is_primary"><span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded" style="background: var(--surface-2); color: var(--text-muted);">Primary</span></template>
-                                        <template x-if="owner.dead_end"><span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-primary);">⚠ Dead end · <span x-text="owner.dead_end && owner.dead_end.label"></span></span></template>
+                                                <template x-if="owner.dead_end"><span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-primary);">⚠ Dead end · <span x-text="owner.dead_end && owner.dead_end.label"></span></span></template>
                                     </div>
                                     <div class="text-xs mt-0.5" style="color: var(--text-muted);">
                                         <template x-if="owner.id_number"><span><span x-text="(String(owner.id_type || 'sa_id').toUpperCase() === 'COMPANY_REG') ? 'Reg' : 'ID'"></span>: <span class="font-mono" x-text="owner.id_number"></span></span></template>
@@ -392,14 +396,15 @@
                     <div class="rounded-md p-3" style="background: var(--surface); border:1px solid var(--border);">
                         <div class="flex items-start justify-between gap-3">
                             <div class="min-w-0">
-                                <div class="text-sm font-semibold flex items-center gap-1 flex-wrap" style="color: var(--text-primary);">
+                                <div class="text-sm font-semibold flex items-center gap-2 flex-wrap" style="color: var(--text-primary);">
                                     <button type="button" @click="setPrimary(s.contact_id)" :disabled="sellerBusy"
-                                            :title="s.is_primary ? 'Primary seller' : 'Make primary'"
-                                            class="text-base leading-none" style="background:none; border:0; cursor:pointer;"
-                                            :style="s.is_primary ? 'color:#f59e0b;' : 'color: var(--text-muted);'"
-                                            x-text="s.is_primary ? '★' : '☆'"></button>
+                                            :title="s.is_primary ? 'This is the primary seller' : 'Make this the primary seller'"
+                                            class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold leading-none"
+                                            :style="s.is_primary ? 'color:#b45309; background: color-mix(in srgb, #f59e0b 18%, transparent); border:0; cursor:pointer;' : 'color: var(--text-muted); background: var(--surface-2); border:0; cursor:pointer;'">
+                                        <span x-text="s.is_primary ? '★' : '☆'"></span>
+                                        <span x-text="s.is_primary ? 'Primary' : 'Make primary'"></span>
+                                    </button>
                                     <span x-text="((s.first_name || '') + ' ' + (s.last_name || '')).trim() || 'Seller'"></span>
-                                    <template x-if="s.is_primary"><span class="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded" style="background:#10b981; color:#fff;">Primary</span></template>
                                     <template x-if="s.dead_end"><span class="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-primary);">⚠ Dead end · <span x-text="s.dead_end && s.dead_end.label"></span></span></template>
                                 </div>
                                 <div class="text-xs mt-0.5" style="color: var(--text-muted);">
@@ -499,7 +504,17 @@
             </div>
         @endif
 
-        <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+        {{-- When sellers are already linked, collapse the manual capture form — it is NOT a required
+             gate anymore. "Create & continue" runs off the linked sellers. --}}
+        <div x-show="sellers.length && !showManualForm" class="mb-4">
+            <button type="button" @click="showManualForm = true"
+                    class="px-3 py-1.5 text-xs font-semibold rounded-md"
+                    style="background: transparent; color: var(--text-secondary); border:1px dashed var(--border); cursor:pointer;">
+                + Add another seller manually
+            </button>
+        </div>
+
+        <div x-show="!sellers.length || showManualForm" class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="flex items-center justify-between gap-3 flex-wrap">
                 <h2 class="text-base font-semibold" style="color: var(--text-primary);">Seller contact</h2>
                 {{-- Mode toggle: pick a known owner, or capture a new one. --}}
@@ -573,7 +588,7 @@
                     <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">
                         First name <span style="color: var(--ds-crimson);">*</span>
                     </label>
-                    <input type="text" name="first_name" x-ref="firstName" value="{{ old('first_name') }}" :required="mode === 'create'" maxlength="100"
+                    <input type="text" name="first_name" x-ref="firstName" value="{{ old('first_name') }}" :required="mode === 'create' && sellers.length === 0" maxlength="100"
                            class="w-full px-3 py-2 text-sm rounded-md"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 </div>
