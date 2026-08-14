@@ -224,6 +224,12 @@
 
     // Phase E3 — per-listing "why this matches" tooltip.
     // Cache per-listing in-memory so repeated hovers don't refetch.
+    //
+    // 2026-08-14: `open` now gates visibility (set by mouseenter/focusin,
+    // cleared by mouseleave/focusout in the blade) — a true hover-reveal,
+    // transient tooltip instead of the old one-way latch that stayed stuck
+    // open forever after the first hover. The fetched text is still cached
+    // per-listing so re-hovering the same row never re-fetches.
     window.__micMatchTooltipCache = window.__micMatchTooltipCache || {};
     window.micMatchTooltip = function (listingId) {
         return {
@@ -231,7 +237,15 @@
             loading: false,
             loaded: false,
             inflight: false,
-            load() {
+            open: false,
+            show() {
+                this.open = true;
+                this.ensureLoaded();
+            },
+            hide() {
+                this.open = false;
+            },
+            ensureLoaded() {
                 if (this.loaded || this.inflight) return;
                 if (window.__micMatchTooltipCache[listingId]) {
                     this.tooltip = window.__micMatchTooltipCache[listingId];
