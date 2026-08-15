@@ -8,6 +8,7 @@ use App\Models\ContactRepresentative;
 use App\Rules\ExistsInScope;
 use App\Services\ContactDuplicateService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 /**
  * Entity-type foundation (.ai/specs/contact-entity-type.md) — the entity
@@ -89,6 +90,8 @@ class ContactRepresentativeController extends Controller
         $data = $request->validate([
             'representative_contact_id' => ['required', new ExistsInScope(Contact::class)],
             'is_primary'                => 'nullable|boolean',
+            'capacity'                  => ['nullable', Rule::in(ContactRepresentative::CAPACITIES)],
+            'signs_as_proxy'            => 'nullable|boolean',
         ]);
 
         $representative = Contact::findOrFail($data['representative_contact_id']);
@@ -103,7 +106,13 @@ class ContactRepresentativeController extends Controller
             'The representative must be in the same agency.'
         );
 
-        $this->attachRepresentative($contact, $representative, $request->boolean('is_primary'));
+        $this->attachRepresentative(
+            $contact,
+            $representative,
+            $request->boolean('is_primary'),
+            $data['capacity'] ?? null,
+            $request->boolean('signs_as_proxy'),
+        );
 
         return back()->with('success', 'Representative linked.')->with('tab', 'info');
     }
@@ -124,14 +133,18 @@ class ContactRepresentativeController extends Controller
             'email'      => ['nullable', 'email', 'max:150'],
             'id_number'  => ['nullable', 'string', 'max:20'],
             'is_primary' => ['nullable', 'boolean'],
+            'capacity'       => ['nullable', Rule::in(ContactRepresentative::CAPACITIES)],
+            'signs_as_proxy' => ['nullable', 'boolean'],
         ]);
-        $isPrimary = (bool) ($data['is_primary'] ?? false);
-        unset($data['is_primary']);
+        $isPrimary    = (bool) ($data['is_primary'] ?? false);
+        $capacity     = $data['capacity'] ?? null;
+        $signsAsProxy = (bool) ($data['signs_as_proxy'] ?? false);
+        unset($data['is_primary'], $data['capacity'], $data['signs_as_proxy']);
 
         $data['contact_kind'] = Contact::TYPE_NATURAL_PERSON;
         $representative = $this->resolveOrCreateContact($data, $contact->agency_id);
 
-        $this->attachRepresentative($contact, $representative, $isPrimary);
+        $this->attachRepresentative($contact, $representative, $isPrimary, $capacity, $signsAsProxy);
 
         return back()->with('success', 'Representative created and linked.')->with('tab', 'info');
     }
@@ -149,16 +162,20 @@ class ContactRepresentativeController extends Controller
             'entity_name'   => ['required', 'string', 'max:255'],
             'entity_reg_no' => ['nullable', 'string', 'max:255'],
             'is_primary'    => ['nullable', 'boolean'],
+            'capacity'       => ['nullable', Rule::in(ContactRepresentative::CAPACITIES)],
+            'signs_as_proxy' => ['nullable', 'boolean'],
         ]);
-        $isPrimary = (bool) ($data['is_primary'] ?? false);
-        unset($data['is_primary']);
+        $isPrimary    = (bool) ($data['is_primary'] ?? false);
+        $capacity     = $data['capacity'] ?? null;
+        $signsAsProxy = (bool) ($data['signs_as_proxy'] ?? false);
+        unset($data['is_primary'], $data['capacity'], $data['signs_as_proxy']);
 
         $data['contact_kind'] = Contact::TYPE_ENTITY;
         $data['first_name']   = '';
         $data['last_name']    = '';
         $entity = $this->resolveOrCreateContact($data, $contact->agency_id);
 
-        $this->attachRepresentative($entity, $contact, $isPrimary);
+        $this->attachRepresentative($entity, $contact, $isPrimary, $capacity, $signsAsProxy);
 
         return back()->with('success', 'Entity created and linked.')->with('tab', 'info');
     }
@@ -172,17 +189,64 @@ class ContactRepresentativeController extends Controller
     }
 
     /**
+     * Edit the capacity / primary / proxy on an EXISTING entity<->rep link
+     * without re-linking. {contact} is the ENTITY, {representative} the natural
+     * person. Enforces single-proxy + single-primary per entity (below).
+     */
+    public function updateRepresentative(Request $request, Contact $contact, Contact $representative)
+    {
+        abort_unless($contact->isEntity(), 422, 'Representatives can only be edited on an entity contact.');
+        abort_unless(
+            $contact->representatives()->where('contacts.id', $representative->id)->exists(),
+            404,
+            'That contact is not a representative of this entity.'
+        );
+
+        $data = $request->validate([
+            'is_primary'     => ['nullable', 'boolean'],
+            'capacity'       => ['nullable', Rule::in(ContactRepresentative::CAPACITIES)],
+            'signs_as_proxy' => ['nullable', 'boolean'],
+        ]);
+
+        $isPrimary    = $request->boolean('is_primary');
+        $signsAsProxy = $request->boolean('signs_as_proxy');
+
+        if ($isPrimary) {
+            $this->demotePivotFlag($contact, 'is_primary');
+        }
+        if ($signsAsProxy) {
+            $this->demotePivotFlag($contact, 'signs_as_proxy');
+        }
+
+        $contact->representatives()->updateExistingPivot($representative->id, [
+            'is_primary'     => $isPrimary,
+            'capacity'       => $data['capacity'] ?? null,
+            'signs_as_proxy' => $signsAsProxy,
+        ]);
+
+        return back()->with('success', 'Representative updated.')->with('tab', 'info');
+    }
+
+    /**
      * Shared attach step for every link path (direct link, create-on-the-fly
      * from either side). $entity/$representative are ALWAYS resolved to the
      * correct pivot side before this runs — never swapped.
      */
-    private function attachRepresentative(Contact $entity, Contact $representative, bool $isPrimary): void
-    {
+    private function attachRepresentative(
+        Contact $entity,
+        Contact $representative,
+        bool $isPrimary,
+        ?string $capacity = null,
+        bool $signsAsProxy = false
+    ): void {
         if ($isPrimary) {
             // Only one primary signatory per entity — demote any existing one.
-            foreach ($entity->representatives()->pluck('contacts.id') as $existingId) {
-                $entity->representatives()->updateExistingPivot($existingId, ['is_primary' => false]);
-            }
+            $this->demotePivotFlag($entity, 'is_primary');
+        }
+        if ($signsAsProxy) {
+            // Only one proxy per entity — the proxy signs for ALL reps, so a
+            // second proxy is contradictory. Demote any existing one.
+            $this->demotePivotFlag($entity, 'signs_as_proxy');
         }
 
         // syncWithoutDetaching() issues a raw INSERT for a pair not already
@@ -197,13 +261,30 @@ class ContactRepresentativeController extends Controller
 
         if ($pivot) {
             $pivot->restore();
-            $pivot->update(['is_primary' => $isPrimary]);
+            $pivot->update([
+                'is_primary'     => $isPrimary,
+                'capacity'       => $capacity,
+                'signs_as_proxy' => $signsAsProxy,
+            ]);
         } else {
             ContactRepresentative::create([
                 'entity_contact_id'         => $entity->id,
                 'representative_contact_id' => $representative->id,
                 'is_primary'                => $isPrimary,
+                'capacity'                  => $capacity,
+                'signs_as_proxy'            => $signsAsProxy,
             ]);
+        }
+    }
+
+    /**
+     * Demote a single-per-entity pivot flag (is_primary / signs_as_proxy) on
+     * every current representative of the entity, so a newly-set flag is unique.
+     */
+    private function demotePivotFlag(Contact $entity, string $flag): void
+    {
+        foreach ($entity->representatives()->pluck('contacts.id') as $existingId) {
+            $entity->representatives()->updateExistingPivot($existingId, [$flag => false]);
         }
     }
 
