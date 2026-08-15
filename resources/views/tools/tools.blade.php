@@ -1007,7 +1007,10 @@
 
       <div class="sub">Preview Logo:</div>
       <div class="pill" style="margin-top:0.5rem;">
-        <span id="prevCompanyName" style="font-weight:700; color:var(--text-primary);">Home Finders Coastal</span>
+        {{-- 2026-08-15 (Johan, HFC tenant-isolation fix) — was a static
+             literal; no JS ever updated it. $printSettings is already
+             correctly agency-resolved server-side. --}}
+        <span id="prevCompanyName" style="font-weight:700; color:var(--text-primary);">{{ $printSettings['companyName'] ?? 'Agency' }}</span>
         <img id="prevLogo" style="display:none; max-height:30px; margin-left:10px;" />
       </div>
     </div>

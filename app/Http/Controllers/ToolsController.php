@@ -49,11 +49,19 @@ class ToolsController extends Controller
         $branchId = $user?->effectiveBranchId() ?? ($user?->branch_id ?? null);
         $agency   = $user?->agency;
 
+        // 2026-08-15 (Johan, HFC tenant-isolation fix) — this was the FINAL
+        // fallback tier (no PerformanceSetting row, no Agency-model field
+        // either), literally HFC's own address/phone/FFC number. Any agency
+        // that hadn't filled in its own profile printed HFC's real business
+        // details on its own commission/CMA certificates. Generic/blank now
+        // — company name keeps a neutral non-empty placeholder (blank looks
+        // broken on a certificate); address/tel/ffc are fine blank (better
+        // than another agency's real data).
         $defaults = [
-            'companyName' => 'Home Finders Coastal',
-            'address' => 'The Emporium Shop 5, Shelly Beach, Margate',
-            'tel' => '(039) 315 0857',
-            'ffc' => '2023116041',
+            'companyName' => 'Agency',
+            'address' => '',
+            'tel' => '',
+            'ffc' => '',
             'logoUrl' => '',
         ];
 

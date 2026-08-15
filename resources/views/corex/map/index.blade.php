@@ -150,7 +150,11 @@
                 @endif
                 <button data-mode="seller" class="mode-pill active" style="padding: 4px 10px; font-size: 0.75rem; font-weight: 500; background: var(--brand-button); color: #fff; border: 0; border-radius: 4px; cursor: pointer;">Seller View</button>
             </div>
-            <button id="reset-bounds-btn" style="padding: 6px 10px; font-size: 0.75rem; font-weight: 500; color: var(--text-secondary); background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">Reset to HFC area</button>
+            {{-- 2026-08-15 (Johan, HFC tenant-isolation fix) — the underlying
+                 bounds logic already correctly resolves this agency's own
+                 configured map area (MapController.php -> AgencyMapSettings);
+                 only the label was hardcoded to "HFC". --}}
+            <button id="reset-bounds-btn" style="padding: 6px 10px; font-size: 0.75rem; font-weight: 500; color: var(--text-secondary); background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">Reset to {{ $agency?->name ?? 'agency' }} area</button>
         </div>
     </div>
 

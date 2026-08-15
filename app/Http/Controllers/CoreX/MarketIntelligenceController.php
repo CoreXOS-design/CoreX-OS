@@ -1396,13 +1396,19 @@ class MarketIntelligenceController extends Controller
         $now = Carbon::now();
         $thisMonthStart = $now->copy()->startOfMonth()->toDateString();
 
-        $lastImport = P24ImportLog::orderByDesc('created_at')->first();
-        $emailsProcessed30d = P24ImportLog::where('created_at', '>=', $now->copy()->subDays(30))
+        // 2026-08-15 (Johan, HFC tenant-isolation fix) — $agencyId was
+        // computed above but never applied to a single query in this
+        // method; every agency saw HFC's entire P24 firehose (the only
+        // agency with imported data today). Every P24Listing/P24ImportLog
+        // query below is now scoped.
+        $lastImport = P24ImportLog::where('agency_id', $agencyId)->orderByDesc('created_at')->first();
+        $emailsProcessed30d = P24ImportLog::where('agency_id', $agencyId)
+            ->where('created_at', '>=', $now->copy()->subDays(30))
             ->where('status', 'success')
             ->count();
-        $activeListings = P24Listing::active()->count();
-        $newThisMonth = P24Listing::where('first_seen_date', '>=', $thisMonthStart)->count();
-        $avgAskingPrice = (float) P24Listing::active()->avg('asking_price');
+        $activeListings = P24Listing::where('agency_id', $agencyId)->active()->count();
+        $newThisMonth = P24Listing::where('agency_id', $agencyId)->where('first_seen_date', '>=', $thisMonthStart)->count();
+        $avgAskingPrice = (float) P24Listing::where('agency_id', $agencyId)->active()->avg('asking_price');
 
         $imapConfigured = !empty(config('services.p24_imap.host'))
             && !empty(config('services.p24_imap.username'))
@@ -1418,7 +1424,7 @@ class MarketIntelligenceController extends Controller
             'imap_status'         => $imapConfigured ? 'configured' : 'not configured',
         ];
 
-        $suburbStats = P24Listing::active()
+        $suburbStats = P24Listing::where('agency_id', $agencyId)->active()
             ->select(
                 'suburb',
                 DB::raw('COUNT(*) as listing_count'),
@@ -1432,18 +1438,23 @@ class MarketIntelligenceController extends Controller
             ->orderByDesc('listing_count')
             ->get();
 
-        $recentListings = P24Listing::orderByDesc('first_seen_date')
+        $recentListings = P24Listing::where('agency_id', $agencyId)
+            ->orderByDesc('first_seen_date')
             ->orderByDesc('created_at')
             ->limit(200)
             ->get(['id', 'p24_listing_number', 'p24_url', 'suburb', 'property_type', 'asking_price', 'bedrooms', 'bathrooms', 'listing_status', 'first_seen_date']);
 
-        $priceChanges = P24PriceChange::with('listing:id,p24_listing_number,p24_url,suburb')
+        // p24_price_changes has no agency_id column of its own — scope via
+        // its listing relation instead.
+        $priceChanges = P24PriceChange::whereHas('listing', fn ($q) => $q->where('agency_id', $agencyId))
+            ->with('listing:id,p24_listing_number,p24_url,suburb')
             ->orderByDesc('change_date')
             ->orderByDesc('created_at')
             ->limit(200)
             ->get();
 
-        $importLog = P24ImportLog::orderByDesc('created_at')
+        $importLog = P24ImportLog::where('agency_id', $agencyId)
+            ->orderByDesc('created_at')
             ->limit(50)
             ->get();
 
