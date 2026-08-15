@@ -3507,6 +3507,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{contact}/representatives/link',  [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'link'])->name('representatives.link');
         Route::post('/{contact}/representatives/create-and-link', [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'createAndLinkRepresentative'])->name('representatives.create-and-link');
         Route::delete('/{contact}/representatives/{representative}', [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'unlink'])->name('representatives.unlink');
+        // Edit capacity / primary / proxy on an existing entity<->rep link (entity-rep foundation, Johan 2026-08-15).
+        Route::patch('/{contact}/representatives/{representative}', [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'updateRepresentative'])->name('representatives.update');
         // Mirror direction — a NATURAL PERSON's "Linked Entities" panel. Same
         // pivot, same link()/unlink() above (called with the entity as
         // {contact}); these two are the person-side search + create-on-the-fly.

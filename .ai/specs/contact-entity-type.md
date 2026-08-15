@@ -145,6 +145,33 @@ expected (the scraper case, §6.1: entity owner captured, director unknown).
 `PropertyContactController::LINK_ROLES` already validates its own role
 vocabulary.
 
+#### 4.2.1 SHARED FOUNDATION EXTENSION — capacity + proxy (Johan, 2026-08-15) — BUILT `feat/entity-rep-foundation`
+Two additive columns on `contact_representatives` (migration `2026_08_26_000001`,
+no backfill; existing rows default to "all reps sign, no label"):
+```
+capacity        varchar(40) NULL   -- Director|Executor|Trustee|Member|Other (per-link; a
+                                      person can be Director of X, Executor of Y)
+signs_as_proxy  boolean default 0  -- this rep signs for ALL reps of the entity
+index (entity_contact_id, signs_as_proxy)
+```
+Capacity vocabulary = `ContactRepresentative::CAPACITIES` (fixed for v1, agency-editable later).
+Single-`signs_as_proxy` and single-`is_primary` per entity are enforced at BOTH write paths
+(`ContactRepresentativeController::attachRepresentative`/`updateRepresentative`;
+`TvaCompanyDirectorsController::linkDirector` defaults `capacity='Director'`), demoting any prior holder.
+
+**CANONICAL API (the contract esign + DR2 both consume — do NOT re-implement per lane):**
+```
+Contact::signingRepresentatives(): Collection<Contact>   // proxy → [proxy]; else ALL reps; empty for
+                                                         // natural person / rep-less entity. Each carries
+                                                         // ->pivot->capacity for phrasing.
+Contact::emailRepresentatives():   Collection<Contact>   // who receives the e-sign email (= signers for now)
+Contact::hasProxyRepresentative(): bool
+```
+Setup UI: `corex/contacts/show.blade.php` Representatives panel — per-rep capacity dropdown + single
+"Proxy — signs for all" toggle + badges; route `PATCH representatives.update`. Test:
+`tests/Feature/Contacts/ContactRepresentativeCapacityProxyTest.php`. Consumed by esign §6.2 (recipient
+builder) and DR2 §6.5 (company attorney/supplier signers).
+
 ### 4.3 `Contact::getFullNameAttribute()` — the single highest-leverage fix
 Current (`app/Models/Contact.php:523-526`):
 ```php
