@@ -258,10 +258,20 @@
                 <div id="layer-cap-notice" style="display: none; margin-top: 8px; padding: 6px 8px; font-size: 0.625rem; color: var(--ds-amber, #f59e0b); background: color-mix(in srgb, var(--ds-amber, #f59e0b) 8%, transparent); border-radius: 4px;"></div>
             </div>
 
-            {{-- Phase A.3.1 — search input. 500ms debounce in JS. --}}
+            {{-- Phase A.3.1 — search input. 500ms debounce in JS. A non-empty
+                 search locates matches ANYWHERE in the agency's map bounds (not
+                 just the current viewport) and pans/zooms the map to them —
+                 previously the search only filtered within whatever was already
+                 on screen, so a match outside the visible area silently
+                 returned nothing. #search-no-results is the explicit signal for
+                 the genuine zero-match case, so that reads as "nothing found"
+                 rather than a silent no-op. --}}
             <div style="margin-bottom: 12px;">
                 <input type="text" id="filter-search" data-tour="re-map-search" placeholder="Search address / scheme / agent…" autocomplete="off"
                        style="width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text-primary); font-size: 0.8125rem; box-sizing: border-box;">
+                <div id="search-no-results" style="display: none; margin-top: 6px; padding: 6px 8px; font-size: 0.6875rem; color: var(--ds-amber, #f59e0b); background: color-mix(in srgb, var(--ds-amber, #f59e0b) 8%, transparent); border-radius: 4px;">
+                    No properties found matching that search — try zooming out / panning, or a different term.
+                </div>
             </div>
 
             {{-- Phase 3g V2 Part A — display mode radio. --}}
@@ -2607,25 +2617,17 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // ── Fetching ──────────────────────────────────────────────────────────
-    async function fetchPins() {
-        if (inFlight) inFlight.abort();
-        const b = currentBounds();
-        const key = boundsKey(b);
-
-        // Cache hit
-        const hit = cache.find(c => c.key === key);
-        if (hit) {
-            renderPayload(hit.payload);
-            return;
-        }
-
+    // Shared param-builder — bounds + limit vary by caller (viewport render
+    // vs. the agency-wide search-locate lookup below); every filter is
+    // otherwise identical so the two never drift out of sync.
+    function buildPinParams(b, limit) {
         const params = new URLSearchParams({
             north: b.north.toFixed(6),
             south: b.south.toFixed(6),
             east:  b.east.toFixed(6),
             west:  b.west.toFixed(6),
             viewMode: viewMode,
-            limit: '2000',
+            limit: String(limit),
             include_demo: includeDemo ? '1' : '0',
         });
         // Always send all six layer keys so server gives counts for each;
@@ -2664,6 +2666,22 @@ document.addEventListener('DOMContentLoaded', function () {
         if (Array.isArray(filters.suburbIds) && filters.suburbIds.length > 0) {
             filters.suburbIds.forEach(id => params.append('suburbIds[]', String(id)));
         }
+        return params;
+    }
+
+    async function fetchPins() {
+        if (inFlight) inFlight.abort();
+        const b = currentBounds();
+        const key = boundsKey(b);
+
+        // Cache hit
+        const hit = cache.find(c => c.key === key);
+        if (hit) {
+            renderPayload(hit.payload);
+            return;
+        }
+
+        const params = buildPinParams(b, 2000);
 
         setLoading(true);
         try {
@@ -2719,6 +2737,53 @@ document.addEventListener('DOMContentLoaded', function () {
     function debouncedFetch() {
         clearTimeout(fetchTimer);
         fetchTimer = setTimeout(fetchPins, 350);
+    }
+
+    // ── Search locate ────────────────────────────────────────────────────
+    // A search previously only filtered whatever was already in the current
+    // viewport — a match outside the visible area silently returned nothing,
+    // reading as "search is broken". This looks up matches across the
+    // agency's FULL map bounds (MAP_BOUNDS, not currentBounds()) and pans the
+    // map to them; the pan's own moveend fires debouncedFetch() (existing
+    // listener below), which then renders pins for the new viewport with the
+    // search filter still active — no direct fetchPins() call needed here.
+    function showSearchNoResults() {
+        const el = document.getElementById('search-no-results');
+        if (el) el.style.display = 'block';
+    }
+    function hideSearchNoResults() {
+        const el = document.getElementById('search-no-results');
+        if (el) el.style.display = 'none';
+    }
+
+    async function locateSearchAndPan() {
+        hideSearchNoResults();
+        try {
+            const params = buildPinParams(MAP_BOUNDS, 100);
+            const resp = await fetch(PINS_URL + '?' + params.toString(), {
+                headers: { 'Accept': 'application/json' },
+                credentials: 'same-origin',
+            });
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            const payload = await resp.json();
+            const locs = payload.locations || [];
+            if (locs.length === 0) {
+                showSearchNoResults();
+                return;
+            }
+            if (locs.length === 1) {
+                // Mirrors panToLocationKey's single-point convention: land at
+                // or above zoom 15 so the marker un-clusters into a real pin.
+                const targetZoom = Math.max(map.getZoom(), 15);
+                map.setView([locs[0].latitude, locs[0].longitude], targetZoom, { animate: true });
+            } else {
+                map.fitBounds(locs.map(l => [l.latitude, l.longitude]), { padding: [50, 50], maxZoom: 16 });
+            }
+        } catch (e) {
+            console.warn('Map search-locate error', e);
+            // Best-effort — leave the map where it is; a normal fetchPins()
+            // still runs on the next manual pan/zoom via the existing listener.
+        }
     }
 
     // ── Right panel state machine ─────────────────────────────────────────
@@ -3728,7 +3793,16 @@ document.addEventListener('DOMContentLoaded', function () {
         persistFilters();
         syncFilterUi();
         cache.length = 0;
-        fetchPins();
+        // A non-empty search locates matches agency-wide and pans there
+        // (locateSearchAndPan's own pan triggers a bounded fetchPins() via
+        // the existing moveend listener) rather than filtering the current,
+        // possibly-unrelated viewport.
+        if (filters.search) {
+            locateSearchAndPan();
+        } else {
+            hideSearchNoResults();
+            fetchPins();
+        }
     }
 
     // Apply button — primary commit gesture.
