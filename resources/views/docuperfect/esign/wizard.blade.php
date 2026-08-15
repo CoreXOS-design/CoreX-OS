@@ -504,11 +504,15 @@
                                                 <button @click="selectContact(ri, contact)"
                                                         class="w-full text-left px-3 py-2 transition-colors"
                                                         :style="(ci === (r._searchIdx || 0) ? 'background: var(--surface-2);' : '') + 'border-top: 1px solid var(--border);'">
-                                                    <div class="text-sm font-medium" style="color: var(--text-primary);" x-text="contact.full_name"></div>
+                                                    <div class="text-sm font-medium flex items-center gap-2" style="color: var(--text-primary);">
+                                                        <span x-text="contact.full_name"></span>
+                                                        <span x-show="contact.is_entity" class="ds-badge" style="background: color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent); color: var(--brand-icon,#0ea5e9);">Company</span>
+                                                    </div>
                                                     <div class="text-xs flex items-center gap-2" style="color: var(--text-muted);">
                                                         <span x-show="contact.email" x-text="contact.email"></span>
                                                         <span x-show="contact.phone" x-text="contact.phone"></span>
                                                         <span x-show="contact.contact_type" style="color: var(--brand-icon, #0ea5e9);" x-text="contact.contact_type"></span>
+                                                        <span x-show="contact.is_entity" style="color: var(--text-muted);">— signs via its representative(s)</span>
                                                     </div>
                                                 </button>
                                             </template>
