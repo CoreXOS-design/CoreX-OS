@@ -1626,6 +1626,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // AT-164 explicit-save — build ONE tile without persisting (in-session deck add)
         Route::get('/calendar/tile/{tileId}', [CommandCenterCalendarController::class, 'tile'])->middleware('permission:command_center.calendar.view')->where('tileId', '[A-Za-z0-9_\-]+')->name('command-center.calendar.tile');
 
+        // Right-panel resident Agenda list (JSON) — live-refresh source for the cockpit
+        // panel, previously only populated at initial page load. MUST be before
+        // /calendar/{calendarEvent} wildcard, same as deck/tile above.
+        Route::get('/calendar/agenda-panel', [CommandCenterCalendarController::class, 'agendaPanel'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.agenda-panel');
+
         // AT-164 Gate 6 — persist the user's active layer toggles
         Route::post('/calendar/layers', [CommandCenterCalendarController::class, 'saveLayers'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.layers.save');
 
