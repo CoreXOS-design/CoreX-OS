@@ -2966,6 +2966,7 @@ function calendarPage() {
         contextMode: 'create',
         // AT-164 cockpit v2 — panel resident agenda + per-user panel collapse.
         agenda: @json($agenda ?? []),
+        _agendaPollTimer: null,
         // AT-164 Gate 6 — the active layer set, mirrored here so the panel agenda
         // (a calendar surface) can hide/show its items reactively when the Layers
         // control toggles. Kept in sync via the calendar:layers-changed event.
@@ -3454,6 +3455,14 @@ function calendarPage() {
             if (this.colorBy !== 'rag') {
                 this.$nextTick(() => this.recolourChips());
             }
+
+            // Live-refresh the resident agenda list — mirrors calendarDeck()'s Gate 7
+            // live-RAG loop (focus/visibility refetch + a light poll). Previously
+            // this.agenda was set once at page load with no refresh path at all.
+            window.addEventListener('focus', () => this.refreshAgenda());
+            document.addEventListener('visibilitychange', () => { if (!document.hidden) this.refreshAgenda(); });
+            const agendaPollSecs = Math.max(15, {{ (int) ($pollSeconds ?? 60) }});
+            this._agendaPollTimer = setInterval(() => { if (!document.hidden) this.refreshAgenda(); }, agendaPollSecs * 1000);
         },
         togglePanel() {
             this.rightPanelOpen = !this.rightPanelOpen;
@@ -4294,12 +4303,32 @@ function calendarPage() {
                 if (r.ok || r.status === 302) {
                     // Refresh panel data
                     this.openEventPanel(this.panelData.id);
+                    // The resident agenda list (this.agenda) is a page-load snapshot with
+                    // no other live-update path — without this, an accepted invitation
+                    // never appears there until a full reload.
+                    this.refreshAgenda();
                     // If declined, close panel after brief delay
                     if (action === 'declined') {
                         setTimeout(() => { this.panelOpen = false; }, 800);
                     }
                 }
             } catch (e) { console.error('Invitation respond failed:', e); }
+        },
+
+        // Live-refresh the resident agenda list — mirrors calendarDeck()'s refresh()
+        // pattern (same fetch/credentials/silent-degrade shape). Called after a
+        // successful respondInvitation() and on the poll timer started in initPanel().
+        async refreshAgenda() {
+            try {
+                const r = await fetch('{{ route('command-center.calendar.agenda-panel') }}', {
+                    headers: { 'Accept': 'application/json' },
+                    credentials: 'same-origin',
+                });
+                if (r.ok) {
+                    const data = await r.json();
+                    if (Array.isArray(data.agenda)) this.agenda = data.agenda;
+                }
+            } catch (e) { /* silent — degrade, never break the page */ }
         },
 
         panelColourStyle(colour) {
