@@ -552,6 +552,20 @@ class CalendarController extends Controller
         ]);
     }
 
+    /**
+     * The right-panel resident Agenda list (JSON) — same builder as the initial page
+     * render (index()'s $shared['agenda']), so a client-side refresh always matches a
+     * fresh page load. Fired after an invitation response and on the existing poll
+     * timer, mirroring the Deck's refresh pattern above — the panel previously had no
+     * live-update path, so an accepted invitation only appeared after a full reload.
+     */
+    public function agendaPanel(Request $request)
+    {
+        return response()->json([
+            'agenda' => $this->tiles->panelAgenda($request->user()),
+        ]);
+    }
+
     /** AT-164 cockpit v2 — resolve the saved arrangement (code defaults, clamped). */
     private function resolveCockpit($pref): array
     {
@@ -982,7 +996,7 @@ class CalendarController extends Controller
         if (! $pack && $isViewing && $user->hasPermission('viewing_packs.create')) {
             return [
                 'linked'     => false,
-                'launch_url' => route('command-center.calendar.viewing-pack.launch', $calendarEvent),
+                'launch_url' => route('corex.viewing-packs.from-event', $calendarEvent),
             ];
         }
 
