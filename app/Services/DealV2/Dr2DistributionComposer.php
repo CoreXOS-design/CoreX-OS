@@ -124,14 +124,44 @@ class Dr2DistributionComposer
             $contacts = $property ? $property->contactsForRole($contactRole) : collect();
         }
 
-        return $contacts
-            ->map(fn ($c) => [
+        // (DR2 company party) the per-entity-party email-routing choice, keyed by contact id.
+        $modes = \Illuminate\Support\Facades\DB::table('deal_contacts')
+            ->where('deal_id', $deal->id)->where('role', $dealRole)
+            ->pluck('representative_email_mode', 'contact_id');
+
+        $recipients = [];
+        foreach ($contacts as $c) {
+            // A COMPANY (entity) party has no email of its own — route to its natural-person
+            // representative(s) via cc1's proxy-aware foundation (single canonical resolver; do NOT
+            // re-implement). Mode 'all' = every rep; 'inherit'/'proxy' (or unset) = honour the
+            // entity's proxy config (proxy signs/e-mails for all, else all reps). Recipients are
+            // re-resolved LIVE here at send — the stored mode is only the agent's choice.
+            if ($c->isEntity()) {
+                $mode = $modes[$c->id] ?? 'inherit';
+                $reps = $mode === 'all' ? $c->representatives()->get() : $c->emailRepresentatives();
+                foreach ($reps as $rep) {
+                    $recipients[] = [
+                        'type'         => 'contact',
+                        'id'           => $rep->id,
+                        'name'         => trim((string) ($rep->full_name ?? ($rep->first_name . ' ' . $rep->last_name))) ?: 'Contact',
+                        'email'        => $this->cleanEmail($rep->primaryEmail?->email ?? $rep->email),
+                        'phone'        => $rep->primaryPhone?->phone ?? $rep->phone,
+                        'on_behalf_of' => $c->entity_name ?: $c->full_name,   // the company they represent
+                    ];
+                }
+                continue;
+            }
+
+            $recipients[] = [
                 'type'  => 'contact',
                 'id'    => $c->id,
                 'name'  => trim((string) ($c->full_name ?? ($c->first_name . ' ' . $c->last_name))) ?: 'Contact',
                 'email' => $this->cleanEmail($c->primaryEmail?->email ?? $c->email),
                 'phone' => $c->primaryPhone?->phone ?? $c->phone,
-            ])
+            ];
+        }
+
+        return collect($recipients)
             ->filter(fn ($r) => $r['email'] || $r['phone'])   // a recipient with neither is unaddressable
             ->values()->all();
     }

@@ -975,11 +975,11 @@ class DealRegisterController extends Controller
      * seller/buyer picker's inline sub-row. Read-only, agency-scoped. Returns each rep's id / name /
      * email so the agent sees who the deal emails would reach.
      *
-     * SCAFFOLD (pre-cc1): lists the entity's linked representatives via the existing
-     * Contact::representatives() relation for DISPLAY only. The proxy-aware selection (who actually
-     * receives — proxy signs for all, else all reps) + the capacity/proxy tags come from cc1's
-     * Contact::emailRepresentatives() foundation and are WIRED IN once that API is published — this
-     * endpoint does NOT implement any capacity/proxy resolution of its own. Spec: dr2-company-selection.
+     * Lists the entity's linked representatives via cc1's Contact::representatives() (capacity +
+     * signs_as_proxy on the pivot) so the agent sees every rep, its capacity, and which one holds
+     * proxy. The actual send-time recipient set (proxy signs/e-mails for all, else all reps) is the
+     * canonical Contact::emailRepresentatives(); DR2 does NOT re-implement that resolution — it only
+     * displays here and stores the agent's all-vs-proxy choice. Spec: dr2-company-selection.
      */
     public function companyRepresentatives(Contact $contact): JsonResponse
     {
@@ -992,13 +992,13 @@ class DealRegisterController extends Controller
                 'name'      => $r->full_name,
                 'email'     => $r->primaryEmail?->email ?? $r->email,
                 'has_email' => (bool) ($r->primaryEmail?->email ?? $r->email),
-                // capacity + is_proxy are supplied by cc1's foundation; surfaced here once wired.
-                'capacity'  => null,
-                'is_proxy'  => false,
+                'capacity'  => $r->pivot->capacity ?? null,
+                'is_proxy'  => (bool) ($r->pivot->signs_as_proxy ?? false),
             ])->values();
 
         return response()->json([
             'entity_name' => $contact->entity_name ?: $contact->full_name,
+            'has_proxy'   => $contact->hasProxyRepresentative(),
             'reps'        => $reps,
         ]);
     }
