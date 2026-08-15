@@ -77,24 +77,40 @@ class ViewingPackController extends Controller
     public function show(ViewingPack $viewingPack, ViewingPackSelectionService $selection, ViewingPackDocumentService $docs)
     {
         $this->guardVisible($viewingPack);
-        $viewingPack->load([
-            'contact',
-            'agent',
-            'viewingPackProperties' => fn ($q) => $q->ordered()->with(['property', 'viewingPackDocuments']),
-        ]);
 
-        $buyer = $viewingPack->contact;
-        // Canonical engine only — Core Matches via MatchingService/ClientMatchResolver.
-        $coreMatches = $buyer ? $selection->coreMatchesFor($buyer) : collect();
-        $selectedIds = $viewingPack->viewingPackProperties->pluck('property_id')->all();
+        // AT-10 — same defensive logging as store() above: this is the
+        // redirect target store() lands on, so a failure here (e.g. inside
+        // coreMatchesFor's matching engine) is exactly as invisible today.
+        try {
+            $viewingPack->load([
+                'contact',
+                'agent',
+                'viewingPackProperties' => fn ($q) => $q->ordered()->with(['property', 'viewingPackDocuments']),
+            ]);
 
-        // Step 5a — per selected property: buyer-pack-ELIGIBLE attached documents
-        // (resolver-filtered) + the ids currently ticked into the pack.
-        $docPanel = $viewingPack->viewingPackProperties->map(fn (ViewingPackProperty $vpp) => [
-            'vpp'         => $vpp,
-            'eligible'    => $docs->eligibleDocumentsFor($vpp),
-            'selectedIds' => $docs->selectedDocumentIds($vpp),
-        ]);
+            $buyer = $viewingPack->contact;
+            // Canonical engine only — Core Matches via MatchingService/ClientMatchResolver.
+            $coreMatches = $buyer ? $selection->coreMatchesFor($buyer) : collect();
+            $selectedIds = $viewingPack->viewingPackProperties->pluck('property_id')->all();
+
+            // Step 5a — per selected property: buyer-pack-ELIGIBLE attached documents
+            // (resolver-filtered) + the ids currently ticked into the pack.
+            $docPanel = $viewingPack->viewingPackProperties->map(fn (ViewingPackProperty $vpp) => [
+                'vpp'         => $vpp,
+                'eligible'    => $docs->eligibleDocumentsFor($vpp),
+                'selectedIds' => $docs->selectedDocumentIds($vpp),
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Viewing Pack show failed', [
+                'user_id'         => auth()->id(),
+                'viewing_pack_id' => $viewingPack->id,
+                'contact_id'      => $viewingPack->contact_id,
+                'exception'       => get_class($e),
+                'message'         => $e->getMessage(),
+                'file'            => $e->getFile() . ':' . $e->getLine(),
+            ]);
+            throw $e;
+        }
 
         return view('command-center.viewing-packs.show', [
             'pack'        => $viewingPack,
@@ -346,35 +362,51 @@ class ViewingPackController extends Controller
             'contact_id' => ['required', 'integer', Rule::exists('contacts', 'id')],
         ]);
 
-        // Scoped resolve — cross-agency contact_id 404s here, never creates.
-        $buyer = Contact::findOrFail($data['contact_id']);
+        // AT-10 — the buyers-pipeline "Build Viewing Pack" action has been
+        // reported failing (503) with no trace anywhere: not laravel.log, not
+        // nginx, not php-fpm. Wrapping create + the redirect-target load below
+        // means a repeat leaves a clear, contextualised entry here instead of
+        // being invisible again. Behaviour is unchanged — always rethrown.
+        try {
+            // Scoped resolve — cross-agency contact_id 404s here, never creates.
+            $buyer = Contact::findOrFail($data['contact_id']);
 
-        $pack = ViewingPack::create([
-            // agency_id is force-stamped by BelongsToAgency::creating from the
-            // authenticated agent; we still pass the buyer's for non-auth paths.
-            'agency_id'  => $buyer->agency_id,
-            'contact_id' => $buyer->id,
-            // AT-267 / AUDIT 2026-07-26 (F3) — an assistant's work is ALWAYS the agent's
-            // (assistant-control-page.md §Decisions 2). agent_id is both the owner AND the
-            // buyer-facing contact on the pack, so filing it under the assistant hid the pack
-            // from the agent it was built for AND put the assistant's name in front of the buyer.
-            // multi-agent addendum §6.1 — honours an explicit "Acting for" choice.
-            'agent_id'   => $request->user()->ownershipUserId($request->integer('acting_for_user_id') ?: null),
-            'status'     => ViewingPack::STATUS_DRAFT,
-            'title'      => $this->defaultTitle($buyer),
-        ]);
+            $pack = ViewingPack::create([
+                // agency_id is force-stamped by BelongsToAgency::creating from the
+                // authenticated agent; we still pass the buyer's for non-auth paths.
+                'agency_id'  => $buyer->agency_id,
+                'contact_id' => $buyer->id,
+                // AT-267 / AUDIT 2026-07-26 (F3) — an assistant's work is ALWAYS the agent's
+                // (assistant-control-page.md §Decisions 2). agent_id is both the owner AND the
+                // buyer-facing contact on the pack, so filing it under the assistant hid the pack
+                // from the agent it was built for AND put the assistant's name in front of the buyer.
+                // multi-agent addendum §6.1 — honours an explicit "Acting for" choice.
+                'agent_id'   => $request->user()->ownershipUserId($request->integer('acting_for_user_id') ?: null),
+                'status'     => ViewingPack::STATUS_DRAFT,
+                'title'      => $this->defaultTitle($buyer),
+            ]);
 
-        // AT-111 R2 — if the agent arrived from a buyer-less appointment ("Prepare
-        // viewing pack" -> pick a buyer), link this new pack back to that event and
-        // carry its viewing date. Consumed once, agency-checked.
-        if ($eventId = session()->pull('viewing_pack_link_event')) {
-            $event = CalendarEvent::find($eventId);
-            if ($event && (int) $event->agency_id === (int) $pack->agency_id) {
-                $pack->forceFill([
-                    'calendar_event_id' => $event->id,
-                    'tour_at'           => $event->event_date,
-                ])->save();
+            // AT-111 R2 — if the agent arrived from a buyer-less appointment ("Prepare
+            // viewing pack" -> pick a buyer), link this new pack back to that event and
+            // carry its viewing date. Consumed once, agency-checked.
+            if ($eventId = session()->pull('viewing_pack_link_event')) {
+                $event = CalendarEvent::find($eventId);
+                if ($event && (int) $event->agency_id === (int) $pack->agency_id) {
+                    $pack->forceFill([
+                        'calendar_event_id' => $event->id,
+                        'tour_at'           => $event->event_date,
+                    ])->save();
+                }
             }
+        } catch (\Throwable $e) {
+            Log::error('Viewing Pack create failed', [
+                'user_id'    => $request->user()?->id,
+                'contact_id' => $data['contact_id'] ?? null,
+                'exception'  => get_class($e),
+                'message'    => $e->getMessage(),
+                'file'       => $e->getFile() . ':' . $e->getLine(),
+            ]);
+            throw $e;
         }
 
         return redirect()
