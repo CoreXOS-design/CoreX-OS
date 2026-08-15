@@ -859,6 +859,7 @@ class SignatureService
         ?int $contactId = null,
         ?int $ficaSubmissionId = null,
         ?int $roleIndex = null,
+        ?string $signerCaption = null,
     ): SignatureRequest {
         $token = $this->generateToken();
 
@@ -892,6 +893,7 @@ class SignatureService
             // a group of one and checkpoints alone, exactly as it always has.
             'signing_group' => $template->groupFor($partyRole),
             'signer_name' => $signerName,
+            'signer_caption' => $signerCaption,
             'signer_email' => $signerEmail,
             'signer_id_number' => $signerIdNumber,
             'token' => $token,

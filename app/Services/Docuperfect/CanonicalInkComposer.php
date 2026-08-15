@@ -87,6 +87,7 @@ class CanonicalInkComposer
             $signerRole     = strtolower((string) ($signer->party_role ?? ''));
             $signerAliases  = $this->aliasesFor($signerRole);
             $signerName     = (string) ($signer->signer_name ?? '');
+            $signerCaption  = (string) ($signer->signer_caption ?? '');
             $signerNameKey  = $this->normalizeName($signerName);
 
             $ownsMarker = fn (\DOMElement $el): bool => $this->markerBelongsToSigner(
@@ -101,7 +102,7 @@ class CanonicalInkComposer
             // Mirrors embedSignaturesIntoHtml's per-anchor keying (the agent path).
             // Adopt-once/apply-to-all stays correct: one capture (or N identical) →
             // every owned marker falls back to the representative → same mark везде.
-            $this->paintOwnedMarkersByIndex($xpath, $dom, 'signature', $signatures, $ownsMarker, $signerName);
+            $this->paintOwnedMarkersByIndex($xpath, $dom, 'signature', $signatures, $ownsMarker, $signerName, $signerCaption);
 
             // ── Initials ── same per-anchor binding (k-th owned initial marker ←
             // "{party}-init-{k}"). Inert for docs whose page-break initials are
@@ -476,7 +477,7 @@ class CanonicalInkComposer
     private const INK_INITIAL_STYLE   = 'display:block;height:38px;min-height:38px;max-height:38px;width:auto;max-width:100%;margin:1px auto;object-fit:contain;';
 
     /** Paint an ink image into a marker element with the uniform render box. */
-    private function paintImage(\DOMDocument $dom, \DOMElement $el, string $data, string $kind, string $signerName): void
+    private function paintImage(\DOMDocument $dom, \DOMElement $el, string $data, string $kind, string $signerName, string $signerCaption = ''): void
     {
         while ($el->firstChild) {
             $el->removeChild($el->firstChild);
@@ -500,6 +501,18 @@ class CanonicalInkComposer
             $label->setAttribute('style', 'font-size:8px;color:#059669;text-align:center;font-weight:600;');
             $label->textContent = 'Signed by ' . ($signerName !== '' ? $signerName : 'party');
             $el->appendChild($label);
+
+            // Entity-representative attribution (esign recipient builder, Johan 2026-08-15):
+            // a second caption line UNDER the signature marks the rep signed on behalf of the
+            // entity, e.g. "on behalf of Estate Late John Smith (Executor)". Only present for
+            // entity-rep signers (signer_caption); ordinary signers render exactly as before.
+            if (trim($signerCaption) !== '') {
+                $behalf = $dom->createElement('div');
+                $behalf->setAttribute('class', 'corex-sig-caption corex-sig-onbehalf');
+                $behalf->setAttribute('style', 'font-size:7px;color:#059669;text-align:center;font-style:italic;');
+                $behalf->textContent = $signerCaption;
+                $el->appendChild($behalf);
+            }
         } else {
             $existing = $el->getAttribute('class');
             $el->setAttribute('class', trim($existing . ' initial-signed'));
@@ -538,6 +551,7 @@ class CanonicalInkComposer
         array $captures,
         callable $ownsMarker,
         string $signerName,
+        string $signerCaption = '',
     ): void {
         // index (trailing -N) → image, for this signer's captures of this type.
         $byIndex = [];
@@ -558,7 +572,7 @@ class CanonicalInkComposer
             }
             $img = $byIndex[$k] ?? $fallback;   // this anchor's own capture, else representative
             if ($img !== null && trim($img) !== '') {
-                $this->paintImage($dom, $el, $img, $type, $signerName);
+                $this->paintImage($dom, $el, $img, $type, $signerName, $signerCaption);
             }
             $k++;
         }

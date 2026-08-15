@@ -2769,7 +2769,8 @@ class ESignWizardController extends Controller
                     $user,
                     $ficaRequired,
                     $contactId,
-                    $ficaSubId
+                    $ficaSubId,
+                    signerCaption: $r['_signature_caption'] ?? null,
                 );
 
                 // Mark as deferred if "sign_later" was selected and party has no details
@@ -5314,7 +5315,8 @@ class ESignWizardController extends Controller
 
                 $sigReq = $signatureService->createSigningRequest(
                     $sigTemplate, $partyKey, $r['name'] ?? '', $skipEmail ? '' : $email,
-                    $r['id_number'] ?? null, null, $user
+                    $r['id_number'] ?? null, null, $user,
+                    signerCaption: $r['_signature_caption'] ?? null,
                 );
                 $sigReq->update(['signing_method' => 'wet_ink']);
             }

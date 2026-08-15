@@ -70,6 +70,9 @@ class EsignEntityRecipientTest extends TestCase
             $this->assertSame($entity->id, $r['_entity_contact_id']);
             $this->assertStringContainsString('herein represented by', $r['name']);
             $this->assertNotSame('', $r['email']);        // rep email, not the entity's
+            // caption for the signature-block "on behalf of" attribution
+            $this->assertStringContainsString('on behalf of', $r['_signature_caption']);
+            $this->assertStringContainsString('Executor', $r['_signature_caption']);
         }
     }
 
