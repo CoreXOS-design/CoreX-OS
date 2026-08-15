@@ -34,7 +34,7 @@ class EsignRecipientPreset extends Model
     ];
 
     public const DEFAULT_PHRASING = '{entity_name}, herein represented by {rep_name} ({capacity})';
-    public const DEFAULT_CAPTION  = 'on behalf of {entity_name}';
+    public const DEFAULT_CAPTION  = 'on behalf of {entity_name} ({capacity})';
 
     /**
      * The default preset for an agency, created on first use (idempotent). The

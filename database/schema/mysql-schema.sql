@@ -6328,10 +6328,10 @@ DROP TABLE IF EXISTS `esign_recipient_presets`;
 CREATE TABLE `esign_recipient_presets` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
-  `name` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `applies_to` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'entity',
-  `phrasing_template` text COLLATE utf8mb4_unicode_ci NOT NULL,
-  `signature_caption` text COLLATE utf8mb4_unicode_ci,
+  `name` varchar(120) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `applies_to` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'entity',
+  `phrasing_template` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `signature_caption` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `is_default` tinyint(1) NOT NULL DEFAULT '0',
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -12390,6 +12390,7 @@ CREATE TABLE `signature_requests` (
   `signing_order` int NOT NULL DEFAULT '1',
   `signing_group` tinyint unsigned DEFAULT NULL COMMENT 'HD-5: parties sharing a group sign with no agent checkpoint between them. NULL = a group of one (today behaviour).',
   `signer_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `signer_caption` text COLLATE utf8mb4_unicode_ci,
   `signer_email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `signer_id_number` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `token` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -15116,3 +15117,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1134,'2026_08_22_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1135,'2026_08_25_000000_add_role_to_tracked_property_owners',1);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1136,'2026_08_26_000001_add_capacity_and_proxy_to_contact_representatives',2);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1137,'2026_08_26_000002_create_esign_recipient_presets_table',3);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1138,'2026_08_26_000003_add_signer_caption_to_signature_requests',4);
