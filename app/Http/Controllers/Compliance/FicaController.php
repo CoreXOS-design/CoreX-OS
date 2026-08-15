@@ -164,12 +164,25 @@ class FicaController extends Controller
     {
         $validated = $request->validate([
             'contact_id' => 'required|exists:contacts,id',
+            // #11 — inline add-email: a contact with no email on file can be given one on the spot.
+            'email'      => 'nullable|email',
         ]);
 
         $contact = Contact::findOrFail($validated['contact_id']);
 
+        // #11 (compliance) — the contact must have an email to receive the secure verification link.
+        // If the selected contact has none, accept one supplied inline, PERSIST it to the contact
+        // (the ContactObserver mirror-syncs it into contact_emails as the primary identifier), then
+        // continue the send. No parallel record, no separate flow — the contact is simply enriched.
+        $inlineEmail = strtolower(trim((string) $request->input('email')));
+        if (! $contact->email && $inlineEmail !== '') {
+            $contact->email = $inlineEmail;
+            $contact->save();
+            $contact->refresh();
+        }
+
         if (! $contact->email) {
-            return back()->withErrors(['contact_id' => 'This contact does not have an email address.'])->withInput();
+            return back()->withErrors(['contact_id' => 'This contact has no email address. Add one below to send the FICA request.'])->withInput();
         }
 
         $agencyId = Auth::user()->effectiveAgencyId() ?? $contact->agency_id;
