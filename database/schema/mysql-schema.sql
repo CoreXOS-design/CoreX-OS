@@ -3838,7 +3838,7 @@ CREATE TABLE `contact_representatives` (
   `entity_contact_id` bigint unsigned NOT NULL,
   `representative_contact_id` bigint unsigned NOT NULL,
   `is_primary` tinyint(1) NOT NULL DEFAULT '0',
-  `capacity` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `capacity` varchar(40) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `signs_as_proxy` tinyint(1) NOT NULL DEFAULT '0',
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -6320,6 +6320,25 @@ CREATE TABLE `esign_consent_log` (
   CONSTRAINT `esign_consent_log_flow_id_foreign` FOREIGN KEY (`flow_id`) REFERENCES `flows` (`id`),
   CONSTRAINT `esign_consent_log_signature_request_id_foreign` FOREIGN KEY (`signature_request_id`) REFERENCES `signature_requests` (`id`) ON DELETE SET NULL,
   CONSTRAINT `esign_consent_log_signing_party_id_foreign` FOREIGN KEY (`signing_party_id`) REFERENCES `esign_signing_parties` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `esign_recipient_presets`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `esign_recipient_presets` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `name` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `applies_to` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'entity',
+  `phrasing_template` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `signature_caption` text COLLATE utf8mb4_unicode_ci,
+  `is_default` tinyint(1) NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `esign_recipient_presets_agency_id_is_default_index` (`agency_id`,`is_default`),
+  CONSTRAINT `esign_recipient_presets_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `esign_signing_parties`;
@@ -15096,3 +15115,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1133,'2026_08_22_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1134,'2026_08_22_000004_scope_client_users_email_unique_to_active_rows',1);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1135,'2026_08_25_000000_add_role_to_tracked_property_owners',1);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1136,'2026_08_26_000001_add_capacity_and_proxy_to_contact_representatives',2);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1137,'2026_08_26_000002_create_esign_recipient_presets_table',3);

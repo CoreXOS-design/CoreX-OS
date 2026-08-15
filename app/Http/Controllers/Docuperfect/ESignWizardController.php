@@ -570,7 +570,13 @@ class ESignWizardController extends Controller
             }
         }
 
-        // Update stepData recipients so autoFillFields can see auto-populated contacts
+        // ENTITY RECIPIENT EXPANSION (Johan 2026-08-15) — replace any entity/company
+        // recipient with its proxy-aware signing representative(s), each rendered
+        // "{entity}, herein represented by {rep} ({capacity})". Runs for BOTH
+        // auto-populated and manually-picked recipients; no-op when none are entities.
+        $recipients = $this->expandEntityRecipients($recipients, $request->user());
+
+        // Update stepData recipients so autoFillFields can see auto-populated/expanded contacts
         if (!empty($recipients)) {
             $stepData['recipients'] = ['recipients' => $recipients];
         }
@@ -1291,7 +1297,14 @@ class ESignWizardController extends Controller
                 'id'                  => $c->id,
                 'first_name'          => $c->first_name,
                 'last_name'           => $c->last_name,
-                'full_name'           => $c->first_name . ' ' . $c->last_name,
+                // full_name via the accessor so ENTITY/company contacts show their
+                // entity_name (first/last are blank for entities). Entity flags let
+                // the picker badge a company — on select it expands server-side into
+                // its proxy-aware signing representatives (entity recipient builder).
+                'full_name'           => $c->full_name,
+                'is_entity'           => $c->isEntity(),
+                'entity_name'         => $c->entity_name,
+                'entity_reg_no'       => $c->entity_reg_no,
                 'identifier'          => $c->matchedIdentifier($q),
                 'agent'               => $c->agent?->name,
                 'email'               => $c->email ?? '',
@@ -3060,6 +3073,96 @@ class ESignWizardController extends Controller
      * canon the rest of the wizard speaks), or NULL to skip the contact entirely — they are a
      * lead, or they hold no role this template signs.
      */
+    /**
+     * ESIGN RECIPIENT BUILDER (Johan 2026-08-15) — expand any ENTITY/company
+     * recipient into its proxy-aware signing representative(s). Consumes the
+     * shared foundation Contact::signingRepresentatives() (proxy → 1 signer;
+     * else all reps) and the agency phrasing template (EsignRecipientPreset).
+     *
+     * Each produced signer:
+     *  - name  = "{entity}, herein represented by {rep} ({capacity})" (party-name
+     *    field + signature attribution render the representation directly);
+     *  - first/last/id_number/email/cell/bank = the REP (natural person signs and
+     *    is emailed the signing link);
+     *  - _entity_contact_id / _entity_name / _capacity / _signature_caption carried
+     *    for downstream render.
+     * A rep-less entity is kept as-is with _entity_needs_representative=true so the
+     * recipient screen can prompt "link a representative first" — it cannot sign.
+     * Non-entity recipients pass through unchanged (order renumbered).
+     */
+    private function expandEntityRecipients(array $recipients, $user): array
+    {
+        $contactIds = collect($recipients)->pluck('_contact_id')->filter()->unique()->values();
+        if ($contactIds->isEmpty()) {
+            return $recipients;
+        }
+
+        $contacts = Contact::withoutGlobalScopes()->whereIn('id', $contactIds)->get()->keyBy('id');
+        if (! $contacts->contains(fn (Contact $c) => $c->isEntity())) {
+            return $recipients; // no entities → nothing to expand
+        }
+
+        $agencyId = $user->agency_id ?? optional($contacts->first())->agency_id;
+        $preset   = $agencyId ? \App\Models\Docuperfect\EsignRecipientPreset::defaultFor((int) $agencyId) : null;
+
+        $out = [];
+        $order = 0;
+        foreach ($recipients as $r) {
+            $cid     = $r['_contact_id'] ?? null;
+            $contact = $cid ? ($contacts[$cid] ?? null) : null;
+
+            if (! $contact || ! $contact->isEntity()) {
+                $r['order'] = ++$order;
+                $out[] = $r;
+                continue;
+            }
+
+            $signers = $contact->signingRepresentatives();
+            if ($signers->isEmpty()) {
+                $r['order']                        = ++$order;
+                $r['_entity_contact_id']           = (int) $contact->id;
+                $r['_entity_name']                 = (string) $contact->entity_name;
+                $r['_entity_needs_representative']  = true;
+                $out[] = $r;
+                continue;
+            }
+
+            foreach ($signers as $rep) {
+                $capacity = $rep->pivot->capacity ?? null;
+                $label    = $preset
+                    ? $preset->renderPhrase($contact, $rep, $capacity)
+                    : \App\Models\Docuperfect\EsignRecipientPreset::substitute(\App\Models\Docuperfect\EsignRecipientPreset::DEFAULT_PHRASING, $contact, $rep, $capacity);
+                $caption  = $preset ? $preset->renderCaption($contact, $rep, $capacity) : '';
+
+                $out[] = [
+                    'order'                 => ++$order,
+                    'role'                  => $r['role'] ?? '',
+                    'name'                  => $label,
+                    'first_name'            => $rep->first_name ?? '',
+                    'last_name'             => $rep->last_name ?? '',
+                    'id_number'             => $rep->id_number ?? '',
+                    'email'                 => $rep->email ?? '',
+                    'cell'                  => $rep->phone ?? '',
+                    'address'               => $rep->address ?? '',
+                    '_contact_id'           => (int) $rep->id,
+                    '_entity_contact_id'    => (int) $contact->id,
+                    '_entity_name'          => (string) $contact->entity_name,
+                    '_capacity'             => $capacity,
+                    '_representation_label' => $label,
+                    '_signature_caption'    => $caption,
+                    'bank_name'             => $rep->bank_name ?? '',
+                    'bank_account_name'     => $rep->bank_account_name ?? '',
+                    'bank_account_number'   => $rep->bank_account_number ?? '',
+                    'bank_branch_name'      => $rep->bank_branch_name ?? '',
+                    'bank_branch_code'      => $rep->bank_branch_code ?? '',
+                    'bank_account_type'     => $rep->bank_account_type ?? '',
+                ];
+            }
+        }
+
+        return $out;
+    }
+
     private function resolveLinkedContactRole(Contact $contact, array $allowedEsignRoles, string $defaultOwnerRole): ?string
     {
         $pivotRole = strtolower(trim((string) ($contact->pivot->role ?? '')));
