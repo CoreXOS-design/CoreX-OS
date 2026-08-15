@@ -3,7 +3,7 @@
 
 @section('corex-content')
 <div class="w-full space-y-5" data-tour-root="contacts"
-     x-data="{ showAdd: {{ (session('duplicate_detected') || old('first_name')) ? 'true' : 'false' }}, showImport: false, editId: null, importLoading: false, contactKind: '{{ old('contact_kind', 'natural_person') }}' }">
+     x-data="{ showAdd: {{ (session('duplicate_detected') || old('first_name')) ? 'true' : 'false' }}, showImport: false, editId: null, importLoading: false, contactKind: '{{ old('contact_kind', 'natural_person') }}', idKind: '{{ old('id_type', 'sa_id') }}' }">
 
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
@@ -259,13 +259,38 @@
                 </div>
                 <template x-if="contactKind === 'natural_person'">
                 <div>
-                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID Number <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
-                    <input type="text" name="id_number" value="{{ old('id_number') }}"
-                           inputmode="numeric" maxlength="13" pattern="\d{13}"
-                           placeholder="e.g. 7610025020081" title="13 digits — empty is fine"
-                           class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300"
-                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); outline:none;">
-                    <p class="mt-1 text-[11px]" style="color:var(--text-muted);">SA ID — 13 digits. Leave blank if not known.</p>
+                    {{-- #17 — SA ID vs foreign passport. SA path validates the 13-digit ID (DOB derives
+                         from it); foreign path captures a passport number + a directly-entered DOB. --}}
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Identity <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
+                    <div class="flex items-center gap-4 mb-1.5 text-xs" style="color:var(--text-secondary);">
+                        <label class="inline-flex items-center gap-1 cursor-pointer"><input type="radio" name="id_type" value="sa_id" x-model="idKind"> South African ID</label>
+                        <label class="inline-flex items-center gap-1 cursor-pointer"><input type="radio" name="id_type" value="passport" x-model="idKind"> Foreign / Passport</label>
+                    </div>
+                    <template x-if="idKind === 'sa_id'">
+                        <div>
+                            <input type="text" name="id_number" value="{{ old('id_type', 'sa_id') === 'sa_id' ? old('id_number') : '' }}"
+                                   inputmode="numeric" maxlength="13" pattern="\d{13}"
+                                   placeholder="e.g. 7610025020081" title="13 digits — empty is fine"
+                                   class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300"
+                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); outline:none;">
+                            <p class="mt-1 text-[11px]" style="color:var(--text-muted);">SA ID — 13 digits. Leave blank if not known.</p>
+                        </div>
+                    </template>
+                    <template x-if="idKind === 'passport'">
+                        <div class="space-y-2">
+                            <input type="text" name="id_number" value="{{ old('id_type') === 'passport' ? old('id_number') : '' }}"
+                                   maxlength="50" placeholder="Passport number"
+                                   class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300"
+                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); outline:none;">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Date of Birth <span class="text-red-500">*</span></label>
+                                <input type="date" name="birthday" value="{{ old('birthday') }}" :required="idKind === 'passport'"
+                                       class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); outline:none;">
+                                <p class="mt-1 text-[11px]" style="color:var(--text-muted);">Required for a foreign national — the passport doesn't encode it.</p>
+                            </div>
+                        </div>
+                    </template>
                 </div>
                 </template>
                 <div class="sm:col-span-2 lg:col-span-3" data-tour="contact-type">
