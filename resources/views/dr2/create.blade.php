@@ -714,6 +714,7 @@
         propertyContacts: @json(route('deals-dr2.search.property-contacts', ['property' => '__ID__'])),
         contacts: @json(route('deals-dr2.search.contacts')),
         companyReps: @json(route('deals-dr2.search.company-representatives', ['contact' => '__ID__'])),
+        companyAddRep: @json(route('deals-dr2.company.add-representative', ['contact' => '__ID__'])),
         contactInline: @json(route('deals-dr2.contact.inline')),
         attorneySearch: @json(route('deals-dr2.attorney.search')),
         attorneyInline: @json(route('deals-dr2.attorney.inline')),
@@ -951,8 +952,13 @@
                 list.style.cssText = 'margin-top:.35rem;font-size:.72rem;color:var(--text-muted,#6b7280);';
                 list.textContent = 'Loading representatives…';
                 card.appendChild(list);
+                // "Company has no reps yet" → add one on the fly (delegates to cc1's create-and-link).
+                const addWrap = document.createElement('div');
+                addWrap.style.cssText = 'margin-top:.35rem;';
+                card.appendChild(addWrap);
                 repboxEl.appendChild(card);
                 loadReps(t.id, list);
+                buildAddRep(t.id, addWrap, list);
             });
         }
         function loadReps(companyId, listEl) {
@@ -971,6 +977,68 @@
                 .then(r => r.ok ? r.json() : { reps: [] })
                 .then(data => { repCache[companyId] = data; paint(data); })
                 .catch(() => { listEl.textContent = 'Could not load representatives.'; });
+        }
+        // (DR2 company party) inline "add a representative" — POSTs to DR2's endpoint which DELEGATES
+        // to cc1's create-and-link (match-or-create + capacity + single-proxy). Re-loads the rep list.
+        function buildAddRep(companyId, wrapEl, listEl) {
+            const caps = ['Director','Executor','Trustee','Member','Other'];
+            const toggle = document.createElement('button');
+            toggle.type = 'button'; toggle.className = 'text-xs underline'; toggle.style.cssText = 'color:var(--brand-icon,#0ea5e9);background:none;border:0;cursor:pointer;';
+            toggle.textContent = '＋ Add a representative';
+            const form = document.createElement('div');
+            form.style.cssText = 'display:none;margin-top:.35rem;border:1px solid var(--border,#e5e7eb);border-radius:.4rem;padding:.5rem;background:var(--surface,#fff);';
+            form.innerHTML = ''
+                + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:.35rem;">'
+                + '<input type="text" class="ar-first" placeholder="First name*">'
+                + '<input type="text" class="ar-last" placeholder="Last name">'
+                + '<input type="text" class="ar-phone" placeholder="Phone">'
+                + '<input type="email" class="ar-email" placeholder="Email (deal emails go here)">'
+                + '</div>'
+                + '<div style="display:flex;align-items:center;gap:.6rem;margin-top:.35rem;flex-wrap:wrap;">'
+                + '<label style="font-size:.72rem;color:var(--text-secondary,#475569);">Capacity <select class="ar-cap" style="font-size:.72rem;border:1px solid var(--border,#cbd5e1);border-radius:.3rem;padding:.05rem .3rem;">' + caps.map(c=>'<option value="'+c+'">'+c+'</option>').join('') + '</select></label>'
+                + '<label style="font-size:.72rem;color:var(--text-secondary,#475569);display:inline-flex;align-items:center;gap:.25rem;"><input type="checkbox" class="ar-proxy"> Signs as proxy (for all)</label>'
+                + '</div>'
+                + '<div class="ar-msg" style="font-size:.72rem;color:#b91c1c;margin-top:.3rem;display:none;"></div>'
+                + '<div style="margin-top:.4rem;display:flex;gap:.4rem;">'
+                + '<button type="button" class="ar-save text-xs px-3 py-1 rounded" style="background:#0b2a4a;color:#fff;">Add &amp; link</button>'
+                + '<button type="button" class="ar-cancel text-xs px-3 py-1 rounded" style="border:1px solid var(--border,#cbd5e1);">Cancel</button>'
+                + '</div>';
+            wrapEl.appendChild(toggle); wrapEl.appendChild(form);
+            const q = s => form.querySelector(s);
+            const msg = q('.ar-msg'); const showMsg = m => { msg.textContent = m; msg.style.display = ''; };
+            toggle.addEventListener('click', () => { form.style.display = form.style.display === 'none' ? '' : 'none'; });
+            q('.ar-cancel').addEventListener('click', () => { form.style.display = 'none'; });
+            q('.ar-save').addEventListener('click', () => {
+                msg.style.display = 'none';
+                const first = q('.ar-first').value.trim();
+                if (!first) { showMsg('First name is required.'); return; }
+                const body = new URLSearchParams();
+                body.set('first_name', first);
+                body.set('last_name', q('.ar-last').value.trim());
+                body.set('phone', q('.ar-phone').value.trim());
+                body.set('email', q('.ar-email').value.trim());
+                body.set('capacity', q('.ar-cap').value);
+                if (q('.ar-proxy').checked) body.set('signs_as_proxy', '1');
+                fetch(R.companyAddRep.replace('__ID__', companyId), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-TOKEN': csrf, Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    body: body.toString(),
+                }).then(async r => {
+                    if (r.ok) {
+                        const data = await r.json().catch(() => null);
+                        if (data) repCache[companyId] = data;
+                        delete repCache[companyId];
+                        form.style.display = 'none';
+                        q('.ar-first').value = q('.ar-last').value = q('.ar-phone').value = q('.ar-email').value = '';
+                        q('.ar-proxy').checked = false;
+                        listEl.textContent = 'Loading representatives…';
+                        loadReps(companyId, listEl);
+                        return;
+                    }
+                    const e = await r.json().catch(() => ({}));
+                    showMsg((e.errors && Object.values(e.errors).flat()[0]) || e.message || 'Could not add the representative.');
+                }).catch(() => showMsg('Network error — please retry.'));
+            });
         }
         function renderOffer() {
             offerEl.innerHTML = '';

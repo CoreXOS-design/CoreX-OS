@@ -134,4 +134,60 @@ class Dr2CompanyPartyRecipientsTest extends TestCase
         $ids = collect($recipients)->pluck('id')->all();
         $this->assertNotContains($ctx['company']->id, $ids, 'the entity is replaced by its reps, never emailed directly');
     }
+
+    /** @return array{user:User, company:Contact} a company with NO reps + an authorised user. */
+    private function makeCompanyNoReps(): array
+    {
+        $agency = Agency::create(['name' => 'HFC', 'slug' => 'hfc-' . uniqid()]);
+        $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'B']);
+        $user   = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'super_admin']);
+        $company = Contact::withoutEvents(fn () => Contact::create([
+            'agency_id' => $agency->id, 'branch_id' => $branch->id, 'contact_kind' => Contact::TYPE_ENTITY,
+            'entity_name' => 'NoReps CC', 'first_name' => 'NoReps CC', 'last_name' => '', 'phone' => '',
+        ]));
+        return ['user' => $user, 'company' => $company];
+    }
+
+    /** "No reps yet" inline-add: DR2 delegates to cc1's create-and-link — creates + links with capacity. */
+    public function test_inline_add_representative_creates_and_links_with_capacity(): void
+    {
+        ['user' => $user, 'company' => $company] = $this->makeCompanyNoReps();
+        $this->assertCount(0, $company->representatives()->get());
+
+        $this->actingAs($user)
+            ->postJson(route('deals-dr2.company.add-representative', ['contact' => $company->id]),
+                ['first_name' => 'Nomsa', 'last_name' => 'Director', 'email' => 'nomsa@ex.co.za', 'capacity' => 'Director'])
+            ->assertOk()
+            ->assertJsonPath('reps.0.name', 'Nomsa Director')
+            ->assertJsonPath('reps.0.capacity', 'Director')
+            ->assertJsonPath('reps.0.has_email', true);
+
+        $this->assertCount(1, $company->fresh()->representatives()->get());
+    }
+
+    /** Inline-add with proxy → the entity resolves to that single proxy (cc1's single-proxy rule). */
+    public function test_inline_add_proxy_representative_narrows_recipients(): void
+    {
+        ['user' => $user, 'company' => $company] = $this->makeCompanyNoReps();
+
+        $this->actingAs($user)->postJson(route('deals-dr2.company.add-representative', ['contact' => $company->id]),
+            ['first_name' => 'Piet', 'last_name' => 'Proxy', 'email' => 'piet@ex.co.za', 'capacity' => 'Executor', 'signs_as_proxy' => 1])->assertOk();
+        $this->actingAs($user)->postJson(route('deals-dr2.company.add-representative', ['contact' => $company->id]),
+            ['first_name' => 'Ann', 'last_name' => 'Other', 'email' => 'ann@ex.co.za', 'capacity' => 'Director'])->assertOk();
+
+        $company->refresh();
+        $this->assertTrue($company->hasProxyRepresentative());
+        $this->assertCount(2, $company->representatives()->get());
+        $this->assertCount(1, $company->emailRepresentatives(), 'proxy set → only the proxy is emailed');
+    }
+
+    /** first_name is required — the delegated validation surfaces as JSON 422, never a silent create. */
+    public function test_inline_add_requires_first_name(): void
+    {
+        ['user' => $user, 'company' => $company] = $this->makeCompanyNoReps();
+        $this->actingAs($user)
+            ->postJson(route('deals-dr2.company.add-representative', ['contact' => $company->id]), ['last_name' => 'NoFirst'])
+            ->assertStatus(422)->assertJsonValidationErrors('first_name');
+        $this->assertCount(0, $company->fresh()->representatives()->get());
+    }
 }

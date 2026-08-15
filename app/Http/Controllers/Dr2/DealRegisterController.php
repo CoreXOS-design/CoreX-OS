@@ -1004,6 +1004,29 @@ class DealRegisterController extends Controller
     }
 
     /**
+     * (DR2 company party) "Company has no representatives yet" — add one on the fly from the deal
+     * picker, so an agent can pick a company, see it has no directors, and add a natural-person rep
+     * (with capacity + optional proxy) without leaving the deal-create screen.
+     *
+     * DELEGATES to cc1's canonical create-and-link (ContactRepresentativeController::
+     * createAndLinkRepresentative) — the SAME match-or-create + capacity + single-proxy enforcement
+     * used on the contact page; DR2 re-implements NONE of it. On a validation failure that method's
+     * $request->validate() throws a ValidationException, which is rendered as JSON 422 for this
+     * XHR (first_name is required). On success we return the REFRESHED rep list so the picker's
+     * sub-row updates in place. Spec: dr2-company-selection.
+     */
+    public function addCompanyRepresentative(Request $request, Contact $contact, \App\Http\Controllers\CoreX\ContactRepresentativeController $reps): JsonResponse
+    {
+        abort_unless(auth()->user()?->hasPermission('deals.create') || auth()->user()?->hasPermission('deals.edit'), 403);
+        abort_unless($contact->isEntity(), 422, 'Representatives can only be added to a company contact.');
+
+        // Runs the create + link (incl. single-proxy demotion); returns a redirect we discard.
+        $reps->createAndLinkRepresentative($request, $contact);
+
+        return $this->companyRepresentatives($contact->fresh());
+    }
+
+    /**
      * (DR2 party picker) Add-new contact inline — Match-or-Create (Non-Neg #10):
      * an existing contact matching phone/email is REUSED, never duplicated. Does
      * NOT link here — the deal save creates the property↔contact link with the

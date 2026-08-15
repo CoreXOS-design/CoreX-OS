@@ -796,6 +796,8 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     Route::get('/search/contacts',              [\App\Http\Controllers\Dr2\DealRegisterController::class, 'contactSearch'])->middleware('permission:create_deals')->name('search.contacts');
     // (DR2 company party) the reps of a selected COMPANY party, for the picker's rep sub-row.
     Route::get('/search/company-representatives/{contact}', [\App\Http\Controllers\Dr2\DealRegisterController::class, 'companyRepresentatives'])->middleware('permission:create_deals')->whereNumber('contact')->name('search.company-representatives');
+    // (DR2 company party) add a representative on the fly when the company has none — delegates to cc1's create-and-link.
+    Route::post('/company/{contact}/add-representative', [\App\Http\Controllers\Dr2\DealRegisterController::class, 'addCompanyRepresentative'])->middleware('permission:create_deals')->whereNumber('contact')->name('company.add-representative');
     Route::post('/contact/inline',              [\App\Http\Controllers\Dr2\DealRegisterController::class, 'contactInline'])->middleware('permission:create_deals')->name('contact.inline');
     // §2.4 attorney — reuse the shared supplier directory (agency_service_providers),
     // gated on DR2's own create_deals so DR2 never depends on the sunset deals-v2 perms.
