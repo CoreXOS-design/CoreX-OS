@@ -741,16 +741,44 @@
                 @if($contact->representatives->isNotEmpty())
                 <div class="rounded-md overflow-hidden mb-4" style="border:1px solid var(--border);">
                     @foreach($contact->representatives as $rep)
-                    <div class="flex items-center gap-3 px-4 py-3" style="border-bottom:1px solid var(--border); background:var(--surface);">
-                        <div class="flex-1 min-w-0">
-                            <a href="{{ route('corex.contacts.show', $rep) }}" class="text-sm font-semibold hover:underline" style="color:var(--text-primary);">{{ $rep->full_name }}</a>
-                            @if($rep->pivot->is_primary)
-                            <span class="ml-2 text-[11px] font-semibold px-1.5 py-0.5 rounded" style="background:var(--brand-icon,#0ea5e9)22; color:var(--brand-icon,#0ea5e9);">Primary signatory</span>
-                            @endif
+                    <div class="px-4 py-3" style="border-bottom:1px solid var(--border); background:var(--surface);">
+                        <div class="flex items-center gap-3">
+                            <div class="flex-1 min-w-0">
+                                <a href="{{ route('corex.contacts.show', $rep) }}" class="text-sm font-semibold hover:underline" style="color:var(--text-primary);">{{ $rep->full_name }}</a>
+                                @if($rep->pivot->is_primary)
+                                <span class="ml-2 text-[11px] font-semibold px-1.5 py-0.5 rounded" style="background:var(--brand-icon,#0ea5e9)22; color:var(--brand-icon,#0ea5e9);">Primary signatory</span>
+                                @endif
+                                @if($rep->pivot->signs_as_proxy)
+                                <span class="ml-2 text-[11px] font-semibold px-1.5 py-0.5 rounded" style="background:#16a34a22; color:#16a34a;">Proxy — signs for all</span>
+                                @endif
+                                @if($rep->pivot->capacity)
+                                <span class="ml-2 text-[11px] font-medium px-1.5 py-0.5 rounded" style="background:var(--surface-2); color:var(--text-muted);">{{ $rep->pivot->capacity }}</span>
+                                @endif
+                            </div>
+                            <form method="POST" action="{{ route('corex.contacts.representatives.unlink', [$contact, $rep]) }}" onsubmit="return confirm('Unlink {{ addslashes($rep->full_name) }} as a representative?');">
+                                @csrf @method('DELETE')
+                                <button type="submit" class="text-xs font-semibold" style="color:var(--ds-crimson, #c41e3a);">Unlink</button>
+                            </form>
                         </div>
-                        <form method="POST" action="{{ route('corex.contacts.representatives.unlink', [$contact, $rep]) }}" onsubmit="return confirm('Unlink {{ addslashes($rep->full_name) }} as a representative?');">
-                            @csrf @method('DELETE')
-                            <button type="submit" class="text-xs font-semibold" style="color:var(--ds-crimson, #c41e3a);">Unlink</button>
+                        {{-- Capacity + proxy editor (entity-rep foundation, Johan 2026-08-15). Setting
+                             Proxy makes THIS rep the sole signer for the entity; unset = all reps sign. --}}
+                        <form method="POST" action="{{ route('corex.contacts.representatives.update', [$contact, $rep]) }}" class="mt-2 flex flex-wrap items-center gap-3">
+                            @csrf @method('PATCH')
+                            <label class="text-[11px] flex items-center gap-1" style="color:var(--text-muted);">Capacity
+                                <select name="capacity" class="text-xs rounded px-2 py-1" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <option value="">—</option>
+                                    @foreach(\App\Models\ContactRepresentative::CAPACITIES as $cap)
+                                    <option value="{{ $cap }}" @selected($rep->pivot->capacity === $cap)>{{ $cap }}</option>
+                                    @endforeach
+                                </select>
+                            </label>
+                            <label class="text-[11px] flex items-center gap-1" style="color:var(--text-muted);">
+                                <input type="checkbox" name="is_primary" value="1" @checked($rep->pivot->is_primary)> Primary
+                            </label>
+                            <label class="text-[11px] flex items-center gap-1" style="color:var(--text-muted);">
+                                <input type="checkbox" name="signs_as_proxy" value="1" @checked($rep->pivot->signs_as_proxy)> Proxy (signs for all)
+                            </label>
+                            <button type="submit" class="text-[11px] font-semibold px-2 py-1 rounded" style="background:var(--brand-icon,#0ea5e9); color:#fff;">Save</button>
                         </form>
                     </div>
                     @endforeach
@@ -810,6 +838,20 @@
                     <div>
                         <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Email</label>
                         <input type="email" name="email" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Capacity</label>
+                        <select name="capacity" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            <option value="">—</option>
+                            @foreach(\App\Models\ContactRepresentative::CAPACITIES as $cap)
+                            <option value="{{ $cap }}">{{ $cap }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div class="flex items-end">
+                        <label class="text-xs flex items-center gap-1" style="color:var(--text-muted);">
+                            <input type="checkbox" name="signs_as_proxy" value="1"> Proxy — signs for all reps
+                        </label>
                     </div>
                     <div class="sm:col-span-2">
                         <button type="submit" class="corex-btn-primary text-xs">Create &amp; Link</button>

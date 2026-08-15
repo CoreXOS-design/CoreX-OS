@@ -246,6 +246,10 @@ class TvaCompanyDirectorsController extends Controller
             'entity_contact_id'         => $entityId,
             'representative_contact_id' => $directorId,
             'is_primary'                => $primary,
+            // Deeds/TVA capture surfaces company DIRECTORS — default the capacity
+            // accordingly (entity-rep foundation, Johan 2026-08-15). Not proxy by
+            // default: unless an agent marks one director proxy, all directors sign.
+            'capacity'                  => 'Director',
         ]);
         return (int) $link->id;
     }

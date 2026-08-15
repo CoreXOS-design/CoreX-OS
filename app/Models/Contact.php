@@ -635,7 +635,7 @@ class Contact extends Model
             'contact_representatives',
             'entity_contact_id',
             'representative_contact_id'
-        )->using(ContactRepresentative::class)->withPivot('is_primary')->withTimestamps()->wherePivotNull('deleted_at');
+        )->using(ContactRepresentative::class)->withPivot('is_primary', 'capacity', 'signs_as_proxy')->withTimestamps()->wherePivotNull('deleted_at');
     }
 
     /**
@@ -649,7 +649,71 @@ class Contact extends Model
             'contact_representatives',
             'representative_contact_id',
             'entity_contact_id'
-        )->using(ContactRepresentative::class)->withPivot('is_primary')->withTimestamps()->wherePivotNull('deleted_at');
+        )->using(ContactRepresentative::class)->withPivot('is_primary', 'capacity', 'signs_as_proxy')->withTimestamps()->wherePivotNull('deleted_at');
+    }
+
+    /**
+     * ENTITY-REP FOUNDATION (Johan, 2026-08-15) — the representatives who must
+     * SIGN on behalf of this entity, applying the proxy rule. If ANY linked rep
+     * holds proxy (contact_representatives.signs_as_proxy) only that rep signs
+     * (e.g. one director signs for all); otherwise EVERY rep signs (4 directors
+     * each sign). Each returned Contact carries its pivot (capacity, is_primary,
+     * signs_as_proxy) for phrasing. Returns an empty collection for a natural
+     * person or an entity with no linked reps (the caller gates on that).
+     *
+     * Consumed by esign (recipient builder) AND DR2 (company attorney/supplier
+     * signers) — the single canonical resolver; do NOT re-implement per lane.
+     *
+     * @return \Illuminate\Support\Collection<int, \App\Models\Contact>
+     */
+    public function signingRepresentatives(): \Illuminate\Support\Collection
+    {
+        return $this->proxyAwareRepresentatives();
+    }
+
+    /**
+     * The representatives who should RECEIVE the e-sign / correspondence email
+     * for this entity. Proxy-aware, same resolution as signingRepresentatives()
+     * — the signer is the emailee (the person who must act gets the link). Kept
+     * as a distinct method so a later "cc the primary contact" behaviour can
+     * diverge the email set without touching the signing rule.
+     *
+     * @return \Illuminate\Support\Collection<int, \App\Models\Contact>
+     */
+    public function emailRepresentatives(): \Illuminate\Support\Collection
+    {
+        return $this->proxyAwareRepresentatives();
+    }
+
+    /** True if this entity has a representative marked as proxy (signs for all). */
+    public function hasProxyRepresentative(): bool
+    {
+        if (! $this->isEntity()) {
+            return false;
+        }
+
+        return $this->representatives()->wherePivot('signs_as_proxy', true)->exists();
+    }
+
+    /**
+     * Shared proxy resolution for signingRepresentatives()/emailRepresentatives().
+     * Defensive against dirty data: if more than one rep is somehow flagged
+     * proxy, the FIRST (lowest pivot id) is taken rather than throwing —
+     * single-proxy is enforced at the write paths, this is the read-side floor.
+     *
+     * @return \Illuminate\Support\Collection<int, \App\Models\Contact>
+     */
+    private function proxyAwareRepresentatives(): \Illuminate\Support\Collection
+    {
+        if (! $this->isEntity()) {
+            return collect();
+        }
+
+        $reps = $this->representatives()->get();
+
+        $proxy = $reps->first(fn (Contact $rep) => (bool) ($rep->pivot->signs_as_proxy ?? false));
+
+        return $proxy ? collect([$proxy]) : $reps;
     }
 
     /**
