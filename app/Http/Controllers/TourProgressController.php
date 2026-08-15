@@ -31,6 +31,35 @@ class TourProgressController extends Controller
         return $this->mark($request, $tourKey, 'dismissed_at');
     }
 
+    /**
+     * AT-371 (#18) — record a SINGLE step as seen, keyed by its stable step key (the step's
+     * `element` selector). Called as the user reaches each step, so partial progress survives a
+     * page/section update or an interrupted tour: on the next visit only the un-seen steps show,
+     * and a step seen before a deploy never re-triggers. Idempotent (a step is stored once).
+     */
+    public function step(Request $request, string $tourKey): JsonResponse
+    {
+        if (! TourRegistry::find($tourKey)) {
+            return response()->json(['ok' => false, 'error' => 'Unknown tour.'], 404);
+        }
+
+        $data = $request->validate(['step' => 'required|string|max:255']);
+
+        $progress = UserTourProgress::firstOrNew([
+            'user_id'  => $request->user()->id,
+            'tour_key' => $tourKey,
+        ]);
+
+        $steps = $progress->completed_steps ?? [];
+        if (! in_array($data['step'], $steps, true)) {
+            $steps[] = $data['step'];
+            $progress->completed_steps = $steps;
+            $progress->save();
+        }
+
+        return response()->json(['ok' => true, 'completed_steps' => $progress->completed_steps ?? []]);
+    }
+
     private function mark(Request $request, string $tourKey, string $column): JsonResponse
     {
         // Only known tours are writable — keeps the table free of stale keys.

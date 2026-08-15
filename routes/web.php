@@ -443,6 +443,8 @@ Route::middleware('auth')->group(function () {
         Route::prefix('tours')->name('tours.')->group(function () {
             Route::post('/{tourKey}/seen',    [\App\Http\Controllers\TourProgressController::class, 'seen'])->name('seen');
             Route::post('/{tourKey}/dismiss', [\App\Http\Controllers\TourProgressController::class, 'dismiss'])->name('dismiss');
+            // AT-371 (#18) — per-step persistence: record a single seen step so it never re-triggers.
+            Route::post('/{tourKey}/step',    [\App\Http\Controllers\TourProgressController::class, 'step'])->name('step');
         });
 
         // ── System Updates — per-user dismissal (self-scoped) ──
