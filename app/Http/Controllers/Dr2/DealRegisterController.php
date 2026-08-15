@@ -347,10 +347,18 @@ class DealRegisterController extends Controller
      */
     private function dealPartyList(Deal $deal, string $role): array
     {
+        // (DR2 company party) carry each party's stored email-routing mode so the edit-path
+        // picker re-hydrates the entity party's inherit|all|proxy choice. Keyed by contact_id.
+        $modes = DB::table('deal_contacts')
+            ->where('deal_id', $deal->id)->where('role', $role)
+            ->pluck('representative_email_mode', 'contact_id');
+
         return $deal->contacts()->wherePivot('role', $role)->get()
             ->map(fn ($c) => [
-                'id'   => (int) $c->id,
-                'name' => trim((string) ($c->full_name ?? ($c->first_name . ' ' . $c->last_name))) ?: ('Contact #' . $c->id),
+                'id'        => (int) $c->id,
+                'name'      => trim((string) ($c->full_name ?? ($c->first_name . ' ' . $c->last_name))) ?: ('Contact #' . $c->id),
+                'is_entity' => $c->isEntity(),
+                'rep_mode'  => $c->isEntity() ? (($modes[$c->id] ?? null) ?: 'inherit') : null,
             ])->values()->all();
     }
 
@@ -472,6 +480,14 @@ class DealRegisterController extends Controller
             // (one action, both records). Display names stay in *_name.
             'seller_contact_ids' => ['nullable', 'string', 'max:500'],
             'buyer_contact_ids'  => ['nullable', 'string', 'max:500'],
+            // (DR2 company party — D-min) per-entity-party email-routing choice, keyed by the
+            // COMPANY contact id: inherit|all|proxy. Meaningful only when that party is an entity;
+            // the actual recipients are re-resolved LIVE at send via cc1's proxy-aware API. Spec:
+            // dr2-company-selection. Natural-person parties never emit these.
+            'seller_rep_mode'    => ['nullable', 'array'],
+            'seller_rep_mode.*'  => ['nullable', 'string', 'in:inherit,all,proxy'],
+            'buyer_rep_mode'     => ['nullable', 'array'],
+            'buyer_rep_mode.*'   => ['nullable', 'string', 'in:inherit,all,proxy'],
             'attorney_name'    => ['nullable', 'string', 'max:255'],
             // (fix 2) attorney = firm + contact person; the deal links both.
             'attorney_provider_id' => ['nullable', 'integer', 'exists:agency_service_providers,id'],
@@ -679,6 +695,13 @@ class DealRegisterController extends Controller
         // granted. The deal register owns the transaction, so it owns its parties.
         $this->syncDealParties($deal, $sellerIds, 'seller');
         $this->syncDealParties($deal, $buyerIds, 'buyer');
+
+        // (DR2 company party — D-min) store the per-entity-party email-routing mode. Only a
+        // COMPANY (contact_kind=entity) party carries one; a natural person's mode is cleared.
+        // WHO actually gets the mail is re-resolved LIVE at send via cc1's proxy-aware API — this
+        // only records the agent's inherit|all|proxy choice. Spec: dr2-company-selection.
+        $this->applyRepModes($deal, 'seller', (array) ($data['seller_rep_mode'] ?? []));
+        $this->applyRepModes($deal, 'buyer', (array) ($data['buyer_rep_mode'] ?? []));
 
         // (DR2 reverse link — property-spine doctrine) Deal capture is often the
         // moment a buyer/seller enters the story. Linking a party on the deal
@@ -937,9 +960,47 @@ class DealRegisterController extends Controller
                 'name'  => $c->full_name,
                 'email' => $c->email,
                 'phone' => $c->phone,
+                // DR2 company-party support — flag entity contacts so the picker shows a
+                // "Company" badge and opens the representative sub-row (an entity has no email
+                // of its own; comms go to its natural-person rep). Spec: dr2-company-selection.
+                'is_entity'     => $c->isEntity(),
+                'entity_reg_no' => $c->isEntity() ? ($c->entity_reg_no ?: null) : null,
             ]));
 
         return response()->json($rows);
+    }
+
+    /**
+     * (DR2 company party) The natural-person representatives of a COMPANY (entity) contact, for the
+     * seller/buyer picker's inline sub-row. Read-only, agency-scoped. Returns each rep's id / name /
+     * email so the agent sees who the deal emails would reach.
+     *
+     * SCAFFOLD (pre-cc1): lists the entity's linked representatives via the existing
+     * Contact::representatives() relation for DISPLAY only. The proxy-aware selection (who actually
+     * receives — proxy signs for all, else all reps) + the capacity/proxy tags come from cc1's
+     * Contact::emailRepresentatives() foundation and are WIRED IN once that API is published — this
+     * endpoint does NOT implement any capacity/proxy resolution of its own. Spec: dr2-company-selection.
+     */
+    public function companyRepresentatives(Contact $contact): JsonResponse
+    {
+        abort_unless(auth()->user()?->hasPermission('deals.create') || auth()->user()?->hasPermission('deals.edit'), 403);
+        abort_unless($contact->isEntity(), 422, 'Not a company contact.');
+
+        $reps = $contact->representatives()->with(['phones', 'emails'])->get()
+            ->map(fn (Contact $r) => [
+                'id'        => (int) $r->id,
+                'name'      => $r->full_name,
+                'email'     => $r->primaryEmail?->email ?? $r->email,
+                'has_email' => (bool) ($r->primaryEmail?->email ?? $r->email),
+                // capacity + is_proxy are supplied by cc1's foundation; surfaced here once wired.
+                'capacity'  => null,
+                'is_proxy'  => false,
+            ])->values();
+
+        return response()->json([
+            'entity_name' => $contact->entity_name ?: $contact->full_name,
+            'reps'        => $reps,
+        ]);
     }
 
     /**
@@ -1080,6 +1141,40 @@ class DealRegisterController extends Controller
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
+        }
+    }
+
+    /**
+     * DR2 company party (D-min) — persist the per-entity-party email-routing mode onto the
+     * matching deal_contacts row. `$modes` is keyed by the party's contact id (inherit|all|proxy).
+     * Only a COMPANY (contact_kind=entity) party keeps a mode; a natural-person party is forced
+     * back to NULL so a stale mode can never linger on a non-entity. The mode records the agent's
+     * CHOICE only — the actual recipients are re-resolved live at send via cc1's proxy-aware API.
+     *
+     * @param  array<int|string,string>  $modes
+     */
+    private function applyRepModes(Deal $deal, string $role, array $modes): void
+    {
+        $rows = DB::table('deal_contacts')
+            ->where('deal_id', $deal->id)->where('role', $role)
+            ->get(['id', 'contact_id']);
+        if ($rows->isEmpty()) {
+            return;
+        }
+
+        $entityIds = Contact::withoutGlobalScopes()
+            ->whereIn('id', $rows->pluck('contact_id'))
+            ->where('contact_kind', Contact::TYPE_ENTITY)
+            ->pluck('id')->map(fn ($id) => (int) $id)->all();
+
+        foreach ($rows as $r) {
+            $cid = (int) $r->contact_id;
+            $isEntity = in_array($cid, $entityIds, true);
+            $mode = $isEntity ? ($modes[$cid] ?? $modes[(string) $cid] ?? 'inherit') : null;
+            $mode = in_array($mode, ['inherit', 'all', 'proxy'], true) ? $mode : ($isEntity ? 'inherit' : null);
+
+            DB::table('deal_contacts')->where('id', $r->id)
+                ->update(['representative_email_mode' => $mode, 'updated_at' => now()]);
         }
     }
 

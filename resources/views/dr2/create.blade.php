@@ -198,6 +198,8 @@
                 <input type="hidden" name="seller_contact_ids" id="dr2_seller_ids" value="{{ old('seller_contact_ids', collect($sellerParties ?? [])->pluck('id')->implode(',')) }}">
                 <input type="text" name="seller_name" id="dr2_seller_name" value="{{ old('seller_name', $deal->seller_name) }}" placeholder="Seller name(s)">
                 <div id="dr2_seller_tokens" class="mt-1 flex flex-wrap gap-1.5"></div>
+                {{-- (DR2 company party) per-company representative sub-row(s): who receives the deal emails. --}}
+                <div id="dr2_seller_repbox" class="mt-1"></div>
                 <div style="position:relative;">
                     <input type="text" id="dr2_seller_search" class="w-full mt-1" autocomplete="off" placeholder="Search a contact to link as seller…">
                     <div id="dr2_seller_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 8px 24px var(--shadow, rgba(0,0,0,.08));max-height:16rem;overflow:auto;display:none;"></div>
@@ -215,6 +217,8 @@
                 <input type="hidden" name="buyer_contact_ids" id="dr2_buyer_ids" value="{{ old('buyer_contact_ids', collect($buyerParties ?? [])->pluck('id')->implode(',')) }}">
                 <input type="text" name="buyer_name" id="dr2_buyer_name" value="{{ old('buyer_name', $deal->buyer_name) }}" placeholder="Buyer name(s)">
                 <div id="dr2_buyer_tokens" class="mt-1 flex flex-wrap gap-1.5"></div>
+                {{-- (DR2 company party) per-company representative sub-row(s): who receives the deal emails. --}}
+                <div id="dr2_buyer_repbox" class="mt-1"></div>
                 <div style="position:relative;">
                     <input type="text" id="dr2_buyer_search" class="w-full mt-1" autocomplete="off" placeholder="Search a contact to link as buyer…">
                     <div id="dr2_buyer_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 8px 24px var(--shadow, rgba(0,0,0,.08));max-height:16rem;overflow:auto;display:none;"></div>
@@ -709,6 +713,7 @@
         properties: @json(route('deals-dr2.search.properties')),
         propertyContacts: @json(route('deals-dr2.search.property-contacts', ['property' => '__ID__'])),
         contacts: @json(route('deals-dr2.search.contacts')),
+        companyReps: @json(route('deals-dr2.search.company-representatives', ['contact' => '__ID__'])),
         contactInline: @json(route('deals-dr2.contact.inline')),
         attorneySearch: @json(route('deals-dr2.attorney.search')),
         attorneyInline: @json(route('deals-dr2.attorney.inline')),
@@ -863,18 +868,22 @@
         const offerEl  = document.getElementById('dr2_' + kind + '_offer');
         const newFormEl= document.getElementById('dr2_' + kind + '_newform');
 
-        let tokens = [];   // [{id, name}] — contacts to link on save
+        let tokens = [];   // [{id, name, is_entity, entity_reg_no, rep_mode}] — contacts to link on save
         let offered = [];  // [{id, name}] — property's already-linked party (fast path)
+        const repboxEl = document.getElementById('dr2_' + kind + '_repbox');  // (DR2 company party) sub-rows
+        const repCache = {};   // contactId -> {entity_name, reps:[...]} fetched from the companyReps endpoint
 
         // AT-334 — seed tokens from the hidden input's server value (old() ?? the saved deal's
-        // party ids). Names come from the saved party list; unknown ids (e.g. a search-picked
-        // contact on a validation-fail re-render) degrade to "Contact #id" but the id — the
-        // thing that drives the save — is always preserved. This is what stops an untouched
-        // edit save from posting empty ids and wiping deal_contacts.
-        const seedNames = {};
-        (DR2[kind + 'Parties'] || []).forEach(p => { seedNames[parseInt(p.id, 10)] = p.name; });
+        // party ids). Names + entity flags come from the saved party list; unknown ids (e.g. a
+        // search-picked contact on a validation-fail re-render) degrade to "Contact #id" but the
+        // id — the thing that drives the save — is always preserved. This is what stops an
+        // untouched edit save from posting empty ids and wiping deal_contacts.
+        const seedMeta = {};
+        (DR2[kind + 'Parties'] || []).forEach(p => { seedMeta[parseInt(p.id, 10)] = p; });
         (idsEl.value || '').split(',').map(s => parseInt(s, 10)).filter(Boolean).forEach(id => {
-            if (!tokens.some(t => t.id === id)) tokens.push({ id, name: seedNames[id] || ('Contact #' + id) });
+            if (tokens.some(t => t.id === id)) return;
+            const m = seedMeta[id] || {};
+            tokens.push({ id, name: m.name || ('Contact #' + id), is_entity: !!m.is_entity, entity_reg_no: m.entity_reg_no || null, rep_mode: m.rep_mode || 'inherit' });
         });
 
         const syncIds  = () => { idsEl.value = tokens.map(t => t.id).join(','); };
@@ -888,19 +897,80 @@
                 const chip = document.createElement('span');
                 chip.className = 'inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded';
                 chip.style.cssText = 'border:1px solid #34d399;background:#ecfdf5;color:#065f46;';
-                chip.appendChild(document.createTextNode('🔗 ' + t.name));
+                if (t.is_entity) {
+                    const badge = document.createElement('span');
+                    badge.textContent = 'Company';
+                    badge.style.cssText = 'font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:0 .3rem;border-radius:.2rem;background:#e0e7ff;color:#3730a3;';
+                    chip.appendChild(badge);
+                }
+                chip.appendChild(document.createTextNode((t.is_entity ? ' 🏢 ' : ' 🔗 ') + t.name));
                 const x = document.createElement('button');
                 x.type = 'button'; x.textContent = '×'; x.style.cssText = 'font-weight:700;line-height:1;margin-left:.15rem;';
-                x.addEventListener('click', () => { tokens = tokens.filter(z => z.id !== t.id); dropName(t.name); syncIds(); renderTokens(); renderOffer(); });
+                x.addEventListener('click', () => { tokens = tokens.filter(z => z.id !== t.id); dropName(t.name); syncIds(); renderTokens(); renderOffer(); renderReps(); });
                 chip.appendChild(x);
                 tokensEl.appendChild(chip);
             });
+            renderReps();
         }
-        function addToken(id, name) {
+        function addToken(id, name, isEntity, regNo) {
             id = parseInt(id, 10);
             if (!id || tokens.some(t => t.id === id)) return;
-            tokens.push({ id, name: name || ('Contact #' + id) });
+            tokens.push({ id, name: name || ('Contact #' + id), is_entity: !!isEntity, entity_reg_no: regNo || null, rep_mode: 'inherit' });
             addName(name); syncIds(); renderTokens(); renderOffer();
+        }
+
+        // (DR2 company party) — for every ENTITY token, render a sub-row: an inherit|all|proxy
+        // routing choice (persisted as <kind>_rep_mode[<companyId>]) + the company's reps so the
+        // agent sees who the deal emails reach. WHO actually gets the mail is re-resolved at send
+        // via cc1's proxy-aware API — this sub-row records the choice + previews the reps only.
+        function renderReps() {
+            if (!repboxEl) return;
+            repboxEl.innerHTML = '';
+            tokens.filter(t => t.is_entity).forEach(t => {
+                const card = document.createElement('div');
+                card.style.cssText = 'border:1px solid var(--border,#e5e7eb);border-radius:.5rem;padding:.5rem .6rem;margin-top:.35rem;background:var(--surface-2,#f8fafc);';
+                const head = document.createElement('div');
+                head.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:.5rem;flex-wrap:wrap;';
+                const label = document.createElement('div');
+                label.style.cssText = 'font-size:.72rem;font-weight:600;color:var(--text-secondary,#475569);';
+                label.textContent = '🏢 ' + t.name + ' — email recipient';
+                head.appendChild(label);
+                // mode select + hidden field
+                const sel = document.createElement('select');
+                sel.style.cssText = 'font-size:.72rem;border:1px solid var(--border,#cbd5e1);border-radius:.3rem;padding:.1rem .3rem;background:var(--surface,#fff);color:var(--text-primary,#0b2a4a);';
+                [['inherit','Honour proxy (default)'],['proxy','Proxy only'],['all','Email all reps']].forEach(([v,lbl]) => {
+                    const o = document.createElement('option'); o.value = v; o.textContent = lbl; if ((t.rep_mode||'inherit') === v) o.selected = true; sel.appendChild(o);
+                });
+                const hidden = document.createElement('input');
+                hidden.type = 'hidden'; hidden.name = kind + '_rep_mode[' + t.id + ']'; hidden.value = t.rep_mode || 'inherit';
+                sel.addEventListener('change', () => { t.rep_mode = sel.value; hidden.value = sel.value; });
+                head.appendChild(sel);
+                card.appendChild(head); card.appendChild(hidden);
+                // rep list (fetched once, cached)
+                const list = document.createElement('div');
+                list.style.cssText = 'margin-top:.35rem;font-size:.72rem;color:var(--text-muted,#6b7280);';
+                list.textContent = 'Loading representatives…';
+                card.appendChild(list);
+                repboxEl.appendChild(card);
+                loadReps(t.id, list);
+            });
+        }
+        function loadReps(companyId, listEl) {
+            const paint = (data) => {
+                const reps = (data && data.reps) || [];
+                if (!reps.length) { listEl.innerHTML = '<span style="color:#b45309;">No representatives set up for this company — add them on the contact record so deal emails have a recipient.</span>'; return; }
+                listEl.innerHTML = 'Reps: ' + reps.map(r => {
+                    const mail = r.has_email ? '' : ' ⚠ no email';
+                    const cap = r.capacity ? ' · ' + esc(r.capacity) : '';
+                    const px = r.is_proxy ? ' · PROXY' : '';
+                    return '<span style="display:inline-block;margin:0 .3rem .2rem 0;padding:.05rem .35rem;border:1px solid var(--border,#e5e7eb);border-radius:.3rem;">' + esc(r.name) + cap + px + mail + '</span>';
+                }).join('');
+            };
+            if (repCache[companyId]) { paint(repCache[companyId]); return; }
+            fetch(R.companyReps.replace('__ID__', companyId), { headers: { Accept: 'application/json' } })
+                .then(r => r.ok ? r.json() : { reps: [] })
+                .then(data => { repCache[companyId] = data; paint(data); })
+                .catch(() => { listEl.textContent = 'Could not load representatives.'; });
         }
         function renderOffer() {
             offerEl.innerHTML = '';
@@ -932,15 +1002,18 @@
                     resultsEl.innerHTML = rows.map(row => {
                         const nm = row.name || row.label || ('Contact #' + row.id);
                         const sub = [row.phone, row.email, row.type].filter(Boolean).join(' · ');
-                        return '<div class="dr2-crow" role="button" tabindex="0" data-id="' + row.id + '" data-name="' + esc(nm) + '" style="padding:.5rem .8rem;cursor:pointer;border-bottom:1px solid #f3f4f6;">'
-                            + '<div style="font-weight:600;color:#0b2a4a;">' + esc(nm) + '</div>'
-                            + (sub ? '<div style="font-size:.75rem;color:#6b7280;">' + esc(sub) + '</div>' : '') + '</div>';
+                        const badge = row.is_entity ? '<span style="font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:0 .3rem;border-radius:.2rem;background:#e0e7ff;color:#3730a3;margin-right:.3rem;">Company</span>' : '';
+                        const regSub = row.is_entity && row.entity_reg_no ? ('Reg ' + esc(row.entity_reg_no)) : '';
+                        const subLine = [sub, regSub].filter(Boolean).join(' · ');
+                        return '<div class="dr2-crow" role="button" tabindex="0" data-id="' + row.id + '" data-name="' + esc(nm) + '" data-entity="' + (row.is_entity ? '1' : '') + '" data-reg="' + esc(row.entity_reg_no || '') + '" style="padding:.5rem .8rem;cursor:pointer;border-bottom:1px solid #f3f4f6;">'
+                            + '<div style="font-weight:600;color:#0b2a4a;">' + badge + esc(nm) + '</div>'
+                            + (subLine ? '<div style="font-size:.75rem;color:#6b7280;">' + subLine + '</div>' : '') + '</div>';
                     }).join('');
                     resultsEl.style.display = 'block';
                     resultsEl.querySelectorAll('.dr2-crow').forEach(el => {
                         el.addEventListener('mouseover', () => el.style.background = '#f9fafb');
                         el.addEventListener('mouseout', () => el.style.background = '#fff');
-                        el.addEventListener('click', () => { addToken(el.dataset.id, el.dataset.name); searchEl.value = ''; closeRes(); });
+                        el.addEventListener('click', () => { addToken(el.dataset.id, el.dataset.name, !!el.dataset.entity, el.dataset.reg || null); searchEl.value = ''; closeRes(); });
                     });
                 }).catch(closeRes);
         }, 220);
