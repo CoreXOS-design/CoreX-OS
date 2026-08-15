@@ -648,6 +648,12 @@ final class MapPinService
         $this->applyDateFilter($pscQ, $req, 'psc.sold_date');
         $this->applySoldWindowFilter($pscQ, $req, 'psc.sold_date');
         $this->applyPriceFilter($pscQ, $req, 'psc.sold_price_inc');
+        // A.3.1 — this source was missing the search filter entirely (unlike
+        // the mrcr and deals sources above/below), so ANY search term —
+        // including a genuine non-match — returned every presentation sold
+        // comp in bounds unfiltered. suburb is the only plain text column
+        // available here; address lives inside raw_row_json (not LIKE-able).
+        $this->applySearchFilter($pscQ, $req, ['psc.suburb']);
 
         foreach ($pscQ->limit($limit * 2)->get() as $r) {
             $raw = is_string($r->raw_row_json) ? (json_decode($r->raw_row_json, true) ?: []) : ((array) $r->raw_row_json ?: []);
