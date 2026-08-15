@@ -2,22 +2,23 @@
 
 namespace App\Jobs;
 
+use App\Mail\UserInviteMail;
 use App\Models\Scopes\AgencyScope;
 use App\Models\User;
-use App\Notifications\AgentInviteNotification;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 class SendAgentInviteJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     /**
-     * A single invite is one password-reset token + one SMTP round trip.
+     * A single invite is one signed setup-link mail + one SMTP round trip.
      * Without an explicit timeout the job inherits the worker's 60s default,
      * which is what SIGKILLed SyncAgentToP24Job on a slow upstream and left
      * the queue stranded. 120s covers a slow SMTP handshake with headroom.
@@ -50,9 +51,16 @@ class SendAgentInviteJob implements ShouldQueue
             return;
         }
 
-        $user->notify(AgentInviteNotification::createFor($user));
+        // The same 7-day signed account-setup link every other invite path in
+        // CoreX uses (resend, agency-admin, assistant). This job originally sent
+        // a 60-minute Laravel password-reset broker token instead — realistic
+        // for "I forgot my password right now", not for "check your email
+        // whenever you get to it". Found live 2026-08-15: a whole agency's worth
+        // of imported/onboarded agents locked out because every token had
+        // expired by the time anyone opened the invite.
+        Mail::to($user->email)->send(new UserInviteMail($user));
 
-        // Stamped only after the notification is handed off. Both the bulk and
+        // Stamped only after the mail is handed off. Both the bulk and
         // the per-agent path run through here, so the two can never disagree
         // about who has been invited.
         $user->forceFill(['invited_at' => now()])->saveQuietly();
