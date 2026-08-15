@@ -1303,6 +1303,14 @@ BLADE;
 
         $template = Template::findOrFail($id);
 
+        // 2026-08-15 (Johan, HFC tenant-isolation fix) — no per-record check
+        // existed at all; any user with manage_templates could preview any
+        // agency's non-global template by id.
+        $agencyId = method_exists($user, 'effectiveAgencyId') ? $user->effectiveAgencyId() : $user->agency_id;
+        if (!$template->isVisibleToAgency($agencyId)) {
+            abort(404);
+        }
+
         if (!$template->blade_view) {
             abort(404, 'No blade view configured for this template.');
         }

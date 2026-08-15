@@ -8,10 +8,21 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\BelongsToAgency;
 
+/**
+ * 2026-08-15 (Johan, HFC tenant-isolation fix, Wave 2, #7) — added
+ * BelongsToAgency. Was branch-scoped but not agency-scoped at all: any
+ * role with data-scope 'all' saw every agency's documents, and nothing
+ * gated direct id lookups (guardDocument()'s 'all' branch, PageImage
+ * Controller::showDocumentPage()'s raw signed-page image bytes). Both are
+ * now safe "for free" — AgencyScope applies to every query on this model,
+ * including route-model binding and manual findOrFail() calls, exactly
+ * like every other BelongsToAgency model.
+ */
 class Document extends Model
 {
-    use BelongsToBranch, SoftDeletes;
+    use BelongsToBranch, BelongsToAgency, SoftDeletes;
 
     protected $table = 'docuperfect_documents';
 
@@ -20,6 +31,7 @@ class Document extends Model
         'template_id',
         'fields_json',
         'owner_id',
+        'agency_id',
         'branch_id',
         'pack_instance_id',
         'archived_at',

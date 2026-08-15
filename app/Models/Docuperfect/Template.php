@@ -8,6 +8,17 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+/**
+ * 2026-08-15 (Johan, HFC tenant-isolation fix, Wave 2, #7) — added
+ * agency_id, but deliberately WITHOUT the BelongsToAgency trait. Unlike
+ * Document/SignatureTemplate/SalesDocumentSend, templates can be
+ * genuinely shared across every agency (is_global=true) — the trait's
+ * automatic global scope would hide a shared template whose agency_id is
+ * NULL (AgencyScope treats a NULL agency_id row as an orphan, not
+ * "shared"). scopeVisibleTo()'s 'all' branch and isVisibleToAgency() (used
+ * by TemplateController::webPreview()) implement the is_global-aware
+ * check explicitly instead.
+ */
 class Template extends Model
 {
     use SoftDeletes;
@@ -37,6 +48,7 @@ class Template extends Model
         'security_tier',
         'insertable_blocks',
         'owner_id',
+        'agency_id',
         'archived_at',
     ];
 
@@ -256,7 +268,18 @@ class Template extends Model
     {
         $scope = \App\Services\PermissionService::getDataScope($user, 'templates');
 
-        if ($scope === 'all') return $query;
+        // 2026-08-15 — 'all' used to mean "every template on the entire
+        // platform," not "every template my agency can see." Now: this
+        // agency's own templates, plus anything genuinely global.
+        if ($scope === 'all') {
+            $agencyId = method_exists($user, 'effectiveAgencyId') ? $user->effectiveAgencyId() : $user->agency_id;
+            return $query->where(function ($q) use ($agencyId) {
+                $q->where('is_global', true);
+                if ($agencyId) {
+                    $q->orWhere('agency_id', $agencyId);
+                }
+            });
+        }
 
         $branchId = $user->effectiveBranchId();
 
@@ -268,6 +291,21 @@ class Template extends Model
                 });
             }
         });
+    }
+
+    /**
+     * Direct-id-lookup guard for callers (TemplateController::webPreview())
+     * that fetch a Template by id outside scopeVisibleTo() — same
+     * is_global-aware rule: visible if global, or owned by the caller's
+     * own agency.
+     */
+    public function isVisibleToAgency(?int $agencyId): bool
+    {
+        if ($this->is_global) {
+            return true;
+        }
+
+        return $agencyId !== null && (int) $this->agency_id === $agencyId;
     }
 
     public function isPerParty(): bool

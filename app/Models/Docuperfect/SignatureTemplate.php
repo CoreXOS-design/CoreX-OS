@@ -5,10 +5,19 @@ namespace App\Models\Docuperfect;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Models\Concerns\BelongsToAgency;
 
+/**
+ * 2026-08-15 (Johan, HFC tenant-isolation fix, Wave 2, #7) — added
+ * BelongsToAgency. scopeVisibleTo()'s 'all' branch was fully unscoped
+ * (every agency's e-sign ceremonies visible), and ESignWizardController::
+ * myDocuments()'s needsAuthorisation sub-query pooled every agency's
+ * pending-authorisation documents into one shared queue. Both fixed "for
+ * free" by the global scope — no changes needed in either file.
+ */
 class SignatureTemplate extends Model
 {
-    use SoftDeletes;
+    use BelongsToAgency, SoftDeletes;
 
     protected $table = 'signature_templates';
 
@@ -19,6 +28,7 @@ class SignatureTemplate extends Model
         'parties_json',
         'signing_order_json',
         'group_order_json',
+        'agency_id',
         'created_by',
         'is_candidate_flow',
         'supervisor_user_id',
