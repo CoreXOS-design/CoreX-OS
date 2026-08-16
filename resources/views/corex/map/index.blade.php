@@ -2770,7 +2770,13 @@ document.addEventListener('DOMContentLoaded', function () {
             });
             if (!resp.ok) throw new Error('HTTP ' + resp.status);
             const payload = await resp.json();
-            const locs = payload.locations || [];
+            // Map fixes — honour enabled layers before choosing where to pan. The
+            // locate call requests ALL layers (buildPinParams), so payload can carry
+            // matches that live only in a DISABLED layer (e.g. sold / off-market).
+            // renderPayload/applyLayerFilters would then drop them, leaving the map
+            // panned to a blank spot with no pin. Filter the same way here so we pan
+            // to a match the user can actually see (or report "no results").
+            const locs = applyLayerFilters(payload).locations || [];
             if (locs.length === 0) {
                 showSearchNoResults();
                 return;
