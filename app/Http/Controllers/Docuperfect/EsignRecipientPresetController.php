@@ -27,10 +27,26 @@ class EsignRecipientPresetController extends Controller
         ];
     }
 
+    /**
+     * The agency this preset write belongs to. Resolve it explicitly rather than
+     * leaning on BelongsToAgency's auto-stamp: that hook deliberately does NOT
+     * stamp for OWNER / cross-agency roles (super_admin), so an owner creating a
+     * preset would otherwise hit a NOT-NULL agency_id violation. Effective agency
+     * (respects the agency switcher) with the user's home agency as the fallback.
+     */
+    private function actingAgencyId(): int
+    {
+        $u = auth()->user();
+        $id = (int) ($u->effectiveAgencyId() ?? $u->agency_id ?? 0);
+        abort_if($id === 0, 400, 'No agency context to attach the recipient preset to.');
+
+        return $id;
+    }
+
     public function index()
     {
         // Ensure the agency always has its default (seeds on first visit).
-        $agencyId = (int) (auth()->user()->effectiveAgencyId() ?? auth()->user()->agency_id);
+        $agencyId = $this->actingAgencyId();
         EsignRecipientPreset::defaultFor($agencyId);
 
         $presets = EsignRecipientPreset::orderByDesc('is_default')->orderBy('name')->get();
@@ -62,8 +78,11 @@ class EsignRecipientPresetController extends Controller
     {
         $data = $request->validate($this->rules($request));
         $data['is_default'] = (bool) ($data['is_default'] ?? false);
+        // Stamp the agency explicitly — BelongsToAgency does not auto-stamp for
+        // owner/cross-agency roles, so rely on this for every role. For a scoped
+        // admin the trait would set the same value anyway.
+        $data['agency_id'] = $this->actingAgencyId();
 
-        // agency_id is force-set by BelongsToAgency::creating() from the actor.
         $preset = EsignRecipientPreset::create($data);
         $preset->enforceSingleDefault();
 

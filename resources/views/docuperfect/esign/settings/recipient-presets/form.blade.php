@@ -7,6 +7,8 @@
         caption: @js(old('signature_caption', $preset->signature_caption)),
         proxyPhrasing: @js(old('proxy_phrasing_template', $preset->proxy_phrasing_template)),
         proxyCaption: @js(old('proxy_signature_caption', $preset->proxy_signature_caption)),
+        defaultProxyPhrasing: @js(\App\Models\Docuperfect\EsignRecipientPreset::DEFAULT_PROXY_PHRASING),
+        defaultProxyCaption: @js(\App\Models\Docuperfect\EsignRecipientPreset::DEFAULT_PROXY_CAPTION),
      })">
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex items-center justify-between gap-3">
@@ -66,19 +68,19 @@
 
         {{-- Proxy wording --}}
         <div class="pt-4 mt-2" style="border-top: 1px dashed var(--border);">
-            <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color: var(--text-muted);">Proxy wording <span class="font-normal normal-case">— used when the representative signs as a proxy (POA). Leave blank to reuse the phrasing above.</span></h3>
+            <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color: var(--text-muted);">Proxy wording <span class="font-normal normal-case">— used when the representative signs as a proxy (e.g. an executor under a power of attorney). A proxy always renders with distinct wording; leave blank to use CoreX's standard proxy phrasing.</span></h3>
             <div class="space-y-4">
                 <div>
                     <label class="block text-xs font-semibold mb-1.5" style="color: var(--text-secondary);">Proxy representative phrasing</label>
                     <textarea name="proxy_phrasing_template" rows="2" x-model="proxyPhrasing"
                               class="w-full rounded-md px-3 py-2 text-sm outline-none" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); font-family: ui-monospace, monospace;"></textarea>
-                    <div class="mt-1 text-xs" style="color: var(--text-muted);">Preview: <span class="font-semibold" style="color: var(--brand-icon,#2563eb);" x-text="sub(proxyPhrasing || phrasing)"></span></div>
+                    <div class="mt-1 text-xs" style="color: var(--text-muted);">Preview: <span class="font-semibold" style="color: var(--brand-icon,#2563eb);" x-text="sub(proxyPhrasing || defaultProxyPhrasing)"></span></div>
                 </div>
                 <div>
                     <label class="block text-xs font-semibold mb-1.5" style="color: var(--text-secondary);">Proxy signature caption</label>
                     <textarea name="proxy_signature_caption" rows="2" x-model="proxyCaption"
                               class="w-full rounded-md px-3 py-2 text-sm outline-none" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); font-family: ui-monospace, monospace;"></textarea>
-                    <div class="mt-1 text-xs" style="color: var(--text-muted);">Preview: <span class="italic" style="color: var(--ds-green,#059669);" x-text="sub(proxyCaption || caption)"></span></div>
+                    <div class="mt-1 text-xs" style="color: var(--text-muted);">Preview: <span class="italic" style="color: var(--ds-green,#059669);" x-text="sub(proxyCaption || defaultProxyCaption)"></span></div>
                 </div>
             </div>
         </div>
@@ -102,6 +104,8 @@ function presetForm(init) {
         caption: init.caption || '',
         proxyPhrasing: init.proxyPhrasing || '',
         proxyCaption: init.proxyCaption || '',
+        defaultProxyPhrasing: init.defaultProxyPhrasing || '',
+        defaultProxyCaption: init.defaultProxyCaption || '',
         sample: { entity_name: 'Coastal Holdings (Pty) Ltd', rep_name: 'Jane Smith', capacity: 'Executor', entity_reg_no: '2015/123456/07' },
         // Mirrors EsignRecipientPreset::substitute() so the preview matches the server.
         sub(tpl) {

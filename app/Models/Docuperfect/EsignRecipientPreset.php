@@ -140,22 +140,37 @@ class EsignRecipientPreset extends Model
         return trim(preg_replace('/\s{2,}/', ' ', $out));
     }
 
-    /** Party-name phrasing. $isProxy selects the proxy phrasing when defined. */
+    /**
+     * Party-name phrasing. A PROXY signer ALWAYS renders with distinct proxy
+     * wording — an explicit proxy_phrasing_template when the agency set one, else
+     * CoreX's standard proxy phrasing. It never silently falls back to the
+     * ordinary phrasing, because a proxy that reads identically to a plain
+     * representative is a legal-distinctness hole (covers presets that predate
+     * the proxy columns and so carry NULL proxy fields).
+     */
     public function renderPhrase(Contact $entity, Contact $rep, ?string $capacity, bool $isProxy = false): string
     {
-        $template = $isProxy && filled($this->proxy_phrasing_template)
-            ? $this->proxy_phrasing_template
-            : ($this->phrasing_template ?: self::DEFAULT_PHRASING);
+        if ($isProxy) {
+            $template = filled($this->proxy_phrasing_template)
+                ? $this->proxy_phrasing_template
+                : self::DEFAULT_PROXY_PHRASING;
+        } else {
+            $template = $this->phrasing_template ?: self::DEFAULT_PHRASING;
+        }
 
         return self::substitute($template, $entity, $rep, $capacity);
     }
 
-    /** Signature caption. $isProxy selects the proxy caption when defined. */
+    /** Signature caption. Proxy signers always get distinct proxy wording (see renderPhrase). */
     public function renderCaption(Contact $entity, Contact $rep, ?string $capacity, bool $isProxy = false): string
     {
-        $template = $isProxy && filled($this->proxy_signature_caption)
-            ? $this->proxy_signature_caption
-            : ($this->signature_caption ?: self::DEFAULT_CAPTION);
+        if ($isProxy) {
+            $template = filled($this->proxy_signature_caption)
+                ? $this->proxy_signature_caption
+                : self::DEFAULT_PROXY_CAPTION;
+        } else {
+            $template = $this->signature_caption ?: self::DEFAULT_CAPTION;
+        }
 
         return self::substitute($template, $entity, $rep, $capacity);
     }
