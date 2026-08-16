@@ -100,6 +100,17 @@ class ViewingPackController extends Controller
                 'eligible'    => $docs->eligibleDocumentsFor($vpp),
                 'selectedIds' => $docs->selectedDocumentIds($vpp),
             ]);
+            // AT-10 — render INSIDE the try so a blade failure (e.g. the historical
+            // "Undefined array key" that hit this exact view for user 44) is logged
+            // with context instead of surfacing as an untraceable 5xx. ->render()
+            // forces compilation here; returning the View would defer rendering to
+            // after this method, past the try/catch.
+            return response(view('command-center.viewing-packs.show', [
+                'pack'        => $viewingPack,
+                'coreMatches' => $coreMatches,
+                'selectedIds' => $selectedIds,
+                'docPanel'    => $docPanel,
+            ])->render());
         } catch (\Throwable $e) {
             Log::error('Viewing Pack show failed', [
                 'user_id'         => auth()->id(),
@@ -111,13 +122,6 @@ class ViewingPackController extends Controller
             ]);
             throw $e;
         }
-
-        return view('command-center.viewing-packs.show', [
-            'pack'        => $viewingPack,
-            'coreMatches' => $coreMatches,
-            'selectedIds' => $selectedIds,
-            'docPanel'    => $docPanel,
-        ]);
     }
 
     /**
