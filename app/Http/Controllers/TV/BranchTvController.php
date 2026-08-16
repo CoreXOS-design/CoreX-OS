@@ -15,12 +15,29 @@ class BranchTvController extends Controller
     {
         $period = $request->query('period') ?: Carbon::now()->format('Y-m');
 
+        // SECURITY (stopgap — see config/tv.php): TvTokenMiddleware only proves
+        // possession of the single shared TV_TOKEN, not entitlement to THIS
+        // branch. Without this allow-list check, any token holder could
+        // enumerate /tv/branch/1..N and view every agency's sales targets,
+        // deal status, and agent leaderboards. Fail closed: an empty/unset
+        // allow-list rejects every branch ID.
+        $allowedBranchIds = config('tv.allowed_branch_ids', []);
+        abort_unless(in_array($branchId, $allowedBranchIds, true), 404);
+
         // Basic branch existence check
         $branchName = DB::table('branches')->where('id', $branchId)->value('name');
         abort_unless($branchName, 404);
 
+        // Resolve the branch's real agency so the rollup below is scoped to it
+        // rather than aggregating every agency's data (Branch uses
+        // BelongsToAgency/AgencyScope, but there is no authenticated user on
+        // this public token route, so that scope no-ops — look the branch up
+        // without global scopes and take its agency_id explicitly instead).
+        $agencyId = \App\Models\Branch::withoutGlobalScopes()->where('id', $branchId)->value('agency_id');
+        abort_unless($agencyId, 404);
+
         // Single source of truth (same engine BM uses)
-        $rollup = $service->getBranchRollup($branchId, $period);
+        $rollup = $service->getBranchRollup($branchId, $period, (int) $agencyId);
 
                 $statusSummary = Deal::statusSummaryForBranch((int)$branchId, (string)$period);
         // -----------------------------

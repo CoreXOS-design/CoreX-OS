@@ -151,8 +151,13 @@ class SettingsController extends Controller
         }
 
         // Agency Settings tab: Company details from Agency model
+        // No agency context (e.g. owner-role user with no active agency-
+        // switcher session) → leave $data['agency'] null so the view renders
+        // its empty/prompt-to-select-agency state (see the isset($agency)
+        // guards in corex.settings.blade.php) instead of showing whichever
+        // tenant happens to have the lowest id.
         $agencyId = $user?->effectiveAgencyId();
-        $data['agency'] = $agencyId ? Agency::find($agencyId) : Agency::first();
+        $data['agency'] = $agencyId ? Agency::find($agencyId) : null;
 
         // §15.2 — AI background removal for agent photos, per-agency toggle.
         $data['adBgRemovalApiEnabled'] = (bool) ($data['agency']->ad_bg_removal_api_enabled ?? true);
@@ -760,7 +765,15 @@ class SettingsController extends Controller
         abort_unless(auth()->user()?->hasPermission('manage_performance_settings'), 403);
 
         $agencyId = auth()->user()?->effectiveAgencyId();
-        $agency = $agencyId ? Agency::findOrFail($agencyId) : Agency::firstOrFail();
+        // No agency context (e.g. owner-role user with no active agency-
+        // switcher session) → leave $agency null and let the guard below
+        // reject the write, instead of silently mutating whichever tenant
+        // has the lowest id (and deleting/replacing its logo file).
+        $agency   = $agencyId ? Agency::find($agencyId) : null;
+
+        if (!$agency) {
+            return back()->with('error', 'No agency found.');
+        }
 
         $data = $request->validate([
             'trading_name'     => ['nullable', 'string', 'max:255'],
@@ -816,7 +829,22 @@ class SettingsController extends Controller
     {
         abort_unless(auth()->user()?->hasPermission('manage_performance_settings'), 403);
 
-        $agency = Agency::where('slug', 'hfc-coastal')->first();
+        // Single-tenant-era leftover removed: this used to hardcode the
+        // 'hfc-coastal' agency for every caller. Resolve the *caller's own*
+        // agency instead — this is a live preview of their own header, not
+        // an arbitrary tenant's. Fail closed (no preview) if no agency
+        // context is available (e.g. owner-role user with no active
+        // agency-switcher session), matching RequireAgencyContext's
+        // "no agency context" convention.
+        $agencyId = auth()->user()?->effectiveAgencyId();
+        $agency = $agencyId ? Agency::find($agencyId) : null;
+
+        if (!$agency) {
+            return response(
+                '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="font-family: Arial, sans-serif; margin: 8px; color:#888;">'
+                . 'No agency context — select an agency to preview the header.</body></html>'
+            )->header('Content-Type', 'text/html');
+        }
 
         // Build a temporary agency-like object with query param overrides
         $overrides = $request->only([
@@ -865,7 +893,12 @@ class SettingsController extends Controller
         $userId = $request->input('user_id');
         $agent = $userId ? User::find($userId) : auth()->user();
 
-        $agency = Agency::where('slug', 'hfc-coastal')->first();
+        // Single-tenant-era leftover removed: this used to hardcode the
+        // 'hfc-coastal' agency for every caller. Resolve the caller's own
+        // agency instead; if no agency context is available, fall back to
+        // a generic, non-tenant-specific placeholder (never a real tenant).
+        $agencyId = auth()->user()?->effectiveAgencyId();
+        $agency = $agencyId ? Agency::find($agencyId) : null;
 
         $agentFooter = [
             'name'             => $agent->name ?? 'Agent Name',
@@ -880,7 +913,7 @@ class SettingsController extends Controller
             'logo_url'         => $agency && $agency->logo_path ? asset('storage/' . $agency->logo_path) : null,
             'email_disclaimer' => $request->input('email_disclaimer', $agency->email_disclaimer ?? null),
             'popi_url'         => $request->input('popi_url', $agency->popi_url ?? null),
-            'agency_name'      => $agency->name ?? 'Home Finders Coastal',
+            'agency_name'      => $agency->name ?? config('app.name', 'CoreX OS'),
         ];
 
         $html = view('emails.signatures.partials.agent-footer', compact('agentFooter'))->render();
@@ -902,7 +935,11 @@ class SettingsController extends Controller
 
         $user     = auth()->user();
         $agencyId = $user?->effectiveAgencyId();
-        $agency   = $agencyId ? Agency::find($agencyId) : Agency::first();
+        // No agency context (e.g. owner-role user with no active agency-
+        // switcher session) → leave $agency null and let the existing
+        // "No agency found" guard below reject the write, instead of
+        // silently mutating whichever tenant has the lowest id.
+        $agency   = $agencyId ? Agency::find($agencyId) : null;
 
         if (!$agency) {
             return back()->with('error', 'No agency found.');
@@ -926,7 +963,11 @@ class SettingsController extends Controller
 
         $user     = auth()->user();
         $agencyId = $user?->effectiveAgencyId();
-        $agency   = $agencyId ? Agency::find($agencyId) : Agency::first();
+        // No agency context (e.g. owner-role user with no active agency-
+        // switcher session) → leave $agency null and let the existing
+        // "No agency found" guard below reject the write, instead of
+        // silently mutating whichever tenant has the lowest id.
+        $agency   = $agencyId ? Agency::find($agencyId) : null;
 
         if (!$agency) {
             return back()->with('error', 'No agency found.');
@@ -968,7 +1009,11 @@ class SettingsController extends Controller
 
         $user     = auth()->user();
         $agencyId = $user?->effectiveAgencyId();
-        $agency   = $agencyId ? Agency::find($agencyId) : Agency::first();
+        // No agency context (e.g. owner-role user with no active agency-
+        // switcher session) → leave $agency null and let the existing
+        // "No agency found" guard below reject the write, instead of
+        // silently mutating whichever tenant has the lowest id.
+        $agency   = $agencyId ? Agency::find($agencyId) : null;
 
         if (!$agency) {
             return back()->with('error', 'No agency found.');
@@ -1013,7 +1058,11 @@ class SettingsController extends Controller
 
         $user     = auth()->user();
         $agencyId = $user?->effectiveAgencyId();
-        $agency   = $agencyId ? Agency::find($agencyId) : Agency::first();
+        // No agency context (e.g. owner-role user with no active agency-
+        // switcher session) → leave $agency null and let the existing
+        // "No agency found" guard below reject the write, instead of
+        // silently mutating whichever tenant has the lowest id.
+        $agency   = $agencyId ? Agency::find($agencyId) : null;
 
         if (!$agency) {
             return back()->with('error', 'No agency found.');
@@ -1045,7 +1094,11 @@ class SettingsController extends Controller
     {
         $user     = auth()->user();
         $agencyId = $user?->effectiveAgencyId();
-        $agency   = $agencyId ? Agency::find($agencyId) : Agency::first();
+        // No agency context (e.g. owner-role user with no active agency-
+        // switcher session) → leave $agency null and let the existing
+        // "No agency found" guard below reject the write, instead of
+        // silently mutating whichever tenant has the lowest id.
+        $agency   = $agencyId ? Agency::find($agencyId) : null;
 
         if (!$agency) {
             return back()->with('error', 'No agency found.');

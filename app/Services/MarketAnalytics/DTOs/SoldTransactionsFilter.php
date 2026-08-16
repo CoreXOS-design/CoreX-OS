@@ -23,5 +23,10 @@ class SoldTransactionsFilter
         // legacy callers (and real subjects) read only real data; demo-
         // tagged subjects flip this to true so they read only demo data.
         public readonly bool    $subjectIsDemo    = false,
+        // SECURITY — the requesting agency. Required by
+        // MarketCompRowsSoldAdapter to scope its market_report_comp_rows
+        // read (that table is NOT part of the market_data_points
+        // shared-pool exception; mic-complete-spec §13.1/§13.2).
+        public readonly ?int    $agencyId         = null,
     ) {}
 }

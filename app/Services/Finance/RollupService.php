@@ -6,6 +6,7 @@ use App\Models\Deal;
 use App\Models\FinanceAuditItem;
 use App\Models\FinanceAuditRun;
 use App\Models\FinanceComputedValue;
+use App\Models\Scopes\AgencyScope;
 use App\Services\Finance\Legacy\AgentRollupLegacyReader;
 use App\Services\Finance\Legacy\BranchRollupLegacyReader;
 use App\Services\Finance\Legacy\CompanyRollupLegacyReader;
@@ -39,12 +40,28 @@ class RollupService
     private const MATCH_TOLERANCE = 0.01;
 
     /**
+     * Agency currently being rolled up, set at the top of computeRollups() from
+     * $run->agency_id. Read by the write* / upsertComputedValue helpers so every
+     * row this instance writes is stamped explicitly — never left to the
+     * Auth-derived AgencyScope global scope. See computeRollups() docblock.
+     */
+    private int $agencyId = 0;
+
+    /**
      * Lightweight period refresh — auto-triggered after deal changes.
      * Creates a minimal audit run and recomputes all rollups for the period.
+     *
+     * $agencyId MUST be the owning agency of the deal that triggered the refresh (e.g.
+     * $deal->agency_id), NOT inferred from Auth::user(). The acting user may be an
+     * unscoped owner-role account editing a deal that belongs to a different agency than
+     * whatever the AgencyScope global scope would stamp, and finance_computed_values rows
+     * are now partitioned per-agency (see fcv_agency_def_entity_period_unique) — an
+     * agency_id mismatch here would silently roll a deal into the wrong tenant's numbers.
      */
-    public function refreshPeriod(string $period): void
+    public function refreshPeriod(string $period, int $agencyId): void
     {
         $run = FinanceAuditRun::create([
+            'agency_id'      => $agencyId,
             'period'         => $period,
             'scope'          => json_encode(['trigger' => 'auto']),
             'status'         => 'running',
@@ -96,6 +113,14 @@ class RollupService
      *   entity_id int|null  optional single-entity filter (not yet scoping the query,
      *                       future extension — currently all deals are loaded)
      * }
+     *
+     * Deals are scoped to $run->agency_id (NOT NULL on every finance_audit_runs row).
+     * Every finance_computed_values / finance_audit_items row this method writes is
+     * stamped with that same agency_id, explicitly — not left to the Eloquent
+     * AgencyScope global scope, since the acting Auth user (if any) may be an
+     * unscoped owner-role account whose implicit scope would not match $run's agency.
+     * A single company_period / branch_period / agent_period row is therefore always
+     * ONE agency's numbers, never a cross-tenant aggregate.
      */
     public function computeRollups(
         FinanceAuditRun $run,
@@ -103,15 +128,19 @@ class RollupService
         int $limit,
         array $options = []
     ): void {
-        $roles  = $options['roles']  ?? ['agent', 'bm', 'admin'];
-        $stages = $options['stages'] ?? self::ALL_STAGES;
+        $roles     = $options['roles']  ?? ['agent', 'bm', 'admin'];
+        $stages    = $options['stages'] ?? self::ALL_STAGES;
+        $agencyId  = (int) $run->agency_id;
+        $this->agencyId = $agencyId;
 
         $doAgent   = in_array('agent', $roles, true);
         $doBranch  = in_array('bm', $roles, true);
         $doCompany = in_array('admin', $roles, true);
 
-        // Load deals with eager-loaded agents (User models carry branch_id)
+        // Load deals with eager-loaded agents (User models carry branch_id).
+        // Scoped to this run's agency — see class-level note on computeRollups().
         $deals = Deal::where('period', $period)
+            ->where('agency_id', $agencyId)
             ->with('agents')
             ->orderBy('id')
             ->limit($limit)
@@ -699,6 +728,7 @@ class RollupService
         float $value
     ): void {
         FinanceAuditItem::create([
+            'agency_id'        => $this->agencyId,
             'audit_run_id'     => $run->id,
             'definition_key'   => $definitionKey,
             'entity_type'      => $entityType,
@@ -721,6 +751,7 @@ class RollupService
         array $breakdown
     ): void {
         FinanceAuditItem::create([
+            'agency_id'      => $this->agencyId,
             'audit_run_id'   => $run->id,
             'definition_key' => $definitionKey,
             'entity_type'    => $entityType,
@@ -976,8 +1007,9 @@ class RollupService
             return;
         }
         $def = $defs[$key];
-        FinanceComputedValue::updateOrCreate(
+        FinanceComputedValue::withoutGlobalScope(AgencyScope::class)->updateOrCreate(
             [
+                'agency_id'     => $this->agencyId,
                 'definition_id' => $def->id,
                 'entity_type'   => $entityType,
                 'entity_id'     => $entityId,
@@ -1023,6 +1055,7 @@ class RollupService
         }
 
         FinanceAuditItem::create([
+            'agency_id'        => $this->agencyId,
             'audit_run_id'     => $run->id,
             'definition_key'   => $definitionKey,
             'entity_type'      => $entityType,

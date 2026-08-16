@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\DealV2;
 
 use App\Http\Controllers\Controller;
+use App\Models\BranchSetting;
 use App\Models\DealV2\DealActivityLog;
 use App\Models\DealV2\DealV2;
 use App\Models\DealV2\DealV2Settlement;
+use App\Models\PerformanceSetting;
 use App\Models\User;
 use Illuminate\Http\Request;
 
@@ -64,6 +66,14 @@ class DealV2SettlementController extends Controller
 
         $markPaid = $request->boolean('mark_paid');
 
+        // SECURITY (Bug 2) — listing_share/selling_share are validated on VALUES
+        // only; the array KEYS ($userId) are attacker-controlled and were never
+        // checked against who is actually on the deal. Restrict to user ids
+        // actually attached to $deal->agents (agency-scoped via the pivot) so an
+        // arbitrary/cross-agency integer key can no longer create a dangling
+        // settlement row carrying commission gross/net/PAYE figures.
+        $validAgentIds = $deal->agents()->pluck('users.id')->map(fn ($id) => (int) $id)->all();
+
         // Save settlements per side
         foreach (['listing', 'selling'] as $side) {
             if ($deal->{$side . '_external'}) {
@@ -78,6 +88,15 @@ class DealV2SettlementController extends Controller
             $deductionsDescs = $data[$side . '_deductions_desc'] ?? [];
 
             foreach ($shares as $userId => $sharePercent) {
+                if (! in_array((int) $userId, $validAgentIds, true)) {
+                    \Illuminate\Support\Facades\Log::warning('DealV2SettlementController::saveSettlement skipped settlement for user id not attached to deal', [
+                        'deal_id' => $deal->id,
+                        'side' => $side,
+                        'user_id' => $userId,
+                    ]);
+                    continue;
+                }
+
                 $settlement = DealV2Settlement::updateOrCreate(
                     ['deal_id' => $deal->id, 'user_id' => $userId, 'side' => $side],
                     [
@@ -140,7 +159,7 @@ class DealV2SettlementController extends Controller
 
         $deal->load(['agents', 'settlements', 'property', 'listingAgent', 'sellingAgent']);
         $summary = $this->buildSettlementSummary($deal);
-        $companyName = (string) \App\Models\PerformanceSetting::get('company_name', 'Home Finders Coastal');
+        $companyName = $this->resolveCompanyName($deal);
 
         // Extract variables for V1-compatible template
         return view('deals-v2.settlement.print', [
@@ -171,7 +190,7 @@ class DealV2SettlementController extends Controller
 
         $deal->load(['agents', 'settlements', 'property']);
         $summary = $this->buildSettlementSummary($deal);
-        $companyName = (string) \App\Models\PerformanceSetting::get('company_name', 'Home Finders Coastal');
+        $companyName = $this->resolveCompanyName($deal);
 
         $uid = $user->id;
         $listingMine = array_values(array_filter($summary['listingRows'], fn ($r) => (int) $r['user_id'] === $uid));
@@ -198,6 +217,32 @@ class DealV2SettlementController extends Controller
     }
 
     // ── Private methods (ported from V1 DealController) ──
+
+    /**
+     * SECURITY/CORRECTNESS (Bug 4) — company_name is documented on the
+     * PerformanceSetting model as a genuinely-global key (NULL-agency rows
+     * only), so a newly onboarded agency with no explicit override would
+     * silently get the "Home Finders Coastal" hardcoded default on their
+     * settlement documents. Same cascade already used by
+     * ToolsController::getPrintSettingsForUser(): BranchSetting (deal's
+     * branch) -> PerformanceSetting (deal's agency) -> Agency->name ->
+     * hardcoded fallback.
+     */
+    private function resolveCompanyName(DealV2 $deal): string
+    {
+        $default = $deal->agency?->name ?: 'Home Finders Coastal';
+
+        $companyName = (string) PerformanceSetting::get('company_name', $default, $deal->agency_id);
+
+        if ($deal->branch_id) {
+            $branchValue = (string) BranchSetting::getForBranch((int) $deal->branch_id, 'company_name', $companyName);
+            if ($branchValue !== '') {
+                $companyName = $branchValue;
+            }
+        }
+
+        return $companyName;
+    }
 
     private function buildSettlementSummary(DealV2 $deal): array
     {

@@ -134,7 +134,7 @@ class UserManagementController extends Controller
             ->orderBy('name')->get(['id','name']);
         $designations = DB::table('designations')
             ->where('is_enabled', 1)->orderBy('sort_order')->orderBy('name')->get(['id','name']);
-        $roles = Role::orderBy('sort_order')->get();
+        $roles = Role::allRoles($agencyId);
 
         return view('admin.users.create-edit', [
             'user'         => null,
@@ -272,7 +272,9 @@ class UserManagementController extends Controller
         }
         if ($request->hasFile('ffc_certificate')) {
             $ext = $request->file('ffc_certificate')->getClientOriginalExtension();
-            $path = $request->file('ffc_certificate')->storeAs("agents/{$user->id}", "ffc.{$ext}", 'public');
+            // Private disk — sensitive compliance doc. Access goes through
+            // UserDocumentDownloadController::downloadFfcCertificate().
+            $path = $request->file('ffc_certificate')->storeAs("agents/{$user->id}", "ffc.{$ext}", 'local');
             $user->update(['ffc_certificate_path' => $path]);
         }
 
@@ -306,7 +308,7 @@ class UserManagementController extends Controller
             ->orderBy('name')->get(['id','name']);
         $designations = DB::table('designations')
             ->where('is_enabled', 1)->orderBy('sort_order')->orderBy('name')->get(['id','name']);
-        $roles = Role::orderBy('sort_order')->get();
+        $roles = Role::allRoles($agencyId);
 
         $canViewLoginHistory = (bool) auth()->user()?->hasPermission('users.login_history.view');
         $loginHistory = $canViewLoginHistory
@@ -495,10 +497,13 @@ class UserManagementController extends Controller
         }
         if ($request->hasFile('ffc_certificate')) {
             if ($user->ffc_certificate_path) {
-                Storage::disk('public')->delete($user->ffc_certificate_path);
+                // Delete from whichever disk the old file actually lives on — legacy
+                // rows may still be on 'public' from before this fix.
+                Storage::disk(Storage::disk('local')->exists($user->ffc_certificate_path) ? 'local' : 'public')
+                    ->delete($user->ffc_certificate_path);
             }
             $ext = $request->file('ffc_certificate')->getClientOriginalExtension();
-            $path = $request->file('ffc_certificate')->storeAs("agents/{$user->id}", "ffc.{$ext}", 'public');
+            $path = $request->file('ffc_certificate')->storeAs("agents/{$user->id}", "ffc.{$ext}", 'local');
             $user->update(['ffc_certificate_path' => $path]);
         }
 
@@ -803,11 +808,14 @@ class UserManagementController extends Controller
 
         if ($request->hasFile('ffc_certificate')) {
             if ($user->ffc_certificate_path) {
-                Storage::disk('public')->delete($user->ffc_certificate_path);
+                // Delete from whichever disk the old file actually lives on — legacy
+                // rows may still be on 'public' from before this fix.
+                Storage::disk(Storage::disk('local')->exists($user->ffc_certificate_path) ? 'local' : 'public')
+                    ->delete($user->ffc_certificate_path);
             }
             $ext = $request->file('ffc_certificate')->getClientOriginalExtension();
             $path = $request->file('ffc_certificate')->storeAs(
-                "agents/{$user->id}", "ffc.{$ext}", 'public'
+                "agents/{$user->id}", "ffc.{$ext}", 'local'
             );
             $user->update(['ffc_certificate_path' => $path]);
         }
@@ -846,7 +854,10 @@ class UserManagementController extends Controller
         }
 
         if ($field === 'ffc_certificate' && $user->ffc_certificate_path) {
-            Storage::disk('public')->delete($user->ffc_certificate_path);
+            // Delete from whichever disk the file actually lives on — legacy rows
+            // may still be on 'public' from before this fix.
+            Storage::disk(Storage::disk('local')->exists($user->ffc_certificate_path) ? 'local' : 'public')
+                ->delete($user->ffc_certificate_path);
             $user->update(['ffc_certificate_path' => null]);
             return back()->with('status', "FFC certificate removed for {$user->name}.");
         }

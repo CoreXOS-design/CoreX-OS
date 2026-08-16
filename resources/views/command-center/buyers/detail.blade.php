@@ -584,7 +584,7 @@
         <form method="POST" action="{{ route('command-center.buyers.mark-lost', $buyer) }}" class="p-5 space-y-4">
             @csrf
             <h3 class="text-lg font-semibold">Why is this buyer being marked as lost?</h3>
-            @php $reasons = DB::table('agency_lost_deal_reasons')->where('agency_id', $buyer->agency_id ?? 1)->where('applies_to_buyers', true)->where('active', true)->orderBy('display_order')->get(); @endphp
+            @php $reasons = DB::table('agency_lost_deal_reasons')->where('agency_id', $buyer->agency_id)->where('applies_to_buyers', true)->where('active', true)->orderBy('display_order')->get(); @endphp
             <div class="space-y-1 max-h-48 overflow-y-auto">
                 @foreach($reasons as $reason)
                     <label class="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-xs" style="color: var(--text-primary);">

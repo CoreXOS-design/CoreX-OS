@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Concerns;
 
+use App\Models\Agency;
 use App\Models\Docuperfect\Document;
 use App\Models\Docuperfect\SignatureRequest;
 use App\Models\Docuperfect\SignatureTemplate;
@@ -85,6 +86,7 @@ trait BuildsSigningSession
             'name'              => 'Canonical Doc',
             'document_type'     => 'agreement',
             'owner_id'          => $creator->id,
+            'agency_id'         => $creator->agency_id,
             'template_id'       => $template->id,
             'web_template_data' => ['merged_html' => $mergedHtml],
         ]);
@@ -222,12 +224,25 @@ trait BuildsSigningSession
 
     private function seedAgentUser(): User
     {
+        // Document (and therefore this whole signing-session fixture) now
+        // requires a NOT NULL agency_id (see the docuperfect_documents
+        // migration added alongside BelongsToAgency on the Document model).
+        // No actingAs() runs in this helper, so BelongsToAgency's creating
+        // hook has no Auth::user() to stamp from — the agency must be
+        // explicit, trusted "non-auth ingress" input, per the trait's own
+        // documented convention.
+        $agencyId = (int) Agency::create([
+            'name' => 'Signing Session Test Agency',
+            'slug' => 'signing-session-' . Str::random(8),
+        ])->id;
+
         $userId = (int) DB::table('users')->insertGetId([
             'name'  => 'Listing Agent',
             'email' => 'la-' . Str::random(6) . '@hfc.test',
             'password' => bcrypt('p'),
             'role'  => 'agent',
             'phone' => '+27 76 618 5578',
+            'agency_id' => $agencyId,
             'created_at' => now(),
             'updated_at' => now(),
         ]);

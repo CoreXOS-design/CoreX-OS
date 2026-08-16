@@ -31,10 +31,23 @@ Route::post('account-setup/{user}', [AccountSetupController::class, 'store'])
 // never restores a stale login/register/reset form from bfcache with a dead
 // CSRF token — the root cause of intermittent 419 "Page Expired" on sign-in.
 Route::middleware(['guest', 'auth.nocache'])->group(function () {
-    Route::get('register', [RegisteredUserController::class, 'create'])
-        ->name('register');
-
-    Route::post('register', [RegisteredUserController::class, 'store']);
+    // Public self-registration is intentionally DISABLED (2026-08-16). This app is
+    // invite-only end-to-end: a new agency's first Admin is created via an
+    // email-only invite (.ai/specs/agency-admin-rule.md §R1a — the System Owner
+    // never even sees a password), and every subsequent user is added via
+    // UserManagementController's UserInviteMail + signed `account-setup` link.
+    // No spec describes self-signup as a product feature. The stock Breeze
+    // `RegisteredUserController::store()` this pointed to creates a bare User
+    // with no agency_id/branch_id and the DB-default role ('agent' — see
+    // App\Models\User $fillable comment on 'role'); under AgencyScope, a NULL
+    // agency_id means the query is left UNSCOPED (not merely denied), so a
+    // self-registered "agent" could end up with unscoped, cross-agency data
+    // access. Only reference to it was the un-customized Breeze
+    // `@if (Route::has('register'))` link on the public welcome page, which
+    // now naturally disappears since Route::has('register') is false.
+    // Route::get('register', [RegisteredUserController::class, 'create'])
+    //     ->name('register');
+    // Route::post('register', [RegisteredUserController::class, 'store']);
 
     Route::get('login', [AuthenticatedSessionController::class, 'create'])
         ->name('login');

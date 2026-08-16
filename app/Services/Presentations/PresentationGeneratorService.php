@@ -159,6 +159,9 @@ class PresentationGeneratorService
                 // adapters read demo or real comp/deal data. Real subjects
                 // (default) never see synthetic data, and vice versa.
                 subjectIsDemo:    (bool) ($property->is_demo ?? false),
+                // SECURITY — scopes MarketCompRowsSoldAdapter / MarketCompRowsActiveAdapter
+                // reads of market_report_comp_rows to this presentation's own agency.
+                agencyId:         (int) $presentation->agency_id,
             );
 
             $maService = new MarketAnalyticsService(

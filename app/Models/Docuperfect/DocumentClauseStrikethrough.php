@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Docuperfect;
 
+use App\Models\Concerns\BelongsToAgency;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -25,6 +26,8 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
  */
 class DocumentClauseStrikethrough extends Model
 {
+    use BelongsToAgency;
+
     protected $table = 'document_clause_strikethroughs';
 
     protected $fillable = [

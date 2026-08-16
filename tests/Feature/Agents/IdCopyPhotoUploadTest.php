@@ -35,7 +35,9 @@ class IdCopyPhotoUploadTest extends TestCase
 
     public function test_front_and_back_photos_become_one_id_copy_pdf(): void
     {
-        Storage::fake('public');
+        // Sensitive document — written to the private 'local' disk, not 'public'.
+        // See UserDocumentDownloadController for the gated read path.
+        Storage::fake('local');
         $user = $this->makeAgent();
 
         $response = $this->actingAs($user)->post('/corex/my-portal/upload', [
@@ -54,7 +56,7 @@ class IdCopyPhotoUploadTest extends TestCase
         $this->assertNotNull($doc, 'An id_copy document should be created.');
         $this->assertSame('application/pdf', $doc->mime_type);
         $this->assertSame('pending', $doc->status);
-        Storage::disk('public')->assertExists($doc->file_path);
+        Storage::disk('local')->assertExists($doc->file_path);
     }
 
     public function test_photo_mode_requires_both_sides(): void

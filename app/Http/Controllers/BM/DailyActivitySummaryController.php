@@ -66,6 +66,15 @@ class DailyActivitySummaryController extends Controller
 
         $defIds = $defs->pluck('id')->map(fn($v)=>(int)$v)->all();
 
+        // daily_activity_entries has agency_id but no automatic tenant scope on
+        // this raw query-builder path. branch_id is filtered above, but
+        // branch ids are globally unique (not namespaced per agency) and the
+        // owner "no branch" fallback below can resolve to ANY agency's first
+        // branch — so the agency_id filter is added as an explicit, unambiguous
+        // tenant boundary, matching every other daily_activity_entries call
+        // site fixed in this pass.
+        $agencyId = $u->effectiveAgencyId();
+
         // M6.5 — achievement-total filter (confirmed/overridden + manual/auto_*).
         $agg = DB::table('daily_activity_entries as e')
             ->selectRaw('e.activity_definition_id as def_id, SUM(e.value) as total_count')
@@ -74,6 +83,9 @@ class DailyActivitySummaryController extends Controller
             ->whereIn('e.activity_definition_id', $defIds)
             ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
             ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
+            ->when($agencyId, function ($q) use ($agencyId) {
+                $q->where('e.agency_id', $agencyId);
+            })
             ->groupBy('e.activity_definition_id')
             ->get()
             ->keyBy('def_id');
@@ -133,6 +145,11 @@ class DailyActivitySummaryController extends Controller
 
         abort_unless($def, 404);
 
+        // daily_activity_entries has agency_id but no automatic tenant scope on
+        // this raw query-builder path — added as defense in depth (see
+        // index() above for the same fix and rationale).
+        $agencyId = $u->effectiveAgencyId();
+
         // Agent totals for this activity in this branch + range
         // M6.5 — achievement-total filter.
         $rows = DB::table('daily_activity_entries as e')
@@ -143,6 +160,9 @@ class DailyActivitySummaryController extends Controller
             ->whereBetween('e.activity_date', [$start->toDateString(), $end->toDateString()])
             ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
             ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
+            ->when($agencyId, function ($q) use ($agencyId) {
+                $q->where('e.agency_id', $agencyId);
+            })
             ->groupBy('e.user_id', 'u.name')
             ->orderByRaw('SUM(e.value) DESC')
             ->get();

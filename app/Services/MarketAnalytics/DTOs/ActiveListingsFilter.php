@@ -20,5 +20,10 @@ class ActiveListingsFilter
         public readonly ?float  $subjectLongitude = null,
         // Phase 3h Step 9 — demo / real isolation. See SoldTransactionsFilter.
         public readonly bool    $subjectIsDemo    = false,
+        // SECURITY — the requesting agency. Required by
+        // MarketCompRowsActiveAdapter to scope its market_report_comp_rows
+        // read (that table is NOT part of the market_data_points
+        // shared-pool exception; mic-complete-spec §13.1/§13.2).
+        public readonly ?int    $agencyId         = null,
     ) {}
 }

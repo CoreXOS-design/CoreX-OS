@@ -47,7 +47,7 @@ class CalendarEvent extends Model
             $this->user_id,
             $this->getOriginal('user_id'),
         ])) as $userId) {
-            \Illuminate\Support\Facades\Cache::forget("command_centre_{$userId}");
+            \Illuminate\Support\Facades\Cache::forget("command_centre_{$userId}_{$this->agency_id}");
         }
     }
 

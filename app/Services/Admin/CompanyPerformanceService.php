@@ -58,7 +58,7 @@ return [
         return implode(" + ", $parts);
     }
 
-    public function getPeriodRollup(string $period): array
+    public function getPeriodRollup(string $period, ?int $agencyId = null): array
     {
         // Safety: ensure no leaked branch-scope vars ever trigger warnings
         $companyIncomeBranchTotal = 0.0;
@@ -84,6 +84,7 @@ return [
                       ->join('deals', 'deals.id', '=', 'deal_user.deal_id')
                       ->whereBetween('deals.deal_date', [$start->toDateString(), $end->toDateString()])
                       ->whereRaw("COALESCE(deals.accepted_status,'') != 'D'")
+                      ->when($agencyId !== null, fn($q) => $q->where('deals.agency_id', $agencyId))
                       ->distinct()
                       ->pluck('deal_user.user_id')
                       ->all();
@@ -92,6 +93,7 @@ return [
               ->whereIn('role', ['agent','branch_manager','admin'])
               ->where('counts_for_branch_split', 1)
               ->whereNotNull('branch_id')
+              ->when($agencyId !== null, fn($q) => $q->where('agency_id', $agencyId))
               ->where(function ($q) use ($periodParticipantIds) {
                   $q->where('is_active', 1);
                   if (!empty($periodParticipantIds)) {
@@ -107,6 +109,7 @@ return [
         $targets = DB::table('targets')
             ->where('period', $period)
             ->whereIn('user_id', $agentIds)
+            ->when($agencyId !== null, fn($q) => $q->where('agency_id', $agencyId))
             ->select('user_id','branch_id','deals_target','listings_target','value_target','points_target')
             ->get()
             ->keyBy('user_id');
@@ -119,6 +122,7 @@ return [
               ->whereIn('deal_user.user_id', $agentIds)
               ->whereBetween('deals.deal_date', [$start->toDateString(), $end->toDateString()])
               ->whereRaw("COALESCE(deals.accepted_status,'') != 'D'")
+              ->when($agencyId !== null, fn($q) => $q->where('deals.agency_id', $agencyId))
               ->groupBy('deal_user.user_id')
               ->selectRaw('deal_user.user_id as user_id')
               ->selectRaw('COUNT(DISTINCT deal_user.deal_id) as deals_count')
@@ -142,11 +146,15 @@ return [
             ->where('ad.is_enabled', 1)
             ->whereIn('dae.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
             ->whereIn('dae.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
+            ->when($agencyId !== null, fn($q) => $q->where('dae.agency_id', $agencyId))
             ->groupBy('dae.user_id')
             ->selectRaw("dae.user_id as user_id, COUNT(*) as rows_count, COALESCE(SUM(dae.value * ad.weight),0) as points_sum")
             ->get()
             ->keyBy('user_id');
-$branches = DB::table('branches')->select('id','name')->get()->keyBy('id');
+$branches = DB::table('branches')
+    ->select('id','name')
+    ->when($agencyId !== null, fn($q) => $q->where('agency_id', $agencyId))
+    ->get()->keyBy('id');
 
         $rows = [];
         foreach ($agents as $a) {
@@ -188,7 +196,7 @@ $branches = DB::table('branches')->select('id','name')->get()->keyBy('id');
         // Calendar context for pace/status calculations (period-level)
         // --- Finance Engine dual-read: primary source is finance_computed_values ---
         $readModel = app(FinanceReadModel::class);
-        $companyEngineResult = $readModel->getCompanyPeriodMap($period);
+        $companyEngineResult = $readModel->getCompanyPeriodMap($period, $agencyId);
         $useEngine = !empty($companyEngineResult['data']);
 
         if ($useEngine) {
@@ -201,6 +209,7 @@ $branches = DB::table('branches')->select('id','name')->get()->keyBy('id');
             $dealsInPeriod = DB::table('deals')
                 ->whereBetween('deal_date', [$start->toDateString(), $end->toDateString()])
                   ->whereRaw("COALESCE(accepted_status,'') != 'D'")
+                ->when($agencyId !== null, fn($q) => $q->where('agency_id', $agencyId))
                 ->select('id','branch_id','total_commission','listing_external','listing_our_share_percent','selling_external','selling_our_share_percent','listing_split_percent','selling_split_percent')
                 ->get();
 
@@ -229,7 +238,7 @@ $branches = DB::table('branches')->select('id','name')->get()->keyBy('id');
             foreach ($rows as &$r) {
                 $uid = (int)($r['user_id'] ?? 0);
                 if ($uid > 0) {
-                    $agentMap = $readModel->getAgentPeriodMap($uid, $period);
+                    $agentMap = $readModel->getAgentPeriodMap($uid, $period, $agencyId);
                     $r['actuals']['company_income']   = (float)($agentMap['agent_period.money.total_nondeclined.company_income_ex_vat'] ?? 0);
                     $r['actuals']['agent_income']     = (float)($agentMap['agent_period.money.total_nondeclined.agent_income_ex_vat'] ?? 0);
                     $r['actuals']['company_retained'] = (float)($agentMap['agent_period.money.total_nondeclined.retained_ex_vat'] ?? 0);
@@ -249,6 +258,7 @@ $branches = DB::table('branches')->select('id','name')->get()->keyBy('id');
                     ->whereIn('deal_user.user_id', $allocUserIds)
                     ->whereBetween('deals.deal_date', [$start->toDateString(), $end->toDateString()])
                     ->whereRaw("COALESCE(deals.accepted_status,'') != 'D'")
+                    ->when($agencyId !== null, fn($q) => $q->where('deals.agency_id', $agencyId))
                     ->select(
                         'deal_user.user_id',
                         'deal_user.deal_id',
@@ -439,7 +449,7 @@ foreach ($rows as &$r) {
 
             if ($useEngine) {
                 // ENGINE PATH: Read ledger values from Finance Engine
-                $branchMapResult = $readModel->getBranchPeriodMap($bid, $period);
+                $branchMapResult = $readModel->getBranchPeriodMap($bid, $period, $agencyId);
                 $bData = $branchMapResult['data'] ?? [];
                 $b['actuals']['ledger_company_income']   = (float)($bData['branch_period.money.total_nondeclined.ledger_company_income_ex_vat'] ?? 0);
                 $b['actuals']['ledger_agent_income']     = (float)($bData['branch_period.money.total_nondeclined.ledger_agent_income_ex_vat'] ?? 0);
@@ -455,6 +465,7 @@ foreach ($rows as &$r) {
                     ->where('deals.branch_id', $bid)
                     ->whereBetween('deals.deal_date', [$start->toDateString(), $end->toDateString()])
                     ->whereRaw("COALESCE(deals.accepted_status,'') != 'D'")
+                    ->when($agencyId !== null, fn($q) => $q->where('deals.agency_id', $agencyId))
                     ->select(
                         'deal_user.side',
                         'deal_user.agent_split_percent',
@@ -549,9 +560,9 @@ foreach ($rows as &$r) {
         ];
     }
 
-    public function getBranchRollup(int $branchId, string $period): array
+    public function getBranchRollup(int $branchId, string $period, ?int $agencyId = null): array
     {
-        $rollup = $this->getPeriodRollup($period);
+        $rollup = $this->getPeriodRollup($period, $agencyId);
 
         $rows = array_values(array_filter($rollup['rows'], fn($r) => (int)($r['branch_id'] ?? 0) === (int)$branchId));
 
@@ -588,6 +599,7 @@ foreach ($rows as &$r) {
             ->where('users.branch_id', $branchId)
             ->whereBetween('deals.deal_date', [$start->toDateString(), $end->toDateString()])
             ->whereRaw("COALESCE(deals.accepted_status,'') != 'D'")
+            ->when($agencyId !== null, fn($q) => $q->where('deals.agency_id', $agencyId))
             ->selectRaw('COUNT(DISTINCT deal_user.deal_id) as deals_count')
             ->selectRaw("COALESCE(SUM({$splitExpr}), 0) as sales_value")
             ->first();
@@ -631,11 +643,13 @@ foreach ($rows as &$r) {
             })
             ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
             ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
+            ->when($agencyId !== null, fn($q) => $q->where('e.agency_id', $agencyId))
             ->sum(DB::raw('e.value * d.weight'));
 
         $pointsTarget = (float) DB::table('targets')
             ->where('period', $period)
             ->where('branch_id', $branchId)
+            ->when($agencyId !== null, fn($q) => $q->where('agency_id', $agencyId))
             ->sum('points_target');
 
         $pointsPct = ($pointsTarget > 0) ? round(($pointsActual / $pointsTarget) * 100, 1) : 0.0;
@@ -675,13 +689,14 @@ foreach ($rows as &$r) {
             })
             ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
             ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
+            ->when($agencyId !== null, fn($q) => $q->where('e.agency_id', $agencyId))
             ->sum(DB::raw('e.value * d.weight'));
         /* BM_V2_POINTS_PATCH_END */
 
 
         // --- LEDGER income for this branch (Finance Engine primary, inline fallback) ---
         $readModel = app(FinanceReadModel::class);
-        $branchMapResult = $readModel->getBranchPeriodMap($branchId, $period);
+        $branchMapResult = $readModel->getBranchPeriodMap($branchId, $period, $agencyId);
         $useBranchEngine = !empty($branchMapResult['data']);
 
         if ($useBranchEngine) {
@@ -696,6 +711,7 @@ foreach ($rows as &$r) {
                 ->where('branch_id', $branchId)
                 ->whereBetween('deal_date', [$start->toDateString(), $end->toDateString()])
                 ->whereRaw("COALESCE(accepted_status,'') != 'D'")
+                ->when($agencyId !== null, fn($q) => $q->where('agency_id', $agencyId))
                 ->select('id','total_commission','listing_external','listing_our_share_percent','selling_external','selling_our_share_percent')
                 ->get();
 
@@ -711,6 +727,7 @@ foreach ($rows as &$r) {
                 ->where('deals.branch_id', $branchId)
                 ->whereBetween('deals.deal_date', [$start->toDateString(), $end->toDateString()])
                 ->whereRaw("COALESCE(deals.accepted_status,'') != 'D'")
+                ->when($agencyId !== null, fn($q) => $q->where('deals.agency_id', $agencyId))
                 ->select(
                     'deal_user.user_id',
                     'deal_user.side',
@@ -808,6 +825,7 @@ foreach ($rows as &$r) {
                   })
                   ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
                   ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
+                  ->when($agencyId !== null, fn($q) => $q->where('e.agency_id', $agencyId))
                   ->groupBy(DB::raw('date(e.activity_date)'))
                   ->orderBy(DB::raw('date(e.activity_date)'))
                   ->selectRaw('date(e.activity_date) as d, COALESCE(SUM(e.value * d.weight),0) as pts')
@@ -898,6 +916,7 @@ foreach ($rows as &$r) {
             ->where('d.is_enabled', 1)
             ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
             ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
+            ->when($agencyId !== null, fn($q) => $q->where('e.agency_id', $agencyId))
             ->sum(DB::raw('e.value * d.weight'));
 
         $rollup['points'] = [
@@ -915,10 +934,10 @@ foreach ($rows as &$r) {
 
         return $rollup;
     }
-    public function getAgentRollup(int $branchId, int $userId, string $period): array
+    public function getAgentRollup(int $branchId, int $userId, string $period, ?int $agencyId = null): array
     {
         // Base branch rollup (single source of truth)
-        $rollup = $this->getBranchRollup($branchId, $period);
+        $rollup = $this->getBranchRollup($branchId, $period, $agencyId);
 
         $rows = $rollup['rows'] ?? [];
         $agent = null;

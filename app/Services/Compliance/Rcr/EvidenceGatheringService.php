@@ -404,11 +404,23 @@ final class EvidenceGatheringService
 
     private function resolveTrainingModulesAvailable(Agency $agency): array
     {
-        $modules = DB::table('training_courses')
-            ->where('is_active', true)
+        // Explicitly scoped to the report's target agency (via $agency->id),
+        // bypassing TrainingCourse's BelongsToAgency global scope rather than
+        // relying on it: that scope keys off Auth::user()'s effective agency,
+        // which is not guaranteed to match the agency this evidence report is
+        // being generated for (e.g. an unscoped owner-role caller), and would
+        // silently leak or mis-scope other agencies' course titles otherwise.
+        // Note: the schema has no `is_active` column on training_courses (only
+        // `is_published`, see 2026_03_27_500000_create_training_tables.php and
+        // TrainingCourse::scopePublished()) — the prior raw query's
+        // ->where('is_active', true) predicate would have thrown a SQL error on
+        // any real invocation. Using the actual "available" flag, is_published.
+        $modules = \App\Models\TrainingCourse::withoutGlobalScopes()
+            ->where('agency_id', $agency->id)
+            ->where('is_published', true)
             ->select('id', 'title', 'category', 'is_required')
             ->get()
-            ->map(fn ($r) => (array) $r)
+            ->map(fn ($r) => $r->only(['id', 'title', 'category', 'is_required']))
             ->all();
         return [
             'populated' => true,

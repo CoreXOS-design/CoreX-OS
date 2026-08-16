@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\BM;
 
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use App\Services\Admin\CompanyPerformanceService;
 use App\Services\Finance\CommissionCalculator;
 use Carbon\Carbon;
@@ -18,6 +19,25 @@ class AgentPerformanceController extends Controller
 
         $bmBranchId = (int)($u->branch_id ?? 0);
         abort_unless($bmBranchId > 0, 403);
+
+        // Tenant/branch scope check — same class of issue fixed in
+        // Admin\AgentPerformanceController::show() (AT-253). Everything below
+        // runs raw DB::table('deal_user'/'deals') queries keyed off the
+        // caller-supplied $userId, which bypass Eloquent's AgencyScope/
+        // BranchScope entirely (those scopes only apply to Eloquent model
+        // queries). Route middleware only checks the ordinary
+        // `view_performance` permission — it does not check that $userId
+        // belongs to this BM's own branch. Without this check, a Branch
+        // Manager could edit {userId} in the URL and pull another branch's
+        // (or, via User::find, another agency's) agent commission splits,
+        // agent income, and company-retained margin. User::find() is scoped
+        // by BelongsToAgency/AgencyScope so a foreign-tenant user already
+        // 404s here; the branch_id comparison additionally restricts to
+        // "my branch" the way BM\PerformanceController does elsewhere in
+        // this controller family (see alignAgentToCompany/setAgentTargets).
+        $targetUser = User::find($userId);
+        abort_unless($targetUser, 404);
+        abort_unless((int) $targetUser->branch_id === $bmBranchId, 404);
 
         $period = $request->query('period') ?: Carbon::now()->format('Y-m');
         abort_unless((bool)preg_match('/^\d{4}-\d{2}$/', $period), 422);

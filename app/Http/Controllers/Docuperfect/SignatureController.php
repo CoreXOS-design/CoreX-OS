@@ -2577,8 +2577,17 @@ class SignatureController extends Controller
         // unchanged: mutationScope == getDataScope and dataIdentityIds() == [$user->id] for them.
         $scope = PermissionService::mutationScope($user, 'documents');
 
+        // AT-267 H5 follow-up (2026-08-16): mirrors AuthorizesDocumentAccess::guardDocument() —
+        // 'all' is an ordinary, non-owner-exclusive per-agency permission grant, not "every
+        // document in every agency". Owner-role accounts keep the unconditional bypass.
         if ($scope === 'all') {
-            return;
+            if ($user->isOwnerRole()) {
+                return;
+            }
+            if ((int) $document->agency_id === (int) ($user->effectiveAgencyId() ?? 0)) {
+                return;
+            }
+            abort(403);
         }
 
         if ($scope === 'branch') {

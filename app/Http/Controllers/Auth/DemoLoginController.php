@@ -67,12 +67,26 @@ class DemoLoginController extends Controller
      * very box it exists to describe, which silently 404'd the System Owner login
      * on the demo and made every demo-mode surface unreachable there.
      *
-     * COREX_INSTANCE_ROLE is the real predicate. The non-production clause is kept
-     * so local/staging dev boxes still get demo mode without setting the role.
+     * COREX_INSTANCE_ROLE is the real predicate. A `local` clause is kept so a
+     * developer's own machine still gets demo mode without setting the role.
+     *
+     * This used to be `!app()->environment('production')` — a denylist that
+     * defaults OPEN. Per config/app.php:38, demo, staging AND live all run
+     * APP_ENV=production by house convention, so in the intended world that
+     * clause was equivalent to today's `environment('local')`. But it is a
+     * DENYLIST: if APP_ENV were ever misconfigured on staging/live to anything
+     * other than the literal string "production" (typo, missing env var,
+     * inherited value), this clause alone would flip open, leaving
+     * DevSetting::bool('demo_mode_enabled') as the ONLY remaining gate — and
+     * that toggle has already been flipped on staging by accident once (see
+     * the 2026-06-02 incident in DatabaseSeeder). Matching on the literal
+     * `local` string instead is an ALLOWLIST that defaults CLOSED: it takes an
+     * explicit, positive misconfiguration (APP_ENV=local on a real box) to
+     * open it, not merely the absence of "production".
      */
     public static function isEnabled(): bool
     {
-        return (Instance::isDemo() || !app()->environment('production'))
+        return (Instance::isDemo() || app()->environment('local'))
             && DevSetting::bool('demo_mode_enabled');
     }
 

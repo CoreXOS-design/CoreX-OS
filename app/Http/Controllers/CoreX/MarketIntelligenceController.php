@@ -61,7 +61,10 @@ class MarketIntelligenceController extends Controller
         ProspectingConfigurationService $config,
     ) {
         $user = $request->user();
-        $agencyId = $user->effectiveAgencyId() ?? $user->agency_id ?? 1;
+        $agencyId = $user->effectiveAgencyId();
+        // No resolvable agency — fail closed rather than showing agency #1's
+        // canvass pool (same pattern as claim()/segmentListings()/segmentBuyers()).
+        abort_unless($agencyId !== null, 403);
         $isProspectingManager = $user?->hasPermission('prospecting_setup.manage') ?? false;
 
         // F.3 — the legacy ->with('activeClaim.user') eager-load is gone.
@@ -854,7 +857,10 @@ class MarketIntelligenceController extends Controller
         ProspectingConfigurationService $config,
     ) {
         $user = $request->user();
-        $agencyId = $user->effectiveAgencyId() ?? $user->agency_id ?? 1;
+        $agencyId = $user->effectiveAgencyId();
+        // No resolvable agency — fail closed rather than showing agency #1's
+        // analyse-mode data.
+        abort_unless($agencyId !== null, 403);
         $isProspectingManager = $user?->hasPermission('prospecting_setup.manage') ?? false;
 
         // Reuse the stats-strip computation so the strip is identical to Work mode.
@@ -1158,7 +1164,15 @@ class MarketIntelligenceController extends Controller
             ->limit(200)
             ->get(['id', 'p24_listing_number', 'p24_url', 'suburb', 'property_type', 'asking_price', 'bedrooms', 'bathrooms', 'listing_status', 'first_seen_date']);
 
-        $priceChanges = P24PriceChange::with('listing:id,p24_listing_number,p24_url,suburb')
+        // P24PriceChange carries no agency_id of its own — it's price-history
+        // metadata keyed to a listing. Without this filter the top-level rows
+        // were pulled unscoped across every agency (only the eager-loaded
+        // `listing` relation got filtered out via P24Listing's own agency
+        // scope, leaving orphaned price-history rows exposed).
+        $priceChanges = P24PriceChange::whereHas('listing', function ($q) use ($agencyId) {
+                $q->where('agency_id', $agencyId);
+            })
+            ->with('listing:id,p24_listing_number,p24_url,suburb')
             ->orderByDesc('change_date')
             ->orderByDesc('created_at')
             ->limit(200)
@@ -2434,7 +2448,14 @@ class MarketIntelligenceController extends Controller
         Request $request,
         ProspectingIntelligenceService $intelligence,
     ) {
-        $agencyId = $request->user()->effectiveAgencyId() ?? $request->user()->agency_id ?? 1;
+        $agencyId = $request->user()->effectiveAgencyId();
+        if ($agencyId === null) {
+            // No resolvable agency — fail closed rather than showing
+            // agency #1's snapshot.
+            return response()->json([
+                'message' => 'Agency context required. Select an agency first.',
+            ], 422);
+        }
         $filters  = $this->buildFiltersFromRequest($request, $agencyId);
 
         return response()->json($intelligence->snapshot($filters));
@@ -2446,7 +2467,19 @@ class MarketIntelligenceController extends Controller
         string $value,
         ProspectingIntelligenceService $intelligence,
     ) {
-        $agencyId = $request->user()->effectiveAgencyId() ?? $request->user()->agency_id ?? 1;
+        $agencyId = $request->user()->effectiveAgencyId();
+        if ($agencyId === null) {
+            // No resolvable agency — fail closed rather than showing
+            // agency #1's buyer segment.
+            return response()->json([
+                'message' => 'Agency context required. Select an agency first.',
+                'dimension' => $dimension,
+                'value'     => $value,
+                'count'     => 0,
+                'contacts'  => [],
+                'pagination' => ['current_page' => 1, 'last_page' => 1, 'per_page' => 20],
+            ], 422);
+        }
         $filters  = $this->buildFiltersFromRequest($request, $agencyId);
 
         $contactIds = $intelligence->buyersForSegment($agencyId, $dimension, $value, $filters);
@@ -2478,7 +2511,18 @@ class MarketIntelligenceController extends Controller
         string $value,
         ProspectingIntelligenceService $intelligence,
     ) {
-        $agencyId = $request->user()->effectiveAgencyId() ?? $request->user()->agency_id ?? 1;
+        $agencyId = $request->user()->effectiveAgencyId();
+        if ($agencyId === null) {
+            // No resolvable agency — fail closed rather than showing
+            // agency #1's listings segment.
+            return response()->json([
+                'message'   => 'Agency context required. Select an agency first.',
+                'dimension' => $dimension,
+                'value'     => $value,
+                'count'     => 0,
+                'listings'  => [],
+            ], 422);
+        }
         $filters  = $this->buildFiltersFromRequest($request, $agencyId);
 
         $listings = $intelligence->listingsForSegment($agencyId, $dimension, $value, $filters);
@@ -2494,7 +2538,18 @@ class MarketIntelligenceController extends Controller
     public function claim(ProspectingListing $listing)
     {
         $user = auth()->user();
-        $agencyId = $user->agency_id ?? $user->effectiveAgencyId() ?? 1;
+        $agencyId = $user->effectiveAgencyId();
+        if ($agencyId === null) {
+            // No resolvable agency — reject rather than writing a
+            // ProspectingClaim row tagged to agency #1.
+            if (request()->expectsJson()) {
+                return response()->json([
+                    'message' => 'Agency context required. Select an agency first.',
+                ], 422);
+            }
+
+            return back()->with('error', 'Agency context required. Select an agency first.');
+        }
 
         $existing = ProspectingClaim::where('prospecting_listing_id', $listing->id)
             ->active()->first();

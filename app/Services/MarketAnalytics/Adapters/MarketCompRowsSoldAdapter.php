@@ -25,9 +25,16 @@ use Illuminate\Support\Facades\DB;
  *                   (falls back to suburb match for rows missing geo).
  *   - suburb_only → suburb_normalised match only (legacy semantic).
  *
- * No agency scope on the read: market_report_comp_rows.agency_id is audit-
- * only per the MIC shared-pool design (mic-complete-spec §13). Every agency
- * benefits from every CMA Info import across the system.
+ * SECURITY — this read IS agency-scoped (filter->agencyId). The
+ * market_data_points shared-pool design (mic-complete-spec §13.1/§13.2) is
+ * scoped explicitly and ONLY to market_data_points, which carries its own
+ * audit-only agency_id and an explicit auditScope()/auditScopeForAgency()
+ * opt-in. market_report_comp_rows is not mentioned in §13 at all and its
+ * agency_id is NOT NULL — it follows the default per-agency scoping rule
+ * (§13.1), the same as every other tenant-owned table. A prior version of
+ * this docblock incorrectly claimed the §13 shared-pool exception covered
+ * this table too; it did not, and the unfiltered read let one agency's
+ * uploaded CMA data leak into another agency's pricing/valuation output.
  */
 final class MarketCompRowsSoldAdapter implements SoldTransactionsSource, HasSourceRecord
 {
@@ -39,6 +46,11 @@ final class MarketCompRowsSoldAdapter implements SoldTransactionsSource, HasSour
     {
         $query = DB::table('market_report_comp_rows')
             ->whereNull('deleted_at')
+            // SECURITY — market_report_comp_rows.agency_id is NOT NULL and
+            // is not part of the market_data_points shared-pool exception
+            // (mic-complete-spec §13.1/§13.2). A null agencyId matches no
+            // rows (fail closed) rather than leaking every agency's data.
+            ->where('agency_id', $filter->agencyId)
             ->where('row_type', 'comp')
             ->whereNotNull('sale_date')
             ->whereNotNull('sale_price')

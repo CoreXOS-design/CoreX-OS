@@ -8,7 +8,7 @@
 @php
     $s = $tfsScreening ?? $submission->latestTfsScreening();
     $ran = $s?->ranSuccessfully() ?? false;
-    $viewerIsCo = auth()->user()?->isComplianceOfficer() ?? false;
+    $viewerIsCo = auth()->user()?->isComplianceOfficer((int) $submission->agency_id) ?? false;
     $tone = $s?->tone() ?? 'grey';
     $toneColor = ['green' => 'var(--ds-green,#059669)', 'amber' => '#b45309', 'red' => '#dc2626', 'grey' => 'var(--text-muted)'][$tone];
     $listName = 'FIC UN Consolidated list';

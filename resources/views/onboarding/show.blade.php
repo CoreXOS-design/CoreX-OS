@@ -155,7 +155,7 @@
                         @endif
                     </div>
                     <div class="flex items-center gap-1 flex-shrink-0">
-                        <a href="{{ asset('storage/' . $doc->file_path) }}" target="_blank" class="text-[10px] px-1.5 py-0.5 rounded no-underline" style="color:var(--text-muted); border:1px solid var(--border);">View</a>
+                        <a href="{{ route('onboarding.document.download', $doc) }}" target="_blank" class="text-[10px] px-1.5 py-0.5 rounded no-underline" style="color:var(--text-muted); border:1px solid var(--border);">View</a>
                         @if($doc->status === 'uploaded')
                         <form method="POST" action="{{ route('onboarding.verify-document', $doc) }}" class="inline">
                             @csrf

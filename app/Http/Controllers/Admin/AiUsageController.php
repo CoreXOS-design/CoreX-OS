@@ -134,6 +134,8 @@ class AiUsageController extends Controller
      */
     public function agency(Request $request, Agency $agency): View
     {
+        $this->authorizeAgency($agency);
+
         $month       = $request->query('month');
         $monthCarbon = $month
             ? Carbon::createFromFormat('Y-m', (string) $month)->startOfMonth()
@@ -230,5 +232,28 @@ class AiUsageController extends Controller
 
         return redirect()->route('admin.ai-usage.index')
             ->with('status', "Budget updated for {$agency->name}.");
+    }
+
+    /**
+     * `mic.view_ai_costs` (like `manage_performance_settings` / `agency_api.manage`)
+     * is grantable to an ordinary agency admin, not just platform owners, and
+     * Agency itself carries no tenant scope — so route-model binding won't 404 a
+     * foreign agency the way it does for child tables, and the underlying
+     * ai_usage_events query is scoped to whatever $agency->id the URL supplies.
+     * Mirrors AgencyApiKeyController::authorizeAgency() / CompanySettingsController::
+     * authorizeAgency() / AgencyController::authorizeAgencyScope().
+     */
+    private function authorizeAgency(Agency $agency): void
+    {
+        $user = auth()->user();
+        if (!$user) {
+            abort(403);
+        }
+        if ($user->isOwnerRole()) {
+            return;
+        }
+        if ((int) $user->effectiveAgencyId() !== (int) $agency->id) {
+            abort(403, 'You can only view AI usage for your own agency.');
+        }
     }
 }

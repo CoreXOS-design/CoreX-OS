@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Services\Compliance\FicaReferralService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\Rule;
 
 class FicaOfficerAppointmentsController extends Controller
 {
@@ -19,8 +20,14 @@ class FicaOfficerAppointmentsController extends Controller
     {
         abort_unless(Auth::user()->hasPermission('manage_compliance_officer'), 403);
 
+        $agencyId = Auth::user()->effectiveAgencyId();
+
         $validated = $request->validate([
-            'user_id'                => 'nullable|exists:users,id',
+            // AT-security fix — a foreign-agency user_id must never be appointable
+            // here: the acting admin's `manage_compliance_officer` permission is
+            // scoped to their own agency, so the target user must be too (mirrors
+            // DealV2Controller/PayrollEmployeeController's scoped-exists idiom).
+            'user_id'                => ['nullable', Rule::exists('users', 'id')->where('agency_id', $agencyId)],
             'full_name'              => 'required|string|max:200',
             'id_number'              => 'nullable|string|max:20',
             'cell'                   => 'nullable|string|max:50',
@@ -29,8 +36,6 @@ class FicaOfficerAppointmentsController extends Controller
             'appointment_letter'     => 'nullable|file|mimes:pdf|max:10240',
             'notes'                  => 'nullable|string|max:2000',
         ]);
-
-        $agencyId = Auth::user()->effectiveAgencyId();
 
         $letterPath = null;
         if ($request->hasFile('appointment_letter')) {
@@ -69,12 +74,13 @@ class FicaOfficerAppointmentsController extends Controller
     {
         abort_unless(Auth::user()->hasPermission('manage_compliance_officer'), 403);
 
+        $agencyId = Auth::user()->effectiveAgencyId();
+
         $validated = $request->validate([
             'mlro_user_ids'   => 'nullable|array',
-            'mlro_user_ids.*' => 'exists:users,id',
+            // AT-security fix — scoped to the acting admin's own agency (see savePrimary above).
+            'mlro_user_ids.*' => Rule::exists('users', 'id')->where('agency_id', $agencyId),
         ]);
-
-        $agencyId = Auth::user()->effectiveAgencyId();
         $newIds = $validated['mlro_user_ids'] ?? [];
 
         // Current active MLROs for this agency

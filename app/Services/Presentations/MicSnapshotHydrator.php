@@ -574,8 +574,16 @@ final class MicSnapshotHydrator
         // is_demo flag once; comp rows must match.
         $subjectIsDemo = (bool) ($presentation->property?->is_demo ?? false);
 
+        // SECURITY — market_report_comp_rows.agency_id is NOT NULL and this
+        // table is NOT part of the market_data_points shared-pool exception
+        // (.ai/specs/mic-complete-spec.md §13.1/§13.2 — that exception is
+        // scoped explicitly and only to market_data_points). Without this
+        // filter every agency's MIC comp/listing rows would be eligible to
+        // hydrate into THIS presentation's client-facing sold comps /
+        // active listings.
         $query = DB::table('market_report_comp_rows')
             ->whereNull('deleted_at')
+            ->where('agency_id', (int) $presentation->agency_id)
             ->where('row_type', $rowType)
             ->where('is_demo', $subjectIsDemo);
 

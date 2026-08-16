@@ -145,7 +145,11 @@ class ProformaGenerationService
         try {
             $bytes    = $this->pdf->render($invoice);
             $filename = $this->pdf->filename($invoice);
-            $disk     = config('filesystems.default', 'local');
+            // Hardcoded (not config('filesystems.default')) — matches every other
+            // hardened file-storage site this pass (UserDocument, Training,
+            // Compliance documents, RMCP signatures): financial documents must not
+            // silently start writing to the public disk on a FILESYSTEM_DISK misconfig.
+            $disk     = 'local';
             $path     = "deals/{$deal->id}/proforma/{$invoice->number}.pdf";
             Storage::disk($disk)->put($path, $bytes);
 

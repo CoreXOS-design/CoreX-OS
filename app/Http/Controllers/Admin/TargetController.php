@@ -820,6 +820,19 @@ class TargetController extends Controller
             $branchId = (int)($auth?->branch_id ?? 0);
         } elseif ($setupScope === 'all') {
             $branchId = (int)($request->get('branch_id') ?? 0);
+
+            // AT-SEC: 'all' data-scope is grantable to per-agency admin/owner-flagged
+            // roles, not just platform System Owners — a non-owner with that scope
+            // must not be able to view another agency's branch overrides by supplying
+            // a foreign branch_id. Mirrors AgencyApiKeyController::authorizeAgency() /
+            // BranchAssignmentController::createBranch()'s isOwnerRole()+effectiveAgencyId() idiom.
+            if ($branchId > 0 && !$auth->isOwnerRole()) {
+                $ownsBranch = Branch::withoutGlobalScopes()
+                    ->whereKey($branchId)
+                    ->where('agency_id', $auth->effectiveAgencyId())
+                    ->exists();
+                abort_unless($ownsBranch, 403, 'You can only manage activity setup for your own agency.');
+            }
         }
         if ($branchId <= 0) $branchId = null;
 
@@ -872,6 +885,21 @@ class TargetController extends Controller
             $branchId = (int)($auth?->branch_id ?? 0);
         } elseif ($setupSaveScope === 'all') {
             $branchId = (int)($request->input('branch_id') ?? 0);
+
+            // AT-SEC: 'all' data-scope is grantable to per-agency admin/owner-flagged
+            // roles, not just platform System Owners — a non-owner with that scope
+            // must not be able to overwrite another agency's branch_activity_columns
+            // by supplying a foreign branch_id. Verify the target branch belongs to
+            // the caller's own agency before it is used for anything (lookup below,
+            // and the updateOrInsert write). Mirrors AgencyApiKeyController::authorizeAgency()
+            // / BranchAssignmentController::createBranch()'s isOwnerRole()+effectiveAgencyId() idiom.
+            if ($branchId > 0 && !$auth->isOwnerRole()) {
+                $ownsBranch = Branch::withoutGlobalScopes()
+                    ->whereKey($branchId)
+                    ->where('agency_id', $auth->effectiveAgencyId())
+                    ->exists();
+                abort_unless($ownsBranch, 403, 'You can only manage activity setup for your own agency.');
+            }
         }
         if ($branchId <= 0) $branchId = null;
 

@@ -92,8 +92,8 @@
             <div class="signature-box">
                 @if($ack->signature_type === 'typed' && $ack->typed_signature_name)
                     <span class="typed">{{ $ack->typed_signature_name }}</span>
-                @elseif($ack->signature_type === 'drawn' && $ack->signature_path && !str_starts_with($ack->signature_path, 'typed:'))
-                    <img src="{{ asset('storage/' . $ack->signature_path) }}" alt="Signature">
+                @elseif($ack->signature_type === 'drawn' && $ack->signature_path && !str_starts_with($ack->signature_path, 'typed:') && ($signatureDataUri ?? null))
+                    <img src="{{ $signatureDataUri }}" alt="Signature">
                 @else
                     <span style="font-size:0.6rem; color:#94a3b8; font-style:italic;">Signature not captured</span>
                 @endif

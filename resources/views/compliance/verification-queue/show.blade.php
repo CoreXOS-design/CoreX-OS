@@ -41,7 +41,7 @@
                 @php
                     $filePath = $document->file_path;
                     $extension = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
-                    $publicUrl = asset('storage/' . $filePath);
+                    $publicUrl = route('user-documents.download', $document);
                 @endphp
 
                 @if(in_array($extension, ['pdf']))

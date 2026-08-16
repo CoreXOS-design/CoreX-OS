@@ -410,8 +410,16 @@ class CalendarController extends Controller
 
     private function sharedViewData($user, string $view, array $typeFilter, array $categoryFilter, string $scope): array
     {
+        // SECURITY — class settings can be system-wide (agency_id NULL) or
+        // agency-specific (§2a); without the agency filter this leaked every
+        // OTHER agency's category/label config into every calendar view.
+        // Mirrors the merge pattern at classAutofillsBuyers() (~line 2605).
+        $agencyId = method_exists($user, 'effectiveAgencyId') ? $user->effectiveAgencyId() : ($user->agency_id ?? null);
         $allClasses = CalendarEventClassSetting::withoutGlobalScopes()
-            ->where('is_active', true)->orderBy('label')
+            ->where('is_active', true)
+            ->where(fn ($q) => $q->where('agency_id', $agencyId)->orWhereNull('agency_id'))
+            ->orderByRaw('agency_id IS NULL') // agency-specific row first, global last
+            ->orderBy('label')
             ->get()->unique('event_class');
 
         // Filter to classes the current user can see (super_admin/admin see all)
@@ -1194,6 +1202,21 @@ class CalendarController extends Controller
             ]);
         }
 
+        // SECURITY — exists:contacts,id / exists:properties,id above do NOT
+        // respect AgencyScope, so a foreign-tenant id passes validation. Reject
+        // cleanly, up front, before any write/notification proceeds (mirrors
+        // the pattern at ViewingPackController.php:491) — resolving these under
+        // the NORMAL (agency-scoped) query means a cross-tenant id simply
+        // won't be found here.
+        foreach ($data['feedback'] as $row) {
+            if (!empty($row['contact_id'])) {
+                abort_unless(Contact::find($row['contact_id']), 422, 'One or more contacts could not be found.');
+            }
+            if (!empty($row['property_id'])) {
+                abort_unless(Property::find($row['property_id']), 422, 'One or more properties could not be found.');
+            }
+        }
+
         DB::transaction(function () use ($data, $calendarEvent, $user, $feedbackKind) {
             // Cross-agent feedback notification (Defect 3): collect the properties
             // whose feedback was actually created or changed in this capture, so a
@@ -1283,22 +1306,36 @@ class CalendarController extends Controller
             $seenViewPairs = [];
             foreach ($data['feedback'] as $row) {
                 $contactId = $row['contact_id'];
-                $contact = \App\Models\Contact::withoutGlobalScopes()->find($contactId);
+                // SECURITY — no withoutGlobalScopes(): the abort_unless block
+                // above already rejects a cross-tenant contact_id, so the
+                // normal AgencyScope-scoped lookup is both correct and safe.
+                $contact = Contact::find($contactId);
                 if ($contact && $contact->is_buyer) {
-                    \App\Models\BuyerActivityLog::create([
-                        'contact_id' => $contactId,
-                        'agency_id' => $calendarEvent->agency_id ?? 1,
-                        'activity_type' => 'feedback_captured',
-                        'activity_date' => now(),
-                        'related_event_id' => $calendarEvent->id,
-                        'related_property_id' => $row['property_id'] ?? ($linkedPropertyIds[0] ?? null),
-                        'metadata' => [
-                            'event_title' => $calendarEvent->title,
-                            'outcome_id' => $row['outcome_id'] ?? null,
-                            'captured_by' => $user->name,
-                        ],
-                        'logged_by_user_id' => $user->id,
-                    ]);
+                    // calendar_events.agency_id is nullable — never stamp agency #1
+                    // on the fan-out write. buyer_activity_logs.agency_id is
+                    // NOT NULL, so an unresolvable agency means we skip the write
+                    // entirely (logged) rather than mis-attribute it.
+                    if ($calendarEvent->agency_id === null) {
+                        \Illuminate\Support\Facades\Log::warning('Skipped BuyerActivityLog write: calendar event has no agency_id', [
+                            'calendar_event_id' => $calendarEvent->id,
+                            'contact_id' => $contactId,
+                        ]);
+                    } else {
+                        \App\Models\BuyerActivityLog::create([
+                            'contact_id' => $contactId,
+                            'agency_id' => $calendarEvent->agency_id,
+                            'activity_type' => 'feedback_captured',
+                            'activity_date' => now(),
+                            'related_event_id' => $calendarEvent->id,
+                            'related_property_id' => $row['property_id'] ?? ($linkedPropertyIds[0] ?? null),
+                            'metadata' => [
+                                'event_title' => $calendarEvent->title,
+                                'outcome_id' => $row['outcome_id'] ?? null,
+                                'captured_by' => $user->name,
+                            ],
+                            'logged_by_user_id' => $user->id,
+                        ]);
+                    }
 
                     // Sync buyer_property_views. Per-property rows record their own
                     // property; a property-less row (legacy single viewing / meeting)
@@ -1307,23 +1344,35 @@ class CalendarController extends Controller
                     // BelongsToAgency auto-stamp — agency_id MUST be set explicitly
                     // (event's agency = contact's & property's agency) or the INSERT
                     // 1364s on the NOT-NULL column.
-                    $rowPropertyIds = !empty($row['property_id']) ? [$row['property_id']] : $linkedPropertyIds;
-                    foreach ($rowPropertyIds as $propId) {
-                        $pairKey = $contactId . ':' . $propId;
-                        if (isset($seenViewPairs[$pairKey])) {
-                            continue;
+                    //
+                    // buyer_property_views.agency_id is NOT NULL (FK) — same as
+                    // buyer_activity_logs above, so apply the IDENTICAL guard: an
+                    // unresolvable agency means we skip the write entirely (logged)
+                    // rather than throw an uncaught integrity-constraint violation.
+                    if ($calendarEvent->agency_id === null) {
+                        \Illuminate\Support\Facades\Log::warning('Skipped buyer_property_views write: calendar event has no agency_id', [
+                            'calendar_event_id' => $calendarEvent->id,
+                            'contact_id' => $contactId,
+                        ]);
+                    } else {
+                        $rowPropertyIds = !empty($row['property_id']) ? [$row['property_id']] : $linkedPropertyIds;
+                        foreach ($rowPropertyIds as $propId) {
+                            $pairKey = $contactId . ':' . $propId;
+                            if (isset($seenViewPairs[$pairKey])) {
+                                continue;
+                            }
+                            $seenViewPairs[$pairKey] = true;
+                            DB::table('buyer_property_views')->updateOrInsert(
+                                ['contact_id' => $contactId, 'property_id' => $propId],
+                                [
+                                    'agency_id' => $calendarEvent->agency_id,
+                                    'last_viewed_at' => $calendarEvent->event_date,
+                                    'view_count' => DB::raw('COALESCE(view_count, 0) + 1'),
+                                    'updated_at' => now(),
+                                    'created_at' => DB::raw('COALESCE(created_at, NOW())'),
+                                ]
+                            );
                         }
-                        $seenViewPairs[$pairKey] = true;
-                        DB::table('buyer_property_views')->updateOrInsert(
-                            ['contact_id' => $contactId, 'property_id' => $propId],
-                            [
-                                'agency_id' => $calendarEvent->agency_id,
-                                'last_viewed_at' => $calendarEvent->event_date,
-                                'view_count' => DB::raw('COALESCE(view_count, 0) + 1'),
-                                'updated_at' => now(),
-                                'created_at' => DB::raw('COALESCE(created_at, NOW())'),
-                            ]
-                        );
                     }
 
                     $contact->updateQuietly(['last_activity_at' => now()]);
@@ -1358,14 +1407,18 @@ class CalendarController extends Controller
                 foreach ($data['feedback'] as $row) {
                     $pid = $row['property_id'] ?? null;
                     if ($pid && !array_key_exists($pid, $buyerByProperty) && !empty($row['contact_id'])) {
-                        $c = \App\Models\Contact::withoutGlobalScopes()->find($row['contact_id']);
+                        // SECURITY — no withoutGlobalScopes(): already abort_unless'd
+                        // as a valid same-tenant contact above.
+                        $c = Contact::find($row['contact_id']);
                         $buyerByProperty[$pid] = $c ? (trim($c->first_name . ' ' . $c->last_name) ?: null) : null;
                     }
                 }
                 $kindLabel = $feedbackKind === 'listing_presentation' ? 'listing presentation' : 'viewing';
                 foreach (array_keys($notifyTouched) as $pid) {
                     try {
-                        $property = \App\Models\Property::withoutGlobalScopes()->with('agent')->find($pid);
+                        // SECURITY — no withoutGlobalScopes(): already abort_unless'd
+                        // as a valid same-tenant property above.
+                        $property = Property::with('agent')->find($pid);
                         // Skip silently: missing property, no listing agent, self-capture,
                         // or the agent record is gone.
                         if (!$property || empty($property->agent_id)
@@ -1409,9 +1462,52 @@ class CalendarController extends Controller
         return response()->json(['success' => true]);
     }
 
+    /**
+     * SECURITY — agency-scoped existence check for attendees.*.id. Unlike
+     * property_ids.* and contact_ids.* (a single table each), an attendee's
+     * table depends on its SIBLING `type` field (contact vs agent/User), so a
+     * declarative Rule::exists() can't express it — resolve the sibling from
+     * the request and check whichever table applies, scoped to $agencyId.
+     * Used by both store() and update() so a cross-tenant attendee id
+     * (previously not validated for existence AT ALL) is rejected the same
+     * way as property/contact ids, before it can reach syncEventLinks().
+     */
+    private function attendeeExistsRule(Request $request, ?int $agencyId): \Closure
+    {
+        return function (string $attribute, $value, \Closure $fail) use ($request, $agencyId) {
+            if (!preg_match('/^attendees\.(\d+)\.id$/', $attribute, $m)) {
+                return;
+            }
+            $type = $request->input("attendees.{$m[1]}.type", 'contact');
+            // Mirror AgencyScope::applyInner()'s own null-agency handling: a
+            // legitimately agency-less creator (owner/super_admin with no
+            // branch) is unscoped everywhere else in this app, so `agencyId
+            // === null` here must skip the filter too — `where('agency_id',
+            // null)` would silently match zero rows (SQL NULL comparison),
+            // rejecting a real attendee for a real agency-less user.
+            $exists = $type === 'agent'
+                ? \App\Models\User::withoutGlobalScopes()->where('id', $value)
+                    ->when($agencyId !== null, fn ($q) => $q->where('agency_id', $agencyId))
+                    ->exists()
+                : Contact::withoutGlobalScopes()->where('id', $value)
+                    ->when($agencyId !== null, fn ($q) => $q->where('agency_id', $agencyId))
+                    ->exists();
+            if (!$exists) {
+                $fail('The selected attendee could not be found.');
+            }
+        };
+    }
+
     public function store(Request $request)
     {
         $user = $request->user();
+        // SECURITY — plain exists:contacts,id / exists:properties,id ignore
+        // AgencyScope, so a foreign-tenant id would otherwise pass validation
+        // and flow into calendar_event_links via syncEventLinks(). Scope every
+        // exists-check to the acting agency (Rule::exists()->where('agency_id', ...)
+        // idiom used elsewhere, e.g. ContactController.php:1223,
+        // AgencyComplianceSettingsController.php:49).
+        $agencyId = $user->effectiveAgencyId();
 
         $data = $request->validate([
             'title'             => 'required|string|max:255',
@@ -1419,13 +1515,13 @@ class CalendarController extends Controller
             'event_date'        => 'required|date',
             'end_date'          => 'nullable|date|after_or_equal:event_date',
             'description'       => 'nullable|string|max:2000',
-            'property_id'       => 'nullable|integer|exists:properties,id',
+            'property_id'       => ['nullable', 'integer', \Illuminate\Validation\Rule::exists('properties', 'id')->where('agency_id', $agencyId)],
             'property_ids'      => 'nullable|array',
-            'property_ids.*'    => 'integer|exists:properties,id',
+            'property_ids.*'    => ['integer', \Illuminate\Validation\Rule::exists('properties', 'id')->where('agency_id', $agencyId)],
             'contact_ids'       => 'nullable|array',
-            'contact_ids.*'     => 'integer|exists:contacts,id',
+            'contact_ids.*'     => ['integer', \Illuminate\Validation\Rule::exists('contacts', 'id')->where('agency_id', $agencyId)],
             'attendees'         => 'nullable|array',
-            'attendees.*.id'    => 'required_with:attendees|integer',
+            'attendees.*.id'    => ['required_with:attendees', 'integer', $this->attendeeExistsRule($request, $agencyId)],
             'attendees.*.type'  => 'required_with:attendees|string|in:contact,agent',
             // Whitelist the per-attendee role so $request->validate() does NOT
             // strip it. Without this the role never reached syncEventLinks
@@ -1586,6 +1682,11 @@ class CalendarController extends Controller
         // ITEM 4 — a private event may only be edited by its creator (role-blind).
         if ($calendarEvent->isPrivateHiddenFrom($user)) { abort(403); }
 
+        // SECURITY — see store(): scope every id exists-check to the acting
+        // agency so a foreign-tenant id can't pass validation and flow into
+        // calendar_event_links via syncEventLinks().
+        $agencyId = $user->effectiveAgencyId();
+
         $data = $request->validate([
             'title'             => 'sometimes|required|string|max:255',
             'category'          => 'nullable|string|in:' . implode(',', self::MANUAL_CREATABLE_CLASSES),
@@ -1594,13 +1695,13 @@ class CalendarController extends Controller
             'description'       => 'nullable|string|max:2000',
             'status'            => 'nullable|in:pending,completed,overdue,dismissed',
             'priority'          => 'nullable|in:low,normal,high,critical',
-            'property_id'       => 'nullable|integer|exists:properties,id',
+            'property_id'       => ['nullable', 'integer', \Illuminate\Validation\Rule::exists('properties', 'id')->where('agency_id', $agencyId)],
             'property_ids'      => 'nullable|array',
-            'property_ids.*'    => 'integer|exists:properties,id',
+            'property_ids.*'    => ['integer', \Illuminate\Validation\Rule::exists('properties', 'id')->where('agency_id', $agencyId)],
             'contact_ids'       => 'nullable|array',
-            'contact_ids.*'     => 'integer|exists:contacts,id',
+            'contact_ids.*'     => ['integer', \Illuminate\Validation\Rule::exists('contacts', 'id')->where('agency_id', $agencyId)],
             'attendees'         => 'nullable|array',
-            'attendees.*.id'    => 'required_with:attendees|integer',
+            'attendees.*.id'    => ['required_with:attendees', 'integer', $this->attendeeExistsRule($request, $agencyId)],
             'attendees.*.type'  => 'required_with:attendees|string|in:contact,agent',
             'attendees.*.role'  => 'nullable|string',
             'deal_id'           => 'nullable|integer',
@@ -2255,8 +2356,14 @@ class CalendarController extends Controller
         // Markers/reminders (occupies_time=false) never count as conflicts —
         // reads the explicit flag (decoupled from actor_role). A category with no
         // settings row is treated as an appointment (unchanged behaviour).
+        // SECURITY — agency-scope this the same way sharedViewData() does
+        // (~line 413); otherwise another agency's "occupies_time=false"
+        // classes bleed in and skew conflict detection.
+        $agencyId = method_exists($user, 'effectiveAgencyId') ? $user->effectiveAgencyId() : ($user->agency_id ?? null);
         $nonOccupyingClasses = CalendarEventClassSetting::withoutGlobalScopes()
-            ->where('occupies_time', false)->pluck('event_class')->toArray();
+            ->where('occupies_time', false)
+            ->where(fn ($q) => $q->where('agency_id', $agencyId)->orWhereNull('agency_id'))
+            ->pluck('event_class')->toArray();
         $appointments = $result->filter(fn($e) => !in_array($e->category, $nonOccupyingClasses))
             ->sortBy('event_date')->values();
         $conflictIds = [];
@@ -2609,7 +2716,12 @@ class CalendarController extends Controller
             return response()->json([]);
         }
 
-        $agencyId = $user->agency_id ?: 1;
+        $agencyId = $user->effectiveAgencyId();
+        if ($agencyId === null) {
+            // No resolvable agency — fail closed with no attendees rather
+            // than leaking agency #1's contacts/agents.
+            return response()->json([]);
+        }
 
         // Search contacts — AT-131 canonical (all identifiers via child tables +
         // relevance + newest-first). 'type'=>'contact' is the attendee KIND

@@ -563,10 +563,7 @@ class OnboardingPortalController extends Controller
                 'diag'      => $diag,
             ]);
             abort(response()->json([
-                'message'      => 'Listing row not found in this portal.',
-                'row_id'       => $rowId,
-                'portal_id'    => $portal->id,
-                'diagnostics'  => $diag,
+                'message' => 'Listing row not found in this portal.',
             ], 404));
         }
         return $row;

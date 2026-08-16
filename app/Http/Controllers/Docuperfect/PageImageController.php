@@ -10,6 +10,8 @@ use Illuminate\Support\Facades\Storage;
 
 class PageImageController extends Controller
 {
+    use \App\Http\Controllers\Concerns\AuthorizesDocumentAccess;
+
     public function show(Request $request, $id, $page)
     {
         $template = Template::findOrFail($id);
@@ -45,6 +47,16 @@ class PageImageController extends Controller
     public function showDocumentPage(Request $request, $id, $page)
     {
         $document = Document::findOrFail($id);
+
+        // AT-267-style zero-guard IDOR fix: this streamed a rendered
+        // signed-document page image (names, ID numbers, signed content)
+        // with no ownership/scope check at all, gated only by the base
+        // `access_docuperfect` permission. Mirrors the per-record data-scope
+        // guard already used everywhere else document access is checked
+        // (DocumentController, AmendmentController, SalesDocumentController,
+        // SignatureController::authorizeDocument). Read-only, so forEdit: false.
+        $this->guardDocument($document, forEdit: false);
+
         $page = (int) $page;
 
         $webTemplateData = $document->web_template_data ?? [];

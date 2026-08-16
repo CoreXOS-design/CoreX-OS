@@ -336,7 +336,7 @@ public function index(Request $request)
         \App\Services\DealMoneyLineRebuilder::rebuildDealId((int)$deal->id);
         $dealPeriod = (string)($deal->period ?? '');
         if ($dealPeriod && preg_match('/^\d{4}-\d{2}$/', $dealPeriod)) {
-            (new \App\Services\Finance\RollupService())->refreshPeriod($dealPeriod);
+            (new \App\Services\Finance\RollupService())->refreshPeriod($dealPeriod, (int) $deal->agency_id);
         }
 
         return redirect()->route('admin.deals')->with('status', 'Deal updated.');
@@ -626,7 +626,7 @@ $financialLocked = ($deal->exists && (($deal->commission_status ?? "") === "Paid
         $dealPeriod = (string)($deal->period ?? '');
         if ($dealPeriod && preg_match('/^\d{4}-\d{2}$/', $dealPeriod)) {
             try {
-                (new \App\Services\Finance\RollupService())->refreshPeriod($dealPeriod);
+                (new \App\Services\Finance\RollupService())->refreshPeriod($dealPeriod, (int) $deal->agency_id);
             } catch (\Throwable $e) {
                 \Log::error('RollupService failed', ['deal_id' => $deal->id, 'period' => $dealPeriod, 'error' => $e->getMessage()]);
             }
@@ -932,7 +932,7 @@ $financialLocked = ($deal->exists && (($deal->commission_status ?? "") === "Paid
         // Refresh finance_computed_values for the affected period
         $dealPeriod = (string)($deal->period ?? '');
         if ($dealPeriod && preg_match('/^\d{4}-\d{2}$/', $dealPeriod)) {
-            (new \App\Services\Finance\RollupService())->refreshPeriod($dealPeriod);
+            (new \App\Services\Finance\RollupService())->refreshPeriod($dealPeriod, (int) $deal->agency_id);
         }
 
         return redirect()

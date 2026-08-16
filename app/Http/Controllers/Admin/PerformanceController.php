@@ -18,7 +18,28 @@ class PerformanceController extends Controller
             $period = Carbon::now()->format('Y-m');
         }
 
-        $rollup = $svc->getPeriodRollup($period);
+        // Agency scoping (defence-in-depth): getPeriodRollup() runs raw
+        // DB::table() queries against users/deals/daily_activity_entries/branches
+        // with zero agency filtering unless $agencyId is passed. Route middleware
+        // is only `permission:view_performance`, which plain agent/branch_manager/
+        // viewer role templates grant by default — not admin/owner-only — so
+        // without this, any such user in any agency could see every agency's
+        // company income, agent income, and branch cards. A NULL agencyId is
+        // only safe for a TRUE platform owner (effectiveAgencyId() returns null
+        // for them when there is no active agency-switcher session — that is
+        // the intentional cross-agency view, mirroring
+        // Admin\AgentPerformanceController::show()). Any non-owner who somehow
+        // resolves to a null agency context (should not normally happen — a real
+        // user always has an agency_id or branch membership) gets a
+        // guaranteed-empty rollup instead of falling through to the unscoped
+        // company-wide query — fail closed, not open.
+        $user = $request->user();
+        $agencyId = $user?->effectiveAgencyId();
+        if ($agencyId === null && !($user && $user->isOwnerRole())) {
+            $agencyId = -1; // sentinel: no agency has this id, guarantees an empty rollup
+        }
+
+        $rollup = $svc->getPeriodRollup($period, $agencyId);
 
         // Branch budgets (per period) for Admin branch cards
         $branchBudgets = MonthlyTargetGoal::query()
@@ -75,6 +96,7 @@ class PerformanceController extends Controller
             ->where('d.is_enabled', 1)
             ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
             ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
+            ->when($agencyId !== null, fn($q) => $q->where('e.agency_id', $agencyId))
             ->sum(\DB::raw('e.value * d.weight'));
 
         $rollup['points'] = [

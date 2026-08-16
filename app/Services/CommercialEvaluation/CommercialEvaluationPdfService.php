@@ -18,9 +18,25 @@ class CommercialEvaluationPdfService
     public function generate(CommercialEvaluation $evaluation): string
     {
         $evaluation->load([
-            'creator', 'branch', 'financials', 'comparables',
+            'creator', 'branch', 'agency', 'financials', 'comparables',
             'assets', 'units', 'crops', 'livestock',
         ]);
+
+        // Agency resolution — mirrors PresentationPdfService::buildHtml (~line
+        // 520): the evaluation's own agency_id/agency relation (BelongsToAgency)
+        // is authoritative, never a hardcoded tenant and never a fallback to an
+        // arbitrary agency. If the evaluation is somehow orphaned (no
+        // agency_id), branding falls back to a generic app name rather than
+        // leaking another tenant's name/address into this report.
+        $agency = $evaluation->agency;
+        if (!$agency) {
+            \Illuminate\Support\Facades\Log::warning('CommercialEvaluationPdfService: evaluation has no resolvable agency; skipping agency branding.', [
+                'evaluation_id' => $evaluation->id,
+                'evaluation_agency_id' => $evaluation->agency_id,
+            ]);
+        }
+        $agencyName = $agency->name ?? config('app.name');
+        $agencyAddress = $agency->address ?? null;
 
         $ej       = $evaluation->evaluation_json ?? [];
         $rec      = $ej['recommended'] ?? [];
@@ -43,7 +59,9 @@ class CommercialEvaluationPdfService
 
         $agentName  = $esc($evaluation->creator->name ?? 'Agent');
         $agentEmail = $esc($evaluation->creator->email ?? '');
-        $branchName = $esc($evaluation->branch->name ?? 'Home Finders Coastal');
+        // Branch name (if any) prefixed to the resolved agency name — never a
+        // hardcoded tenant. See agency resolution above.
+        $branchName = $esc($evaluation->branch->name ?? null) ?: $esc($agencyName);
         $date       = now()->format('d F Y');
         $propName   = $esc($evaluation->property_name ?? 'Property');
         $address    = $esc($evaluation->address ?? '');
@@ -63,7 +81,7 @@ class CommercialEvaluationPdfService
         $html = $this->htmlHead($propName, $date);
 
         // Cover page
-        $html .= $this->coverPage($propName, $address, $typeLabel, $date, $agentName, $agentEmail, $branchName);
+        $html .= $this->coverPage($propName, $address, $typeLabel, $date, $agentName, $agentEmail, $branchName, $agencyName, $agencyAddress);
 
         // Property overview
         $html .= $this->propertyOverview($evaluation, $zar, $esc, $typeLabel, $condition);
@@ -117,7 +135,7 @@ class CommercialEvaluationPdfService
         }
 
         // Disclaimer
-        $html .= $this->disclaimer();
+        $html .= $this->disclaimer($agencyName, $agencyAddress);
 
         $html .= '</body></html>';
 
@@ -191,13 +209,16 @@ class CommercialEvaluationPdfService
 HTML;
     }
 
-    private function coverPage(string $propName, string $address, string $typeLabel, string $date, string $agentName, string $agentEmail, string $branchName): string
+    private function coverPage(string $propName, string $address, string $typeLabel, string $date, string $agentName, string $agentEmail, string $branchName, string $agencyName, ?string $agencyAddress): string
     {
+        $agencyNameEsc = htmlspecialchars($agencyName, ENT_QUOTES, 'UTF-8');
+        $agencyAddressEsc = $agencyAddress ? htmlspecialchars($agencyAddress, ENT_QUOTES, 'UTF-8') : '';
+
         return <<<HTML
 
 <div class="cover">
-    <div class="brand">HOME FINDERS COASTAL</div>
-    <p style="font-size:10px;color:#94a3b8;margin-bottom:40px;">KZN South Coast</p>
+    <div class="brand">{$agencyNameEsc}</div>
+    <p style="font-size:10px;color:#94a3b8;margin-bottom:40px;">{$agencyAddressEsc}</p>
 
     <h1>Commercial Market Evaluation</h1>
     <p class="subtitle">Confidential Report</p>
@@ -674,9 +695,15 @@ HTML;
         return $html;
     }
 
-    private function disclaimer(): string
+    private function disclaimer(string $agencyName, ?string $agencyAddress): string
     {
-        return <<<'HTML'
+        $agencyNameEsc = htmlspecialchars($agencyName, ENT_QUOTES, 'UTF-8');
+        $footerLine = $agencyAddress
+            ? $agencyNameEsc . ' — ' . htmlspecialchars($agencyAddress, ENT_QUOTES, 'UTF-8')
+            : $agencyNameEsc;
+        $appName = htmlspecialchars((string) config('app.name'), ENT_QUOTES, 'UTF-8');
+
+        return <<<HTML
 
 <div class="disclaimer">
     <strong>Important Disclaimer</strong><br><br>
@@ -687,12 +714,12 @@ HTML;
     For a formal valuation for mortgage bond, tax, insurance, expropriation, or legal purposes,
     please consult a registered property valuer accredited by the South African Council for the
     Property Valuers Profession (SACPVP).<br><br>
-    Home Finders Coastal and its agents accept no liability for decisions made based on this evaluation report.
+    {$agencyNameEsc} and its agents accept no liability for decisions made based on this evaluation report.
 </div>
 
 <div style="text-align:center;margin-top:24px;padding-top:16px;border-top:1px solid #e2e8f0;">
-    <p style="font-size:10px;color:#94a3b8;">Home Finders Coastal — KZN South Coast</p>
-    <p style="font-size:9px;color:#cbd5e1;">This report was generated by HF Coastal Nexus OS</p>
+    <p style="font-size:10px;color:#94a3b8;">{$footerLine}</p>
+    <p style="font-size:9px;color:#cbd5e1;">This report was generated by {$appName}</p>
 </div>
 HTML;
     }

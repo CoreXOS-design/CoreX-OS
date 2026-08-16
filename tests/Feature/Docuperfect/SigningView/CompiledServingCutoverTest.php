@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Docuperfect\SigningView;
 
+use App\Models\Agency;
 use App\Models\Docuperfect\Document;
 use App\Models\Docuperfect\SignatureRequest;
 use App\Models\Docuperfect\SignatureTemplate;
@@ -45,7 +46,14 @@ final class CompiledServingCutoverTest extends TestCase
      */
     private function buildCompiledSession(string $family, array $recipients): array
     {
-        $creator = \App\Models\User::factory()->create(['role' => 'agent']);
+        // Document requires a NOT NULL agency_id (BelongsToAgency) and no
+        // actingAs() runs here, so it must be an explicit, trusted value —
+        // see the matching comment in Tests\Concerns\BuildsSigningSession.
+        $agencyId = (int) Agency::create([
+            'name' => 'Compiled Serving Test Agency',
+            'slug' => 'compiled-serving-' . \Illuminate\Support\Str::random(8),
+        ])->id;
+        $creator = \App\Models\User::factory()->create(['role' => 'agent', 'agency_id' => $agencyId]);
 
         $template = DocuperfectTemplate::create([
             'name' => "Compiled {$family} (cutover)",
@@ -65,6 +73,7 @@ final class CompiledServingCutoverTest extends TestCase
             'name' => "Compiled {$family} Doc",
             'document_type' => 'agreement',
             'owner_id' => $creator->id,
+            'agency_id' => $creator->agency_id,
             'template_id' => $template->id,
             'web_template_data' => [], // no merged_html — the compiled path never reads it
         ]);

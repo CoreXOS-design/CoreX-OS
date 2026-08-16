@@ -91,7 +91,12 @@ on models that use the trait. Notes:
   always visible to them (`orWhere(id = authId)`), so a stale session
   agency doesn't kick them out at the auth-provider stage. System Owners
   with `agency_id = NULL` are handled by the owner-role bypass above,
-  not by this clause.
+  not by this clause. This carve-out requires BOTH the queried model AND
+  the authenticated principal to be `App\Models\User` — gating on the
+  queried model alone let a non-User Authenticatable (e.g.
+  `App\Models\AgencyApiKey` for Website-API requests) leak an unrelated
+  `users` row whenever its own primary key happened to collide with a
+  `users.id` value, since both tables' id sequences start at 1.
 
 ### 2a. Models that legitimately need "shared" rows
 

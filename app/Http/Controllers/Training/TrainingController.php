@@ -8,6 +8,7 @@ use App\Models\TrainingCourse;
 use App\Models\TrainingLesson;
 use App\Models\TrainingProgress;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class TrainingController extends Controller
 {
@@ -64,6 +65,32 @@ class TrainingController extends Controller
         $progress->update(['completed_at' => now()]);
 
         return back()->with('success', 'Lesson completed.');
+    }
+
+    /**
+     * TrainingCourse is agency-scoped (BelongsToAgency), so its lesson documents are
+     * proprietary training content, not public material — they must not be reachable via
+     * a bare asset('storage/...') URL. New uploads (below) go to the private 'local' disk;
+     * this streams them back after checking the requesting user's agency actually owns the
+     * course. Mirrors the compliance-document download pattern in
+     * AgencyDocumentsViewerController::download (local-disk-first, public-disk fallback for
+     * files uploaded before this fix, ownership check before streaming).
+     */
+    public function downloadLessonDocument($lessonId)
+    {
+        $lesson = TrainingLesson::with('course')->findOrFail($lessonId);
+        $course = $lesson->course;
+
+        $user = auth()->user();
+        abort_unless($course && $course->agency_id === $user?->effectiveAgencyId(), 403);
+
+        abort_unless($lesson->document_path, 404, 'No document attached to this lesson.');
+
+        $disk = Storage::disk('local')->exists($lesson->document_path) ? 'local' : 'public';
+
+        abort_unless(Storage::disk($disk)->exists($lesson->document_path), 404, 'Document file is missing from storage.');
+
+        return Storage::disk($disk)->download($lesson->document_path);
     }
 
     public function acknowledgeCourse($courseId, Request $request)
@@ -226,8 +253,11 @@ class TrainingController extends Controller
         unset($validated['document_file']);
 
         if ($request->hasFile('document_file')) {
+            // TrainingCourse is agency-scoped proprietary content — store on the private
+            // 'local' disk and serve it through downloadLessonDocument()'s ownership check,
+            // never the public disk (see training.show blade for the gated download link).
             $validated['document_path'] = $request->file('document_file')
-                ->store('training/lessons/' . $course->id, 'public');
+                ->store('training/lessons/' . $course->id, 'local');
         }
 
         TrainingLesson::create($validated);
@@ -269,8 +299,9 @@ class TrainingController extends Controller
         unset($validated['document_file']);
 
         if ($request->hasFile('document_file')) {
+            // Same as storeLesson(): private 'local' disk, gated download, no public URL.
             $validated['document_path'] = $request->file('document_file')
-                ->store('training/lessons/' . $lesson->course_id, 'public');
+                ->store('training/lessons/' . $lesson->course_id, 'local');
         }
 
         $lesson->update($validated);

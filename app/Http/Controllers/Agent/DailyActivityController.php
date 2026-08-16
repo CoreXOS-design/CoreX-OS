@@ -110,12 +110,22 @@ class DailyActivityController extends Controller
         // manual-capture picker. Restricting to defIds would exclude every
         // auto credit from the achievement total. The state + source filter
         // already guarantees the row is a valid scoreable credit.
+        // daily_activity_entries has agency_id but no automatic tenant scope
+        // on this raw query-builder path. user_id is already resolved via
+        // ownershipUserId() (self / a validated "acting for" identity), but
+        // the agency_id filter is added here too as defense in depth, matching
+        // every other daily_activity_entries call site fixed in this pass.
+        $agencyId = $user->effectiveAgencyId();
+
         $mtdPoints = (int) \DB::table('daily_activity_entries as e')
             ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
             ->where('e.user_id', $user->ownershipUserId())
             ->where('e.period', $period)
             ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
             ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
+            ->when($agencyId, function ($q) use ($agencyId) {
+                $q->where('e.agency_id', $agencyId);
+            })
             ->sum(\DB::raw('e.value * d.weight'));
 
         $remainingPoints = max($monthlyTarget - $mtdPoints, 0);
@@ -274,12 +284,20 @@ class DailyActivityController extends Controller
         // manual-capture picker. Restricting to defIds would exclude every
         // auto credit from the achievement total. The state + source filter
         // already guarantees the row is a valid scoreable credit.
+        // daily_activity_entries has agency_id but no automatic tenant scope
+        // on this raw query-builder path — added as defense in depth (see
+        // index() above for the same fix).
+        $agencyId = $user->effectiveAgencyId();
+
         $mtdPoints = (int) \DB::table('daily_activity_entries as e')
             ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
             ->where('e.user_id', $user->ownershipUserId())
             ->where('e.period', $period)
             ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
             ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
+            ->when($agencyId, function ($q) use ($agencyId) {
+                $q->where('e.agency_id', $agencyId);
+            })
             ->sum(\DB::raw('e.value * d.weight'));
 
         $remainingPoints = max($monthlyTarget - $mtdPoints, 0);

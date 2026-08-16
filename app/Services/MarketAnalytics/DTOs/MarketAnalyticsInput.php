@@ -26,6 +26,13 @@ class MarketAnalyticsInput
         // ActiveListingsFilter so adapters can isolate demo data from
         // real data. Default false keeps legacy callers safe.
         public readonly bool    $subjectIsDemo    = false,
+        // SECURITY — the requesting agency, propagated to SoldTransactionsFilter /
+        // ActiveListingsFilter so MarketCompRowsSoldAdapter / MarketCompRowsActiveAdapter
+        // can scope their market_report_comp_rows reads. Not part of
+        // toCanonicalArray(): it doesn't change hash identity semantics
+        // (MarketAnalyticsRun rows are themselves agency-scoped via
+        // BelongsToAgency, so a hash collision across agencies can't cross-leak).
+        public readonly ?int    $agencyId         = null,
     ) {}
 
     /**

@@ -175,6 +175,13 @@ class AgentPerformanceService
             ->count('activity_date');
 
 
+        // daily_activity_entries has agency_id but no automatic tenant scope on
+        // this raw query-builder path. e.user_id already pins these queries to
+        // the profiled $user, but the agency_id filter is added as defense in
+        // depth, matching every other daily_activity_entries call site fixed
+        // in this pass.
+        $agencyId = $user->effectiveAgencyId();
+
         // --- Points (weighted activity scoring) (V2) ---
         // Sum(value * weight) for enabled definitions visible to this user's branch.
         // M6.5 — achievement-total filter.
@@ -194,6 +201,9 @@ class AgentPerformanceService
             })
             ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
             ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
+            ->when($agencyId, function ($q) use ($agencyId) {
+                $q->where('e.agency_id', $agencyId);
+            })
             ->sum(DB::raw('e.value * d.weight'));
 
         // Points target comes from targets.points_target (V2)
@@ -222,6 +232,9 @@ class AgentPerformanceService
             })
             ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
             ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
+            ->when($agencyId, function ($q) use ($agencyId) {
+                $q->where('e.agency_id', $agencyId);
+            })
             ->groupBy('e.activity_date')
             ->selectRaw("e.activity_date as d, SUM(e.value * d.weight) as pts")
             ->pluck('pts', 'd')

@@ -337,7 +337,7 @@ class DealSettlementController extends Controller
         // Refresh finance_computed_values for the affected period
         $dealPeriod = (string)($deal->period ?? '');
         if ($dealPeriod && preg_match('/^\d{4}-\d{2}$/', $dealPeriod)) {
-            (new \App\Services\Finance\RollupService())->refreshPeriod($dealPeriod);
+            (new \App\Services\Finance\RollupService())->refreshPeriod($dealPeriod, (int) $deal->agency_id);
         }
 
         return redirect()

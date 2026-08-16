@@ -627,6 +627,9 @@ Route::middleware('auth')->group(function () {
     Route::post('/admin/users/{user}/resend-invite', [App\Http\Controllers\Admin\UserManagementController::class, 'resendInvite'])->middleware('permission:manage_users')->name('admin.users.resend-invite');
     Route::post('/admin/users/{user}/sync-p24', [App\Http\Controllers\Admin\UserManagementController::class, 'syncP24'])->middleware('permission:manage_users')->name('admin.users.sync-p24');
     Route::post('/admin/users/{user}/remove-file', [App\Http\Controllers\Admin\UserManagementController::class, 'removeAgentFile'])->middleware('permission:manage_users')->name('admin.users.remove-file');
+    // Legacy users.ffc_certificate_path read path — see UserDocumentDownloadController::downloadFfcCertificate().
+    Route::get('/admin/users/{user}/ffc-certificate/download', [\App\Http\Controllers\UserDocumentDownloadController::class, 'downloadFfcCertificate'])
+        ->middleware(['permission:manage_users', 'deny_assistant_download'])->name('admin.users.ffc-certificate.download');
     // PP Agent ownership
     Route::post('/admin/users/{user}/pp/sync', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'sync'])->middleware('permission:manage_users')->name('admin.users.pp.sync');
     Route::post('/admin/users/{user}/pp/update-id', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'updateId'])->middleware('permission:manage_users')->name('admin.users.pp.update-id');
@@ -1031,7 +1034,10 @@ Route::get('/r/a/{slug}', [\App\Http\Controllers\CoreX\AgentPreviewController::c
     ->where('slug', '[a-z0-9]{6,16}')->name('agent.qr.legacy');
 
 // ===== FAULT REPORTS =====
-Route::middleware(['auth'])->group(function () {
+// Internal stack traces / diagnostics — gated like the other System Developer
+// diagnostics surface (Server Health Monitor) rather than bare 'auth', so any
+// logged-in user can no longer read backend exception detail.
+Route::middleware(['auth', 'permission:view_server_health'])->group(function () {
     Route::post('/admin/fault-reports/manual', [\App\Http\Controllers\FaultReportController::class, 'manualReport'])
         ->name('admin.fault-reports.manual');
     Route::get('/admin/fault-reports/{id}', [\App\Http\Controllers\FaultReportController::class, 'show'])
@@ -1216,12 +1222,17 @@ Route::middleware(['auth'])->group(function () {
 
     Route::post('/admin/targets/daily', [TargetController::class, 'saveDaily'])->middleware('permission:manage_targets')->name('admin.targets.daily.save');
 
-    // Carry forward targets from previous month (manual trigger)
+    // Carry forward targets from previous month (manual trigger). Owner-only:
+    // targets:carry-forward runs unscoped across ALL agencies/branches by design
+    // (it's meant for scheduled/console use), so the web trigger must not be
+    // reachable via the ordinary per-tenant `manage_targets` permission — that
+    // would let any Branch Manager at any single tenant force a platform-wide
+    // write across every agency's targets tables.
     Route::post('/admin/targets/carry-forward', function () {
         \Illuminate\Support\Facades\Artisan::call('targets:carry-forward');
         $output = \Illuminate\Support\Facades\Artisan::output();
         return back()->with('status', 'Targets carried forward from previous month. ' . strip_tags(trim($output)));
-    })->middleware('permission:manage_targets')->name('admin.targets.carry-forward');
+    })->middleware('owner_only')->name('admin.targets.carry-forward');
 
     Route::get('/admin/performance', [\App\Http\Controllers\Admin\PerformanceController::class, 'index'])->middleware('permission:view_performance')->name('admin.performance');
     Route::get('/admin/branch/{branchId}/performance', [\App\Http\Controllers\Admin\BranchPerformanceController::class, 'index'])->middleware('permission:view_performance')->name('admin.branch.performance');
@@ -1567,7 +1578,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // ── Command Center ──
     // Lightweight contact lookup for calendar prefill (no agency.required middleware)
     Route::get('/api/contact-lookup/{id}', function (int $id) {
-        $contact = \App\Models\Contact::withoutGlobalScopes()->find($id);
+        $contact = \App\Models\Contact::find($id);
         if (!$contact) return response()->json(['error' => 'Not found'], 404);
         return response()->json([
             'id' => $contact->id,
@@ -1762,8 +1773,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/buyers/{contact}/reengage', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'reengage'])->name('command-center.buyers.reengage');
 
         Route::get('/lost-deals', function (\Illuminate\Http\Request $request) {
-            $agencyId = auth()->user()->effectiveAgencyId() ?? 1;
+            $agencyId = auth()->user()->effectiveAgencyId();
             $days = (int) $request->get('days', 90);
+            // No resolvable agency — fail closed rather than showing
+            // agency #1's lost-deal analytics.
+            if ($agencyId === null) {
+                return view('command-center.lost-deals', [
+                    'days' => $days,
+                    'distribution' => collect(),
+                    'valueData' => ['count' => 0, 'value' => 0],
+                ]);
+            }
             $analytics = app(\App\Services\LostDealAnalyticsService::class);
             return view('command-center.lost-deals', [
                 'days' => $days,
@@ -1834,6 +1854,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // ── Agent Portal ──
     Route::get('/my-portal', [\App\Http\Controllers\Agent\AgentPortalController::class, 'index'])
         ->middleware(['permission:access_my_portal', 'agency.required'])->name('agent.portal');
+
+    // Gated read path for UserDocument files (agent identity/compliance docs).
+    // Owner-or-agency-admin check happens inside the controller (multiple call
+    // sites: own portal, admin/verification-queue views), so no permission
+    // middleware here beyond auth + the standard assistant-download deny.
+    Route::get('/my-portal/documents/{document}/download', [\App\Http\Controllers\UserDocumentDownloadController::class, 'download'])
+        ->middleware('deny_assistant_download')->name('user-documents.download');
 
     // ── My Portal → Communication Capture (AT-39) — email self-service. A user
     //    manages their own mailbox credentials (set_by=user). No reveal here. ──
@@ -1913,6 +1940,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->name('rmcp.ack.receipt');
         Route::get('/my-portal/rmcp/acknowledge/receipt/{ack}/pdf', [\App\Http\Controllers\Compliance\RmcpAcknowledgementController::class, 'downloadReceipt'])
             ->name('rmcp.ack.receipt.pdf');
+        Route::get('/my-portal/rmcp/acknowledge/receipt/{ack}/signature', [\App\Http\Controllers\Compliance\RmcpAcknowledgementController::class, 'downloadSignature'])
+            ->name('rmcp.ack.signature');
         Route::get('/my-portal/rmcp/my-acknowledgements', [\App\Http\Controllers\Compliance\RmcpAcknowledgementController::class, 'index'])
             ->name('rmcp.ack.index');
     });
@@ -1982,6 +2011,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::get('/training/manage/lessons/{lesson}/edit', [\App\Http\Controllers\Training\TrainingController::class, 'editLesson'])->name('training.edit-lesson');
     Route::put('/training/manage/lessons/{lesson}', [\App\Http\Controllers\Training\TrainingController::class, 'updateLesson'])->name('training.update-lesson');
     Route::get('/training/{course}', [\App\Http\Controllers\Training\TrainingController::class, 'show'])->name('training.show');
+    Route::get('/training/lesson/{lesson}/document', [\App\Http\Controllers\Training\TrainingController::class, 'downloadLessonDocument'])->name('training.lesson-document');
     Route::post('/training/lesson/{lesson}/start', [\App\Http\Controllers\Training\TrainingController::class, 'startLesson'])->name('training.start-lesson');
     Route::post('/training/lesson/{lesson}/complete', [\App\Http\Controllers\Training\TrainingController::class, 'completeLesson'])->name('training.complete-lesson');
     Route::post('/training/{course}/acknowledge', [\App\Http\Controllers\Training\TrainingController::class, 'acknowledgeCourse'])->name('training.acknowledge');
@@ -2008,6 +2038,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{application}/status', [\App\Http\Controllers\Onboarding\OnboardingController::class, 'updateStatus'])->name('onboarding.status');
         Route::post('/{application}/upload', [\App\Http\Controllers\Onboarding\OnboardingController::class, 'uploadDocument'])->name('onboarding.upload');
         Route::post('/document/{doc}/verify', [\App\Http\Controllers\Onboarding\OnboardingController::class, 'verifyDocument'])->name('onboarding.verify-document');
+        Route::get('/document/{doc}/download', [\App\Http\Controllers\Onboarding\OnboardingController::class, 'downloadDocument'])
+            ->middleware('deny_assistant_download')->name('onboarding.document.download');
         Route::post('/checklist/{item}/toggle', [\App\Http\Controllers\Onboarding\OnboardingController::class, 'toggleChecklist'])->name('onboarding.toggle-checklist');
         Route::post('/{application}/activate', [\App\Http\Controllers\Onboarding\OnboardingController::class, 'activate'])->name('onboarding.activate');
     });
@@ -2059,6 +2091,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/submit', [\App\Http\Controllers\Compliance\PolicyAcknowledgementController::class, 'submit'])->name('submit');
             Route::get('/receipt/{ack}', [\App\Http\Controllers\Compliance\PolicyAcknowledgementController::class, 'receipt'])->name('receipt');
             Route::get('/receipt/{ack}/pdf', [\App\Http\Controllers\Compliance\PolicyAcknowledgementController::class, 'downloadReceipt'])->name('receipt.pdf');
+            Route::get('/receipt/{ack}/signature', [\App\Http\Controllers\Compliance\PolicyAcknowledgementController::class, 'downloadSignature'])->name('signature');
             Route::get('/my-acknowledgements', [\App\Http\Controllers\Compliance\PolicyAcknowledgementController::class, 'index'])->name('index');
         });
 
@@ -2289,6 +2322,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{provision}/edit', [\App\Http\Controllers\Compliance\AgencyComplianceSettingsController::class, 'edit'])->name('edit');
         Route::patch('/{provision}', [\App\Http\Controllers\Compliance\AgencyComplianceSettingsController::class, 'update'])->name('update');
         Route::delete('/{provision}', [\App\Http\Controllers\Compliance\AgencyComplianceSettingsController::class, 'destroy'])->name('destroy');
+        // Reuses AgencyDocumentsViewerController's authorized download action (multi-tenant +
+        // branch + anti-tamper checks) instead of the raw public storage URL previously rendered
+        // in compliance.agency.index. Kept in this group so it shares the page's own permission
+        // gate (manage_agency_compliance) rather than the my-portal viewer's view_agency_documents
+        // permission, which agency-settings admins/branch managers don't necessarily hold.
+        Route::get('/{provision}/download', [\App\Http\Controllers\Compliance\AgencyDocumentsViewerController::class, 'download'])->middleware('deny_assistant_download')->name('download');
     });
 
     // ── Admin Upload on Behalf + Per-User Compliance Overrides ──
@@ -2985,7 +3024,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                 'listing_price_at_sale' => 'nullable|numeric',
                 'notes' => 'nullable|string|max:1000',
             ]);
-            $property = \App\Models\Property::withoutGlobalScopes()->findOrFail($data['property_id']);
+            // Property uses BelongsToAgency — the normal scope 404s a foreign
+            // tenant's listing via findOrFail. Do NOT use withoutGlobalScopes()
+            // here; that let any agent mark another agency's listing "sold".
+            $property = \App\Models\Property::findOrFail($data['property_id']);
             $dom = $property->published_at ? (int) $property->published_at->diffInDays(now()) : null;
 
             \Illuminate\Support\Facades\DB::table('property_sold_records')->insert([
@@ -3026,6 +3068,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                 'occurred_at' => 'nullable|date',
                 'internal_only' => 'nullable|boolean',
             ]);
+            // The `exists:properties,id` rule alone doesn't enforce tenancy — it
+            // matches any agency's property. Re-fetch through the scoped model
+            // (Property uses BelongsToAgency) so a foreign-tenant id resolves to
+            // null instead of letting us plant a log row on another agency's
+            // property.
+            $property = \App\Models\Property::find($data['property_id']);
+            abort_unless($property, 404);
             \App\Models\PropertyMarketingActivity::create([
                 'property_id' => $data['property_id'],
                 'activity_type' => $data['activity_type'],
@@ -3039,16 +3088,28 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
         // Property Intelligence Hub — recommendation actions
         Route::post('/recommendations/{id}/action', function (\Illuminate\Http\Request $request, int $id) {
-            $rec = \Illuminate\Support\Facades\DB::table('property_recommendations')->where('id', $id)->first();
+            // property_recommendations has an agency_id column but is read/written
+            // via raw DB::table() with no scope, so a raw id would otherwise let
+            // one agency action/dismiss/toggle another agency's recommendation.
+            $agencyId = auth()->user()?->effectiveAgencyId();
+            abort_unless($agencyId, 403);
+            $rec = \Illuminate\Support\Facades\DB::table('property_recommendations')
+                ->where('id', $id)->where('agency_id', $agencyId)->first();
             if (!$rec) abort(404);
             $action = $request->input('action'); // 'actioned' or 'dismissed'
             if ($action === 'actioned') {
-                \Illuminate\Support\Facades\DB::table('property_recommendations')->where('id', $id)->update(['actioned_at' => now(), 'actioned_by' => auth()->id()]);
+                \Illuminate\Support\Facades\DB::table('property_recommendations')
+                    ->where('id', $id)->where('agency_id', $agencyId)
+                    ->update(['actioned_at' => now(), 'actioned_by' => auth()->id()]);
             } elseif ($action === 'dismissed') {
-                \Illuminate\Support\Facades\DB::table('property_recommendations')->where('id', $id)->update(['dismissed_at' => now(), 'dismissed_by' => auth()->id()]);
+                \Illuminate\Support\Facades\DB::table('property_recommendations')
+                    ->where('id', $id)->where('agency_id', $agencyId)
+                    ->update(['dismissed_at' => now(), 'dismissed_by' => auth()->id()]);
             } elseif ($action === 'toggle_seller_visible') {
                 $current = (bool) $rec->seller_visible;
-                \Illuminate\Support\Facades\DB::table('property_recommendations')->where('id', $id)->update(['seller_visible' => !$current]);
+                \Illuminate\Support\Facades\DB::table('property_recommendations')
+                    ->where('id', $id)->where('agency_id', $agencyId)
+                    ->update(['seller_visible' => !$current]);
             }
             return $request->wantsJson() ? response()->json(['ok' => true]) : back()->with('success', 'Recommendation updated.');
         })->name('recommendations.action');

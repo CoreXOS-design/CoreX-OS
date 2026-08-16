@@ -242,8 +242,15 @@ class CmaCoverageService
         // hydrator's collectMatchedRows Branch 1. Everything else must fall in
         // the date window AND the comp scope. The two branches are OR'd in SQL;
         // the scope/window narrowing for non-subject rows happens in PHP below.
+        // SECURITY — market_report_comp_rows.agency_id is NOT NULL and this
+        // table is not covered by the market_data_points shared-pool
+        // exception (mic-complete-spec §13.1/§13.2 scopes that exception
+        // explicitly to market_data_points only). Without this filter the
+        // coverage badge would count — and the anchor below would price
+        // off — every agency's MIC comp rows, not just this agency's.
         $micQuery = DB::table('market_report_comp_rows')
             ->whereNull('deleted_at')
+            ->where('agency_id', $agencyId)
             ->where('row_type', 'comp')
             ->whereNotNull('sale_date')
             ->whereNotNull('sale_price')
@@ -324,8 +331,11 @@ class CmaCoverageService
         $dateFrom = Carbon::today()->subMonths($periodMonths)->toDateString();
         $dateTo   = Carbon::today()->toDateString();
 
+        // SECURITY — same agency_id gap as countComps() above; the market
+        // anchor must only be priced off this agency's own MIC comp rows.
         $rows = DB::table('market_report_comp_rows')
             ->whereNull('deleted_at')
+            ->where('agency_id', $agencyId)
             ->where('row_type', 'comp')
             ->whereNotNull('sale_date')
             ->whereNotNull('sale_price')

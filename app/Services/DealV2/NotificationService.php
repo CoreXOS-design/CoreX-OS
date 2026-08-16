@@ -351,10 +351,17 @@ class NotificationService
     {
         $deal->loadMissing(['listingAgent', 'sellingAgent', 'agents']);
 
+        // SECURITY (Bug 1c, defense-in-depth) — this is dispatched from
+        // queue/console context with no authenticated user, so AgencyScope
+        // no-ops entirely (AgencyScope::applyInner returns early when there's
+        // no Auth::user()). $deal->agents is the raw pivot and may contain a
+        // cross-agency id if upstream validation was ever bypassed; re-check
+        // explicitly before using it as a notification recipient list.
         return collect([$deal->listingAgent, $deal->sellingAgent])
             ->merge($deal->agents ?? collect())
             ->filter()
             ->filter(fn (User $u) => (bool) $u->is_active)
+            ->filter(fn (User $u) => (int) $u->agency_id === (int) $deal->agency_id)
             ->keyBy('id') // dedup by user id (listing agent may also be a pivot agent)
             ->values();
     }

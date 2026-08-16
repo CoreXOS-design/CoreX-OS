@@ -4,10 +4,12 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Models\Concerns\BelongsToAgency;
 
 class P24ImportLog extends Model
 {
     use SoftDeletes;
+    use BelongsToAgency;
 
     protected $table = 'p24_import_log';
 
