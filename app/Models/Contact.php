@@ -446,6 +446,9 @@ class Contact extends Model
             $query->where(function ($q) use ($like, $lcLike, $digits) {
                 $q->where('first_name', 'like', $like)
                   ->orWhere('last_name', 'like', $like)
+                  // ENTITY contacts: match on the company/trust name directly (not
+                  // just via the observer's first_name mirror) so they're findable.
+                  ->orWhere('entity_name', 'like', $like)
                   ->orWhere('id_number', 'like', $like)
                   // mirror columns — fast path / belt
                   ->orWhere('phone', 'like', $like)

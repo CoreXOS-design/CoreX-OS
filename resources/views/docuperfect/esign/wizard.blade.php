@@ -533,6 +533,30 @@
                                            class="w-full rounded-md px-3 py-2 text-sm"
                                            :style="r.readonly ? 'background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'">
                                 </div>
+
+                                {{-- Entity recipient preview — how this company expands into its
+                                     signing representative(s) (from the agency's recipient preset). --}}
+                                <template x-if="r._is_entity && r._representation">
+                                    <div class="rounded-md p-3 text-xs" style="background: color-mix(in srgb, var(--brand-icon,#2563eb) 6%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon,#2563eb) 25%, var(--border));">
+                                        <template x-if="r._representation.needs_representative">
+                                            <div style="color: var(--ds-amber,#b45309);">⚠ This company has no representative linked. Add a director/executor/trustee (with a capacity) on its contact record — it cannot sign until then.</div>
+                                        </template>
+                                        <template x-if="!r._representation.needs_representative">
+                                            <div>
+                                                <div class="font-semibold mb-1" style="color: var(--brand-icon,#2563eb);">Signs via its representative<span x-show="r._representation.signers.length > 1">s</span>:</div>
+                                                <template x-for="(s, si) in r._representation.signers" :key="si">
+                                                    <div class="mb-1">
+                                                        <span class="font-semibold" style="color: var(--text-primary);" x-text="s.rep_name"></span>
+                                                        <span style="color: var(--text-muted);" x-show="s.capacity" x-text="' (' + s.capacity + ')'"></span>
+                                                        <span x-show="s.is_proxy" class="ml-1 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded" style="background:color-mix(in srgb, var(--ds-amber,#f59e0b) 18%, transparent); color:var(--ds-amber,#b45309);">proxy</span>
+                                                        <div class="italic mt-0.5" style="color: var(--text-muted);" x-text="'“' + s.phrase + '”'"></div>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+
                                 <div>
                                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">ID Number</label>
                                     <input type="text" x-model="r.id_number" :readonly="r.readonly"
@@ -3285,6 +3309,11 @@ function esignWizard() {
             r._contact_id = contact.id;
             r._searchOpen = false;
             r._searchQuery = contact.full_name;
+            // Entity recipient: remember it's a company + how it expands (rep(s) /
+            // capacity / proxy / phrasing) so the row can preview it. On send the
+            // server re-expands via expandEntityRecipients().
+            r._is_entity = !!contact.is_entity;
+            r._representation = contact.representation || null;
 
             // Set role from esign_role (maps type to signing role) or contact_type name as fallback
             if (contact.esign_role) {
