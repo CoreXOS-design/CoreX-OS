@@ -728,6 +728,12 @@
                           style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color:var(--brand-icon, #0ea5e9);">{{ number_format($miCount) }}</span>
                     @endif
                 </a>
+                {{-- MIC funnel phase 2 — BM/admin stale-claim review (anti-poaching reassignment). --}}
+                @if(\Illuminate\Support\Facades\Route::has('market-intelligence.stale-review') && auth()->user()->hasPermission('prospecting_setup.manage'))
+                <a href="{{ route('market-intelligence.stale-review') }}" class="corex-nav-subitem {{ request()->routeIs('market-intelligence.stale-review') ? 'active' : '' }}">
+                    <span>Stale claims review</span>
+                </a>
+                @endif
                 {{-- Bulk Import Reports moved into the Market Intelligence tab bar
                      as the "Importer" tab (see partials/tabs.blade.php). No
                      separate sidebar entry. --}}
@@ -741,6 +747,16 @@
                      /corex/market-intelligence/opportunities. --}}
                 @endpermission
                 @endfeature
+
+                {{-- CMA / deeds capture (phase 1) — its OWN screen; deeds captures are
+                     filtered OUT of MIC Opportunities and reviewed/promoted here. --}}
+                @permission('deeds_capture.access')
+                @if(\Illuminate\Support\Facades\Route::has('corex.deeds-capture.index'))
+                <a href="{{ route('corex.deeds-capture.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.deeds-capture.*') ? 'active' : '' }}">
+                    <span>Deeds Capture</span>
+                </a>
+                @endif
+                @endpermission
 
                 @permission('access_properties')
                 @if(config('features.properties') && \Illuminate\Support\Facades\Route::has('corex.properties.index'))
@@ -904,6 +920,7 @@
                 || $u->hasPermission('view_communication_flag_register')
                 || $u->hasPermission('manage_communication_mailboxes')
                 || $u->hasPermission('communications.capture_review')
+                || $u->hasPermission('deal_comms_suspense.view')
             );
         @endphp
         @if($canSeeCommunication)
@@ -969,6 +986,12 @@
                 {{-- AT-118 — Communications Access Gate: approver inbox (owning agents + grant_access holders) --}}
                 @permission('communications.view')
                 <a href="{{ route('corex.comms-access.inbox') }}" class="corex-nav-subitem {{ request()->routeIs('corex.comms-access.inbox') ? 'active' : '' }}">Archive Access Requests</a>
+                @endpermission
+                {{-- AT-231 P2b — inbound attorney-email review queue (same screen as Deals → Comms Suspense) --}}
+                @permission('deal_comms_suspense.view')
+                @if(\Illuminate\Support\Facades\Route::has('corex.comms-suspense.index'))
+                <a href="{{ route('corex.comms-suspense.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.comms-suspense.*') ? 'active' : '' }}">To File (attorney emails)</a>
+                @endif
                 @endpermission
 
                 {{-- ── WhatsApp ── --}}
@@ -1101,6 +1124,29 @@
                 @endif
                 @endpermission
 
+                {{-- AT-231 P2b — inbound attorney-email review queue --}}
+                @permission('deal_comms_suspense.view')
+                @if(\Illuminate\Support\Facades\Route::has('corex.comms-suspense.index'))
+                    @php
+                        $commsSuspenseCount = 0;
+                        try {
+                            $csAgencyId = auth()->user()?->effectiveAgencyId();
+                            if ($csAgencyId) {
+                                $commsSuspenseCount = \App\Models\Communications\CommunicationFilingSuspense::where('agency_id', $csAgencyId)->where('status', 'pending')->count();
+                            }
+                        } catch (\Throwable $e) { /* sidebar must never blow up */ }
+                    @endphp
+                    <a href="{{ route('corex.comms-suspense.index') }}"
+                       class="corex-nav-subitem {{ request()->routeIs('corex.comms-suspense.*') ? 'active' : '' }}"
+                       style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+                        <span>Comms Suspense</span>
+                        @if($commsSuspenseCount > 0)
+                            <span style="display:inline-block;min-width:18px;padding:1px 6px;background:#dc2626;color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;">{{ $commsSuspenseCount > 99 ? '99+' : $commsSuspenseCount }}</span>
+                        @endif
+                    </a>
+                @endif
+                @endpermission
+
                 @if(auth()->user() && in_array((string) auth()->user()->role, ['admin', 'super_admin', 'branch_manager', 'principal'], true) && \Illuminate\Support\Facades\Route::has('corex.compliance.rcr.index'))
                     @php
                         // Phase 9d — open RCR submissions for current agency.
@@ -1199,6 +1245,7 @@
                 @endpermission
                 @permission('access_import_listings')
                 <a href="{{ route('admin.listings.import') }}" class="corex-nav-subitem {{ request()->routeIs('admin.listings.import*') ? 'active' : '' }}">Import Listings</a>
+                <a href="{{ route('admin.minion.setup') }}" class="corex-nav-subitem {{ request()->routeIs('admin.minion.*') ? 'active' : '' }}">P24 Auto-Import</a>
                 @endpermission
                 @permission('view_daily_activity')
                 <a href="{{ route('admin.daily.summary') }}" class="corex-nav-subitem {{ request()->routeIs('admin.daily.summary*') ? 'active' : '' }}">Daily Activity Summary</a>
@@ -1238,7 +1285,18 @@
                 @permission('access_calculators')
                 <div class="corex-nav-sublabel">Tools</div>
                 <a href="{{ route('tools.commission') }}" class="corex-nav-subitem {{ request()->routeIs('tools.commission') && !request()->query('section') ? 'active' : '' }}">Commission Calculator</a>
-                <a href="{{ route('tools.cma') }}" class="corex-nav-subitem {{ request()->routeIs('tools.cma') ? 'active' : '' }}">CMA Certificate Generator</a>
+                <a href="{{ route('tools.cma') }}" class="corex-nav-subitem {{ request()->routeIs('tools.cma') ? 'active' : '' }}">Evaluation Certificate</a>
+                @php $evalIsCandidate = auth()->check() ? app(\App\Services\CandidatePractitionerService::class)->isCandidate(auth()->user()) : false; @endphp
+                @if($evalIsCandidate)
+                <a href="{{ route('tools.cma.evaluation.mine') }}" class="corex-nav-subitem {{ request()->routeIs('tools.cma.evaluation.mine') ? 'active' : '' }}">My Evaluations</a>
+                @endif
+                @php $evalPendingAuth = auth()->check() ? app(\App\Services\EvaluationAuthorisationService::class)->pendingCountFor(auth()->user()) : 0; @endphp
+                @if($evalPendingAuth > 0)
+                <a href="{{ route('tools.cma.evaluation.authorisations') }}" class="corex-nav-subitem {{ request()->routeIs('tools.cma.evaluation.authorisations') ? 'active' : '' }}" style="display:flex; align-items:center;">
+                    <span>Pending Authorisations</span>
+                    <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold" style="background:#ef444420; color:#ef4444;">{{ $evalPendingAuth }}</span>
+                </a>
+                @endif
                 <a href="{{ route('tools.commission') }}?section=history" class="corex-nav-subitem {{ request()->routeIs('tools.commission') && request()->query('section') === 'history' ? 'active' : '' }}">History & Logs</a>
                 @endpermission
             </div>
@@ -1950,7 +2008,7 @@
 
         {{-- Settings --}}
         @permission('access_settings')
-        <a href="{{ route('corex.settings') }}" class="corex-nav-item {{ (request()->routeIs('corex.settings*') || request()->routeIs('admin.settings.document-types.*') || request()->routeIs('admin.p24-suburbs.*')) ? 'active' : '' }}">
+        <a href="{{ route('corex.settings') }}" class="corex-nav-item {{ (request()->routeIs('corex.settings*') || request()->routeIs('admin.settings.document-types.*') || request()->routeIs('admin.p24-suburbs.*') || request()->routeIs('deals-v2.settings.service-types.*')) ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />

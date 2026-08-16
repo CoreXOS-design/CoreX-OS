@@ -1459,10 +1459,13 @@ a:hover { text-decoration: underline; }
       // PAGE 1 — COVER
       // ══════════════════════════════════════════════════════════════════════ ?>
 <div class="cover">
+    <?php // 2026-08-15 (Johan, HFC tenant-isolation fix) — $agency is
+          // already resolved above (line ~515); was never read for
+          // branding text, only for the logo file. ?>
     <?php if ($logoBase64): ?>
-    <div class="cover-brand"><img src="<?= $logoBase64 ?>" alt="Home Finders Coastal" style="max-height:120px;width:auto;"></div>
+    <div class="cover-brand"><img src="<?= $logoBase64 ?>" alt="<?= $esc($agency->name ?? 'Agency') ?>" style="max-height:120px;width:auto;"></div>
     <?php else: ?>
-    <div class="cover-brand">Home Finders Coastal</div>
+    <div class="cover-brand"><?= $esc($agency->name ?? 'Agency') ?></div>
     <?php endif ?>
     <h1>Market Analysis<br>&amp; Pricing Strategy</h1>
     <div style="height:24px"></div>
@@ -1480,7 +1483,7 @@ a:hover { text-decoration: underline; }
         <div class="cover-agent-row">
             <div class="cover-agent-info">
                 <div class="agent-name"><?= $esc($agentName) ?></div>
-                <div class="agent-company">Home Finders Coastal — Shelly Beach, KZN South Coast</div>
+                <div class="agent-company"><?= $esc(trim(($agency->name ?? 'Agency') . (($agency->address ?? '') !== '' ? ' — ' . $agency->address : ''))) ?></div>
                 <div class="agent-contact">
                     <?php if ($agentEmail): ?><?= $esc($agentEmail) ?><br><?php endif ?>
                     <?php if (!empty($agentPhone)): ?><?= $esc($agentPhone) ?><br><?php endif ?>
@@ -3586,14 +3589,14 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
         Ready to discuss your pricing strategy?
     </p>
     <p style="font-size:12px;color:var(--text-muted);">
-        <strong><?= $esc($agentName) ?></strong> &middot; Home Finders Coastal<br>
+        <strong><?= $esc($agentName) ?></strong> &middot; <?= $esc($agency->name ?? 'Agency') ?><br>
         <?php if ($agentEmail): ?><?= $esc($agentEmail) ?><br><?php endif ?>
-        Shelly Beach, KZN South Coast
+        <?= $esc($agency->address ?? '') ?>
     </p>
 </div>
 
 <div style="margin-top:16px;text-align:center;font-size:8.5px;color:var(--text-light);border-top:1px solid var(--border-light);padding-top:12px;">
-    Prepared by <?= $esc($agentName) ?> &middot; Home Finders Coastal &middot; <?= $compiledAt ?>
+    Prepared by <?= $esc($agentName) ?> &middot; <?= $esc($agency->name ?? 'Agency') ?> &middot; <?= $compiledAt ?>
     &middot; Version #<?= $version->id ?>
     <br>
     This report is based on publicly available data and independent CMA valuation.

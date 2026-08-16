@@ -17,6 +17,15 @@ namespace App\Services\Prospecting;
  * tooltipHtml is server-rendered safe HTML composed by the resolver — never
  * user-supplied. Numeric values inside it are pre-formatted; the view emits
  * it through {!! !!}.
+ *
+ * 2026-08-14 — statusBadgeLabel/statusBadgeTier (both optional): R2/R4 used
+ * to make the WARNING itself the (broken) click target — the whole chip was
+ * "CLAIM EXPIRES SOON" with a dead alpine dispatch nothing on the MIC page
+ * ever listened for. Now the primary chip is the real "Continue" CTA (same
+ * anchor pattern PITCH NOW uses), and when these two fields are set the view
+ * renders a small, non-interactive secondary badge next to it carrying the
+ * original warning text — the urgency stays visible, but it's no longer the
+ * (only, dead) thing you can click.
  */
 final class SuggestedAction
 {
@@ -30,5 +39,7 @@ final class SuggestedAction
         public readonly ?string $href = null,        // when clickType='anchor'
         public readonly ?string $modalKey = null,    // when clickType='modal'
         public readonly ?string $alpineCall = null,  // when clickType='alpine'
+        public readonly ?string $statusBadgeLabel = null, // e.g. 'CLAIM EXPIRES SOON'
+        public readonly ?string $statusBadgeTier = null,  // reuses the same tier palette, text-only
     ) {}
 }

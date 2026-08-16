@@ -6,15 +6,24 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Models\Concerns\BelongsToAgency;
 
+/**
+ * 2026-08-15 (Johan, HFC tenant-isolation fix, Wave 2, #7) — added
+ * BelongsToAgency. scopeVisibleTo()'s 'all' branch was fully unscoped —
+ * any role with data-scope 'all' saw every agency's sent sales documents.
+ * Fixed "for free" by the global scope, no code change needed in
+ * scopeVisibleTo() itself.
+ */
 class SalesDocumentSend extends Model
 {
-    use SoftDeletes;
+    use BelongsToAgency, SoftDeletes;
 
     protected $fillable = [
         'document_id',
         'document_name',
         'original_file_path',
+        'agency_id',
         'sent_by',
         'message',
         'status',

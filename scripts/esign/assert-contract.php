@@ -70,7 +70,17 @@ foreach ($withContract as $t) {
         echo "{$role}×{$n} ";
     }
     echo "\n      segments    : " . (count($seg[1]) ? implode(', ', array_unique($seg[1])) : '(none)') . "\n";
-    echo "      signature-line surfaces: " . substr_count($html, 'signature-line') . "\n";
+    // SIGNATURE SURFACES — reported, NOT asserted (Johan's ruling, 2026-07-14).
+    //
+    // The original walk-test expected "the practitioner line renders once". That premise was
+    // WRONG. In the EATS the generic signature/initial spots are ALL-PARTY surfaces — every
+    // party signs at every one of them — and only the FINAL block ("THUS DONE AND SIGNED …
+    // at ___ on this ___ day of 20__") binds identity + place + date to a party. There is no
+    // per-party practitioner LINE to count in the body, and counting one asserted the wrong thing.
+    //
+    // What §B actually proves is below: the role block CLONES PER RECIPIENT. That is the
+    // contract's claim. Signature-surface plumbing is a separate, human-gated concern.
+    echo "      signature spots (all-party, per ruling): " . substr_count($html, 'data-tag-type="signature"') . "\n";
 }
 
 // ── SECTION B — the knife-edge: which path does the renderer TAKE? ───────
@@ -123,13 +133,38 @@ printf("  rendered via the CONTRACT path : %d\n", $viaContract);
 printf("  rendered via LEGACY CLUSTERING : %d\n", $viaLegacy);
 printf("  knife-edge log lines emitted   : %d\n", count($legacyHits));
 
-$clean = $withContract->isNotEmpty() && $viaLegacy === 0 && $viaContract > 0;
+// THE KNIFE-EDGE IS SCOPED TO THE SUBJECT, exactly as the walk-test defines it:
+// "If this line appears in the log at any point during section B or C" — section B is the
+// multi-party session on the FRESHLY IMPORTED document. A template that carries the contract
+// and still falls to legacy clustering is a FAILURE. A legacy template that was never imported
+// through the contract path has nothing to fall back FROM — it is un-migrated, not broken, and
+// saying otherwise would let a real failure hide behind a pile of old documents.
+$subjectFailures = [];
+foreach ($renderable as $t) {
+    $html = $taggedHtml($t) ?: (string) $t->html;
+    if (! str_contains($html, 'data-role-block')) {
+        continue;   // not a subject — un-migrated legacy
+    }
+    if (in_array((string) $t->id, array_map('strval', $legacyHits), true)) {
+        $subjectFailures[] = $t->id;
+    }
+}
+
+$subjects = $withContract->count();
+$clean = $subjects > 0 && $subjectFailures === [];
+
+echo "\n  CONTRACT-CARRYING SUBJECTS : {$subjects}\n";
+echo "  ...of which fell to legacy  : " . count($subjectFailures) . "   <-- the knife-edge\n";
+printf("  UN-MIGRATED legacy templates: %d (never imported through the contract path — expected)\n",
+    $viaLegacy - count($subjectFailures));
+
 echo "\n  " . ($clean
-    ? "ASSERTED CLEAN — the contract is in force; zero legacy-clustering lines."
-    : "DEVIATION — the contract is NOT in force. "
-      . ($withContract->isEmpty()
-         ? "Contract coverage is ZERO: no template carries data-role-block, so sections B–E have no subject."
-         : "The renderer still fell back to legacy clustering."))
+    ? "ASSERTED CLEAN — every contract-carrying document renders through the CONTRACT path, "
+      . "with ZERO legacy-clustering lines against it."
+    : ($subjects === 0
+        ? "DEVIATION — contract coverage is ZERO: no template carries data-role-block, so sections B–E have no subject."
+        : "DEVIATION — a contract-carrying document STILL fell back to legacy clustering: #"
+          . implode(', #', $subjectFailures)))
     . "\n";
 
 exit($clean ? 0 : 1);

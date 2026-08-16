@@ -327,6 +327,11 @@
          ═══════════════════════════════════════════ --}}
     <div x-show="tab === 'profile'" x-cloak>
 
+        {{-- Saved signature / initial / signing PIN (encrypted; PIN-gated; blocked under impersonation) --}}
+        <div style="margin-bottom:20px;">
+            @include('agent._signature-settings')
+        </div>
+
         {{-- Live preview of the public agent page --}}
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:16px 24px; margin-bottom:20px; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;">
             <div>
@@ -760,8 +765,20 @@
 
         {{-- Chrome Extension --}}
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-top:20px;">
-            <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 8px;">CoreX Chrome Extension</h3>
-            <p style="font-size:0.75rem; color:var(--text-secondary); margin:0 0 12px;">Pull properties from Property24 directly into CoreX.</p>
+            @php
+                $corexExtVersion = null;
+                $corexExtManifest = public_path('chrome-extension/portal-capture/manifest.json');
+                if (is_file($corexExtManifest)) {
+                    $corexExtVersion = json_decode(@file_get_contents($corexExtManifest), true)['version'] ?? null;
+                }
+            @endphp
+            <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 8px;">
+                CoreX Chrome Extension
+                @if($corexExtVersion)
+                    <span style="font-size:0.7rem; font-weight:600; color:var(--text-muted); border:1px solid var(--border); border-radius:4px; padding:1px 6px; margin-left:6px; vertical-align:middle;">v{{ $corexExtVersion }}</span>
+                @endif
+            </h3>
+            <p style="font-size:0.75rem; color:var(--text-secondary); margin:0 0 12px;">Pull properties from Property24 directly into CoreX. After downloading, remove the old version in <code>chrome://extensions</code> and load this one — then confirm it shows <strong>v{{ $corexExtVersion ?? '3.1.0' }}</strong>.</p>
             <div style="display:flex; gap:10px; flex-wrap:wrap;">
                 <a href="{{ route('corex.extension.download') }}" class="corex-btn-primary">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>

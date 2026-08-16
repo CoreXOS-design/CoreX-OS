@@ -120,6 +120,36 @@ Every screen carries a nav entry the day it ships (non-negotiable #2).
 
 ---
 
+### 1.1 The mechanism is the existing WEB-PACK system — not a seeded pack (Johan, 2026-07-15)
+
+**Ruling.** The slot model above is not a thing to build — it is the **web-pack system already in
+Documents**, which predates Phase 1 and was made for exactly this. A pack is composed by a human,
+through the builder, as agency data; it is **never seeded from a template import**, and in
+particular never from a walk-test document.
+
+| Concern | Where it already lives |
+|---|---|
+| Build / edit a pack (full CRUD, soft-delete, permission `access_docuperfect_packs`) | `WebPackController`; **Documents → Web Packs** (`docuperfect.web-packs.*`), sidebar entry present |
+| Set each slot's nature — **required · selectable(one-of, grouped) · optional** — with a label | `resources/views/docuperfect/web-packs/form.blade.php` (`slot_type` / `slot_group` / `slot_label`) |
+| Offer the picks to the agent at send (radios for a selectable group, checkbox for optional) | `esign/wizard.blade.php` step 1 (`packSlots` / `slotSelections`) |
+| Resolve the picks server-side (pack-membership, required-always, exactly-one-per-group, re-run eligibility on the RESOLVED set) | `WebPackSlotResolver` (HD-2), proven at the HTTP boundary (HD-3) |
+
+**The canonical Sales Mandate Pack** (Johan's composition, verbatim) — an agency builds this ONCE
+in the web-pack builder; every send then offers the choices:
+
+| Slot | `slot_type` | Group | The agent's send-time choice |
+|---|---|---|---|
+| **Mandate** | `selectable` | A | **Open OR Exclusive** (sole) — one of |
+| **Mandatory Disclosure** | `required` | — | always included, not the agent's to drop |
+| **FICA** | `selectable` | B | **which FICA is applicable** — one of (Natural person / Company / Trust …) |
+
+The composition is therefore the AGENT'S CHOICE at send time, expressed through the web-pack
+picker — not a fixed bundle, and not something a lane hard-codes. A CoreX-standard starter pack
+MAY later be provided as global reference data (overridable per agency), but that is a distinct,
+Johan-authorised decision; the mechanism does not depend on it.
+
+---
+
 ## 2. Two consent profiles — adopt-once for all, gate-per-surface for clients
 
 **Doctrine (refinement A).** **The consent profile is a property of the signer role, not of the
@@ -768,3 +798,259 @@ so the resolution is on the page, not just in the section it touched:
 + the March–May 2026 redesign in `esign-v3-complete-spec.md`); pairs with `esign-field-intelligence.md`
 (surface inventory) and `esign-document-compiler-spec.md` (CDS engine). No code, no tickets — doctrine
 capture for Johan's read.*
+
+---
+
+## AT-291 — signing-ceremony send-now fixes (2026-07-18, built)
+
+Six defects Johan hit in the live ceremony, fixed on branch `AT-291-esign-ceremony-send-now`
+(off QA1). Investigation: `.ai/audits/2026-07-17-esign-ceremony-wonk-audit.md` (seller-ID class)
++ the AT-291 mail/flag/chip investigations. **Authority:** Johan, "the esign bugs sent now fixed".
+
+**① Sender (From) address + ② Reply-To** — the amendment/initialing re-send sites
+(`SignatureService::handleAmendment` and `::requeueAllPartiesForInitialing`) sent
+`SigningRequestMail` **without `->fromAgent()`**, collapsing both From and Reply-To to the system
+default. Fixed by stamping `->fromAgent($template->creator)` at both, matching every other send
+site. The deliverability-safe rule is `BaseSignatureMail::getFromAddress()` and applies per user
+type: **company-domain agent** (`@hfcoastal.co.za` outward email) → From = agent's own address;
+**personal-email agent** → From = `system@hfcoastal.co.za` with display name "`<Name>` via Home
+Finders Coastal" (SPF/DKIM constraint, AT-79) **+ agent Reply-To**; **no resolvable agent** →
+system From, no Reply-To. Reply-To always carries the agent's outward email when an agent is present.
+
+**③ Green chips** — the emerald "`<party> (signed)`" attribution chip on OTHER parties' markers in
+the recipient signing view derived ownership from a fuzzy same-family role match
+(`isMyWebSigBlock`, `seller/owner_party/lessor/landlord/owner` treated as one), lighting a green
+chip for the **wrong** same-family party. **Ruling (Johan): hidden from the recipient view, kept on
+the agent view.** The recipient still sees their OWN "Signed/Done" indicator and the "not yours"
+lock on unsigned other-party fields; only the other-party *signed attribution* chip is hidden
+(both web + PDF overlays in `signatures/external/sign.blade.php`). The agent view
+(`SignatureController::sign`, separate blade) is unchanged.
+
+**④ Data-loss-on-flag** — the flag-clause modal called `location.reload()` on a successful flag
+POST, wiping every captured-but-unsubmitted signature / initial / field (forbidden per STANDARDS
+§E-Sign). Fixed: the modal now dispatches `clause-flagged-committed`; the signing component applies
+the flag **in place** (`_applyCommittedFlag` — pushes to `webClauseFlaggedItems`, repaints the
+clause) so all captured work survives. Mirrors the already-correct flag-**removal** path.
+
+**⑤ Flag freeze workflow** — the freeze was client-only. Now server-enforced:
+`completeWeb()` (and the marker `complete()` twin) reject a completion POST with **423** while any
+flag amendment is `STATUS_PENDING` (`templateHasPendingFlag`); a crafted / JS-failed POST can no
+longer sign a document that is about to change. The freeze **lifts automatically** the moment the
+agent resolves the flag — `show()` derives each persisted clause-flag's status from the live
+`DocumentAmendment` record (`hydrateClauseFlagStatuses`) instead of the frozen `clause_flags` JSON
+(which the resolution cascade never rewrites). Recipient UX: while frozen, the only action is a
+**Close** button on the freeze banner, which surfaces an "amendment sent — you may close this
+window" overlay; the document returns to the agent to fix + re-send, and the recipient completes
+via the email link after resolution. Deliberately **not** gated: raising/self-removing flags stays
+allowed while frozen (a recipient may flag more than one clause) — only *completion* is blocked.
+
+**⑥ Fill&sign duplicate seller render** — the Step 5 "Fill & Review" preview runs the recipient
+signing engine (`ESignWizardController` pipes it through `RoleBlockExpansionService::expandWithLooping`),
+so the double is a block-expansion defect, not a wizard-blade loop. Root cause: the normalizer stamps
+mixed vocabulary (`RoleBlockDetectionService` returns `owner_party` for generic-named fields and
+`seller` for a `data-contact-type="Seller"` block), and `groupRecipientsByRole` fans each recipient
+into both its literal and canonical-twin bucket — so a `seller` role-block nested inside an
+`owner_party` role-block (same party) is cloned once WITH its ancestor and again on its own pass →
+the seller renders twice. **Fix:** `RoleBlockExpansionService` now excludes a role-block nested inside
+another role-block of the **same canonical party** from independent expansion
+(`hasSamePartyRoleBlockAncestor` / `canonicalParty`); different-party nesting and non-nested sibling
+blocks are untouched, so a single seller renders once and genuine multi-seller still expands N times.
+
+Tests: `tests/Feature/Docuperfect/SigningView/FlagFreezeGateTest.php` (⑤ server gate + freeze
+derivation) and `.../NestedRoleBlockDuplicateTest.php` (⑥ nested same-party dedup + regression
+guards) — both in the pipeline-gated `SigningView/` dir covering the `SigningController` and
+`RoleBlockExpansionService` changes.
+
+## AT-292 — couple's-mandate seller identity-drop (2026-07-18, built; stacked on AT-291)
+
+Johan: on a couple's mandate the second seller renders WITHOUT their ID number. Re-verified on the
+QA1 base — the root cause had MOVED from the AT-111-audit's legacy composite-span builder (now dead
+for live CDS docs) to the CONTRACT render path.
+
+Root cause: per-recipient prefill (`RoleBlockExpansionService::mutateCloneForInstance` /
+`stampInlineFieldForRecipient`) re-sources identity from the linked Contact via
+`resolveContactValue`, which `(string)`-cast an empty Contact column to `''`. `''` is not null, so the
+caller's `if ($value !== null)` guard fired and `replaceTextContent($f, '')` **wiped the ID the wizard
+had baked into merged_html**. A couple's second seller is typically matched to an EXISTING Contact
+whose `id_number` is blank (the wizard never wrote the typed ID back), so the ID (and name/email/
+address/phone — same class) blanked. Separately, `seller_cell` fields had no `case` in
+`resolveContactValue` so they never re-sourced (couples showed seller 1's number).
+
+Fixes (all fill-safe, non-destructive):
+- **A (choke point):** `resolveContactValue` returns **null, not `''`**, for any empty Contact column
+  (`blankToNull`) → the prefill guard PRESERVES the baked span for ID/name/email/address/phone on both
+  prefill paths.
+- **A′ (headline fallback):** `mutateCloneForInstance` falls back to `SignatureRequest.signer_id_number`
+  for the ID when the Contact is blank — fixes historical couples even if the span lacked the ID.
+- **B (durable data fix):** `ESignWizardController` reconciliation loop now backfills the typed
+  `id_number` onto pre-linked / matched-existing / auto-duplicate Contacts (`backfillContactIdNumber`,
+  **fill-if-blank — never overwrites** a non-empty value) so the drop is closed at the data source
+  (render + FICA + deals all resolve it going forward).
+- **C (phone key):** added `case 'cell'` to `resolveContactValue` alongside `phone`.
+
+No overlap with AT-291 (that touched `expandViaContract`'s block-collection; this is downstream in
+prefill/resolve — no ordering conflict). Test: `SigningView/SellerIdentityPreservationTest.php` —
+baked-ID survives, signer_id_number fallback, `seller_cell` resolves, blank→null unit, wizard
+fill-if-blank backfill.
+
+## AT-293 — completeWeb server-side mandatory FLOOR (2026-07-18, built; stacked on AT-292)
+
+Canon §4 / AT-291 audit G1: `SigningController::completeWeb()` validated only `consented` server-side
+before `STATUS_COMPLETED`; required fields / disclosures / signatures were enforced CLIENT-side only
+(`canSubmitWeb` / `webIncompleteCount`), so a crafted or JS-failed POST could complete with blank
+statutory items.
+
+Key constraint (verified): a web/CDS template carries **no structured per-field `required` flag** —
+required-ness lives only in the rendered HTML (a client DOM computation). The exact per-item count
+therefore **cannot be faithfully reproduced server-side** without re-rendering + re-parsing this
+party's merged_html. So the gate is a **strict FLOOR beneath the client contract**, not a
+reproduction of it:
+- (a) consent (already enforced);
+- (b) at least one **signature/initial** captured (`signatures{}`/`initials{}` non-empty);
+- (c) if this signer has **recipient-editable fields** (`getEditableFieldsFromMappings` for the
+  party_role), at least one **field value** filled.
+
+Because the client requires ALL such items, this floor can only ever reject the empty/crafted POST —
+**zero false-positives on a client-legitimate submission**. Returns **422** with a user-clear message.
+Inserted after the AT-292 freeze gate + consent check, before the consent audit-log write; the two
+gates (freeze vs required-floor) coexist.
+
+**Deliberately client-only (documented, not server-reproducible without re-rendering):** disclosure
+completeness (rows exist only in rendered HTML, disclosing-party-only) and exact required-signature/
+initial counts. These remain enforced by `webIncompleteCount`; the server floor covers the
+none-submitted hole. A future hardening could re-render the party's merged_html to count them.
+
+Test: `SigningView/WebCompletionRequiredGateTest.php` — no-signature→422, editable-all-blank→422,
+signature+field→passes, consent-still-required.
+
+## AT-294 — empty-email recipient dead-end (2026-07-18, built; stacked on AT-293)
+
+Audit A1: a recipient with no email hit `Mail::to('')` in `SignatureService::sendSigningRequest()`,
+which threw and was **swallowed** by the surrounding try/catch — the ceremony parked as a
+healthy-looking `awaiting_*` (request `pending`, template `awaiting_<role>`) with no link delivered
+and no agent-visible error. The token is minted at request-creation (so a link always existed), and
+the controller reported unconditional "sent" success. The only email validation anywhere was on the
+explicit `sign_later` path.
+
+Fix = PREVENT + ABSORB (defence in depth), reusing the EXISTING `DEFERRED` / `AWAITING_DEFERRED` /
+`resumeDeferredSigning` machinery (the `sign_later` pattern) — no new state, no new UI:
+- **ABSORB (primitive guard, the core):** `sendSigningRequest()` — if `signer_email` is blank, park
+  the request `DEFERRED` + template `AWAITING_DEFERRED` + audit `send_skipped_missing_email`, and
+  return before the doomed send. The agent sees it in the visible deferred bucket, adds an email, and
+  resumes via `resumeDeferredSigning()`; the token survives, nothing is lost. Guards the primitive,
+  so every caller (including the agent-completion auto-advance, which has no controller round-trip)
+  is covered (BUILD_STANDARD §6).
+- **PREVENT (agent-facing, upfront):** `SignatureController::sendForSignature()` — both the initial
+  send and the awaiting-party resend reject email-less WAITING parties (excluding sign-later
+  DEFERRED and supervisor queue roles) with a clear per-recipient `withErrors` message ("These
+  recipients have no email address: … Add an email, or mark them 'sign later / in person'").
+- Reminder sends (`sendReminderEmail` / `sendManualReminderEmail`) skip an email-less party cleanly
+  (log + return) instead of swallowing a `Mail::to('')`.
+
+Test: `tests/Feature/ESign/EmptyEmailDeferralTest.php` — empty-email→DEFERRED+AWAITING_DEFERRED (no
+throw, no mail, token preserved), with-email→PENDING+mail sent, resume-with-email→re-enters flow.
+
+## AT-295 — agent fill&sign pre-send duplicate seller (REOPENED ⑥, wrong surface) (2026-07-18)
+
+Johan's on-site test of deployed qa1 (ac580cb6) showed the AGENT fill&sign PRE-SEND screen STILL
+doubles the seller block. AT-291 ⑥ fixed the RECIPIENT ceremony but not this. Root cause: the wizard
+Step-5 preview (`ESignWizardController::templatePages`) feeds RAW blade HTML — which has NO
+`data-role-block` contract (0/39 web-templates carry it; it's stamped into `merged_html` only at
+document generation) — into `expandWithLooping`, so `$hasContract=false` and it takes the LEGACY
+clustering path where the ⑥ `hasSamePartyRoleBlockAncestor` dedup never runs. The recipient ceremony
+feeds contract-stamped HTML → contract path → deduped. Fix: run `RoleBlockNormalizer::normalize()` on
+the preview HTML BEFORE `expandWithLooping` (one renderer, both surfaces). Test:
+`SigningView/AgentPresendContractTest.php` (normalizer stamps the contract → preview enters the deduped
+path). **NEW RULE (Johan, on-site): DONE only when verified rendering correctly on the deployed qa1
+site — on-site verification recorded on the ticket post-deploy.**
+
+## AT-296 — mail footer showed admin@ inbox not the sender (2026-07-18, on-site)
+
+From is correct (AT-291 ①/②) but the mail body FOOTER showed "admin@hfcoastal.co.za". Not a missing-agent
+gap — `BaseSignatureMail::getAgentFooter()` fell back `website → $agency->email` (admin@) for a
+website-less agent, and the shared footer partial rendered that as a "website" while never showing the
+agent's own email. Fix: website fallback uses `$agency->website` (never the admin inbox); the footer
+partial `emails/signatures/partials/agent-footer.blade.php` now renders `agentFooter['email']`
+(= `$agent->outward_email`). Class-level (one method + one shared partial → every e-sign mail). Test:
+`ESign/MailFooterIdentityTest.php` (rendered mail: sender email present, admin@ absent). On-site: Mailpit
+(127.0.0.1:8025) post-deploy.
+
+## AT-297 — green field "chips" on the recipient view (REOPENED ③, wrong element) (2026-07-18, on-site)
+
+AT-291 ③ hid the marker-overlay "(signed)" chips, but Johan's green chips are `.corex-field` — the CDS
+field pills (`public/css/corex-document.css:183`): green tint bg + teal border + green uppercase label.
+The white-when-filled rule `.corex-field[data-filled=true]` never fires (nothing stamps `data-filled`),
+so every field shows green top-left. Fix: neutralise under the recipient wrapper
+(`.recipient-signing-context .corex-field` → transparent bg / neutral border; `.corex-field-label` →
+display:none), keeping the green builder/agent affordance (unscoped) intact. On-site: rendered recipient
+page has no green field chips post-deploy.
+
+## AT-298 — filled field truncates long content (2026-07-18, on-site)
+
+Seller physical address clipped: per-template `.field{white-space:nowrap}` + `.corex-a4-page{overflow:hidden}`.
+Fix (class-level, all fill fields): higher-specificity override
+`.docuperfect-document-body .field, .corex-signing-view .field { white-space:normal; overflow-wrap:anywhere;
+display:inline-block; }` — fields grow/wrap to fit, never clip. On-site: long address wraps post-deploy.
+
+## AT-299 — notify the agent when a recipient flags a clause (closes ⑤) (2026-07-18, on-site)
+
+AT-291 ⑤ freezes signing on a flag — but the AGENT was never told AND the frozen document
+(`STATUS_AMENDMENT_REVIEW`) was in NO `myDocuments` bucket, so it fell out of the list entirely
+(invisible frozen ceremony = dead deal). `flagClause` emailed only the recipient. Fix:
+- **Visibility:** `myDocuments` gains a `flagged` bucket (AMENDMENT_REVIEW) rendered FIRST as a crimson
+  "Flagged — Review Required" section with a **Review Flag** CTA (`docuperfect.signatures.review`).
+- **Notification:** `flagClause` dispatches `ClauseFlaggedNotification` to the sending agent
+  (`$template->creator`) through the AT-235 `NotificationDispatcher` gateway — in-app + email per the
+  agent's prefs, deep-linking to `docuperfect.amendments.review`. New event `esign.clause_flagged` in
+  `NotificationEventTypeSeeder` (`inApp:true, email:true, default_enabled:1`), carried by
+  `deploy:sync-reference-data`. Non-blocking (never blocks the flag/freeze).
+- Configurability: default ON and **per-user configurable** via the standard notifications settings
+  matrix (`/corex/settings` → notifications), the CoreX-canonical toggle mechanism.
+
+**Deliberately NOT in this commit (10a §3 — Johan's call, on the record):** an AGENCY-LEVEL master
+toggle on `agency_dashboard_settings` + Setup-Wizard surfacing. The per-event catalogue already gives
+default-ON + per-user control (the mechanism every other CoreX notification uses); an agency master
+switch is an additional layer that needs a migration + wizard saver (10a §2 subset-saver care).
+**Flagged to Johan for the toggle-scope decision** rather than rushed under tonight's deadline — build
+it as a follow-up if Johan wants the agency-level switch. Test:
+`SigningView/ClauseFlagNotifiesAgentTest.php` (flag → agent notified via gateway). On-site: after a flag
+on qa1, the agent's list shows the FLAGGED section + a notification row exists — recorded post-deploy.
+
+## AT-300 — on-site refix after Johan's deployed retest (2026-07-19)
+
+Johan retested on deployed qa1 (bcbb2849); AT-295/297/298 had targeted the wrong surfaces (verified by
+fetching the composed page + expanding his ACTUAL merged_html for doc 424):
+- **Dup (fill&sign + recipient ceremony — one fix):** his CDS mandate binds a COLLECTIVE `seller_full`
+  field ("I / We Anine … and Andre …") but marks the clause `data-role-block="seller"`, so
+  `expandViaContract` looped it per recipient → the I/We clause duplicated. Fix `roleUsesCollectiveField()`:
+  a role whose doc carries a `<role>_full` field renders its blocks ONCE, no per-recipient header.
+  Loop-templates (indexed fields, no `_full`) unaffected. `show()` re-runs `expandWithLooping` on
+  `merged_html` at load → reaches EXISTING unsigned docs. Verified doc 424: I/We 2→1, headers 4→0.
+- **Dead Review-Flag button:** CTA pointed at `signatures.review`, which REJECTS `AMENDMENT_REVIEW`
+  (redirects "not pending approval"). Rewired to `docuperfect.amendments.review` with the pending flag
+  amendment attached in `myDocuments`.
+- **Green pills + truncation (C+D, same element):** CDS field is `.corex-field` (not `.field`); the
+  signing doc-body container is `.corex-signing-view` (JS-added), not `.recipient-signing-context`. My
+  AT-297/298 selectors matched neither. Corrected to `.corex-signing-view .corex-field` (neutralise green
+  + min-width:0/max-width:100%/white-space:normal/overflow-wrap:anywhere) + `.corex-field-label{display:none}`.
+- **Mail footer (AT-296):** unchanged, holds (re-verified: agent → own email, no admin@).
+
+Tests: `SigningView/CollectiveRoleRenderTest.php`; `NestedRoleBlockDuplicateTest` still green. Standard:
+fetch the composed page + expand the real merged_html, never the served asset alone.
+
+## AT-300b — Johan's second on-site verdict corrections (2026-07-19)
+
+- **Seller 2 vanished (over-correction):** AT-300 collapsed the WHOLE seller role. Collectivity is
+  PER-BLOCK: only the block containing the joined `<role>_full` field (the I/We clause) is collective →
+  render ONCE untouched (keeps both names); the per-seller DETAIL blocks (address/tel/email) still loop
+  per recipient. `roleUsesCollectiveField` → `blockHasCollectiveField` (block-scoped, leaves collective
+  blocks in place, no clone/prefill/header). Verified doc 424: I/We once with BOTH names,
+  seller_address/seller_phone loop 2×.
+- **Green boxes = other-party MARKER OVERLAY (not the field pills):** doc 424's agent signature marker
+  `{assigned_party:agent, is_mine:false, signed:true}` at x=0,y=0 (top-left) renders an emerald box;
+  AT-291 ③ hid only its inner content → empty green shell. Fix: hide the whole `!marker.is_mine`
+  container in the recipient view (both web + PDF overlays in `signatures/external/sign.blade.php`).
+  Recipients only see their OWN markers.
+- Field autosize / green-pill CSS (AT-300 `.corex-signing-view .corex-field`) retained.
+
+Amendment Review V2 → AT-301 (separate ticket + spec update).

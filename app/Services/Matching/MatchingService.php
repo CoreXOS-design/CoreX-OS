@@ -654,26 +654,30 @@ class MatchingService
 
         if (empty($components) || !$hasSubstantialSignal) {
             // AT-71 — belt-and-braces against the empty-wishlist inflation bug.
-            // 2026-08-11 fix: was `$match->isCountable() ? 100 : 0`, but
-            // isCountable() only requires ONE criteria group present anywhere
-            // on the wishlist — a wishlist with ONLY a property_type selected
-            // (already gated above, separately, and not itself a $components
-            // entry) and nothing else satisfied it, so a near-blank wishlist
-            // scored a flat 100. Via canonicalBestAcross()'s best-across-all-
-            // wishlists selection, that blank wishlist could then outrank a
-            // buyer's real, fully-specified one and surface a wrong-suburb
-            // property at 100% (confirmed: Caroline King's Southbroom+budget
-            // wishlists correctly scored low against a Ramsgate listing, but
-            // a separate blank wishlist of hers — no suburb, no price, no
-            // beds — won the "best" comparison at 100 every time). Extended
-            // 2026-08-11 (same day, follow-up): the guard now also fires when
-            // $components is non-empty but every entry is COSMETIC (no
-            // substantial signal) — the same inflation, just via a satisfied
-            // cosmetic component (e.g. a garbage erf_size_max) instead of zero
-            // components. No real signal now means either (a) it specified
-            // ONLY must-have features, which were already verified above → a
-            // genuine full match → 100; or (b) it specified nothing
-            // substantial at all → no real signal → 0, never inflated.
+            // Was `$match->isCountable() ? 100 : 0`; isCountable() only requires
+            // ONE criteria group present anywhere on the wishlist — a wishlist
+            // with ONLY a property_type selected (already gated above,
+            // separately, and not itself a $components entry) and nothing else
+            // satisfied it, so a near-blank wishlist scored a flat 100. Via
+            // canonicalBestAcross()'s best-across-all-wishlists selection, that
+            // blank wishlist could then outrank a buyer's real, fully-specified
+            // one and surface a wrong-suburb property at 100%.
+            //
+            // 2026-08-12 (Johan's ruling) — reverted the same-day
+            // "$hasSubstantialSignal" extension that also forced a
+            // COSMETIC-only wishlist (e.g. only erf_size_max/floor_size/
+            // category/property_type present) to this same 0/100 fallback,
+            // ignoring whatever it actually contained. Per Johan: "a wishlist
+            // means exactly what it says — no filter matches all, criteria
+            // filters by criteria, no cleverness." A cosmetic-only wishlist now
+            // scores naturally off its own components below instead of being
+            // silently overridden. The Caroline King incident that motivated
+            // the extension was a DATA problem (a garbage 2,000,000 m²
+            // erf_size_max typo on one wishlist) and was fixed as data, not
+            // as an engine rule — that fix stands on its own and needed no
+            // engine-level override. $components empty still means the
+            // wishlist stated nothing at all (or only must-haves, verified
+            // above): a genuine full match → 100, or truly nothing → 0.
             return !empty($mustHaves) ? 100 : 0;
         }
 

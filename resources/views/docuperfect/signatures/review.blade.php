@@ -11,16 +11,18 @@
 
 @include('docuperfect.signatures.partials.a4-page-styles')
 <style>
-/* Read-only document container — interactive elements made inert */
+/* Read-only document container — interactive elements made inert. The DOCUMENT
+   render itself (ink sizing, per-recipient blocks, accumulated signatures) is
+   governed ENTIRELY by the shared canonical-spine partial (a4-page-styles), so the
+   agent-review renders identically to the signing screens — the review must NOT
+   re-style the document. We only make it non-interactive. (The previous emerald
+   border/background on .web-sig-interactive was a review-only divergence — the
+   "green box" — and is removed; the spine's own signed/ink styling stands.) */
 .review-doc-container .web-sig-interactive,
 .review-doc-container .corex-page-initials,
 .review-doc-container [data-marker-type] {
     pointer-events: none;
     cursor: default;
-}
-.review-doc-container .web-sig-interactive {
-    border: 2px solid #10b981 !important;
-    background: rgba(16,185,129,0.04) !important;
 }
 /* Clause flag highlight */
 .clause-flag-card {
@@ -28,7 +30,7 @@
 }
 </style>
 
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-4">
+<div class="{{ ($isAmendmentApproval ?? false) ? 'max-w-[1600px]' : 'max-w-7xl' }} mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-4">
 
     <x-sticky-action-bar>
         <x-slot name="left">
@@ -41,6 +43,14 @@
             <h2 class="text-sm font-semibold text-gray-700 truncate">Agent Review — {{ $document->name }}</h2>
         </x-slot>
     </x-sticky-action-bar>
+
+    {{-- AT-373 — REAL three-column layout: the document reflows narrower (review-main, flex:1) and the
+         Amendments panel occupies its OWN column beside it (review-aside), part of the page flow — NOT a
+         floating card over the document. Stacks below the doc under 1280px. --}}
+    @if($isAmendmentApproval ?? false)
+    <div class="review-columns" style="display:flex; gap:16px; align-items:flex-start;">
+    <div class="review-main space-y-4" style="flex:1 1 0%; min-width:0;">
+    @endif
 
     {{-- Candidate Practitioner Banner --}}
     @if(!empty($isCandidateFlow) && !empty($candidateName))
@@ -191,12 +201,13 @@
         </div>
     </div>
 
-    {{-- Amendments --}}
+    {{-- Amendments (legacy DocumentAmendment box) — SUPPRESSED in AT-373 amendment-approval mode, where
+         the sticky right-rail panel is the single review/action surface for BOTH change types. --}}
     @php
         $templateModel = $document->signatureTemplate;
         $hasAmendments = $templateModel && $templateModel->amendments()->exists();
     @endphp
-    @if($hasAmendments)
+    @if($hasAmendments && empty($isAmendmentApproval))
     <div class="rounded-sm border border-amber-200 bg-amber-50 p-5" x-data="amendmentManager()">
         <h4 class="font-semibold text-amber-800 mb-3 flex items-center gap-2">
             <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -243,6 +254,10 @@
                         </template>
                     </div>
 
+                    {{-- AT-373 — the inline per-amendment Accept/Reject is HIDDEN during amendment approval:
+                         the ONE approve path is the consolidated "Approve Amendment" action at the bottom
+                         (agent initials each change, then a single approve). Kept for the legacy flag flow. --}}
+                    @unless(!empty($isAmendmentApproval))
                     <div x-show="amendment.status === 'pending'" class="mt-3 flex items-center gap-2">
                         <button @click="agentAction(amendment.id, 'accept')"
                                 class="px-3 py-1 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700">
@@ -253,6 +268,7 @@
                             Reject
                         </button>
                     </div>
+                    @endunless
                 </div>
             </template>
         </div>
@@ -331,6 +347,22 @@
                     // §20 — restore the seller's stored YES/NO/N/A disclosure
                     // answers (read-only) so the reviewing agent sees them.
                     restoreStoredDisclosure(container, @json($disclosureAnswers ?? []));
+
+                    @if($isAmendmentApproval ?? false)
+                    // SYMMETRIC edit model (Johan 2026-08-10) — the shared amend tool (cc6's
+                    // _selection-edit-tool) is mounted on this page. Host-page contract:
+                    //  • the document above renders the change-marks server-side (forDisplay canonical) —
+                    //    the tool's selection→strike works against them;
+                    //  • emit corex-doc-ready now that the body has painted so the tool binds;
+                    //  • an agent strike dispatches corex-amendment-created — reload so the new mark + its
+                    //    per-party initial row render from the server (the edit also joined the amendment
+                    //    cycle server-side via addEditToActiveCycle) and the panel rebuilds. A reload here is
+                    //    safe: this is the review surface, not a live signing ceremony.
+                    document.dispatchEvent(new CustomEvent('corex-doc-ready'));
+                    document.addEventListener('corex-amendment-created', function () {
+                        setTimeout(function () { window.location.reload(); }, 250);
+                    });
+                    @endif
                 });
             </script>
         @else
@@ -446,7 +478,36 @@
         @endif
     @endif
 
-    {{-- ACTION BUTTONS --}}
+    {{-- Candidate return loop — running notes THREAD across all send-back / resubmit rounds
+         (audit evidence, never latest-only). Johan 2026-08-04. --}}
+    @php $returnThread = $document->web_template_data['return_thread'] ?? []; @endphp
+    @if(!empty($isCandidateFlow) && !empty($returnThread))
+        <div class="rounded-sm border border-amber-200 bg-amber-50 p-5">
+            <h4 class="font-semibold text-amber-900 mb-3">Return history — {{ $candidateName ?: 'candidate' }} &harr; authoriser</h4>
+            <ol class="space-y-2">
+                @foreach($returnThread as $entry)
+                    @php $isBack = ($entry['direction'] ?? '') === 'sent_back'; @endphp
+                    <li class="text-sm flex flex-col rounded-md border {{ $isBack ? 'border-amber-200 bg-white' : 'border-sky-200 bg-sky-50' }} px-3 py-2">
+                        <span class="text-xs font-medium {{ $isBack ? 'text-amber-700' : 'text-sky-700' }}">
+                            {{ $isBack ? 'Sent back to junior' : 'Resubmitted by junior' }}
+                            @if(!empty($entry['round'])) &middot; round {{ $entry['round'] }} @endif
+                            @if(!empty($entry['actor_name'])) &middot; {{ $entry['actor_name'] }} @endif
+                            @if(!empty($entry['at'])) &middot; {{ \Illuminate\Support\Carbon::parse($entry['at'])->format('d M Y H:i') }} @endif
+                        </span>
+                        @if(!empty($entry['note']))
+                            <span class="text-slate-700 mt-1">{{ $entry['note'] }}</span>
+                        @endif
+                    </li>
+                @endforeach
+            </ol>
+        </div>
+    @endif
+
+    @include('docuperfect.signatures.partials._change-initial-affordance')
+
+    {{-- ACTION BUTTONS — the legacy final-gate/candidate actions. In AT-373 amendment-approval mode the
+         action surface is the right-rail panel column (beside the document), so this whole block is suppressed. --}}
+    @unless(!empty($isAmendmentApproval))
     <div class="rounded-sm border border-slate-200 bg-white p-5" x-data="{ showReturnModal: false, showRejectModal: false }">
         <h4 class="font-semibold text-slate-800 mb-4">Review Actions</h4>
 
@@ -456,7 +517,35 @@
                 $nextPartyName = $nextParty && isset($progress[$nextParty]) ? $progress[$nextParty]['name'] : $nextPartyLabel;
             @endphp
 
-            @if(!empty($isCandidateFlow) && in_array($template->status, [\App\Models\Docuperfect\SignatureTemplate::STATUS_AWAITING_SUPERVISOR, \App\Models\Docuperfect\SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL]))
+            @if(!empty($isAmendmentApproval))
+                {{-- AT-373 — a recipient's amendment returned for approval. ONE deterministic flow: the
+                     agent initials EACH change in the document above (click the "Initial this change"
+                     slot → the capture modal), then the SINGLE Approve action below advances the chain /
+                     kicks off the prior-recipient re-initial cascade. No competing approve controls. --}}
+                @php
+                    $amendNextName = ($nextPartyDisplayName ?? null) ?: ($nextPartyName ?: $nextPartyLabel);
+                    $amendNextLabel = $nextParty
+                        ? 'Approve &amp; Send to ' . e($amendNextName)
+                        : 'Approve &amp; Finalise';
+                @endphp
+                <div class="w-full">
+                    <div id="approveAmendmentNote" class="text-xs mb-2" style="color: var(--text-muted);">Initial each change above to approve.</div>
+                    <div class="flex flex-wrap items-center gap-3">
+                        <form method="POST" action="{{ route('docuperfect.signatures.amendment.approve', $document) }}">
+                            @csrf
+                            <button type="submit" id="approveAmendmentBtn" disabled
+                                    class="px-6 py-2.5 text-sm font-semibold rounded-lg text-white transition-colors bg-emerald-600 hover:bg-emerald-700 shadow"
+                                    style="opacity:0.5; cursor:not-allowed;"
+                                    onclick="return confirm('{{ $nextParty ? 'Approve the amendment and send to ' . $amendNextName . '?' : 'Approve and finalise the document?' }}')">
+                                {!! $amendNextLabel !!} &rarr;
+                            </button>
+                        </form>
+                        {{-- AT-373 (Part 3) — "Send back to recipient" lives in the right-rail
+                             _agent-amendments-panel (the real amendment action surface). This bottom
+                             block is suppressed in amendment mode (@unless above), so no button here. --}}
+                    </div>
+                </div>
+            @elseif(!empty($isCandidateFlow) && in_array($template->status, [\App\Models\Docuperfect\SignatureTemplate::STATUS_AWAITING_SUPERVISOR, \App\Models\Docuperfect\SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL]))
                 {{-- Candidate flow: supervisor must SIGN, not just approve --}}
                 <a href="{{ route('docuperfect.signatures.authoriseSigning', $document) }}"
                    class="inline-flex items-center gap-2 px-6 py-2.5 text-sm font-semibold rounded-lg text-white transition-colors shadow"
@@ -475,17 +564,18 @@
                             class="px-6 py-2.5 text-sm font-medium rounded-lg text-white transition-colors bg-emerald-600 hover:bg-emerald-700"
                             onclick="return confirm('{{ $nextParty
                                 ? 'Approve and send to ' . ($nextPartyName ?: $nextPartyLabel) . '?'
-                                : 'Approve and complete the document?' }}')">
+                                : 'Approve and finalise the document?' }}')">
                         @if($nextParty)
                             Approve &amp; Send to {{ $nextPartyName ?: $nextPartyLabel }} &rarr;
                         @else
-                            Approve &amp; Complete Document
+                            Approve &amp; Finalise
                         @endif
                     </button>
                 </form>
             @endif
 
-            {{-- Return to Signer with Notes --}}
+            @unless(!empty($isAmendmentApproval))
+            {{-- Return to Signer with Notes (final-gate actions — not shown during amendment approval) --}}
             <button @click="showReturnModal = true"
                     class="px-5 py-2.5 text-sm font-medium text-amber-700 border border-amber-300 rounded-lg hover:bg-amber-50 transition-colors">
                 Return to {{ $completedRequest ? $completedRoleLabel : 'Signer' }} with Notes
@@ -496,6 +586,7 @@
                     class="px-5 py-2.5 text-sm font-medium text-red-700 border border-red-300 rounded-lg hover:bg-red-50 transition-colors">
                 Reject Document
             </button>
+            @endunless
 
             <a href="{{ $dashboardRoute }}"
                class="px-4 py-2.5 text-sm text-slate-600 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors ml-auto">
@@ -567,7 +658,64 @@
                 </form>
             </div>
         </div>
+
+        {{-- SYMMETRIC edit-upon-edit (Johan 2026-08-10): the "Reject Amendment" modal is RETIRED — there is
+             no reject. The agent disagrees by EDITING (strike/reword with the shared amend tool), which is a
+             new initialed mark, never a removal. Amendment approval now lives entirely in the right-rail
+             panel (Accept & Initial / Edit per item + the single "send on" action). --}}
     </div>
+    @endunless
+
+    {{-- AT-373 — close review-main + the Amendments panel's OWN column (a real flex column beside the
+         document, not a floating overlay). The panel is position:sticky WITHIN this column. --}}
+    @if($isAmendmentApproval ?? false)
+        {{-- SYMMETRIC edit model (Johan 2026-08-10) — mount cc6's SHARED amend tool (do NOT fork). It gives
+             the reviewing agent the SAME strike/reword tool recipients use: its teleported "✎ Amend this"
+             float appears when the agent highlights text in the document above, and its amend modal posts to
+             the AGENT edit-selection endpoint (same {ok, change_id, oc_ref} contract as the recipient route),
+             which folds the edit into the amendment cycle server-side. Our own _agent-amendments-panel remains
+             the list + Accept & Initial + Approve surface, so the tool's duplicate sticky-bar list is hidden
+             (CSS below); only its ✎ float + modal are used. Edit REPLACES reject. --}}
+        @include('docuperfect.signatures.partials._selection-edit-tool', [
+            'editSelectionUrl' => route('docuperfect.signatures.editSelection', $document),
+            'viewerKey'        => 'agent',
+            'pendingReview'    => false,
+            'wrapperClass'     => 'agent-edit-tool-host',
+        ])
+    </div>{{-- /review-main --}}
+    {{-- 260px column matching cc6's recipient panel (022c377a .recipient-amend-col: flex 0 0 260px + align-self:stretch).
+         align-self:stretch is LOAD-BEARING: the row is align-items:flex-start (so the document column is not forced to
+         the panel's short height), so the panel column would otherwise collapse to its own content height — a sticky
+         element inside a box no taller than itself has ZERO scroll travel and rides away with the page (BUG B). Stretch
+         makes this column span the full document height, giving position:sticky its range so the panel stays put. --}}
+    <aside class="review-aside" style="width:260px; flex:0 0 260px; align-self:stretch;">
+        @include('docuperfect.signatures.partials._agent-amendments-panel')
+    </aside>
+    </div>{{-- /review-columns --}}
+    @endif
 
 </div>
 @endsection
+
+@if($isAmendmentApproval ?? false)
+<style>
+    /* Real column layout matching cc6's recipient side (022c377a): a 260px column, the panel sticky
+       WITHIN it (top:16px, max-height calc(100vh - 32px)), never floating over the document. The panel's
+       INNER list scrolls independently (header + footer stay put) so it scrolls apart from the left nav. */
+    /* The column stretches to the document's height (cc6 .recipient-amend-col align-self:stretch) — WITHOUT this the
+       sticky panel has no travel and scrolls off with the page. */
+    .review-aside { align-self: stretch; }
+    #agentAmendPanel { position: sticky; top: 16px; width: 100%; max-height: calc(100vh - 32px); overflow: hidden; }
+    /* The shared amend tool is mounted only for its ✎ float + amend modal (both teleported to <body>).
+       Our _agent-amendments-panel is the list/Accept/Approve surface, so hide the tool's duplicate
+       in-flow sticky-bar list. The teleported float + modal are unaffected (they live on <body>). */
+    .agent-edit-tool-host .sel-sticky-bar { display: none !important; }
+    .agent-edit-tool-host { display: contents; }
+    @media (max-width: 1279px) {
+        .review-aside { align-self: auto !important; }
+        .review-columns { flex-direction: column !important; }
+        .review-aside { width: 100% !important; flex-basis: auto !important; }
+        #agentAmendPanel { position: static !important; max-height: none !important; }
+    }
+</style>
+@endif

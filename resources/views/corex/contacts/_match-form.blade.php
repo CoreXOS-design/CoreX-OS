@@ -1,8 +1,10 @@
 {{--
   Core Matches / Wishlist form partial.
-  Usage:
-    include('corex.contacts._match-form', ['contact' => $contact, 'match' => null])
-    include('corex.contacts._match-form', ['contact' => $contact, 'match' => $match])
+  Usage (include directive omitted here — a literal "@" before a directive
+  name inside a Blade comment gets misparsed as a real directive; see
+  contact-details-phase4-and-blade-partial-bug memory):
+    include 'corex.contacts._match-form' with ['contact' => $contact, 'match' => null]
+    include 'corex.contacts._match-form' with ['contact' => $contact, 'match' => $match]
 
   Required outer-scope variables:
     $contact          App\Models\Contact

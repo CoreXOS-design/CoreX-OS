@@ -465,8 +465,13 @@ final class CompetitorStockMatchService
      */
     private function resolveSubjectFamily(Property $subject): ?string
     {
-        $titleType = $subject->title_type
-            ?? app(TitleTypeClassifier::class)->forProperty($subject);
+        // Code-gate hardening (Uvonique bug) — NEVER trust the stored
+        // properties.title_type column as authoritative here; it is a cache
+        // that only self-heals on save (PropertyObserver) and can go stale
+        // relative to the live classifier (that's exactly how a 96%-wrong
+        // book happened). Always re-derive fresh — it's a cheap string match,
+        // not a query — so this gate can never drift from reality again.
+        $titleType = app(TitleTypeClassifier::class)->forProperty($subject);
         if ($titleType === TitleTypeClassifier::TITLE_SECTIONAL) return 'sectional';
         if ($titleType === TitleTypeClassifier::TITLE_FULL)      return 'freehold';
         if ($titleType === TitleTypeClassifier::TITLE_VACANT)    return 'freehold';
@@ -550,11 +555,18 @@ final class CompetitorStockMatchService
         if ($raw === null) return null;
         $t = strtolower(trim($raw));
         if ($t === '') return null;
+        // Code-gate hardening — penthouse/studio added so this agrees with
+        // TitleTypeClassifier::APARTMENT_KEYWORDS and CompPoolBuilder::kind().
         if (str_contains($t, 'apartment') || str_contains($t, 'flat')
-            || str_contains($t, 'sectional') || $t === 'unit') {
+            || str_contains($t, 'sectional') || $t === 'unit'
+            || str_contains($t, 'penthouse') || str_contains($t, 'studio')) {
             return 'apartment';
         }
-        if (str_contains($t, 'townhouse') || str_contains($t, 'duplex')) {
+        // Code-gate hardening — simplex/cluster/maisonette added so this
+        // agrees with TitleTypeClassifier::TOWNHOUSE_KEYWORDS and
+        // CompPoolBuilder::kind().
+        if (str_contains($t, 'townhouse') || str_contains($t, 'duplex')
+            || str_contains($t, 'simplex') || str_contains($t, 'cluster') || str_contains($t, 'maisonette')) {
             return 'townhouse';
         }
         if (str_contains($t, 'house')) {

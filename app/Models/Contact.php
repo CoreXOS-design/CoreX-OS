@@ -19,6 +19,12 @@ class Contact extends Model
 {
     use SoftDeletes, BelongsToAgency, BelongsToBranch;
 
+    // Entity-type foundation (.ai/specs/contact-entity-type.md) — coarse
+    // natural-person/entity split, distinct from fica_submissions.entity_type's
+    // richer natural/company/trust/partnership classification.
+    public const TYPE_NATURAL_PERSON = 'natural_person';
+    public const TYPE_ENTITY         = 'entity';
+
     protected static function booted(): void
     {
         static::addGlobalScope(new ContactScope());
@@ -35,7 +41,15 @@ class Contact extends Model
         'agent_id', 'second_agent_id',
         'client_user_id',
         'first_name', 'last_name', 'phone', 'email', 'notes',
-        'birthday', 'birthday_reminder', 'id_number', 'id_number_captured_at', 'id_number_source', 'address',
+        'birthday', 'birthday_reminder', 'id_number', 'id_type', 'id_number_captured_at', 'id_number_source', 'address',
+        // Entity-type foundation (.ai/specs/contact-entity-type.md) —
+        // 'contact_kind' is deliberately coarser than fica_submissions.
+        // entity_type; it only distinguishes natural_person vs entity for
+        // linking/ownership/dedup. NOT named 'type' — that column name
+        // shadowed the pre-existing Contact::type() relationship
+        // (belongsTo(ContactType::class)), see the incident-fix migration
+        // 2026_08_21_000100_rename_type_to_contact_kind_on_contacts_table.
+        'contact_kind', 'entity_name', 'entity_reg_no',
         // AT-60 — structured PROPERTY-address capture (independent of the
         // residential `address` above; never auto-composed into it).
         'unit_number', 'floor_number', 'unit_section_block', 'complex_name',
@@ -247,6 +261,15 @@ class Contact extends Model
     public function testimonials(): HasMany
     {
         return $this->hasMany(ContactTestimonial::class)->latest();
+    }
+
+    /**
+     * MIC ↔ Deeds ↔ Contact loop (Part B) — the "No contact details available" dead-end marker,
+     * if this contact has been recorded as a dead end (nothing contactable). One active flag.
+     */
+    public function deadEndFlag(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(ContactDeadEndFlag::class);
     }
 
     /** @deprecated Use documents() instead. Kept for backward compat during transition. */
@@ -583,7 +606,142 @@ class Contact extends Model
 
     public function getFullNameAttribute(): string
     {
-        return $this->first_name . ' ' . $this->last_name;
+        if ($this->contact_kind === self::TYPE_ENTITY) {
+            return (string) $this->entity_name;
+        }
+
+        return trim($this->first_name . ' ' . $this->last_name);
+    }
+
+    public function isEntity(): bool
+    {
+        return $this->contact_kind === self::TYPE_ENTITY;
+    }
+
+    /**
+     * The natural-person Contacts who represent THIS entity Contact (director/
+     * trustee/partner/signatory). Many-to-many: a director can sit on multiple
+     * entities. Spec: .ai/specs/contact-entity-type.md §4.2/§5.
+     *
+     * wherePivotNull('deleted_at') is load-bearing: ContactRepresentative
+     * extends Pivot + SoftDeletes, so detach() (via ->using()) soft-deletes
+     * the pivot row rather than hard-deleting it (Non-Negotiable #1) — without
+     * this filter an "unlinked" representative would still show as linked.
+     */
+    public function representatives(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            Contact::class,
+            'contact_representatives',
+            'entity_contact_id',
+            'representative_contact_id'
+        )->using(ContactRepresentative::class)->withPivot('is_primary')->withTimestamps()->wherePivotNull('deleted_at');
+    }
+
+    /**
+     * The entity Contacts THIS natural-person Contact represents (inverse of
+     * representatives()).
+     */
+    public function representedEntities(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            Contact::class,
+            'contact_representatives',
+            'representative_contact_id',
+            'entity_contact_id'
+        )->using(ContactRepresentative::class)->withPivot('is_primary')->withTimestamps()->wherePivotNull('deleted_at');
+    }
+
+    /**
+     * DERIVED "company properties" (property → company → director), for the
+     * entity model Johan approved (2026-08-14). Returns the properties owned by
+     * any company (entity) THIS natural-person contact represents as a director,
+     * each flagged "Company property · via {Company}" so a display can keep them
+     * DISTINCT from properties the person owns PERSONALLY (a direct
+     * contact_property link). Covers both promoted agency-stock Properties
+     * (contact_property role=owner on the company) and un-promoted tracked
+     * properties (tracked_property_owners.contact_id = the company).
+     *
+     * This is a READ-ONLY derivation — no ownership is ever written onto the
+     * director; the canonical single owner stays the company.
+     *
+     * @return \Illuminate\Support\Collection<int, array{kind:string, property:mixed, company_contact_id:int, company_name:string, flag:string}>
+     */
+    public function companyPropertiesViaDirectorship(): \Illuminate\Support\Collection
+    {
+        $out = collect();
+
+        foreach ($this->representedEntities()->get() as $company) {
+            $companyName = $company->full_name;
+            $flag = 'Company property · via ' . $companyName;
+
+            // Promoted agency-stock Properties owned by the company.
+            foreach ($company->properties()->wherePivot('role', 'owner')->get() as $property) {
+                $out->push([
+                    'kind'               => 'property',
+                    'property'           => $property,
+                    'company_contact_id' => (int) $company->id,
+                    'company_name'       => $companyName,
+                    'flag'               => $flag,
+                ]);
+            }
+
+            // Un-promoted tracked properties owned by the company (CMA/deeds).
+            $tracked = \App\Models\Prospecting\TrackedProperty::withoutGlobalScopes()
+                ->whereNull('deleted_at')
+                ->whereHas('owners', fn ($q) => $q->where('contact_id', $company->id))
+                ->get();
+            foreach ($tracked as $tp) {
+                $out->push([
+                    'kind'               => 'tracked_property',
+                    'property'           => $tp,
+                    'company_contact_id' => (int) $company->id,
+                    'company_name'       => $companyName,
+                    'flag'               => $flag,
+                ]);
+            }
+        }
+
+        return $out->values();
+    }
+
+    /** Normalized "street_number street_name" — the display-dedupe address key. */
+    public static function normalizePropertyStreet(?string $number, ?string $street): string
+    {
+        $s = trim(($number ?? '') . ' ' . ($street ?? ''));
+        return strtolower((string) preg_replace('/\s+/', ' ', $s));
+    }
+
+    /**
+     * Identity keys of properties that are COMPANY-OWNED-VIA-DIRECTORSHIP for
+     * this contact — used to DEDUPE the display so such a property shows ONLY in
+     * the flagged "Company Properties" group, never also as a personal Linked
+     * Property. Returns canonical Property ids AND normalized street addresses:
+     * the address key bridges the tracked-vs-promoted split (the same physical
+     * property can exist as a tracked_property and a promoted Property with
+     * different ids). Read-only — the contact_property link is untouched
+     * (outreach still needs it).
+     *
+     * @return array{ids: array<int>, addresses: array<string>}
+     */
+    public function companyPropertyDedupeKeys(): array
+    {
+        $ids = [];
+        $addresses = [];
+        foreach ($this->companyPropertiesViaDirectorship() as $row) {
+            $prop = $row['property'];
+            if ($row['kind'] === 'property') {
+                $ids[] = (int) $prop->id;
+            } elseif (!empty($prop->promoted_to_property_id)) {
+                $ids[] = (int) $prop->promoted_to_property_id;
+            }
+            $addr = self::normalizePropertyStreet($prop->street_number ?? null, $prop->street_name ?? null);
+            if ($addr !== '') {
+                $addresses[] = $addr;
+            }
+        }
+
+        return ['ids' => array_values(array_unique($ids)), 'addresses' => array_values(array_unique($addresses))];
     }
 
     public function getInitialsAttribute(): string

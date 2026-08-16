@@ -1,6 +1,9 @@
 @extends('layouts.corex')
 
 @section('corex-content')
+@if($property->exists ?? false)
+    @include('corex.properties.partials._dead-end-warning', ['property' => $property])
+@endif
 @php
     $isNew = !$property->exists;
     // Saving a compliant, Active listing makes its portal copies stale that instant.
@@ -199,24 +202,17 @@
                         @endif
                     </div>
                     @php
-                        $sbAddrParts = [];
-                        if (!empty($property->unit_number)) $sbAddrParts[] = 'Unit ' . $property->unit_number;
-                        if (!empty($property->complex_name)) $sbAddrParts[] = $property->complex_name;
-                        if (!empty($property->street_number) && !empty($property->street_name)) {
-                            $sbAddrParts[] = $property->street_number . ' ' . $property->street_name;
-                        } elseif (!empty($property->street_name)) {
-                            $sbAddrParts[] = $property->street_name;
-                        } elseif (!empty($property->address)) {
-                            $sbAddrParts[] = $property->address;
-                        }
-                        if (!empty($property->suburb)) $sbAddrParts[] = $property->suburb;
-                        if (!empty($property->city) && strtolower($property->city) !== strtolower($property->suburb ?? '')) {
-                            $sbAddrParts[] = $property->city;
-                        }
+                        // AT-266 — one canonical display address (Property::buildDisplayAddress),
+                        // not an inline re-implementation. $sbAddr is the address string; it
+                        // falls back to title/'Unknown Property' internally, so $hasRealAddr
+                        // tells the two-line layout whether there is a real address to show
+                        // above the title.
+                        $sbAddr = $property->buildDisplayAddress();
+                        $hasRealAddr = $sbAddr !== '' && $sbAddr !== ($property->title ?? '') && $sbAddr !== 'Unknown Property';
                     @endphp
-                    @if(count($sbAddrParts))
+                    @if($hasRealAddr)
                         {{-- Address primary, heading small underneath --}}
-                        <div class="text-sm font-bold mt-1 leading-snug" style="color:var(--text-primary); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;" title="{{ implode(', ', $sbAddrParts) }}">{{ implode(', ', $sbAddrParts) }}</div>
+                        <div class="text-sm font-bold mt-1 leading-snug" style="color:var(--text-primary); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;" title="{{ $sbAddr }}">{{ $sbAddr }}</div>
                         @if($property->title)
                         <div class="text-[11px] mt-0.5 truncate" style="color:var(--text-muted);" title="{{ $property->title }}">{{ $property->title }}</div>
                         @endif
@@ -4683,7 +4679,7 @@
 
             {{-- Create new contact and link --}}
             <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:20px;"
-                 x-data="{ open: false }">
+                 x-data="{ open: false, kind: 'natural_person', idKind: 'sa_id' }">
                 <button type="button" @click="open = !open"
                         class="flex items-center gap-2 text-sm font-semibold"
                         style="color:var(--brand-icon); background:none; border:none; cursor:pointer; padding:0;">
@@ -4697,24 +4693,54 @@
                 <div x-show="open" x-cloak class="mt-5 space-y-4">
                     <form @submit.prevent="createAndLink($el, () => { open = false; })" class="space-y-4">
                         @csrf
+                        {{-- Contact Is: Natural person OR Entity (company / CC / trust). An entity owner
+                             must be capturable from the property record — not forced to a natural person.
+                             Entity swaps the name fields for registered name + reg number; the hidden
+                             contact_kind is what the createAndLink controller branches on. Reps/directors
+                             are added on the entity record afterward (Johan 2026-08-14). --}}
+                        <input type="hidden" name="contact_kind" :value="kind">
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Contact Is <span class="prop-required">*</span></label>
+                            <div class="flex items-center gap-4 text-sm" style="color:var(--text-secondary);">
+                                <label class="inline-flex items-center gap-1.5 cursor-pointer"><input type="radio" name="contact_kind_toggle" value="natural_person" x-model="kind"> Natural person</label>
+                                <label class="inline-flex items-center gap-1.5 cursor-pointer"><input type="radio" name="contact_kind_toggle" value="entity" x-model="kind"> Entity <span style="color:var(--text-muted);">(company / CC / trust)</span></label>
+                            </div>
+                        </div>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div>
+                            {{-- Natural-person name/phone --}}
+                            <div x-show="kind === 'natural_person'">
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">First Name <span class="prop-required">*</span></label>
-                                <input type="text" name="first_name" required
+                                <input type="text" name="first_name" :required="kind === 'natural_person'"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
-                            <div>
+                            <div x-show="kind === 'natural_person'">
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Surname <span class="prop-required">*</span></label>
-                                <input type="text" name="last_name" required
+                                <input type="text" name="last_name" :required="kind === 'natural_person'"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
-                            <div>
+                            <div x-show="kind === 'natural_person'">
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Phone <span class="prop-required">*</span></label>
-                                <input type="text" name="phone" required
+                                <input type="text" name="phone" :required="kind === 'natural_person'"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            {{-- Entity: registered name (required) + registration number --}}
+                            <div x-show="kind === 'entity'" x-cloak>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Registered Name <span class="prop-required">*</span></label>
+                                <input type="text" name="entity_name" :required="kind === 'entity'" maxlength="255"
+                                       placeholder="e.g. Blue Horizon Trust"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div x-show="kind === 'entity'" x-cloak>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Registration Number <span style="font-weight:400;">(optional)</span></label>
+                                <input type="text" name="entity_reg_no" maxlength="100"
+                                       placeholder="e.g. 2019/123456/07"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                <p class="mt-1 text-[11px]" style="color:var(--text-muted);">Add directors/representatives on the entity record afterward.</p>
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Email</label>
@@ -4743,15 +4769,35 @@
                                     @endforeach
                                 </select>
                             </div>
-                            {{-- A.2.5 — optional SA ID number with client-side hint. --}}
-                            <div class="sm:col-span-2">
-                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID number (optional)</label>
-                                <input type="text" name="id_number" inputmode="numeric" maxlength="13"
-                                       pattern="\d{13}" placeholder="e.g. 7610025020081"
-                                       title="13 digits — empty is fine"
+                            {{-- #17 — SA ID vs foreign passport (natural person only; an entity is keyed on
+                                 its registration number above). The SA path validates the 13-digit ID; a
+                                 foreign national enters a passport + a directly-entered Date of Birth (the
+                                 passport doesn't encode it). Same discriminator + rules as the main
+                                 contact form. Backward-compatible: absent id_type defaults to the SA path. --}}
+                            <div x-show="kind === 'natural_person'">
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID Type</label>
+                                <select name="id_type" x-model="idKind"
+                                        class="w-full rounded-md px-3 py-2 text-sm"
+                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <option value="sa_id">South African ID</option>
+                                    <option value="passport">Foreign / Passport</option>
+                                </select>
+                            </div>
+                            <div x-show="kind === 'natural_person'">
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);"><span x-text="idKind === 'passport' ? 'Passport Number' : 'ID Number'"></span> <span style="font-weight:400;">(optional)</span></label>
+                                <input type="text" name="id_number"
+                                       :inputmode="idKind === 'passport' ? 'text' : 'numeric'"
+                                       :maxlength="idKind === 'passport' ? 50 : 13"
+                                       :placeholder="idKind === 'passport' ? 'e.g. AB1234567' : 'e.g. 7610025020081'"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                <p class="mt-1 text-[11px]" style="color:var(--text-muted);">SA ID — 13 digits. Leave blank if not known.</p>
+                            </div>
+                            <div x-show="kind === 'natural_person'">
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Date of Birth <span style="font-weight:400;" x-show="idKind !== 'passport'">(optional)</span><span class="text-red-500" x-show="idKind === 'passport'" x-cloak>*</span></label>
+                                <input type="date" name="birthday"
+                                       :required="kind === 'natural_person' && idKind === 'passport'"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                         </div>
                         <button type="submit"

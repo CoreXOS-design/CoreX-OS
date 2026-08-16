@@ -40,6 +40,34 @@ sized on faith.
 
 ---
 
+## BUSINESS RULING — signature semantics (Johan, 2026-07-14). The §B premise was WRONG.
+
+The test as written expected **"the practitioner line renders once."** That expectation was built
+on a false premise and has been corrected at source:
+
+1. **Generic "signature" / "initial" spots are ALL-PARTY surfaces.** In the EATS, a plain
+   signature or initial spot (e.g. the three at the foot of clauses 2.7.x, or page 2's bare
+   "signature") is signed or initialled by **EVERY party**. They are shared, not party-specific.
+   Do **not** bind them to a party, and do **not** build orphan-party logic around them.
+   `parties: []` on such a spot is not "unbound and broken" — it is the correct expression of
+   *"everyone signs here."*
+
+2. **The FINAL block is the party-specific one.** The document's closing
+   *"THUS DONE AND SIGNED — … signed by the Seller at ___ on this ___ day of 20__ …"*, with its
+   lines for Seller & Co-Seller/s, Witness and Property Practitioner, is where identity + place
+   + date bind to a party. That block, and only that block, is party-bound.
+
+3. **There is therefore no "SIG-4 orphan" defect.** The practitioner signs the generic spots like
+   everyone else; the earlier reading of an unplaced agent surface as a missing-signature bug was
+   the same wrong premise wearing a different hat. Field labels that merely read "signature" are
+   acceptable — a labelling tidy-up, not a blocker. **The builder is what matters.**
+
+**Consequence for §B:** the assertion no longer counts a practitioner line. What §B proves — and
+what the contract actually claims — is that **the role block CLONES PER RECIPIENT**. That is what
+is asserted, and it now passes. Signature-surface plumbing is a separate, human-gated concern.
+
+---
+
 ## THE KNIFE-EDGE SIGNAL
 
 > ### ❌ `RoleBlockExpansionService: rendering unnormalised template via legacy clustering`

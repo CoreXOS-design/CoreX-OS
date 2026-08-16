@@ -37,11 +37,21 @@
             </div>
             <div class="flex items-center gap-2">
                 @include('layouts.partials.tour-header-launcher')
+                {{-- When launched from a contact (?contact_id=), Back returns to that
+                     contact — not the listings index it discarded before (AT-365). --}}
+                @if(!empty($preLinkedContact))
+                <a href="{{ route('corex.contacts.show', $preLinkedContact) }}"
+                   class="text-xs font-medium px-3 py-1.5 rounded-md transition-all duration-300"
+                   style="background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.15);">
+                    &larr; Back to {{ $preLinkedContact->full_name }}
+                </a>
+                @else
                 <a href="{{ route('corex.properties.index') }}"
                    class="text-xs font-medium px-3 py-1.5 rounded-md transition-all duration-300"
                    style="background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.15);">
                     &larr; Back to listings
                 </a>
+                @endif
             </div>
         </div>
 

@@ -88,6 +88,11 @@
             @endif
         </div>
 
+        {{-- Signed — you can still add supporting documents (optional, via this same link). --}}
+        <div class="mt-4">
+            @include('docuperfect.signatures.external._supporting-upload', ['request' => $request])
+        </div>
+
         <div class="text-center mt-4 text-xs text-slate-400">
             {{ $agencyName ?? 'Home Finders Coastal' }} &mdash; Document Signing
         </div>

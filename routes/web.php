@@ -424,6 +424,7 @@ Route::middleware('auth')->group(function () {
             Route::post('/{commsAccessRequest}/revoke',   [\App\Http\Controllers\Communications\CommsAccessRequestController::class, 'revoke'])->name('revoke');
         });
 
+
         // ── Command Center: Task Notes (threaded) + Checklist ──
         Route::prefix('command-center/tasks/{task}')->name('command-center.tasks.')->group(function () {
             Route::get('/notes',           [\App\Http\Controllers\Api\CommandTaskNotesController::class, 'index'])->name('notes.index');
@@ -442,6 +443,8 @@ Route::middleware('auth')->group(function () {
         Route::prefix('tours')->name('tours.')->group(function () {
             Route::post('/{tourKey}/seen',    [\App\Http\Controllers\TourProgressController::class, 'seen'])->name('seen');
             Route::post('/{tourKey}/dismiss', [\App\Http\Controllers\TourProgressController::class, 'dismiss'])->name('dismiss');
+            // AT-371 (#18) — per-step persistence: record a single seen step so it never re-triggers.
+            Route::post('/{tourKey}/step',    [\App\Http\Controllers\TourProgressController::class, 'step'])->name('step');
         });
 
         // ── System Updates — per-user dismissal (self-scoped) ──
@@ -821,8 +824,25 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     // AT-216 — pipeline tracking overlay on the DR2 register (pure tracking: never mutates
     // the DR1 deal, only its pipeline steps + pointer). view_deals to see, create_deals to act.
     Route::get('/{deal}/pipeline',                        [\App\Http\Controllers\Dr2\PipelineController::class, 'show'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline');
+    // Pipeline Dashboard Phase 4 — neutral entry that lands the agent on their remembered view.
+    Route::get('/{deal}/pipeline/view',                   [\App\Http\Controllers\Dr2\PipelineController::class, 'viewDefault'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.view');
+    // Pipeline Dashboard Phase 2 — the TIMELINE view + horizontal drag-to-reschedule (JSON preview/commit).
+    Route::get('/{deal}/pipeline/timeline',               [\App\Http\Controllers\Dr2\PipelineTimelineController::class, 'show'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.timeline');
+    Route::post('/{deal}/pipeline/steps/{step}/reschedule', [\App\Http\Controllers\Dr2\PipelineTimelineController::class, 'reschedule'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.reschedule');
+    // Pipeline Dashboard Phase 3 — the LIST view + grab-to-reorder (position ONLY) + inline edit-dates.
+    Route::get('/{deal}/pipeline/list',                   [\App\Http\Controllers\Dr2\PipelineListController::class, 'show'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.list');
+    Route::post('/{deal}/pipeline/reorder',               [\App\Http\Controllers\Dr2\PipelineListController::class, 'reorder'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.reorder');
+    Route::post('/{deal}/pipeline/steps/{step}/dates',    [\App\Http\Controllers\Dr2\PipelineListController::class, 'editDates'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.dates');
     Route::post('/{deal}/pipeline/attach',                [\App\Http\Controllers\Dr2\PipelineController::class, 'attach'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.attach');
+    // AT-334 — build the pipeline from chosen suspensive conditions (Deal Structure tab).
+    Route::post('/{deal}/pipeline/structure',             [\App\Http\Controllers\Dr2\PipelineController::class, 'saveStructure'])->whereNumber('deal')->middleware('permission:create_deals')->name('pipeline.structure');
     Route::post('/{deal}/pipeline/steps/{step}/complete', [\App\Http\Controllers\Dr2\PipelineController::class, 'completeStep'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.complete');
+    // Manual "Decline deal" — the canonical accepted_status → 'D' transition (locks the pipeline; re-grant from the register).
+    Route::post('/{deal}/pipeline/decline',               [\App\Http\Controllers\Dr2\PipelineController::class, 'declineDeal'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.decline');
+    // Feature 1 — capture the BOND ATTORNEY (appointed by the bank post-grant) on Email Parties.
+    Route::post('/{deal}/pipeline/bond-attorney',         [\App\Http\Controllers\Dr2\PipelineController::class, 'captureBondAttorney'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.bond-attorney');
+    // AT-334 P1 — reopen a completed step (composable deals): clears actual_date, back to not_started, re-cascades.
+    Route::post('/{deal}/pipeline/steps/{step}/reopen',   [\App\Http\Controllers\Dr2\PipelineController::class, 'reopenStep'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.reopen');
     // V1.1 — per-step operations (all agency-scoped, audited; soft deletes)
     Route::post('/{deal}/pipeline/steps/add',              [\App\Http\Controllers\Dr2\PipelineController::class, 'addStep'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.step.add');
     Route::post('/{deal}/pipeline/steps/{step}/na',        [\App\Http\Controllers\Dr2\PipelineController::class, 'markNa'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.na');
@@ -830,8 +850,25 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     Route::post('/{deal}/pipeline/steps/{step}/comment',   [\App\Http\Controllers\Dr2\PipelineController::class, 'addComment'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.comment');
     // R2 — due-date edit + restore/reinstate (no permanent stranding)
     Route::post('/{deal}/pipeline/steps/{step}/due',       [\App\Http\Controllers\Dr2\PipelineController::class, 'editDue'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.due');
+    // AT-334 Phase 5 — per-step "follows" (predecessor) + offset; re-cascades dates then reorders.
+    Route::post('/{deal}/pipeline/steps/{step}/follows',   [\App\Http\Controllers\Dr2\PipelineController::class, 'editFollows'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.follows');
     Route::post('/{deal}/pipeline/steps/restore',          [\App\Http\Controllers\Dr2\PipelineController::class, 'restoreStep'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.step.restore');
     Route::post('/{deal}/pipeline/steps/{step}/reinstate', [\App\Http\Controllers\Dr2\PipelineController::class, 'reinstateStep'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.reinstate');
+
+    // AT-229 — OPTIONAL supplier work order off a live (DR1) pipeline step: auto-filled
+    // authorisation PDF → picked/ad-hoc supplier → sent via the AT-228 DR1 distribution.
+    Route::get('/{deal}/pipeline/steps/{step}/work-order/form',  [\App\Http\Controllers\DealV2\WorkOrderController::class, 'dr1Form'])->whereNumber(['deal', 'step'])->middleware('permission:deals_v2.distribute_documents')->name('pipeline.step.work-order.form');
+    Route::post('/{deal}/pipeline/steps/{step}/work-order/send', [\App\Http\Controllers\DealV2\WorkOrderController::class, 'dr1Send'])->whereNumber(['deal', 'step'])->middleware('permission:deals_v2.distribute_documents')->name('pipeline.step.work-order.send');
+
+    // AT-229 COC sub-process — per-deal work-order panel (select COCs · responsible party · send).
+    Route::get('/{deal}/pipeline/steps/{step}/coc',                     [\App\Http\Controllers\DealV2\WorkOrderController::class, 'cocPanel'])->whereNumber(['deal', 'step'])->middleware('permission:deals_v2.distribute_documents')->name('pipeline.step.coc.panel');
+    Route::post('/{deal}/pipeline/steps/{step}/coc/sync',               [\App\Http\Controllers\DealV2\WorkOrderController::class, 'cocSync'])->whereNumber(['deal', 'step'])->middleware('permission:deals_v2.distribute_documents')->name('pipeline.step.coc.sync');
+    Route::post('/{deal}/pipeline/steps/{step}/coc/{workOrder}/send',   [\App\Http\Controllers\DealV2\WorkOrderController::class, 'cocSend'])->whereNumber(['deal', 'step', 'workOrder'])->middleware('permission:deals_v2.distribute_documents')->name('pipeline.step.coc.send');
+
+    // AT-229 §17 — DEAL-level right-panel: tick applicable COCs up front (auto-N/A the rest),
+    // set responsible/recipient, choose the trigger step; sends fire when that step completes.
+    Route::get('/{deal}/pipeline/coc-config',  [\App\Http\Controllers\DealV2\WorkOrderController::class, 'cocConfigPanel'])->whereNumber('deal')->middleware('permission:deals_v2.distribute_documents')->name('pipeline.coc-config.panel');
+    Route::post('/{deal}/pipeline/coc-config', [\App\Http\Controllers\DealV2\WorkOrderController::class, 'cocConfigSave'])->whereNumber('deal')->middleware('permission:deals_v2.distribute_documents')->name('pipeline.coc-config.save');
 
     // DR2 documents (AT-225/226 docs lane) — upload/attach on the deal (files to deal+property+contacts via the twin bridge).
     Route::post('/{deal}/documents',                    [\App\Http\Controllers\Dr2\DealDocumentController::class, 'store'])->whereNumber('deal')->middleware('permission:view_deals')->name('documents.store');
@@ -845,6 +882,13 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     // thinking; the agent authorises. Gated on the deals-v2 distribute permission.
     Route::get('/{deal}/distribute',  [\App\Http\Controllers\Dr2\DealDistributionController::class, 'compose'])->whereNumber('deal')->middleware('permission:deals_v2.distribute_documents')->name('distribute.compose');
     Route::post('/{deal}/distribute', [\App\Http\Controllers\Dr2\DealDistributionController::class, 'send'])->whereNumber('deal')->middleware('permission:deals_v2.distribute_documents')->name('distribute.send');
+    // Feature 2 — ad-hoc distribution to a free-text email (agency-gated in the controller).
+    Route::post('/{deal}/distribute-adhoc', [\App\Http\Controllers\Dr2\DealDistributionController::class, 'sendAdhoc'])->whereNumber('deal')->middleware('permission:deals_v2.distribute_documents')->name('distribute.adhoc');
+    // AT-334 quick win — inline email capture for a linked party with no email on file.
+    Route::post('/{deal}/parties/{role}/email', [\App\Http\Controllers\Dr2\DealDistributionController::class, 'savePartyEmail'])->whereNumber('deal')->middleware('permission:deals_v2.distribute_documents')->name('distribute.party-email');
+    // AT-229 — OPTIONAL pipeline-step work order: auto-filled auth form → PDF → supplier.
+    Route::get('/{dealV2}/steps/{dealStepInstance}/work-order/form', [\App\Http\Controllers\DealV2\WorkOrderController::class, 'form'])->whereNumber(['dealV2', 'dealStepInstance'])->middleware('permission:deals_v2.distribute_documents')->name('work-order.form');
+    Route::post('/{dealV2}/steps/{dealStepInstance}/work-order/send', [\App\Http\Controllers\DealV2\WorkOrderController::class, 'send'])->whereNumber(['dealV2', 'dealStepInstance'])->middleware('permission:deals_v2.distribute_documents')->name('work-order.send');
 });
 
 // ===== PROFORMA INVOICES — view/download + ADMIN-ONLY overrides + settings =====
@@ -870,6 +914,9 @@ Route::middleware(['auth', 'permission:proforma.manage', 'feature:proforma-invoi
 // ===== DEAL REGISTER V2 — PIPELINE SETUP =====
 Route::prefix('deals-v2/pipeline-setup')->middleware(['auth', 'permission:deals_v2.manage_pipeline'])->group(function () {
     Route::get('/', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'index'])->name('deals-v2.pipeline.index');
+    // AT-334 Phase 2 — the GLOBAL composable master template the Deal Structure reads from.
+    Route::get('/master', [\App\Http\Controllers\DealV2\Dr2MasterTemplateController::class, 'edit'])->name('deals-v2.pipeline.master');
+    Route::put('/master', [\App\Http\Controllers\DealV2\Dr2MasterTemplateController::class, 'update'])->name('deals-v2.pipeline.master.update');
     Route::get('/create', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'create'])->name('deals-v2.pipeline.create');
     Route::post('/', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'store'])->name('deals-v2.pipeline.store');
     // AT-158 WS-R1 — one-click "Load standard templates" (idempotent, own agency)
@@ -886,12 +933,25 @@ Route::prefix('deals-v2/pipeline-setup')->middleware(['auth', 'permission:deals_
     Route::post('/{template}/steps/reorder', [\App\Http\Controllers\DealV2\DealPipelineStepController::class, 'reorder'])->name('deals-v2.pipeline.steps.reorder');
 });
 
+// ===== AT-229 — AGENCY COC / SERVICE-TYPE LIST (feeds the work-order dropdown) =====
+Route::prefix('deals-v2/settings/service-types')->middleware(['auth', 'permission:deals_v2.manage_pipeline'])->group(function () {
+    Route::get('/', [\App\Http\Controllers\DealV2\AgencyServiceTypeController::class, 'index'])->name('deals-v2.settings.service-types.index');
+    Route::post('/', [\App\Http\Controllers\DealV2\AgencyServiceTypeController::class, 'store'])->name('deals-v2.settings.service-types.store');
+    Route::put('/{service_type}', [\App\Http\Controllers\DealV2\AgencyServiceTypeController::class, 'update'])->name('deals-v2.settings.service-types.update');
+    Route::delete('/{service_type}', [\App\Http\Controllers\DealV2\AgencyServiceTypeController::class, 'destroy'])->name('deals-v2.settings.service-types.destroy');
+    Route::post('/{id}/restore', [\App\Http\Controllers\DealV2\AgencyServiceTypeController::class, 'restore'])->name('deals-v2.settings.service-types.restore');
+});
+
 // ===== DEAL REGISTER V2 — SUPPLIER DIRECTORY (WS2 / D2) =====
 Route::prefix('deals-v2/suppliers')->middleware(['auth'])->group(function () {
     Route::get('/', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'index'])->name('deals-v2.suppliers.index')->middleware('permission:deals_v2.manage_suppliers');
     Route::post('/', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'store'])->name('deals-v2.suppliers.store')->middleware('permission:deals_v2.manage_suppliers');
     Route::put('/{provider}', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'update'])->name('deals-v2.suppliers.update')->middleware('permission:deals_v2.manage_suppliers');
     Route::post('/{provider}/preferred', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'markPreferred'])->name('deals-v2.suppliers.preferred')->middleware('permission:deals_v2.manage_suppliers');
+    // AT-319 — re-sync a supplier's multi-select service types (the "edit" for types).
+    Route::post('/{provider}/types', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'syncTypes'])->name('deals-v2.suppliers.types')->middleware('permission:deals_v2.manage_suppliers');
+    // AT-364 — persist a supplier's attorney capabilities (Transfer / Bond); a firm can be both.
+    Route::post('/{provider}/attorney-capabilities', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'syncAttorneyCapabilities'])->name('deals-v2.suppliers.attorney-capabilities')->middleware('permission:deals_v2.manage_suppliers');
     Route::post('/{provider}/deactivate', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'deactivate'])->name('deals-v2.suppliers.deactivate')->middleware('permission:deals_v2.manage_suppliers');
     // (DR2 respec) firm → contact persons management.
     Route::post('/{provider}/contacts', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'storeContact'])->name('deals-v2.suppliers.contacts.store')->middleware('permission:deals_v2.manage_suppliers');
@@ -1110,6 +1170,26 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/tools/commission', [ToolsController::class, 'commission'])->middleware('permission:access_calculators')->name('tools.commission');
     Route::get('/tools/cma', [ToolsController::class, 'cma'])->middleware('permission:access_calculators')->name('tools.cma');
 
+    // Evaluation Certificate — Phase 1 (/tools/cma redesign, spec:
+    // .ai/specs/EVALUATION_CERTIFICATE_REDESIGN.md). Property search/prefill +
+    // contact link, mirroring the DR2 party picker under the CMA screen's own
+    // access_calculators gate.
+    Route::get('/tools/cma/evaluation/search-properties', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'searchProperties'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.search-properties');
+    Route::get('/tools/cma/evaluation/property-contact/{property}', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'propertyContact'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.property-contact');
+    Route::get('/tools/cma/evaluation/search-contacts', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'searchContacts'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.search-contacts');
+    Route::post('/tools/cma/evaluation/contact-inline', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'contactInline'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.contact-inline');
+    Route::post('/tools/cma/evaluation', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'store'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.store');
+    Route::put('/tools/cma/evaluation/{certificate}', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'update'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.update');
+    Route::get('/tools/cma/evaluation/{certificate}/download', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'download'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.download');
+    Route::post('/tools/cma/evaluation/{certificate}/sign', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'sign'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.sign');
+    Route::post('/tools/cma/evaluation/{certificate}/submit', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'submitForAuthorisation'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.submit');
+    Route::post('/tools/cma/evaluation/{certificate}/authorise', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'authorise'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.authorise');
+    Route::post('/tools/cma/evaluation/{certificate}/reject', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'reject'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.reject');
+    Route::get('/tools/cma/evaluation/queue', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'queue'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.queue');
+    Route::get('/tools/cma/evaluation/authorisations', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'authorisations'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.authorisations');
+    Route::get('/tools/cma/evaluation/mine', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'mine'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.mine');
+    Route::get('/tools/cma/evaluation/{certificate}/share-meta', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'shareMeta'])->middleware('permission:access_calculators')->name('tools.cma.evaluation.share-meta');
+
     // Ad Manager (bulk) — spec .ai/specs/ad-manager.md §10b
     Route::get('/tools/ad-manager', [\App\Http\Controllers\Tools\AdManagerController::class, 'index'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager');
     Route::post('/tools/ad-manager/previews', [\App\Http\Controllers\Tools\AdManagerController::class, 'previews'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.previews');
@@ -1124,6 +1204,11 @@ Route::middleware(['auth'])->group(function () {
     // PDF Pack Splitter
     Route::get('/tools/pdf-splitter', [PdfSplitterController::class, 'index'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.index');
     Route::post('/tools/pdf-splitter/run', [PdfSplitterController::class, 'run'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.run');
+    // ADDITIVE — batch intake by reference (SignedDocumentVersion ids), parallel
+    // to /run's direct-upload path. Lands the batch in the SAME session shape
+    // run() uses, then redirects to the SAME review() below. See
+    // PdfSplitterController::intakeSupporting().
+    Route::post('/tools/pdf-splitter/intake-supporting', [PdfSplitterController::class, 'intakeSupporting'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.intake_supporting');
     Route::get('/tools/pdf-splitter/review', [PdfSplitterController::class, 'review'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.review');
     Route::post('/tools/pdf-splitter/confirm', [PdfSplitterController::class, 'confirm'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.confirm');
     Route::get('/tools/pdf-splitter/thumb/{page}', [PdfSplitterController::class, 'serveThumb'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.thumb')->where('page', '[0-9]+');
@@ -1185,6 +1270,8 @@ Route::middleware(['auth'])->group(function () {
     // WS4 (§8.1) — Deal document distribution matrix (stage × doc-type × party role).
     Route::get('/admin/settings/deal-distribution-rules', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'index'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.index');
     Route::post('/admin/settings/deal-distribution-rules', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'store'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.store');
+    // Feature 2 — toggle the agency-level ad-hoc distribution switch.
+    Route::post('/admin/settings/deal-distribution-rules/adhoc-toggle', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'toggleAdhoc'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.adhoc-toggle');
     Route::delete('/admin/settings/deal-distribution-rules/{rule}', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'destroy'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.destroy');
 
     // DR2 Wave 2 — Deal → Property → Portal status sync settings (agency-configurable).
@@ -1232,6 +1319,9 @@ Route::middleware(['auth'])->group(function () {
     // AT-366 — Agency Performance & ROI report (per-agent → branch → company, any period).
     Route::get('/corex/performance/agency-report', [\App\Http\Controllers\Performance\AgencyPerformanceReportController::class, 'index'])
         ->middleware('permission:view_performance')->name('performance.agency-report');
+    // AT-366 §B (#9) — read-only drilldown JSON (rows behind a clicked figure), agency-scoped.
+    Route::get('/corex/performance/agency-report/drilldown', [\App\Http\Controllers\Performance\AgencyPerformanceReportController::class, 'drilldown'])
+        ->middleware('permission:view_performance')->name('performance.agency-report.drilldown');
     // AT-366-D — branch drill-down (branch rollup + prior-period trend + its agents).
     Route::get('/corex/performance/agency-report/branch/{branch}', [\App\Http\Controllers\Performance\AgencyPerformanceReportController::class, 'branch'])
         ->where('branch', '[0-9]+|unassigned')
@@ -1239,10 +1329,7 @@ Route::middleware(['auth'])->group(function () {
     // AT-366-C — single-agent journey drill-down (metrics + prior-period trend).
     Route::get('/corex/performance/agency-report/agent/{user}', [\App\Http\Controllers\Performance\AgencyPerformanceReportController::class, 'agent'])
         ->middleware('permission:view_performance')->name('performance.agency-report.agent');
-    // AT-366 §B (#9) — read-only drilldown JSON (rows behind a clicked figure), agency-scoped.
-    Route::get('/corex/performance/agency-report/drilldown', [\App\Http\Controllers\Performance\AgencyPerformanceReportController::class, 'drilldown'])
-        ->middleware('permission:view_performance')->name('performance.agency-report.drilldown');
-    // AT-366 (#8) — print surfaces: whole-company + single-agent printables.
+    // AT-366 (cc1 frontend #8) — print surfaces: whole-company + single-agent printables.
     Route::get('/corex/performance/agency-report/print', [\App\Http\Controllers\Performance\AgencyPerformanceReportController::class, 'print'])
         ->middleware('permission:view_performance')->name('performance.agency-report.print');
     Route::get('/corex/performance/agency-report/agent/{user}/print', [\App\Http\Controllers\Performance\AgencyPerformanceReportController::class, 'agentPrint'])
@@ -1694,6 +1781,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::put('/calendar/{calendarEvent}', [CommandCenterCalendarController::class, 'update'])->name('command-center.calendar.update');
         Route::delete('/calendar/{calendarEvent}', [CommandCenterCalendarController::class, 'destroy'])->name('command-center.calendar.destroy');
         Route::post('/calendar/{calendarEvent}/complete', [CommandCenterCalendarController::class, 'complete'])->name('command-center.calendar.complete');
+        // AT-111 direction 2 — launch/open a viewing pack from an existing appointment
+        // (schedule-now-prep-later). Gated by the create permission.
+        Route::post('/calendar/{calendarEvent}/viewing-pack', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'launchFromEvent'])->middleware('permission:viewing_packs.create')->name('command-center.calendar.viewing-pack.launch');
         Route::post('/calendar/{calendarEvent}/dismiss', [CommandCenterCalendarController::class, 'dismiss'])->name('command-center.calendar.dismiss');
         Route::patch('/calendar/{calendarEvent}/reschedule', [CommandCenterCalendarController::class, 'reschedule'])->name('command-center.calendar.reschedule');
         Route::get('/calendar/{calendarEvent}/feedback', [CommandCenterCalendarController::class, 'showFeedback'])->name('command-center.calendar.feedback.show');
@@ -1863,6 +1953,18 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:upload_own_documents')->name('agent.portal.upload');
     Route::patch('/my-portal/profile', [\App\Http\Controllers\Agent\AgentPortalController::class, 'updateProfile'])
         ->middleware('permission:edit_own_profile')->name('agent.portal.profile.update');
+
+    // Saved signature / initial / signing PIN — agent sets their own (My Portal).
+    Route::patch('/my-portal/signature', [\App\Http\Controllers\Agent\AgentPortalController::class, 'saveSignature'])
+        ->middleware('permission:access_my_portal')->name('agent.portal.signature.save');
+
+    // Reusable "place my signature" endpoints — consumed by BOTH e-sign and the CMA
+    // certificate generator. Operate on the CURRENT user's own signature; the service
+    // blocks impersonated sessions from unlocking or reading the images.
+    Route::get('/signature/status',        [\App\Http\Controllers\AgentSignatureController::class, 'status'])->name('signature.status');
+    Route::post('/signature/unlock',       [\App\Http\Controllers\AgentSignatureController::class, 'unlock'])->name('signature.unlock');
+    Route::get('/signature/asset/{type}',  [\App\Http\Controllers\AgentSignatureController::class, 'asset'])
+        ->where('type', 'signature|initial')->name('signature.asset');
 
     // Admin Multi-Branch Manager — admin self-assigns which branches they
     // manage (+ a default) from their own profile. Gated by the dedicated
@@ -2563,6 +2665,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
             // Buyer-match tier thresholds — single PUT per agency.
             Route::put('/buyer-match-tiers',                      [\App\Http\Controllers\Settings\Prospecting\BuyerMatchTiersController::class, 'update'])->name('buyer-match-tiers.update');
+            // MIC funnel phase 2 — agency-configurable stale-claim warn/release thresholds.
+            Route::get('/stale-rules',                            [\App\Http\Controllers\Settings\Prospecting\StaleRulesController::class, 'edit'])->name('stale-rules.edit');
+            Route::put('/stale-rules',                            [\App\Http\Controllers\Settings\Prospecting\StaleRulesController::class, 'update'])->name('stale-rules.update');
         });
 
     // ── Seller Outreach Templates (per-agency template CRUD) ──
@@ -2623,6 +2728,61 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                 [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'storeFromProspecting'])
                 ->where('prospectingListingId', '\d+')
                 ->name('store-from-prospecting');
+            // MIC ↔ Deeds ↔ Contact loop (Part A, manual link) — remember the deed the agent
+            // picks from the "Link a deed" modal so it auto-surfaces on later visits.
+            Route::post('/prospecting/{prospectingListingId}/outreach/link-deed',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'linkDeedToProspecting'])
+                ->where('prospectingListingId', '\d+')
+                ->name('link-deed-prospecting');
+            // FIX 2 (Johan 2026-08-14) — lightweight poll: the compose screen calls this every few
+            // seconds so a deed/TVA capture that lands while it's open auto-surfaces (partial
+            // refresh, no full reload — preserves the claim, form state and the dead-end tick).
+            Route::get('/prospecting/{prospectingListingId}/outreach/deed-poll',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'pollDeedsForProspecting'])
+                ->where('prospectingListingId', '\d+')
+                ->name('deed-poll-prospecting');
+            // Multi-seller link (Part A) + TVA number picker (Part B) — a property can have several
+            // sellers, each its own ID-keyed contact; the agent links/unlinks each and assigns
+            // scraped TVA numbers to the respective contact.
+            Route::post('/prospecting/{prospectingListingId}/outreach/sellers/link',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'linkSellerToProspecting'])
+                ->where('prospectingListingId', '\d+')
+                ->name('link-seller-prospecting');
+            Route::post('/prospecting/{prospectingListingId}/outreach/sellers/unlink',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'unlinkSellerFromProspecting'])
+                ->where('prospectingListingId', '\d+')
+                ->name('unlink-seller-prospecting');
+            Route::post('/prospecting/{prospectingListingId}/outreach/tva/ingest',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'ingestTvaForProspecting'])
+                ->where('prospectingListingId', '\d+')
+                ->name('tva-ingest-prospecting');
+            // Compose redesign — click-to-make-primary, per-seller "No contact details", and the
+            // post-continue interstitial ("Property created · N contacts — pitch to sellers").
+            Route::post('/prospecting/{prospectingListingId}/outreach/sellers/primary',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'setPrimarySellerForProspecting'])
+                ->where('prospectingListingId', '\d+')
+                ->name('primary-seller-prospecting');
+            Route::post('/prospecting/{prospectingListingId}/outreach/sellers/dead-end',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'markSellerDeadEndForProspecting'])
+                ->where('prospectingListingId', '\d+')
+                ->name('dead-end-seller-prospecting');
+            Route::get('/prospecting/{prospectingListingId}/outreach/pitch-ready',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'pitchReadyForProspecting'])
+                ->where('prospectingListingId', '\d+')
+                ->name('pitch-ready-prospecting');
+            // R1–R3 reversibility: unlink the deed, and per-number remove / set-primary.
+            Route::post('/prospecting/{prospectingListingId}/outreach/deed/unlink',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'unlinkDeedForProspecting'])
+                ->where('prospectingListingId', '\d+')
+                ->name('unlink-deed-prospecting');
+            Route::post('/prospecting/{prospectingListingId}/outreach/numbers/remove',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'removeNumberForProspecting'])
+                ->where('prospectingListingId', '\d+')
+                ->name('remove-number-prospecting');
+            Route::post('/prospecting/{prospectingListingId}/outreach/numbers/primary',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'setPrimaryNumberForProspecting'])
+                ->where('prospectingListingId', '\d+')
+                ->name('primary-number-prospecting');
 
             // Map Workspace Phase B (Fix 2+3) — T-pin WhatsApp / Pitch flow.
             // Mirrors the prospecting entry point but the source is a
@@ -3285,6 +3445,18 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware(['permission:communications.view', 'agency.required'])
         ->name('corex.comms-access.inbox');
 
+    // ── AT-231 P2b — Inbound attorney-correspondence REVIEW SCREEN (suspense queue) ──
+    // A PAGE + its resolve actions, reachable from BOTH the Deals nav ("Comms Suspense")
+    // and the Comms nav ("To File"). See .ai/specs/at231-inbound-attorney-comms-filing.md §3.7.
+    Route::prefix('comms-suspense')->middleware('agency.required')->name('corex.comms-suspense.')->group(function () {
+        Route::get('/',                        [\App\Http\Controllers\Communications\CommsSuspenseController::class, 'index'])->middleware('permission:deal_comms_suspense.view')->name('index');
+        Route::get('/deal-search',             [\App\Http\Controllers\Communications\CommsSuspenseController::class, 'dealSearch'])->middleware('permission:deal_comms_suspense.resolve')->name('deal-search');
+        Route::get('/attachment/{attachment}', [\App\Http\Controllers\Communications\CommsSuspenseController::class, 'attachment'])->middleware('permission:deal_comms_suspense.view')->name('attachment');
+        Route::post('/{suspense}/verify',      [\App\Http\Controllers\Communications\CommsSuspenseController::class, 'verify'])->middleware('permission:deal_comms_suspense.resolve')->name('verify');
+        Route::post('/{suspense}/reassign',    [\App\Http\Controllers\Communications\CommsSuspenseController::class, 'reassign'])->middleware('permission:deal_comms_suspense.resolve')->name('reassign');
+        Route::post('/{suspense}/dismiss',     [\App\Http\Controllers\Communications\CommsSuspenseController::class, 'dismiss'])->middleware('permission:deal_comms_suspense.resolve')->name('dismiss');
+    });
+
     // Contacts
     Route::prefix('contacts')->middleware(['permission:access_contacts', 'agency.required'])->name('corex.contacts.')->group(function () {
         Route::get('/',                   [\App\Http\Controllers\CoreX\ContactController::class, 'index'])->name('index');
@@ -3335,6 +3507,16 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{contact}/properties/search',    [\App\Http\Controllers\CoreX\ContactPropertyController::class, 'search'])->name('properties.search');
         Route::post('/{contact}/properties/link',     [\App\Http\Controllers\CoreX\ContactPropertyController::class, 'link'])->name('properties.link');
         Route::delete('/{contact}/properties/{property}', [\App\Http\Controllers\CoreX\ContactPropertyController::class, 'unlink'])->name('properties.unlink');
+        // Entity-type foundation (.ai/specs/contact-entity-type.md) — entity <-> representative link.
+        Route::get('/{contact}/representatives/search', [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'search'])->name('representatives.search');
+        Route::post('/{contact}/representatives/link',  [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'link'])->name('representatives.link');
+        Route::post('/{contact}/representatives/create-and-link', [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'createAndLinkRepresentative'])->name('representatives.create-and-link');
+        Route::delete('/{contact}/representatives/{representative}', [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'unlink'])->name('representatives.unlink');
+        // Mirror direction — a NATURAL PERSON's "Linked Entities" panel. Same
+        // pivot, same link()/unlink() above (called with the entity as
+        // {contact}); these two are the person-side search + create-on-the-fly.
+        Route::get('/{contact}/linked-entities/search', [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'searchEntities'])->name('representatives.search-entities');
+        Route::post('/{contact}/linked-entities/create-and-link', [\App\Http\Controllers\CoreX\ContactRepresentativeController::class, 'createAndLinkEntity'])->name('representatives.create-and-link-entity');
         // Core Matches
         Route::post('/{contact}/matches',                              [\App\Http\Controllers\CoreX\ContactMatchController::class, 'store'])->name('matches.store');
         Route::get('/{contact}/matches/{match}/edit',                  [\App\Http\Controllers\CoreX\ContactMatchController::class, 'edit'])->name('matches.edit');
@@ -3813,6 +3995,10 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::post('/esign/{flow}/draft', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'saveDraft'])->name('docuperfect.esign.saveDraft');
     Route::delete('/esign/{flow}', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'destroy'])->name('docuperfect.esign.destroy');
     Route::post('/esign/{flow}/autosave-fields', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'autosaveFields'])->name('docuperfect.esign.autosaveFields');
+    // Fill & Review strike-out — the agent strikes an unwanted section at creation time (stored on the flow, replayed at compose).
+    Route::post('/esign/{flow}/body-strike', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'bodyStrike'])->name('docuperfect.esign.bodyStrike');
+    Route::post('/esign/{flow}/body-strike/edit', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'bodyStrikeEdit'])->name('docuperfect.esign.bodyStrikeEdit');
+    Route::post('/esign/{flow}/body-strike/remove', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'bodyStrikeRemove'])->name('docuperfect.esign.bodyStrikeRemove');
     Route::post('/esign/{flow}/prepare-signing', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'prepareSigning'])->name('docuperfect.esign.prepareSigning');
     Route::post('/esign/{flow}/prepare-download', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'prepareDownload'])->middleware('deny_assistant_download')->name('docuperfect.esign.prepareDownload');
     Route::post('/esign/{flow}/prepare-wet-ink', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'prepareWetInk'])->name('docuperfect.esign.prepareWetInk');
@@ -3912,9 +4098,56 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
 
     // Agent approval gate
     Route::get('/documents/{document}/signatures/review', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'review'])->name('docuperfect.signatures.review');
+    // Office/agent download of a recipient's optional supporting document.
+    Route::get('/documents/{document}/supporting/{version}/download', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'downloadSupportingFile'])->name('signatures.supporting.download');
+    // HOOK — hand-off of a recipient's supporting document to the multi-doc splitter (Andre).
+    // Stub for now; the button + landing spot exist, the splitter wiring attaches here later.
+    Route::post('/documents/{document}/supporting/{version}/process', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'processSupportingDocument'])->name('signatures.supporting.process');
+    // BATCH (per-recipient) supporting-doc surfaces (Johan item 5) — the splitter takes 1-to-many, so
+    // the agent views/downloads/hands off a recipient's WHOLE upload batch at once, not per file.
+    // NB: the route param is {signingRequest} — it MUST match the controller's
+    // SignatureRequest $signingRequest for implicit model binding (a {request} param collides
+    // with the Illuminate\Http\Request $request and never binds the model → 404).
+    Route::get('/documents/{document}/supporting/request/{signingRequest}/view',         [\App\Http\Controllers\Docuperfect\SignatureController::class, 'viewSupportingBatch'])->name('signatures.supporting.view');
+    Route::get('/documents/{document}/supporting/request/{signingRequest}/download-all', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'downloadSupportingBatch'])->name('signatures.supporting.downloadAll');
+    Route::post('/documents/{document}/supporting/request/{signingRequest}/process',     [\App\Http\Controllers\Docuperfect\SignatureController::class, 'processSupportingBatch'])->name('signatures.supporting.processBatch');
+    // FILED state (Part A) — mark a recipient's batch filed → moves it to the "Filed additional docs" archive.
+    Route::post('/documents/{document}/supporting/request/{signingRequest}/file',        [\App\Http\Controllers\Docuperfect\SignatureController::class, 'markSupportingBatchFiled'])->name('signatures.supporting.file');
+    // Inline per-file stream used by the batch viewer to render each doc full-page (like the FICA viewer).
+    Route::get('/documents/{document}/supporting/version/{version}/stream',       [\App\Http\Controllers\Docuperfect\SignatureController::class, 'streamSupportingFile'])->name('signatures.supporting.stream');
+    // AT-352 item 2 — agent live "View document" (READ-ONLY recipient mirror; no write path)
+    Route::get('/documents/{document}/signatures/view-live', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'viewLive'])->name('docuperfect.signatures.viewLive');
     Route::post('/documents/{document}/signatures/approve-and-advance', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'approveAndAdvance'])->name('docuperfect.signatures.approveAndAdvance');
     Route::get('/documents/{document}/signatures/authorise-signing', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'authoriseSigning'])->name('docuperfect.signatures.authoriseSigning');
     Route::post('/documents/{document}/signatures/return-to-candidate', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'returnToCandidate'])->name('docuperfect.signatures.returnToCandidate');
+    // WET-INK explicit resubmit — candidate sends an edited returned doc back to the authoriser (no re-sign).
+    Route::post('/documents/{document}/signatures/resubmit-to-authoriser', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'resubmitToAuthoriser'])->name('docuperfect.signatures.resubmitToAuthoriser');
+    // WET-INK clause edit — strike a clause on a returned doc (inline reword or route to Other Conditions).
+    Route::post('/documents/{document}/signatures/edit-clause', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'editClause'])->name('docuperfect.signatures.editClause');
+    // WET-INK selection edit — strike the highlighted word/phrase in the document + insert the replacement.
+    Route::post('/documents/{document}/signatures/edit-selection', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'editSelection'])->name('docuperfect.signatures.editSelection');
+    // WET-INK per-change initial — the acting party initials one change (by data-change-id).
+    Route::post('/documents/{document}/signatures/initial-change', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'initialChange'])->name('docuperfect.signatures.initialChange');
+    // AT-373 — internal agent per-CONDITION initial (Other Condition equivalent of initial-change).
+    Route::post('/documents/{document}/signatures/condition/{condition}/initial', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'initialCondition'])->whereNumber('condition')->name('docuperfect.signatures.initialCondition');
+    // AT-373 (inc3) — the approval-chain node approves/rejects a recipient's wet-ink amendment
+    // (two-stage edit-approval gate). Approve = the node placed its initial (initial-change) then
+    // advances the chain; reject reverts the change and routes the editor to re-acceptance.
+    Route::post('/documents/{document}/signatures/amendment/approve', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'approveAmendmentNode'])->name('docuperfect.signatures.amendment.approve');
+    // AT-373 (Part 3) — agent bounce-back: send the doc back to the amendment author so they remove
+    // their own change and re-sign clean (recipient revert path). Transition lives in the service.
+    Route::post('/documents/{document}/signatures/amendment/send-back', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'sendBackToRecipient'])->name('docuperfect.signatures.amendment.sendBack');
+    // AT-373 reject flow (Johan 2026-08-12) — the agent flags a SPECIFIC recipient amendment (body clause
+    // OR Other Condition) as rejected before "Reject & send back". Records the decision only; the transition
+    // + reject-return marker are stamped on send-back. Idempotent toggle.
+    Route::post('/documents/{document}/signatures/amendment/reject-item', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'rejectAmendmentItem'])->name('docuperfect.signatures.amendment.rejectItem');
+    // SYMMETRIC edit-upon-edit (Johan 2026-08-10) — "reject" is RETIRED as a distinct action/state. A
+    // rejection is now just an EDIT (a strike, optionally with replacement), authored with the shared amend
+    // tool on the review page and routed like any other edit. The three reject endpoints
+    // (rejectAmendmentChange / rejectAmendmentCondition / rejectAmendmentNode) and the editor-reacceptance
+    // status they drove are removed from the surface. `SelectionEditService::revertChange` survives as an
+    // internal helper (audit/undo), no longer reachable as an agent "reject" HTTP action. The external
+    // re-acceptance route stays for any doc already mid-reacceptance; nothing new can enter that state.
 
     // Dashboard polling
     Route::get('/rental/status-check', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'statusCheck'])->name('docuperfect.rental.statusCheck');
@@ -3947,10 +4180,15 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::get('/documents/{document}/send-confirmation', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'sendConfirmation'])->name('docuperfect.signatures.sendConfirmation');
     Route::post('/documents/{document}/send-for-signature', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'sendForSignature'])->name('docuperfect.signatures.send');
     Route::post('/documents/{document}/send-reminder/{signatureRequest}', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'sendReminder'])->name('docuperfect.signatures.sendReminder');
+    // AT-294 — resend a recipient's e-sign email (invitation or completed document)
+    Route::post('/documents/{document}/resend-email/{signatureRequest}', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'resendEmail'])->name('docuperfect.signatures.resendEmail');
 
     // Audit & download
     Route::get('/documents/{document}/signatures/audit', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'audit'])->name('docuperfect.signatures.audit');
     Route::get('/documents/{document}/signatures/download', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'download'])->middleware('deny_assistant_download')->name('docuperfect.signatures.download');
+    // On-request electronic-signature certificate — a standalone PDF, kept OUT of the
+    // distributed signed document (the signed doc stays clean; the certificate is here).
+    Route::get('/documents/{document}/signatures/certificate', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'downloadCertificate'])->name('docuperfect.signatures.certificate');
 
     // Wet ink inspection
     Route::get('/documents/{document}/signatures/inspect/{signingRequest}', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'wetInkReview'])->name('docuperfect.signatures.wetInkReview');
@@ -4045,19 +4283,35 @@ Route::post('/sales-documents/return/{token}', [\App\Http\Controllers\Docuperfec
 // ===== EXTERNAL SIGNING (no auth, token-based) =====
 Route::prefix('sign')->group(function () {
     Route::get('/{token}', [\App\Http\Controllers\Docuperfect\SigningController::class, 'show'])->name('signatures.external');
+    // Task 1 — session keep-alive: the signing page pings this so a long,
+    // in-progress sign never lapses the session/CSRF token (no forced refresh).
+    Route::get('/{token}/heartbeat', [\App\Http\Controllers\Docuperfect\SigningController::class, 'heartbeat'])->name('signatures.external.heartbeat');
     Route::get('/{token}/gateway', [\App\Http\Controllers\Docuperfect\SigningController::class, 'gateway'])->name('signatures.external.gateway');
     Route::post('/{token}/verify', [\App\Http\Controllers\Docuperfect\SigningController::class, 'verify'])->name('signatures.external.verify');
     Route::get('/{token}/consent', [\App\Http\Controllers\Docuperfect\SigningController::class, 'showConsent'])->name('signatures.external.showConsent');
     Route::post('/{token}/consent', [\App\Http\Controllers\Docuperfect\SigningController::class, 'captureConsent'])->name('signatures.external.consent');
     Route::get('/{token}/already-signed', [\App\Http\Controllers\Docuperfect\SigningController::class, 'alreadySigned'])->name('signatures.external.alreadySigned');
     Route::post('/{token}/choose-method', [\App\Http\Controllers\Docuperfect\SigningController::class, 'chooseMethod'])->name('signatures.external.chooseMethod');
+    // AT-373 (inc5) — the editing party re-accepts the reverted document after their amendment was
+    // rejected (TWO mandatory ticks: ECT-Act ack + amendment-removed ack). Not a re-sign.
+    Route::post('/{token}/reaccept', [\App\Http\Controllers\Docuperfect\SigningController::class, 'reacceptAfterReject'])->name('signatures.external.reaccept');
     Route::post('/{token}/capture/{marker}', [\App\Http\Controllers\Docuperfect\SigningController::class, 'capture'])->name('signatures.external.capture');
     Route::post('/{token}/save-fields', [\App\Http\Controllers\Docuperfect\SigningController::class, 'saveFields'])->name('signatures.external.saveFields');
     Route::post('/{token}/save-web-fields', [\App\Http\Controllers\Docuperfect\SigningController::class, 'saveWebFields'])->name('signatures.external.saveWebFields');
+    // AT-373 increment 2 — recipient amends at their turn via the SAME wet-ink selection tool as the agent.
+    Route::post('/{token}/edit-selection', [\App\Http\Controllers\Docuperfect\SigningController::class, 'editSelection'])->name('signatures.external.editSelection');
+    // Recipient self-revert (Johan 2026-08-11) — remove one of MY OWN pending edits before signing,
+    // while no other party has signed. Reverts the clause to the agreed original.
+    Route::post('/{token}/revert-change', [\App\Http\Controllers\Docuperfect\SigningController::class, 'revertMyChange'])->name('signatures.external.revertChange');
+    // AT-373 reject flow (Johan 2026-08-12) — the recipient removes a change the agent REJECTED and sent
+    // back (authorised by the reject-return marker, not the pre-sign "no other party signed" rule).
+    Route::post('/{token}/remove-rejected', [\App\Http\Controllers\Docuperfect\SigningController::class, 'removeRejectedItem'])->name('signatures.external.removeRejected');
     Route::post('/{token}/complete-web', [\App\Http\Controllers\Docuperfect\SigningController::class, 'completeWeb'])->name('signatures.external.completeWeb');
     Route::post('/{token}/complete', [\App\Http\Controllers\Docuperfect\SigningController::class, 'complete'])->name('signatures.external.complete');
     Route::get('/{token}/completed', [\App\Http\Controllers\Docuperfect\SigningController::class, 'completed'])->name('signatures.external.completed');
     Route::post('/{token}/upload', [\App\Http\Controllers\Docuperfect\SigningController::class, 'uploadWetInk'])->name('signatures.external.upload');
+    // Optional recipient supporting-document uploads — NEVER a signing gate; available pre- and post-sign.
+    Route::post('/{token}/supporting-documents', [\App\Http\Controllers\Docuperfect\SigningController::class, 'uploadSupportingDocuments'])->name('signatures.external.supportingUpload');
     Route::get('/{token}/download', [\App\Http\Controllers\Docuperfect\SigningController::class, 'downloadForSigning'])->name('signatures.external.download');
     Route::get('/{token}/print', [\App\Http\Controllers\Docuperfect\SigningController::class, 'printView'])->name('signatures.external.print');
     Route::get('/{token}/download-pdf', [\App\Http\Controllers\Docuperfect\SigningController::class, 'downloadWebPdf'])->name('signing.download-pdf');
@@ -4074,36 +4328,26 @@ Route::prefix('sign')->group(function () {
     Route::get('/{token}/amendment-review', [\App\Http\Controllers\Docuperfect\SigningController::class, 'amendmentReview'])->name('signatures.external.amendment-review');
     Route::post('/{token}/amendment/{amendment}/accept', [\App\Http\Controllers\Docuperfect\SigningController::class, 'acceptAmendment'])->name('signatures.external.acceptAmendment');
     Route::post('/{token}/amendment/{amendment}/reject', [\App\Http\Controllers\Docuperfect\SigningController::class, 'rejectAmendment'])->name('signatures.external.rejectAmendment');
+    // AT-303 — downstream recipient proposes a change to a LOCKED MDF disclosure mark.
+    Route::post('/{token}/disclosure/{key}/amend', [\App\Http\Controllers\Docuperfect\SigningController::class, 'proposeDisclosureAmendment'])->name('signatures.external.proposeDisclosureAmendment');
 
     // Phase 1B.5 — recipient Other Conditions / focused initialing
     Route::post('/{token}/conditions',          [\App\Http\Controllers\Docuperfect\SigningController::class, 'addCondition'])->name('signatures.external.addCondition');
+    // WET-INK recipient per-change initial (item 4, recipient-side).
+    Route::post('/{token}/initial-change',       [\App\Http\Controllers\Docuperfect\SigningController::class, 'initialChange'])->name('signatures.external.initialChange');
     Route::post('/{token}/initial-amendments', [\App\Http\Controllers\Docuperfect\SigningController::class, 'initialAmendments'])->name('signatures.external.initialAmendments');
     // Phase 1B.7 — inline per-condition initialing (distinct from bulk
     // amendment cascade above).
     Route::post('/{token}/conditions/{condition}/initial', [\App\Http\Controllers\Docuperfect\SigningController::class, 'initialCondition'])->name('signatures.external.initialCondition');
 
-    // Phase 1B.6 (FIX 2) — recipient clause-flag (replaces Phase 1B.5 strikethrough modal).
-    Route::post('/{token}/flag-clause',         [\App\Http\Controllers\Docuperfect\SigningController::class, 'flagClause'])->name('signatures.external.flagClause');
-    // Phase 1B.9 (FIX 1) — recipient self-undo pre-completion.
-    Route::delete('/{token}/flag/{clauseRef}',  [\App\Http\Controllers\Docuperfect\SigningController::class, 'removeOwnFlag'])->name('signatures.external.removeOwnFlag');
+    // AT-373 inc7 — the recipient clause-flag + self-undo routes were retired; recipients now
+    // propose changes via the wet-ink amend tool at their turn (POST /{token}/edit-selection).
     // Soft-deprecated Phase 1B.5 endpoint — returns 410 with redirect hint.
     Route::post('/{token}/strikethroughs',      [\App\Http\Controllers\Docuperfect\SigningController::class, 'proposeStrikethrough'])->name('signatures.external.proposeStrikethrough');
 });
 
-// Phase 1B.9 (FIX 1) — Flag Removal consent flow.
-// Agent-side request (auth required) + recipient consent screen (public,
-// token-authenticated).
-Route::middleware(['auth'])->group(function () {
-    Route::post('/docuperfect/flags/{amendment}/request-removal',
-        [\App\Http\Controllers\Docuperfect\FlagRemovalController::class, 'requestRemoval'])
-        ->name('docuperfect.flags.requestRemoval');
-});
-Route::get('/flag-removal/{token}',
-    [\App\Http\Controllers\Docuperfect\FlagRemovalController::class, 'showConsent'])
-    ->name('signatures.flag-removal.consent.show');
-Route::post('/flag-removal/{token}/consent',
-    [\App\Http\Controllers\Docuperfect\FlagRemovalController::class, 'submitConsent'])
-    ->name('signatures.flag-removal.consent.submit');
+// AT-373 inc7 — the Flag Removal consent flow (agent-requested post-completion flag removal) was
+// retired with the recipient clause-flag mechanism. FlagRemovalController + its views were removed.
 
 // ===== SIGNED DOCUMENT DOWNLOAD (no auth, token-based) =====
 Route::get('/documents/download/{token}', [\App\Http\Controllers\Docuperfect\SigningController::class, 'downloadPage'])->name('signatures.download.page');
@@ -4224,6 +4468,25 @@ Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting
 // internal Alpine :action="'/prospecting/...'" form posts (which still hit the
 // legacy POST routes unchanged).
 //
+// CMA / deeds capture (phase 1) — the dedicated Deeds Capture screen (its own menu +
+// permission). Deeds captures are filtered OUT of MIC Opportunities and reviewed here.
+Route::middleware(['auth', 'permission:deeds_capture.access'])
+    ->prefix('corex/deeds-capture')
+    ->name('corex.deeds-capture.')
+    ->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'index'])->name('index');
+        Route::post('/{trackedProperty}/promote', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'promote'])
+            ->whereNumber('trackedProperty')->name('promote');
+        // TVA (The Virtual Agent) contact capture (2026-08-12) — tick-to-ingest.
+        Route::post('/tva/{tvaContactCapture}/ingest', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'ingestTva'])
+            ->whereNumber('tvaContactCapture')->name('tva.ingest');
+        // Remove (soft delete, reversible) — wrong details / duplicates (2026-08-13).
+        Route::post('/{trackedProperty}/dismiss', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'dismissProperty'])
+            ->whereNumber('trackedProperty')->name('dismiss');
+        Route::post('/tva/{tvaContactCapture}/dismiss', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'dismissTva'])
+            ->whereNumber('tvaContactCapture')->name('tva.dismiss');
+    });
+
 // Spec: .ai/specs/build-f-market-intelligence-redesign-spec.md §6.
 Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting'])
     ->prefix('corex/market-intelligence')
@@ -4248,6 +4511,17 @@ Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting
 
         // Phase G2 — BM team dashboard. Permission-gated via the controller.
         Route::get('/team', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'team'])->name('team');
+
+        // MIC funnel phase 2 — BM/admin stale-claim review + reassignment (anti-poaching).
+        Route::get('/stale-review', [\App\Http\Controllers\Prospecting\StaleClaimController::class, 'index'])
+            ->middleware('permission:prospecting_setup.manage')->name('stale-review');
+        Route::post('/stale-review/{claim}/reassign', [\App\Http\Controllers\Prospecting\StaleClaimController::class, 'reassign'])
+            ->whereNumber('claim')->middleware('permission:prospecting_setup.manage')->name('stale-review.reassign');
+        Route::post('/stale-review/{claim}/keep', [\App\Http\Controllers\Prospecting\StaleClaimController::class, 'keep'])
+            ->whereNumber('claim')->middleware('permission:prospecting_setup.manage')->name('stale-review.keep');
+        // Agent-facing: release my claim back to MIC because no address could be established.
+        Route::post('/claims/{claim}/release-no-address', [\App\Http\Controllers\Prospecting\StaleClaimController::class, 'releaseNoAddress'])
+            ->whereNumber('claim')->name('claims.release-no-address');
 
         // Phase G3 — feedback-template JSON for the claim slide-over.
         Route::get('/feedback-templates', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'feedbackTemplates'])->name('feedback-templates');
@@ -4451,3 +4725,23 @@ Route::middleware(['auth.wa_capture'])->get('/communications/wa/backfill-targets
 Route::middleware(['waha.webhook'])->post('/communications/wa/webhook', [\App\Http\Controllers\Communications\WaSessionWebhookController::class, 'handle'])
     ->name('communications.wa.webhook');
 
+
+// AT-284 — P24 minion setup page (the control surface). Gated by access_settings.
+Route::middleware(['auth', 'permission:access_settings'])
+    ->prefix('admin/settings/minion')
+    ->name('admin.minion.')
+    ->group(function () {
+        Route::get('/', [\App\Http\Controllers\Admin\MinionCaptureController::class, 'index'])->name('setup');
+        Route::get('/tree/towns', [\App\Http\Controllers\Admin\MinionCaptureController::class, 'treeTowns'])->name('tree.towns');
+        Route::get('/tree/suburbs', [\App\Http\Controllers\Admin\MinionCaptureController::class, 'treeSuburbs'])->name('tree.suburbs');
+        Route::post('/areas/toggle', [\App\Http\Controllers\Admin\MinionCaptureController::class, 'toggleArea'])->name('areas.toggle');
+        Route::post('/settings', [\App\Http\Controllers\Admin\MinionCaptureController::class, 'saveSettings'])->name('settings.save');
+        Route::post('/run-now', [\App\Http\Controllers\Admin\MinionCaptureController::class, 'runNow'])->name('run-now');
+    });
+
+// Evaluation Certificate — PUBLIC client-facing view. Reachable only via a valid
+// temporary SIGNED URL (Share action); the 'signed' middleware 403s any tampered/
+// expired link. No auth: the recipient is the agent's client, not a CoreX user.
+Route::get('/tools/cma/evaluation/public/{certificate}', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'publicView'])
+    ->middleware('signed')
+    ->name('tools.cma.evaluation.public');

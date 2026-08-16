@@ -41,6 +41,10 @@ class AgencyObserver
                 ]
             );
 
+            // AT-229 — seed the agency's own COC / service-type list (the
+            // historical hardcoded set) so the work-order dropdown is populated.
+            \App\Models\DealV2\AgencyServiceType::seedDefaultsFor($agency->id);
+
             // Contact-details Phase 2 — seed the agency's contact-label list
             // (Personal/Business/Contact) so the phone/email label dropdown is
             // never empty for a brand-new agency.
@@ -58,6 +62,31 @@ class AgencyObserver
                     [
                         'can_see' => $row['can_see'],
                     ]
+                );
+            }
+
+            // 2026-08-15 (Johan, HFC tenant-isolation fix) — seed this
+            // agency's OWN company_* PerformanceSetting rows from its own
+            // profile fields at creation time, so the Admin > Performance
+            // Settings edit page shows correct pre-filled values from day
+            // one instead of blank (PerformanceSetting::get() no longer
+            // falls back to the global row for these keys regardless —
+            // this seed is defense-in-depth / good UX, not a correctness
+            // requirement).
+            $companyDefaults = [
+                'company_name'      => $agency->name,
+                'company_address'   => $agency->address,
+                'company_tel'       => $agency->phone,
+                'company_ffc'       => $agency->ffc_no,
+                'company_logo_url'  => $agency->logo_path,
+            ];
+            foreach ($companyDefaults as $key => $value) {
+                if ($value === null || $value === '') {
+                    continue;
+                }
+                \App\Models\PerformanceSetting::withoutGlobalScopes()->firstOrCreate(
+                    ['agency_id' => $agency->id, 'key' => $key],
+                    ['value' => $value]
                 );
             }
         });

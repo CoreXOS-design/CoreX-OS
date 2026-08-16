@@ -54,6 +54,9 @@ class WebTemplateDataService
         $recipients = $stepData['recipients']['recipients'] ?? [];
         $details    = $stepData['details'] ?? [];
         $agent      = $agent ?? auth()->user();
+        // Fill any party detail (address/phone/email/id) the wizard snapshot left blank
+        // from the linked Contact, so the merge binds each party's REAL details.
+        $recipients = $this->enrichRecipientsFromContacts($recipients, $agent?->effectiveAgencyId());
 
         // Build contact lookup by wizard role (first + second per role for co-owners)
         $contactsByRole = [];
@@ -105,7 +108,7 @@ class WebTemplateDataService
 
         // Property values
         $address    = $property['address'] ?? $property['title'] ?? '';
-        $suburb     = $property['suburb'] ?? '';
+        $suburb     = $property['suburb'] ?? $property['town'] ?? $property['city'] ?? ''; // B1 — township falls back to town/city
         $leaseStart = $details['lease_start'] ?? '';
         $leaseEnd   = $details['lease_end'] ?? '';
         $rental     = $details['monthly_rental'] ?? $property['rental_amount'] ?? '';
@@ -277,16 +280,16 @@ class WebTemplateDataService
             // Financial
             'monthly_rental'        => $rental,
             'rental_amount'         => $rental,
-            'rental_amount_words'   => $rental ? $this->numberToWords((int) $rental) : '',
-            'rental_in_words'       => $rental ? $this->numberToWords((int) $rental) : '',
+            'rental_amount_words'   => $rental ? $this->numberToWords($rental) : '',
+            'rental_in_words'       => $rental ? $this->numberToWords($rental) : '',
             'deposit_amount'        => $deposit,
-            'deposit_amount_words'  => $deposit ? $this->numberToWords((int) $deposit) : '',
+            'deposit_amount_words'  => $deposit ? $this->numberToWords($deposit) : '',
             'commission_percent'    => $commission,
             'commission_amount'     => $commissionAmount,
             'marketing_fee'         => $details['marketing_fee'] ?? '',
             'marketing_agent'       => $agent->name ?? '',
             'price'                 => $price,
-            'price_in_words'        => $price ? $this->numberToWords((int) $price) : '',
+            'price_in_words'        => $price ? $this->numberToWords($price) : '',
             'commission_incl_vat'   => $serviceFee,
             // Mandate dates (sales)
             'mandate_start'         => $mandateStart,
@@ -426,6 +429,9 @@ class WebTemplateDataService
         $agent = $agent ?? auth()->user();
         $property = $stepData['property'] ?? [];
         $recipients = $stepData['recipients']['recipients'] ?? [];
+        // Fill any party detail (address/phone/email/id) the wizard snapshot left blank
+        // from the linked Contact, so the merge binds the seller's REAL details.
+        $recipients = $this->enrichRecipientsFromContacts($recipients, $agent?->effectiveAgencyId());
         $details = $stepData['details'] ?? [];
 
         // Build contact lookup by role (first contact per role)
@@ -527,26 +533,39 @@ class WebTemplateDataService
 
             $value = '';
 
-            // If we have a named field, use its source_column for precise resolution
+            // If we have a named field, resolve it to its ACTUAL attribute.
             if ($namedField) {
-                $nfKey = $namedField->key ?? '';
-                $nfSourceType = $namedField->source_type ?? $source;
-                $nfSourceColumn = $namedField->source_column ?? '';
-                $nfContactType = $namedField->source_contact_type ?? $field['sourceContactType'] ?? '';
+                // AT-177 B2 (root fix, host-diagnosed 2026-07-17) — key off the FIELD-LEVEL binding
+                // signals the CDS import writes reliably: typeKey (sf:contact_<role> / sf:property),
+                // sourceType, sourceContactType — NOT the named field's source_type. The old code
+                // preferred `$namedField->source_type`, which for these imports is not 'contact', so
+                // the contact branch never fired; the empty result was then stripped by array_filter
+                // below and the seller NAME bled through from base data. That is why three deploys
+                // changed nothing — there were no labels for the label-keyword guard to match. The
+                // ATTRIBUTE comes from the named field's source_column (the import stores it there,
+                // parsed from the blade data-field "source_type.source_column"); label is last resort.
+                $typeKey = (string) ($field['typeKey'] ?? '');
+                $fSource = strtolower((string) ($field['sourceType'] ?? $namedField->source_type ?? $source));
+                $fRole   = (string) ($field['sourceContactType'] ?? $namedField->source_contact_type ?? '');
+                if ($fRole === '' && str_starts_with($typeKey, 'sf:contact_')) {
+                    $fRole = ucfirst(substr($typeKey, strlen('sf:contact_')));
+                }
 
-                // Bug 1: a role-bound contact field (Seller/Buyer/Lessor/Lessee)
-                // must concatenate its column across EVERY recipient of that
-                // role — same join field groups use — so two sellers' IDs
-                // render "3112 and 6789", consistent with the name field.
-                // Generic contact fields (no contact type) keep single-contact
-                // behaviour to avoid mixing unrelated roles.
-                if ($nfSourceType === 'contact' && !empty($nfContactType)) {
-                    $parts = explode('.', $nfKey, 2);
-                    $attr = count($parts) === 2 ? $parts[1] : ($nfSourceColumn ?: $nfKey);
-                    $value = $this->resolveContactColumnAllRecipients($nfContactType, $attr, $recipients);
+                $isContact  = $fSource === 'contact'  || str_starts_with($typeKey, 'sf:contact_');
+                $isProperty = $fSource === 'property' || $typeKey === 'sf:property';
+
+                if ($isContact && $fRole !== '') {
+                    $attr  = $this->attributeForNamedField($namedField, $field);
+                    $value = $this->resolveContactColumnAllRecipients($fRole, $attr, $recipients);
+                } elseif ($isProperty) {
+                    // Property component fields (Complex / Number / Town / Street / District — the
+                    // sf:property split) resolve their column here; B1 township fallback lives in
+                    // resolvePropertyFromKey.
+                    $attr  = $this->attributeForNamedField($namedField, $field);
+                    $value = $this->resolvePropertyFromKey($attr, $property, $details);
                 } else {
                     $value = $this->resolveByNamedFieldKey(
-                        $nfKey, $nfSourceType, $nfSourceColumn, $nfContactType,
+                        $namedField->key ?? '', $namedField->source_type ?? $source, $namedField->source_column ?? '', $fRole,
                         $property, $contactsByRole, $details, $agent
                     );
                 }
@@ -555,6 +574,16 @@ class WebTemplateDataService
             // Fallback: source-based resolution (backward compat for mappings without named fields)
             if (($value === '' || $value === null) && !$namedField) {
                 $value = $this->resolveBySource($source, $fieldName ?: $varName, $property, $contactsByRole, $details, $agent);
+            }
+
+            // B3 — a "… in words" spot renders the amount in WORDS, not the figure. The price/amount
+            // resolves to a number in both spots; when the label says "in words" (Johan's num/alpha
+            // rule) it runs through the rand converter. Same keyword-resolve-now pattern as B2.
+            if ($this->labelWantsWords($field['label'] ?? $field['manualLabel'] ?? '')) {
+                $numeric = preg_replace('/[^0-9.\-]/', '', (string) $value);
+                if ($numeric !== '' && is_numeric($numeric)) {
+                    $value = \App\Support\AmountInWords::rands($numeric);
+                }
             }
 
             $data[$varName] = (string) ($value ?? '');
@@ -574,8 +603,8 @@ class WebTemplateDataService
         $commissionBase = ($price && (float) $price > 0) ? (float) $price : (($rental && (float) $rental > 0) ? (float) $rental : 0);
         $commissionAmount = ($commissionBase > 0 && $commission) ? round($commissionBase * (float) $commission / 100, 2) : '';
 
-        $baseData['price_in_words'] = $price ? $this->numberToWords((int) $price) : '';
-        $baseData['deal_price_in_words'] = $price ? $this->numberToWords((int) $price) : '';
+        $baseData['price_in_words'] = $price ? $this->numberToWords($price) : '';
+        $baseData['deal_price_in_words'] = $price ? $this->numberToWords($price) : '';
         $baseData['commission_amount'] = $commissionAmount;
         $baseData['deal_commission_amount'] = $commissionAmount;
 
@@ -685,13 +714,22 @@ class WebTemplateDataService
             'address', 'street'  => $property['address'] ?? $property['title'] ?? '',
             'address+suburb', 'full_address', 'property_full_address'
                 => trim(($property['address'] ?? '') . ', ' . ($property['suburb'] ?? ''), ', '),
-            'suburb', 'township' => $property['suburb'] ?? '',
+            // B1 — TOWNSHIP falls back to town then city when suburb is blank, so a property whose
+            // area was captured in the town/city selector no longer renders an empty township.
+            'suburb', 'township' => $property['suburb'] ?? $property['town'] ?? $property['city'] ?? '',
             'erf', 'erf_number', 'property_number' => $property['erf'] ?? $property['erf_number'] ?? $property['property_number'] ?? '',
             'complex_name'       => $property['complex_name'] ?? '',
-            'unit_number'        => $property['unit_number'] ?? '',
-            'district'           => $property['district'] ?? 'Ray Nkonyeni',
+            'unit_number', 'number' => $property['unit_number'] ?? '',
+            // AT-177 — the sf:property address components (split at import): Town / Street / District.
+            'town'               => $property['town'] ?? $property['city'] ?? $property['suburb'] ?? '',
+            'street_name', 'street_address' => $property['street_name'] ?? $property['address'] ?? $property['title'] ?? '',
+            'district'           => $property['district'] ?? $property['town'] ?? $property['city'] ?? '',
             'property_type'      => $property['property_type'] ?? '',
             'price'              => $details['price'] ?? $property['price'] ?? '',
+            // B3 — a price-in-words component resolves to the WORDS (whole rands, "and", no cents),
+            // keyed off its source_column since these imports carry no descriptive label.
+            'price_in_words', 'amount_in_words', 'price_words', 'asking_price_in_words'
+                => ($p = ($details['price'] ?? $property['price'] ?? '')) !== '' ? \App\Support\AmountInWords::rands($p) : '',
             // Bug 2: the "Commission Percent" (property/commission_percent)
             // source must pull the Step-4 Document Details value first, then
             // fall back to the property record. Without this arm it hit the
@@ -711,6 +749,151 @@ class WebTemplateDataService
      * Resolve a contact value from a key attribute.
      * Handles specific attributes like "surname", "first_name", "full_name", "id_number".
      */
+    /**
+     * AT-177 B2 — the ATTRIBUTE a named field resolves to, from its own definition.
+     *
+     * Priority: the named field's `source_column` (the import parses this from the blade
+     * data-field "source_type.source_column", so it is the authoritative attribute) → a dotted
+     * "source.attribute" key → the field label keyword (last resort, for hand-tagged fields that
+     * carry a descriptive label but no column).
+     */
+    private function attributeForNamedField($namedField, array $field): string
+    {
+        $col = trim((string) ($namedField->source_column ?? ''));
+        if ($col !== '') {
+            return $col;
+        }
+
+        $key = (string) ($namedField->key ?? $field['field_name'] ?? '');
+        if (str_contains($key, '.')) {
+            return explode('.', $key, 2)[1];
+        }
+
+        return $this->contactAttributeFromLabel($field['label'] ?? $field['manualLabel'] ?? '') ?? '';
+    }
+
+    /** B2 — the contact attributes resolveContactFromKey knows how to resolve. */
+    private function isKnownContactAttribute(?string $attr): bool
+    {
+        return in_array(strtolower(trim((string) $attr)), [
+            'surname', 'last_name', 'first_name', 'full_name', 'name', 'full_names', 'first_name+last_name',
+            'id_number', 'email', 'phone', 'cell', 'tel', 'address',
+            'bank_name', 'bank_account_name', 'bank_account_number', 'bank_branch_name', 'bank_branch_code', 'bank_account_type',
+        ], true);
+    }
+
+    /**
+     * B2 — derive a contact ATTRIBUTE from a field's human label (Johan's keyword map).
+     *
+     * Order matters: the most specific keyword wins, so "Physical address" resolves to `address`
+     * and not to `name` on the word "name" appearing elsewhere. Surname is tested before the
+     * generic name. Returns null when the label names no known attribute (leave resolution as-is).
+     */
+    private function contactAttributeFromLabel(string $label): ?string
+    {
+        $l = strtolower($label);
+
+        return match (true) {
+            (bool) preg_match('/\b(id|identity)\b|id\s*number|identity\s*number/', $l) => 'id_number',
+            (bool) preg_match('/\baddress\b|physical\s*address|residential/', $l)      => 'address',
+            (bool) preg_match('/\b(tel|telephone|phone|cell|mobile|contact\s*number)\b/', $l) => 'phone',
+            (bool) preg_match('/\be-?mail\b/', $l)                                     => 'email',
+            // "Full name and surname" is ONE field for the whole name — it must beat the surname
+            // keyword that also appears in it. Composite full-name is checked before surname.
+            (bool) preg_match('/\bfull\s*names?\b/', $l)                               => 'name',
+            (bool) preg_match('/\b(surname|last\s*name)\b/', $l)                       => 'last_name',
+            (bool) preg_match('/\bfirst\s*name\b/', $l)                                => 'first_name',
+            (bool) preg_match('/\bname\b/', $l)                                        => 'name',
+            default                                                                    => null,
+        };
+    }
+
+    /** B3 — does this label ask for the amount IN WORDS (alpha), not the figure? */
+    private function labelWantsWords(string $label): bool
+    {
+        return (bool) preg_match('/\b(in\s*words|words|amount\s*in\s*words|alpha)\b/i', $label);
+    }
+
+    /**
+     * Enrich each party recipient from its linked Contact record so a merge never
+     * shows a blank Physical address / Tel / Email when the detail IS on file.
+     *
+     * ROOT CAUSE (docs 455/456): party details resolve ONLY from the wizard recipient
+     * SNAPSHOT (stepData.recipients) — the merge never re-reads the Contact. Doc 456's
+     * seller recipient was captured with phone+email but an empty `address`, so
+     * seller_address merged blank even though Contact #13926 has "651 Boboni road…";
+     * the signing view then showed the grey `data-field` placeholder ("seller address").
+     *
+     * This fills ONLY the fields the snapshot left empty (address / phone / email /
+     * id_number), from the linked Contact resolved by `_contact_id` first, then by the
+     * recipient's email (agency-scoped). It NEVER overwrites a value the wizard already
+     * captured, and it leaves the agent recipient alone (agent details come from $agent).
+     * A field with no Contact value stays empty (the placeholder is then honest).
+     */
+    private function enrichRecipientsFromContacts(array $recipients, ?int $agencyId): array
+    {
+        foreach ($recipients as &$r) {
+            if (!is_array($r)) {
+                continue;
+            }
+            $role = strtolower((string) ($r['role'] ?? ''));
+            if ($role === '' || $role === 'agent') {
+                continue; // agent details come from $agent, not a Contact
+            }
+
+            $needAddress = trim((string) ($r['address'] ?? '')) === '';
+            $needPhone   = trim((string) ($r['cell'] ?? $r['phone'] ?? '')) === '';
+            $needEmail   = trim((string) ($r['email'] ?? '')) === '';
+            $needId      = trim((string) ($r['id_number'] ?? '')) === '';
+            if (!$needAddress && !$needPhone && !$needEmail && !$needId) {
+                continue; // snapshot already complete for the fields we bind
+            }
+
+            $contact = null;
+            $cid = $r['_contact_id'] ?? $r['contact_id'] ?? null;
+            if ($cid) {
+                $contact = \App\Models\Contact::find($cid); // BelongsToAgency global scope keeps this in-agency
+            }
+            if (!$contact) {
+                $email = trim((string) ($r['email'] ?? ''));
+                if ($email !== '') {
+                    try {
+                        $contact = app(\App\Services\Communications\ContactIdentifierResolver::class)
+                            ->resolve($email, (int) ($agencyId ?? 0));
+                    } catch (\Throwable $e) {
+                        $contact = null;
+                    }
+                    if (!$contact) {
+                        $q = \App\Models\Contact::where('email', $email);
+                        if ($agencyId) {
+                            $q->where('agency_id', $agencyId);
+                        }
+                        $contact = $q->first();
+                    }
+                }
+            }
+            if (!$contact) {
+                continue;
+            }
+
+            if ($needAddress && trim((string) $contact->address) !== '') {
+                $r['address'] = $contact->address;
+            }
+            if ($needPhone && trim((string) $contact->phone) !== '') {
+                $r['cell'] = $contact->phone; // resolveContactFromKey reads cell ?? phone
+            }
+            if ($needEmail && trim((string) $contact->email) !== '') {
+                $r['email'] = $contact->email;
+            }
+            if ($needId && trim((string) ($contact->id_number ?? '')) !== '') {
+                $r['id_number'] = $contact->id_number;
+            }
+        }
+        unset($r);
+
+        return $recipients;
+    }
+
     private function resolveContactFromKey(string $attr, array $contact)
     {
         return match ($attr) {
@@ -751,7 +934,7 @@ class WebTemplateDataService
             'lease_start'      => $details['lease_start'] ?? '',
             'lease_end'        => $details['lease_end'] ?? '',
             'marketing_fee'    => $details['marketing_fee'] ?? '',
-            'price_in_words'   => ($details['price'] ?? '') ? $this->numberToWords((int) ($details['price'] ?? 0)) : '',
+            'price_in_words'   => ($details['price'] ?? '') ? $this->numberToWords(($details['price'] ?? 0)) : '',
             'commission_amount' => $this->computeCommissionAmount($details, $property),
             default            => $details[$attr] ?? '',
         };
@@ -780,7 +963,7 @@ class WebTemplateDataService
         $leaseStart = $details['lease_start'] ?? '';
 
         return match ($attr) {
-            'price_in_words'    => $price ? $this->numberToWords((int) $price) : '',
+            'price_in_words'    => $price ? $this->numberToWords($price) : '',
             'commission_amount' => $this->computeCommissionAmount($details, $property),
             'lease_start_day'   => $leaseStart ? (int) date('d', strtotime($leaseStart)) : '',
             'lease_start_month' => $leaseStart ? date('F', strtotime($leaseStart)) : '',
@@ -964,6 +1147,9 @@ class WebTemplateDataService
         $recipients = $stepData['recipients']['recipients'] ?? [];
         $details    = $stepData['details'] ?? [];
         $agent      = $agent ?? auth()->user();
+        // Same enrichment as the CDS/base resolve paths, so the indexed party keys
+        // (seller_address_1, seller_1_phone, …) also bind the linked Contact's details.
+        $recipients = $this->enrichRecipientsFromContacts($recipients, $agent?->effectiveAgencyId());
 
         $contactsByRole = [];
         $secondContactByRole = [];
@@ -994,7 +1180,7 @@ class WebTemplateDataService
         $sellerName  = trim(($seller['first_name'] ?? '') . ' ' . ($seller['last_name'] ?? '')) ?: ($seller['name'] ?? '');
         $seller2Name = trim(($seller2['first_name'] ?? '') . ' ' . ($seller2['last_name'] ?? '')) ?: ($seller2['name'] ?? '');
         $buyerName   = trim(($buyer['first_name'] ?? '') . ' ' . ($buyer['last_name'] ?? '')) ?: ($buyer['name'] ?? '');
-
+        $suburb     = $property['suburb'] ?? $property['town'] ?? $property['city'] ?? ''; // B1
         $address    = $property['address'] ?? $property['title'] ?? '';
         $suburb     = $property['suburb'] ?? '';
         $leaseStart = $details['lease_start'] ?? '';
@@ -1084,7 +1270,7 @@ class WebTemplateDataService
             'net_to_owner' => $netToOwner, 'net_to_lessor' => $netToOwner,
             'lease_start' => $leaseStart, 'lease_end' => $leaseEnd,
             'lease_start_formatted' => $leaseStartFormatted, 'lease_end_formatted' => $leaseEndFormatted,
-            'price_in_words' => ($details['price'] ?? '') ? $this->numberToWords((int) $details['price']) : '',
+            'price_in_words' => ($details['price'] ?? '') ? $this->numberToWords($details['price']) : '',
             'mandate_start' => $details['mandate_start'] ?? '',
             'mandate_expiry' => $details['mandate_expiry'] ?? '',
             'mandate_start_formatted' => !empty($details['mandate_start']) ? date('j F Y', strtotime($details['mandate_start'])) : '',
@@ -1103,8 +1289,30 @@ class WebTemplateDataService
      * Derive the blade variable name from named field source properties.
      * Maps {source_type, source_column, contact_type} to the standard variable
      * names used in blade templates (matching data-field attributes).
+     *
+     * AT-359b — the derived name is coerced to a valid PHP identifier here (the ONE exit), the
+     * mirror of TemplateController::deriveBladeName(), so the view-data key matches the blade
+     * variable the generator emits. Without this a composite source_column such as the property
+     * field 'address+suburb' leaks its '+' into the variable and the template render throws.
      */
     private function deriveBladeName(string $sourceType, string $sourceColumn, ?string $contactType): ?string
+    {
+        $name = $this->deriveBladeNameRaw($sourceType, $sourceColumn, $contactType);
+
+        if ($name === null || $name === '') {
+            return $name;
+        }
+
+        $name = preg_replace('/[^a-zA-Z0-9_]/', '_', $name);
+        if ($name !== '' && is_numeric($name[0])) {
+            $name = 'f_' . $name;
+        }
+
+        return $name;
+    }
+
+    /** Raw name derivation (pre-sanitisation). Callers must go through deriveBladeName(). */
+    private function deriveBladeNameRaw(string $sourceType, string $sourceColumn, ?string $contactType): ?string
     {
         if (empty($sourceColumn)) return null;
 
@@ -1160,23 +1368,13 @@ class WebTemplateDataService
         return null;
     }
 
-    private function numberToWords(int $number): string
+    /**
+     * HD-4 — one converter, one rounding rule. Delegates to App\Support\AmountInWords (rounds
+     * half-up to whole rands, appends " Rand", no cents — Johan's document house rule). The
+     * ESignWizardController carried a byte-identical copy; both now share this one.
+     */
+    private function numberToWords(int|float|string|null $number): string
     {
-        if ($number === 0) return 'zero';
-
-        $ones = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
-                 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen',
-                 'seventeen', 'eighteen', 'nineteen'];
-        $tens = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
-
-        $convert = function (int $n) use (&$convert, $ones, $tens): string {
-            if ($n < 20) return $ones[$n];
-            if ($n < 100) return $tens[(int)($n / 10)] . ($n % 10 ? '-' . $ones[$n % 10] : '');
-            if ($n < 1000) return $ones[(int)($n / 100)] . ' hundred' . ($n % 100 ? ' and ' . $convert($n % 100) : '');
-            if ($n < 1000000) return $convert((int)($n / 1000)) . ' thousand' . ($n % 1000 ? ' ' . $convert($n % 1000) : '');
-            return $convert((int)($n / 1000000)) . ' million' . ($n % 1000000 ? ' ' . $convert($n % 1000000) : '');
-        };
-
-        return ucfirst($convert($number));
+        return \App\Support\AmountInWords::rands($number);
     }
 }

@@ -27,7 +27,13 @@
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="esign-title">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">E-Sign Document</h1>
-                <p class="text-xs" style="color: var(--text-muted);" x-text="documentName ? documentName : 'Prepare a document and send it for signature'"></p>
+                {{-- Editable document name restored to the TOP BAR (Johan) — same
+                     x-model="documentName", so behaviour is unchanged. --}}
+                <input type="text" x-model="documentName"
+                       class="mt-0.5 bg-transparent text-xs border-0 border-b border-transparent focus:border-[color:var(--border-hover)] outline-none transition-colors px-0 py-0"
+                       style="min-width:200px; max-width:500px; color: var(--text-muted);"
+                       :size="Math.max(20, (documentName || '').length + 2)"
+                       placeholder="Document name..." />
             </div>
             <div class="flex flex-wrap items-center gap-2">
                 <a href="{{ route('docuperfect.dashboard') }}" class="corex-btn-outline text-xs">Back to Documents</a>
@@ -89,13 +95,7 @@
              :style="'background: var(--surface); width:' + leftPanelPx + 'px; min-width:250px; max-width:50vw;'">
             <div class="flex-1 p-6 pb-24">
 
-            {{-- Document name — separated out of the header into its own field, always visible --}}
-            <div class="mb-6 pb-6" style="border-bottom: 1px solid var(--border);">
-                <label class="block text-xs font-semibold mb-1.5" style="color: var(--text-secondary);">Document name</label>
-                <input type="text" x-model="documentName" placeholder="e.g. Offer to Purchase — 12 Beach Rd"
-                       class="w-full rounded-md px-3 py-2 text-sm outline-none transition-colors focus:border-[color:var(--brand-icon)]"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" />
-            </div>
+            {{-- (Document name input moved back to the top-bar header — see above.) --}}
 
             {{-- ======== STEP 1: Template Selection ======== --}}
             <div x-show="currentStep === 1" x-cloak>
@@ -743,13 +743,22 @@
                                               x-text="getRoleLabel(roleToken)"></span>
                                     </template>
                                 </label>
-                                <select @change="setFieldParty(f.id, $event.target.value)"
-                                        class="text-xs rounded-md px-1.5 py-0.5 ml-2"
-                                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);">
+                                {{-- AT multi-party fill&review — a field can belong to SEVERAL parties
+                                     (signing-time editable_by is multi). One checkbox per party; a
+                                     seller+agent field shows BOTH ticked and can be toggled independently. --}}
+                                <div class="flex flex-wrap items-center gap-1.5 ml-2">
                                     <template x-for="opt in partyOptions" :key="opt.value">
-                                        <option :value="opt.value" x-text="opt.label" :selected="getFieldParty(f) === opt.value"></option>
+                                        <label class="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-md cursor-pointer"
+                                               :style="isFieldParty(f, opt.value)
+                                                   ? 'background: color-mix(in srgb, var(--ds-blue,#3b82f6) 14%, transparent); border:1px solid var(--ds-blue,#3b82f6); color: var(--text-primary);'
+                                                   : 'background: var(--surface-2); border:1px solid var(--border); color: var(--text-secondary);'">
+                                            <input type="checkbox" class="w-3 h-3"
+                                                   :checked="isFieldParty(f, opt.value)"
+                                                   @change="toggleFieldParty(f, opt.value)">
+                                            <span x-text="opt.label"></span>
+                                        </label>
                                     </template>
-                                </select>
+                                </div>
                             </div>
 
                             {{-- Text / placeholder --}}
@@ -835,29 +844,69 @@
                     </template>
                 </div>
 
-                {{-- Additional Clauses --}}
+                {{-- Other Conditions — discrete FRAME editor (Step 2, Johan).
+                     One "+ Add condition" = one frame = one document_conditions row,
+                     each initialled separately by every party. Agent-only clause-
+                     library insert (each inserted clause becomes its own frame). --}}
                 <div class="mt-6 mb-4 p-3 rounded-md"
                      style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 6%, transparent); border: 1px dashed color-mix(in srgb, var(--brand-icon, #0ea5e9) 40%, transparent);">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <span class="text-sm font-semibold" style="color: var(--text-primary);">Other Conditions / Additional Clauses</span>
-                            <p class="text-xs mt-0.5" style="color: var(--text-secondary);">
-                                Type conditions manually or insert from the clause library. Separate each clause with a blank line.
-                            </p>
-                        </div>
-                        <button type="button" @click="showClauseLibrary = true"
-                                class="corex-btn-primary">
-                            + Insert Clause
-                        </button>
+                    <div>
+                        <span class="text-sm font-semibold" style="color: var(--text-primary);">Other Conditions / Additional Clauses</span>
+                        <p class="text-xs mt-0.5" style="color: var(--text-secondary);">
+                            Each condition is its own frame — every party initials each one separately.
+                        </p>
                     </div>
 
-                    {{-- Unified editable textarea for all clauses (manual + library) --}}
-                    <textarea x-model="otherConditionsText"
-                              @input="updateClausesPreview()"
-                              rows="6"
-                              class="mt-3 w-full rounded-md px-3 py-2 text-sm"
-                              :style="(otherConditionsText.trim() ? 'background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid var(--ds-green); color: var(--text-primary);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);') + 'min-height:120px; resize:vertical;'"
-                              placeholder="Type additional conditions here, or use 'Insert Clause' to add from the library. Separate each clause with a blank line for per-clause initials tracking."></textarea>
+                    <div class="mt-3 space-y-2">
+                        <template x-for="(frame, fi) in otherConditionFrames" :key="fi">
+                            <div class="rounded-md p-2" style="background: var(--surface); border: 1px solid var(--border);">
+                                <div class="flex items-center justify-between mb-1">
+                                    <span class="text-xs font-semibold" style="color: var(--text-secondary);"
+                                          x-text="'Condition ' + (fi + 1) + (frame.source === 'library' ? (frame.clause_name ? ' · from clause library (' + frame.clause_name + ')' : ' · from clause library') : '')"></span>
+                                    <button type="button" @click="removeConditionFrame(fi)"
+                                            class="text-base leading-none px-1" style="color: var(--ds-red, #be123c);"
+                                            title="Remove this condition">&times;</button>
+                                </div>
+                                {{-- PER-DOCUMENT selector (PACK only). A pack has one
+                                     other-conditions section per document; the agent tags
+                                     each condition with the document it belongs to, and it
+                                     renders on THAT document only during signing. --}}
+                                <template x-if="isPackDoc">
+                                    <div class="mb-2">
+                                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Applies to which document</label>
+                                        <select x-model.number="frame.target_doc_index" @change="syncFramesToText()"
+                                                class="w-full rounded-md px-3 py-2 text-sm"
+                                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                            <template x-for="opt in packDocumentOptions" :key="opt.index">
+                                                <option :value="opt.index" x-text="(opt.index + 1) + '. ' + opt.label"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                </template>
+                                <textarea x-model="frame.content" @input="syncFramesToText()" rows="3"
+                                          class="w-full rounded-md px-3 py-2 text-sm"
+                                          style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary); resize: vertical;"
+                                          placeholder="Type this condition…"></textarea>
+                            </div>
+                        </template>
+                        <template x-if="otherConditionFrames.length === 0">
+                            <p class="text-xs" style="color: var(--text-muted);">No conditions added yet.</p>
+                        </template>
+                    </div>
+
+                    <div class="flex items-center gap-2 mt-3">
+                        <button type="button" @click="addConditionFrame()"
+                                class="text-sm rounded-md px-3 py-1.5"
+                                style="border: 1px dashed var(--brand-icon, #0ea5e9); background: transparent; color: var(--brand-icon, #0ea5e9); cursor: pointer;">
+                            + Add condition
+                        </button>
+                        <button type="button" @click="showClauseLibrary = true" class="corex-btn-primary text-sm">
+                            + Insert from clause library
+                        </button>
+                    </div>
+                    <p class="text-xs mt-2" style="color: var(--text-muted); font-style: italic;">
+                        Please add only one condition at a time — each “Add condition” is its own frame.
+                    </p>
                 </div>
             </div>
 
@@ -1040,7 +1089,68 @@
              @mousedown.prevent="startResize($event)"></div>
 
         {{-- RIGHT PANEL: Document Preview --}}
-        <div class="flex-1 overflow-y-auto p-6 min-w-0" style="background: var(--bg);">
+        <div class="flex-1 overflow-y-auto p-6 min-w-0" style="background: var(--bg);"
+             @mouseup="onPreviewStrikeSelect()" @click="onPreviewMarkClick($event)">
+            {{-- Fill & Review strike-out hint (Step 5, web templates) --}}
+            <template x-if="currentStep === 5 && previewRenderType === 'web'">
+                <div class="mb-3 rounded-lg border px-3 py-2 text-xs flex items-center gap-2"
+                     style="border-color: var(--border); background: var(--surface-2); color: var(--text-muted);">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4"><path d="M2.695 14.762l-1.262 3.155a.5.5 0 00.65.65l3.155-1.262a4 4 0 001.343-.885L17.5 5.501a2.121 2.121 0 00-3-3L3.58 13.419a4 4 0 00-.885 1.343z"/></svg>
+                    Highlight any section to strike it out or reword it — every party initials the change. Click an existing change to edit or remove it.
+                </div>
+            </template>
+            {{-- Applied amendments are clickable at Fill & Review to edit / remove them --}}
+            <style>.wizard-fill-context .change-inline{cursor:pointer;} .wizard-fill-context .change-inline:hover{outline:2px solid #93c5fd;outline-offset:1px;border-radius:2px;}</style>
+
+            {{-- Strike-out modal (same inline/strike engine as the sign screen), teleported to body --}}
+            <template x-teleport="body">
+            <div x-show="strikeSel.open" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+                 style="background: rgba(0,0,0,.6);" @keydown.escape.window="strikeSel.open=false" @click="strikeSel.open=false">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden" @click.stop>
+                    <div class="px-6 py-4 border-b border-slate-200" style="background:#0b2a4a;">
+                        <h3 class="text-white font-semibold text-lg" x-text="strikeSel.editing ? 'Edit / remove this amendment' : 'Strike out / amend the highlighted text'"></h3>
+                    </div>
+                    <div class="p-6 space-y-4">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-600 mb-1">Highlighted text — will be struck through</label>
+                            <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm" style="text-decoration:line-through; color:#6b7280;" x-text="strikeSel.selected || 'Highlight text in the document first.'"></div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-600 mb-1">How should this change appear?</label>
+                            <div class="flex gap-2">
+                                <button type="button" @click="strikeSel.mode='inline'"
+                                        class="flex-1 rounded-lg border px-3 py-2 text-left text-xs"
+                                        :class="strikeSel.mode==='inline' ? 'border-[#0b2a4a] bg-[#eef4fb] font-semibold text-[#0b2a4a]' : 'border-slate-200 text-slate-600'">
+                                    Reword inline
+                                    <span class="block font-normal text-[11px] text-slate-500">Strike the text and insert new wording in its place.</span>
+                                </button>
+                                <button type="button" @click="strikeSel.mode='strike'"
+                                        class="flex-1 rounded-lg border px-3 py-2 text-left text-xs"
+                                        :class="strikeSel.mode==='strike' ? 'border-[#b91c1c] bg-[#fef2f2] font-semibold text-[#b91c1c]' : 'border-slate-200 text-slate-600'">
+                                    Strike out (remove)
+                                    <span class="block font-normal text-[11px] text-slate-500">No replacement — e.g. remove an unwanted alternative clause.</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div x-show="strikeSel.mode!=='strike'">
+                            <label class="block text-xs font-medium text-slate-600 mb-1">Replacement text</label>
+                            <textarea x-model="strikeSel.replacement" rows="3" class="w-full rounded-lg border-slate-300 text-sm px-3 py-2" placeholder="The new wording…"></textarea>
+                        </div>
+                        <p class="text-xs text-slate-500">A full-width initial row for every party is dropped in under that clause — all parties initial the change on the signed document.</p>
+                        <p x-show="strikeSel.err" x-text="strikeSel.err" class="text-xs text-red-600"></p>
+                        <div class="flex items-center justify-between gap-3 pt-2">
+                            <button type="button" x-show="strikeSel.editing" @click="removeAmendment()" :disabled="strikeSel.busy" class="rounded-lg px-4 py-2.5 text-sm font-semibold text-[#b91c1c] border border-[#fca5a5]" style="background:#fef2f2;">Remove amendment</button>
+                            <div class="flex items-center justify-end gap-3 ml-auto">
+                                <button type="button" @click="strikeSel.open=false" class="px-4 py-2.5 text-sm text-slate-600 font-medium">Cancel</button>
+                                <button type="button" @click="submitPreviewStrike()" :disabled="strikeSel.busy" class="rounded-lg px-6 py-2.5 text-sm font-semibold text-white" style="background:#0b2a4a;">
+                                    <span x-show="!strikeSel.busy" x-text="strikeSel.editing ? 'Save change' : 'Apply strike-out'"></span><span x-show="strikeSel.busy" x-cloak>Saving…</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            </template>
 
             {{-- Web template preview (wrapped in CoreX document CSS).
                  Shared visual contract — Step 4 / Step 5 / signing view
@@ -1052,6 +1162,11 @@
                  layout itself. --}}
             <div x-show="previewRenderType === 'web' && previewHtml" class="overflow-y-auto" style="max-height: calc(100vh - 200px);">
                 <link href="/css/corex-document.css" rel="stylesheet">
+                {{-- WET-INK change marks in the Fill & Review preview render from the ONE canonical stylesheet
+                     the signing view + PDF use (DocumentChangeHighlighter::styleBlock() renders the same
+                     partial). Single source of truth → a pure strike-out and a reword render identically here
+                     and at signing; neither can silently desync the other. --}}
+                @include('docuperfect.shared._change-mark-styles')
                 <div style="zoom: 0.7;">
                     <div class="web-template-preview"
                          :class="{ 'wizard-fill-context': currentStep === 5, 'wizard-preview-context': currentStep !== 5 }"
@@ -1464,6 +1579,8 @@ function esignWizard() {
         categoryFilter: 'all',
         selectedTemplateId: serverTemplate?.id || null,
         templateName: serverTemplate?.name || '',
+        // Fill & Review strike-out (creation-time amend, same engine as the sign screen)
+        strikeSel: { open: false, editing: false, changeId: null, selected: '', prefix: '', suffix: '', mode: 'inline', replacement: '', busy: false, err: '' },
         documentName: serverStepData?.document_name || '',
         allWebPacks: serverWebPacks,
         allPdfPacks: serverPdfPacks,
@@ -1699,6 +1816,10 @@ function esignWizard() {
         allClauses: [],
         selectedClauses: [],
         otherConditionsText: '',
+        // Step 2 (Johan) — discrete condition FRAMES (one frame = one row =
+        // one condition, initialled per-party). otherConditionsText is kept as
+        // the derived \n\n-joined transport for backward-compat + preview.
+        otherConditionFrames: [],
 
         // Step 6: Signing setup
         signingActions: [],
@@ -1802,6 +1923,25 @@ function esignWizard() {
             if (savedClauses.length > 0) this.selectedClauses = savedClauses;
             const savedOtherConditions = serverStepData?.fill_review?.other_conditions_text || '';
             if (savedOtherConditions) this.otherConditionsText = savedOtherConditions;
+            // Step 2 (Johan) — restore discrete frames; migrate a legacy
+            // \n\n-joined text blob into one frame per block if no frames saved.
+            const savedFrames = serverStepData?.fill_review?.other_condition_frames;
+            if (Array.isArray(savedFrames) && savedFrames.length > 0) {
+                this.otherConditionFrames = savedFrames.map(f => ({
+                    content: f.content ?? f.text ?? '',
+                    source: f.source === 'library' ? 'library' : 'custom',
+                    library_clause_id: f.library_clause_id ?? null,
+                    clause_name: f.clause_name ?? null,
+                    target_doc_index: (f.target_doc_index !== undefined && f.target_doc_index !== null)
+                        ? Number(f.target_doc_index)
+                        : (serverStepData?.is_pack_flow || (serverStepData?.template_ids || []).length > 1 ? 0 : null),
+                }));
+            } else if (savedOtherConditions) {
+                const packDefault = (serverStepData?.is_pack_flow || (serverStepData?.template_ids || []).length > 1) ? 0 : null;
+                this.otherConditionFrames = savedOtherConditions
+                    .split(/\n\s*\n/).map(t => t.trim()).filter(t => t !== '')
+                    .map(t => ({ content: t, source: 'custom', library_clause_id: null, clause_name: null, target_doc_index: packDefault }));
+            }
 
             // Load web template preview on steps 2+ (PDF preview loads via serverPageImages)
             if (serverIsWebTemplate && this.currentStep > 1 && this.flowId && serverTemplateId) {
@@ -1848,18 +1988,67 @@ function esignWizard() {
             }
         },
 
+        // PACK per-document other-conditions — is this flow a multi-document
+        // pack (each document has its own other-conditions section)?
+        get isPackDoc() {
+            if (serverStepData?.is_pack_flow) return true;
+            const ids = serverStepData?.template_ids || [];
+            return Array.isArray(ids) && ids.length > 1;
+        },
+
+        // PACK per-document other-conditions — the selectable target documents,
+        // in document order (same order the merge stamps + renders them). Label
+        // is the template name so the agent recognises which document.
+        get packDocumentOptions() {
+            const ids = serverStepData?.template_ids || this.resolvedPackTemplateIds || [];
+            return (ids || []).map((tid, i) => {
+                const t = (this.allTemplates || []).find(t => String(t.id) === String(tid));
+                return { index: i, label: (t && t.name) ? t.name : ('Document ' + (i + 1)) };
+            });
+        },
+
+        // Default target for a new condition frame: doc 1 in a pack (so it is
+        // always routed to a rendered per-document block), null single-doc.
+        defaultFrameTarget() {
+            return this.isPackDoc ? 0 : null;
+        },
+
         insertClause(clause) {
-            // Append clause text to the unified textarea (don't block duplicates — user may want same clause twice)
-            const existing = this.otherConditionsText.trim();
-            const clauseContent = clause.text || '';
-            if (existing) {
-                this.otherConditionsText = existing + '\n\n' + clauseContent;
-            } else {
-                this.otherConditionsText = clauseContent;
-            }
-            // Track insertion in selectedClauses for reference
+            // Step 2 (Johan) — agent-only: each inserted clause becomes its OWN
+            // condition frame (a discrete document_conditions row with library
+            // provenance). Recipients never reach this path.
+            this.otherConditionFrames.push({
+                content: clause.text || '',
+                source: 'library',
+                library_clause_id: clause.id ?? null,
+                clause_name: clause.name ?? null,
+                target_doc_index: this.defaultFrameTarget(),
+            });
+            // Track insertion in selectedClauses for reference/back-compat.
             this.selectedClauses.push({...clause});
             this.showClauseLibrary = false;
+            this.syncFramesToText();
+        },
+
+        // Step 2 (Johan) — add one blank free-text condition frame.
+        addConditionFrame() {
+            this.otherConditionFrames.push({ content: '', source: 'custom', library_clause_id: null, clause_name: null, target_doc_index: this.defaultFrameTarget() });
+        },
+
+        // Step 2 (Johan) — remove a condition frame.
+        removeConditionFrame(idx) {
+            this.otherConditionFrames.splice(idx, 1);
+            this.syncFramesToText();
+        },
+
+        // Step 2 (Johan) — derive the \n\n-joined other_conditions_text transport
+        // from the frames (drops internal blank lines so one frame stays one
+        // block), keep the preview in sync.
+        syncFramesToText() {
+            this.otherConditionsText = this.otherConditionFrames
+                .map(f => String(f.content || '').replace(/\n\s*\n+/g, '\n').trim())
+                .filter(t => t !== '')
+                .join('\n\n');
             this.updateClausesPreview();
         },
 
@@ -1868,16 +2057,80 @@ function esignWizard() {
             this.updateClausesPreview();
         },
 
+        escapeHtml(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        },
+
+        // Build the styled preview block for a document's other-conditions —
+        // numbered, mirrors the on-document insertable block. Empty = subtle hint.
+        buildConditionBlockHtml(frames) {
+            if (!frames || !frames.length) {
+                return '<span class="corex-oc-preview-empty" style="color:#94a3b8;font-style:italic;">No conditions added for this document yet.</span>';
+            }
+            let html = '<span class="corex-oc-preview-rendered" style="display:block;">';
+            frames.forEach((c, i) => {
+                html += '<span style="display:block;margin:3pt 0;color:#0d9488;font-weight:600;white-space:pre-line;">'
+                     + (i + 1) + '. ' + this.escapeHtml(c) + '</span>';
+            });
+            html += '</span>';
+            return html;
+        },
+
+        // PACK per-document other-conditions — replace each per-document
+        // ~~~~OTHER_CONDITIONS~~~~ marker in the live preview with that document's
+        // targeted condition frames, so the agent sees the TYPED TEXT (never the
+        // raw marker) and per-document routing renders where they expect. Returns
+        // true when at least one marker slot was present (so the legacy inject
+        // fallback below stands down).
+        renderConditionFramesInPreview(doc) {
+            const MARKER = /~{2,}\s*OTHER_CONDITIONS(?:__[A-Za-z0-9_]+)?\s*~{2,}/i;
+            const wrappers = Array.from(doc.querySelectorAll('.corex-document-wrapper'));
+            const scopes = wrappers.length ? wrappers : [doc];
+            // Convert any still-raw markers into per-document slot placeholders.
+            scopes.forEach((scope, idx) => {
+                const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
+                const hits = [];
+                let n;
+                while (n = walker.nextNode()) { if (MARKER.test(n.nodeValue)) hits.push(n); }
+                hits.forEach(node => {
+                    const span = document.createElement('span');
+                    span.innerHTML = node.nodeValue.replace(
+                        new RegExp(MARKER.source, 'ig'),
+                        '<span class="corex-oc-preview-slot" data-doc-index="' + idx + '"></span>'
+                    );
+                    node.parentNode.replaceChild(span, node);
+                });
+            });
+            const slots = Array.from(doc.querySelectorAll('.corex-oc-preview-slot'));
+            if (!slots.length) return false;
+            const packMode = this.isPackDoc;
+            slots.forEach(slot => {
+                const di = parseInt(slot.getAttribute('data-doc-index') || '0', 10);
+                const frames = (this.otherConditionFrames || []).filter(f => {
+                    const t = (f.target_doc_index === undefined || f.target_doc_index === null) ? 0 : Number(f.target_doc_index);
+                    return packMode ? (t === di) : true;
+                }).map(f => String(f.content || '').trim()).filter(t => t !== '');
+                slot.innerHTML = this.buildConditionBlockHtml(frames);
+            });
+            return true;
+        },
+
         updateClausesPreview() {
             if (this.previewRenderType !== 'web') return;
             const doc = document.querySelector('.web-template-preview');
             if (!doc) return;
 
+            // PACK/marker-aware: resolve ~~~~OTHER_CONDITIONS~~~~ markers into the
+            // typed frames, per document. When this handles the preview we skip
+            // the legacy data-field / inject fallbacks (they would duplicate it).
+            const handledByMarkers = this.renderConditionFramesInPreview(doc);
+
             // Use the unified textarea content directly
             const clauseText = this.otherConditionsText.trim();
 
             // Update the other_conditions data-field in the preview
-            const otherField = doc.querySelector('[data-field="other_conditions"]');
+            const otherField = handledByMarkers ? null : doc.querySelector('[data-field="other_conditions"]');
             if (otherField) {
                 otherField.textContent = clauseText || '';
                 if (clauseText) {
@@ -1891,7 +2144,7 @@ function esignWizard() {
             }
 
             // Fallback: if no data-field element, inject a clause block before the signature section
-            if (!otherField) {
+            if (!otherField && !handledByMarkers) {
                 // Remove any previously injected clause block
                 const existing = doc.querySelector('.corex-additional-clauses-preview');
                 if (existing) existing.remove();
@@ -2086,6 +2339,87 @@ function esignWizard() {
             }
         },
 
+        // ── Fill & Review strike-out — highlight a section in the preview and strike it (same engine as the sign screen) ──
+        onPreviewStrikeSelect() {
+            if (this.currentStep !== 5 || this.previewRenderType !== 'web') return;
+            const sel = window.getSelection();
+            if (!sel || sel.isCollapsed || !sel.rangeCount) { return; }
+            const text = sel.toString().replace(/\s+/g, ' ').trim();
+            if (!text) return;
+            const node = sel.anchorNode;
+            const host = node && (node.nodeType === 1 ? node : node.parentElement);
+            // Only accept selections INSIDE the document preview, and not inside an already-struck mark.
+            if (!host || !host.closest('.web-template-preview') || host.closest('[data-strikethrough-applied="1"]')) return;
+            const range = sel.getRangeAt(0);
+            let prefix = '', suffix = '';
+            try {
+                prefix = (range.startContainer.textContent || '').slice(Math.max(0, range.startOffset - 40), range.startOffset);
+                suffix = (range.endContainer.textContent || '').slice(range.endOffset, range.endOffset + 40);
+            } catch (e) {}
+            this.strikeSel = { open: true, editing: false, changeId: null, selected: text, prefix, suffix, mode: 'inline', replacement: '', busy: false, err: '' };
+        },
+        // Click an EXISTING amendment (any of its struck marks) to edit its wording / mode or remove it.
+        onPreviewMarkClick($event) {
+            if (this.currentStep !== 5 || this.previewRenderType !== 'web') return;
+            const t = $event.target;
+            const mark = t && t.closest && t.closest('[data-strikethrough-applied="1"]');
+            if (!mark || !mark.closest('.web-template-preview')) return;
+            const sel = window.getSelection();
+            if (sel && !sel.isCollapsed) return; // a drag-select, not a click — let strike-select handle it
+            const changeId = mark.getAttribute('data-change-id');
+            if (!changeId) return;
+            const preview = mark.closest('.web-template-preview');
+            // A whole-section amendment has several struck blocks that SHARE the change-id — gather them all.
+            const dels = preview.querySelectorAll('del.change-del[data-change-id="' + changeId + '"]');
+            const struck = [...dels].map(d => (d.textContent || '').replace(/\s+/g, ' ').trim()).filter(Boolean).join(' ');
+            const ins = preview.querySelector('ins.change-ins[data-change-id="' + changeId + '"]');
+            const replacement = ins ? ins.textContent : '';
+            const mode = ins ? 'inline' : 'strike';
+            this.strikeSel = { open: true, editing: true, changeId, selected: struck, prefix: '', suffix: '', mode, replacement, busy: false, err: '' };
+        },
+        async submitPreviewStrike() {
+            const s = this.strikeSel;
+            if (!this.flowId) { s.err = 'Save the draft first, then strike.'; return; }
+            if (!s.editing && !s.selected.trim()) { s.err = 'Highlight the text to strike first.'; return; }
+            if (s.mode !== 'strike' && !s.replacement.trim()) { s.err = 'Enter the replacement text (or choose Strike out).'; return; }
+            s.busy = true;
+            try {
+                const url = s.editing
+                    ? '/docuperfect/esign/' + this.flowId + '/body-strike/edit'
+                    : '/docuperfect/esign/' + this.flowId + '/body-strike';
+                const body = s.editing
+                    ? { change_id: s.changeId, mode: s.mode, replacement: s.mode === 'strike' ? '' : s.replacement.trim() }
+                    : { selected: s.selected, prefix: s.prefix, suffix: s.suffix, mode: s.mode, replacement: s.mode === 'strike' ? '' : s.replacement.trim() };
+                const resp = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content },
+                    body: JSON.stringify(body),
+                });
+                const data = await resp.json().catch(() => ({}));
+                if (resp.ok && data.ok) {
+                    this.strikeSel.open = false;
+                    await this.loadTemplatePreview(this.selectedTemplateId); // replay renders the change onto the preview
+                } else { s.err = data.error || 'Could not save the change.'; s.busy = false; }
+            } catch (e) { s.err = 'Network error — please retry.'; s.busy = false; }
+        },
+        async removeAmendment() {
+            const s = this.strikeSel;
+            if (!s.changeId || !this.flowId) return;
+            s.busy = true;
+            try {
+                const resp = await fetch('/docuperfect/esign/' + this.flowId + '/body-strike/remove', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content },
+                    body: JSON.stringify({ change_id: s.changeId }),
+                });
+                const data = await resp.json().catch(() => ({}));
+                if (resp.ok && data.ok) {
+                    this.strikeSel.open = false;
+                    await this.loadTemplatePreview(this.selectedTemplateId); // the section reverts to its original text
+                } else { s.err = data.error || 'Could not remove the amendment.'; s.busy = false; }
+            } catch (e) { s.err = 'Network error — please retry.'; s.busy = false; }
+        },
+
         reapplyPreviewFields() {
             if (this.previewRenderType !== 'web') return;
             const doc = document.querySelector('.web-template-preview');
@@ -2168,12 +2502,50 @@ function esignWizard() {
             this.refreshPreviewDebounced();
         },
 
-        getFieldParty(f) {
-            return this.fieldPartyOverrides[f.id] || f.assignedTo || f.assigned_to || 'agent';
+        // AT multi-party fill&review — a field can belong to SEVERAL parties
+        // (signing-time editable_by is multi). The full set: an array override
+        // wins, else the field's editableBy array, else the legacy single value.
+        fieldParties(f) {
+            const ov = this.fieldPartyOverrides[f.id];
+            if (Array.isArray(ov)) return ov;
+            if (typeof ov === 'string' && ov) return [ov]; // legacy scalar override
+            if (Array.isArray(f.editableBy) && f.editableBy.length) return f.editableBy;
+            return [f.assignedTo || f.assigned_to || 'agent'];
         },
-
-        setFieldParty(fieldId, party) {
-            this.fieldPartyOverrides = { ...this.fieldPartyOverrides, [fieldId]: party };
+        // Compare a stored editable_by token against a checkbox option, resolving
+        // generic tokens (owner_party) to concrete (seller) so they match. Options
+        // for a 2nd same-role recipient carry a _<n> suffix — strip it first.
+        _partyBase(v) { return String(v || '').replace(/_\d+$/, ''); },
+        _samePartyToken(a, b) {
+            const s = this.isSalesContext;
+            return resolvePartyRole(this._partyBase(a), s) === resolvePartyRole(this._partyBase(b), s);
+        },
+        // The editable_by token to STORE for a checkbox option — the generic form
+        // signing enforces (seller/landlord->owner_party, buyer/tenant->acquiring_party).
+        _editToken(optValue) {
+            const base = this._partyBase(optValue);
+            if (base === 'seller' || base === 'landlord') return 'owner_party';
+            if (base === 'buyer' || base === 'tenant') return 'acquiring_party';
+            return base;
+        },
+        isFieldParty(f, optValue) {
+            return this.fieldParties(f).some(r => this._samePartyToken(r, optValue));
+        },
+        // Toggle one party on/off for a field, preserving the rest of the set.
+        toggleFieldParty(f, optValue) {
+            let cur = this.fieldParties(f).slice();
+            if (cur.some(r => this._samePartyToken(r, optValue))) {
+                cur = cur.filter(r => !this._samePartyToken(r, optValue));
+            } else {
+                cur = [...cur, this._editToken(optValue)];
+            }
+            if (cur.length === 0) cur = ['agent']; // a field must belong to >=1 party
+            this.fieldPartyOverrides = { ...this.fieldPartyOverrides, [f.id]: cur };
+        },
+        // Derived single prep-filler (agent-if-present-else-first) — styling/legacy.
+        getFieldParty(f) {
+            const p = this.fieldParties(f);
+            return p.includes('agent') ? 'agent' : (p[0] || 'agent');
         },
 
         get partyOptions() {
@@ -2200,8 +2572,8 @@ function esignWizard() {
         },
 
         isCreatorField(f) {
-            const role = this.fieldPartyOverrides[f.id] || f.assignedTo || f.assigned_to || 'creator';
-            return ['creator', 'user', 'agent'].includes(role);
+            // A field is a "creator" (agent-fill) field if the agent is one of its parties.
+            return this.fieldParties(f).some(r => ['creator', 'user', 'agent'].includes(r));
         },
 
         isCreatorRole(role) {
@@ -2209,20 +2581,14 @@ function esignWizard() {
         },
 
         fieldRoleLabel(f) {
-            const role = this.fieldPartyOverrides[f.id] || f.assignedTo || f.assigned_to || 'creator';
-            return getRoleLabel(role);
+            return getRoleLabel(this.getFieldParty(f));
         },
 
-        // Fix A — returns ALL role tokens that may edit this field. When
-        // an override exists (agent narrowed the assignment via the SELECT),
-        // returns only the overridden role. Otherwise iterates the full
-        // editable_by array preserved by ESignWizardController.
+        // Returns ALL party role tokens that may edit this field (signing-time
+        // editable_by, multi) — the same set the checkbox control edits, so chips
+        // and control never disagree.
         fieldRoleTokens(f) {
-            const override = this.fieldPartyOverrides[f.id];
-            if (override) return [override];
-            if (Array.isArray(f.editableBy) && f.editableBy.length > 0) return f.editableBy;
-            const legacy = f.assignedTo || f.assigned_to || 'creator';
-            return [legacy];
+            return this.fieldParties(f);
         },
 
         highlightField(fieldId) {
@@ -2616,7 +2982,7 @@ function esignWizard() {
                     });
                     return detailsData;
                 }
-                case 5: return { fieldValues: { ...this.fieldValues }, partyOverrides: { ...this.fieldPartyOverrides }, clauses: this.selectedClauses, other_conditions_text: this.otherConditionsText };
+                case 5: return { fieldValues: { ...this.fieldValues }, partyOverrides: { ...this.fieldPartyOverrides }, clauses: this.selectedClauses, other_conditions_text: this.otherConditionsText, other_condition_frames: this.otherConditionFrames };
                 case 6: return {
                     delivery_mode: this.deliveryMode,
                     parties: this.signingActions.map((action, i) => ({

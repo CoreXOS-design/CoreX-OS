@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Docuperfect;
 use App\Http\Controllers\Controller;
 use App\Models\Agency;
 use App\Models\Docuperfect\ConditionInitial;
+use App\Models\Docuperfect\AmendmentAcceptance;
 use App\Models\Docuperfect\DocumentAmendment;
 use App\Models\Docuperfect\DocumentClauseStrikethrough;
 use App\Models\Docuperfect\DocumentCondition;
@@ -45,7 +46,7 @@ class SigningController extends Controller
             ->firstOrFail();
 
         // Expired
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return view('docuperfect.signatures.external.expired', [
                 'request' => $signingRequest,
             ]);
@@ -251,13 +252,96 @@ class SigningController extends Controller
             // Fallback: web template without flattening — use iframe (legacy path)
             $isWebTemplate = true;
 
-            // AT-177/WS6 — COMPILED SERVING PATH. If this template has been cut over
+            // ═══ ESIGN-WETINK Phase 1b — CANONICAL SERVE (primary path) ═══
+            // The wet-ink doctrine: ONE document artifact is composed ONCE at
+            // send (CanonicalDocumentRenderer, v0) and DISPLAYED verbatim by
+            // every surface. Here we read that stored canonical_html (back-
+            // filling it on-the-fly for docs sent before this build) and serve
+            // it as-is — NO display-time re-expansion, letterhead, insertable
+            // or normalise (those ran once at compose; re-running them per
+            // surface is the render-divergence defect class this replaces).
+            // Editability is applied as a per-viewer DISPLAY OVERLAY on top of
+            // the viewer-agnostic artifact (reusing the SAME scoping logic the
+            // expansion path used); the server-side persist gate below stays
+            // the security ceiling. Templates that cannot compose a canonical
+            // body (pure page-image PDFs, un-composable web bodies) fall
+            // through to the compiled/legacy paths unchanged — canonical serve
+            // never regresses them.
+            $canonicalHtml = app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)
+                ->resolveOrCompose($template);
+            $compiledServing = null;
+            if (trim($canonicalHtml) !== '') {
+                $fieldMappingsRaw = is_array($docTemplate->field_mappings ?? null)
+                    ? $docTemplate->field_mappings
+                    : [];
+                $webTemplateHtml = app(\App\Services\Docuperfect\RoleBlockExpansionService::class)
+                    ->applyViewerEditabilityOverlay(
+                        $canonicalHtml,
+                        $signingRequest,
+                        $fieldMappingsRaw,
+                    );
+
+                // ESIGN-WETINK BUG1 — make the other-conditions block fillable for
+                // THIS signer: the viewer-agnostic canonical's "+ Add condition"
+                // button carries no signing token, so stamp the current token on so
+                // the recipient (or agent) can post a new condition. Display overlay
+                // only — the document body stays byte-identical across surfaces.
+                // The stored canonical bakes each insertable block STATIC (PDF
+                // render — no chrome) so the printed PDF is clean. But THIS is the
+                // interactive signing surface: re-render every block in the viewer's
+                // context so the "+ Add condition" button + the current party's
+                // clickable initial slots are present (they are absent in the static
+                // canonical). Display-only; the stored canonical + PDF are untouched.
+                $webTemplateHtml = app(\App\Services\Docuperfect\InsertableBlockRenderer::class)
+                    ->reRenderBlocksForViewer(
+                        $webTemplateHtml,
+                        $template,
+                        \App\Services\Docuperfect\InsertableBlockRenderer::CONTEXT_RECIPIENT_SIGNING,
+                        (string) $token,
+                        // AT-300 — resolve seller_2's distinct key (not seller_1).
+                        \App\Services\Docuperfect\InsertableBlockRenderer::partyKeyForViewer(
+                            $template->parties_json,
+                            (string) $signingRequest->party_role,
+                            (int) ($signingRequest->role_index ?? 1),
+                        ),
+                    );
+
+                $webTemplateHtml = app(\App\Services\Docuperfect\InsertableBlockRenderer::class)
+                    ->stampConditionSigningToken($webTemplateHtml, (string) $token);
+
+                // Step 2 (Johan) — screen-only "one condition at a time" guidance
+                // beside each add-condition control. Display overlay only; stripped
+                // from the print-from-approved canonical/PDF (see SignaturePdfService).
+                $webTemplateHtml = app(\App\Services\Docuperfect\InsertableBlockRenderer::class)
+                    ->injectAddConditionGuidance($webTemplateHtml);
+
+                // Editable field-name list — the signing view still consumes
+                // this array (client input-affordance gating). Prefer CDS
+                // field_mappings with editable_by; fall back to the static map.
+                $fieldMappingsFromData = $webTemplateData['field_mappings'] ?? $fieldMappingsRaw;
+                if (!empty($fieldMappingsFromData)) {
+                    $editableFields = $this->getEditableFieldsFromMappings(
+                        $fieldMappingsFromData,
+                        $signingRequest->party_role
+                    );
+                } else {
+                    $editableFields = WebTemplateFieldPartyMap::getEditableFields($signingRequest->party_role);
+                }
+            }
+
+            // AT-177/WS6 — COMPILED SERVING PATH (fallback). If this template has been cut over
             // (compiled_serving + a published compiled_templates family), serve the document
             // from its canonical compiled CDS via the render-only runtime, bypassing the ENTIRE
             // legacy merged_html + compensator chain below (§9 retirement). Dual-path: templates
-            // not cut over fall through to the untouched legacy `else` branch.
-            $compiledServing = app(\App\Services\Docuperfect\Compiler\Serving\CompiledServingResolver::class)
-                ->resolve($docTemplate);
+            // not cut over fall through to the untouched legacy `else` branch. Reached only when
+            // the canonical serve above produced no body (un-composable template).
+            if (trim($webTemplateHtml) !== '') {
+                // Canonical served — nothing more to do in this branch.
+                $compiledServing = null;
+            } else {
+                $compiledServing = app(\App\Services\Docuperfect\Compiler\Serving\CompiledServingResolver::class)
+                    ->resolve($docTemplate);
+            }
             if ($compiledServing !== null) {
                 $recipientPartyRoles = SignatureRequest::where('signature_template_id', $template->id)
                     ->pluck('party_role')
@@ -265,8 +349,8 @@ class SigningController extends Controller
                     ->all();
                 [$webTemplateHtml, $editableFields] = app(\App\Services\Docuperfect\Compiler\Serving\CompiledSigningRenderer::class)
                     ->renderForSigning($compiledServing, (string) $signingRequest->party_role, $recipientPartyRoles);
-            } else {
-            // ── LEGACY SERVING PATH (unchanged; runs only for non-cutover templates) ──
+            } elseif (trim($webTemplateHtml) === '') {
+            // ── LEGACY SERVING PATH (runs ONLY when neither canonical nor compiled produced a body) ──
             // E-sign reset Q3 Layer B — re-render merged_html when the
             // template has been edited since the snapshot was captured.
             // Closes the "served a stale snapshot" path identified in
@@ -336,7 +420,12 @@ class SigningController extends Controller
                     is_array($blocksMeta) ? $blocksMeta : [],
                     \App\Services\Docuperfect\InsertableBlockRenderer::CONTEXT_RECIPIENT_SIGNING,
                     $token,
-                    $signingRequest->party_role
+                    // AT-300 — resolve seller_2's distinct key (not seller_1).
+                    \App\Services\Docuperfect\InsertableBlockRenderer::partyKeyForViewer(
+                        $template->parties_json,
+                        (string) $signingRequest->party_role,
+                        (int) ($signingRequest->role_index ?? 1),
+                    )
                 );
 
             // Recipient Loop Engine — B2.5/B3 expansion pass. Detects role
@@ -358,6 +447,30 @@ class SigningController extends Controller
                     $fieldMappingsRaw,
                 );
             } // ── end LEGACY SERVING PATH (AT-177/WS6 dual-path) ──
+        }
+
+        // BUG 2 (AT-373) — carry a RETURNING signer's already-captured ceremony fields (location, date,
+        // time) forward into the changes-signing round. On the re-initial cascade (amendment_initialing) and
+        // the editor re-acceptance round, rec 1 has ALREADY completed her full signing — her place/date/time
+        // live in web_template_data['ceremony_values'] — but the serve path re-renders her ceremony fields as
+        // fresh EDITABLE inputs (applyViewerEditabilityOverlay), so her captured location showed BLANK. The
+        // save path (completeWeb) and the PDF render already re-apply ceremony_values onto the document; the
+        // serve path did not. Paint the accumulated values back here so a returning signer sees her prior
+        // location as a filled span (it is proof of her earlier ceremony, not re-enterable in this round).
+        // Gated to the returning-signer states ONLY (already-completed request, or re-initial / re-acceptance),
+        // so a first-time signer's blank ceremony inputs — the recipient-view cc6 owns — are untouched. A
+        // not-yet-completed party has no ceremony_values, so this is a no-op for them regardless. Party-scoped
+        // + idempotent inside applyCeremonyValues; fail-safe (returns HTML unchanged on any DOM error).
+        $ceremonyCarry = $webTemplateData['ceremony_values'] ?? [];
+        $isReturningSigner = ($signingRequest->status === SignatureRequest::STATUS_COMPLETED
+                || $signingRequest->completed_at !== null)
+            || in_array($template->status, [
+                SignatureTemplate::STATUS_AMENDMENT_INITIALING,
+                SignatureTemplate::STATUS_EDITOR_REACCEPTANCE,
+            ], true);
+        if ($isWebTemplate && trim($webTemplateHtml) !== '' && ! empty($ceremonyCarry) && $isReturningSigner) {
+            $webTemplateHtml = app(\App\Services\Docuperfect\CanonicalInkComposer::class)
+                ->applyCeremonyValues($webTemplateHtml, $ceremonyCarry);
         }
 
         // Build page image URLs — use flattened images when available (PDF path)
@@ -407,7 +520,13 @@ class SigningController extends Controller
                 ->toArray();
         }
 
-        $signingParties = collect($template->parties_json ?? [])->map(fn($p) => [
+        // Per-page initials enumerate DISTINCT signing identities: checkpoint
+        // pseudo-roles (supervisor_final) collapse onto their base identity so an
+        // authorising practitioner gets exactly ONE initial box, not two. Single
+        // authority (SignatureTemplate::enumeratedSigningParties) shared with the
+        // internal agent view — the two must never diverge (they did: this external
+        // view previously skipped the dedup the internal view applied).
+        $signingParties = collect($template->enumeratedSigningParties())->map(fn($p) => [
             'role' => $p['role'] ?? 'unknown',
             'label' => ucfirst(str_replace('_', ' ', $p['role_label'] ?? $p['role'] ?? 'unknown')),
         ])->values()->toArray();
@@ -415,12 +534,6 @@ class SigningController extends Controller
         // Phase 1B.6 (FIX 4) — extract numbered clauses from the body for
         // the Add Condition + Flag Clause modal pickers.
         $numberedClauses = $this->extractNumberedClauses($webTemplateHtml);
-
-        // Phase 1B.6 (FIX 6) — seed the persisted clause flags state so a
-        // page refresh restores the visible flag UI (the legacy webData
-        // path only persisted at signComplete; reading it back means a
-        // mid-session flag survives reload).
-        $persistedClauseFlags = $webTemplateData['clause_flags'] ?? [];
 
         // Phase 1B.6 (FIX 5) — flag whether this signing party has already
         // completed signing. The view uses this to render captured
@@ -434,21 +547,128 @@ class SigningController extends Controller
         // Recipients must initial each page individually for legal informed-
         // consent reasons (each initial = explicit affirm).
         //
-        // The gate is `signingRequest.party_role === 'agent'` ALONE. The
-        // viewing browser session's permissions are NOT consulted: a
-        // dispatching agent who opens a recipient's signing link in their
-        // own browser (testing, screen-share, supervision) must NOT inherit
-        // the apply-to-all bypass — that token belongs to the recipient,
-        // and the recipient's per-page consent surface is what renders.
+        // The gate is keyed on the token's `party_role` ALONE — the set of
+        // in-app AGENT signers: the dispatching agent ('agent') AND the
+        // candidate-flow AUTHORISER co-signing ('supervisor' / legacy
+        // 'supervisor_final'). The authoriser IS an agent (PPA §35) and signs
+        // in-app through the SAME shared capture modal with agent behaviour
+        // (name prefill + apply-to-all), exactly like the candidate — Johan
+        // 2026-08-04 (#5). The viewing browser session's permissions are still
+        // NOT consulted: a dispatching agent who opens a recipient's signing
+        // link in their own browser (testing, screen-share, supervision) must
+        // NOT inherit the apply-to-all bypass — that token belongs to the
+        // recipient, and the recipient's per-page consent surface is what
+        // renders.
         //
         // The previous OR-with-hasPermission predicate (pre-2026-05-27) is
         // the bug fixed by .ai/audits/esign-reset-investigation-2026-05-27.md
         // Q4 — it conflated viewer permissions with token identity and
-        // exposed a legal bypass.
-        $isAgent = ($signingRequest->party_role === 'agent');
+        // exposed a legal bypass. Extending to the authoriser roles keeps the
+        // token-identity basis (still the request's own party_role), so no
+        // recipient token gains agent behaviour.
+        $isAgent = in_array($signingRequest->party_role, ['agent', 'supervisor', 'supervisor_final'], true);
+
+        // AT-303 Stage 1 — MDF disclosure-mark lock. The mandatory-disclosure
+        // grid is shared, document-scoped state. Once an owner-party recipient
+        // SIGNS it (authored in completeWeb), it is frozen: a DOWNSTREAM recipient
+        // (a different signing request) sees it READ-ONLY and cannot silently
+        // overwrite what an earlier party already signed.
+        $disclosureLock = $webTemplateData['disclosure_lock'] ?? null;
+        $disclosureMarksLocked = is_array($disclosureLock)
+            && !empty($disclosureLock['locked'])
+            && (int) ($disclosureLock['request_id'] ?? 0) !== (int) $signingRequest->id;
+        $disclosureLockInfo = $disclosureMarksLocked
+            ? [
+                'by' => $disclosureLock['signer_name'] ?? 'an earlier signer',
+                'at' => $disclosureLock['locked_at'] ?? null,
+            ]
+            : null;
+
+        // AT-373 (inc5) — re-acceptance mode. After a chain node REJECTED this signer's amendment it
+        // was reverted; the editing party must RE-ACCEPT the reverted document via a SECOND mandatory
+        // ECT-Act tick. True ONLY for the editor's own request while the template sits at
+        // editor_reacceptance — every other party/state renders the normal signing footer.
+        $amendmentCycle = $webTemplateData['amendment_cycle'] ?? null;
+        $reacceptanceMode = $template
+            && $template->status === SignatureTemplate::STATUS_EDITOR_REACCEPTANCE
+            && is_array($amendmentCycle)
+            && (int) ($amendmentCycle['editor_request_id'] ?? 0) === (int) $signingRequest->id;
+        $reacceptanceReason = $reacceptanceMode ? ($amendmentCycle['reject_reason'] ?? null) : null;
+
+        // Recipient self-revert (Johan 2026-08-11) — a signer may REMOVE their OWN
+        // pending edits (strike / reword) and sign the agreed original, so long as
+        // NO OTHER PARTY has signed yet. The moment any other party signs, edits
+        // lock. Only non-reverted, recipient-authored (actor_id === null) changes
+        // are removable, and only on this signer's own turn.
+        $editsLockedByOtherParty = $this->anyOtherPartySigned($signingRequest);
+        $myRemovableChanges = [];
+        if (! $editsLockedByOtherParty && $this->signerCanAct($signingRequest)) {
+            foreach (($webTemplateData['pending_body_changes'] ?? []) as $c) {
+                if (! is_array($c) || ! empty($c['reverted'])) {
+                    continue;
+                }
+                if (($c['actor_id'] ?? null) !== null) {
+                    continue; // agent-authored edit — not the recipient's to remove
+                }
+                $cid = (string) ($c['change_id'] ?? '');
+                if ($cid === '') {
+                    continue;
+                }
+                $myRemovableChanges[] = [
+                    'change_id' => $cid,
+                    'old'       => (string) ($c['old'] ?? ''),
+                    'new'       => (string) ($c['new'] ?? ''),
+                    'mode'      => (string) ($c['mode'] ?? 'selection'),
+                ];
+            }
+        }
+
+        // AT-373 reject flow (Johan 2026-08-12) — the agent REJECTED specific amendments and sent the doc
+        // back to THIS recipient (the amendment author). We surface exactly the rejected items with a
+        // Remove action; the recipient owns removing their own words. Re-signing is gated until ALL are
+        // removed (all-first). Distinct from the pre-sign self-revert above — this branch is authorised by
+        // the agent's rejection, so it is NOT bound by the "no other party signed" rule.
+        $rejectReturn = $webTemplateData['amendment_reject_return'] ?? null;
+        $inRejectReturn = is_array($rejectReturn)
+            && (int) ($rejectReturn['editor_request_id'] ?? 0) === (int) $signingRequest->id;
+        $rejectedRemovableChanges = [];
+        $rejectedRemovableConditions = collect();
+        if ($inRejectReturn && $this->signerCanAct($signingRequest)) {
+            $rejChangeIds = array_map('strval', $rejectReturn['rejected_change_ids'] ?? []);
+            foreach (($webTemplateData['pending_body_changes'] ?? []) as $c) {
+                if (! is_array($c) || ! empty($c['reverted'])) {
+                    continue;
+                }
+                $cid = (string) ($c['change_id'] ?? '');
+                if ($cid === '' || ! in_array($cid, $rejChangeIds, true)) {
+                    continue;
+                }
+                $rejectedRemovableChanges[] = [
+                    'change_id' => $cid,
+                    'old'       => (string) ($c['old'] ?? ''),
+                    'new'       => (string) ($c['new'] ?? ''),
+                    'mode'      => (string) ($c['mode'] ?? 'selection'),
+                ];
+            }
+            $rejCondIds = array_map('intval', $rejectReturn['rejected_condition_ids'] ?? []);
+            if (! empty($rejCondIds)) {
+                $rejectedRemovableConditions = \App\Models\Docuperfect\DocumentCondition::whereIn('id', $rejCondIds)
+                    ->whereNull('superseded_at')
+                    ->orderBy('condition_number')
+                    ->get(['id', 'condition_number', 'content']);
+            }
+        }
+        // Outstanding = rejected items the recipient has NOT yet removed. Re-signing stays blocked until 0.
+        $rejectReturnOutstanding = count($rejectedRemovableChanges) + $rejectedRemovableConditions->count();
 
         return view('docuperfect.signatures.external.sign', [
             'request' => $signingRequest,
+            'inRejectReturn' => $inRejectReturn,                             // AT-373 reject flow
+            'rejectedRemovableChanges' => $rejectedRemovableChanges,         // AT-373 reject flow — body clauses
+            'rejectedRemovableConditions' => $rejectedRemovableConditions,   // AT-373 reject flow — Other Conditions
+            'rejectReturnOutstanding' => $rejectReturnOutstanding,           // AT-373 reject flow — all-first gate
+            'reacceptanceMode' => $reacceptanceMode,       // AT-373 inc5 — second mandatory ECT-Act tick
+            'reacceptanceReason' => $reacceptanceReason,   // AT-373 inc5 — why the amendment was rejected
             'currentRecipient' => $signingRequest,        // B1 — alias for the loop-engine downstream layers
             'currentRoleIdentity' => $signingRequest->role_identity,  // B1 — '{party_role}_{role_index}'
             'template' => $template,
@@ -456,7 +676,6 @@ class SigningController extends Controller
             'docTemplate' => $docTemplate,                // B3 info panel — isSalesDocument() / role labelling
             'isRecipientSigningView' => true,             // B3 info panel — render flag (false on agent wizard)
             'numberedClauses' => $numberedClauses,
-            'persistedClauseFlags' => $persistedClauseFlags,
             'partyAlreadySigned' => $partyAlreadySigned,
             'inAmendmentInitialing' => $inAmendmentInitialing,
             'isAgent' => $isAgent,
@@ -480,6 +699,10 @@ class SigningController extends Controller
             'signingParties' => $signingParties,
             'storedInitials' => $webTemplateData['signed_initials'] ?? [],
             'storedDisclosure' => $webTemplateData['disclosure_answers'] ?? [],
+            'disclosureMarksLocked' => $disclosureMarksLocked,   // AT-303 Stage 1
+            'disclosureLockInfo' => $disclosureLockInfo,         // AT-303 Stage 1
+            'myRemovableChanges' => $myRemovableChanges,          // recipient self-revert
+            'editsLockedByOtherParty' => $editsLockedByOtherParty,// recipient self-revert lock
         ]);
     }
 
@@ -492,7 +715,7 @@ class SigningController extends Controller
             ->with('template.creator')
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return redirect()->route('signatures.external', $token);
         }
 
@@ -555,7 +778,7 @@ class SigningController extends Controller
             ->with(['template.document', 'template.creator'])
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return view('docuperfect.signatures.external.expired', [
                 'request' => $signingRequest,
             ]);
@@ -597,7 +820,7 @@ class SigningController extends Controller
             ->with(['template.document', 'template.creator'])
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return view('docuperfect.signatures.external.expired', [
                 'request' => $signingRequest,
             ]);
@@ -639,7 +862,7 @@ class SigningController extends Controller
             ->with(['template.document'])
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return redirect()->route('signatures.external', ['token' => $token]);
         }
 
@@ -671,7 +894,9 @@ class SigningController extends Controller
         $documentHash = '';
         if ($document) {
             $webData = $document->web_template_data ?? [];
-            $htmlContent = $webData['merged_html'] ?? json_encode($webData);
+            // Hash the artifact the party actually sees (canonical), not the
+            // agent-prep merged_html — so the consent hash binds to THE document.
+            $htmlContent = $this->canonicalOrMerged($webData) ?: json_encode($webData);
             $documentHash = hash('sha256', $htmlContent);
         }
 
@@ -841,13 +1066,41 @@ class SigningController extends Controller
     }
 
     /**
+     * Task 1 — session keep-alive for the recipient signing page.
+     *
+     * Staff hit "Session expired. Please reload." mid-signing: a recipient can
+     * sit on the signing page for a long time (reading, filling web fields, on
+     * the phone with the agent) with NO request reaching the server, so the web
+     * session — and with it the CSRF token — lapses after SESSION_LIFETIME, and
+     * the next POST returns 419. This is NOT the 13–14 day link TTL; it is the
+     * short session/CSRF clock.
+     *
+     * The signing page pings this endpoint on an interval well under the
+     * shortest SESSION_LIFETIME. The request itself is the fix: StartSession
+     * rewrites the session (and re-sets its cookie with a fresh max-age) on
+     * every response, so the session and CSRF token stay warm for as long as
+     * the page is open. No in-progress sign is ever interrupted by the timeout.
+     *
+     * GET → no CSRF needed. Public + harmless (a browser only keeps its own
+     * session alive). Does NOT gate on isSigningBlocked() — a still-open page
+     * stays pingable; the real signing endpoints enforce their own expiry.
+     */
+    public function heartbeat(Request $request, $token)
+    {
+        // Mark the session dirty so it is written back (last-activity refreshed).
+        $request->session()->put('signing_heartbeat_at', now()->timestamp);
+
+        return response()->noContent(); // 204
+    }
+
+    /**
      * Choose signing method (electronic or wet ink).
      */
     public function chooseMethod(Request $request, $token)
     {
         $signingRequest = SignatureRequest::where('token', $token)->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
         }
 
@@ -878,7 +1131,7 @@ class SigningController extends Controller
             ->with(['template.document', 'sender'])
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return view('docuperfect.signatures.external.expired', [
                 'request' => $signingRequest,
             ]);
@@ -930,7 +1183,7 @@ class SigningController extends Controller
             ->with('template')
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
         }
 
@@ -1031,7 +1284,7 @@ class SigningController extends Controller
             ->with('template.document')
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
         }
 
@@ -1112,7 +1365,7 @@ class SigningController extends Controller
             ->with('template.document')
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
         }
 
@@ -1322,6 +1575,57 @@ class SigningController extends Controller
     }
 
     /**
+     * AT-352c — the post-signing redirect target for a completing signer.
+     *
+     * A genuine EXTERNAL recipient lands on the public thank-you page. An INTERNAL authoriser
+     * (supervisor / supervisor_final) is routed onto the external signing surface by
+     * SignatureController::authoriseSigning() but is a logged-in CoreX user — returning them to the
+     * public thank-you dead-ends them. Send the authoriser to their e-sign documents list instead;
+     * everyone else keeps the public thank-you.
+     */
+    private function completionRedirect(?SignatureRequest $signingRequest, string $token): string
+    {
+        $role = (string) ($signingRequest?->party_role ?? '');
+        if (in_array($role, ['supervisor', 'supervisor_final'], true)) {
+            return route('docuperfect.esign.myDocuments');
+        }
+
+        return route('signatures.external.completed', $token);
+    }
+
+    /**
+     * BUG 2 (AT-373) — merge incoming ceremony values WITHOUT letting a BLANK incoming value clobber an
+     * already-captured non-blank one.
+     *
+     * On a RETURNING signer's changes-only round (amendment_initialing / editor_reacceptance) the recipient
+     * signing view rebuilds their ceremony fields as fresh EMPTY inputs — it seeds date/time from now() but
+     * NEVER re-seeds the Location a signer typed at their initial signing. If such an emptied Location input
+     * reaches the payload as `seller_location=''`, a plain array_merge OVERWRITES the value the signer
+     * entered at their initial ceremony — silent, permanent ceremony data loss on the very round that is
+     * only meant to add an initial. Guard: an incoming key overwrites the stored value only when the incoming
+     * value is non-blank, OR nothing is stored yet. (An ABSENT key already never overwrites — array_merge
+     * semantics; this additionally neutralises an explicit blank so re-submits are safe regardless of what
+     * the client posts.) A signer legitimately CLEARING a field is not a supported ceremony action — these
+     * are captured-once execution facts (place/date/time of signing), not editable state.
+     *
+     * @param  array<string,mixed> $existing  the already-stored ceremony_values
+     * @param  array<string,mixed> $incoming  this submit's ceremony_values
+     * @return array<string,mixed>
+     */
+    private function mergeCeremonyValues(array $existing, array $incoming): array
+    {
+        foreach ($incoming as $key => $value) {
+            $incomingBlank = trim((string) $value) === '';
+            $existingHas   = array_key_exists($key, $existing) && trim((string) $existing[$key]) !== '';
+            if ($incomingBlank && $existingHas) {
+                continue; // never clobber a captured ceremony value with a blank re-submit
+            }
+            $existing[$key] = $value;
+        }
+        return $existing;
+    }
+
+    /**
      * Complete web template signing (CDS/web documents with live HTML).
      * Handles field values, signatures, disclosure answers, and consent logging.
      */
@@ -1331,13 +1635,45 @@ class SigningController extends Controller
             ->with('template.document')
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
         }
 
         // Sequential signing gate — reject if not this signer's turn
         if ($signingRequest->status === SignatureRequest::STATUS_WAITING) {
             return response()->json(['ok' => false, 'error' => 'It is not your turn to sign yet. Please wait for notification.'], 403);
+        }
+
+        // WET-INK HARD GATE — a party cannot complete their signing turn while any required party still owes
+        // an initial on an amendment. Server-side and non-bypassable: no finalising a document with unsigned
+        // changes. The message names the acting party's own outstanding count when they are the blocker.
+        $amendOutstanding = $this->signatureService->outstandingChangeInitials($signingRequest->template);
+        $amendBlocked = $amendOutstanding['count'] > 0;
+        // AT-373 — during an in-flight amendment cycle/cascade (or when THIS party is raising a
+        // fresh edit), gate ONLY on the acting party's own outstanding slots. The earlier
+        // already-signed recipients initial as the sequential cascade re-engages them; the global
+        // invariant stays enforced by completeDocument()'s hard throw at finalisation.
+        if ($amendBlocked && $this->signatureService->isAmendmentTurnGateRelaxed($signingRequest->template)) {
+            $amendBlocked = ($amendOutstanding['by_party'][$signingRequest->canonicalPartyKey()] ?? 0) > 0;
+        }
+        if ($amendBlocked) {
+            return response()->json([
+                'ok'    => false,
+                'error' => $this->signatureService->outstandingChangeInitialsMessage($signingRequest->template, $signingRequest->canonicalPartyKey()),
+            ], 422);
+        }
+
+        // AT-373 reject flow (Johan 2026-08-12) — ALL-FIRST gate. If the agent rejected changes and sent
+        // the doc back to THIS recipient, they cannot re-sign until EVERY rejected change is removed. The
+        // removal endpoint clears the marker once outstanding hits zero, so a present marker = still-owed
+        // removals. Non-bypassable server-side (the client also hides the sign button, but this is truth).
+        $rejMarker = is_array($signingRequest->template->document->web_template_data ?? null)
+            ? ($signingRequest->template->document->web_template_data['amendment_reject_return'] ?? null) : null;
+        if (is_array($rejMarker) && (int) ($rejMarker['editor_request_id'] ?? 0) === (int) $signingRequest->id) {
+            return response()->json([
+                'ok'    => false,
+                'error' => 'Please remove the change(s) your agent rejected before signing again — use the Remove buttons shown on your changes.',
+            ], 422);
         }
 
         // Validate consent
@@ -1350,6 +1686,126 @@ class SigningController extends Controller
 
         if (!$document) {
             return response()->json(['message' => 'Document not found.'], 404);
+        }
+
+        // AT-293 — server-side mandatory FLOOR. The client (canSubmitWeb /
+        // webIncompleteCount) is the full required-item enforcer, but it is
+        // DOM-derived and bypassable (a crafted POST, or the completion JS
+        // failing after consent). A web/CDS template carries NO structured
+        // per-field `required` flag — required-ness lives only in the rendered
+        // HTML — so the client's exact per-item count cannot be faithfully
+        // reproduced server-side. We enforce the FLOOR that closes the real
+        // hole (a completion that submits none of the statutory work): every
+        // signing party must (a) consent [checked above], (b) capture at least
+        // one signature/initial, and (c) if the party has recipient-editable
+        // fields, fill at least one. This floor sits BENEATH the client
+        // contract (which requires ALL such items), so it can only ever reject
+        // the empty/crafted POST — never a client-legitimate submission.
+        // Disclosure completeness + exact signature counts stay client-gated
+        // (not server-reproducible without re-rendering) — documented on AT-293.
+        $nonEmpty = static fn ($v): bool => is_array($v) ? $v !== [] : trim((string) $v) !== '';
+        $capturedAnyMark = collect((array) $request->input('signatures', []))->contains($nonEmpty)
+            || collect((array) $request->input('initials', []))->contains($nonEmpty);
+        // P0 (Johan 2026-08-07) — the floor read ONLY the completeWeb POST body, which carries just the
+        // INLINE capture-pad marks (webSignatures / webInitialElements). A recipient whose signature places
+        // are positioned DB MARKERS signs each one through a SEPARATE earlier request (POST /capture/{id} →
+        // a persisted Signature row for this signing request); those marks never enter the completeWeb body.
+        // The enable-gate counts them as signed (so the button enables + "Ready to submit"), but this floor
+        // saw signatures:{}+initials:{} → false-positive 422 "no signature was captured". OR in the
+        // authoritative, non-bypassable persisted-evidence check: this party already has ≥1 captured
+        // signature server-side. Still rejects a truly empty completion (a party who never signed has no
+        // persisted Signature and sends an empty body).
+        if (!$capturedAnyMark && $signingRequest->signatures()->exists()) {
+            $capturedAnyMark = true;
+        }
+        // P0 follow-up (Johan 2026-08-08) — the AMENDMENT RE-INITIAL re-submit. A recipient who signed
+        // INLINE web-sig blocks in their FIRST round leaves NO Signature rows (inline marks are baked into
+        // the canonical + stored in signed_initials, never persisted as Signature rows), so the check above
+        // does not cover them. When an amendment re-circulates and that recipient re-enters to initial the
+        // change, they re-apply only the amendment initial (via the separate initialChange endpoint) and
+        // then click "Submit Signed Document" → completeWeb runs again with an EMPTY signatures/initials
+        // body. Without this, the floor false-positive-422s a fully-signed inline recipient on the
+        // re-initial round. Their authoritative "already signed once" evidence is the electronic_consent_given
+        // audit row written by their FIRST completion (logged BELOW the floor, so it only ever reflects a
+        // PRIOR round — a genuinely first-time empty POST has no such row and is still rejected). The
+        // outstanding-amendment-initial gate ABOVE already forces this round's re-initial to be done, so
+        // accepting prior consent here can never become an empty-completion hole.
+        if (!$capturedAnyMark
+            && SignatureAuditLog::where('signature_request_id', $signingRequest->id)
+                ->where('action', 'electronic_consent_given')
+                ->exists()
+        ) {
+            $capturedAnyMark = true;
+        }
+        // The authorising practitioner signs their FULL parity set ONCE — at the
+        // initial-review checkpoint right after the candidate (Johan 2026-08). The
+        // post-external `supervisor_final` checkpoint is the completion/distribution
+        // act and produces NO fresh mark, so the "captured ≥1 mark" floor must not
+        // block it — GATED on the base authoriser signing having actually completed,
+        // so this can never become an empty-completion hole.
+        $isAuthoriserFinalSignoff = $signingRequest->party_role === 'supervisor_final'
+            && $template->requests()
+                ->where('party_role', 'supervisor')
+                ->where('status', SignatureRequest::STATUS_COMPLETED)
+                ->exists();
+        if (!$capturedAnyMark && !$isAuthoriserFinalSignoff) {
+            return response()->json([
+                'ok'    => false,
+                'error' => 'Please sign the document before submitting — no signature was captured.',
+            ], 422);
+        }
+
+        $docTemplate    = $document->template;
+        $fieldMappings  = is_array($docTemplate?->field_mappings ?? null) ? $docTemplate->field_mappings : [];
+        $editableFields = $this->getEditableFieldsFromMappings($fieldMappings, $signingRequest->party_role);
+        if (!empty($editableFields)
+            && !collect((array) $request->input('field_values', []))->contains($nonEmpty)
+        ) {
+            return response()->json([
+                'ok'    => false,
+                'error' => 'Please complete the fields assigned to you before submitting.',
+            ], 422);
+        }
+
+        // ── OTHER-CONDITIONS INITIAL GATE (Johan 2026-07-28) — UNIVERSAL ────
+        // Every party (agent AND each recipient) must have initialled every added
+        // condition before THEIR signing completes: the agent's completion
+        // releases the document to the recipients, and each recipient's
+        // completion is their own consent — neither may proceed on un-initialled
+        // conditions. The client (canSubmitWeb / webIncompleteCount) already
+        // counts the slots, but that is DOM-derived and bypassable; this is the
+        // authoritative server-side ceiling, reading DocumentCondition +
+        // ConditionInitial directly (serve-path independent). Keyed by the
+        // signer's RESOLVED party_key so seller_2 is gated on seller_2's own
+        // initials, never seller_1's (.ai/specs/esign-recipient-signing-fix.md).
+        $viewerPartyKey = \App\Services\Docuperfect\InsertableBlockRenderer::partyKeyForViewer(
+            $template->parties_json,
+            (string) $signingRequest->party_role,
+            (int) ($signingRequest->role_index ?? 1),
+        );
+        $liveConditionIds = DocumentCondition::query()
+            ->where('signature_template_id', $template->id)
+            ->whereNull('superseded_at')
+            ->whereNull('deleted_at')
+            ->pluck('id');
+        // The authoriser's single signing (initial-review checkpoint) already
+        // initialled every condition; the `supervisor_final` completion touch places
+        // no fresh mark, so it is exempt from the per-condition initial gate — the SAME
+        // rationale as the capture floor above, gated identically on the base authoriser
+        // signing having completed. (Re-initialling the authoriser on conditions ADDED
+        // after their signing is the PARKED amendment follow-up.)
+        if ($liveConditionIds->isNotEmpty() && !$isAuthoriserFinalSignoff) {
+            $mineInitialedIds = ConditionInitial::query()
+                ->where('initialable_type', DocumentCondition::class)
+                ->whereIn('initialable_id', $liveConditionIds)
+                ->where('party_key', $viewerPartyKey)
+                ->pluck('initialable_id');
+            if ($liveConditionIds->diff($mineInitialedIds)->isNotEmpty()) {
+                return response()->json([
+                    'ok'    => false,
+                    'error' => 'Please initial every condition before submitting — you must initial each added condition before your signing can be completed.',
+                ], 422);
+            }
         }
 
         // Log consent to audit log
@@ -1377,7 +1833,54 @@ class SigningController extends Controller
         }
 
         // Save disclosure answers
+        // AT-303 Stage 1 — MDF disclosure-mark LOCK. The disclosure grid is
+        // shared, document-scoped state. Once an owner-party recipient signs it,
+        // it is frozen; a DOWNSTREAM recipient (a different signing request) must
+        // not silently overwrite a locked answer — that voids the earlier
+        // signer's agreement. A differing value is refused here (belt-and-braces
+        // behind the read-only UI); an identical value (a genuine agree) passes.
         $disclosureAnswers = $request->input('disclosure_answers', []);
+        $existingLock = $webData['disclosure_lock'] ?? null;
+        $ownerTerms = ['owner_party', 'lessor', 'seller', 'landlord', 'owner'];
+        $isOwnerParty = in_array(strtolower((string) $signingRequest->party_role), $ownerTerms, true);
+
+        if (is_array($existingLock) && !empty($existingLock['locked'])
+            && (int) ($existingLock['request_id'] ?? 0) !== (int) $signingRequest->id) {
+            $lockedAnswers = (array) ($existingLock['answers'] ?? []);
+            $conflicts = [];
+            foreach ($disclosureAnswers as $k => $v) {
+                if (array_key_exists($k, $lockedAnswers)
+                    && (string) $lockedAnswers[$k] !== (string) $v) {
+                    $conflicts[] = $k;
+                }
+            }
+            if (!empty($conflicts)) {
+                SignatureAuditLog::create([
+                    'signature_template_id' => $template->id,
+                    'action' => 'disclosure_lock_write_denied',
+                    'actor_type' => SignatureAuditLog::ACTOR_SIGNER,
+                    'actor_name' => $signingRequest->signer_name,
+                    'actor_email' => $signingRequest->signer_email,
+                    'actor_ip_address' => $request->ip(),
+                    'actor_user_agent' => $request->userAgent(),
+                    'signature_request_id' => $signingRequest->id,
+                    'metadata_json' => [
+                        'actor_role_identity' => $signingRequest->role_identity,
+                        'locked_by_request_id' => $existingLock['request_id'] ?? null,
+                        'locked_by_name' => $existingLock['signer_name'] ?? null,
+                        'conflicting_keys' => $conflicts,
+                    ],
+                ]);
+                return response()->json([
+                    'ok' => false,
+                    'error' => 'The disclosure answers were locked when '
+                        . ($existingLock['signer_name'] ?? 'an earlier signer')
+                        . ' signed. To change an answer you must propose an amendment.',
+                    'locked_keys' => $conflicts,
+                ], 422);
+            }
+        }
+
         if (!empty($disclosureAnswers)) {
             $webData['disclosure_answers'] = array_merge(
                 $webData['disclosure_answers'] ?? [],
@@ -1385,30 +1888,26 @@ class SigningController extends Controller
             );
         }
 
-        // Save ceremony values (location, day, month, year, time, am_pm per party)
-        $ceremonyValues = $request->input('ceremony_values', []);
-        if (!empty($ceremonyValues)) {
-            $webData['ceremony_values'] = array_merge($webData['ceremony_values'] ?? [], $ceremonyValues);
+        // Author the lock on the FIRST owner-party completion — a snapshot of
+        // exactly what this signer signed. Later owner signers who merely agree
+        // do not re-author it (the snapshot stays bound to the first signer).
+        if ($isOwnerParty && !is_array($existingLock)) {
+            $webData['disclosure_lock'] = [
+                'locked'        => true,
+                'request_id'    => (int) $signingRequest->id,
+                'role_identity' => $signingRequest->role_identity,
+                'signer_name'   => $signingRequest->signer_name,
+                'locked_at'     => now()->toIso8601String(),
+                'answers'       => $webData['disclosure_answers'] ?? [],
+            ];
         }
 
-        // Save clause flags (concerns raised by signer)
-        $clauseFlags = $request->input('clause_flags', []);
-        if (!empty($clauseFlags)) {
-            $existingFlags = $webData['clause_flags'] ?? [];
-            $webData['clause_flags'] = array_merge($existingFlags, [
-                $signingRequest->party_role => $clauseFlags,
-            ]);
-
-            // ES-4 — Promote each flag to a first-class DocumentAmendment row
-            // so it flows through the same agent review surface used by
-            // Other Conditions + Strikethroughs (Phase 1B). The JSON note in
-            // web_template_data is preserved for backward compatibility and
-            // forensic context; it is no longer the sole record.
-            $this->promoteClauseFlagsToAmendments(
-                $signingRequest,
-                $document,
-                $clauseFlags
-            );
+        // Save ceremony values (location, day, month, year, time, am_pm per party). Blank-safe merge so a
+        // returning signer's re-submit (changes-only round) can never clobber the Location captured at their
+        // initial signing with an emptied input — see mergeCeremonyValues (BUG 2, AT-373).
+        $ceremonyValues = $request->input('ceremony_values', []);
+        if (!empty($ceremonyValues)) {
+            $webData['ceremony_values'] = $this->mergeCeremonyValues($webData['ceremony_values'] ?? [], $ceremonyValues);
         }
 
         // Save signatures (base64 data URIs keyed by block ID)
@@ -1432,8 +1931,21 @@ class SigningController extends Controller
             $initials = array_merge($initials, $pageBreakInitials);
         }
         if (!empty($initials)) {
+            // AT-324/AT-325 — key signed_initials by the CANONICAL per-recipient
+            // key (seller vs seller_2), NOT the bare party_role, and MERGE rather
+            // than overwrite. N same-role co-signers share one base party_role, so
+            // `$existingInitials[$partyRole] = $initials` let the 2nd co-seller's
+            // completion CLOBBER the 1st's captured initials — present in
+            // web_template_data['signatures'] but dropped from signed_initials, the
+            // store the review/PDF read. Each recipient now keeps their own group;
+            // the initial sub-keys are already recipient-distinct so a merge is safe
+            // and a re-sign only tops up the same recipient's group.
+            $recipientKey = $signingRequest->canonicalPartyKey();
             $existingInitials = $webData['signed_initials'] ?? [];
-            $existingInitials[$partyRole] = $initials;
+            $existingInitials[$recipientKey] = array_merge(
+                $existingInitials[$recipientKey] ?? [],
+                $initials
+            );
             $webData['signed_initials'] = $existingInitials;
         }
 
@@ -1448,7 +1960,86 @@ class SigningController extends Controller
         // by splitMergedHtml()/the PDF generator — never re-paginated.
         $paginatedHtml = (string) $request->input('paginated_html', '');
 
-        // Embed this signer's signatures, initials, and ceremony values into merged_html
+        // ═══ ESIGN-WETINK Phase 1c — bake THIS signer's ink INTO canonical_html ═══
+        // The canonical artifact is the wet-ink source of truth. Ink is composed
+        // INTO it, scoped to the signer's data-recipient-identity, so N same-party
+        // recipients' ink stays distinct and every later party loads the exact
+        // accumulated document (doctrine I3). This supersedes the party-aliased
+        // merged_html embed (kept below for backward-compat / pre-canonical docs),
+        // which structurally cannot represent >1 same-party signer (gap audit (b)).
+        $canonicalHtml = (string) ($webData['canonical_html'] ?? '');
+        // AT-373 (Issue D) — RE-DERIVE the canonical from merged_html before baking when the doc is
+        // NOT YET BAKED (canonical_version < 1). While v0, amendSource picks merged_html, so any
+        // amendment this signer authored on their turn — the strike marks AND the per-party
+        // change-initial rows (with their captured initial ink) — was written to merged_html, NOT to
+        // the stored canonical_html (a stale v0 snapshot). completeWeb bakes the STORED canonical and
+        // freezes it at v>=1; without re-deriving, the ENTIRE amendment (not just its ink) is dropped
+        // from the served/completed document — the recipient's initials render empty (—) even though
+        // the attribution survives. compose() carries merged_html's change rows + fills faithfully
+        // (side-effect-free); only the v0 → first-bake transition recomposes, so a later baked signer
+        // (v>=1, whose amend already lands in canonical) is untouched.
+        $notYetBaked = (int) ($webData['canonical_version'] ?? 0) < 1;
+        if (trim($canonicalHtml) === '' || $notYetBaked) {
+            $rederived = app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)->compose($template);
+            if (trim($rederived) === '' && trim($canonicalHtml) === '') {
+                // No composable body yet — fall back to the resolver's back-fill path (unchanged behaviour).
+                $rederived = app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)->resolveOrCompose($template);
+            }
+            if (trim($rederived) !== '') {
+                $canonicalHtml = $rederived;
+            }
+        }
+        // The frontend folds page-break initials INTO the signatures array under
+        // "-init-" keys (see $initials assembly above), so the true signature
+        // captures are the non-"-init-" entries. Split them cleanly: signature
+        // markers must never receive an initial image, and vice-versa.
+        $signaturesOnly = [];
+        foreach ($signatures as $sigKey => $sigVal) {
+            if (! str_contains((string) $sigKey, '-init-')) {
+                $signaturesOnly[$sigKey] = $sigVal;
+            }
+        }
+        // E-Sign P1 — remember the canonical version before this hop's bake, so a
+        // sealed copy is written ONLY when this hop actually produces a fresh version.
+        $sealVersionBefore = (int) ($webData['canonical_version'] ?? 0);
+        if (trim($canonicalHtml) !== '' && (!empty($signaturesOnly) || !empty($initials) || !empty($ceremonyValues))) {
+            // Bleed-safe party fallback is permitted only when this signer is the
+            // SOLE recipient of their role (agent, single seller/buyer) — see
+            // CanonicalInkComposer::markerBelongsToSigner.
+            $soleOfRole = $template->requests()
+                ->where('party_role', $signingRequest->party_role)
+                ->count() === 1;
+            $webData['canonical_html'] = app(\App\Services\Docuperfect\CanonicalInkComposer::class)
+                ->bakeInk(
+                    $canonicalHtml,
+                    $signingRequest,
+                    $signaturesOnly,
+                    $initials,          // combined: block-level (-init-) + page-break initials
+                    $ceremonyValues,
+                    $soleOfRole,
+                );
+            // Immutable-per-hop version bump (I4 — the sealed chain lands in 1e).
+            $webData['canonical_version'] = (int) ($webData['canonical_version'] ?? 0) + 1;
+        }
+
+        // AT — MDF rec-2 field persistence (Johan 2026-07-30). bakeInk fills only the
+        // CURRENT signer's owned markers; a later-injected per-recipient span (e.g. the
+        // seller_2 clone) can therefore land in the stored canonical BLANK even though
+        // this recipient's value is in ceremony_values — so the agent-review / final
+        // document showed rec 2's Location empty. Re-apply the FULL accumulated
+        // ceremony_values (every recipient's captured place/date/time) onto the canonical
+        // by EXACT data-marker-party, so every recipient's own span is filled and none is
+        // mirrored from another. Idempotent (stampCeremonyFilled re-writes the same value
+        // as a no-op); scoped to ceremony text only — signatures/initials untouched.
+        if (!empty($webData['canonical_html']) && !empty($webData['ceremony_values'])) {
+            $webData['canonical_html'] = app(\App\Services\Docuperfect\CanonicalInkComposer::class)
+                ->applyCeremonyValues($webData['canonical_html'], $webData['ceremony_values']);
+        }
+
+        // Embed this signer's signatures, initials, and ceremony values into
+        // merged_html — RETAINED for backward compatibility (pre-canonical docs,
+        // any legacy consumer still reading merged_html). Party-aliased; canonical
+        // above is the identity-scoped source of truth for all new surfaces.
         if (!empty($webData['merged_html']) && (!empty($signatures) || !empty($pageBreakInitials) || !empty($ceremonyValues))) {
             $sigController = app(SignatureController::class);
             // Stamp the engine's signature convention onto inline templates so
@@ -1465,6 +2056,15 @@ class SigningController extends Controller
             if (!empty($ceremonyValues)) {
                 $html = $sigController->embedCeremonyValuesIntoHtml($html, $ceremonyValues);
             }
+            // AT — MDF rec-2 field persistence (Johan 2026-07-30). embedCeremonyValuesIntoHtml
+            // above embeds only THIS signer's values (and its party match could mirror rec 1
+            // onto rec 2's span). Re-apply the FULL accumulated ceremony_values by EXACT
+            // data-marker-party so every recipient's own span on merged_html is filled with
+            // its OWN value — mirroring the canonical re-apply above. Idempotent.
+            if (!empty($webData['ceremony_values'])) {
+                $html = app(\App\Services\Docuperfect\CanonicalInkComposer::class)
+                    ->applyCeremonyValues($html, $webData['ceremony_values']);
+            }
             $webData['merged_html'] = $html;
         }
 
@@ -1477,6 +2077,32 @@ class SigningController extends Controller
             $updates['signed_paginated_html'] = $paginatedHtml;
         }
         $document->update($updates);
+
+        // ═══ E-Sign P1 — SEAL this signed copy (additive, passive, fail-open) ═══
+        // "Save each copy as it got signed." When this hop baked a fresh canonical
+        // version, seal an immutable, hash-chained snapshot of the document exactly as
+        // it now stands. The seal never alters signing state and swallows its own
+        // errors (DocumentSealService is fail-open), so it cannot affect the ceremony.
+        if ((int) ($webData['canonical_version'] ?? 0) > $sealVersionBefore) {
+            $sealPartyRole = (string) $signingRequest->party_role;
+            $sealEvent = str_starts_with($sealPartyRole, 'supervisor')
+                ? \App\Services\Docuperfect\DocumentSealService::EVENT_AUTHORISER_COSIGNED
+                : ($sealPartyRole === 'agent'
+                    ? \App\Services\Docuperfect\DocumentSealService::EVENT_CANDIDATE_SIGNED
+                    : \App\Services\Docuperfect\DocumentSealService::EVENT_RECIPIENT_SIGNED);
+            app(\App\Services\Docuperfect\DocumentSealService::class)->seal($document, $sealEvent, [
+                'template'        => $template,
+                'signer_identity' => method_exists($signingRequest, 'canonicalPartyKey') ? $signingRequest->canonicalPartyKey() : $sealPartyRole,
+                'signer_user_id'  => $signingRequest->user_id ?? null,
+                'actor_type'      => \App\Models\Docuperfect\SignatureAuditLog::ACTOR_SIGNER,
+                'actor_name'      => $signingRequest->signer_name,
+                'actor_email'     => $signingRequest->signer_email,
+                'actor_role'      => $sealPartyRole,
+                'request_id'      => $signingRequest->id,
+                'ip'              => $request->ip(),
+                'ua'              => $request->userAgent(),
+            ]);
+        }
 
         // --- Amendment Detection (Other Conditions) ---
         $otherConditionsText = $request->input('other_conditions_text', '');
@@ -1509,7 +2135,7 @@ class SigningController extends Controller
                         'amendment_detected' => true,
                         'amendment_id' => $amendment->id,
                         'message' => 'Your signature has been recorded. The document has been amended and previous signers will be notified for review.',
-                        'redirect' => route('signatures.external.completed', $token),
+                        'redirect' => $this->completionRedirect($signingRequest, $token),
                     ]);
                 }
             }
@@ -1548,14 +2174,13 @@ class SigningController extends Controller
             ->where('status', '!=', SignatureRequest::STATUS_COMPLETED)
             ->doesntExist();
 
-        if ($allRoleComplete) {
-            // All co-owners for this role signed — run approval gate
-            $this->signatureService->handlePartyCompletion($template, $party, $signingRequest);
-        } else {
-            // More co-owners still need to sign — still require agent approval before next co-owner
-            $template->update(['status' => SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL]);
-            $this->signatureService->handlePartyCompletion($template, $party, $signingRequest);
-        }
+        // ESIGN-WETINK Ruling #1 — routing is delegated ENTIRELY to
+        // handlePartyCompletion, which advances a CLEAN accept straight to the next
+        // recipient and checkpoints to the agent ONLY on a pending flag/strikeout.
+        // (Previously this set STATUS_PENDING_AGENT_APPROVAL before every next
+        // co-owner — the friction Elize's run flagged.) handlePartyCompletion is
+        // idempotent about which co-owner remains, so both branches call it plainly.
+        $this->signatureService->handlePartyCompletion($template, $party, $signingRequest);
 
         $fullyComplete = $this->signatureService->isFullyComplete($template);
 
@@ -1563,8 +2188,25 @@ class SigningController extends Controller
             'ok' => true,
             'completed' => true,
             'fully_complete' => $fullyComplete,
-            'redirect' => route('signatures.external.completed', $token),
+            'redirect' => $this->completionRedirect($signingRequest, $token),
         ]);
+    }
+
+    /**
+     * ESIGN-WETINK Phase 1b/1c — the canonical read for print/PDF/hash surfaces.
+     * Prefers the stored `canonical_html` (the ONE artifact; post-1c it carries
+     * every party's baked ink) and falls back to `merged_html` only for
+     * documents that never got a canonical (pre-1a in-flight docs). This is the
+     * read every "what did the parties actually see/sign" surface uses so no
+     * surface derives the document from a different input.
+     */
+    private function canonicalOrMerged(array $webData): string
+    {
+        $canonical = (string) ($webData['canonical_html'] ?? '');
+        if (trim($canonical) !== '') {
+            return $canonical;
+        }
+        return (string) ($webData['merged_html'] ?? '');
     }
 
     /**
@@ -1620,13 +2262,27 @@ class SigningController extends Controller
             ->with('template')
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
         }
 
         // Sequential signing gate — reject if not this signer's turn
         if ($signingRequest->status === SignatureRequest::STATUS_WAITING) {
             return response()->json(['ok' => false, 'error' => 'It is not your turn to sign yet. Please wait for notification.'], 403);
+        }
+
+        // WET-INK HARD GATE (mirrors completeWeb) — no completing while an amendment initial is outstanding.
+        // AT-373 — relaxed to PER-PARTY during an in-flight amendment cycle/cascade (see completeWeb).
+        $amendOutstanding = $this->signatureService->outstandingChangeInitials($signingRequest->template);
+        $amendBlocked = $amendOutstanding['count'] > 0;
+        if ($amendBlocked && $this->signatureService->isAmendmentTurnGateRelaxed($signingRequest->template)) {
+            $amendBlocked = ($amendOutstanding['by_party'][$signingRequest->canonicalPartyKey()] ?? 0) > 0;
+        }
+        if ($amendBlocked) {
+            return response()->json([
+                'ok'    => false,
+                'error' => $this->signatureService->outstandingChangeInitialsMessage($signingRequest->template, $signingRequest->canonicalPartyKey()),
+            ], 422);
         }
 
         $template = $signingRequest->template;
@@ -1693,7 +2349,7 @@ class SigningController extends Controller
                             'ok' => true, 'completed' => true, 'amendment_detected' => true,
                             'amendment_id' => $amendment->id,
                             'message' => 'Your signature has been recorded. The document has been amended and previous signers will be notified for review.',
-                            'redirect' => route('signatures.external.completed', $token),
+                            'redirect' => $this->completionRedirect($signingRequest, $token),
                         ]);
                     }
                 }
@@ -1707,12 +2363,13 @@ class SigningController extends Controller
                 'user_agent' => $request->userAgent(),
             ]);
 
-            // Save ceremony values (date, location, time) if provided
+            // Save ceremony values (date, location, time) if provided. Blank-safe merge (BUG 2, AT-373) —
+            // a returning signer's emptied Location input must never overwrite the captured value.
             $ceremonyValues = $request->input('ceremony_values', []);
             if (!empty($ceremonyValues)) {
                 $document = $template->document;
                 $webData = $document->web_template_data ?? [];
-                $webData['ceremony_values'] = array_merge($webData['ceremony_values'] ?? [], $ceremonyValues);
+                $webData['ceremony_values'] = $this->mergeCeremonyValues($webData['ceremony_values'] ?? [], $ceremonyValues);
 
                 // Embed into merged_html if present (web templates)
                 if (!empty($webData['merged_html'])) {
@@ -1727,31 +2384,19 @@ class SigningController extends Controller
             $flattener = app(DocumentFlattener::class);
             $flattener->flattenSignerFields($template, $party);
 
-            // Check if ALL requests for this role are now complete before advancing
-            $allRoleComplete = $template->requests()
-                ->where('party_role', $party)
-                ->where('status', '!=', SignatureRequest::STATUS_COMPLETED)
-                ->doesntExist();
-
-            if ($allRoleComplete) {
-                // All co-owners for this role have signed — advance
-                $this->signatureService->handlePartyCompletion($template, $party, $signingRequest);
-            } else {
-                // More co-owners still need to sign — send to the next one
-                $nextCoOwner = $template->requests()
-                    ->where('party_role', $party)
-                    ->where('status', SignatureRequest::STATUS_WAITING)
-                    ->orderBy('signing_order', 'asc')
-                    ->first();
-
-                if ($nextCoOwner) {
-                    // Set status to pending_agent_approval so agent can review
-                    $template->update(['status' => SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL]);
-
-                    // Notify agent about this co-owner completion
-                    $this->signatureService->handlePartyCompletion($template, $party, $signingRequest);
-                }
-            }
+            // UNIVERSAL auto-advance (Johan 2026-07-30). Routing is delegated ENTIRELY to
+            // handlePartyCompletion — exactly as the web path (completeWeb) already does — so
+            // BOTH completion paths share ONE flow: a CLEAN completion advances straight to
+            // the next recipient (including the next co-owner of the same role) with NO
+            // between-recipient agent approval; the agent is pulled in ONLY when a
+            // flag/strikeout raised a PENDING amendment; and the FINAL clean completion holds
+            // at pending_agent_approval for the agent's Review & Approve (no auto-file).
+            //
+            // Previously the "more co-owners of this role remain" branch here set
+            // STATUS_PENDING_AGENT_APPROVAL between co-owners — a between-recipient gate that
+            // contradicted the universal flow. Removed: handlePartyCompletion is idempotent
+            // about which co-owner remains and hands the pen on within the group itself.
+            $this->signatureService->handlePartyCompletion($template, $party, $signingRequest);
 
             $fullyComplete = $this->signatureService->isFullyComplete($template);
 
@@ -1759,7 +2404,7 @@ class SigningController extends Controller
                 'ok' => true,
                 'completed' => true,
                 'fully_complete' => $fullyComplete,
-                'redirect' => route('signatures.external.completed', $token),
+                'redirect' => $this->completionRedirect($signingRequest, $token),
             ]);
         }
 
@@ -1791,7 +2436,7 @@ class SigningController extends Controller
     {
         $signingRequest = SignatureRequest::where('token', $token)->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return redirect()->route('signatures.external', $token)
                 ->with('error', 'Signing link has expired.');
         }
@@ -1875,6 +2520,87 @@ class SigningController extends Controller
     }
 
     /**
+     * OPTIONAL supporting-document upload by the recipient (e-sign feature).
+     *
+     * This is NEVER part of the signing gate: it does not touch signing_method, status,
+     * or any wet-ink field, and it is reachable both BEFORE signing (verified session on
+     * the sign-or-download screen) and AFTER signing (the completed request, via the same
+     * access token — "signed, you can still add supporting documents"). Files are filed
+     * against the signing package through the existing SignedDocumentVersion channel,
+     * tagged kind='supporting' so they are office-visible but never confused with a signed
+     * version or a wet-ink review item.
+     */
+    public function uploadSupportingDocuments(Request $request, $token)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)
+            ->with(['template.document'])
+            ->firstOrFail();
+
+        if ($signingRequest->isSigningBlocked()) {
+            return redirect()->route('signatures.external', $token)
+                ->with('error', 'This link has expired.');
+        }
+
+        // Allowed pre-sign (verified) OR post-sign (already completed) — same trust level
+        // as the pages that render on this token. NEVER a signing prerequisite.
+        $isCompleted = $signingRequest->status === SignatureRequest::STATUS_COMPLETED;
+        if (! $isCompleted && ! session("signing_verified_{$token}")) {
+            return redirect()->route('signatures.external', $token);
+        }
+
+        $request->validate([
+            'supporting_files'   => 'required|array|min:1|max:10',
+            'supporting_files.*' => 'file|mimes:pdf,jpg,jpeg,png,doc,docx|max:15360', // 15 MB each
+        ]);
+
+        $document = $signingRequest->template?->document;
+
+        $filed = 0;
+        foreach ($request->file('supporting_files') as $file) {
+            $path = $file->store("docuperfect/supporting-documents/{$signingRequest->id}", 'local');
+
+            // File it against the signing package through the existing pipeline. version_number
+            // is 0 so a supporting doc never becomes the "latest signed version" anywhere.
+            if ($document) {
+                \App\Models\Docuperfect\SignedDocumentVersion::create([
+                    'document_id'          => $document->id,
+                    'signature_request_id' => $signingRequest->id,
+                    'kind'                 => \App\Models\Docuperfect\SignedDocumentVersion::KIND_SUPPORTING,
+                    'version_number'       => 0,
+                    'file_path'            => $path,
+                    'file_type'            => $file->getClientOriginalExtension() ?: 'bin',
+                    'uploaded_by_name'     => $signingRequest->signer_name,
+                    'uploaded_at'          => now(),
+                    'ip_address'           => $request->ip(),
+                    'notes'                => 'Supporting document uploaded by recipient'
+                                              . ($isCompleted ? ' (after signing)' : ' (during signing)'),
+                ]);
+            }
+            $filed++;
+        }
+
+        SignatureAuditLog::log(
+            $signingRequest->template,
+            'supporting_documents_uploaded',
+            SignatureAuditLog::ACTOR_SIGNER,
+            $signingRequest->signer_name,
+            $signingRequest->signer_email,
+            requestId: $signingRequest->id,
+            ip: $request->ip(),
+            ua: $request->userAgent(),
+            metadata: ['file_count' => $filed, 'after_signing' => $isCompleted],
+        );
+
+        // Best-effort agent nudge — never fail the upload on it.
+        $this->signatureService->notifySupportingDocumentsUploaded($signingRequest, $filed);
+
+        return redirect()->route('signatures.external', $token)
+            ->with('supporting_success', $filed === 1
+                ? 'Your document was uploaded and sent to the office. Thank you.'
+                : "Your {$filed} documents were uploaded and sent to the office. Thank you.");
+    }
+
+    /**
      * Download document for wet ink signing.
      * Generates a PDF on-the-fly from flattened page images (which include
      * document fields + previous signers' entries baked in), with colored
@@ -1886,7 +2612,7 @@ class SigningController extends Controller
             ->with(['template.document.template', 'template.markers'])
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return redirect()->route('signatures.external', $token)
                 ->with('error', 'Signing link has expired.');
         }
@@ -1895,9 +2621,10 @@ class SigningController extends Controller
         $document = $signatureTemplate->document;
         $docTemplate = $document->template ?? null;
 
-        // Web template with merged_html: redirect to print view (no dompdf — it hangs)
+        // Web template: redirect to print view (no dompdf — it hangs). Prefer
+        // the canonical artifact; fall back to merged_html for pre-canonical docs.
         $webTemplateData = $document->web_template_data ?? [];
-        $mergedHtml = $webTemplateData['merged_html'] ?? '';
+        $mergedHtml = $this->canonicalOrMerged($webTemplateData);
 
         if (!empty($mergedHtml) && $docTemplate && $docTemplate->render_type === 'web') {
             return redirect()->route('signatures.external.print', $token);
@@ -2053,7 +2780,7 @@ class SigningController extends Controller
             ->with(['template.document.template'])
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return redirect()->route('signatures.external', $token)
                 ->with('error', 'Signing link has expired.');
         }
@@ -2062,7 +2789,9 @@ class SigningController extends Controller
         $document = $signatureTemplate->document;
         $docTemplate = $document->template ?? null;
         $webTemplateData = $document->web_template_data ?? [];
-        $mergedHtml = $webTemplateData['merged_html'] ?? '';
+        // ESIGN-WETINK — print the canonical artifact (all baked ink), not the
+        // agent-prep merged_html. Fall back to merged_html for pre-canonical docs.
+        $mergedHtml = $this->canonicalOrMerged($webTemplateData);
 
         if (empty($mergedHtml)) {
             // Fallback to dompdf download for PDF templates
@@ -2099,14 +2828,21 @@ class SigningController extends Controller
             ->with(['template.document.template'])
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return response()->json(['error' => 'Signing link has expired.'], 410);
         }
 
         $signatureTemplate = $signingRequest->template;
         $document = $signatureTemplate->document;
-        $webTemplateData = $document->web_template_data ?? [];
-        $mergedHtml = $webTemplateData['merged_html'] ?? '';
+
+        // Re-render + download WITHOUT re-signing: regenerate the PDF from the stored
+        // signed content through the SAME measure-and-fit engine the completion email
+        // uses (SignaturePdfService::buildInjectedRenderHtml → resolveRenderHtml +
+        // injectInitialsPagination), so a downloaded signed doc is a page-for-page A4
+        // copy — one physical sheet per logical page, no spill — identical to the
+        // emailed PDF. (Was rendering raw merged_html verbatim, which spilled.)
+        $mergedHtml = app(\App\Services\Docuperfect\SignaturePdfService::class)
+            ->buildInjectedRenderHtml($signatureTemplate);
 
         if (empty($mergedHtml)) {
             return response()->json(['error' => 'Document content not available for PDF generation.'], 404);
@@ -2357,6 +3093,67 @@ html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 {$cleanupCss}
 CSS;
 
+        // AT-332 / LEGAL WYSIWYG — render each captured .corex-a4-page as one physical
+        // A4 sheet, wrapped at TRUE A4 (a4-page-styles now breaks at the real printable
+        // height), with the @page margins zeroed and the counter blanked (the DOM's own
+        // .page-number footer is authoritative) and no wrapper zoom.
+        //
+        // The box is sized by MIN-HEIGHT (grows to fit) with overflow VISIBLE and NO
+        // fixed height — never a fixed height + overflow:hidden, which CLIPPED ~40% of a
+        // page's content below the 297mm cut. A NEW doc's page now fits exactly one A4
+        // sheet; a LEGACY doc captured at the old (taller) breaks reproduces EXACTLY what
+        // was signed — every element present, uncut — flowing onto extra A4 sheets rather
+        // than being clipped. NEVER hide signed content.
+        if (str_contains($mergedHtml, 'corex-a4-page')) {
+            $pdfStyles .= <<<CSS
+
+/* === AT-332 / legal WYSIWYG — each captured .corex-a4-page renders FULLY, never clipped === */
+@page { size: A4; margin: 0; @bottom-center { content: ""; } }
+.corex-document-wrapper { zoom: 1 !important; }
+.corex-a4-page {
+    width: 210mm !important;
+    min-height: 297mm !important;       /* at least one A4 sheet; grows for a legacy tall page */
+    height: auto !important;            /* NEVER a fixed height — that is what clipped content */
+    padding: 20mm 18mm 25mm 18mm !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+    overflow: visible !important;       /* never clip — no signed content may be hidden */
+    page-break-after: always !important;
+    break-after: page !important;
+    page-break-inside: auto !important; /* a >A4 element / legacy tall page may span sheets, uncut */
+    position: relative !important;      /* anchor the absolute page-number footer inside the box */
+}
+.corex-a4-page:last-child { page-break-after: auto !important; break-after: auto !important; }
+/* The "Page X of Y" footer MUST be OUT OF FLOW (absolute, in the bottom padding),
+   exactly as the signing view renders it. Without this rule the emailed PDF was
+   missing the .page-number CSS, so the footer flowed IN-LINE and added ~8px to
+   each box — enough to push a near-full page PAST one physical A4 sheet and spill
+   its bottom onto a near-blank next page (docs 455/454: 5 logical → 7 physical).
+   Absolute-positioned it consumes no flow height, so the box the paginator
+   measured (content + initials strip, no footer) IS the box that prints. */
+.corex-a4-page .page-number {
+    position: absolute !important;
+    bottom: 10mm !important;
+    left: 0 !important;
+    right: 0 !important;
+    text-align: center !important;
+    font-size: 9px !important;
+    color: #94a3b8 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+CSS;
+        }
+
+        // AT-374 — MONOCHROME BLACK for the FILED/EMAILED/PRINTED legal document. wrapHtmlForPdf() is used
+        // ONLY for PDF generation (SignaturePdfService's client + internal copies + the audit certificate);
+        // the on-screen signing / Fill & Review views render through a DIFFERENT path and KEEP their colour
+        // (red strikes, yellow reword inserts) for usability. Legal documents allow only black ink, so the
+        // PDF forces every mark — amendment strikes, reword inserts, Other-Conditions blocks, amendment
+        // initial blocks, and every signature/initial (drawn or typed) — to solid black with no colour fills
+        // or highlights. Appended LAST so it wins over the CDS + change-mark styles above.
+        $pdfStyles .= "\n" . $this->monochromePdfCss();
+
         // If it already has a DOCTYPE or <html> tag, inject all styles before </head>
         if (preg_match('/<!DOCTYPE|<html/i', $mergedHtml)) {
             $styleTag = '<style>' . $pdfStyles . '</style>';
@@ -2381,6 +3178,123 @@ CSS;
 </body>
 </html>
 HTML;
+    }
+
+    /**
+     * AT-374 — the monochrome-black stylesheet for the FILED PDF (screen keeps colour). Legal docs allow
+     * only black ink: every amendment mark + Other-Conditions block renders black with no colour fill or
+     * highlight, and every signature/initial (drawn or typed) is forced to solid black regardless of the
+     * captured ink colour. Scoped so the agency letterhead LOGO (an image, not signature ink) is never
+     * blackened. Injected LAST in wrapHtmlForPdf() so it overrides the CDS + change-mark styles.
+     */
+    private function monochromePdfCss(): string
+    {
+        return <<<'CSS'
+/* === AT-374 — MONOCHROME BLACK DOCUMENT CONTENT (PDF/print output ONLY; the screen views keep colour) === */
+/* The HEADER / LETTERHEAD (agency logo + details) stays FULL COLOUR — it is branding, not document ink, so
+   it is NOT desaturated or blackened (Johan 2026-08-06). Only the legal CONTENT renders solid black: body
+   text, clauses, headings, field values, amendments (strike + reword), Other-Conditions, amendment-initial
+   blocks, and every signature/initial (drawn or typed). Every rule is scoped to CONTENT classes so the
+   header region (.corex-header / .corex-letterhead / .corex-title-banner and its logo) is never touched.
+   Appended LAST in wrapHtmlForPdf() so it wins over the CDS + change-mark styles. */
+
+/* Legal content ink → solid black (clauses, headings, field values, ceremony + signature-section text,
+   amendments, Other-Conditions, amendment-initial blocks). The header/letterhead is deliberately absent. */
+.corex-clause, .corex-clause *,
+.corex-h1, .corex-h2, .corex-h3, .corex-h4, .corex-section-heading,
+.corex-clause-number, .corex-clause-text, .corex-field-value,
+.corex-document-title, .corex-title,
+.corex-signature-section, .corex-signature-section *, .corex-signature-block, .corex-signature-block *,
+.corex-ceremony-section, .corex-ceremony-section *,
+.change-inline, .change-inline *, .change-del, .change-ins, .change-xref,
+.change-initial-row, .change-initial-row *, .change-margin, .change-margin *,
+.cir-label, .cir-name, .cir-ink, .cir-slot,
+.insertable-block, .insertable-block *, .block-header, .block-header * {
+    color: #000 !important;
+    -webkit-text-fill-color: #000 !important;
+}
+/* Struck removals — black strike-through, never red. */
+.change-del, .change-del * {
+    color: #000 !important;
+    text-decoration-color: #000 !important;
+}
+/* No colour fills / highlights / tinted borders on amendment + Other-Conditions blocks. */
+.change-ins, .change-xref, .change-initial-row, .cir-slot, .cir-ink,
+.insertable-block, .block-header, .change-margin {
+    background: transparent !important;
+    background-color: transparent !important;
+}
+.change-initial-row, .cir-slot, .insertable-block, .change-margin {
+    border-color: #000 !important;
+}
+.cir-slot.cir-filled, .cir-slot.cir-mine {
+    background: transparent !important;
+    background-color: transparent !important;
+    border-color: #000 !important;
+}
+/* Signatures + initials (drawn OR typed-as-image) — force solid black ink regardless of captured colour.
+   brightness(0) maps every opaque pixel to black while preserving the stroke shape (alpha). SCOPED to
+   signature/initial images ONLY — the agency letterhead logo is never touched. */
+img.web-sig-signed-img, img.cir-ink-img, .cir-ink img, .corex-ink img, img.corex-ink,
+[data-marker-type="signature"] img, [data-marker-type="initial"] img,
+[data-marker-party] img.signature, .sig-inline-line img, .signature-image, img.signature, img.initial-image {
+    filter: grayscale(1) brightness(0) !important;
+    -webkit-filter: grayscale(1) brightness(0) !important;
+}
+/* Typed signatures/initials rendered as TEXT (font-based, e.g. Dancing Script) — black. */
+.corex-ink, .sig-typed, .cir-ink, .signature-text, .initial-text {
+    color: #000 !important;
+    -webkit-text-fill-color: #000 !important;
+}
+
+/* === AT-374 / FIX B — completed-doc captions + amendment marks in BLACK ink (letterhead excepted above) === */
+/* "Signed by {name}" signature captions + "Initialed by {name}" change labels render GREEN on screen —
+   force BLACK in the PDF, and drop the green pill background. */
+.corex-sig-caption, .change-initialed {
+    color: #000 !important;
+    -webkit-text-fill-color: #000 !important;
+    background: transparent !important;
+    background-color: transparent !important;
+}
+/* Amendment body marks stay VISIBLE but monochrome: struck text = BLACK line-through (not red); inserted
+   (reword) text = BLACK with an UNDERLINE so it stays distinguishable (not a yellow highlight). */
+.change-del, .change-del * {
+    color: #000 !important;
+    text-decoration: line-through !important;
+    text-decoration-color: #000 !important;
+}
+.change-ins, .change-ins * {
+    color: #000 !important;
+    -webkit-text-fill-color: #000 !important;
+    background: transparent !important;
+    background-color: transparent !important;
+    text-decoration: underline !important;
+    text-decoration-color: #000 !important;
+}
+/* The appended "Schedule of Amendments" appendix (kept on the AUDIT copy) — every cell BLACK, black grid,
+   no coloured header fill; its Removed column = black line-through, Inserted column = black underline (drops
+   the yellow highlight), Initialed column = black (not green). The spans are inline-styled, so target them. */
+.change-history-page, .change-history-page * {
+    color: #000 !important;
+    -webkit-text-fill-color: #000 !important;
+}
+.change-history-page th, .change-history-page td,
+.change-history-page tr, .change-history-page thead tr {
+    border-color: #000 !important;
+    background: transparent !important;
+    background-color: transparent !important;
+}
+.change-history-page span[style*="line-through"] {
+    text-decoration: line-through !important;
+    text-decoration-color: #000 !important;
+}
+.change-history-page span[style*="background"] {
+    background: transparent !important;
+    background-color: transparent !important;
+    text-decoration: underline !important;
+    text-decoration-color: #000 !important;
+}
+CSS;
     }
 
     /**
@@ -2591,7 +3505,7 @@ CSS;
     {
         $signingRequest = SignatureRequest::where('token', $token)->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
         }
 
@@ -2616,7 +3530,7 @@ CSS;
     {
         $signingRequest = SignatureRequest::where('token', $token)->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             abort(403, 'Signing link has expired.');
         }
 
@@ -2991,7 +3905,7 @@ CSS;
             ->with(['template.document', 'template.amendments.acceptances'])
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return view('docuperfect.signatures.external.expired', [
                 'request' => $signingRequest,
             ]);
@@ -3026,12 +3940,20 @@ CSS;
     {
         $signingRequest = SignatureRequest::where('token', $token)->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return response()->json(['ok' => false, 'error' => 'Link expired.'], 410);
         }
 
         $amendment = \App\Models\Docuperfect\DocumentAmendment::findOrFail($amendmentId);
         $initialImage = $request->input('initial_image');
+
+        // AT-303 — GUARDED: an MDF disclosure-MARK amendment resolves via the
+        // self-contained mark path (ratify + re-lock + hand back to proposer),
+        // NOT the text-condition cascade. Every other amendment type is untouched.
+        if ($this->isMarkAmendment($amendment)) {
+            $this->signatureService->markAmendmentAccept($amendment, $signingRequest, $initialImage);
+            return response()->json(['ok' => true, 'accepted' => true, 'mark_amendment' => true]);
+        }
 
         $acceptance = $this->signatureService->acceptAmendment($amendment, $signingRequest, $initialImage);
 
@@ -3049,7 +3971,7 @@ CSS;
     {
         $signingRequest = SignatureRequest::where('token', $token)->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return response()->json(['ok' => false, 'error' => 'Link expired.'], 410);
         }
 
@@ -3060,6 +3982,15 @@ CSS;
             return response()->json(['ok' => false, 'error' => 'A reason is required when rejecting an amendment.'], 422);
         }
 
+        // AT-303 — GUARDED: declining an MDF mark amendment REVERTS to the
+        // original mark and routes back to the proposer (Johan's rule — no
+        // ping-pong, no auto-void). Other amendment types keep the existing
+        // reject behaviour (agent-notified) below.
+        if ($this->isMarkAmendment($amendment)) {
+            $this->signatureService->markAmendmentDecline($amendment, $signingRequest, $reason);
+            return response()->json(['ok' => true, 'rejected' => true, 'reverted' => true, 'mark_amendment' => true]);
+        }
+
         $acceptance = $this->signatureService->rejectAmendment($amendment, $signingRequest, $reason);
 
         return response()->json([
@@ -3068,6 +3999,145 @@ CSS;
             'acceptance_id' => $acceptance->id,
         ]);
     }
+
+    /** AT-303 — an MDF disclosure-mark amendment (guard for the mark path). */
+    private function isMarkAmendment(DocumentAmendment $amendment): bool
+    {
+        return $amendment->section_reference === 'Disclosure'
+            && $amendment->amendment_type === DocumentAmendment::TYPE_MODIFICATION;
+    }
+    /**
+     * AT-303 Stage 2 — a DOWNSTREAM owner recipient proposes a change to a
+     * LOCKED MDF disclosure mark: strike the original, apply the new value, and
+     * initial it. Creates a mark amendment + the proposer's own counter-initial,
+     * records it for the tracked-change render, and routes the document BACK to
+     * the earlier signer(s) to counter-initial before it can complete.
+     */
+    public function proposeDisclosureAmendment(Request $request, $token, $key)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)->with('template.document')->firstOrFail();
+
+        if ($signingRequest->isSigningBlocked()) {
+            return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
+        }
+
+        $template = $signingRequest->template;
+        $document = $template->document;
+        if (!$document) {
+            return response()->json(['ok' => false, 'error' => 'Document not found.'], 404);
+        }
+
+        // Only an owner/seller party may touch the disclosure grid.
+        $ownerTerms = ['owner_party', 'lessor', 'seller', 'landlord', 'owner'];
+        if (!in_array(strtolower((string) $signingRequest->party_role), $ownerTerms, true)) {
+            return response()->json(['ok' => false, 'error' => 'Only an owner/seller party may amend the disclosure.'], 403);
+        }
+
+        $webData = $document->web_template_data ?? [];
+        $lock = $webData['disclosure_lock'] ?? null;
+        if (!is_array($lock) || empty($lock['locked'])) {
+            return response()->json(['ok' => false, 'error' => 'The disclosure is not locked — edit it directly.'], 409);
+        }
+        // The proposer must be DOWNSTREAM of the lock (not its author).
+        if ((int) ($lock['request_id'] ?? 0) === (int) $signingRequest->id) {
+            return response()->json(['ok' => false, 'error' => 'You authored these answers — edit them directly.'], 409);
+        }
+
+        $lockedAnswers = (array) ($lock['answers'] ?? []);
+        if (!array_key_exists($key, $lockedAnswers)) {
+            return response()->json(['ok' => false, 'error' => 'Unknown disclosure item.'], 422);
+        }
+
+        $oldValue      = (string) $lockedAnswers[$key];
+        $newValue      = (string) $request->input('new_value', '');
+        $statement     = trim((string) $request->input('statement', '')) ?: $key;
+        $initialImage  = (string) $request->input('initial_image', '');
+
+        if ($newValue === '' || $newValue === $oldValue) {
+            return response()->json(['ok' => false, 'error' => 'Choose a different answer to propose a change.'], 422);
+        }
+        if (trim($initialImage) === '') {
+            return response()->json(['ok' => false, 'error' => 'Please initial your proposed change.'], 422);
+        }
+
+        $amendment = null;
+        DB::transaction(function () use (
+            $request, $template, $document, $signingRequest, $key, $oldValue, $newValue, $statement, $initialImage, &$amendment, &$webData
+        ) {
+            $version = (int) ($template->document_version ?? 1);
+            $amendment = DocumentAmendment::create([
+                'document_id'             => $document->id,
+                'signature_template_id'   => $template->id,
+                'amended_by_request_id'   => $signingRequest->id,
+                'amendment_type'          => DocumentAmendment::TYPE_MODIFICATION,
+                'flag_origin'             => DocumentAmendment::FLAG_ORIGIN_SIGNING_PARTY,
+                'flag_clause_ref'         => $key,
+                'section_reference'       => 'Disclosure',
+                'original_text'           => $statement . ': ' . strtoupper($oldValue),
+                'new_text'                => $statement . ': ' . strtoupper($newValue),
+                'document_version_before' => $version,
+                'document_version_after'  => $version + 1,
+                'document_hash_before'    => $template->document_hash,
+                'document_hash_after'     => null,
+                'status'                  => DocumentAmendment::STATUS_PENDING,
+            ]);
+
+            // The proposer affirms their OWN change with their initial.
+            AmendmentAcceptance::create([
+                'amendment_id'         => $amendment->id,
+                'signature_request_id' => $signingRequest->id,
+                'accepted'             => true,
+                'rejected'             => false,
+                'initial_image'        => $initialImage,
+            ]);
+
+            // Record the proposed mark for the tracked-change render + ratify/revert.
+            $marks = $webData['disclosure_mark_amendments'] ?? [];
+            $marks[$key] = [
+                'amendment_id'           => $amendment->id,
+                'statement'              => $statement,
+                'old'                    => $oldValue,
+                'new'                    => $newValue,
+                'proposed_by_request_id' => $signingRequest->id,
+                'proposed_by_name'       => $signingRequest->signer_name,
+                'proposer_initial_image' => $initialImage,
+                'status'                 => 'pending',
+            ];
+            $webData['disclosure_mark_amendments'] = $marks;
+            $document->update(['web_template_data' => $webData]);
+
+            SignatureAuditLog::create([
+                'signature_template_id' => $template->id,
+                'action' => 'disclosure_mark_amendment_proposed',
+                'actor_type' => SignatureAuditLog::ACTOR_SIGNER,
+                'actor_name' => $signingRequest->signer_name,
+                'actor_email' => $signingRequest->signer_email,
+                'actor_ip_address' => $request->ip(),
+                'actor_user_agent' => $request->userAgent(),
+                'signature_request_id' => $signingRequest->id,
+                'metadata_json' => [
+                    'amendment_id' => $amendment->id,
+                    'disclosure_key' => $key,
+                    'from' => $oldValue,
+                    'to' => $newValue,
+                ],
+            ]);
+
+            // The proposer waits until the earlier party has resolved the change.
+            $signingRequest->update(['status' => SignatureRequest::STATUS_WAITING]);
+
+            // Route BACK to the earlier signer(s) to counter-initial (identity-keyed).
+            $this->signatureService->handleAmendment($template, $amendment, $signingRequest);
+        });
+
+        return response()->json([
+            'ok' => true,
+            'amendment_id' => $amendment?->id,
+            'message' => 'Your proposed change has been sent to the other party to counter-initial.',
+            'redirect' => route('signatures.external.completed', $token),
+        ]);
+    }
+
 
     /**
      * Phase 1B.6 — extract numbered clause refs + previews from a document
@@ -3177,6 +4247,336 @@ CSS;
     }
 
     /**
+     * POST /sign/{token}/initial-change — WET-INK per-change initial from a RECIPIENT (external).
+     * Recipient-side of item 4: a recipient initials one change by its data-change-id → the shared
+     * change_initials map records their name (recorded via the token's signer identity). Prior
+     * signatures stay; a per-change consent, not a re-sign.
+     */
+    public function initialChange(Request $request, string $token): \Illuminate\Http\JsonResponse
+    {
+        $signingRequest = SignatureRequest::where('token', $token)
+            ->with('template')
+            ->firstOrFail();
+
+        if (! $this->signerCanAct($signingRequest)) {
+            return response()->json(['ok' => false, 'error' => 'Not authorised at this stage.'], 403);
+        }
+
+        $validated = $request->validate([
+            'change_id'     => ['required', 'string', 'max:64'],
+            'initial_image' => ['required', 'string'],   // the recipient's REAL captured initial (data URL)
+        ]);
+        $template = $signingRequest->template;
+        // GATING: this recipient can only fill THEIR OWN row slot (their canonical party key, from the token).
+        $partyKey = method_exists($signingRequest, 'canonicalPartyKey')
+            ? $signingRequest->canonicalPartyKey()
+            : (string) $signingRequest->party_role;
+        $result = app(\App\Services\Docuperfect\SignatureService::class)
+            ->recordChangeInitial($template, $validated['change_id'], (string) $signingRequest->signer_name, $partyKey, $validated['initial_image']);
+
+        return response()->json($result, empty($result['ok']) ? 422 : 200);
+    }
+
+    /**
+     * POST /sign/{token}/edit-selection — AT-373 increment 2: a RECIPIENT amends the document AT THEIR TURN,
+     * using the SAME wet-ink selection tool the agent uses. The recipient highlights a word/phrase/clause and
+     * strikes / rewords it (or routes a big change to Other Conditions via 'reference' mode); the strike is
+     * authored inline with the full-width per-party initial row so the recipient can then initial their own
+     * change with the standard sign/initial modal. Their identity is the token's signer (`canonicalPartyKey`),
+     * so authorship + slot ownership are the recipient's — never a bare role, never the agent.
+     *
+     * Guarded by signerCanAct() — the recipient may only amend on THEIR active turn (mirrors the internal
+     * SignatureController::editSelection re-edit gate, but keyed to the recipient's own turn rather than the
+     * template being returned-to-candidate). cc2 owns the completion routing that carries the raised amendment
+     * into the sequential chain-review cascade; this endpoint only AUTHORS the amendment on the recipient side.
+     */
+    /**
+     * Recipient self-revert (Johan 2026-08-11) — has ANY party other than $req signed
+     * this document yet? Edits may only be removed while the answer is NO; the moment
+     * another party signs, the agreed text is locked. Ground truth: another party's
+     * request in partially_signed/completed, OR any captured signature belonging to a
+     * different request on the same template.
+     */
+    private function anyOtherPartySigned(SignatureRequest $req): bool
+    {
+        $templateId = (int) $req->signature_template_id;
+
+        $otherByStatus = SignatureRequest::where('signature_template_id', $templateId)
+            ->where('id', '!=', $req->id)
+            ->whereIn('status', [SignatureRequest::STATUS_PARTIALLY_SIGNED, SignatureRequest::STATUS_COMPLETED])
+            ->exists();
+        if ($otherByStatus) {
+            return true;
+        }
+
+        return \App\Models\Docuperfect\Signature::where('signature_template_id', $templateId)
+            ->where('signature_request_id', '!=', $req->id)
+            ->exists();
+    }
+
+    /**
+     * Recipient self-revert (Johan 2026-08-11) — the current signer REMOVES one of their
+     * OWN pending edits (strike / reword) before signing, reverting the clause to the
+     * agreed original. Allowed only on their own turn, only while NO other party has
+     * signed, and only for a non-reverted, recipient-authored (actor_id null) change on
+     * THIS document. Reuses SelectionEditService::revertChange (audit-retained).
+     */
+    public function revertMyChange(Request $request, string $token): \Illuminate\Http\JsonResponse
+    {
+        $signingRequest = SignatureRequest::where('token', $token)
+            ->with('template.document')
+            ->firstOrFail();
+
+        if ($signingRequest->isSigningBlocked()) {
+            return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
+        }
+        if (! $this->signerCanAct($signingRequest)) {
+            return response()->json(['ok' => false, 'error' => 'It is not your turn.'], 403);
+        }
+        if ($this->anyOtherPartySigned($signingRequest)) {
+            return response()->json([
+                'ok'    => false,
+                'error' => 'Another party has already signed — changes can no longer be removed.',
+            ], 422);
+        }
+
+        $changeId = $request->validate(['change_id' => ['required', 'string', 'max:64']])['change_id'];
+
+        $template = $signingRequest->template;
+        $wtd = $template->document->web_template_data ?? [];
+
+        // The change must be a non-reverted, recipient-authored edit on this document.
+        $own = false;
+        foreach (($wtd['pending_body_changes'] ?? []) as $c) {
+            if (is_array($c)
+                && (string) ($c['change_id'] ?? '') === $changeId
+                && empty($c['reverted'])
+                && ($c['actor_id'] ?? null) === null
+            ) {
+                $own = true;
+                break;
+            }
+        }
+        if (! $own) {
+            return response()->json(['ok' => false, 'error' => 'That change cannot be removed.'], 422);
+        }
+
+        $result = app(\App\Services\Docuperfect\SelectionEditService::class)
+            ->revertChange($template, $changeId, null);
+
+        return response()->json($result, empty($result['ok']) ? 422 : 200);
+    }
+
+    /**
+     * AT-373 reject flow (Johan 2026-08-12) — the recipient REMOVES one change the agent rejected and
+     * sent back. Authorised by the reject-return marker naming THIS request (not the "no other party
+     * signed" rule — earlier parties HAVE signed here). Body clauses revert via SelectionEditService
+     * (audit-retained); Other Conditions are soft-deleted. Every removal is recorded ("rec removed").
+     * When the LAST rejected item is removed, the marker is cleared so re-signing is unblocked.
+     */
+    public function removeRejectedItem(Request $request, string $token): \Illuminate\Http\JsonResponse
+    {
+        $signingRequest = SignatureRequest::where('token', $token)
+            ->with('template.document')
+            ->firstOrFail();
+
+        if ($signingRequest->isSigningBlocked()) {
+            return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
+        }
+        if (! $this->signerCanAct($signingRequest)) {
+            return response()->json(['ok' => false, 'error' => 'It is not your turn.'], 403);
+        }
+
+        $data = $request->validate([
+            'kind' => ['required', 'string', 'in:body,condition'],
+            'id'   => ['required', 'string', 'max:64'],
+        ]);
+
+        $template = $signingRequest->template;
+        $wtd = is_array($template->document->web_template_data ?? null) ? $template->document->web_template_data : [];
+        $marker = $wtd['amendment_reject_return'] ?? null;
+        if (! is_array($marker) || (int) ($marker['editor_request_id'] ?? 0) !== (int) $signingRequest->id) {
+            return response()->json(['ok' => false, 'error' => 'There is no rejected change to remove.'], 422);
+        }
+
+        if ($data['kind'] === 'body') {
+            $changeId = (string) $data['id'];
+            if (! in_array($changeId, array_map('strval', $marker['rejected_change_ids'] ?? []), true)) {
+                return response()->json(['ok' => false, 'error' => 'That change was not among the rejected changes.'], 422);
+            }
+            $result = app(\App\Services\Docuperfect\SelectionEditService::class)
+                ->revertChange($template, $changeId, null);
+            if (empty($result['ok'])) {
+                return response()->json($result, 422);
+            }
+        } else {
+            $condId = (int) $data['id'];
+            if (! in_array($condId, array_map('intval', $marker['rejected_condition_ids'] ?? []), true)) {
+                return response()->json(['ok' => false, 'error' => 'That condition was not among the rejected changes.'], 422);
+            }
+            $cond = DocumentCondition::where('id', $condId)
+                ->where('signature_template_id', $template->id)
+                ->whereNull('superseded_at')
+                ->first();
+            if ($cond) {
+                $cond->delete(); // soft delete — recoverable; no hard deletes (non-negotiable #1)
+            }
+        }
+
+        // "rec removed" — record the recipient's removal of their own rejected change.
+        SignatureAuditLog::log(
+            $template,
+            'amendment_rejected_change_removed',
+            SignatureAuditLog::ACTOR_SIGNER,
+            $signingRequest->signer_name,
+            $signingRequest->signer_email,
+            requestId: $signingRequest->id,
+            ip: $request->ip(),
+            ua: $request->userAgent(),
+            metadata: ['kind' => $data['kind'], 'id' => (string) $data['id']],
+        );
+
+        // Recompute outstanding rejected items for this request; clear the marker once none remain.
+        $freshWtd = is_array($template->document->fresh()->web_template_data ?? null)
+            ? $template->document->fresh()->web_template_data : [];
+        $remainingBody = 0;
+        $rejChangeIds = array_map('strval', $marker['rejected_change_ids'] ?? []);
+        foreach (($freshWtd['pending_body_changes'] ?? []) as $c) {
+            if (is_array($c) && in_array((string) ($c['change_id'] ?? ''), $rejChangeIds, true) && empty($c['reverted'])) {
+                $remainingBody++;
+            }
+        }
+        $rejCondIds = array_map('intval', $marker['rejected_condition_ids'] ?? []);
+        $remainingCond = empty($rejCondIds) ? 0 : DocumentCondition::whereIn('id', $rejCondIds)
+            ->whereNull('superseded_at')->whereNull('deleted_at')->count();
+        $outstanding = $remainingBody + $remainingCond;
+
+        if ($outstanding === 0) {
+            $clearWtd = is_array($template->document->fresh()->web_template_data ?? null)
+                ? $template->document->fresh()->web_template_data : [];
+            unset($clearWtd['amendment_reject_return']);
+            $template->document->update(['web_template_data' => $clearWtd]);
+        }
+
+        return response()->json(['ok' => true, 'outstanding' => $outstanding]);
+    }
+
+    public function editSelection(Request $request, string $token): \Illuminate\Http\JsonResponse
+    {
+        $signingRequest = SignatureRequest::where('token', $token)
+            ->with('template.document')
+            ->firstOrFail();
+
+        if (! $this->signerCanAct($signingRequest)) {
+            return response()->json(['ok' => false, 'error' => 'It is not your turn to sign yet.'], 403);
+        }
+
+        // BOUNDED edit model v1 (Johan 2026-08-10) — a recipient edits ONCE (their initial turn). After the
+        // agent has re-edited and the document re-circulates for signatures (STATUS_AMENDMENT_INITIALING),
+        // there is NO third edit: the recipient can only accept-and-initial or DECLINE (decline → new
+        // document off-ramp). Blocking here enforces the bound server-side so a stray edit can never create
+        // an un-initialed mark that stalls the completion gate with no resolution path.
+        if (optional($signingRequest->template)->status === SignatureTemplate::STATUS_AMENDMENT_INITIALING) {
+            return response()->json([
+                'ok'    => false,
+                'error' => 'Changes are closed for this round — please initial the change to accept, or decline to request a new document.',
+            ], 422);
+        }
+
+        $validated = $request->validate([
+            'selected'    => ['required', 'string', 'max:8000'],
+            // replacement is required for inline/reference; a pure strike-out ('strike') has none.
+            'replacement' => ['nullable', 'string', 'max:8000', 'required_unless:mode,strike'],
+            'prefix'      => ['nullable', 'string', 'max:200'],
+            'suffix'      => ['nullable', 'string', 'max:200'],
+            'mode'        => ['nullable', 'in:inline,reference,strike'],
+        ]);
+
+        $template = $signingRequest->template;
+        // A recipient amends as THEMSELVES — they hold no CoreX user account, so the author actor is null and
+        // SelectionEditService resolves the agency from the template (never a null agency_id). Authorship +
+        // slot ownership are carried by the per-party initial row, which is keyed to every party including
+        // this recipient's canonicalPartyKey; the recipient then initials THEIR OWN slot at their turn.
+        $result = app(\App\Services\Docuperfect\SelectionEditService::class)->strikeSelection(
+            $template,
+            $validated['selected'],
+            $validated['prefix'] ?? '',
+            $validated['suffix'] ?? '',
+            $validated['replacement'] ?? '',
+            null,
+            $validated['mode'] ?? 'inline',
+        );
+
+        // FIX 3 diagnostic (Johan 2026-08-07) — a recipient's inline-fragment amend intermittently fails to
+        // LOCATE ("Could not locate the highlighted text") on live docs, but not reproducibly on fresh ones.
+        // When a locate fails, capture the EXACT payload + whether the selection's whitespace-stripped form is
+        // present in the document's text (and where), so the cause is unambiguous the instant it recurs —
+        // whether the client sent text absent from the amend source (present=NO) or the text is there but
+        // skipped (already inside a change mark / style — present=yes but locate still failed). Log-only;
+        // wrapped so it can never affect the response.
+        if (empty($result['ok'])) {
+            try {
+                $canvas   = \App\Services\Docuperfect\CanonicalDocumentRenderer::amendSource($template->document->web_template_data ?? []);
+                $docText  = (string) preg_replace('/\s+/u', '', strip_tags((string) preg_replace('/<(style|script)\b[^>]*>.*?<\/\1>/is', '', $canvas['html'] ?? '')));
+                $selDense = (string) preg_replace('/\s+/u', '', (string) $validated['selected']);
+                $pos      = $selDense !== '' ? mb_strpos($docText, $selDense) : false;
+                \Illuminate\Support\Facades\Log::warning('AT-373 recipient editSelection LOCATE-FAIL', [
+                    'document_id'       => $template->document?->id,
+                    'party_key'         => method_exists($signingRequest, 'canonicalPartyKey') ? $signingRequest->canonicalPartyKey() : $signingRequest->party_role,
+                    'error'             => $result['error'] ?? null,
+                    'mode'              => $validated['mode'] ?? 'inline',
+                    'baked'             => $canvas['baked'] ?? null,
+                    'selected'          => mb_substr((string) $validated['selected'], 0, 140),
+                    'prefix'            => mb_substr((string) ($validated['prefix'] ?? ''), 0, 60),
+                    'suffix'            => mb_substr((string) ($validated['suffix'] ?? ''), 0, 60),
+                    'selDenseInDocText' => $pos !== false ? "yes@{$pos}" : 'NO',
+                    'docTextSnippet'    => $pos !== false ? mb_substr($docText, max(0, $pos - 20), 90) : null,
+                ]);
+            } catch (\Throwable $e) { /* diagnostic must never break the amend response */ }
+        }
+
+        return response()->json($result, empty($result['ok']) ? 422 : 200);
+    }
+
+    /**
+     * AT-373 (inc5) — the editing party RE-ACCEPTS the reverted document after a chain node rejected
+     * their amendment. TWO mandatory ticks: the ECT-Act e-signature acknowledgment AND a distinct
+     * acknowledgment that the proposed amendment was removed and the document being accepted is the
+     * agreed one WITHOUT their change. Not a re-sign (their signature is preserved) — a consent. The
+     * service resumes the walk from the editor's position. Gated to the editor's own turn.
+     */
+    public function reacceptAfterReject(Request $request, string $token)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)
+            ->with('template.document')
+            ->firstOrFail();
+
+        if (! $this->signerCanAct($signingRequest)) {
+            return back()->with('error', 'This re-acceptance link is no longer active.');
+        }
+        if (optional($signingRequest->template)->status !== SignatureTemplate::STATUS_EDITOR_REACCEPTANCE) {
+            return back()->with('error', 'This document is not awaiting re-acceptance.');
+        }
+
+        // Both mandatory acknowledgments must be ticked (server-enforced — the client also gates them).
+        $request->validate([
+            'ect_act_ack'        => ['required', 'accepted'],
+            'amendment_removed_ack' => ['required', 'accepted'],
+        ], [
+            'ect_act_ack.accepted'         => 'You must accept the electronic-signature acknowledgment to continue.',
+            'amendment_removed_ack.accepted' => 'You must acknowledge that your proposed amendment has been removed to continue.',
+        ]);
+
+        $result = $this->signatureService->editorReaccept($signingRequest->template, $signingRequest);
+        if (empty($result['ok'])) {
+            return back()->with('error', $result['error'] ?? 'Could not record your re-acceptance.');
+        }
+
+        return redirect()->route('signatures.external.completed', $token)
+            ->with('status', 'Thank you — you have re-accepted the document without your proposed change.');
+    }
+
+    /**
      * POST /docuperfect/api/sign/{token}/conditions
      * Recipient adds a condition to one of the document's insertable blocks.
      */
@@ -3275,8 +4675,19 @@ CSS;
                 \App\Services\Docuperfect\InsertableBlockRenderer::CONTEXT_RECIPIENT_SIGNING,
                 $signingRequest->template,
                 $token,
-                $signingRequest->party_role
+                // AT-300 — resolve seller_2's distinct key (not seller_1).
+                \App\Services\Docuperfect\InsertableBlockRenderer::partyKeyForViewer(
+                    $signingRequest->template?->parties_json,
+                    (string) $signingRequest->party_role,
+                    (int) ($signingRequest->role_index ?? 1),
+                )
             );
+
+        // GAP 1 (A) — fold the new condition into the stored canonical so the
+        // print-from-approved artifact (agent review + PDF) contains it, not
+        // just the live DOM. Non-fatal.
+        app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)
+            ->refreshInsertableBlocks($signingRequest->template);
 
         return response()->json([
             'ok'               => true,
@@ -3287,251 +4698,19 @@ CSS;
         ], 201);
     }
 
-    /**
-     * POST /docuperfect/api/sign/{token}/flag-clause   (Phase 1B.6 — FIX 2)
-     *
-     * Recipient flags a numbered clause with a suggested change. Creates a
-     * DocumentAmendment row with amendment_type = 'flag_raised' (existing
-     * Phase 2 ES-4 enum value) and ALSO writes through to the legacy
-     * web_template_data.clause_flags JSON so the orange-flag display
-     * survives page refresh.
-     *
-     * Replaces Phase 1B.5's proposeStrikethrough — the override modal was
-     * the wrong abstraction. The flag UI is the recipient's clause-change
-     * path. Agent approval of a flag-raised amendment creates a numbered
-     * condition in the Other Conditions block with is_override = true.
-     */
-    public function flagClause(Request $request, string $token): \Illuminate\Http\JsonResponse
-    {
-        $signingRequest = SignatureRequest::where('token', $token)
-            ->with('template.document')
-            ->firstOrFail();
-
-        if (! $this->signerCanAct($signingRequest)) {
-            return response()->json(['error' => 'Not authorised at this stage.'], 403);
-        }
-
-        $validated = $request->validate([
-            'clause_ref'           => ['required', 'string', 'max:50'],
-            'clause_original_text' => ['required', 'string', 'max:4000'],
-            'suggested_change'     => ['required', 'string', 'max:4000'],
-            'reason'               => ['nullable', 'string', 'max:2000'],
-        ]);
-
-        $template = $signingRequest->template;
-        $document = $template->document;
-
-        $result = DB::transaction(function () use ($validated, $signingRequest, $template, $document) {
-            $version = (int) ($template->document_version ?? 1);
-
-            // Compose the flag-raised reason text — pair the suggested
-            // change with an optional why-explanation so the agent review
-            // surface (Phase 1B AmendmentController) has full context.
-            $flagReason = $validated['suggested_change'];
-            if (! empty($validated['reason'])) {
-                $flagReason .= "\n\nReason: " . $validated['reason'];
-            }
-
-            $amendment = DocumentAmendment::create([
-                'document_id'             => $document?->id,
-                'signature_template_id'   => $template->id,
-                'amended_by_request_id'   => $signingRequest->id,
-                'amendment_type'          => DocumentAmendment::TYPE_FLAG_RAISED,
-                'flag_origin'             => DocumentAmendment::FLAG_ORIGIN_SIGNING_PARTY,
-                'flag_clause_ref'         => $validated['clause_ref'],
-                'flag_reason'             => $flagReason,
-                'section_reference'       => 'Clause ' . $validated['clause_ref'],
-                'original_text'           => $validated['clause_original_text'],
-                'new_text'                => $validated['suggested_change'],
-                'document_version_before' => $version,
-                'document_version_after'  => $version,
-                'document_hash_before'    => $template->document_hash,
-                'document_hash_after'     => null,
-                'status'                  => DocumentAmendment::STATUS_PENDING,
-            ]);
-
-            // Phase 1B.6 (FIX 6) — write through to web_template_data
-            // .clause_flags JSON immediately so a refresh of the signing
-            // page can re-seed the visible flag indicator (was previously
-            // only persisted at signComplete time).
-            if ($document) {
-                $webData = $document->web_template_data ?? [];
-                $existing = $webData['clause_flags'][$signingRequest->party_role] ?? [];
-                $existing[] = [
-                    'clauseNum'         => $validated['clause_ref'],
-                    'concern'           => $validated['suggested_change'],
-                    'reason'            => $validated['reason'] ?? null,
-                    'amendment_id'      => $amendment->id,
-                    'flagged_at'        => now()->toIso8601String(),
-                    'status'            => 'pending_review',
-                ];
-                $webData['clause_flags'][$signingRequest->party_role] = $existing;
-                $document->update(['web_template_data' => $webData]);
-            }
-
-            $template->update([
-                'amendment_status' => SignatureTemplate::AMENDMENT_STATUS_PENDING_REVIEW,
-                'status'           => SignatureTemplate::STATUS_AMENDMENT_REVIEW,
-            ]);
-
-            SignatureAuditLog::log(
-                $template,
-                'clause_flagged_by_recipient',
-                SignatureAuditLog::ACTOR_SIGNER,
-                $signingRequest->signer_name ?? 'Unknown',
-                metadata: [
-                    'amendment_id' => $amendment->id,
-                    'clause_ref'   => $validated['clause_ref'],
-                ],
-            );
-
-            return $amendment;
-        });
-
-        // E-sign walk-fix FIX 4 — legal trail. Send the recipient an
-        // email confirming their proposed amendments are under agent
-        // review. Critical line for legal compliance: "this document
-        // is NOT legally binding until the agent has resolved your
-        // amendments and you have completed signing." Failures here
-        // never block the flag persistence — the amendment is already
-        // safe in the database; the email is the recipient-facing
-        // confirmation only.
-        try {
-            $agent = $template->creator;
-            $documentName = $template->document->name ?? 'Document';
-            $signingUrl = route('signatures.external', $signingRequest->token);
-            \Illuminate\Support\Facades\Mail::to($signingRequest->signer_email)
-                ->send((new \App\Mail\Signatures\AmendmentSubmittedToAgent(
-                    recipientName:   $signingRequest->signer_name ?? 'Signing party',
-                    documentName:    $documentName,
-                    agentName:       $agent?->name ?? 'the agent',
-                    clauseRef:       $validated['clause_ref'],
-                    suggestedChange: $validated['suggested_change'],
-                    reason:          $validated['reason'] ?? null,
-                    signingUrl:      $signingUrl,
-                ))->fromAgent($agent));
-        } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::error('Failed to send AmendmentSubmittedToAgent email', [
-                'amendment_id' => $result->id,
-                'recipient_email' => $signingRequest->signer_email,
-                'error' => $e->getMessage(),
-            ]);
-        }
-
-        return response()->json([
-            'ok'           => true,
-            'amendment_id' => $result->id,
-            'clause_ref'   => $validated['clause_ref'],
-        ], 201);
-    }
-
-    /**
-     * DELETE /docuperfect/api/sign/{token}/flag/{clauseRef}   (Phase 1B.9 — FIX 1, pre-completion)
-     *
-     * Recipient self-removes a flag they raised — allowed ONLY while the
-     * party has not yet completed signing AND the amendment is still in
-     * 'pending' state (agent hasn't acted on it).
-     *
-     * After signing completes, removal must go through the agent-initiated
-     * consent flow via FlagRemovalController.
-     */
-    public function removeOwnFlag(Request $request, string $token, string $clauseRef): \Illuminate\Http\JsonResponse
-    {
-        $signingRequest = SignatureRequest::where('token', $token)
-            ->with('template.document')
-            ->firstOrFail();
-
-        // Pre-completion gate. After completed_at is set the recipient
-        // can no longer unilaterally remove their own flag — they must
-        // go through the consent path.
-        if ($signingRequest->status === SignatureRequest::STATUS_COMPLETED
-            || $signingRequest->completed_at !== null
-        ) {
-            return response()->json([
-                'error' => 'You have already signed. Removing a flag now requires the agent to request your authenticated consent.',
-            ], 409);
-        }
-
-        $template = $signingRequest->template;
-        $document = $template?->document;
-        if (! $document) {
-            return response()->json(['error' => 'Document not found.'], 404);
-        }
-
-        // Find a pending amendment matching the clause + this party.
-        $amendment = DocumentAmendment::query()
-            ->where('signature_template_id', $template->id)
-            ->where('amendment_type', DocumentAmendment::TYPE_FLAG_RAISED)
-            ->where('flag_clause_ref', $clauseRef)
-            ->where('amended_by_request_id', $signingRequest->id)
-            ->where('status', DocumentAmendment::STATUS_PENDING)
-            ->latest('id')
-            ->first();
-
-        DB::transaction(function () use ($document, $signingRequest, $clauseRef, $amendment, $template) {
-            // Scrub the matching entry from clause_flags JSON.
-            $webData = $document->web_template_data ?? [];
-            $partyRole = $signingRequest->party_role;
-            $flagsByParty = $webData['clause_flags'] ?? [];
-            if ($partyRole && isset($flagsByParty[$partyRole]) && is_array($flagsByParty[$partyRole])) {
-                $flagsByParty[$partyRole] = array_values(array_filter(
-                    $flagsByParty[$partyRole],
-                    fn($f) => (string) ($f['clauseNum'] ?? '') !== (string) $clauseRef
-                ));
-                if (empty($flagsByParty[$partyRole])) {
-                    unset($flagsByParty[$partyRole]);
-                }
-                $webData['clause_flags'] = $flagsByParty;
-                $document->update(['web_template_data' => $webData]);
-            }
-
-            // Soft-delete the pending amendment (audit retained).
-            if ($amendment) {
-                $amendment->update(['status' => DocumentAmendment::STATUS_REJECTED]);
-                $amendment->delete();
-            }
-
-            // If this was the only pending amendment, clear amendment_status.
-            $stillPending = DocumentAmendment::query()
-                ->where('signature_template_id', $template->id)
-                ->where('status', DocumentAmendment::STATUS_PENDING)
-                ->exists();
-            if (! $stillPending) {
-                $template->update([
-                    'status'           => SignatureTemplate::STATUS_SIGNING,
-                    'amendment_status' => null,
-                ]);
-            }
-
-            SignatureAuditLog::log(
-                $template,
-                'flag_self_removed_pre_completion',
-                SignatureAuditLog::ACTOR_SIGNER,
-                $signingRequest->signer_name ?? 'Recipient',
-                metadata: [
-                    'clause_ref'    => $clauseRef,
-                    'amendment_id'  => $amendment?->id,
-                    'party_role'    => $partyRole,
-                ],
-            );
-        });
-
-        return response()->json(['ok' => true]);
-    }
 
     /**
      * POST /docuperfect/api/sign/{token}/strikethroughs  (Phase 1B.5 — deprecated)
      *
-     * Phase 1B.6 (FIX 2): retained as a soft-deprecated endpoint that 410s
-     * with a clear message. The recipient flow now uses flagClause()
-     * exclusively. Agent-side strikethrough creation (if introduced
-     * later) will go through a different path.
+     * Soft-deprecated endpoint that 410s with a clear message. Recipients now
+     * propose changes via the wet-ink amend tool at their signing turn
+     * (AT-373 — the recipient clause-flag flow was retired in inc7).
      */
     public function proposeStrikethrough(Request $request, string $token): \Illuminate\Http\JsonResponse
     {
         return response()->json([
-            'error' => 'The strikethrough override flow has been replaced by clause flagging. '
-                . 'Use POST /sign/{token}/flag-clause instead.',
+            'error' => 'The strikethrough override flow has been retired. '
+                . 'Propose changes using the amend tool at your signing turn.',
         ], 410);
 
         // The original implementation is retained below behind an
@@ -3685,7 +4864,16 @@ CSS;
             return response()->json(['error' => 'Condition not found on this document.'], 404);
         }
 
-        $partyKey = (string) $signingRequest->party_role;
+        // ESIGN AT-300 — attribute the initial to the signer's OWN party_key.
+        // For a 2nd+ same-role party (seller_2) party_role alone collapses onto
+        // seller_1; resolve the distinct parties_json instance from role_index so
+        // each recipient's initial is recorded against THEM. Single-instance
+        // roles (agent, lone seller) resolve back to party_role unchanged.
+        $partyKey = \App\Services\Docuperfect\InsertableBlockRenderer::partyKeyForViewer(
+            $signingRequest->template?->parties_json,
+            (string) $signingRequest->party_role,
+            (int) ($signingRequest->role_index ?? 1),
+        );
         if ($partyKey === '') {
             return response()->json(['error' => 'No party_role on this signing request.'], 400);
         }
@@ -3715,6 +4903,29 @@ CSS;
             'user_agent'           => substr((string) $request->userAgent(), 0, 500),
         ]);
 
+        // ESIGN AT-300 — unified initial capture. The condition-initial modal
+        // (the SAME draw/type modal every other initial uses) sends the ACTUAL
+        // drawn/typed ink as a data-URL. Adopt it as this party's initial in
+        // web_template_data['signed_initials'] — the identical store page-break
+        // initials use — so the condition renders the real ink via
+        // resolveAdoptedInitial (initial_image_path is varchar(255) and cannot
+        // hold a data-URL; the ink lives with every other initial, and the
+        // ConditionInitial row is the per-condition proof-of-consent). Keyed by
+        // condition so multiple conditions coexist without clobbering.
+        $initialImage = (string) $request->input('initial_image', '');
+        if (str_starts_with($initialImage, 'data:image') && strlen($initialImage) <= 2_000_000) {
+            $document = $signingRequest->template?->document;
+            if ($document) {
+                $wtd    = is_array($document->web_template_data) ? $document->web_template_data : [];
+                $signed = is_array($wtd['signed_initials'] ?? null) ? $wtd['signed_initials'] : [];
+                $group  = is_array($signed[$partyKey] ?? null) ? $signed[$partyKey] : [];
+                $group['condition_' . $condition->id] = $initialImage;
+                $signed[$partyKey] = $group;
+                $wtd['signed_initials'] = $signed;
+                $document->update(['web_template_data' => $wtd]);
+            }
+        }
+
         SignatureAuditLog::log(
             $signingRequest->template,
             'condition_initialed',
@@ -3728,6 +4939,12 @@ CSS;
                 'amendment_id'   => $condition->amendment_id,
             ],
         );
+
+        // GAP 1 (A) — bake this per-condition initial into the stored canonical
+        // (as the party's adopted ink) so it prints on the PDF and shows on
+        // agent review, not only in the live signing DOM. Non-fatal.
+        app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)
+            ->refreshInsertableBlocks($signingRequest->template);
 
         return response()->json([
             'ok'      => true,
@@ -3850,6 +5067,7 @@ CSS;
      * strikethroughs right now? Allowed when the request hasn't completed
      * and the template isn't terminal-state.
      */
+
     private function signerCanAct(SignatureRequest $req): bool
     {
         if (in_array($req->status, [
@@ -3912,89 +5130,4 @@ CSS;
         );
     }
 
-    /**
-     * ES-4 — promote signer-raised clause flags into first-class
-     * DocumentAmendment rows. Each flag becomes its own amendment so the
-     * agent review surface (Phase 1B) can render and action it through the
-     * same approve / reject / reject-document workflow as conditions and
-     * strikethroughs.
-     *
-     * Backward compatibility: the JSON note in
-     * docuperfect_documents.web_template_data['clause_flags'] is preserved
-     * by the caller — this method only ADDS the relational record.
-     *
-     * Failures are logged but never abort the signing transaction: a flag
-     * record that fails to write should not block the signer's signature
-     * commit.
-     *
-     * @param array $clauseFlags Array of { clauseNum, clauseIndex, concern }
-     *
-     * Spec: .ai/specs/esign-v3-complete-spec.md §17 ES-4
-     */
-    private function promoteClauseFlagsToAmendments(
-        SignatureRequest $signingRequest,
-        $document,
-        array $clauseFlags
-    ): void {
-        try {
-            $template = $signingRequest->template
-                ?? SignatureTemplate::find($signingRequest->signature_template_id);
-            if (! $template) {
-                return;
-            }
-
-            foreach ($clauseFlags as $flag) {
-                $clauseRef = $flag['clauseNum'] ?? $flag['clause_num'] ?? null;
-                $reason    = trim((string) ($flag['concern'] ?? $flag['reason'] ?? ''));
-                if ($reason === '') {
-                    // A flag without a concern note is still a signal the
-                    // signer stopped — but we can't action a blank. Skip
-                    // promotion in that case (the JSON note is still kept).
-                    continue;
-                }
-
-                $currentVersion = (int) ($template->document_version ?? 1);
-
-                DocumentAmendment::create([
-                    'document_id'              => $document->id,
-                    'signature_template_id'    => $template->id,
-                    'amended_by_request_id'    => $signingRequest->id,
-                    'amendment_type'           => DocumentAmendment::TYPE_FLAG_RAISED,
-                    'flag_origin'              => DocumentAmendment::FLAG_ORIGIN_SIGNING_PARTY,
-                    'flag_clause_ref'          => $clauseRef ? (string) $clauseRef : null,
-                    'flag_reason'              => $reason,
-                    'section_reference'        => $clauseRef ? ('Clause ' . $clauseRef) : 'Flag',
-                    'original_text'            => '',
-                    'new_text'                 => $reason,
-                    'document_version_before'  => $currentVersion,
-                    'document_version_after'   => $currentVersion,
-                    'document_hash_before'     => $template->document_hash,
-                    'document_hash_after'      => null,
-                    'status'                   => DocumentAmendment::STATUS_PENDING,
-                ]);
-            }
-
-            // Transition into review state so the agent picks it up.
-            $template->update([
-                'status'           => SignatureTemplate::STATUS_AMENDMENT_REVIEW,
-                'amendment_status' => SignatureTemplate::AMENDMENT_STATUS_PENDING_REVIEW,
-            ]);
-
-            SignatureAuditLog::log(
-                $template,
-                'flag_raised',
-                SignatureAuditLog::ACTOR_SIGNER,
-                $signingRequest->signer_name ?? 'Unknown',
-                metadata: [
-                    'flag_count'   => count($clauseFlags),
-                    'party_role'   => $signingRequest->party_role,
-                ],
-            );
-        } catch (\Throwable $e) {
-            Log::warning('ES-4 flag promotion failed', [
-                'request_id' => $signingRequest->id,
-                'error'      => $e->getMessage(),
-            ]);
-        }
-    }
 }

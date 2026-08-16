@@ -235,7 +235,7 @@
      (not on the agent wizard's Step 5). --}}
 @include('docuperfect.signatures.external._info-panel')
 
-<div x-data="externalSign()" x-init="init()" class="recipient-info-main max-w-4xl mx-auto px-4 py-6 space-y-4">
+<div x-data="externalSign()" x-init="init()" class="recipient-info-main recipient-info-main--wide mx-auto px-4 py-6 space-y-4">
 
     {{-- Phase 1B.6 (FIX 5) — banner shown when this party has already
          completed signing AND the document is now in an amendment
@@ -409,6 +409,10 @@
                 </button>
             </div>
         </div>
+
+        {{-- OPTIONAL supporting-document upload — shown on the sign-or-download screen.
+             Explicitly optional; signing is never gated on it. --}}
+        @include('docuperfect.signatures.external._supporting-upload', ['request' => $request])
     </div>
 
     {{-- ══════════════════════════════════════════════
@@ -417,19 +421,9 @@
     <template x-if="signingMethod === 'electronic'">
         <div class="space-y-4">
 
-            {{-- Progress bar --}}
-            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
-                <div class="flex items-center justify-between mb-2">
-                    <span class="text-sm font-medium text-slate-700">Signing Progress</span>
-                    <span class="text-sm text-slate-500">
-                        <span x-text="signedCount"></span> / <span x-text="totalRequired"></span> <span x-text="isWebTemplate ? 'items completed' : 'markers completed'"></span>
-                    </span>
-                </div>
-                <div class="w-full bg-slate-200 rounded-full h-2.5">
-                    <div class="bg-emerald-500 h-2.5 rounded-full transition-all duration-500"
-                         :style="'width:' + (totalRequired > 0 ? Math.round((signedCount / totalRequired) * 100) : 0) + '%'"></div>
-                </div>
-            </div>
+            {{-- Top "Signing Progress" bar REMOVED (Johan 2026-08-07) — the right-hand Amendments panel
+                 plus the bottom "Ready to submit / N items remaining" bar already convey progress; the
+                 top bar was redundant. signedCount/totalRequired are still computed for the bottom bar. --}}
 
             {{-- Completion overlay — prevents Alpine re-render issues --}}
             <div x-show="completionDone" x-cloak class="bg-white rounded-2xl shadow-sm border border-emerald-200 p-8 text-center" style="min-height:300px;">
@@ -453,11 +447,102 @@
             </div>
 
             {{-- Document viewer --}}
-            <div x-show="!completionDone" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 overflow-hidden flex flex-col" style="min-height:600px;">
+            <div x-show="!completionDone" class="recipient-doc-shell bg-white rounded-2xl shadow-sm border border-slate-200 p-4 flex flex-col" style="min-height:600px;">
+                {{-- AT-373 increment 2 — recipient amend tool (same wet-ink engine + standard
+                     sign/initial modal as the agent). Server-gated to the recipient's turn. --}}
+                {{-- AT-373 increment 2 — RECIPIENT wet-ink amend at their turn: HIGHLIGHT the exact word / phrase
+                     / clause anywhere in the document, then amend it. No clause numbers — the selection is
+                     the target. Entry via the floating ✎ by the selection AND a sticky toolbar. --}}
+                {{-- SHARED wet-ink amend tool (selectionEditor) — extracted to a partial so the
+                     recipient signing page AND the agent review page use the SAME tool (Johan
+                     2026-08-10). Recipient config below; layout column class = recipient-amend-col. --}}
+                @include('docuperfect.signatures.partials._selection-edit-tool', [
+                    'editSelectionUrl' => route('signatures.external.editSelection', $token),
+                    'viewerKey'        => $request->canonicalPartyKey() ?? $request->party_role,
+                    'pendingReview'    => (bool) ($wetInkPendingReview ?? false),
+                    'wrapperClass'     => 'recipient-amend-col',
+                    // BOUNDED edit model: once the doc re-circulates for signatures (amendment_initialing), a
+                    // recipient can only accept-and-initial or decline — NO third edit. Hide the amend tool.
+                    // Matches cc2's server guard in editSelection (422 when template is amendment_initialing).
+                    'allowEdit'        => empty($inAmendmentInitialing),
+                ])
+                {{-- AT-373 reject flow (Johan 2026-08-12): the "your agent rejected these — Remove" box now
+                     lives INSIDE the right-hand Amendments panel (partial _selection-edit-tool), so the
+                     recipient screen matches the agent review layout — ONE right column holding the
+                     amendments list AND the rejection/Remove box together (Johan 2026-08-12 fix #1). --}}
+                {{-- Recipient self-revert (Johan 2026-08-11) — the signer can REMOVE their own
+                     pending edits and sign the document as originally agreed, so long as no
+                     other party has signed. Each Remove reverts that clause to the original. --}}
+                @if(!empty($myRemovableChanges))
+                    <div class="rounded-xl border p-4 mb-3" style="background:#fffbeb; border-color:#fde68a;">
+                        <div style="font-size:13px; font-weight:700; color:#92400e;">Your proposed change{{ count($myRemovableChanges) === 1 ? '' : 's' }}</div>
+                        <div style="font-size:12px; color:#92400e; margin-top:2px;">
+                            You edited this document. To sign it as originally agreed, remove your change{{ count($myRemovableChanges) === 1 ? '' : 's' }} below — this reverts the text to the original. Available only until another party signs.
+                        </div>
+                        <div style="margin-top:10px; display:flex; flex-direction:column; gap:8px;">
+                            @foreach($myRemovableChanges as $chg)
+                                <div class="flex items-center justify-between gap-3 rounded-lg" style="background:#fff; border:1px solid #fde68a; padding:8px 10px;">
+                                    <div class="min-w-0" style="font-size:12px; color:#334155;">
+                                        <span style="text-decoration:line-through; color:#b91c1c;">{{ \Illuminate\Support\Str::limit($chg['old'], 120) }}</span>
+                                        @if($chg['new'] !== '')
+                                            <span style="color:#059669;"> &rarr; {{ \Illuminate\Support\Str::limit($chg['new'], 120) }}</span>
+                                        @endif
+                                    </div>
+                                    <button type="button" @click="removeMyEdit(@js($chg['change_id']))"
+                                            :disabled="removingEdit"
+                                            style="flex-shrink:0; font-size:12px; font-weight:600; color:#fff; background:#dc2626; border:0; border-radius:7px; padding:6px 12px; cursor:pointer;">
+                                        Remove
+                                    </button>
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
+                {{-- Recipient-only styles: the 3-column layout that positions the amend column, plus
+                     the change-margin display (NOT part of the shared tool). --}}
+                <style>
+                    /* ── TRUE 3-COLUMN LAYOUT (Johan 2026-08-07) ──────────────────────────────────────────────
+                       [ fixed left "How to sign" rail ] | [ document column ] | [ "Amendments" panel column ].
+                       The document viewer card becomes a flex ROW: the document (recipient-doc-main) and the
+                       Amendments panel column (recipient-amend-col) are real flow siblings — the panel is NOT a
+                       fixed overlay over the document, so they never overlap. The A4 body is a fixed 794px, and
+                       the left rail eats 304px, so the row only fits from ~1400px up; below that the panel STACKS
+                       under the document. The panel is position:sticky WITHIN its own column so it stays in view
+                       while scrolling. */
+                    .recipient-info-main--wide { max-width: 1280px; }
+                    /* order at ALL widths so the document is first — on narrow the panel stacks BELOW it,
+                       on wide it sits to the RIGHT of it. */
+                    .recipient-doc-main  { order: 1; }
+                    .recipient-amend-col { order: 2; width: 100%; }
+                    @media (min-width: 1440px) {
+                        .recipient-doc-shell { flex-direction: row !important; align-items: flex-start; gap: 16px; }
+                        .recipient-doc-main  { flex: 1 1 auto; min-width: 0; }
+                        .recipient-amend-col { flex: 0 0 260px; width: 260px; align-self: stretch; }
+                    }
+                    .change-margin { float: right; clear: right; margin: .1rem 0 .35rem 1rem; padding: .2rem .55rem;
+                        border-left: 3px solid #d97706; background: #fffbeb; border-radius: 0 6px 6px 0; font-size: .62rem; color: #92400e; max-width: 40%; }
+                    .change-margin-label { display: block; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; opacity: .7; margin-bottom: 2px; }
+                    .cm-slot { display: block; padding: 2px 0; border-bottom: 1px dotted #f59e0b; color: #92400e; }
+                    .cm-slot:last-child { border-bottom: 0; }
+                    .cm-slot .cm-name { opacity: .85; }
+                    .cm-slot .cm-ink { font-weight: 700; font-family: 'Segoe Script','Comic Sans MS',cursive; }
+                    .cm-slot.cm-filled { color: #166534; border-bottom-color: #22c55e; }
+                    .cm-slot.cm-filled .cm-ink { color: #166534; }
+                </style>
+
 
                 {{-- Web template: render HTML directly — document elements are the interactive surface --}}
                 <template x-if="isWebTemplate">
-                    <div class="flex-1 overflow-auto" style="background:#e2e8f0; padding:16px 0; min-width:794px;">
+                    <div class="recipient-doc-main flex-1 overflow-auto" style="background:#e2e8f0; padding:16px 0; min-width:794px;">
+                        {{-- AT-303 Stage 1 — disclosure-mark lock notice for a DOWNSTREAM
+                             recipient whose shared MDF disclosure grid was already signed
+                             by an earlier party (grid renders read-only). --}}
+                        <template x-if="disclosureMarksLocked">
+                            <div style="width:210mm; max-width:100%; margin:0 auto 12px; padding:10px 14px; border:1px solid #fcd34d; background:#fffbeb; border-radius:8px; font-size:13px; color:#92400e; line-height:1.45;">
+                                <strong>Disclosure answers are locked.</strong>
+                                <span x-text="'These answers were completed and signed by ' + ((disclosureLockInfo && disclosureLockInfo.by) || 'an earlier signer') + ' and are read-only for you. If an answer needs to change, contact your agent to raise an amendment.'"></span>
+                            </div>
+                        </template>
                         <div x-ref="pageContainer" class="relative"
                              style="width:210mm; max-width:100%; margin:0 auto;">
                             {{-- Shared visual contract — Step 4 / Step 5 /
@@ -508,7 +593,15 @@
                                  Positioned with absolute % values relative to the paginated container.
                                  Container width locked to 210mm (A4) to match setup coordinate system. --}}
                             <template x-for="marker in markers" :key="'wm-' + marker.id">
-                                <div x-show="!hasFlattened || (marker.is_mine && !marker.signed)"
+                                {{-- ESIGN-WETINK BUG6 — the empty emerald "green rectangles": the OTHER-party
+                                     marker overlay's INNER content is x-if="false" (AT-300), but this OUTER
+                                     positioned box still rendered for every marker (the old x-show fired on
+                                     !hasFlattened for web templates), leaving an empty markerDisplayClasses
+                                     box (emerald border) floating above the letterhead. Recipients + the agent
+                                     only ever need their OWN markers here (prior parties' ink is baked into the
+                                     canonical body), so render the positioned box ONLY when marker.is_mine.
+                                     Other parties' markers never get a box → no green rectangles. --}}
+                                <div x-show="marker.is_mine"
                                      class="absolute flex items-center justify-center select-none transition-all duration-200"
                                      :id="'marker-' + marker.id"
                                      :style="`left:${marker.x_position}%;top:${marker.y_position}%;width:${marker.width}%;height:40px;max-width:200px;z-index:10;`"
@@ -542,9 +635,9 @@
                                     </template>
 
                                     {{-- Other party's marker --}}
-                                    <template x-if="!marker.is_mine">
+                                    <template x-if="false /* AT-300 — remove the OTHER-party marker overlay from the recipient view entirely. AT-291 ③ hid only its inner (signed) content, leaving an empty emerald-outlined box above the letterhead (Johan's 'green boxes'). Recipients only need their OWN markers (marker.is_mine, rendered above); other parties' markers are not their concern. */">
                                         <div class="flex flex-col items-center justify-center w-full h-full px-1 opacity-60">
-                                            <template x-if="marker.signed">
+                                            <template x-if="false /* AT-291 ITEM 3 — the green '<party> (signed)' attribution chip for OTHER parties is hidden from the recipient signing view: it surfaced other parties' signing progress the recipient doesn't need, and was exactly where the same-family role mis-match lit a green chip for the WRONG party. The recipient still sees their own 'Signed/Done' indicator and the 'not yours' lock on unsigned other-party fields. Retained on the agent view (SignatureController::sign — separate blade). */">
                                                 <div class="flex flex-col items-center">
                                                     <svg class="w-3.5 h-3.5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                                         <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
@@ -570,7 +663,7 @@
 
                 {{-- PDF template: page images with overlays --}}
                 <template x-if="!isWebTemplate">
-                    <div>
+                    <div class="recipient-doc-main">
 
                 {{-- Page navigation --}}
                 <div class="flex items-center justify-between mb-3 flex-shrink-0">
@@ -785,9 +878,9 @@
                                 </template>
 
                                 {{-- Other party's marker --}}
-                                <template x-if="!marker.is_mine">
+                                <template x-if="false /* AT-300 — remove other-party marker overlay from recipient view (PDF path); see web-path note above. */">
                                     <div class="flex flex-col items-center justify-center w-full h-full px-1 opacity-60">
-                                        <template x-if="marker.signed">
+                                        <template x-if="false /* AT-291 ITEM 3 — the green '<party> (signed)' attribution chip for OTHER parties is hidden from the recipient signing view: it surfaced other parties' signing progress the recipient doesn't need, and was exactly where the same-family role mis-match lit a green chip for the WRONG party. The recipient still sees their own 'Signed/Done' indicator and the 'not yours' lock on unsigned other-party fields. Retained on the agent view (SignatureController::sign — separate blade). */">
                                             <div class="flex flex-col items-center">
                                                 <svg class="w-3.5 h-3.5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
@@ -814,39 +907,62 @@
                 </template>
             </div>
 
-            {{-- Walk-fix FIX 4 — flag-blocks-signing.
-                 When the recipient has flagged any clause, the consent +
-                 submit surface is HIDDEN and a single "Amendments under
-                 review" CTA replaces it. No signature possible while the
-                 agent has not yet resolved the recipient's proposed
-                 amendments — informed-consent legal requirement.
-                 Surface unlocks automatically once the server marks the
-                 flags as resolved (status moves out of 'pending_review'). --}}
-            <template x-if="isWebTemplate && hasPendingRecipientFlags">
-                <div class="bg-amber-50 rounded-2xl shadow-sm border border-amber-300 p-5 space-y-3"
-                     data-flag-blocks-signing="active">
-                    <div class="flex items-start gap-3">
-                        <svg class="w-6 h-6 text-amber-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 21h18M12 3v18M5 9l7-6 7 6"/>
-                        </svg>
-                        <div class="flex-1">
-                            <h3 class="text-base font-semibold text-amber-900 mb-1">
-                                Your proposed amendments are under review
-                            </h3>
-                            <p class="text-sm text-amber-800 leading-relaxed">
-                                You've flagged <span x-text="webClauseFlaggedItems.length"></span>
-                                clause<span x-show="webClauseFlaggedItems.length !== 1">s</span> for the agent to review. Signing is paused until the agent has resolved your proposed amendments. You'll receive an email when the agent acts — return to this link then to complete signing.
-                            </p>
-                            <p class="text-xs text-amber-700 mt-3">
-                                This document is not legally binding until the agent has resolved your amendments and you have completed signing.
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            </template>
 
-            {{-- Web Template Consent + Submit (only for live HTML signing). Hidden by flag-blocks-signing above. --}}
-            <template x-if="isWebTemplate && !hasPendingRecipientFlags">
+            {{-- AT-373 (inc5) — EDITOR RE-ACCEPTANCE. A chain node rejected this signer's amendment; it
+                 was reverted. The editing party must re-accept the reverted document with TWO mandatory
+                 ticks (the ECT-Act acknowledgment + a distinct amendment-removed acknowledgment). This
+                 replaces the normal consent/submit footer for the editor while the doc is in re-acceptance;
+                 their signature is preserved (no re-sign). Server-gated: reacceptanceMode is only true for
+                 the editor's own request at status editor_reacceptance. --}}
+            @if($reacceptanceMode ?? false)
+                <div class="bg-white rounded-2xl shadow-sm border border-amber-300 p-5 space-y-4"
+                     x-data="{ ectAck: false, removedAck: false, submitting: false }">
+                    <div class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                        <p class="font-semibold">Your proposed amendment was not approved and has been removed.</p>
+                        <p class="mt-1">The document below is the agreed document <span class="font-semibold">without</span> your proposed change. Your signature stays in place. To continue, please re-accept it.</p>
+                        @if(!empty($reacceptanceReason))
+                            <p class="mt-2 text-amber-800"><span class="font-semibold">Reason given:</span> {{ $reacceptanceReason }}</p>
+                        @endif
+                    </div>
+                    <form method="POST" action="{{ route('signatures.external.reaccept', $token) }}" @submit="submitting = true">
+                        @csrf
+                        <label class="flex items-start gap-3 cursor-pointer mb-3">
+                            <input type="checkbox" name="ect_act_ack" value="1" x-model="ectAck" required
+                                   class="mt-0.5 w-4 h-4 text-teal-600 rounded border-slate-300 focus:ring-teal-500">
+                            <span class="text-sm text-slate-700 leading-relaxed">
+                                I confirm that I have read and understood this document. I consent to signing it
+                                electronically and understand that my electronic signature has the same legal effect
+                                as a handwritten signature under South African law (ECTA Section 13).
+                            </span>
+                        </label>
+                        <label class="flex items-start gap-3 cursor-pointer mb-4">
+                            <input type="checkbox" name="amendment_removed_ack" value="1" x-model="removedAck" required
+                                   class="mt-0.5 w-4 h-4 text-teal-600 rounded border-slate-300 focus:ring-teal-500">
+                            <span class="text-sm text-slate-700 leading-relaxed">
+                                I acknowledge that my proposed amendment(s) have been removed and that the document I am
+                                accepting is the agreed document <span class="font-semibold">without</span> my proposed changes.
+                            </span>
+                        </label>
+                        <div class="flex items-center justify-end">
+                            <button type="submit"
+                                    :disabled="!ectAck || !removedAck || submitting"
+                                    :class="(ectAck && removedAck && !submitting)
+                                        ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                        : 'bg-slate-100 text-slate-400 cursor-not-allowed'"
+                                    class="rounded-lg px-6 py-2.5 text-sm font-medium transition-colors">
+                                <span x-show="!submitting">Re-accept Document</span>
+                                <span x-show="submitting" x-cloak>Submitting…</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            @endif
+
+            {{-- Web Template Consent + Submit (only for live HTML signing). Suppressed entirely in
+                 re-acceptance mode (the editor re-accepts via the panel above — they have already
+                 signed, so there is no normal submit for them). --}}
+            @unless($reacceptanceMode ?? false)
+            <template x-if="isWebTemplate">
                 <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 space-y-4">
                     <label id="consent-checkbox-label" class="flex items-start gap-3 cursor-pointer">
                         <input type="checkbox" x-model="webConsented"
@@ -861,6 +977,13 @@
                         </span>
                     </label>
 
+                    {{-- WET-INK gate — the viewer must apply their own initial to every amendment before submitting. --}}
+                    <div x-show="changeInitialsRemaining > 0" x-cloak
+                         class="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
+                        <span class="font-semibold" x-text="changeInitialsRemaining"></span>
+                        amendment initial<span x-show="changeInitialsRemaining !== 1">s</span> outstanding —
+                        initial each amended clause (the highlighted slot with your name) before you can submit.
+                    </div>
                     <div class="flex items-center justify-end gap-3">
                         <button @click="signingMethod = null"
                                 class="text-sm text-slate-500 hover:text-slate-700 font-medium">
@@ -878,6 +1001,7 @@
                     </div>
                 </div>
             </template>
+            @endunless
 
             {{-- Complete Signing (standard marker-based flow — hidden for web templates) --}}
             <div x-show="!isWebTemplate" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 flex items-center justify-between">
@@ -948,87 +1072,45 @@
                 </button>
             </div>
 
-            {{-- Signature capture modal --}}
-            <div x-show="showSignModal" x-cloak x-transition.opacity
-                 class="fixed inset-0 z-50 flex items-center justify-center"
+            {{-- Signature capture modal — THE single capture component (markers + conditions) --}}
+            @include('docuperfect.signatures.partials._capture-modal', [
+                'show' => 'showSignModal', 'mode' => 'captureMode', 'typed' => 'typedName',
+                'apply' => 'applySignature', 'clear' => 'clearCanvas', 'init' => 'initCanvas',
+                'canvasRef' => 'signatureCanvas', 'variant' => 'pad',
+                // Saved-signature: agents can place their saved signature/initial (PIN once).
+                'savedSignatureSupport' => ($isAgent ?? false),
+            ])
+
+            @if($isAgent ?? false)
+            {{-- Saved-signature PIN unlock (agent-only). Enter the signing PIN ONCE per
+                 document; then place the saved signature/initial with no PIN per page.
+                 A switch-user/impersonated session can never unlock (server guards it). --}}
+            <div x-show="savedPinOpen" x-cloak x-transition.opacity
+                 class="fixed inset-0 z-[70] flex items-center justify-center"
                  style="background:rgba(0,0,0,0.6);"
-                 @keydown.escape.window="showSignModal = false">
-                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden" @click.stop>
-
-                    <div class="px-6 py-4 border-b border-slate-200" style="background:#0b2a4a;">
-                        <h3 class="text-white font-semibold text-lg">
-                            Sign: <span x-text="activeMarker ? markerLabel(activeMarker) : ''"></span>
-                            <span class="text-white/50 text-sm" x-text="activeMarker ? '— Page ' + activeMarker.page_number : ''"></span>
-                        </h3>
+                 @keydown.escape.window="savedPinOpen = false">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden" @click.stop>
+                    <div class="px-6 py-4" style="background:#0b2a4a;">
+                        <h3 class="text-white font-semibold text-base">Unlock your saved signature</h3>
                     </div>
-
-                    <div class="p-6 space-y-4">
-                        {{-- Mode tabs --}}
-                        <div class="flex gap-2">
-                            <button @click="captureMode = 'draw'; $nextTick(() => initCanvas())"
-                                    class="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                                    :class="captureMode === 'draw' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'">
-                                Draw
-                            </button>
-                            <button @click="captureMode = 'type'"
-                                    class="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                                    :class="captureMode === 'type' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'">
-                                Type
-                            </button>
-                        </div>
-
-                        {{-- Draw mode --}}
-                        <div x-show="captureMode === 'draw'" x-transition>
-                            <div class="border-2 border-slate-300 rounded-xl bg-white overflow-hidden" style="touch-action:none;">
-                                <canvas x-ref="signatureCanvas" class="w-full block" style="height:160px; cursor:crosshair;"></canvas>
-                            </div>
-                            <div class="flex justify-between items-center mt-2">
-                                <button @click="clearCanvas()" class="text-sm text-slate-500 hover:text-slate-700 font-medium">Clear</button>
-                                <span class="text-xs text-slate-400">Draw your signature above</span>
-                            </div>
-                        </div>
-
-                        {{-- Type mode --}}
-                        <div x-show="captureMode === 'type'" x-transition>
-                            <div class="mb-3">
-                                <label class="block text-xs font-medium text-slate-600 mb-1">Type your name</label>
-                                <input type="text" x-model="typedName"
-                                       class="w-full rounded-lg border-slate-300 text-sm px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
-                                       :placeholder="activeMarker && activeMarker.type === 'initial' ? 'Your initials' : 'Your full name'">
-                            </div>
-                            <div class="border-2 border-slate-200 rounded-xl bg-slate-50 p-4 min-h-[80px] flex items-center">
-                                <template x-if="typedName.trim()">
-                                    <span class="text-4xl text-slate-800" style="font-family:'Dancing Script',cursive;" x-text="typedName"></span>
-                                </template>
-                                <template x-if="!typedName.trim()">
-                                    <span class="text-sm text-slate-400 italic">Preview will appear here</span>
-                                </template>
-                            </div>
-                            <canvas x-ref="typedCanvas" class="hidden" width="400" height="100"></canvas>
-                        </div>
-
-                        <p class="text-xs text-slate-500 leading-relaxed">
-                            By signing, you confirm your identity and consent to this document.
-                            Your signature will be recorded with a timestamp and IP address.
-                        </p>
-
-                        <div class="flex items-center justify-end gap-3 pt-2">
-                            <button @click="showSignModal = false"
-                                    class="px-4 py-2.5 text-sm text-slate-600 hover:text-slate-800 font-medium">
-                                Cancel
-                            </button>
-                            <button @click="applySignature()"
-                                    class="rounded-lg px-6 py-2.5 text-sm font-semibold text-white transition-colors"
+                    <div class="p-6 space-y-3">
+                        <p class="text-sm text-slate-600">Enter your <strong>signing PIN</strong> to place your saved signature on this document.</p>
+                        <input type="password" x-model="savedPin" inputmode="numeric" autocomplete="off"
+                               placeholder="Signing PIN" @keydown.enter="submitSavedPin()"
+                               class="w-full rounded-lg border border-slate-300 text-sm px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <p x-show="savedPinError" x-cloak class="text-xs text-red-600" x-text="savedPinError"></p>
+                        <div class="flex items-center justify-end gap-3 pt-1">
+                            <button @click="savedPinOpen = false" class="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 font-medium">Cancel</button>
+                            <button @click="submitSavedPin()" :disabled="savedPinLoading || !savedPin"
+                                    class="rounded-lg px-5 py-2 text-sm font-semibold text-white"
+                                    :class="(savedPinLoading || !savedPin) ? 'opacity-50 cursor-not-allowed' : ''"
                                     style="background:#0b2a4a;"
-                                    :disabled="applying"
-                                    :class="applying ? 'opacity-50 cursor-not-allowed' : ''">
-                                <span x-show="!applying">Apply Signature</span>
-                                <span x-show="applying" x-cloak>Applying...</span>
-                            </button>
+                                    x-text="savedPinLoading ? 'Unlocking…' : 'Unlock'"></button>
                         </div>
                     </div>
                 </div>
             </div>
+            @endif
 
             {{-- Apply-to-all modal --}}
             <div x-show="showApplyAll" x-cloak x-transition.opacity
@@ -1305,67 +1387,21 @@
         </div>
     </div>
 
-    {{-- Web signature capture modal --}}
-    <div x-show="showWebSigCapture" x-cloak x-transition.opacity
-         class="fixed inset-0 z-50 flex items-center justify-center"
-         style="background:rgba(0,0,0,0.6);"
-         @keydown.escape.window="showWebSigCapture = false">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden" @click.stop>
-            <div class="px-6 py-4 border-b border-slate-200" style="background:#0b2a4a;">
-                <h3 class="text-white font-semibold text-lg">Sign Here</h3>
-            </div>
-            <div class="p-6 space-y-4">
-                {{-- Mode tabs --}}
-                <div class="flex gap-2">
-                    <button @click="webSigMode = 'draw'; $nextTick(() => initWebSigCanvas())"
-                            class="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                            :class="webSigMode === 'draw' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'">
-                        Draw
-                    </button>
-                    <button @click="webSigMode = 'type'"
-                            class="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                            :class="webSigMode === 'type' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'">
-                        Type
-                    </button>
-                </div>
-
-                {{-- Draw mode --}}
-                <div x-show="webSigMode === 'draw'">
-                    <canvas x-ref="webSigCanvas"
-                            width="400" height="150"
-                            class="border border-slate-300 rounded bg-white w-full cursor-crosshair"
-                            @mousedown="webStartDrawing($event)"
-                            @mousemove="webDraw($event)"
-                            @mouseup="webStopDrawing()"
-                            @mouseleave="webStopDrawing()"
-                            @touchstart.prevent="webStartDrawing($event)"
-                            @touchmove.prevent="webDraw($event)"
-                            @touchend="webStopDrawing()">
-                    </canvas>
-                </div>
-
-                {{-- Type mode --}}
-                <div x-show="webSigMode === 'type'">
-                    <input type="text" x-model="webTypedSignature"
-                           placeholder="Type your full name"
-                           class="w-full text-2xl border border-slate-300 rounded px-3 py-2"
-                           style="font-family: 'Dancing Script', cursive;">
-                </div>
-
-                <div class="flex items-center gap-3">
-                    <button @click="clearWebSignature()"
-                            class="text-xs text-slate-500 hover:text-slate-700">Clear</button>
-                    <div class="flex-1"></div>
-                    <button @click="showWebSigCapture = false"
-                            class="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 font-medium">Cancel</button>
-                    <button @click="applyWebSignature()"
-                            class="rounded-lg px-6 py-2 text-sm font-semibold text-white bg-teal-600 hover:bg-teal-700">
-                        Apply Signature
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
+    {{-- Web signature capture modal — THE single capture component (inline web-sig blocks + amendments).
+         Same component as the marker/condition modal above, so the recipient sees ONE consistent modal. --}}
+    @include('docuperfect.signatures.partials._capture-modal', [
+        'show' => 'showWebSigCapture', 'mode' => 'webSigMode', 'typed' => 'webTypedSignature',
+        'apply' => 'applyWebSignature', 'clear' => 'clearWebSignature', 'init' => 'initWebSigCanvas',
+        'canvasRef' => 'webSigCanvas', 'variant' => 'manual',
+        'title' => "'Sign Here'",
+        'placeholder' => "'Your full name'",
+        // Saved-signature: the inline web-sig markers (Click to sign / Click to initial) open THIS modal,
+        // so the "Use my saved signature 🔒" option must live here too (agents only). Wire it to the
+        // web-sig world: its own chooser + initial-detection from currentWebSigBlockId ('-init-').
+        'savedSignatureSupport' => ($isAgent ?? false),
+        'chooseSaved' => 'chooseSavedSignatureWeb',
+        'savedIsInitial' => "(currentWebSigBlockId || '').indexOf('-init-') !== -1",
+    ])
 
     {{-- Footer --}}
     <div class="text-center text-xs text-slate-400 pb-6">
@@ -1417,6 +1453,7 @@ function externalSign() {
         signedCount: {{ $signedCount }},
         totalRequired: {{ $totalMarkers }},
         token: @json($token),
+        removingEdit: false,
         partyRole: @json($request->party_role),
         signerName: @json($request->signer_name),
         fieldsDirty: false,
@@ -1447,6 +1484,23 @@ function externalSign() {
         // consent reasons. Computed server-side and seeded into Alpine here.
         isAgent: @json($isAgent ?? false),
 
+        // ── Saved-signature (foundation reuse) — agent-only ──
+        // Unlock the agent's saved signature once with their signing PIN, then place
+        // it (and the saved initial) at markers with no PIN per page. The server
+        // (AgentSignatureService) blocks impersonated sessions from unlocking/reading.
+        savedSigConfigured: false,
+        savedSigImpersonating: false,
+        savedSigUnlocked: false,
+        savedSignatureImg: null,
+        savedInitialImg: null,
+        savedPinOpen: false,
+        savedPin: '',
+        savedPinError: '',
+        savedPinLoading: false,
+        // Which modal requested the unlock, so submitSavedPin sets the RIGHT mode after unlocking:
+        // 'marker' → showSignModal (captureMode), 'web' → showWebSigCapture (webSigMode).
+        savedPinTarget: 'marker',
+
         // Decline
         showDeclineModal: false,
         declineReason: '',
@@ -1463,29 +1517,15 @@ function externalSign() {
         webSignatures: {},
         webDisclosureAnswers: {},
         storedDisclosure: @json($storedDisclosure ?? new \stdClass),
+        disclosureMarksLocked: @json($disclosureMarksLocked ?? false),   {{-- AT-303 Stage 1 --}}
+        disclosureLockInfo: @json($disclosureLockInfo ?? null),          {{-- AT-303 Stage 1 --}}
         webConsented: false,
         showWebSigCapture: false,
         currentWebSigBlockId: null,
+        pendingDisclosureAmend: null,   {{-- AT-303 Stage 2 — proposed disclosure-mark change awaiting the amender's initial --}}
         webSigMode: 'draw',
         webTypedSignature: '',
         webCeremonyValues: {},
-        // Phase 1B.6 (FIX 6) — seed from server-persisted clause_flags so
-        // a refresh after flagging restores the visible flag UI. The
-        // persistedClauseFlags JSON shape is keyed by party_role; we
-        // flatten to a per-clause list for client use.
-        webClauseFlaggedItems: (function () {
-            const persisted = @json($persistedClauseFlags ?? []);
-            const me = @json($request->party_role ?? '');
-            const mine = (persisted && persisted[me]) ? persisted[me] : [];
-            if (!Array.isArray(mine)) return [];
-            return mine.map((f, idx) => ({
-                clauseNum: f.clauseNum ?? f.clause_num ?? '',
-                clauseIndex: idx,
-                concern: f.concern ?? f.suggested_change ?? '',
-                amendment_id: f.amendment_id ?? null,
-                status: f.status ?? 'pending_review',
-            }));
-        })(),
         otherConditionsText: '',
         totalDisclosureRows: 0,
         webIsDrawing: false,
@@ -1493,6 +1533,7 @@ function externalSign() {
         webInitialElements: [],
         webInitialSigData: null,
         webIncompleteCount: 0,
+        changeInitialsRemaining: 0,
         showInitialApplyAll: false,
         pendingInitialSigData: null,
         pendingInitialBlockId: null,
@@ -1517,10 +1558,99 @@ function externalSign() {
 
         init() {
             this.firstSignatureDone = this.markers.some(m => m.is_mine && m.signed);
+            this.initSavedSig();   // agent-only saved-signature availability check
+
+            // ── Task 1: session keep-alive ──────────────────────────────────
+            // A recipient may sit on this page a long time (reading, on the phone
+            // with the agent) with no request hitting the server — long enough for
+            // the web session + CSRF token to lapse (SESSION_LIFETIME), so the next
+            // POST 419s and shows "Session expired. Please reload." Ping a tiny
+            // endpoint every few minutes — well under the shortest SESSION_LIFETIME
+            // — so the session (and its CSRF token) stays warm while the page is
+            // open. Best-effort; a missed ping only risks the old timeout.
+            const heartbeat = () => {
+                fetch('/sign/' + this.token + '/heartbeat', {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' },
+                    cache: 'no-store',
+                }).catch(() => {});
+            };
+            heartbeat(); // prime immediately on load
+            this._keepAliveTimer = setInterval(heartbeat, 240000); // every 4 min
 
             // Listen for method reset from wet ink back button
             this.$el.addEventListener('reset-method', () => {
                 this.signingMethod = null;
+            });
+
+            // Recipient-signing fix — when a per-condition initial is filled or
+            // a new condition is added (delegated handlers in the add-condition
+            // modal partial, outside Alpine scope), refresh the submit gate so
+            // the "N remaining" count reflects the just-completed condition.
+            document.addEventListener('corex-refresh-signing-count', () => {
+                if (this.isWebTemplate) this.updateIncompleteCount();
+            });
+
+            // ESIGN AT-300 — a recipient clicked a condition-initial slot. Open
+            // the SAME draw/type modal every other initial uses (one unified
+            // signing process — no one-click on the ceremony either). Claim the
+            // event so the shared partial does NOT one-click; applySignature()
+            // applies the captured ink to the condition.
+            document.addEventListener('corex-open-condition-initial', (e) => {
+                e.preventDefault();
+                const d = e.detail || {};
+                if (!d.el || d.el.classList.contains('initial-filled')) return;
+                this.activeMarker = {
+                    type: 'initial',
+                    assigned_party: d.partyKey || 'signer',
+                    label: 'Condition initial',
+                    page_number: '',
+                    _isConditionInitial: true,
+                    _conditionEl: d.el,
+                    _conditionId: d.conditionId,
+                    _conditionToken: d.token,
+                };
+                this.captureMode = 'draw';
+                // OTHER CONDITIONS block — PARTY-TYPE-AWARE seed (Johan 2026-08-04, #2/#5).
+                // The behaviour must match the rest of THIS signer's signing:
+                //   • AGENT signer (dispatching agent OR candidate-flow authoriser; isAgent
+                //     true) → PREFILLED with their initials, exactly like every other agent
+                //     initial field (mirrors the normal-marker seed below at openMarker).
+                //   • RECIPIENT (isAgent false) → EMPTY: they type their own mark, no
+                //     pre-adopted glyph, which would read as an already-adopted / locked
+                //     initial (legal informed consent — Johan 2026-08-03).
+                // Draw stays the default; the input stays editable (x-model, no readonly).
+                this.typedName = this.isAgent
+                    ? this.signerName.split(' ').map(n => n.charAt(0).toUpperCase()).join('')
+                    : '';
+                this.showSignModal = true;
+                this.$nextTick(() => this.initCanvas());
+            });
+
+            // WET-INK per-change initial (recipient / authoriser) — clicking YOUR OWN slot in a change's
+            // initial row opens the SAME capture modal; applySignature applies your REAL initial to that slot.
+            document.addEventListener('corex-open-change-initial', (e) => {
+                e.preventDefault();
+                const d = e.detail || {};
+                this.activeMarker = {
+                    type: 'initial', assigned_party: this.signerRole || 'signer', label: 'Initial this change',
+                    page_number: '', _isChangeInitial: true, _changeId: d.changeId, _partyKey: d.partyKey,
+                };
+                this.captureMode = 'draw';
+                // FIX 2 (Johan 2026-08-06) — the recipient must actively enter their OWN amendment initial
+                // (draw or type), not just click Apply on a pre-filled one. Start the field EMPTY (no
+                // auto-populated initials from signerName); the recipient types/draws it themselves.
+                this.typedName = '';
+                this.showSignModal = true;
+                this.$nextTick(() => this.initCanvas());
+            });
+
+            // WET-INK amendment CREATED at signing time (selectionEditor) — paint the struck mark + the
+            // per-party initial row IN PLACE at the captured selection, so creating an amendment never
+            // reloads (which would wipe in-progress field initials/signatures). Same bug class as the
+            // amendment-initial fix. The amendment is already persisted server-side; this is the display.
+            document.addEventListener('corex-amendment-created', (e) => {
+                this._paintNewAmendment(e.detail || {});
             });
 
             // For web templates: split into A4 pages, convert editable field spans to inputs, make sig elements interactive
@@ -1537,7 +1667,10 @@ function externalSign() {
                         this._makeWebElementsInteractive();
                         this._makeCeremonyFieldsEditable();
                         this._processAllDisclosures();
-                        this._initClauseFlagging();
+                        this._stripLiveSchedule();
+                        // The document body (and its change-marks) is now painted — tell the amendments panel
+                        // to (re)build its list. A discrete signal, NOT a MutationObserver.
+                        document.dispatchEvent(new CustomEvent('corex-doc-ready'));
                         // Compute incomplete count after all interactive elements are set up
                         setTimeout(() => {
                             this.updateIncompleteCount();
@@ -1581,7 +1714,21 @@ function externalSign() {
                     if (partyCounters[baseRole] === undefined) partyCounters[baseRole] = 0;
                     const sigKey = baseRole + '-sig-' + partyCounters[baseRole];
                     partyCounters[baseRole]++;
-                    const isMine = self.isMyWebSigBlock(rawParty);
+
+                    // ESIGN-WETINK — NEVER clobber baked ink. A marker that already
+                    // carries a locked signature (data-signed / embedded img) is left
+                    // EXACTLY as the canonical composed it, whether it is a prior
+                    // recipient's or the current signer's own already-signed block.
+                    // Only UNSIGNED markers are processed below.
+                    if (self._isMarkerSigned(el)) {
+                        el.classList.add('web-sig-other-signed');
+                        return;
+                    }
+
+                    // ESIGN-WETINK — decide "mine" by the signer's IDENTITY
+                    // (data-name / data-recipient-identity), not bare party role, so
+                    // recipient 2 is never offered recipient 1's same-role positions.
+                    const isMine = self._isMyMarker(el);
 
                     if (isMine) {
                         myCount++;
@@ -1596,17 +1743,11 @@ function externalSign() {
                             self.$nextTick(() => self.initWebSigCanvas());
                         });
                     } else {
-                        // Other party — check if already signed (img embedded in HTML)
-                        const existingImg = el.querySelector('img.web-sig-signed-img, img[alt="Signature"]');
-                        if (existingImg) {
-                            el.classList.add('web-sig-other-signed');
-                            // Already has a signature image embedded — leave as is
-                        } else {
-                            el.classList.add('web-sig-other-party');
-                            const partyLabel = rawParty.replace(/_/g, ' ');
-                            if (!el.querySelector('.sig-cell-label')) {
-                                el.innerHTML = '<div style="font-size:9px;color:#94a3b8;text-align:center;padding:4px;">Awaiting ' + partyLabel + '</div>';
-                            }
+                        // Other party, not yet signed — greyed placeholder.
+                        el.classList.add('web-sig-other-party');
+                        const partyLabel = rawParty.replace(/_/g, ' ');
+                        if (!el.querySelector('.sig-cell-label')) {
+                            el.innerHTML = '<div style="font-size:9px;color:#94a3b8;text-align:center;padding:4px;">Awaiting ' + partyLabel + '</div>';
                         }
                     }
                 });
@@ -1669,7 +1810,32 @@ function externalSign() {
                 const selector = '[data-marker-party][data-marker-type="' + fieldType + '"]';
                 container.querySelectorAll(selector).forEach(el => {
                     const rawParty = (el.dataset.markerParty || '').toLowerCase();
-                    const isMine = self.isMyWebSigBlock(rawParty);
+                    // ESIGN-WETINK — per-recipient scope. The per-recipient attestation
+                    // blocks ("Thus done and signed by the Seller (Anine)", "…(Andre)")
+                    // each carry their own data-recipient-identity on these ceremony
+                    // fields. Scope editability to the CURRENT signer's identity — NOT
+                    // just the party role, which matches EVERY same-role block and let
+                    // recipient 1 fill recipient 2's Location/date fields. Fall back to
+                    // the party-role check only for un-stamped single-block templates.
+                    const fieldIdentity = (el.dataset.recipientIdentity || '').toLowerCase();
+                    const myIdentity = (this.currentRoleIdentity || '').toLowerCase();
+                    // Ceremony key is per-IDENTITY, not per marker-party (Johan 2026-08). On a
+                    // LOOPED block (EATS shared signature-block, one per seller) BOTH sellers'
+                    // Location/date spans carry data-marker-party="seller" and differ only by
+                    // data-recipient-identity — so keying by rawParty collided the 2nd seller
+                    // onto the 1st (his Location/date never persisted). Key by the span's own
+                    // recipient-identity when present ("seller_1"->"seller" to match the
+                    // canonical key, "seller_2" stays), so each recipient's value binds to
+                    // THEIR identity across every pack doc.
+                    const ceremonyKeyParty = fieldIdentity ? fieldIdentity.replace(/_1$/, '') : rawParty;
+                    // Fold through the checkpoint family so the authorising practitioner's
+                    // 'supervisor'-identity ceremony fields are editable by their signing
+                    // request ('supervisor_1' / 'supervisor_final_1' both fold to
+                    // 'supervisor'). Index-preserving for everyone else — seller_1 and
+                    // seller_2 never bleed onto each other.
+                    const isMine = fieldIdentity !== ''
+                        ? (self._foldIdentity(fieldIdentity) === self._foldIdentity(myIdentity))
+                        : self.isMyWebSigBlock(rawParty);
 
                     if (!isMine) {
                         // Other party or already-filled — leave as read-only
@@ -1679,10 +1845,27 @@ function externalSign() {
                         return;
                     }
 
+                    // RETURNING-SIGNER round (re-initial / re-acceptance): this ceremony span already carries
+                    // the value captured at INITIAL signing — cc2's serve path (applyCeremonyValues) filled it
+                    // and stamped data-signed="true". A signer's original place/date/time is a HISTORICAL FACT,
+                    // not re-editable in this round; and prefills has NO 'location' key, so replacing the filled
+                    // span with a fresh editable input would BLANK the location (Johan 2026-08-08). Keep it
+                    // READ-ONLY showing the persisted value, and register it so it travels + never counts as
+                    // incomplete. (A first-time signer's ceremony spans are never data-signed, so they still
+                    // become editable inputs below.)
+                    if (el.getAttribute('data-signed') === 'true') {
+                        const carried = el.textContent.trim();
+                        if (carried !== '') {
+                            self.webCeremonyValues[ceremonyKeyParty + '_' + fieldType] = carried;
+                        }
+                        return;
+                    }
+
                     // Replace span with an inline input
                     const input = document.createElement('input');
                     input.type = 'text';
                     input.setAttribute('data-marker-party', el.dataset.markerParty);
+                    input.setAttribute('data-recipient-identity', el.dataset.recipientIdentity || '');
                     input.setAttribute('data-marker-type', fieldType);
                     input.setAttribute('data-ceremony-field', 'true');
                     input.value = prefills[fieldType] || '';
@@ -1696,13 +1879,13 @@ function externalSign() {
                         'min-height:14pt;';
 
                     input.addEventListener('input', () => {
-                        self.webCeremonyValues[rawParty + '_' + fieldType] = input.value;
+                        self.webCeremonyValues[ceremonyKeyParty + '_' + fieldType] = input.value;
                         self.updateIncompleteCount();
                     });
 
                     // Store prefilled value
                     if (prefills[fieldType]) {
-                        self.webCeremonyValues[rawParty + '_' + fieldType] = prefills[fieldType];
+                        self.webCeremonyValues[ceremonyKeyParty + '_' + fieldType] = prefills[fieldType];
                     }
 
                     el.replaceWith(input);
@@ -1727,11 +1910,25 @@ function externalSign() {
 
             initialElements.forEach((el) => {
                 const rawParty = (el.dataset.markerParty || '').toLowerCase();
-                const isMine = self.isMyWebSigBlock(rawParty);
                 if (initPartyCounters[rawParty] === undefined) initPartyCounters[rawParty] = 0;
                 const initKey = rawParty + '-init-' + initPartyCounters[rawParty];
                 initPartyCounters[rawParty]++;
 
+                // ESIGN-WETINK — NEVER clobber a baked initial. A locked initial
+                // (a prior recipient's OR the current signer's own) renders exactly
+                // as the canonical composed it: no dimming, no prompt, and it is not
+                // counted as an outstanding item.
+                if (self._isMarkerSigned(el)) {
+                    self.webInitialElements.push({ el, rawParty, index: initPartyCounters[rawParty] - 1, initKey, isMine: false, signed: true, sigData: null });
+                    return;
+                }
+
+                // ESIGN-WETINK (AT-300) — decide "mine" by the signer's IDENTITY,
+                // resolved from the initial box's party (boxes carry only
+                // data-marker-party, so _isMyInitialBox maps it to a role_identity).
+                // The current signer's OWN unsigned box → "Click to initial"; a
+                // same-role sibling's box is never claimed.
+                const isMine = self._isMyInitialBox(el);
                 const entry = { el, rawParty, index: initPartyCounters[rawParty] - 1, initKey, isMine, signed: false, sigData: null };
                 self.webInitialElements.push(entry);
 
@@ -1824,6 +2021,24 @@ function externalSign() {
                 }
             }
 
+            // 4b. Checklist-style disclosure marks (MDF / template-123). These are
+            //     `.corex-radio-placeholder` SPANS, not <input type="radio">, so step 4
+            //     above never sees them and "Go to next" would jump PAST the radios —
+            //     the recipient reaches the bottom with marks unfilled and no way for
+            //     "next" to walk them there. Collect every editable-for-this-viewer
+            //     `.corex-disclosure-row` whose answer isn't yet recorded, keyed by
+            //     the SAME data-disclosure-key the selection handler writes, so the
+            //     document-order sort below walks each mark top-to-bottom.
+            if (container) {
+                container.querySelectorAll('.corex-disclosure-row[data-editable="true"]').forEach(row => {
+                    const key = row.getAttribute('data-disclosure-key');
+                    const ans = key ? (this.webDisclosureAnswers[key] || '') : '';
+                    if (('' + ans).trim() === '') {
+                        items.push({ el: row, label: 'Disclosure item' });
+                    }
+                });
+            }
+
             // 5. B3 — Empty recipient-editable text fields (this viewer's only).
             if (container) {
                 container.querySelectorAll('input.field-editable[data-viewer-editable]').forEach(inp => {
@@ -1831,6 +2046,20 @@ function externalSign() {
                         const placeholder = inp.getAttribute('placeholder') || inp.name || 'Field';
                         items.push({ el: inp, label: placeholder.replace(/_/g, ' ') });
                     }
+                });
+            }
+
+            // 5b. Per-condition initial slots (THIS signer's, not yet filled).
+            //     The renderer emits `.btn-add-initial.initial-active` ONLY for
+            //     the current party's un-filled slots; a filled one loses
+            //     `.initial-active` (gains `.initial-filled`). Every condition
+            //     the signer is a party to — including ones the AGENT added —
+            //     must be initialed before submit (previously uncounted, so the
+            //     agent was never required to initial conditions they added and
+            //     recipients could skip them).
+            if (container) {
+                container.querySelectorAll('.btn-add-initial.initial-active[data-condition-id]').forEach(el => {
+                    items.push({ el, label: 'Condition initial' });
                 });
             }
 
@@ -1918,6 +2147,17 @@ function externalSign() {
                 });
             }
 
+            // 7. Per-condition initial slots (THIS signer's). Interactive slots
+            //    carry `.btn-add-initial[data-condition-id]`; filled ones are
+            //    `.initial-filled`. Counting them makes initialing each
+            //    condition (agent-added OR recipient-added) a required step.
+            if (container) {
+                container.querySelectorAll('.btn-add-initial[data-condition-id]').forEach(el => {
+                    total++;
+                    if (!el.classList.contains('initial-filled')) incomplete++;
+                });
+            }
+
             return { total, incomplete };
         },
 
@@ -1928,8 +2168,13 @@ function externalSign() {
         updateIncompleteCount() {
             if (this.isWebTemplate) {
                 const { total, incomplete } = this._computeWebCounts();
-                this.webIncompleteCount = incomplete;
-                this.totalRequired = total;
+                // WET-INK completion gate (UI half of the server-side gate) — the viewer's OWN un-applied
+                // amendment initials count as outstanding items, so the Complete button greys (canSubmitWeb)
+                // and the "N remaining" banner shows until every change they must initial is initialed.
+                const myInitials = document.querySelectorAll('.cir-slot.cir-mine:not(.cir-filled)').length;
+                this.changeInitialsRemaining = myInitials;
+                this.webIncompleteCount = incomplete + myInitials;
+                this.totalRequired = total + myInitials;
                 this.signedCount = total - incomplete;
             }
         },
@@ -2048,6 +2293,18 @@ function externalSign() {
                 const allFields = container.querySelectorAll('[data-field]');
                 const anyStamped = container.querySelector('[data-viewer-editable]') !== null;
                 allFields.forEach(span => {
+                    // ESIGN-WETINK — IDEMPOTENCY GUARD (fixes "refresh wipes prefilled
+                    // fields"). initWebTemplateFields runs from multiple init/watch
+                    // sites. A converted field is an <input> that carries data-field.
+                    // On a second run this loop would find that input, read
+                    // span.textContent — which is '' for an <input> (its value is a
+                    // property, not text) — and rebuild it as an EMPTY input, wiping
+                    // the agent's prefilled value. Read-only spans are untouched, so
+                    // only the CURRENT signer's editable fields went blank on reload.
+                    // Skip anything already converted so the conversion is safe to
+                    // re-run and the served (complete) document always stays complete.
+                    if (span.tagName === 'INPUT' || span.tagName === 'TEXTAREA') return;
+                    if (span.classList && span.classList.contains('field-editable')) return;
                     const fieldName = span.getAttribute('data-field');
                     const originalName = span.getAttribute('data-recipient-identity') !== null
                         ? (span.getAttribute('data-original-field') || fieldName)
@@ -2073,13 +2330,29 @@ function externalSign() {
                         }
                         input.setAttribute('data-viewer-editable', '1');
                         input.className = span.className + ' field-editable';
+                        input.placeholder = (originalName || fieldName).replace(/_/g, ' ');
+                        // ESIGN-WETINK BUG2 — recipient-editable inputs GROW to their
+                        // content. A bare <input type="text"> has a fixed default
+                        // width, so a long value ("Home Finders Coastal, shop 5, The
+                        // emporium, …") was visually CLIPPED even though the full
+                        // value is present. Auto-size via the `size` attribute (in
+                        // characters), floored so short fields still look like a field,
+                        // capped by max-width:100% so it never overflows the A4 column,
+                        // and re-sized on every keystroke so it grows as the user types.
+                        // Class-level fix for EVERY recipient-editable field.
+                        const autoSize = (el) => {
+                            const v = (el.value || '');
+                            const ph = (el.placeholder || '');
+                            el.size = Math.max(v.length, ph.length, 12) + 1;
+                        };
                         input.style.cssText = span.style.cssText +
                             'background:rgba(251,191,36,0.08);' +
                             'border:none;border-bottom:2px solid rgba(251,191,36,0.6);' +
                             'outline:none;font:inherit;color:inherit;' +
-                            'padding:0 2pt;';
-                        input.placeholder = (originalName || fieldName).replace(/_/g, ' ');
+                            'padding:0 2pt;max-width:100%;box-sizing:border-box;';
+                        autoSize(input);
                         input.addEventListener('input', () => {
+                            autoSize(input);
                             this.webFieldsDirty = true;
                             // B3 — keep the items-remaining counter live.
                             this.updateIncompleteCount();
@@ -2125,6 +2398,32 @@ function externalSign() {
         },
 
         // Save web template field values back to server
+        // Recipient self-revert — remove one of MY OWN pending edits, then reload to
+        // show the reverted (original) document before signing.
+        async removeMyEdit(changeId) {
+            if (this.removingEdit) return;
+            if (!confirm('Remove this change and revert to the original text?')) return;
+            this.removingEdit = true;
+            try {
+                const resp = await fetch('/sign/' + this.token + '/revert-change', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    },
+                    body: JSON.stringify({ change_id: changeId }),
+                });
+                const data = await resp.json().catch(() => ({}));
+                if (resp.ok && data.ok) { window.location.reload(); return; }
+                this.showNotification(data.error || 'Could not remove the change.', 'error');
+            } catch (e) {
+                this.showNotification('Could not remove the change. Please try again.', 'error');
+            } finally {
+                this.removingEdit = false;
+            }
+        },
+
         async saveWebFields() {
             if (!this.webFieldsDirty) return true;
             const values = this.collectWebFieldValues();
@@ -2184,7 +2483,9 @@ function externalSign() {
                                 this._makeWebElementsInteractive();
                                 this._makeCeremonyFieldsEditable();
                                 this._processAllDisclosures();
-                                this._initClauseFlagging();
+                                this._stripLiveSchedule();
+                                // Doc body painted after the method choice — (re)build the amendments panel list.
+                                document.dispatchEvent(new CustomEvent('corex-doc-ready'));
                                 setTimeout(() => this.updateIncompleteCount(), 300);
                             }, 150);
                         });
@@ -2431,8 +2732,15 @@ function externalSign() {
             if (!canvas) return;
 
             const ratio = Math.max(window.devicePixelRatio || 1, 1);
-            canvas.width = canvas.offsetWidth * ratio;
-            canvas.height = canvas.offsetHeight * ratio;
+            // ESIGN-WETINK capture guard — if the pad isn't laid out yet
+            // (offsetWidth/Height 0, e.g. opened from a not-yet-measured panel),
+            // a 0×0 canvas captures a NEAR-EMPTY image → the signature renders as a
+            // tiny/blank sliver regardless of render CSS. Fall back to a real
+            // drawing resolution so the strokes are always captured at proper size.
+            const cssW = canvas.offsetWidth || 600;
+            const cssH = canvas.offsetHeight || 200;
+            canvas.width = cssW * ratio;
+            canvas.height = cssH * ratio;
             canvas.getContext('2d').scale(ratio, ratio);
 
             if (this.signaturePad) {
@@ -2512,7 +2820,200 @@ function externalSign() {
             return d.getFullYear() + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + String(d.getDate()).padStart(2, '0');
         },
 
+        // Remove the appended "Schedule of Amendments" appendix from the LIVE signing view ONLY — the
+        // right-hand Amendments panel supersedes it on screen, so showing both is redundant (Johan
+        // 2026-08-07). This is a DISPLAY-only strip of the on-screen document: the stored canonical, the
+        // baked/final document, and the audit PDF are generated server-side and KEEP the Schedule (a legal
+        // artifact) — this client-side DOM removal never touches what gets baked or filed.
+        _stripLiveSchedule() {
+            try {
+                const root = this.$refs.webDocContent || document;
+                root.querySelectorAll('.change-history-page').forEach((el) => el.remove());
+            } catch (e) { /* display-only; never break the signing surface */ }
+        },
+
+        // Paint a captured change-initial into its slot exactly as the server would render a filled slot —
+        // WITHOUT a reload (which would discard un-submitted client-side field initials). Mirrors the
+        // server render: add .cir-filled, drop the "Click to initial" affordance, write the initial image.
+        _paintNewAmendment(detail) {
+            try {
+                const changeId = detail.changeId, range = detail.range;
+                if (!changeId || !range) return;
+                // Idempotent — never paint the same change twice (guards against a re-dispatched event / a
+                // re-inited listener): if this change's initial row is already in the document, do nothing.
+                const _root = (this.$refs && this.$refs.webDocContent) ? this.$refs.webDocContent : document;
+                const _esc = (window.CSS && CSS.escape) ? CSS.escape : (s => String(s).replace(/["\\]/g, '\\$&'));
+                if (_root.querySelector('.change-initial-row[data-change-id="' + _esc(changeId) + '"]')) return;
+                const wrap = document.createElement('span');
+                wrap.className = 'change-inline';
+                wrap.setAttribute('data-strikethrough-applied', '1');
+                wrap.setAttribute('data-change-id', changeId);
+                const del = document.createElement('del');
+                del.className = 'change-del';
+                del.setAttribute('data-change-id', changeId);
+                try { del.appendChild(range.extractContents()); }
+                catch (e) { del.textContent = detail.selected || ''; }
+                wrap.appendChild(del);
+                if (detail.mode === 'reference' && detail.ocRef) {
+                    wrap.appendChild(document.createTextNode(' '));
+                    const xref = document.createElement('span');
+                    xref.className = 'change-xref';
+                    xref.setAttribute('data-change-id', changeId);
+                    xref.setAttribute('data-oc-ref', String(detail.ocRef));
+                    xref.textContent = 'See Other Conditions — clause ' + detail.ocRef;
+                    wrap.appendChild(xref);
+                } else if (detail.mode !== 'strike' && (detail.replacement || '').length) {
+                    wrap.appendChild(document.createTextNode(' '));
+                    const ins = document.createElement('ins');
+                    ins.className = 'change-ins';
+                    ins.setAttribute('data-change-id', changeId);
+                    ins.textContent = detail.replacement;
+                    wrap.appendChild(ins);
+                }
+                try { range.insertNode(wrap); } catch (e) { return; }
+                const row = this._buildChangeInitialRow(changeId);
+                const block = this._closestDocBlock(wrap);
+                if (block && block.parentNode) block.parentNode.insertBefore(row, block.nextSibling);
+                else if (wrap.parentNode) wrap.parentNode.insertBefore(row, wrap.nextSibling);
+                if (window.__corexWireChangeInitials) window.__corexWireChangeInitials();
+                if (this.updateIncompleteCount) this.updateIncompleteCount();
+            } catch (e) { /* amendment is saved server-side; never reload (that is the wipe we removed) */ }
+        },
+
+        // Build the full-width per-party initial row for a change — mirrors the server's buildInitialRow
+        // (class family change-initial-row / cir-slot / cir-name / cir-ink). Party keys follow the same
+        // scheme as the server (role, then role_N for a duplicate role) so the viewer's own slot ('agent')
+        // is actionable immediately; the server's authoritative row (with signer names) replaces this on the
+        // next load.
+        _buildChangeInitialRow(changeId) {
+            const row = document.createElement('div');
+            row.className = 'change-initial-row';
+            row.setAttribute('data-change-id', changeId);
+            row.setAttribute('contenteditable', 'false');
+            const label = document.createElement('span');
+            label.className = 'cir-label';
+            label.textContent = 'Initial this change:';
+            row.appendChild(label);
+            const counts = {};
+            (this.signingParties || []).forEach((p) => {
+                const role = (p.role || 'party');
+                counts[role] = (counts[role] || 0) + 1;
+                const key = counts[role] > 1 ? role + '_' + counts[role] : role;
+                const name = p.label || role;
+                const slot = document.createElement('span');
+                slot.className = 'cir-slot';
+                slot.setAttribute('data-change-id', changeId);
+                slot.setAttribute('data-party-key', key);
+                slot.setAttribute('data-party-name', name);
+                const ns = document.createElement('span');
+                ns.className = 'cir-name';
+                ns.textContent = name;
+                slot.appendChild(ns);
+                const ink = document.createElement('span');
+                ink.className = 'cir-ink';
+                ink.setAttribute('data-empty', '1');
+                ink.textContent = '—';
+                slot.appendChild(ink);
+                row.appendChild(slot);
+            });
+            return row;
+        },
+
+        // Nearest block-level ancestor for placing the initial row after (mirrors server closestBlock).
+        _closestDocBlock(el) {
+            const b = el.closest && el.closest('.corex-clause, .corex-h1, .corex-h2, .corex-h3, p, li, td, blockquote');
+            return b || el.parentElement;
+        },
+
+        _paintChangeInitialSlot(changeId, partyKey, imageDataUrl) {
+            const root = (this.$refs && this.$refs.webDocContent) ? this.$refs.webDocContent : document;
+            const esc = (window.CSS && CSS.escape) ? CSS.escape : (s => String(s).replace(/["\\]/g, '\\$&'));
+            const slots = root.querySelectorAll('.cir-slot[data-change-id="' + esc(changeId) + '"][data-party-key="' + esc(partyKey) + '"]');
+            slots.forEach((slot) => {
+                slot.classList.add('cir-filled');
+                const ink = slot.querySelector('.cir-ink');
+                if (ink) {
+                    ink.removeAttribute('data-empty');
+                    ink.innerHTML = '<img src="' + imageDataUrl + '" style="max-height:20px;max-width:64px;object-fit:contain;vertical-align:middle;" alt="Initial">';
+                }
+            });
+        },
+
         // ── Apply signature ──
+        // ── Saved-signature methods (agent-only; reuse the foundation endpoints) ──
+        async initSavedSig() {
+            if (!this.isAgent) return;   // only agents have a saved signature
+            try {
+                const res = await fetch('{{ route('signature.status') }}', { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+                if (!res.ok) return;     // e.g. not authenticated (recipient) — silently disabled
+                const d = await res.json();
+                this.savedSigConfigured = !!d.configured;
+                this.savedSigImpersonating = !!d.impersonating;
+            } catch (e) { /* leave disabled */ }
+        },
+
+        _sigContext() { return 'esign:' + this.token; },
+        _csrf() { return document.querySelector('meta[name="csrf-token"]')?.content || ''; },
+
+        chooseSavedSignature() {
+            if (this.savedSigImpersonating || !this.savedSigConfigured) return;
+            if (!this.savedSigUnlocked) { this.savedPinTarget = 'marker'; this.savedPinError = ''; this.savedPin = ''; this.savedPinOpen = true; return; }
+            this.captureMode = 'saved';
+        },
+
+        // Saved-signature chooser for the INLINE web-sig modal (showWebSigCapture) — the one the
+        // document's "Click to sign" / "Click to initial" markers actually open. Mirrors
+        // chooseSavedSignature but targets webSigMode. Unlock once; then place with no PIN per marker.
+        chooseSavedSignatureWeb() {
+            if (this.savedSigImpersonating || !this.savedSigConfigured) return;
+            if (!this.savedSigUnlocked) { this.savedPinTarget = 'web'; this.savedPinError = ''; this.savedPin = ''; this.savedPinOpen = true; return; }
+            this.webSigMode = 'saved';
+        },
+
+        async submitSavedPin() {
+            if (this.savedPinLoading || !this.savedPin) return;
+            this.savedPinLoading = true; this.savedPinError = '';
+            try {
+                const res = await fetch('{{ route('signature.unlock') }}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this._csrf(), 'Accept': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ pin: this.savedPin, context: this._sigContext() }),
+                });
+                const d = await res.json().catch(() => ({}));
+                if (res.ok && d.ok) {
+                    await this.loadSavedAssets();
+                    this.savedSigUnlocked = true;
+                    this.savedPinOpen = false;
+                    this.savedPin = '';
+                    // Switch the modal that requested the unlock into saved mode.
+                    if (this.savedPinTarget === 'web') { this.webSigMode = 'saved'; }
+                    else { this.captureMode = 'saved'; }
+                } else {
+                    this.savedPinError = d.error || 'Incorrect PIN.';
+                }
+            } catch (e) {
+                this.savedPinError = 'Network error — please try again.';
+            } finally {
+                this.savedPinLoading = false;
+            }
+        },
+
+        async loadSavedAssets() {
+            const q = '?context=' + encodeURIComponent(this._sigContext());
+            const [s, i] = await Promise.all([
+                fetch('{{ route('signature.asset', ['type' => 'signature']) }}' + q, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' }),
+                fetch('{{ route('signature.asset', ['type' => 'initial']) }}'   + q, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' }),
+            ]);
+            if (s.ok) { const d = await s.json(); this.savedSignatureImg = d.image || null; }
+            if (i.ok) { const d = await i.json(); this.savedInitialImg   = d.image || null; }
+        },
+
+        savedImageForActiveMarker() {
+            const isInitial = this.activeMarker && this.activeMarker.type === 'initial';
+            return isInitial ? this.savedInitialImg : this.savedSignatureImg;
+        },
+
         async applySignature() {
             if (!this.activeMarker) return;
             this.applying = true;
@@ -2520,7 +3021,13 @@ function externalSign() {
             let signatureData = null;
             let signatureType = 'drawn';
 
-            if (this.captureMode === 'draw') {
+            if (this.captureMode === 'saved') {
+                // Place the agent's unlocked saved signature/initial (an image — same
+                // path as a drawn one downstream). No PIN here; unlock already happened.
+                signatureData = this.savedImageForActiveMarker();
+                if (!signatureData) { this.applying = false; return; }
+                signatureType = 'drawn';
+            } else if (this.captureMode === 'draw') {
                 if (!this.signaturePad || this.signaturePad.isEmpty()) {
                     this.applying = false;
                     return;
@@ -2534,6 +3041,45 @@ function externalSign() {
                 const isInitial = this.activeMarker && this.activeMarker.type === 'initial';
                 signatureData = this.generateTypedSignature(this.typedName.trim(), isInitial);
                 signatureType = 'typed';
+            }
+
+            // ESIGN AT-300 — condition-initial capture on the ceremony. Same modal,
+            // same ink; the drawn/typed initial is applied to THIS condition and
+            // adopted into signed_initials for this recipient (via initialCondition).
+            if (this.activeMarker._isConditionInitial) {
+                const ok = await window.__corexApplyConditionInitial(
+                    this.activeMarker._conditionEl,
+                    this.activeMarker._conditionToken,
+                    this.activeMarker._conditionId,
+                    signatureData,
+                );
+                this.showSignModal = false;
+                this.applying = false;
+                if (ok) this.updateIncompleteCount();
+                return;
+            }
+
+            // WET-INK per-change initial — apply this recipient's REAL captured initial to their row slot.
+            if (this.activeMarker._isChangeInitial) {
+                const cid = this.activeMarker._changeId;
+                const pk  = this.activeMarker._partyKey;
+                const ok = await window.__corexApplyChangeInitial(cid, pk, signatureData);
+                this.showSignModal = false;
+                this.applying = false;
+                if (ok) {
+                    // Paint the captured initial into the slot IN-PLACE — never re-fetch the page here.
+                    // Re-fetching /sign/{token} sends the recipient back through the identity gateway and
+                    // loses EVERY initial they applied client-side (field initials via "apply to all" AND the
+                    // amendment initials themselves, which only re-appear once the re-composed doc is reached
+                    // again) — the recipient-side "everything disappears" wipe. The change-initial is already
+                    // persisted server-side by recordChangeInitial, so painting the slot here reflects it while
+                    // every other applied initial stays exactly as it is (Johan 2026-08-06).
+                    this._paintChangeInitialSlot(cid, pk, signatureData);
+                    this.updateIncompleteCount();
+                    // The recipient just initialed a change — refresh the amendments panel status pills.
+                    document.dispatchEvent(new CustomEvent('corex-change-initialed', { detail: { changeId: cid, partyKey: pk } }));
+                }
+                return;
             }
 
             const success = await this.submitSignature(this.activeMarker, signatureData, signatureType);
@@ -2752,35 +3298,9 @@ function externalSign() {
         },
 
         get canSubmitWeb() {
-            // Walk-fix FIX 4 — when the recipient has flagged any
-            // clause, signing is locked until the agent has resolved
-            // the amendment. The recipient sees the locked surface
-            // (sign + initial actions hidden, "amendments under
-            // review" status banner). canSubmitWeb returning false
-            // also disables the submit button as a defence-in-depth
-            // gate alongside the template-level x-if guard below.
-            if (this.hasPendingRecipientFlags) return false;
             return this.webConsented && this.webIncompleteCount === 0;
         },
 
-        /**
-         * Walk-fix FIX 4 — true when this recipient has at least one
-         * clause flag in `pending_review` status. Drives the lockout
-         * UI: hides sign / initial actions, swaps in the "amendments
-         * under review" CTA, and disables canSubmitWeb.
-         *
-         * Reads from webClauseFlaggedItems — pre-seeded from the
-         * server's persistedClauseFlags map for THIS recipient's
-         * party_role at page render, then live-updated when the
-         * recipient adds/removes flags during the session. The lock
-         * survives refreshes because the server re-seeds the same
-         * data on every page render.
-         */
-        get hasPendingRecipientFlags() {
-            const items = this.webClauseFlaggedItems || [];
-            if (!Array.isArray(items) || items.length === 0) return false;
-            return items.some(f => (f.status || 'pending_review') === 'pending_review');
-        },
 
         // Legacy — replaced by _makeWebElementsInteractive()
         processWebSignatureBlocks() { /* no-op */ },
@@ -2804,10 +3324,129 @@ function externalSign() {
             const ownerTerms = ['owner_party', 'lessor', 'seller', 'landlord', 'owner'];
             const acquiringTerms = ['acquiring_party', 'lessee', 'buyer', 'tenant', 'purchaser'];
             const agentTerms = ['agent', 'property_practitioner'];
+            // Checkpoint family: the authorising practitioner's two routing checkpoints
+            // are one signer, so a supervisor_final signer matches a 'supervisor' block
+            // (fallback path — identity binding via _foldIdentity is the primary key).
+            // co_signer / co_signatory are the document's DESIGNATED full-status block
+            // (MDF template-123 / CDS-parser output): the authoriser routes there, so a
+            // supervisor viewer owns it even on the un-stamped fallback path (Johan 2026-08-03).
+            const authTerms = ['supervisor', 'supervisor_final', 'co_signer', 'co_signatory'];
             if (ownerTerms.includes(myRoleBase) && ownerTerms.includes(roleBase)) return true;
             if (acquiringTerms.includes(myRoleBase) && acquiringTerms.includes(roleBase)) return true;
             if (agentTerms.includes(myRoleBase) && agentTerms.includes(roleBase)) return true;
+            if (authTerms.includes(myRoleBase) && authTerms.includes(roleBase)) return true;
             return false;
+        },
+
+        /**
+         * ESIGN-WETINK \u2014 case-insensitive, whitespace-collapsed name key.
+         * Mirrors CanonicalInkComposer::normalizeName so the browser's
+         * data-name matching agrees exactly with the server-side bake.
+         */
+        _normalizeInkName(name) {
+            return (name || '').toString().toLowerCase().replace(/\s+/g, ' ').trim();
+        },
+
+        /**
+         * Fold a role-identity for OWNERSHIP comparison — the verbatim mirror of
+         * CanonicalInkComposer::foldIdentity (PHP). Checkpoint-family roles
+         * (supervisor / supervisor_final) are ONE human across routing checkpoints
+         * and fold to the base 'supervisor' (index dropped). Every other role is
+         * index-preserving ('seller'/'seller_1' → 'seller_1', 'seller_2' → 'seller_2')
+         * so two same-role recipients never bleed onto each other. Keep in exact sync
+         * with SignatureTemplate::CHECKPOINT_ROLE_ALIASES.
+         */
+        _foldIdentity(rid) {
+            rid = (rid || '').toString().toLowerCase().trim();
+            if (rid === '') return '';
+            const ALIASES = { 'supervisor_final': 'supervisor' }; // mirror CHECKPOINT_ROLE_ALIASES
+            const BASES = Object.values(ALIASES);
+            const m = rid.match(/^(.*)_(\d+)$/);
+            let role, idx;
+            if (m) { role = m[1]; idx = m[2]; } else { role = rid; idx = '1'; }
+            const base = ALIASES[role] || role;
+            if (BASES.includes(base)) return base; // singleton checkpoint family
+            return base + '_' + idx;
+        },
+
+        /**
+         * ESIGN-WETINK \u2014 does this signature/initial marker belong to the CURRENT
+         * signer? Identity-scoped ownership for the render/interactivity path \u2014 the
+         * exact JS mirror of CanonicalInkComposer::markerBelongsToSigner (the
+         * server-side ink bake). Match priority (most specific \u2192 least):
+         *   1. data-name === signer_name \u2014 per-person, N-party-safe; this is the
+         *      real doc-431/EATS shape where same-role recipients (2 sellers) are
+         *      distinguished only by the name bound to each marker.
+         *   2. data-recipient-identity === currentRoleIdentity \u2014 markers stamped
+         *      inside cloned role-blocks ({role}_{index}).
+         *   3. Party-role alias fallback \u2014 only for un-stamped single-block
+         *      templates that carry neither key.
+         * Deciding by BARE party role (the old isMyWebSigBlock-only path) let
+         * recipient 2 claim recipient 1's same-role positions and clobber their
+         * baked ink; keying on identity closes that N-party bleed.
+         */
+        _isMyMarker(el) {
+            const markerName = this._normalizeInkName(el.getAttribute('data-name'));
+            const myName = this._normalizeInkName(this.signerName);
+            if (markerName !== '' && myName !== '') {
+                return markerName === myName;
+            }
+            const markerIdentity = (el.getAttribute('data-recipient-identity') || '').toLowerCase();
+            if (markerIdentity !== '') {
+                const myIdentity = (this.currentRoleIdentity || '').toLowerCase();
+                // Fold the checkpoint family (supervisor / supervisor_final → supervisor)
+                // so an authorising practitioner owns their identity-stamped markers at
+                // either routing checkpoint; index-preserving for co-recipients.
+                return myIdentity !== '' && this._foldIdentity(markerIdentity) === this._foldIdentity(myIdentity);
+            }
+            return this.isMyWebSigBlock((el.dataset.markerParty || '').toLowerCase());
+        },
+
+        /**
+         * ESIGN-WETINK \u2014 is this marker already inked/locked? A baked marker
+         * carries data-signed="true" and an embedded ink image (see
+         * CanonicalInkComposer::paintImage). Never clobber it \u2014 a prior
+         * recipient's OR the current signer's own already-signed block stays
+         * exactly as the canonical composed it.
+         */
+        _isMarkerSigned(el) {
+            return el.getAttribute('data-signed') === 'true'
+                || !!el.querySelector('img.web-sig-signed-img, img.corex-ink, img[alt="Signature"], img[alt="Initial"]');
+        },
+
+        /**
+         * ESIGN-WETINK (AT-300) \u2014 does this page-break INITIAL box belong to the
+         * current signer? Initial boxes are built client-side at pagination
+         * (_buildInitialsRow) and carry ONLY data-marker-party \u2014 no data-name /
+         * data-recipient-identity that signature markers have. data-marker-party
+         * is the party's parties_json role: the FIRST instance of a role is the
+         * bare role ("seller"), later instances are suffixed ("seller_2"). So
+         * bare-role ownership (isMyWebSigBlock) fails for recipient 2 \u2014 their box
+         * is "seller_2" while their signerRole is "seller" (suffix mismatch), and
+         * it would also let recipient 2 claim recipient 1's bare "seller" box.
+         *
+         * Resolve the box's party to a role_identity \u2014 {role}_{n} stays, a bare
+         * {role} is that role's first instance \u2192 {role}_1 \u2014 and decide SOLELY by
+         * currentRoleIdentity. That matches ONLY the signer's own box and never a
+         * same-role sibling's. When the box does carry explicit identity/name keys
+         * (future-proofing) those win; when the viewer has no identity at all
+         * (single-recipient / pre-identity docs) fall back to the bare-role check.
+         */
+        _isMyInitialBox(el) {
+            const myIdentity = (this.currentRoleIdentity || '').toLowerCase();
+            const explicitIdent = (el.getAttribute('data-recipient-identity') || '').toLowerCase();
+            if (explicitIdent) return myIdentity !== '' && this._foldIdentity(explicitIdent) === this._foldIdentity(myIdentity);
+            const myName = this._normalizeInkName(this.signerName);
+            const markerName = this._normalizeInkName(el.getAttribute('data-name'));
+            if (markerName !== '' && myName !== '') return markerName === myName;
+            const party = (el.dataset.markerParty || '').toLowerCase();
+            // No identity to scope by \u2192 bare-role fallback (safe on single-recipient docs).
+            if (myIdentity === '' || party === '') return this.isMyWebSigBlock(party);
+            // Fold both sides through the checkpoint family: the authoriser's page-initial
+            // box (data-marker-party="supervisor" \u2192 boxIdentity "supervisor_1") is owned by
+            // either 'supervisor_1' / 'supervisor_final_1'. seller_2 stays distinct.
+            const boxIdentity = /_\d+$/.test(party) ? party : party + '_1';
+            return this._foldIdentity(boxIdentity) === this._foldIdentity(myIdentity);
         },
 
         // \u00A719 Part A \u2014 shared disclosure logic (single source; agent +
@@ -2819,137 +3458,6 @@ function externalSign() {
         },
         @include('docuperfect.signatures.partials.disclosure-logic')
 
-        /**
-         * Attach clause-level flagging to numbered clauses in the document.
-         *
-         * Phase 1B.6 (FIX 2 + FIX 6) — the flag icon now dispatches the
-         * `open-flag-clause-modal` event consumed by the flag-clause-modal
-         * partial. The modal POSTs to /sign/{token}/flag-clause which
-         * persists immediately (DocumentAmendment + clause_flags JSON), so
-         * a page refresh re-seeds the visible flag indicator without
-         * losing recipient input.
-         *
-         * On init we ALSO re-paint clauses that were flagged in a prior
-         * session (data seeded server-side via persistedClauseFlags) so
-         * the visible state survives reload.
-         */
-        _initClauseFlagging() {
-            const container = this.$refs.webDocContent || null;
-            if (!container) return;
-
-            const self = this;
-            const clauses = container.querySelectorAll('.corex-clause');
-
-            // Build a quick lookup of clauses already flagged from
-            // persisted state — so we can paint the orange treatment on
-            // them at init.
-            const flaggedByNum = new Set(
-                (self.webClauseFlaggedItems || []).map(f => String(f.clauseNum))
-            );
-
-            clauses.forEach((clause, idx) => {
-                const numEl = clause.querySelector('.corex-clause-number');
-                if (!numEl) return;
-                const clauseNum = numEl.textContent.trim();
-
-                clause.style.position = 'relative';
-
-                // Repaint flagged state if persisted.
-                if (flaggedByNum.has(clauseNum)) {
-                    clause.classList.add('clause-flagged');
-                }
-
-                // Render the flag icon — always visible at the clause
-                // edge. For flagged clauses we still show it (as the
-                // "you flagged this" indicator) but use a distinct title.
-                const flagBtn = document.createElement('span');
-                flagBtn.className = 'clause-flag-icon';
-                flagBtn.title = flaggedByNum.has(clauseNum)
-                    ? 'You flagged this clause for agent review'
-                    : 'Flag / suggest change to this clause';
-                flagBtn.textContent = '⚑';
-                flagBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    self._openClauseFlagModal(clause, clauseNum, idx);
-                });
-                clause.appendChild(flagBtn);
-
-                // Phase 1B.9 (FIX 1, pre-completion) — when this party has
-                // raised a flag AND hasn't signed yet, show a small "X"
-                // affordance that lets them undo it. After signing
-                // completes the affordance disappears (gated by
-                // partyHasCompleted, computed below) — removal then
-                // requires the agent-initiated consent flow.
-                const partyHasCompleted = @json($partyAlreadySigned ?? false);
-                if (flaggedByNum.has(clauseNum) && !partyHasCompleted) {
-                    const removeBtn = document.createElement('button');
-                    removeBtn.type = 'button';
-                    removeBtn.className = 'clause-flag-remove';
-                    removeBtn.title = 'Remove this flag';
-                    removeBtn.textContent = '✕';
-                    removeBtn.style.cssText = 'margin-left:0.4rem; padding:0 0.4rem; '
-                        + 'background:transparent; border:1px solid #d97706; color:#92400e; '
-                        + 'border-radius:3px; cursor:pointer; font-size:0.7rem; line-height:1.4;';
-                    removeBtn.addEventListener('click', async (e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        if (!confirm('Remove this flag? You can re-flag the clause later if you change your mind.')) return;
-                        await self._removeOwnFlag(clauseNum, clause, removeBtn);
-                    });
-                    clause.appendChild(removeBtn);
-                }
-            });
-        },
-
-        async _removeOwnFlag(clauseNum, clauseEl, removeBtn) {
-            try {
-                const csrf = document.querySelector('meta[name=csrf-token]')?.content;
-                const token = @json($request->token);
-                const url = '/sign/' + token + '/flag/' + encodeURIComponent(clauseNum);
-                const r = await fetch(url, {
-                    method: 'DELETE',
-                    headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': csrf },
-                });
-                if (r.ok) {
-                    clauseEl.classList.remove('clause-flagged');
-                    removeBtn.remove();
-                    const commentDiv = clauseEl.querySelector('.clause-flag-comment');
-                    if (commentDiv) commentDiv.remove();
-                    this.webClauseFlaggedItems = this.webClauseFlaggedItems.filter(f => String(f.clauseNum) !== String(clauseNum));
-                } else {
-                    const j = await r.json().catch(() => ({}));
-                    alert(j.error || ('Could not remove flag (' + r.status + ')'));
-                }
-            } catch (e) {
-                alert('Network error: ' + e.message);
-            }
-        },
-
-        /**
-         * Phase 1B.6 — open the flag-clause modal. Captures the full
-         * clause text (sans the flag icon glyph itself) and dispatches
-         * the open-flag-clause-modal event. The modal handles the POST
-         * + reload; this side just gathers context.
-         */
-        _openClauseFlagModal(clauseEl, clauseNum, idx) {
-            // Lift the original clause text — strip our own flag icon
-            // glyph so it doesn't appear inside the modal.
-            const clone = clauseEl.cloneNode(true);
-            clone.querySelectorAll('.clause-flag-icon, .clause-flag-comment')
-                .forEach(n => n.remove());
-            const clauseText = (clone.innerText || clone.textContent || '').trim();
-
-            window.dispatchEvent(new CustomEvent('open-flag-clause-modal', {
-                detail: { clauseRef: clauseNum, clauseText: clauseText },
-            }));
-        },
-
-        // Legacy hook kept for any caller that still references the
-        // toggle API; routes to the modal instead of inline input.
-        _toggleClauseFlag(clauseEl, clauseNum, idx) {
-            this._openClauseFlagModal(clauseEl, clauseNum, idx);
-        },
 
         /**
          * Process disclosure tables (corex-table with YES/NO/N/A headers)
@@ -3280,12 +3788,89 @@ function externalSign() {
             this.webTypedSignature = '';
         },
 
+        // ESIGN-WETINK — crop a capture canvas TIGHTLY to its ink bounds so the
+        // produced PNG is just the glyph/strokes with a hair of padding, no empty
+        // frame. object-contain then fills the fixed ink block at full size for
+        // EVERY ink (typed sig, drawn sig, typed initial, drawn initial), instead
+        // of a small glyph floating in a large canvas rendering as a speck.
+        _cropCanvasToInk(srcCanvas) {
+            try {
+                const w = srcCanvas.width, h = srcCanvas.height;
+                const data = srcCanvas.getContext('2d').getImageData(0, 0, w, h).data;
+                let minX = w, minY = h, maxX = -1, maxY = -1;
+                for (let y = 0; y < h; y++) {
+                    for (let x = 0; x < w; x++) {
+                        if (data[(y * w + x) * 4 + 3] > 10) {
+                            if (x < minX) minX = x; if (x > maxX) maxX = x;
+                            if (y < minY) minY = y; if (y > maxY) maxY = y;
+                        }
+                    }
+                }
+                if (maxX < minX || maxY < minY) return null; // nothing drawn
+                const pad = Math.max(2, Math.round(Math.max(maxX - minX, maxY - minY) * 0.06));
+                minX = Math.max(0, minX - pad); minY = Math.max(0, minY - pad);
+                maxX = Math.min(w - 1, maxX + pad); maxY = Math.min(h - 1, maxY + pad);
+                const cw = maxX - minX + 1, chh = maxY - minY + 1;
+                const out = document.createElement('canvas');
+                out.width = cw; out.height = chh;
+                out.getContext('2d').drawImage(srcCanvas, minX, minY, cw, chh, 0, 0, cw, chh);
+                return out.toDataURL('image/png');
+            } catch (e) { return null; }
+        },
+
+        // AT-303 Stage 2 — a downstream owner recipient proposes a change to a
+        // LOCKED disclosure mark. Opens the existing draw/type modal to capture
+        // the amender's initial; applyWebSignature() then posts to the endpoint.
+        proposeDisclosureChange(key, statement, newValue) {
+            if (!newValue) {
+                this.showNotification('Tap the answer you want to change it to first, then Propose.', 'warning');
+                return;
+            }
+            this.pendingDisclosureAmend = { key: key, statement: statement, newValue: newValue };
+            this.currentWebSigBlockId = null;
+            this.webSigMode = 'draw';
+            this.webTypedSignature = '';
+            this.showWebSigCapture = true;
+            this.$nextTick(() => this.initWebSigCanvas());
+        },
+
+        submitDisclosureAmendment(amend, initialImage) {
+            fetch('/sign/' + this.token + '/disclosure/' + encodeURIComponent(amend.key) + '/amend', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                },
+                body: JSON.stringify({
+                    new_value: amend.newValue,
+                    statement: amend.statement,
+                    initial_image: initialImage,
+                }),
+            })
+            .then(r => r.json().then(d => ({ ok: r.ok, d })))
+            .then(({ ok, d }) => {
+                if (ok && d.ok) {
+                    this.showNotification(d.message || 'Your proposed change was sent to the other party.', 'success');
+                    setTimeout(() => { window.location = d.redirect || ('/sign/' + this.token + '/completed'); }, 1200);
+                } else {
+                    this.showNotification((d && d.error) || 'Could not submit your proposed change.', 'error');
+                }
+            })
+            .catch(() => this.showNotification('Network error submitting your proposed change.', 'error'));
+        },
+
         applyWebSignature() {
             const canvas = this.$refs.webSigCanvas;
             let sigData;
 
-            if (this.webSigMode === 'draw') {
-                sigData = canvas.toDataURL('image/png');
+            if (this.webSigMode === 'saved') {
+                // Place the agent's unlocked saved signature/initial (agent-only; PIN already entered).
+                // Which asset depends on whether the clicked marker is an initial block ('-init-').
+                const isInit = (this.currentWebSigBlockId || '').indexOf('-init-') !== -1;
+                sigData = isInit ? this.savedInitialImg : this.savedSignatureImg;
+                if (!sigData) { this.showNotification('Unlock your saved signature first.', 'warning'); return; }
+            } else if (this.webSigMode === 'draw') {
                 // Check if canvas is effectively blank
                 const ctx = canvas.getContext('2d');
                 const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -3294,17 +3879,53 @@ function externalSign() {
                     this.showNotification('Please draw your signature first.', 'warning');
                     return;
                 }
+                // Crop to the drawn strokes so a small scribble fills its block too.
+                sigData = this._cropCanvasToInk(canvas) || canvas.toDataURL('image/png');
             } else {
                 if (!this.webTypedSignature.trim()) {
                     this.showNotification('Please type your name.', 'warning');
                     return;
                 }
-                const ctx = canvas.getContext('2d');
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                ctx.font = '32px "Dancing Script", cursive';
+                // ESIGN-WETINK — render the typed glyphs at a FIXED font size onto a
+                // DYNAMIC-width canvas that fits the text. A fixed font (not one that
+                // shrinks to fit the pad width) means EVERY name — short "AS" or long
+                // "Johan Reichel" — produces a glyph of the SAME height and the same
+                // resolution; only the WIDTH varies. Combined with the fixed-HEIGHT
+                // render CSS, every signatory's signature comes out the same size
+                // (fixes the "different size per signatory" bug). The tight crop below
+                // removes the empty frame so the glyph isn't a speck.
+                const text = this.webTypedSignature.trim();
+                const family = '"Dancing Script", cursive';
+                const FONT = 96; // fixed → uniform glyph height + resolution for all names
+                const mctx = canvas.getContext('2d');
+                mctx.font = FONT + 'px ' + family;
+                const textW = Math.max(24, Math.ceil(mctx.measureText(text).width));
+                const out = document.createElement('canvas');
+                out.width = textW + Math.round(FONT * 0.5);
+                out.height = Math.round(FONT * 1.6);
+                const ctx = out.getContext('2d');
+                ctx.clearRect(0, 0, out.width, out.height);
+                ctx.font = FONT + 'px ' + family;
                 ctx.fillStyle = '#1e293b';
-                ctx.fillText(this.webTypedSignature, 20, 90);
-                sigData = canvas.toDataURL('image/png');
+                ctx.textBaseline = 'middle';
+                ctx.textAlign = 'center';
+                ctx.fillText(text, out.width / 2, out.height / 2);
+                // Crop TIGHTLY to the glyph's ink bounds → the PNG is just the glyph
+                // (consistent height, width = name length), so the fixed-height render
+                // makes every signatory's mark the same size.
+                sigData = this._cropCanvasToInk(out) || out.toDataURL('image/png');
+            }
+
+            // AT-303 Stage 2 — this capture is the amender's INITIAL for a
+            // proposed disclosure-mark change. Post it to the amend endpoint; the
+            // server strikes the original, applies the new mark, and routes back
+            // to the earlier party.
+            if (this.pendingDisclosureAmend) {
+                const amend = this.pendingDisclosureAmend;
+                this.pendingDisclosureAmend = null;
+                this.showWebSigCapture = false;
+                this.submitDisclosureAmendment(amend, sigData);
+                return;
             }
 
             const sigId = this.currentWebSigBlockId;
@@ -3318,7 +3939,7 @@ function externalSign() {
                 if (entry) {
                     entry.signed = true;
                     entry.sigData = sigData;
-                    entry.el.innerHTML = '<img src="' + sigData + '" style="max-height:26px;margin:auto;display:block;object-fit:contain;" alt="Initial">';
+                    entry.el.innerHTML = '<img src="' + sigData + '" class="corex-ink corex-ink--initial" style="height:38px;max-height:38px;width:auto;margin:auto;display:block;object-fit:contain;" alt="Initial">';
                     entry.el.classList.add('initial-signed');
                     entry.el.style.border = '2px solid #10b981';
                     entry.el.style.background = 'rgba(16,185,129,0.06)';
@@ -3368,7 +3989,7 @@ function externalSign() {
                 entry.signed = true;
                 entry.sigData = sigData;
                 this.webSignatures[entry.initKey] = sigData;
-                entry.el.innerHTML = '<img src="' + sigData + '" style="max-height:26px;margin:auto;display:block;object-fit:contain;" alt="Initial">';
+                entry.el.innerHTML = '<img src="' + sigData + '" class="corex-ink corex-ink--initial" style="height:38px;max-height:38px;width:auto;margin:auto;display:block;object-fit:contain;" alt="Initial">';
                 entry.el.classList.add('initial-signed');
                 entry.el.style.border = '2px solid #10b981';
                 entry.el.style.background = 'rgba(16,185,129,0.06)';
@@ -3445,10 +4066,20 @@ function externalSign() {
                     },
                     body: JSON.stringify({
                         field_values: fieldValues,
-                        signatures: this.webSignatures,
+                        // P0 (Johan 2026-08-07) — the enable-gate counts positioned DB MARKER signatures as
+                        // signed, but those were captured through a SEPARATE /capture/{id} request and never
+                        // landed in webSignatures. Include them here so the completeWeb payload reflects every
+                        // mark the gate counted (the server floor also has an authoritative persisted-evidence
+                        // check; this keeps the body itself consistent for a marker-only recipient).
+                        signatures: Object.assign(
+                            {},
+                            this.webSignatures,
+                            Object.fromEntries((this.markers || [])
+                                .filter(m => m.is_mine && m.signed && m.signature_data)
+                                .map(m => ['marker-' + m.id, m.signature_data]))
+                        ),
                         disclosure_answers: this.webDisclosureAnswers,
                         ceremony_values: this.webCeremonyValues,
-                        clause_flags: this.webClauseFlaggedItems,
                         other_conditions_text: this.otherConditionsText,
                         consented: this.webConsented,
                         consent_timestamp: new Date().toISOString(),
@@ -3539,19 +4170,20 @@ function uploadForm() {
 }
 </script>
 
-{{-- Phase 1B.5 + 1B.6 — recipient Other Conditions + Flag Clause modals.
-     The modal partials wire themselves via window CustomEvent dispatch:
+{{-- Recipient Other Conditions modal. The partial wires itself via window CustomEvent dispatch:
        open-add-condition-modal — fired by + Add condition buttons inside
-         InsertableBlockRenderer-rendered blocks
-       open-flag-clause-modal   — fired by the existing _toggleClauseFlag
-         icon handler (Phase 1B.6 replaces the inline-input UX with this
-         richer modal — see _initClauseFlagging / _toggleClauseFlag).
-     The Phase 1B.5 override-modal partial was removed in Phase 1B.6 — the
-     clause-flag flow is the canonical recipient change-proposal path. --}}
+         InsertableBlockRenderer-rendered blocks.
+     (AT-373 inc7 — the recipient clause-flag modal was retired; recipients now propose changes
+     via the wet-ink amend tool at their turn.) --}}
 @isset($request)
     @php $token = $request->token; @endphp
     @include('docuperfect.signatures._partials.add-condition-modal', ['token' => $token, 'numberedClauses' => $numberedClauses ?? []])
-    @include('docuperfect.signatures._partials.flag-clause-modal', ['token' => $token])
+    {{-- WET-INK recipient-side per-change initialing (item 4): a recipient initials changes the agent made.
+         viewerPartyKey MUST be canonicalPartyKey — the SAME convention the row slots (SelectionEditService::parties)
+         and the fill endpoint (SigningController::initialChange) use. currentRoleIdentity ('{role}_{index}', always
+         suffixed) is the marker-identity convention and does NOT match a slot key like 'supervisor', so the viewer's
+         own slot never wired as clickable. --}}
+    @include('docuperfect.signatures.partials._change-initial-affordance', ['initialChangeUrl' => route('signatures.external.initialChange', $token), 'viewerPartyKey' => ($request->canonicalPartyKey() ?? $request->party_role)])
 @endisset
 
 </body>

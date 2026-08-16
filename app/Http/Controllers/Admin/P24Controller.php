@@ -150,7 +150,15 @@ class P24Controller extends Controller
 
     public function listings(Request $request)
     {
-        $query = P24Listing::query();
+        // 2026-08-15 (Johan, HFC tenant-isolation fix) — same unscoped-P24
+        // leak as MarketIntelligenceController::marketPulse(), on the still
+        // -live legacy /admin/p24/listings route (index() itself is dead —
+        // only route-redirected, no longer routed to a controller).
+        $user = $request->user();
+        $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
+        abort_if($agencyId === null, 403);
+
+        $query = P24Listing::where('agency_id', $agencyId);
 
         if ($request->filled('suburb')) {
             $query->where('suburb', $request->suburb);
@@ -170,8 +178,8 @@ class P24Controller extends Controller
 
         $listings = $query->orderByDesc('first_seen_date')->paginate(25);
 
-        $suburbs = P24Listing::select('suburb')->distinct()->whereNotNull('suburb')->orderBy('suburb')->pluck('suburb');
-        $types = P24Listing::select('property_type')->distinct()->whereNotNull('property_type')->orderBy('property_type')->pluck('property_type');
+        $suburbs = P24Listing::where('agency_id', $agencyId)->select('suburb')->distinct()->whereNotNull('suburb')->orderBy('suburb')->pluck('suburb');
+        $types = P24Listing::where('agency_id', $agencyId)->select('property_type')->distinct()->whereNotNull('property_type')->orderBy('property_type')->pluck('property_type');
 
         return view('admin.p24.listings', compact('listings', 'suburbs', 'types'));
     }

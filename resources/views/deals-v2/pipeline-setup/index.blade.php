@@ -20,7 +20,14 @@
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Pipeline Setup</h1>
                 <p class="text-xs" style="color: var(--text-muted);">Define the steps deals follow through each stage of your pipeline.</p>
             </div>
-            <div class="flex flex-wrap items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
+                <a href="{{ route('deals-v2.pipeline.master') }}" class="corex-btn-outline corex-btn-on-brand inline-flex items-center gap-2"
+                   title="Edit the composable master template every new Deal Structure is built from.">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 4.5v15m6-15v15M4.5 9h15m-15 6h15"/>
+                    </svg>
+                    Deal Structure Master
+                </a>
                 <form method="POST" action="{{ route('deals-v2.pipeline.load-defaults') }}" class="inline">
                     @csrf
                     <button type="submit" class="corex-btn-outline text-xs inline-flex items-center gap-2"

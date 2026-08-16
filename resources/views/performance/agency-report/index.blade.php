@@ -106,7 +106,18 @@
                 <button type="button" @click="drill('{{ $m['key'] }}', 'company', null, @js($m['label']))"
                         class="rounded p-3 text-left" style="background:var(--surface-2); border:1px solid var(--border); cursor:pointer;"
                         title="Click to see the detail">
-                    <div class="text-xl font-bold" style="color:var(--text-primary);">{{ $report['company'][$m['key']] ?? 0 }}</div>
+                    @if($m['key'] === 'commission_gross_ex_vat')
+                        {{-- The Commission tile moves in LOCKSTEP with the deal-status ticks: when cc6
+                             ships per-status data (hasDealStatus) it binds to the SAME reactive
+                             selected-deals commission the "commission (selected)" selector line uses
+                             (statusCommission), so ticking a status recomputes both together. When no
+                             per-status data is present it shows the server gross-ex-VAT total. Always
+                             money-formatted (fmtMoney) to match the selector line. --}}
+                        <div class="text-xl font-bold" style="color:var(--text-primary);"
+                             x-text="fmtMoney(hasDealStatus ? statusCommission() : {{ (float) ($report['company'][$m['key']] ?? 0) }})">{{ $report['company'][$m['key']] ?? 0 }}</div>
+                    @else
+                        <div class="text-xl font-bold" style="color:var(--text-primary);">{{ $report['company'][$m['key']] ?? 0 }}</div>
+                    @endif
                     <div class="text-[11px]" style="color:var(--text-muted);">{{ $m['label'] }}</div>
                 </button>
             @endforeach

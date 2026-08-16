@@ -12,6 +12,9 @@ class SignedDocumentVersion extends Model
     protected $fillable = [
         'document_id',
         'signature_request_id',
+        'kind',
+        'filed_at',
+        'filed_by_user_id',
         'version_number',
         'file_path',
         'file_type',
@@ -24,11 +27,33 @@ class SignedDocumentVersion extends Model
         'notes',
     ];
 
+    /** A recipient-uploaded optional supporting document (not a signed version). */
+    public const KIND_SUPPORTING = 'supporting';
+
+    /** True when this row is an optional supporting document, not a signed version. */
+    public function isSupporting(): bool
+    {
+        return $this->kind === self::KIND_SUPPORTING;
+    }
+
+    /** Scope: only optional supporting-document rows. */
+    public function scopeSupporting($query)
+    {
+        return $query->where('kind', self::KIND_SUPPORTING);
+    }
+
     protected $casts = [
         'agent_approved' => 'boolean',
         'uploaded_at' => 'datetime',
         'agent_approved_at' => 'datetime',
+        'filed_at' => 'datetime',
     ];
+
+    /** True when this supporting upload has been filed (off the working "to file" list). */
+    public function isFiled(): bool
+    {
+        return $this->filed_at !== null;
+    }
 
     public function document()
     {

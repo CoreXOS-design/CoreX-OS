@@ -49,6 +49,8 @@ class DocumentCondition extends Model
         'approved_by_agent_user_id',
         'superseded_at',
         'superseded_by_condition_id',
+        'rejected_at',
+        'rejected_by_user_id',
     ];
 
     protected $casts = [
@@ -57,6 +59,7 @@ class DocumentCondition extends Model
         'condition_number'     => 'integer',
         'approved_by_agent_at' => 'datetime',
         'superseded_at'        => 'datetime',
+        'rejected_at'          => 'datetime',
     ];
 
     public function signatureTemplate(): BelongsTo

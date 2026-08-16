@@ -9,6 +9,7 @@
         cancelDocName: '',
         showCompleted: false,
         showCancelled: false,
+        showFiled: false,
         activeFilter: null,
      }">
 
@@ -77,12 +78,28 @@
          width evenly at every breakpoint (2-up on mobile). --}}
     <div class="grid gap-4" data-tour="dp-esign-my-docs-tiles"
          style="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));">
+        @if(($counts['amendment_approval'] ?? 0) > 0)
+        <a href="#section-amendment-approval" onclick="event.preventDefault(); scrollToSection('section-amendment-approval')"
+           class="rounded-md p-4 text-center cursor-pointer block transition-all duration-300 hover:opacity-90"
+           style="border: 2px solid var(--ds-amber); background: color-mix(in srgb, var(--ds-amber) 10%, transparent);">
+            <div class="text-[1.625rem] font-semibold" style="color: var(--ds-amber);">{{ number_format($counts['amendment_approval']) }}</div>
+            <div class="text-xs mt-1 font-semibold" style="color: var(--ds-amber);">Amendment Approval</div>
+        </a>
+        @endif
         @if(($counts['needs_authorisation'] ?? 0) > 0)
         <a href="#section-needs-authorisation" onclick="event.preventDefault(); scrollToSection('section-needs-authorisation')"
            class="rounded-md p-4 text-center cursor-pointer block transition-all duration-300 hover:opacity-90"
            style="border: 2px solid var(--ds-amber); background: color-mix(in srgb, var(--ds-amber) 10%, transparent);">
             <div class="text-[1.625rem] font-semibold" style="color: var(--ds-amber);">{{ number_format($counts['needs_authorisation']) }}</div>
             <div class="text-xs mt-1 font-semibold" style="color: var(--ds-amber);">Needs Authorisation</div>
+        </a>
+        @endif
+        @if(($counts['returned'] ?? 0) > 0)
+        <a href="#section-returned" onclick="event.preventDefault(); scrollToSection('section-returned')"
+           class="rounded-md p-4 text-center cursor-pointer block transition-all duration-300 hover:opacity-90"
+           style="border: 2px solid var(--ds-crimson); background: color-mix(in srgb, var(--ds-crimson) 10%, transparent);">
+            <div class="text-[1.625rem] font-semibold" style="color: var(--ds-crimson);">{{ number_format($counts['returned']) }}</div>
+            <div class="text-xs mt-1 font-semibold" style="color: var(--ds-crimson);">Returned — Needs Fixing</div>
         </a>
         @endif
         @if($counts['pending_approval'] > 0)
@@ -136,6 +153,51 @@
     @endif
 
     {{-- ===== CANDIDATE DOCUMENTS — NEEDS AUTHORISATION ===== --}}
+    {{-- ===== AT-373 — AMENDMENT APPROVAL (a recipient's amendment returned to the agent) ===== --}}
+    {{-- A recipient amended the document on their turn; it is HELD and returned to the agent for
+         approval before the next recipient receives it. Was in no bucket → invisible. Surfaced here
+         with a Review & Approve deep-link to the agent amendment-approval surface. --}}
+    @if(($groups['amendment_approval'] ?? collect())->isNotEmpty())
+    <div id="section-amendment-approval" class="space-y-3 scroll-mt-4">
+        <h3 class="text-sm font-semibold uppercase tracking-wider flex items-center gap-2" style="color: var(--ds-amber);">
+            <span class="inline-flex items-center justify-center w-5 h-5 text-white text-[0.6875rem] font-bold rounded-full" style="background: var(--ds-amber);">{{ number_format($groups['amendment_approval']->count()) }}</span>
+            Amendment Approval &mdash; Recipient Changed the Document
+        </h3>
+        <div class="space-y-3">
+            @foreach($groups['amendment_approval'] as $tpl)
+                @php $doc = $tpl->document; @endphp
+                <div class="rounded-md p-4" style="border: 2px solid var(--ds-amber); background: color-mix(in srgb, var(--ds-amber) 8%, transparent);">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="flex-1 min-w-0">
+                            <div class="font-semibold" style="color: var(--text-primary);">
+                                {{ $doc->name ?? 'Untitled' }}
+                                <span class="ds-badge ml-2" style="background: var(--ds-amber); color: #fff;">AMENDMENT — APPROVAL REQUIRED</span>
+                            </div>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span class="text-xs" style="color: var(--text-muted);">
+                                    A recipient proposed a change — approve it (initial the change) to send it to the earlier signers, or reject it.
+                                    Created {{ $tpl->created_at->format('d M Y H:i') }}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="flex flex-col gap-2">
+                            @if($doc)
+                            <a href="{{ route('docuperfect.signatures.review', $doc) }}"
+                               class="corex-btn-primary inline-flex items-center gap-1.5 whitespace-nowrap">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                                </svg>
+                                Review &amp; Approve
+                            </a>
+                            @endif
+                        </div>
+                    </div>
+                </div>
+            @endforeach
+        </div>
+    </div>
+    @endif
+
     @if(($groups['needs_authorisation'] ?? collect())->isNotEmpty())
     <div id="section-needs-authorisation" class="space-y-3 scroll-mt-4">
         <h3 class="text-sm font-semibold uppercase tracking-wider flex items-center gap-2" style="color: var(--ds-amber);">
@@ -161,7 +223,7 @@
                                 <span class="ds-badge ds-badge-warning" title="{{ $candidateName }}">{{ \Illuminate\Support\Str::limit($candidateName, 18) }}</span>
                                 <span class="ds-badge ds-badge-warning">{{ $tpl->status === 'awaiting_supervisor' ? 'Initial Review' : 'Final Sign-off' }}</span>
                                 <span class="text-xs" style="color: var(--text-muted);">
-                                    Created {{ $tpl->created_at->format('d M Y') }}
+                                    Created {{ $tpl->created_at->format('d M Y H:i') }}
                                 </span>
                             </div>
                         </div>
@@ -184,7 +246,109 @@
     @endif
 
     @if(!($showOnlyAuthorisation ?? false))
+    {{-- ===== RETURNED — NEEDS FIXING (BUG 2, Johan 2026-08-04) ===== --}}
+    {{-- A candidate-flow doc SENT BACK by the authoriser (STATUS_RETURNED_TO_CANDIDATE)
+         was in no group and vanished from the candidate's list — they could not find
+         their own document to fix. Surface it FIRST with the authoriser's note and a
+         deep link to the sign screen to fix + re-sign + resubmit. --}}
+    @if(($groups['returned'] ?? collect())->isNotEmpty())
+    <div id="section-returned" class="space-y-3 scroll-mt-4">
+        <h3 class="text-sm font-semibold uppercase tracking-wider flex items-center gap-2" style="color: var(--ds-crimson);">
+            <span class="inline-flex items-center justify-center w-5 h-5 text-white text-[0.6875rem] font-bold rounded-full" style="background: var(--ds-crimson);">{{ number_format($groups['returned']->count()) }}</span>
+            Returned &mdash; Needs Fixing
+        </h3>
+        <div class="space-y-3">
+            @foreach($groups['returned'] as $tpl)
+                @php
+                    $doc = $tpl->document;
+                    $thread = $doc->web_template_data['return_thread'] ?? [];
+                    $lastNote = collect($thread)->where('direction', 'sent_back')->last()['note'] ?? null;
+                @endphp
+                <div class="rounded-md p-4" style="border: 2px solid var(--ds-crimson); background: color-mix(in srgb, var(--ds-crimson) 8%, transparent);">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="flex-1 min-w-0">
+                            <div class="font-semibold" style="color: var(--text-primary);">
+                                {{ $doc->name ?? 'Untitled' }}
+                                <span class="ds-badge ml-2" style="background: var(--ds-crimson); color: #fff;">RETURNED</span>
+                            </div>
+                            <div class="text-xs mt-2" style="color: var(--ds-crimson);">
+                                The authoriser sent this back for changes. Your signature stays in place — open it, make the changes, initial each change, then resubmit. You do not re-sign the whole document.
+                            </div>
+                            @if($lastNote)
+                            <div class="text-xs mt-2 rounded px-2 py-1.5" style="background: color-mix(in srgb, var(--ds-crimson) 6%, #fff); color: var(--text-secondary);">
+                                <span class="font-semibold" style="color: var(--ds-crimson);">Latest note:</span> {{ $lastNote }}
+                            </div>
+                            @endif
+                            <div class="text-xs mt-1" style="color: var(--text-muted);">
+                                Returned {{ ($tpl->updated_at ?? $tpl->created_at)?->format('d M Y H:i') }}
+                            </div>
+                        </div>
+                        <div class="flex flex-col gap-2">
+                            @if($doc)
+                            <a href="{{ route('docuperfect.signatures.sign', $doc) }}"
+                               class="corex-btn-primary whitespace-nowrap text-center">
+                                Open to fix
+                            </a>
+                            @endif
+                        </div>
+                    </div>
+                </div>
+            @endforeach
+        </div>
+    </div>
+    @endif
+
     {{-- ===== NEEDS YOUR APPROVAL ===== --}}
+    {{-- AT-299 — a document frozen by a recipient's clause flag
+         (STATUS_AMENDMENT_REVIEW) was previously in NO group and fell out of the
+         list entirely — the agent could not see the frozen ceremony. Surface it
+         FIRST as "Flagged — Review Required". --}}
+    @if(($groups['flagged'] ?? collect())->isNotEmpty())
+    <div id="section-flagged" class="space-y-3 scroll-mt-4">
+        <h3 class="text-sm font-semibold uppercase tracking-wider flex items-center gap-2" style="color: var(--ds-crimson);">
+            <span class="inline-flex items-center justify-center w-5 h-5 text-white text-[0.6875rem] font-bold rounded-full" style="background: var(--ds-crimson);">{{ number_format($groups['flagged']->count()) }}</span>
+            Flagged &mdash; Review Required
+        </h3>
+        <div class="space-y-3">
+            @foreach($groups['flagged'] as $tpl)
+                @php $doc = $tpl->document; @endphp
+                <div class="rounded-md p-4" style="border: 2px solid var(--ds-crimson); background: color-mix(in srgb, var(--ds-crimson) 8%, transparent);">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="flex-1 min-w-0">
+                            <div class="font-semibold" style="color: var(--text-primary);">
+                                {{ $doc->name ?? 'Untitled' }}
+                                <span class="ds-badge ml-2" style="background: var(--ds-crimson); color: #fff;">FLAGGED</span>
+                            </div>
+                            <div class="text-xs mt-2" style="color: var(--ds-crimson);">
+                                A signing party flagged a clause &mdash; signing is paused until you review it and resolve or re-send the document.
+                            </div>
+                            <div class="text-xs mt-1" style="color: var(--text-muted);">
+                                Flagged {{ ($tpl->updated_at ?? $tpl->created_at)?->format('d M Y H:i') }}
+                            </div>
+                        </div>
+                        <div class="flex flex-col gap-2">
+                            {{-- AT-300 — link to the FLAG-RESOLVE view (AmendmentController::review);
+                                 the doc-level signatures.review rejects AMENDMENT_REVIEW status and
+                                 bounced the button. Falls back to the doc review only if no amendment id. --}}
+                            @if(!empty($tpl->flag_amendment_id))
+                            <a href="{{ route('docuperfect.amendments.review', $tpl->flag_amendment_id) }}"
+                               class="corex-btn-primary whitespace-nowrap text-center">
+                                Review Flag
+                            </a>
+                            @elseif($doc)
+                            <a href="{{ route('docuperfect.signatures.review', $doc) }}"
+                               class="corex-btn-primary whitespace-nowrap text-center">
+                                Review Flag
+                            </a>
+                            @endif
+                        </div>
+                    </div>
+                </div>
+            @endforeach
+        </div>
+    </div>
+    @endif
+
     @if($groups['pending_approval']->isNotEmpty())
     <div id="section-pending-approval" class="space-y-3 scroll-mt-4">
         <h3 class="text-sm font-semibold uppercase tracking-wider flex items-center gap-2" style="color: var(--ds-amber);">
@@ -274,6 +438,19 @@
                             @if($doc && $doc->template)
                                 <div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $doc->template->name }}</div>
                             @endif
+                            {{-- Recipient supporting-document flag --}}
+                            @php $sup = $doc ? ($supportingByDoc->get($doc->id) ?? collect()) : collect(); @endphp
+                            @if($sup->isNotEmpty())
+                                <a href="#recipient-additional-docs" class="ds-badge mt-1 inline-block no-underline" style="background: var(--brand-icon); color:#fff;" title="Recipient uploaded supporting documents">&#43; {{ $sup->count() }} additional doc{{ $sup->count() === 1 ? '' : 's' }}</a>
+                            @endif
+                            {{-- AT-373 — a doc that re-circulated after an approved amendment reads as a normal
+                                 "awaiting" row; this badge tells the agent it is a post-amendment re-initial /
+                                 re-acceptance round, not a first-time signing, so the state is legible. --}}
+                            @if($tpl->status === \App\Models\Docuperfect\SignatureTemplate::STATUS_AMENDMENT_INITIALING)
+                                <span class="ds-badge ds-badge-warning mt-1 inline-block">Re-initialing amendment</span>
+                            @elseif($tpl->status === \App\Models\Docuperfect\SignatureTemplate::STATUS_EDITOR_REACCEPTANCE)
+                                <span class="ds-badge ds-badge-warning mt-1 inline-block">Awaiting re-acceptance</span>
+                            @endif
                         </td>
                         <td class="px-4 py-3">
                             @if($totalReq > 0)
@@ -294,6 +471,18 @@
                                                 {{ $req->signer_name }}
                                                 — {{ $req->status === 'viewed' ? 'viewed' : ($req->status === 'partially_signed' ? 'signing' : 'sent') }}
                                             </span>
+                                            @php
+                                                // §6 — "who holds it, and FOR HOW LONG". The elapsed time on the
+                                                // party currently holding the document is what lets an agent spot a
+                                                // stall at a glance. Time it from when the document last landed with
+                                                // them: viewed_at once opened, sent_at while still unopened.
+                                                $heldSince = in_array($req->status, ['viewed', 'partially_signed'])
+                                                    ? ($req->viewed_at ?? $req->sent_at)
+                                                    : $req->sent_at;
+                                            @endphp
+                                            @if($heldSince)
+                                                <span class="text-[10px]" style="color: var(--text-muted);" title="Held by {{ $req->signer_name }} for this long">for {{ $heldSince->diffForHumans(null, true) }}</span>
+                                            @endif
                                             @if($req->fica_required && $req->contact_id)
                                                 @php $ficaDone = \App\Models\FicaSubmission::where('contact_id', $req->contact_id)->where('status', 'approved')->exists(); @endphp
                                                 @if($ficaDone)
@@ -326,12 +515,14 @@
                             @endif
                         </td>
                         <td class="px-4 py-3">
-                            <span class="text-xs" style="color: var(--text-muted);">{{ $tpl->created_at->format('d M Y') }}</span>
+                            <span class="text-xs" style="color: var(--text-muted);">{{ $tpl->created_at->format('d M Y H:i') }}</span>
                         </td>
                         <td class="px-4 py-3 text-right">
                             <div class="flex flex-col items-end gap-1">
                                 @if($doc)
                                 <a href="{{ route('docuperfect.signatures.sendConfirmation', $doc) }}" class="text-xs font-semibold hover:underline transition-colors duration-150" style="color: var(--brand-icon);">View Progress</a>
+                                {{-- AT-352 item 2 — read-only mirror of the current recipient's exact view --}}
+                                <a href="{{ route('docuperfect.signatures.viewLive', $doc) }}" target="_blank" class="text-xs font-semibold hover:underline transition-colors duration-150" style="color: var(--brand-icon);">View Document</a>
                                 @endif
                                 @php
                                     $activeReq = $tpl->requests->first(fn($r) => in_array($r->status, ['pending', 'viewed', 'partially_signed']));
@@ -343,6 +534,10 @@
                                             Send Reminder
                                         </button>
                                     </form>
+                                @endif
+                                {{-- AT-294 — per-recipient email send status + resend (shared partial) --}}
+                                @if($doc)
+                                    @include('docuperfect.signatures.partials._recipient-resend', ['document' => $doc, 'requests' => $tpl->requests])
                                 @endif
                                 <button type="button"
                                         @click="cancelTemplateId = {{ $tpl->id }}; cancelDocName = {{ Js::from($doc->name ?? 'Untitled') }}; showCancelModal = true"
@@ -383,7 +578,7 @@
                         <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $doc->name ?? 'Untitled' }}</td>
                         <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $doc->template->name ?? '—' }}</td>
                         <td class="px-4 py-3">
-                            <span class="text-xs" style="color: var(--text-muted);">{{ $tpl->created_at->format('d M Y') }}</span>
+                            <span class="text-xs" style="color: var(--text-muted);">{{ $tpl->created_at->format('d M Y H:i') }}</span>
                         </td>
                         <td class="px-4 py-3 text-right">
                             <div class="flex items-center justify-end gap-3">
@@ -446,7 +641,7 @@
                             @endif
                         </td>
                         <td class="px-4 py-3">
-                            <span class="text-xs" style="color: var(--text-muted);">{{ $tpl->created_at->format('d M Y') }}</span>
+                            <span class="text-xs" style="color: var(--text-muted);">{{ $tpl->created_at->format('d M Y H:i') }}</span>
                         </td>
                         <td class="px-4 py-3 text-right">
                             <div class="flex items-center justify-end gap-3">
@@ -493,17 +688,44 @@
                     </thead>
                     <tbody>
                     @foreach($groups['completed'] as $tpl)
-                        @php $doc = $tpl->document; @endphp
+                        @php
+                            $doc = $tpl->document;
+                            // Self-identifying row: property + who signed. Both come from relations
+                            // already eager-loaded on the query (document, requests) — no N+1.
+                            $completedSigners = $tpl->requests->where('status', 'completed')
+                                ->map(fn($r) => $r->signer_name)->filter()->values();
+                        @endphp
                         <tr class="transition-colors" style="border-top: 1px solid var(--border);">
-                            <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $doc->name ?? 'Untitled' }}</td>
+                            <td class="px-4 py-3">
+                                <div class="font-medium" style="color: var(--text-primary);">{{ $doc->name ?? 'Untitled' }}</div>
+                                @if($doc && $doc->property_address)
+                                    <div class="text-xs mt-0.5" style="color: var(--text-secondary);">{{ $doc->property_address }}</div>
+                                @endif
+                                {{-- Recipient supporting-document flag --}}
+                                @php $sup = $doc ? ($supportingByDoc->get($doc->id) ?? collect()) : collect(); @endphp
+                                @if($sup->isNotEmpty())
+                                    <a href="#recipient-additional-docs" class="ds-badge mt-1 inline-block no-underline" style="background: var(--brand-icon); color:#fff;" title="Recipient uploaded supporting documents">&#43; {{ $sup->count() }} additional doc{{ $sup->count() === 1 ? '' : 's' }}</a>
+                                @endif
+                                @if($completedSigners->isNotEmpty())
+                                    <div class="text-xs mt-0.5" style="color: var(--text-muted);">Signed by: {{ $completedSigners->implode(', ') }}</div>
+                                @endif
+                            </td>
                             <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $doc->template->name ?? '—' }}</td>
                             <td class="px-4 py-3">
-                                <span class="text-xs" style="color: var(--text-muted);">{{ $tpl->completed_at?->format('d M Y') ?? $tpl->updated_at->format('d M Y') }}</span>
+                                <span class="text-xs" style="color: var(--text-muted);">{{ $tpl->completed_at?->format('d M Y H:i') ?? $tpl->updated_at->format('d M Y H:i') }}</span>
                             </td>
                             <td class="px-4 py-3 text-right">
                                 @if($doc)
-                                <a href="{{ route('docuperfect.signatures.audit', $doc) }}" class="text-xs font-semibold hover:underline transition-colors duration-150" style="color: var(--brand-icon);">Audit</a>
-                                <a href="{{ route('docuperfect.signatures.download', $doc) }}" class="text-xs font-semibold hover:underline ml-3 transition-colors duration-150" style="color: var(--ds-green);">Download</a>
+                                <div class="flex flex-col items-end gap-1">
+                                    <div>
+                                        {{-- AT-352 item 2 — read-only mirror of the final signed document --}}
+                                        <a href="{{ route('docuperfect.signatures.viewLive', $doc) }}" target="_blank" class="text-xs font-semibold hover:underline transition-colors duration-150" style="color: var(--brand-icon);">View Document</a>
+                                        <a href="{{ route('docuperfect.signatures.audit', $doc) }}" class="text-xs font-semibold hover:underline ml-3 transition-colors duration-150" style="color: var(--brand-icon);">Audit</a>
+                                        <a href="{{ route('docuperfect.signatures.download', $doc) }}" class="text-xs font-semibold hover:underline ml-3 transition-colors duration-150" style="color: var(--ds-green);">Download</a>
+                                    </div>
+                                    {{-- AT-294 — resend the completed signed-document email per recipient (stored PDF) --}}
+                                    @include('docuperfect.signatures.partials._recipient-resend', ['document' => $doc, 'requests' => $tpl->requests])
+                                </div>
                                 @endif
                             </td>
                         </tr>
@@ -511,6 +733,120 @@
                     </tbody>
                 </table>
                 </div>
+            </div>
+        </div>
+    </div>
+    @endif
+
+    {{-- ===== RECIPIENT ADDITIONAL DOCS (optional supporting uploads) =====
+         ALWAYS rendered (even with zero uploads) so the agent can find the place —
+         with an empty-state line when nothing has been uploaded yet. --}}
+    @php $supportingToFile = $supportingToFile ?? collect(); $supportingFiled = $supportingFiled ?? collect(); @endphp
+
+    {{-- Working list — UNFILED recipient uploads that still need to be worked/filed. --}}
+    <div id="recipient-additional-docs" class="space-y-3 scroll-mt-4 mt-6">
+        <h3 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--brand-icon);">
+            Recipient additional docs to file ({{ number_format($supportingToFile->count()) }})
+        </h3>
+        <p class="text-xs" style="color: var(--text-muted);">Supporting documents a signer attaches while signing arrive as ONE batch per recipient. <strong>View documents</strong> to page through everything they sent, <strong>Send to splitter</strong> hands the whole batch off at once (the splitter names each doc), and <strong>Mark as filed</strong> moves the batch to the Filed archive below.</p>
+
+        @if(session('supporting_process_notice'))
+            <div class="rounded-md px-4 py-2 text-sm" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--text-primary); border: 1px solid var(--border);">{{ session('supporting_process_notice') }}</div>
+        @endif
+
+        @if($supportingToFile->isEmpty())
+            <div class="rounded-md px-4 py-6 text-sm text-center" style="background: var(--surface); border: 1px dashed var(--border); color: var(--text-muted);">
+                Nothing to file. When a signer attaches supporting documents on their signing screen, the batch appears here until you file it.
+            </div>
+        @else
+        <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="overflow-x-auto">
+            <table class="min-w-full text-sm ds-table">
+                <thead>
+                    <tr style="background: var(--surface-2);">
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Recipient upload</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">When</th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach($supportingToFile as $batch)
+                    <tr class="transition-colors" style="border-top: 1px solid var(--border);">
+                        <td class="px-4 py-3">
+                            <div class="font-medium" style="color: var(--text-primary);">{{ $batch->signer_name }} uploaded {{ $batch->count }} doc{{ $batch->count === 1 ? '' : 's' }}</div>
+                            <div class="text-xs mt-0.5" style="color: var(--text-muted);">for {{ $batch->document->name ?? 'Untitled' }} &middot; {{ $batch->document->template->name ?? '—' }}</div>
+                        </td>
+                        <td class="px-4 py-3"><span class="text-xs" style="color: var(--text-muted);">{{ $batch->latest_at?->format('d M Y H:i') ?? '—' }}</span></td>
+                        <td class="px-4 py-3 text-right">
+                            <div class="inline-flex items-center gap-4">
+                                <a href="{{ route('signatures.supporting.view', ['document' => $batch->document->id, 'signingRequest' => $batch->request_id, 'filed' => 0]) }}" target="_blank" class="text-xs font-semibold hover:underline" style="color: var(--brand-icon);">View documents</a>
+                                <a href="{{ route('signatures.supporting.downloadAll', ['document' => $batch->document->id, 'signingRequest' => $batch->request_id, 'filed' => 0]) }}" class="text-xs font-semibold hover:underline" style="color: var(--ds-green);">Download all</a>
+                                {{-- Batch hand-off to the multi-doc splitter (cc5 intake-by-reference): opens the
+                                     splitter with this batch's files + the property/address pre-filled. --}}
+                                <form method="POST" action="{{ route('tools.pdf_splitter.intake_supporting') }}" class="inline">
+                                    @csrf
+                                    <input type="hidden" name="signature_request_id" value="{{ $batch->request_id }}">
+                                    @foreach($batch->version_ids as $vid)
+                                        <input type="hidden" name="version_ids[]" value="{{ $vid }}">
+                                    @endforeach
+                                    @if($batch->prefill_property_id)
+                                        <input type="hidden" name="property_id" value="{{ $batch->prefill_property_id }}">
+                                    @endif
+                                    <button type="submit" class="text-xs font-semibold hover:underline" style="color: var(--brand-icon);" title="Open this batch in the document splitter with the address pre-filled">Send to splitter</button>
+                                </form>
+                                <form method="POST" action="{{ route('signatures.supporting.file', ['document' => $batch->document->id, 'signingRequest' => $batch->request_id, 'filed' => 0]) }}" class="inline"
+                                      onsubmit="return confirm('Mark {{ $batch->signer_name }}\'s {{ $batch->count }} document(s) as filed? They move to Filed additional docs.');">
+                                    @csrf
+                                    <button type="submit" class="text-xs font-semibold hover:underline" style="color: var(--ds-green);" title="Mark this batch filed — moves it to the archive below">Mark as filed</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                @endforeach
+                </tbody>
+            </table>
+            </div>
+        </div>
+        @endif
+    </div>
+
+    {{-- Archive — FILED recipient uploads, kept findable (mirrors how completed/filed docs stay listed). --}}
+    @if($supportingFiled->isNotEmpty())
+    {{-- Filed additional docs — COLLAPSED by default, same as Completed (Johan 2026-08-12 fix #3). --}}
+    <div id="recipient-additional-docs-filed" class="space-y-3 scroll-mt-4 mt-6">
+        <h3 class="text-sm font-semibold uppercase tracking-wider cursor-pointer flex items-center gap-2" style="color: var(--ds-green);"
+            @click="showFiled = !showFiled">
+            Filed additional docs ({{ number_format($supportingFiled->count()) }})
+            <span class="text-xs" x-text="showFiled ? '&#9660;' : '&#9654;'"></span>
+        </h3>
+        <div x-show="showFiled" x-collapse class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="overflow-x-auto">
+            <table class="min-w-full text-sm ds-table">
+                <thead>
+                    <tr style="background: var(--surface-2);">
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Recipient upload</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Filed</th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach($supportingFiled as $batch)
+                    <tr class="transition-colors" style="border-top: 1px solid var(--border);">
+                        <td class="px-4 py-3">
+                            <div class="font-medium" style="color: var(--text-primary);">{{ $batch->signer_name }} &mdash; {{ $batch->count }} doc{{ $batch->count === 1 ? '' : 's' }}</div>
+                            <div class="text-xs mt-0.5" style="color: var(--text-muted);">for {{ $batch->document->name ?? 'Untitled' }} &middot; {{ $batch->document->template->name ?? '—' }}</div>
+                        </td>
+                        <td class="px-4 py-3"><span class="text-xs" style="color: var(--text-muted);">{{ $batch->filed_at?->format('d M Y H:i') ?? '—' }}</span></td>
+                        <td class="px-4 py-3 text-right">
+                            <div class="inline-flex items-center gap-4">
+                                <a href="{{ route('signatures.supporting.view', ['document' => $batch->document->id, 'signingRequest' => $batch->request_id, 'filed' => 1]) }}" target="_blank" class="text-xs font-semibold hover:underline" style="color: var(--brand-icon);">View documents</a>
+                                <a href="{{ route('signatures.supporting.downloadAll', ['document' => $batch->document->id, 'signingRequest' => $batch->request_id, 'filed' => 1]) }}" class="text-xs font-semibold hover:underline" style="color: var(--ds-green);">Download all</a>
+                            </div>
+                        </td>
+                    </tr>
+                @endforeach
+                </tbody>
+            </table>
             </div>
         </div>
     </div>

@@ -269,10 +269,15 @@ final class MicSnapshotHydrator
      * Deal rows widen the select to pull joined property attributes:
      * suburb, property_type, size_m2, erf_size_m2, title_type.
      *
-     * Trust posture: raw_row_json carries `trusted_internal_source: true`
-     * so any title_type filter downstream exempts these the same way it
-     * exempts analyst-vetted same-subject CMA comps (collectMatchedRows
-     * subjectReportHit path).
+     * Trust posture (code-gate hardening, 2026-08): a HARD Level-1 category
+     * gate applies to every deal row, freshly derived from the joined
+     * property's property_type — a house deal is never inserted as a comp
+     * for a sectional subject, or vice versa, regardless of trust. Only the
+     * SOFT downstream cross-type badge is waived for these rows via
+     * `trusted_internal_source: true` in raw_row_json (they're HFC's own
+     * vetted transactions, same exemption analyst-vetted same-subject CMA
+     * comps get in collectMatchedRows' subjectReportHit path) — the hard
+     * gate itself is never bypassed by that flag.
      *
      * @return array{0:int, 1:int}  [deals_added, deals_dedup_skipped]
      */
@@ -404,10 +409,27 @@ final class MicSnapshotHydrator
                 continue; // CMA-wins precedence
             }
 
-            $titleType   = $r->prop_title_type !== null && $r->prop_title_type !== ''
-                ? (string) $r->prop_title_type
-                : null;
+            // Code-gate hardening (item 2) — never trust the joined
+            // properties.title_type column (the same stale-cache risk as
+            // everywhere else in this class); re-derive fresh from the
+            // property's own property_type string.
+            $titleType   = app(\App\Services\TitleTypeClassifier::class)->fromPropertyType($r->prop_property_type);
             $isSectional = $titleType === \App\Services\TitleTypeClassifier::TITLE_SECTIONAL;
+
+            // Code-gate hardening (item 2) — the HARD Level-1 category gate,
+            // applied BEFORE the trusted_internal_source exemption below.
+            // Internal deals stay exempt from the SOFT cross-type badge
+            // (they're HFC's own vetted transactions) but must never bypass
+            // this hard gate — that bypass is exactly how a house sale in the
+            // same suburb/date window could show up as a comp for an
+            // apartment regardless of title_type correctness. Same
+            // fail-open-on-unknown posture as CompPoolBuilder::select()
+            // Stage A.1: only drop when BOTH sides are known and different.
+            $subjectCategory = $cfg['title_type'] ?? null;
+            if ($subjectCategory !== null && $titleType !== null && $titleType !== $subjectCategory) {
+                $skipped++;
+                continue;
+            }
 
             $sizeM2 = $isSectional
                 ? OutlierGuard::extentM2($r->prop_size_m2)
@@ -510,16 +532,17 @@ final class MicSnapshotHydrator
             $suburb,
         );
 
-        // Keystone — title_type now lives on properties.title_type,
-        // derived from property_type by TitleTypeClassifier on every save.
-        // Read the column first; fall back to the classifier (which
-        // re-derives + tries category) only when the column is NULL,
-        // covering rows pre-dating the backfill. Spec:
-        // .ai/specs/presentation-data-lineage.md §3-A.
-        $titleType = $presentation->property?->title_type
-            ?? ($presentation->property
-                ? app(\App\Services\TitleTypeClassifier::class)->forProperty($presentation->property)
-                : null);
+        // Code-gate hardening (Uvonique bug, 2026-08) — properties.title_type
+        // is a CACHE that only self-heals on save (PropertyObserver); trusting
+        // it here whenever non-null is exactly how a stale/wrong value (a
+        // property that never got re-saved since an earlier classifier
+        // revision) silently drove this gate forever. Always re-derive fresh
+        // from the live classifier — cheap string matching, not a query — so
+        // this can never drift from reality again, regardless of what the
+        // stored column says. Spec: .ai/specs/presentation-data-lineage.md §3-A.
+        $titleType = $presentation->property
+            ? app(\App\Services\TitleTypeClassifier::class)->forProperty($presentation->property)
+            : null;
 
         return [
             'scope'                => $scope,
@@ -728,15 +751,18 @@ final class MicSnapshotHydrator
      */
     private function deriveCompTitleType(object $row): ?string
     {
-        $scheme  = trim((string) ($row->scheme_name ?? ''));
-        $section = trim((string) ($row->section_number ?? ''));
-        if ($scheme !== '' || $section !== '') {
-            return \App\Services\TitleTypeClassifier::TITLE_SECTIONAL;
-        }
-        // No sectional signal — defer to the property-type heuristic (may be
-        // null/full when the source type is generic; the gate fails open on
-        // null, which is the intended posture).
-        return app(\App\Services\TitleTypeClassifier::class)->fromPropertyType($row->property_type ?? null);
+        // Code-gate hardening — this signal-then-property-type logic now
+        // lives once on TitleTypeClassifier::categoryForComp() so any future
+        // comp-classifying caller (e.g. AnalysisDataService's render-layer
+        // hard filter) shares it instead of re-copying it. Behaviour
+        // unchanged: scheme/section signal wins; falls back to
+        // fromPropertyType(), which fails open to null on a generic type —
+        // the intended posture, unchanged.
+        return app(\App\Services\TitleTypeClassifier::class)->categoryForComp(
+            $row->property_type ?? null,
+            $row->scheme_name ?? null,
+            $row->section_number ?? null,
+        );
     }
 
     /**

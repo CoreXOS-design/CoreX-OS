@@ -58,7 +58,11 @@ class DealRegisterController extends Controller
 
         $user = auth()->user();
         $scope = PermissionService::getDataScope($user, 'deals');
-        $query = Deal::query()->visibleTo($user)->with('agents');
+        // withCount('pipelineSteps') powers the register's pipeline label: a deal has a "Pipeline"
+        // once it has step instances — whether attached from a template OR composed from the Deal
+        // Structure tab (composable deals carry no deal_pipeline_template_id, so template alone is
+        // not a reliable signal). pipelineSteps is anchored via dr1_deal_id and excludes trashed.
+        $query = Deal::query()->visibleTo($user)->with('agents')->withCount('pipelineSteps');
 
         if ($search = $request->input('search')) {
             $query->where(function ($q) use ($search) {
@@ -293,18 +297,11 @@ class DealRegisterController extends Controller
         $deal->accepted_status   = 'P';
         $deal->commission_status = 'Not Paid';
 
-        // AT-216 V1.1 — pipeline auto-attach at capture: offer the agency's active templates,
-        // defaulted per deal_type (agency-configurable is_default), changeable, attached on save.
+        // AT-216 V1.1 — pipeline auto-attach at capture: offer the agency's active templates.
+        // (Deal Type radio removed — no per-type default pre-selection; the Deal Structure tab
+        // now drives composition, so the Pipeline select simply defaults to "None".)
         $templates     = \App\Models\DealV2\DealPipelineTemplate::where('is_active', true)
             ->orderByDesc('is_default')->orderBy('name')->get();
-        $defaultByType = [];
-        foreach (['bond', 'cash', 'sale_of_2nd'] as $t) {
-            $tpl = $templates->first(fn ($x) => $x->deal_type === $t && $x->is_default)
-                ?? $templates->first(fn ($x) => $x->deal_type === $t)
-                ?? $templates->first(fn ($x) => (bool) $x->is_default)
-                ?? $templates->first();
-            $defaultByType[$t] = optional($tpl)->id;
-        }
 
         return view('dr2.create', [
             'mode'               => 'create',
@@ -312,7 +309,10 @@ class DealRegisterController extends Controller
             'agents'             => $agents,
             'branches'           => $branches,
             'availableTemplates' => $templates,
-            'defaultByType'      => $defaultByType,
+            // AT-334 — no saved parties on a new deal; the picker seeds empty (create-path
+            // auto-tokenizes the property's seller client-side once a property is picked).
+            'sellerParties'      => [],
+            'buyerParties'       => [],
         ]);
     }
 
@@ -326,11 +326,32 @@ class DealRegisterController extends Controller
         $branches = Branch::orderBy('name')->get();
 
         return view('dr2.create', [
-            'mode'     => 'edit',
-            'deal'     => $deal,
-            'agents'   => $agents,
-            'branches' => $branches,
+            'mode'          => 'edit',
+            'deal'          => $deal,
+            'agents'        => $agents,
+            'branches'      => $branches,
+            // AT-334 — seed the picker from the deal's CURRENT parties so an untouched edit
+            // save re-posts the existing ids (syncDealParties no-op = parties preserved).
+            // Without this the hidden ids start empty and the save DELETES deal_contacts rows.
+            'sellerParties' => $this->dealPartyList($deal, 'seller'),
+            'buyerParties'  => $this->dealPartyList($deal, 'buyer'),
         ]);
+    }
+
+    /**
+     * AT-334 — the deal's currently-linked parties for a role, as [{id,name}], so the edit
+     * form seeds its picker tokens + hidden `*_contact_ids` from deal_contacts (not just
+     * old()). Prevents the silent party-wipe on an untouched edit save.
+     *
+     * @return array<int,array{id:int,name:string}>
+     */
+    private function dealPartyList(Deal $deal, string $role): array
+    {
+        return $deal->contacts()->wherePivot('role', $role)->get()
+            ->map(fn ($c) => [
+                'id'   => (int) $c->id,
+                'name' => trim((string) ($c->full_name ?? ($c->first_name . ' ' . $c->last_name))) ?: ('Contact #' . $c->id),
+            ])->values()->all();
     }
 
     /**
@@ -428,9 +449,10 @@ class DealRegisterController extends Controller
         $data = $request->validate([
             'period'           => ['required'],
             'deal_date'        => ['required', 'date'],
-            // (Enhancement 6) deal type is COMPULSORY — explicit choice, no silent
-            // default. Additive column on `deals`; DR1 ignores it (legacy rows NULL).
-            'deal_type'        => ['required', 'in:bond,cash,sale_of_2nd'],
+            // AT-334 P2 — deal_type is now OPTIONAL. The composable Deal Structure tab drives
+            // the pipeline from suspensive conditions, so a capture no longer needs a type/
+            // pipeline pick. Column is already nullable (most deals carry NULL); no migration.
+            'deal_type'        => ['nullable', 'in:bond,cash,sale_of_2nd'],
             'property_value'   => ['required', 'numeric'],
             'total_commission' => ['required', 'numeric'],
 
@@ -464,10 +486,16 @@ class DealRegisterController extends Controller
             'listing_external'        => ['nullable'],
             'listing_our_share_percent' => ['nullable', 'numeric'],
             'listing_external_agency' => ['nullable', 'string', 'max:255'],
+            // Per-side external agency = firm + contact (same searchable-supplier picker
+            // as attorney / bond-originator). The name column above is the display label.
+            'listing_external_agency_provider_id' => ['nullable', 'integer', 'exists:agency_service_providers,id'],
+            'listing_external_agency_contact_id'  => ['nullable', 'integer', 'exists:agency_service_provider_contacts,id'],
 
             'selling_external'        => ['nullable'],
             'selling_our_share_percent' => ['nullable', 'numeric'],
             'selling_external_agency' => ['nullable', 'string', 'max:255'],
+            'selling_external_agency_provider_id' => ['nullable', 'integer', 'exists:agency_service_providers,id'],
+            'selling_external_agency_contact_id'  => ['nullable', 'integer', 'exists:agency_service_provider_contacts,id'],
 
             'listing_agents'  => ['array'],
             'selling_agents'  => ['array'],
@@ -487,6 +515,21 @@ class DealRegisterController extends Controller
         if ($scope !== 'branch' && empty($data['branch_id'])) {
             throw \Illuminate\Validation\ValidationException::withMessages([
                 'branch_id' => 'Please choose the branch this deal belongs to. Your account has no home branch, so the branch cannot be filled in automatically.',
+            ]);
+        }
+
+        // STANDARDS Rule 17 — a NEW deal must belong to a real agency. An unscoped
+        // owner/super_admin (no branch, no active agency switcher) resolves
+        // effectiveAgencyId() to NULL; BelongsToAgency's single-agency fallback is a
+        // no-op on any multi-agency install, so the deal would silently save with
+        // agency_id=NULL, and pipeline-building code downstream that casts it to
+        // (int) then manufactures the invalid sentinel 0 and 1452s the
+        // deal_step_instances FK (QA1 deal 218). Block here with a clear message —
+        // never invent, hardcode, or silently omit the agency.
+        $effectiveAgencyId = $user?->effectiveAgencyId();
+        if ($isNew && ! $effectiveAgencyId) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'agency_id' => 'Select an agency before creating a deal — switch into an agency, then try again.',
             ]);
         }
 
@@ -510,6 +553,18 @@ class DealRegisterController extends Controller
 
         if (abs(($listingSplit + $sellingSplit) - 100) > 0.01) {
             return back()->withErrors('Listing split % + Selling split % must equal 100. Currently: ' . ($listingSplit + $sellingSplit))->withInput();
+        }
+
+        // A filled external-agency NAME is the authoritative signal that this side
+        // was handled externally — treat the side as external even if the checkbox
+        // was not submitted (e.g. JS disabled, or the box was left unticked). This
+        // keeps the stored checkbox consistent with the name and stops the
+        // "requires at least one agent" guard below from demanding internal-agent
+        // fields for a side that is plainly external.
+        foreach (['listing', 'selling'] as $side) {
+            if (trim((string) ($data[$side . '_external_agency'] ?? '')) !== '') {
+                $data[$side . '_external'] = true;
+            }
         }
 
         foreach (['listing', 'selling'] as $side) {
@@ -565,7 +620,7 @@ class DealRegisterController extends Controller
         $deal->fill([
             'period'           => $data['period'],
             'deal_date'        => $data['deal_date'],
-            'deal_type'        => $data['deal_type'],
+            'deal_type'        => $data['deal_type'] ?? null,
             'property_value'   => $data['property_value'],
             'total_commission' => $data['total_commission'],
 
@@ -573,6 +628,9 @@ class DealRegisterController extends Controller
             'selling_split_percent' => $sellingSplit,
             'file_no'          => $data['file_no'] ?? null,
             'branch_id'        => $data['branch_id'] ?? null,
+            // Explicitly stamped (not left to BelongsToAgency's auto-stamp) so a NEW
+            // deal never depends on the owner-bypass fallback gap — see the guard above.
+            'agency_id'        => $isNew ? $effectiveAgencyId : $deal->agency_id,
 
             'property_id'      => $propertyId,
             'property_address' => $data['property_address'] ?? null,
@@ -592,10 +650,14 @@ class DealRegisterController extends Controller
             'listing_external' => !empty($data['listing_external']),
             'listing_our_share_percent' => $data['listing_our_share_percent'] ?? 100,
             'listing_external_agency' => $data['listing_external_agency'] ?? null,
+            'listing_external_agency_provider_id' => ! empty($data['listing_external_agency_provider_id']) ? (int) $data['listing_external_agency_provider_id'] : null,
+            'listing_external_agency_contact_id'  => ! empty($data['listing_external_agency_contact_id']) ? (int) $data['listing_external_agency_contact_id'] : null,
 
             'selling_external' => !empty($data['selling_external']),
             'selling_our_share_percent' => $data['selling_our_share_percent'] ?? 100,
             'selling_external_agency' => $data['selling_external_agency'] ?? null,
+            'selling_external_agency_provider_id' => ! empty($data['selling_external_agency_provider_id']) ? (int) $data['selling_external_agency_provider_id'] : null,
+            'selling_external_agency_contact_id'  => ! empty($data['selling_external_agency_contact_id']) ? (int) $data['selling_external_agency_contact_id'] : null,
         ]);
 
         // Stamp link provenance only when a property is picked; never clobber a
@@ -1063,12 +1125,12 @@ class DealRegisterController extends Controller
         }
 
         // AT-228 — the same picker serves the transferring attorney and the bond originator.
-        $specialty = in_array($request->input('specialty'), ['transfer_attorney', 'bond_originator'], true)
+        $specialty = in_array($request->input('specialty'), ['transfer_attorney', 'bond_originator', 'external_agency', 'bond_attorney'], true)
             ? $request->input('specialty') : 'transfer_attorney';
 
         $firms = AgencyServiceProvider::query()
             ->where('is_active', true)
-            ->where('specialty', $specialty)
+            ->capableOf($specialty) // AT-364 — bond/transfer surface capability-flagged firms too (BBB does both)
             ->where(function ($w) use ($q) {
                 $w->where('name', 'like', "%{$q}%")
                   ->orWhereHas('serviceContacts', fn ($c) => $c->where('attorney_name', 'like', "%{$q}%")->orWhere('contact_person', 'like', "%{$q}%"));
@@ -1121,25 +1183,41 @@ class DealRegisterController extends Controller
         $userId = $request->user()->id;
 
         // AT-228 — same inline-create serves attorney + bond originator (specialty from the picker).
-        $specialty = in_array($request->input('specialty'), ['transfer_attorney', 'bond_originator'], true)
+        $specialty = in_array($request->input('specialty'), ['transfer_attorney', 'bond_originator', 'external_agency', 'bond_attorney'], true)
             ? $request->input('specialty') : 'transfer_attorney';
 
-        $firm = AgencyServiceProvider::query()
-            ->where('name', $data['firm'])
-            ->where('specialty', $specialty)
-            ->first();
+        // AT-364 — for an attorney specialty, reuse ANY same-named attorney firm (so adding BBB as a
+        // bond attorney reuses the existing BBB transfer firm instead of duplicating it) and set the
+        // requested capability. Non-attorney specialties (bond originator / external agency) keep the
+        // exact (name, specialty) find they always used.
+        $capCol = AgencyServiceProvider::ATTORNEY_CAPABILITY_COLUMNS[$specialty] ?? null;
+
+        $firm = $capCol
+            ? AgencyServiceProvider::query()->where('name', $data['firm'])->anyAttorney()->first()
+            : AgencyServiceProvider::query()->where('name', $data['firm'])->where('specialty', $specialty)->first();
 
         if (! $firm) {
             $firm = AgencyServiceProvider::create([
-                'agency_id'     => $agencyId,
-                'name'          => $data['firm'],
-                'specialty'     => $specialty,
-                'address'       => $data['address'] ?? null,
-                'is_active'     => true,
-                'created_by_id' => $userId,
+                'agency_id'            => $agencyId,
+                'name'                 => $data['firm'],
+                'specialty'            => $specialty,
+                'is_transfer_attorney' => $specialty === 'transfer_attorney',
+                'is_bond_attorney'     => $specialty === 'bond_attorney',
+                'address'              => $data['address'] ?? null,
+                'is_active'            => true,
+                'created_by_id'        => $userId,
             ]);
-        } elseif (! empty($data['address']) && empty($firm->address)) {
-            $firm->update(['address' => $data['address']]);
+        } else {
+            $updates = [];
+            if (! empty($data['address']) && empty($firm->address)) {
+                $updates['address'] = $data['address'];
+            }
+            if ($capCol && ! $firm->{$capCol}) {
+                $updates[$capCol] = true; // ensure the reused firm gains the requested attorney capability
+            }
+            if ($updates) {
+                $firm->update($updates);
+            }
         }
 
         $contact = AgencyServiceProviderContact::create([

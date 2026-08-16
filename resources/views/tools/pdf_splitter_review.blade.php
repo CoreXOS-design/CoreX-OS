@@ -485,13 +485,24 @@ document.addEventListener('alpine:init', () => {
         // bulkType silently pointing at an option the <select> never offers.
         bulkType:   @json(array_key_first($docTypes) ?? 'other'),
         q: '', propResults: [],
-        property: null,
+        // ADDITIVE — property prefill. null for every existing flow (a normal
+        // run() upload never sets $prefillProperty); when present it's shaped
+        // identically to what searchProps()/pickProp() already produce, so
+        // every other reference to `property` in this component just works.
+        property: @json($prefillProperty ?? null),
         dealQ: '', dealResults: [], deal: null,
         contacts: [], contactsById: {}, loadingContacts: false,
         ficaOverride: null,
         // inline add-contact panel
         addKey: null, addRole: null, addManifestId: null, addPage: null, addQ: '', addResults: [], addBusy: false, addError: '',
         newC: { first_name:'', last_name:'', phone:'', email:'' },
+
+        // ── init ──────────────────────────────────────────────────────────
+        // ADDITIVE — a prefilled property still needs its contacts loaded the
+        // same way pickProp() would; pickProp() itself is unchanged.
+        init() {
+            if (this.property) { this.loadContacts(this.property.id); }
+        },
 
         // ── helpers over the file/page tree ─────────────────────────────────
         allPages() { return this.files.flatMap(f => f.pages); },

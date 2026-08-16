@@ -1,0 +1,440 @@
+# LIST + PROGRESSION build 2026-07-28
+
+> **AUTHORITATIVE — latest. This section governs the LIST view and the completion→progression engine,
+> and OVERRIDES everything below it for those two topics.** It was written with Johan present
+> (2026-07-28) and re-verified against the QA1 code at `origin/QA1`. It **supersedes** the CORRECTION
+> section's "LIST = flat original" decision (§1 below) and the §6 "List DEFERRED" sequencing — Johan gave
+> the go to build the phased two-panel List now. The CORRECTION's **Timeline** decisions (horizontal
+> Gantt off `buildBoard()`, persistent Unscheduled tray, drag-to-reschedule) remain in force and are NOT
+> touched by this slice. Re-verify every path below against the code before you build.
+
+## A. LIST VIEW = phased two-panel (match `.ai/mockups/dr2_list_phased.html`)
+
+`PipelineListController::show()` feeds the **`buildPhased()`** read-model (NOT `buildBoard()`), and
+`resources/views/dr2/pipeline-list.blade.php` renders a **two-column** layout:
+
+**LEFT column — the phased pipeline (scrolls independently):**
+- **Anchor** (Deal Signed ★, `buildPhased()['anchor_id']`) → **Stage 1 · Suspensive Conditions** (one group
+  per `condition_key`: Bond / Cash / Sale of another / FICA-`_general`, from `buildPhased()['stage1']['groups']`,
+  each with its ACTIVE/DONE pill) → **GRANTED gate** (`buildPhased()['gate']`, granted vs pending +
+  projected date) → **Stage 2 · Transfer & Registration** (`buildPhased()['stage2']['segments']`, flattened
+  to step ids in date order; dimmed/locked until granted).
+- Every step is the shared uniform tile **`dr2._pipeline-step-tile`** (`variant => 'wide'`), which already
+  carries the full per-step action set: **Complete/Reopen · Edit due · Sequence · N/A/Reinstate · Remove ·
+  Comments**, plus grab-to-reorder (position only) via `.dr2-tile__grip`.
+- **LINK-TO-STEP** is the tile's **Sequence** control = `PipelineController::editFollows` on route
+  **`deals-dr2.pipeline.step.follows`** (`follows` + `offset`), already built for the board/timeline rows
+  (9d0950c2) — it ships with the shared tile (the Sequence modal + the `data-follows-url` / `data-drop-follows`
+  drag-relink attributes). Rebuilding the List on `_pipeline-step-tile` WIRES it into the list rows; it is
+  NOT reinvented.
+
+**RIGHT column — noticeably WIDER (~460px), two stacked areas:**
+- **TOP = the deal panels** — `dr2._pipeline-context-tabs` (Deal Structure / Supplier Work Orders /
+  Documents / Email Parties / Proforma Invoice). These MOVE OFF the top of the page into this right panel.
+  Bounded height, scrolls internally.
+- **BELOW = the per-step Comments section** — comments are step-scoped (`DealStepComment belongsTo
+  DealStepInstance`). `buildPhased()['comments']` carries each comment's `step` id; render each comment
+  **against its step name** (deal-scope/anchor → "Deal"), NOT an anonymous bottom feed. Includes the
+  add-comment box (target select + input) posting to `deals-dr2.pipeline.step.comment`.
+- The left list scrolls independently of the right panel.
+
+## B. PROGRESSION FIX (assembler-only — Johan's call 2026-07-28)
+
+**Root cause:** `DealStructureAssembler::assemble()` inserts the anchor "Deal Signed" with
+`status='completed'` directly (line ~81) and NEVER calls `Dr1PipelineService::activateDownstreamSteps()`,
+so a composable deal's first steps never leave `not_started` — the chain never starts. (Proven on deal
+183: Proof of Funds sits `not_started` though its only predecessor, Deal Signed, is completed.)
+`PipelineController::completeStep()` → `Dr1PipelineService::completeStep()` **already** fires
+`activateDownstreamSteps()`/`activateStep()`, so ongoing progression works (completing a step flips its
+ready successor to Active).
+
+**Fix (narrow, composable-only):** after `assemble()` wires the trigger/dep edges, resolve the anchor and
+call `Dr1PipelineService::activateDownstreamSteps($anchor)` so its direct successors go Active immediately.
+- Reuses the existing tested activation choke point — no new logic.
+- `assemble()` is the **composable** builder only; template-model deals use `createPipeline()` and are
+  untouched, as is the other engine (`App\Services\DealV2\DealPipelineService`).
+- **`completeStep()` is deliberately NOT changed** — composable deals intentionally allow completing a
+  `not_started` step out of order (documented at `PipelineController` ~L225-228: "real deals rarely
+  complete in order"); it already advances the next step. Changing it was rejected.
+- **Deal 183** is already assembled (pre-fix), so the code fix cannot retroactively run on it. It is
+  corrected by a **one-off** `activateDownstreamSteps($anchor)` on 183 (Johan-authorized), a targeted data
+  change via the exact fix logic — reported explicitly. New composable deals need no such step.
+
+## C. FILES (this slice)
+- `app/Http/Controllers/Dr2/PipelineListController.php` — `show()` feeds `buildPhased()`.
+- `resources/views/dr2/pipeline-list.blade.php` — phased two-panel rebuild (left phased list + right
+  deal-panels-over-comments).
+- `app/Services/DealV2/DealStructureAssembler.php` — activate anchor downstream after assembly.
+- (reused, unchanged) `dr2._pipeline-step-tile`, `dr2._pipeline-context-tabs`, `_pipeline-surface-styles`,
+  `Dr1PipelineService::activateDownstreamSteps`, route `deals-dr2.pipeline.step.follows`.
+- **Not touched:** the Timeline view/service, `completeStep`, `DealV2\DealPipelineService`, the template
+  engine.
+
+## D. ACCEPTANCE (screenshot-prove on the REAL deal 183; Johan verifies)
+1. Phased **Stage 1 → GRANTED → Stage 2** renders on the List.
+2. **Link-to-step** (Sequence/follows) control present on rows and works.
+3. **Per-step comments** show against their step (with the step name), in the right panel — not an
+   anonymous feed.
+4. **Right panel** = deal-panels on top + comments below, noticeably wider; left list scrolls independently.
+5. **Progression:** completing a step flips the next dependent step Not started → Active (no 500s).
+
+---
+
+# CORRECTION 2026-07-28 — restore function; visual-only + drag
+
+> **AUTHORITATIVE. This section OVERRIDES everything below it.** Where anything later in this file
+> conflicts with this correction, THIS wins. It was written after a read-only forensic audit of the
+> QA1 code + DB on 2026-07-28. Every file / route / method / line-number below was re-verified against
+> the code at `origin/QA1` (`6a7a3eda`) as it was written — re-verify before you build.
+
+## CORE PRINCIPLE
+
+The DR2 pipeline's **FUNCTION must be IDENTICAL to before the redesign**. The redesign was mandated as
+**visual-only**. The only two sanctioned changes are:
+
+- **(a)** the tile view becomes a **horizontal timeline** *visually*, and
+- **(b)** **drag-to-reschedule**, exactly as `.ai/mockups/dr2_timeline_horizontal.html` demonstrates.
+
+**No read-model may drop, hide, gate, lock, or reorder any step the original view showed.** If a step
+appeared before, it appears after. Function first; visuals second; nothing subtracted.
+
+### What actually regressed (evidence, so it is not repeated)
+
+- **Timeline** was switched from the all-steps `buildPhased()` read-model to the date-gated
+  `buildBoard()` at commit **`5228d94a`**. `buildBoard()`
+  (`app/Services/Deal/Pipeline/PipelineTimelineService.php`, ~line 40) keeps **only** steps with BOTH
+  `planned_start_date` AND `due_date`, and when none qualify it **early-returns `['empty' => true, …]`
+  (~lines 42–43)** — so on a deal whose steps have due dates but no start dates, *every* step vanishes
+  and the view reads "No dated pipeline steps yet." (Proven on QA1 deal **183** / deal_no 1815: 17
+  steps, all with `due_date`, all `planned_start_date = NULL` → timeline empty.) The old
+  `buildPhased()` applies **no date filter** and shows all steps.
+- **List** was rebuilt from the original flat `@foreach($steps)` render into a phased / condition-
+  grouped / GRANTED-gated / Stage-2-locked layout at commit **`387b5108`**. That is a function change
+  (grouping, gating, locking, dimming) under a visual-only mandate.
+
+## 1) LIST VIEW — REVERT to the original working behaviour
+
+The List was wrongly rebuilt into the phased/grouped/gated layout at **`387b5108`**. **Restore the
+ORIGINAL flat list**: render **ALL** steps in `position` order via `@foreach` with the original
+per-step action row, i.e. the **`387b5108^` version of
+`resources/views/dr2/pipeline-list.blade.php`** (flat `.ltile` cards: dot · name · ★ · `Xd · date →
+date` sub-line · grip-to-reorder · Complete / Edit dates / N/A / Comments / Remove, with Reinstate on
+terminal steps). No Stage-1/Stage-2 sections, no GRANTED gate, no Stage-2 lock, no condition groups,
+no dimming.
+
+- **Re-apply any UNRELATED legitimate fixes on top.** Check `git log 387b5108..origin/QA1 --
+  resources/views/dr2/pipeline-list.blade.php app/Http/Controllers/Dr2/PipelineListController.php`.
+  As of `6a7a3eda` the only two commits there are **`fd61fd11`** and **`e92cfe01`** — both are patches
+  to the *phased* layout being reverted, so there is **nothing unrelated to carry forward**. Re-verify
+  this range yourself before reverting; if a genuinely unrelated fix has since landed, re-apply it on
+  top of the flat list.
+- `PipelineListController::show()` currently feeds the view `buildPhased()` — the original controller
+  did not; restore it to the original data shape the flat blade consumes (the `$steps` collection the
+  `387b5108^` blade iterates). The routes are unchanged:
+  `deals-dr2.pipeline.list` (GET), `deals-dr2.pipeline.reorder` (POST, position-only),
+  `deals-dr2.pipeline.step.dates` (POST).
+- **Left/right two-panel enhancements stay DEFERRED** (see §6 below) — but the List must **WORK exactly
+  as it originally did** in the meantime: every step visible, every original action functional.
+
+## 2) TIMELINE VIEW — fix so it preserves function, then wire drag
+
+**File:** `app/Services/Deal/Pipeline/PipelineTimelineService.php`, method `buildBoard()`.
+
+Today (~lines 40–43) it keeps only steps with BOTH `planned_start_date` AND `due_date` and
+early-returns `['empty' => true, 'day_width' => 21]` when none qualify — **that hides steps and is the
+regression.** Change it so **EVERY step appears**:
+
+- **Dated steps** (both dates present) position on the date axis — start × duration — exactly as the
+  mockup renders.
+- **Steps WITHOUT a start date** go into a **persistent "Unscheduled" tray that is ALWAYS populated**.
+  **Remove the early-return** that drops them: even when zero steps are dated, the tray still lists all
+  undated steps (deal 183 must show all 17). The tray is never an empty-state that discards steps.
+  (Note: the blade already has an `unscheduled` strip + `$board['unscheduled']` payload, but the
+  `empty` early-return currently bypasses it — that is the exact hole to close.)
+
+**Drag-to-reschedule** — wire it exactly as `.ai/mockups/dr2_timeline_horizontal.html` demonstrates
+(`cursor:grab` / `cursor:grabbing`, `pointerdown`/`pointermove`/`pointerup`, `attachDrag()` at mockup
+lines ~265–292): grabbing a tile and sliding it horizontally **sets/updates `planned_start_date`,
+shifting `due_date` to preserve the tile's duration**, persisted through the **EXISTING endpoint — do
+NOT invent a new one:**
+
+- **Route:** `deals-dr2.pipeline.step.reschedule` → `POST /{deal}/pipeline/steps/{step}/reschedule`
+- **Controller:** `App\Http\Controllers\Dr2\PipelineTimelineController::reschedule()`
+- **Service:** `App\Services\Deal\Pipeline\PipelineRescheduleService::reschedule($step, $newStart, $commit, $userId)`
+- **POST params:** `new_start` (required, date) + `commit` (bool: `false` = dry-run PREVIEW returning
+  the moved/held lists for a confirm dialog; `true` = apply). The service already slides start+end
+  preserving duration and cascades downstream successors (concurrent/manual anchors held).
+
+- **⚠ FLAG — Unscheduled → axis is NOT yet supported by the existing service.**
+  `PipelineRescheduleService::reschedule()` (~line 45) **throws**
+  `DomainException('This step has no planned span to move.')` when the step has no
+  `planned_start_date`/`due_date`. So "drag an Unscheduled step onto the axis to schedule it" **cannot**
+  ride the current endpoint as-is — it needs the service **extended** to accept first-time scheduling
+  (set `planned_start_date` from the drop position, derive `due_date` from the step's duration /
+  `days_offset`). **This is a flagged extension of the existing service — get Johan's sign-off on the
+  behaviour; do NOT silently add a separate endpoint.** Until then, moving already-dated tiles works;
+  scheduling an undated one is the extension.
+
+## 3) NEW ACCEPTANCE STANDARD (mandatory — nothing is "done" or "tested" without ALL of it)
+
+Every item must be **screenshot-proven on REAL, REPRESENTATIVE deals** — **NOT** hand-picked deals that
+happen to have ideal data. The proof pack **must name which deals were used and why they are
+representative** (e.g. "183 = the undated real deal that exposed the bug; 180 = a fully-dated real
+deal"). Use **existing real deals only** (see §4).
+
+- **Deal 183** (17 steps, all undated) — after the fix **ALL 17 steps are visible** (in the Unscheduled
+  tray) and draggable onto the axis. Screenshot showing all 17.
+- **A dated deal (e.g. 180)** — axis still renders correctly. Screenshot.
+- **Drag persists** — drag a tile, **RELOAD**, the new date stuck. Before/after screenshot.
+- **List** renders as the **ORIGINAL flat list** again (all steps, original actions). Screenshot.
+- **Function intact** — mark-complete / N/A / edit-due / remove / comments **all still work** on a real
+  deal.
+- **No 500s** on **183 and 180** for **both** views.
+
+## 4) HARD RULE — NO SEEDING / NO DEMO DATA ON QA1, EVER
+
+QA1 is a **live-copy**. Builders must **NEVER** create / insert / `forceDelete` / seed branches,
+agencies, deals, or step instances on QA1 — no factories, no `db:seed`, no ad-hoc `::create()` fixtures.
+Use **existing real deals only**. This rule **overrides any convenience** (including "I need a deal with
+the right data to screenshot" — find a real one, or report that none exists). This correction was
+prompted in part by a scratchpad seeder that bulk-created undated step instances on QA1 via
+`forceDelete()` + `withoutEvents()` — precisely the kind of action now forbidden.
+
+---
+
+# DR2 Pipeline — authoritative view spec
+
+Two views only: TIMELINE and LIST. They MUST be visually distinct. The failure to avoid: making both look like vertical lists (that happened and Johan rejected it).
+
+> This spec is self-contained. A session with zero prior memory can build the Timeline from this file
+> alone. Every field, method, route and path below was verified against the live QA1 code on 2026-07-27.
+> Do NOT rely on memory — re-verify against the code if anything looks stale.
+
+---
+
+## 0. SCOPE / CURRENT STATE (read this first)
+
+The **LIST view is NOT done.** Its current vertical phased-cards render (per
+`.ai/mockups/dr2_list_phased.html`: Deal Signed anchor → Stage 1 condition groups → GRANTED gate →
+Stage 2) is only a partial first cut of the LEFT panel. **Its enhancement is DEFERRED until the
+Timeline is built and working as specced** — see §6 "LIST VIEW — corrected target & sequencing" for
+the real end-state and the sequencing rule. Do NOT work on the List now.
+
+The **TIMELINE view is WRONG and is the PRIORITY.** It currently renders the *same* vertical
+`buildPhased()` phased layout as the List, so the two views look identical — exactly the "both look
+like lists" failure Johan rejected. **The job right now is to rebuild ONLY the Timeline** into the
+**horizontal date-Gantt** described by `.ai/mockups/dr2_timeline_horizontal.html`. The Timeline must be
+built and signed off FIRST; the List work comes after (§6).
+
+The horizontal data layer already exists (dormant) — see §DATA MODEL. This is a view-layer rebuild plus
+a one-line controller switch, not a from-scratch build.
+
+---
+
+## TIMELINE view = a real time/date-based timeline ("the timeline we had, fixed")
+- Horizontal: a date axis along the top; each step is a TILE positioned by start date, width = its duration (work starts and ends at set points).
+- Overlapping steps AUTO-STACK into separate rows so tiles NEVER overlap and labels never collide; the canvas scrolls.
+- Behind the tiles: phase bands (Suspensive Conditions / Transfer & Registration); milestone gate diamonds; a red TODAY line.
+- Each tile keeps the full action set (Complete/Reopen, Edit dates, Sequence, N/A, Remove, Comments).
+- Reference mockup: .ai/mockups/dr2_timeline_horizontal.html — FIX the overlap; do NOT replace it with a vertical list.
+
+## LIST view = vertical sectioned cards grouped by stage (the phased SHAPE is right for the List — but the List is NOT done; see §6)
+- Top-to-bottom: Deal Signed anchor -> Stage 1 "Suspensive Conditions" (grouped tracks: Bond/Cash/Sale/FICA) -> GRANTED gate -> Stage 2 "Transfer & Registration".
+- Each step = full-width card: dot, name, star, dates, status, "Waiting on..." note, full action grid; grab-to-reorder (display only).
+- Stage 2 dimmed/locked until the deal is granted.
+- Reference mockup: .ai/mockups/dr2_list_phased.html
+
+## Shared by both views
+- Deal-context tabs on TOP (Structure, Work Orders, Documents, Parties, Proforma): collapsible, default collapsed. Each expanded panel bounded to ~min(48vh,460px) and scrolls INTERNALLY — never pushes content off-screen (Johan's rule: "define a set area, inside it it scrolls").
+- Comments footer that posts without error (the $days 500 is fixed; keep it fixed).
+- No 500s. Prove BOTH views with real-browser screenshots compared to the two reference mockups before calling anything done. Real DR2 data (dr1_deal_id). QA1 only.
+
+## What went wrong before (do not repeat)
+The Timeline was rebuilt as the vertical sectioned layout, so Timeline and List both looked like lists. Timeline = horizontal date-based; List = vertical sectioned cards.
+
+---
+
+## 1. DATA MODEL — the exact fields, models, services (verified)
+
+**Model:** `App\Models\DealV2\DealStepInstance` — one row per pipeline step. Anchored to the DR1 deal by
+`dr1_deal_id` (NOT `deal_id`, which is the legacy deals_v2 twin). Fetch with:
+`DealStepInstance::where('dr1_deal_id', $deal->id)->orderBy('position')->orderBy('id')->get()`.
+
+Driving columns (all verified in the model's `$fillable`/`$casts`):
+
+| Field | Type | Meaning / use |
+|---|---|---|
+| `planned_start_date` | date | Planned START of the step's span. **Tile left edge / x-position.** |
+| `due_date` | date | Planned END of the span (Johan decision 2: `due_date` IS the planned end). **Tile right edge.** |
+| `duration_days` | int accessor | = `due_date − planned_start_date` in whole days (accessor `durationDays()`, model L114). **Tile width.** |
+| `days_offset` | int | Offset in days after the step it follows (`trigger_step_instance_id`). Shown as `+Nd` tag. |
+| `is_milestone` | bool | Renders as a **gate diamond** on the axis (not a duration tile). |
+| `is_suspensive` | bool | This step is a **suspensive condition** (must be met to grant the deal). |
+| `condition_key` | string\|null | Stage-1 grouping key: `'bond'` \| `'cash'` \| `'sale_of_another'` \| null. |
+| `is_grant_marker` | bool | The single **GRANTED gate** step (the Stage 1→2 boundary). |
+| `status` | string | `'not_started'` \| `'active'` \| `'completed'` \| `'skipped'` \| `'overdue'`. |
+| `position` | int | Display order (List reorder writes this; ties broken by `id`). |
+| `trigger_step_instance_id` | fk | The step this one follows (predecessor edge). AND-gate fan-in also lives in `deal_step_instance_dependencies`. |
+| `is_locked`, `is_custom` | bool | 🔒 lock badge / "+ custom" badge. |
+| `actual_date`, `completed_at` | date/dt | Actual completion date (shown on done tiles). |
+| `na_reason` | string | Reason when a step is marked N/A (`status='skipped'`). |
+
+**RAG colour:** `App\Services\Deal\Dr1PipelineService::calculateRag(DealStepInstance $s, $dueDate = null): string`
+and static `Dr1PipelineService::ragColour(string $rag): string`.
+
+**Condition labels:** `App\Services\DealV2\Dr2ConditionCatalog::conditions()` → `['bond'=>['label'=>'Bond',…],
+'cash'=>['label'=>'Cash',…], 'sale_of_another'=>['label'=>'Subject to sale of another property',…]]`.
+
+**Stage membership composer (used by the List, available to the Timeline):**
+`App\Services\DealV2\DealLaneComposer::board(iterable $steps): array` returns
+`['anchor'=>?DealStepInstance, 'gate'=>?DealStepInstance, 'stage1'=>segments, 'stage2'=>segments]` where
+`gate` = the `is_grant_marker` step, `stage2` = every step reachable (successor direction) from the gate,
+`anchor` = the predecessor-less non-condition non-gate root (Deal Signed). Segments are
+`['type'=>'sequence','step'=>DealStepInstance]` or `['type'=>'band','lanes'=>[[DealStepInstance,…],…]]`.
+
+### THE REUSABLE HORIZONTAL DATA LAYER (already exists, dormant)
+
+`App\Services\Deal\Pipeline\PipelineTimelineService` — a **pure read** service. It has THREE builders.
+`buildPhased()` is what Timeline + List currently call (the vertical layout). The other two,
+**`build()` and `buildBoard()`, are the ready-made horizontal read-models — they are wired to NOTHING
+today. Reuse them.** Both only include steps that have BOTH `planned_start_date` AND `due_date`
+(undated steps are excluded — see §GRANTED-GATE). `PipelineTimelineService::DAY_WIDTH = 26` px/day.
+
+**`build(Deal $deal): array`** — the richer horizontal model. Returns:
+- `empty` (bool), `range_start` (Y-m-d; = min planned_start − 2 days), `total_days` (int; to max due + 2 days),
+  `day_width` (26), `today_index` (int day-offset of *now* from `range_start` — **the red TODAY line**),
+  `row_count`, `gates_levels`.
+- `bars[]` — the duration tiles (steps with duration > 0), each:
+  `id, name, start_index, end_index, duration_days, is_milestone, status, rag, colour, na, blocked,
+  draggable, row`. **`row`** is assigned by **greedy interval row-packing** (sort by start, drop each bar
+  into the first row whose last bar has ended, else a new row) → non-overlapping stacked rows.
+- `gates[]` — milestone / zero-duration points: `id, name, index` (end-date offset), `is_milestone`,
+  `label_level` (staggered so clustered gate labels don't collide).
+- `bands[]` — phase bands DERIVED between consecutive milestone gates: `start_index, end_index, label`
+  (`'→ '+name` up to each gate; trailing `'After '+name`).
+- `events[]` — normalized comment/activity stream: `key, type, index (clamped to axis), off_axis, day
+  (Y-m-d), scope, step_id, direction, author, body, occurred_at`.
+
+**`buildBoard(Deal $deal): array`** — the leaner tile model that matches the mockup's shape most directly.
+Returns: `empty`, `day_width` (21), `base_date` (Y-m-d; day 0 = earliest planned_start), `today_day`,
+`days` (= max(7, idx(maxEnd)+5)), and:
+- `tiles[]`: `id, name, start` (day index), `dur` (days), `status` (`done`/`active`/`upcoming`), `star`.
+- `miles[]`: `name, day, state` (`done`/`active`/`up`), `lvl` (stagger level).
+- `phases[]`: `name, from, to` (bands between milestone gates).
+- `comments[]`: `id, target` (step id \| `'deal'`), `scope, who, when` (`j M`), `day, text, type`.
+
+> Verified live on deal 168: `buildBoard` → tiles=12, miles=7, phases=5, days=44, today_day=5.
+> `build` → bars=14, gates=9, bands=6, row_count=7, today_index=7, total_days=43. Both non-empty.
+> **Pick ONE builder** and render to it; `build()` carries rag/colour/row-packing, `buildBoard()` is
+> closer to the mockup markup. Do not run both.
+
+---
+
+## 2. TIMELINE RENDER SPEC (match `.ai/mockups/dr2_timeline_horizontal.html`)
+
+The mockup is the visual source of truth. Rebuild the Timeline blade to it:
+
+1. **Date axis** across the top — one tick per week (label `d M`), full canvas width = `days`/`total_days` × `day_width` px. Canvas scrolls horizontally.
+2. **Step tiles** positioned absolutely: `left = start_index × day_width`, `width = duration_days × day_width` (min a sensible floor so 1-day steps stay legible). Colour by `rag`/`status`.
+3. **Greedy auto-stack into rows** so tiles never overlap and labels never collide — use the `row` already computed by `build()` (or replicate the pack for `buildBoard`). `top = ROW_TOP + row × ROW_HEIGHT`.
+4. **Phase bands** behind the tiles (`bands[]` / `phases[]`) — faint vertical bands spanning `from→to`, labelled (Suspensive Conditions / Transfer & Registration etc., derived from milestone gates).
+5. **Milestone diamonds** at each gate's `index`, with staggered labels (`label_level` / `lvl`).
+6. **Red TODAY line** at `today_index` / `today_day` (hide if outside the range).
+7. **Each tile keeps the full action set** — Complete/Reopen, Edit dates, Sequence, N/A, Remove, Comments — via the shared `dr2._pipeline-step-tile` partial OR inline actions posting to the existing `deals-dr2.pipeline.step.*` routes.
+8. **Drag to reschedule** (optional but in the mockup): horizontal drag posts to `deals-dr2.pipeline.step.reschedule` (`POST /deals-dr2/{deal}/pipeline/steps/{step}/reschedule`, body `{ new_start: 'YYYY-MM-DD', commit: true }` → `PipelineTimelineController@reschedule` → `PipelineRescheduleService::reschedule($step, Carbon, bool $commit, ?int $userId)`; returns JSON `{ok, …}`, 423 if the pipeline is locked).
+9. **Comments footer** — the `events[]`/`comments[]` feed + an add box that POSTs to `deals-dr2.pipeline.step.comment` (`POST /deals-dr2/{deal}/pipeline/steps/{step}/comment` → `PipelineController@addComment`, redirects with "Comment added"). Must post without a 500.
+
+---
+
+## 3. GRANTED-GATE + PROJECTED / PLANNED DATES
+
+- **The GRANTED gate = the `is_grant_marker` step** (there is exactly one per composable deal; `DealLaneComposer::board()['gate']`). Everything reachable from it (successor direction) is Stage 2; the rest of the conditions are Stage 1.
+- **"Granted" flips Stage 1 → Stage 2** when: `$deal->status ∈ ['granted','completed']` **OR** the gate step's `status === 'completed'` **OR** every `is_suspensive` step is `completed` (and there is at least one). This is the logic already implemented in `PipelineTimelineService::buildPhased()` — reuse it verbatim if the Timeline needs a granted flag/marker.
+- **Projected grant date** = the **latest `due_date` across the `is_suspensive` steps** (the gate step's own date is not cascaded), falling back to the gate step's `due_date`.
+- **Horizontal phase bands do NOT depend on the granted flag** — `build()`/`buildBoard()` derive bands purely from the **milestone gates** (between consecutive `is_milestone` end-dates). So the Timeline gets its Suspensive/Transfer banding for free from the read-model; the granted flag is only needed if you additionally want to dim/mark post-grant tiles.
+- **Undated / orphan steps:** `build()`/`buildBoard()` **exclude** any step missing `planned_start_date` OR `due_date` (they cannot be positioned on a date axis). If a real deal has such steps, surface them in a small "unscheduled" strip or ensure dates exist — do NOT silently drop them without a visible note. (In the List's phased model, a condition-less step orphaned from the gate is instead merged into Stage 2 by `due_date`; that is a List concern, not the Timeline's.)
+
+---
+
+## 4. FILES TO MODIFY (exact paths)
+
+**Rebuild / edit (Timeline only):**
+- `resources/views/dr2/pipeline-timeline.blade.php` — **the main change.** Replace the current vertical phased markup with the horizontal date-Gantt (§2). It may carry its own scoped `<style>` block (the old horizontal CSS was overwritten and is gone).
+- `app/Http/Controllers/Dr2/PipelineTimelineController.php` — in `show()`, switch the read-model from `$this->timeline->buildPhased($deal)` to `$this->timeline->build($deal)` (or `buildBoard($deal)`). Keep `reschedule()` and the `pipelineContext($deal)` call unchanged.
+- `app/Services/Deal/Pipeline/PipelineTimelineService.php` — reuse `build()`/`buildBoard()` as-is; only extend if the chosen builder is missing something the mockup needs. Do NOT break `buildPhased()` (the List depends on it).
+
+**Shared — edit only additively, never break the List:**
+- `resources/views/dr2/_pipeline-context-tabs.blade.php` — the top tabs (keep on top, collapsible, default collapsed).
+- `resources/views/dr2/_pipeline-surface-styles.blade.php` — shared CSS. You may ADD Timeline classes; do NOT remove classes the List uses (`.dr2-ph-*`, `.dr2-tile*`, `.dr2-band*`, `.dr2-lane*`, `.dr2-seq*`).
+- `resources/views/dr2/_pipeline-step-tile.blade.php` — the uniform step tile (full 6-action set); reuse for tile actions if convenient.
+
+**LEAVE ALONE FOR NOW (the List is NOT done, but its work is DEFERRED until the Timeline ships — §6):**
+- `resources/views/dr2/pipeline-list.blade.php`
+- `app/Http/Controllers/Dr2/PipelineListController.php`
+- Do NOT change `buildPhased()` behaviour while building the Timeline (the List still renders through it).
+- The List is unfinished — do NOT enhance it in the Timeline work. Its corrected target is recorded in §6.
+
+**Route (context, no change needed):** `GET /deals-dr2/{deal}/pipeline/timeline` → name `deals-dr2.pipeline.timeline` → `PipelineTimelineController@show` (routes/web.php ~L728). Middleware `permission:view_deals`.
+
+---
+
+## 5. ACCEPTANCE CRITERIA (screenshot-prove every one before "done")
+
+Use a real browser on serving QA1, compare to `.ai/mockups/dr2_timeline_horizontal.html`, and screenshot:
+
+1. **Timeline is visually DISTINCT from the List** — a horizontal date axis with tiles laid left→right, NOT vertical stacked cards. Put the two side by side; they must not look alike.
+2. **Tiles positioned by date, width ∝ duration** — a longer `duration_days` step is a wider tile; tiles sit at their `start_index`.
+3. **Overlapping tiles auto-stack into rows** — no tile overlaps another, no label collides (deal 168 packs into ~7 rows).
+4. **Phase bands behind tiles + milestone diamonds + a red TODAY line** at `today_index`/`today_day`.
+5. **No 500** on Timeline load for BOTH test deals (below).
+6. **Comments footer posts without error** — add a comment → 302 → it appears in the feed (no `$days` regression).
+7. **Real `dr1_deal_id` data, QA1 only.** No seeding, no fixtures.
+
+**Test deals (verified on QA1 2026-07-27):**
+- **Deal 168** — rich case: 19 steps, all dated, `is_grant_marker`=1, 3 suspensive, conditions `bond, cash, sale_of_another`; packs into 7 rows.
+  `https://qatesting1.corexos.co.za/deals-dr2/168/pipeline/timeline`
+- **Deal 180** — different shape: 19 steps, all dated, **no grant marker, no condition_key steps** (exercises the no-gate / plain-timeline path).
+  `https://qatesting1.corexos.co.za/deals-dr2/180/pipeline/timeline`
+- **List (do NOT change it — it is unfinished and DEFERRED; use only as the "must differ" comparison):**
+  `https://qatesting1.corexos.co.za/deals-dr2/168/pipeline/list`
+
+Deploy to the serving `/corex-qa1` checkout (git pull → `php artisan view:clear route:clear config:clear` → reload php8.2-fpm). QA1 ONLY — never Staging/live without Johan's explicit go.
+
+---
+
+## 6. LIST VIEW — corrected target & sequencing (Johan 2026-07-27)
+
+**The earlier "List is correct and done" was WRONG.** Johan: the List is **not close to done.** What
+exists today (the vertical phased cards) is only a partial first cut of the LEFT panel. This section
+records the agreed end-state and the sequencing so it survives a memory wipe. **Do NOT build any of
+this now** — it is DEFERRED (see SEQUENCING below).
+
+### Target end-state = a TWO-PANEL layout
+Reference: the **staging deal 143 pipeline screenshot** Johan provided (the "like we had on QA1"
+side-panel). The finished List view is two panels side by side:
+
+**LEFT panel = the phased step list** (per `.ai/mockups/dr2_list_phased.html`: Deal Signed anchor →
+Stage 1 condition groups → GRANTED gate → Stage 2). This is to be **enhanced FURTHER later** — the
+current render is NOT final.
+
+**RIGHT panel = a documents / parties / proforma side panel** ("like we had on QA1"), containing:
+
+1. **DOCUMENTS** — filed document links, e.g. an `OTP.pdf` row shown as
+   *"OTP (Offer to Purchase) · filed to deal"*. Plus an upload control: **Choose File** +
+   **"Document type…"** selector + **"Upload & file"** button that uploads the document and files it
+   to the **deal, its property, AND the linked contacts** (all three).
+2. **SEND DOCUMENTS TO A PARTY** — a row per party: **Seller / Buyer / Transferring Attorney /
+   Bond Originator**, each with a link/state to send documents to that party.
+3. **SENT — WHAT WENT TO WHOM** — a log of what was sent, e.g.
+   *"OTP.pdf → Transfer Attorney · email/attach · sent 13 Jul"* (one row per send: document → recipient
+   · channel · date).
+4. **PROFORMA INVOICES** — a **"Generate Proforma Invoice"** button.
+
+### SEQUENCING (authoritative — do not reorder)
+- **TIMELINE is the priority.** It must be built and working **as specced (§0–§5) FIRST**, and signed
+  off by Johan.
+- **The List RIGHT panel and any further LEFT-panel enhancement are DEFERRED** until AFTER the Timeline
+  is signed off.
+- **Do NOT build the List right panel now.** This section only records the agreed target so it is not
+  lost. When the Timeline is done and Johan gives the go, a fresh prompt will spec/build the List
+  two-panel layout against the staging deal 143 reference.

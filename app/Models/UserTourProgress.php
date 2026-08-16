@@ -20,11 +20,14 @@ class UserTourProgress extends Model
         'tour_key',
         'completed_at',
         'dismissed_at',
+        'completed_steps',
     ];
 
     protected $casts = [
-        'completed_at' => 'datetime',
-        'dismissed_at' => 'datetime',
+        'completed_at'    => 'datetime',
+        'dismissed_at'    => 'datetime',
+        // AT-371 (#18) — the stable step keys (element selectors) the user has already seen.
+        'completed_steps' => 'array',
     ];
 
     public function user(): BelongsTo

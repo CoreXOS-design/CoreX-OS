@@ -1,6 +1,6 @@
 # Atlas — Platform Foundations (Multi-tenancy · Branch isolation · Domain events · Soft-delete · Audit)
 
-> **Status: DONE** · Last verified: 2026-06-22
+> **Status: DONE** · Last verified: 2026-07-14 (AT-265 fail-CLOSED permissions · AT-263 connection guard)
 > The cross-cutting spine **every** feature depends on. Companion specs: `.ai/specs/multi-tenancy.md`,
 > `.ai/specs/branch-isolation-spec.md`, `.ai/specs/corex-domain-events-spec.md`. Non-negotiables: CLAUDE.md
 > #1 (no hard deletes), #7 (multi-tenancy), #9 (domain events).
@@ -86,8 +86,17 @@ pass through these.
 
 - **`effectiveAgencyId()`** (`User.php:332-351`) — the lynchpin for both the AgencyScope read filter and the
   BelongsToAgency write stamp.
-- **Permission system** `PermissionService`: `getDataScope:59`, `userHasPermission:116` (owner bypass `:119`,
-  unseeded-allow-all `:131-137`), per-request caches. Catalogue `config/corex-permissions.php` (338 entries).
+- **Permission system** `PermissionService`: `getDataScope:201`, `userHasPermission:303` (owner bypass
+  `:306,317`, audited as break-glass ONLY when the grants table is empty — `auditBreakGlass:75`), per-request
+  caches. **AT-265 — fail-CLOSED on an empty `role_permissions` table (was fail-OPEN, see §7.7):** one
+  decision point `unseededGrantsAccess:131-140` DENIES on a server and raises `PermissionLockdownAlarm`; the
+  historic allow-all survives ONLY under `app()->runningUnitTests()` (`allowAllWhenUnseeded:99-106`) —
+  unreachable via any env/config/.env, provable by `forceProductionPosture:88`. Catalogue
+  `config/corex-permissions.php` (338 entries).
+- **Session / connection guard** (AT-263) — `layouts/partials/_session-guard.blade.php` mounts
+  `public/js/corex-connection-guard.js` (plain asset, no Vite) on every `@auth` page: it slides the session
+  and keeps the page-wide `<meta name="csrf-token">` fresh (heartbeat), AND gates every MUTATING save behind
+  a pre-flight reachability ping so an agent never loses typed work to a dropped connection (see §7.8).
 - **User/role model** `User.php`: `effectiveRole()` honours `view_as_role` `:254-258`; `isOwnerRole:495`,
   `isEffectiveOwner:505`. **Branch model** `Branch.php`; `effectiveBranchId:322-330`.
 
@@ -126,6 +135,27 @@ pass through these.
 6. **`PropertyAuditService` agency default-to-1.** `log()` falls back to `agency_id => ... ?? 1` (`:26`);
    on a multi-agency system a property with a null `agency_id` (the §7.1 orphan case) mis-attributes its
    audit rows to agency 1 — combining fragilities 1 and 5.
+7. **[RESOLVED — AT-265, QA1] The permission system failed OPEN on an empty `role_permissions` table.**
+   An unseeded table used to grant **everyone everything** — and a second, un-named fail-open sat right beside
+   it in `getDataScope()`, handing `all`/`branch` data-visibility to every admin/branch_manager nobody had
+   granted. The root cause compounded it: `RolePermission` uses `SoftDeletes` and `exists()` does **not** see
+   trashed rows, so `corex:reconcile-role-grants` soft-deleting every grant read as "unseeded" → the reconcile
+   itself silently OPENED the whole platform, with nothing logged. **Now fail-CLOSED, fixed as a class not two
+   instances** (BUILD_STANDARD §6): a single decision point `unseededGrantsAccess()` DENIES on a server and
+   raises `PermissionLockdownAlarm`; the historic allow-all is gated behind `app()->runningUnitTests()` alone,
+   so **no env var, config, or `.env` line can re-open a production box** (`forceProductionPosture()` lets a
+   test prove the production posture in isolation). `PermissionService.php:88-140,225-236,303-343`.
+8. **[RESOLVED — AT-263, Johan + Andre] The header "connection light" + its double-listener session guard.**
+   The AT-220 persistent header light is **removed**; `public/js/corex-session-guard.js` is **deleted** and
+   replaced by `public/js/corex-connection-guard.js`, mounted on every authenticated page by
+   `layouts/partials/_session-guard.blade.php`. New posture: a browser `offline`-event disconnect **popup**
+   (the instant signal) backed by a per-save **pre-flight ping** — `GET /api/v1/csrf-token` is the TRUTH
+   (`200` = reachable AND authed; `401/302/5xx` = down) — plus **three global MUTATING-only, FAIL-OPEN save
+   interceptors**: a capture-phase form-submit delegate, a `window.fetch` wrapper, and a `window.axios`
+   request interceptor. Confirmed-offline BLOCKS the write and preserves the typed work (kills the dino);
+   our-own error/timeout FAILS OPEN so the guard is never the reason a save is lost; recovery shows a
+   "Back online ✓" toast. Session keep-alive (heartbeat + CSRF-meta refresh) is unchanged underneath.
+   Opt-outs: GET is never gated, `data-noguard`/`target="_blank"` forms, and the `X-CoreX-NoGuard` header.
 
 ---
 
@@ -133,7 +163,11 @@ pass through these.
 - `app/Models/Scopes/AgencyScope.php:27-113`, `BranchScope.php:37-150`, `DealBranchScope.php`.
 - `app/Models/Concerns/BelongsToAgency.php:28-125`, `BelongsToBranch.php:33-74`.
 - `app/Models/User.php:322-351` (effective agency/branch), `:495-554` (owner roles).
-- `app/Services/PermissionService.php:59-137`; `config/corex-permissions.php`.
+- `app/Services/PermissionService.php` (AT-265 fail-CLOSED): `unseededGrantsAccess:131-140`,
+  `allowAllWhenUnseeded:99-106`, `forceProductionPosture:88`, `getDataScope:201-257`,
+  `userHasPermission:303-343`; `App\Services\Security\PermissionLockdownAlarm`; `config/corex-permissions.php`.
+- Connection guard (AT-263): `public/js/corex-connection-guard.js` (replaces deleted `corex-session-guard.js`),
+  `resources/views/layouts/partials/_session-guard.blade.php`.
 - `app/Events/AbstractDomainEvent.php`; `app/Listeners/Audit/RecordDomainEvent.php`; `app/Providers/AppServiceProvider.php:172,367-411,507-512`.
 - `app/Services/Admin/SoftDeleteRegistryService.php:47-234`; `app/Services/Audit/PropertyAuditService.php:11-97`; `app/Observers/PropertyObserver.php`.
 - Specs `.ai/specs/multi-tenancy.md`, `.ai/specs/branch-isolation-spec.md`, `.ai/specs/corex-domain-events-spec.md`.

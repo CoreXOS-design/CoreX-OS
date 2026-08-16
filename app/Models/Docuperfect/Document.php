@@ -8,10 +8,21 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\BelongsToAgency;
 
+/**
+ * 2026-08-15 (Johan, HFC tenant-isolation fix, Wave 2, #7) — added
+ * BelongsToAgency. Was branch-scoped but not agency-scoped at all: any
+ * role with data-scope 'all' saw every agency's documents, and nothing
+ * gated direct id lookups (guardDocument()'s 'all' branch, PageImage
+ * Controller::showDocumentPage()'s raw signed-page image bytes). Both are
+ * now safe "for free" — AgencyScope applies to every query on this model,
+ * including route-model binding and manual findOrFail() calls, exactly
+ * like every other BelongsToAgency model.
+ */
 class Document extends Model
 {
-    use BelongsToBranch, SoftDeletes;
+    use BelongsToBranch, BelongsToAgency, SoftDeletes;
 
     protected $table = 'docuperfect_documents';
 
@@ -20,6 +31,7 @@ class Document extends Model
         'template_id',
         'fields_json',
         'owner_id',
+        'agency_id',
         'branch_id',
         'pack_instance_id',
         'archived_at',
@@ -92,6 +104,32 @@ class Document extends Model
     public function scopeActive($query)
     {
         return $query->whereNull('archived_at');
+    }
+
+    /**
+     * MDF two-phase lifecycle — first-class accessor for phase 2 (OTP).
+     *
+     * A Mandatory Disclosure whose Phase 1 (seller + agent) is signed & sealed and
+     * whose Phase 2 (purchaser) is still pending: the ceremony has a DEFERRED
+     * purchaser signer, so the SignatureTemplate parks in STATUS_AWAITING_DEFERRED.
+     * The seller-signed content is frozen in web_template_data.canonical_html
+     * (canonical_version >= 1) and is immutable — the purchaser's later ink bakes
+     * only onto buyer-identity markers (CanonicalInkComposer identity scoping).
+     *
+     * When an Offer to Purchase is made for a property, the OTP flow selects the
+     * property's phase-1 MDF via `Document::sellerSignedDisclosure()->forProperty($id)`
+     * and resumes its deferred purchaser (SignatureService::resumeDeferredSigning).
+     */
+    public function scopeSellerSignedDisclosure($query)
+    {
+        return $query
+            ->whereHas('signatureTemplate', fn ($q) => $q->where('status', SignatureTemplate::STATUS_AWAITING_DEFERRED))
+            ->whereHas('template.documentType', fn ($q) => $q->where('slug', 'disclosure'));
+    }
+
+    public function scopeForProperty($query, int $propertyId)
+    {
+        return $query->where('property_id', $propertyId);
     }
 
     public function scopeVisibleTo($query, User $user)

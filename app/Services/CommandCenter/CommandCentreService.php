@@ -70,6 +70,16 @@ class CommandCentreService
         $card = $this->esignActivity($userId);
         if ($card['count'] > 0) $cards[] = $card;
 
+        // A7b — Candidate Authorisations (eligible authorisers only: agency admins agency-wide,
+        // Branch Managers + full-status practitioners for their branch). The candidate-flow
+        // "Review & Authorise" surface previously lived ONLY on the orphaned legacy dashboard, so
+        // an authoriser landing on the live Today page saw nothing (Bug #3). Surfacing it here — the
+        // page users actually land on — is what makes the pending candidate doc visible.
+        if (app(\App\Services\CandidatePractitionerService::class)->canAuthorise($user)) {
+            $card = $this->candidateAuthorisations($user);
+            if ($card['count'] > 0) $cards[] = $card;
+        }
+
         // A8 — FICA: RO Approvals (any authorized reviewer / Reporting Officer — AT-236)
         $card = $this->ficaRoApprovals($user, $agencyId);
         if ($card['count'] > 0) $cards[] = $card;
@@ -1422,6 +1432,71 @@ class CommandCentreService
                 $awaitingOthers > 0 ? ['label' => 'Awaiting others', 'value' => $awaitingOthers, 'colour' => '#64748b'] : null,
             ]),
             'view_all_url' => '/docuperfect/esign/my-documents',
+        ];
+    }
+
+    /**
+     * Candidate practitioner documents awaiting THIS viewer's authorisation — the branch-scoped
+     * "Review & Authorise" surface (Bug #3). Scoping mirrors the legacy CommandCenter dashboard and
+     * getEligibleAuthorisers exactly: agency admins see the whole agency; Branch Managers /
+     * full-status practitioners see the branches they authorise for. Counts candidate-flow templates
+     * paused at the supervisor checkpoint (awaiting_supervisor / awaiting_supervisor_final). Caller
+     * gates on canAuthorise(), so this only runs for eligible authorisers.
+     */
+    private function candidateAuthorisations(User $user): array
+    {
+        $pending = 0;
+        try {
+            $svc = app(\App\Services\CandidatePractitionerService::class);
+            $scoped = false;
+            $creatorScope = null;
+            if ($svc->isAgencyAdmin($user)) {
+                $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
+                if ($agencyId > 0) {
+                    $creatorScope = function ($q) use ($agencyId) {
+                        $q->where('agency_id', $agencyId)
+                            ->orWhereHas('branch', fn ($b) => $b->where('agency_id', $agencyId));
+                    };
+                    $scoped = true;
+                }
+            } else {
+                $branchIds = $svc->authorisingBranchIds($user);
+                if (!empty($branchIds)) {
+                    $creatorScope = function ($q) use ($branchIds) {
+                        $q->whereIn('branch_id', $branchIds);
+                    };
+                    $scoped = true;
+                }
+            }
+
+            if ($scoped && $creatorScope) {
+                $pending = \App\Models\Docuperfect\SignatureTemplate::where('is_candidate_flow', true)
+                    ->whereIn('status', [
+                        \App\Models\Docuperfect\SignatureTemplate::STATUS_AWAITING_SUPERVISOR,
+                        \App\Models\Docuperfect\SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL,
+                    ])
+                    ->whereHas('creator', $creatorScope)
+                    ->count();
+            }
+        } catch (\Throwable $e) {
+            $pending = 0;
+        }
+
+        return [
+            'card_id' => 'candidate_authorisations',
+            'title' => 'Candidate Authorisations',
+            'icon' => 'shield-check',
+            'urgency' => $pending > 0 ? 'critical' : 'low',
+            'count' => $pending,
+            'items' => array_filter([
+                $pending > 0 ? ['label' => 'Awaiting your authorisation', 'value' => $pending, 'colour' => '#ef4444'] : null,
+            ]),
+            // BUG 1 (Johan 2026-08-04): was '/corex/legacy-dashboard' — a dead legacy surface.
+            // Point "View all" at the LIVE authorisation list, which renders the branch-scoped
+            // needs_authorisation queue (ESignWizardController::myDocuments, filter=authorisation).
+            // The route sits under the '/docuperfect' prefix — omitting it 404s (the regression
+            // Johan hit). Match the sibling cards at :474/:505 which use the full prefixed path.
+            'view_all_url' => '/docuperfect/esign/my-documents?filter=authorisation',
         ];
     }
 

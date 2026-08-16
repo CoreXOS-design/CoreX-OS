@@ -38,23 +38,28 @@
          contactEmail: {{ Js::from($contact->email ?? '') }},
          outreachAllowed: {{ ($outreachWindow['allowed'] ?? true) ? 'true' : 'false' }},
          outreachWindowMessage: {{ Js::from($outreachWindow['message'] ?? '') }},
-         // AT-59 — record the send against the contact's comms archive so
-         // `last_contacted_at` and the WhatsApp/Email counts on the Contact
-         // page move. Both wa.me and mailto: sends are client-side deep links
-         // the server never sees, so this call is what makes the send count.
+         // AT-323 send-confirm + counter — REUSES the contact-page mechanism: /increment logs a
+         // provisional Communication (WhatsApp born not_delivered), then the SHARED did-you-send
+         // modal marks it sent on Yes, which is what increments the contact WA/email counter.
+         // Keep these comments free of literal double quotes: this x-data sits inside a
+         // double-quoted attribute and a stray one closes it, leaking JS onto the page as text.
          incrementUrl: @js(route('corex.contacts.increment', $contact)),
-         incrementCsrf: @js(csrf_token()),
-         // AT-323 — WhatsApp is client-side click-to-chat with no delivery signal, so the
-         // increment endpoint already logs it as not_delivered (server-side, incrementChannel).
-         // This results page never asked whether it was actually sent, so those rows sat
-         // not_delivered forever and the counter never moved. Reuses the SHARED did-you-send
-         // modal + mark-sent route the contact page already uses — no parallel mechanism.
-         // Email is unaffected: it stays born-sent (system mailto, no modal) exactly as
-         // already built on this page. NOTE: no literal double quotes in this comment block —
-         // x-data sits inside a double-quoted attribute and a stray one closes it early,
-         // truncating the component and killing every click handler on the page.
          commBase: @js(url('corex/contacts/'.$contact->id.'/communications')),
+         csrf: @js(csrf_token()),
          sentConfirm: { open: false, communicationId: null },
+         emailAddress: @js($contact->email),
+         emailSubject: {{ Js::from($matchEmailSubject) }},
+         emailBody: {{ Js::from($matchEmailBody) }},
+         async increment(channel, payload = {}) {
+             try {
+                 const res = await fetch(this.incrementUrl, {
+                     method: 'POST',
+                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': this.csrf, 'X-Requested-With': 'XMLHttpRequest' },
+                     body: JSON.stringify({ channel: channel, subject: payload.subject ?? null, body: payload.body ?? null }),
+                 });
+                 return await res.json();
+             } catch (e) { return null; }
+         },
          async confirmSent(didSend) {
              const commId = this.sentConfirm.communicationId;
              this.sentConfirm.open = false;
@@ -88,7 +93,9 @@
                  alert(this.outreachWindowMessage || 'Outreach sending is closed right now.');
                  return;
              }
-             window.open('https://wa.me/' + this.waPhone + '?text=' + encodeURIComponent(this.waMessage), '_blank');
+             // AT-323 — open WhatsApp FIRST (inside the click gesture, new tab, not popup-blocked),
+             // THEN record the send and ask did-you-send.
+             window.open('https://wa.me/' + this.waPhone + '?text=' + encodeURIComponent(this.waMessage), '_blank', 'noopener');
              this.showWaModal = false;
              const data = await this.recordSend('whatsapp', { body: this.waMessage });
              if (data && data.communication_id) {
@@ -127,6 +134,9 @@
     {{-- AT-323 — SHARED post-send did-you-send confirmation modal (same component the contact page
          + outreach pitch-send use). Driven by this component's sentConfirm / confirmSent. --}}
     @include('partials.whatsapp-send-confirm-modal')
+
+    {{-- Page header (Pattern A — branded) --}}
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
 
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
@@ -267,9 +277,11 @@
                     </button>
                     @endif
                     @if($contact->email)
-                    {{-- Email fallback — for buyers who don't use WhatsApp. --}}
-                    <button type="button" @click="showEmailModal = true" class="corex-btn-outline text-xs">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
+                    {{-- Email the match list — opens the mail client and records the send so the
+                         contact's email counter updates (same mechanism as the contact page). --}}
+                    <button type="button" @click="sendEmail()" class="corex-btn-outline inline-flex items-center gap-1.5"
+                            style="background: rgba(255,255,255,0.08); color: #fff; border-color: rgba(255,255,255,0.2);">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
                         Email
                     </button>
                     @endif
@@ -329,7 +341,7 @@
         <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No active properties match these criteria</h3>
         <p class="text-sm mb-4" style="color: var(--text-muted);">Try broadening the price range, suburb, or room requirements.</p>
         <a href="{{ route('corex.contacts.show', $contact) }}?tab=matches" class="corex-btn-outline">
-            ← Back to Core Matches
+            ← Back to {{ $contact->full_name }}
         </a>
     </div>
     @else

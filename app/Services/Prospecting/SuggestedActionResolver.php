@@ -48,6 +48,32 @@ final class SuggestedActionResolver
         // isn't genuinely in on-market stock.
         $companyStockPropertyId = $state['company_stock_property_id'] ?? null;
 
+        // PITCHED (Johan 2026-08-14, MIC worklist lifecycle) — the listing
+        // has already been fully worked: "Create & continue" on the compose
+        // screen created the property record and linked the sellers.
+        // Unconditional, HIGHEST-priority short-circuit — deliberately
+        // checked even before R1–R4's personal claim/pitch reminders
+        // (which the EXISTENCE CHECK below is careful to yield to). Once a
+        // real property exists from this exact listing, re-offering
+        // "Pitch Now"/"Continue" reopens the whole contact/deed-linking
+        // compose flow a second time — a duplication risk, not a reminder
+        // worth surfacing. The only sane action left is "go look at the
+        // property you already built."
+        //
+        // Contract with cc2 (owns the row-data/service side that builds the
+        // listing objects — MarketIntelligenceController::work()): rather
+        // than a $state key, cc2 attaches is_pitched (bool) and property_id
+        // (int|null) as dynamic properties directly on the SAME
+        // ProspectingListing object passed in as $listing here (confirmed
+        // against cc2's commit 0eb23ff2f — $listings is paginated straight
+        // off the collection cc2 annotates, so $listing IS that object).
+        // Both optional; absent/false must fall through to today's
+        // behaviour untouched — this resolver has no way to independently
+        // confirm "pitched," it only trusts what the caller hands it.
+        if (($listing->is_pitched ?? false) === true && ($listing->property_id ?? null) !== null) {
+            return $this->buildPitched((int) $listing->property_id);
+        }
+
         // R1 — manager-only, stale listing-status claim
         if ($isManager && $claim
             && ($claim['status'] ?? null) === 'listing'
@@ -88,6 +114,21 @@ final class SuggestedActionResolver
             && $this->daysSince($claim['last_updated_at'] ?? null) >= $thresholds->follow_up_days
         ) {
             return $this->buildR4($claim, $listing, $thresholds);
+        }
+
+        // EXISTENCE CHECK (Johan 2026-08-13, MIC funnel phase 1) — this listing resolves to a property
+        // already on HFC's books. Do NOT offer it as a fresh pitch to a second agent; surface
+        // "already exists → open property" (naming who is on it) instead. Runs AFTER the viewer's own
+        // follow-up rules (R1–R4, so a personal claim/pitch reminder still wins) and BEFORE every
+        // pitch-offer rule (R5–R10). The authoritative pre-work gate remains the reactive collision
+        // check (EntryPointController → TrackedPropertyMatchOrCreateService::findExistingMatch), which
+        // redirects a pitch-now click on an existing property to the property; this makes it visible
+        // up-front so a second agent never starts.
+        if ($companyStockPropertyId !== null) {
+            return $this->buildAlreadyExists(
+                $companyStockPropertyId,
+                $state['company_stock_agent_name'] ?? null,
+            );
         }
 
         // R5 — high-value pitch opportunity (not yet in stock)
@@ -199,17 +240,32 @@ final class SuggestedActionResolver
         $human = ($h > 0 ? $h . 'h ' : '') . $m . 'min';
 
         $tooltip = $this->tooltip(
-            'Your claim auto-releases in ' . e($human) . ' without feedback.'
+            'Your claim auto-releases in ' . e($human) . ' without feedback. '
+            . 'Continue working it to renew the clock.'
         );
 
+        // 2026-08-14 (Johan) — the chip used to BE the warning ("CLAIM
+        // EXPIRES SOON") with a dead $dispatch('open-feedback') nothing on
+        // this page ever listened for — a stuck warning with no way to act
+        // on it. The primary click is now "Continue", routed through the
+        // same pitch-entry endpoint PITCH NOW/R5/R6 use; opening it stamps
+        // pitched_at and resets last_updated_at/warned_at as a side effect
+        // of EntryPointController::fromProspecting() -> claimOnPitchNow()
+        // (ProspectingClaimService), so resuming the claim is what renews
+        // it — no separate renewal call needed here. The original warning
+        // text survives as the small statusBadge next to it.
         return new SuggestedAction(
             rank:        'R2',
-            label:       'CLAIM EXPIRES SOON',
-            tier:        'critical',
-            icon:        'alarm-clock',
+            label:       'Continue',
+            tier:        'action',
+            icon:        'target',
             tooltipHtml: $tooltip,
-            clickType:   'alpine',
-            alpineCall:  "\$dispatch('open-feedback', { id: {$listing->id}, status: '" . e((string) ($claim['status'] ?? '')) . "' })",
+            clickType:   'anchor',
+            href:        route('seller-outreach.entry.from-prospecting', [
+                'prospectingListingId' => $listing->id,
+            ]),
+            statusBadgeLabel: 'CLAIM EXPIRES SOON',
+            statusBadgeTier:  'critical',
         );
     }
 
@@ -241,17 +297,24 @@ final class SuggestedActionResolver
 
         $tooltip = $this->tooltip(
             'Your claim in <em>' . e($statusLabel) . '</em> for '
-            . e((string) $days) . ' days. Time to follow up.'
+            . e((string) $days) . ' days. Continue working it to follow up.'
         );
 
+        // Same fix as R2 (see its comment) — "FOLLOW UP CLAIM" used to be
+        // the (dead) click target itself. Continue now routes through the
+        // real pitch-entry endpoint and survives as the small statusBadge.
         return new SuggestedAction(
             rank:        'R4',
-            label:       'FOLLOW UP CLAIM',
+            label:       'Continue',
             tier:        'action',
             icon:        'target',
             tooltipHtml: $tooltip,
-            clickType:   'alpine',
-            alpineCall:  "\$dispatch('open-feedback', { id: {$listing->id}, status: '" . e((string) ($claim['status'] ?? '')) . "' })",
+            clickType:   'anchor',
+            href:        route('seller-outreach.entry.from-prospecting', [
+                'prospectingListingId' => $listing->id,
+            ]),
+            statusBadgeLabel: 'FOLLOW UP CLAIM',
+            statusBadgeTier:  'await',
         );
     }
 
@@ -362,6 +425,54 @@ final class SuggestedActionResolver
      * "PITCH NOW" — when buyer signal exists, R5 ("PITCH NOW · HIGH") or
      * R6 ("PITCH NOW" + buyer-count tooltip) wins above.
      */
+    /**
+     * PITCHED chip (Johan 2026-08-14) — this exact listing was already
+     * carried through "Create & continue" on the compose screen: the
+     * property record exists and sellers are linked. A done/worked status,
+     * not an action — routes straight to the property record instead of
+     * re-opening compose (which would re-run contact/deed linking a
+     * second time).
+     */
+    private function buildPitched(int $propertyId): SuggestedAction
+    {
+        $tooltip = $this->tooltip(
+            'Already pitched — the property record was created and sellers linked. Open it to continue working the deal.'
+        );
+
+        return new SuggestedAction(
+            rank:        'PITCHED',
+            label:       'Pitched',
+            tier:        'info',
+            icon:        'info',
+            tooltipHtml: $tooltip,
+            clickType:   'anchor',
+            href:        route('corex.properties.show', ['property' => $propertyId]),
+        );
+    }
+
+    /**
+     * EXISTENCE CHECK chip (Johan 2026-08-13) — the listing matches a property already on HFC's books.
+     * Replaces the Pitch Now offer with "already exists → open property", naming who is on it, so a
+     * second agent opens the existing record instead of working it again.
+     */
+    private function buildAlreadyExists(int $propertyId, ?string $agentName): SuggestedAction
+    {
+        $who = $agentName !== null && trim($agentName) !== ''
+            ? e(trim($agentName)) . ' is already on it'
+            : 'Already on HFC&rsquo;s books';
+        $tooltip = $this->tooltip($who . ' — open the existing property instead of pitching it again.');
+
+        return new SuggestedAction(
+            rank:        'EXISTS',
+            label:       'ALREADY EXISTS · OPEN PROPERTY',
+            tier:        'info',
+            icon:        'info',
+            tooltipHtml: $tooltip,
+            clickType:   'anchor',
+            href:        route('corex.properties.show', ['property' => $propertyId]),
+        );
+    }
+
     private function buildR10(ProspectingListing $listing, ?int $companyStockPropertyId): SuggestedAction
     {
         $inStock = $companyStockPropertyId !== null;

@@ -37,7 +37,7 @@ $rows = DB::table('prospecting_price_history as h')
     ->where('h.old_price', '>', 0)->where('h.new_price', '>', 0)
     ->select('h.id as hist_id', 'h.prospecting_listing_id as lid', 'h.old_price', 'h.new_price',
              'l.price as current_price', 'l.tracked_property_id as tpid',
-             'l.agency_id', 'l.portal_source', 'l.portal_ref', 'l.suburb')
+             'l.agency_id', 'l.portal_source', 'l.portal_ref')
     ->orderBy('h.prospecting_listing_id')->get();
 
 $targets = [];
@@ -52,9 +52,9 @@ foreach ($rows as $r) {
 echo ($apply ? "APPLY" : "DRY-RUN (read-only)") . " — MIC price restore\n";
 echo "Connection DB: " . config('database.connections.' . config('database.default') . '.database') . "\n";
 echo "Targets (factor >= " . FACTOR . ", still-corrupt live): " . count($targets) . "\n";
-echo str_repeat('-', 116) . "\n";
-printf("%-8s %-14s %-16s %-13s %-13s %-8s %-13s %-8s\n",
-    'listing', 'portal_ref', 'suburb', 'restore_to', 'corrupt_now', 'tp_id', 'tp_now', 'tp_fix?');
+echo str_repeat('-', 96) . "\n";
+printf("%-8s %-14s %-13s %-13s %-8s %-13s %-9s\n",
+    'listing', 'portal_ref', 'restore_to', 'from(corrupt)', 'tp_id', 'tp_now', 'tp_fix?');
 
 $hasAnomalyTable = Schema::hasTable('prospecting_price_anomalies');
 
@@ -66,8 +66,8 @@ $run = function () use ($targets, $today, $hasAnomalyTable) {
         $tpNow = $r->tpid ? (int) DB::table('tracked_properties')->where('id', $r->tpid)
             ->value('last_known_asking_price') : null;
         $tpFix = ($r->tpid && $tpNow === $n);
-        printf("%-8s %-14s %-16s %-13s %-13s %-8s %-13s %-8s\n",
-            $r->lid, $r->portal_ref, mb_substr((string) $r->suburb, 0, 16), number_format($o), number_format($n),
+        printf("%-8s %-14s %-13s %-13s %-8s %-13s %-9s\n",
+            $r->lid, $r->portal_ref, number_format($o), number_format($n),
             $r->tpid ?? '-', $tpNow !== null ? number_format($tpNow) : '-', $tpFix ? 'YES' : 'no');
 
         // Prior good change timestamp (the change BEFORE the corrupt one), for price_changed_at.
@@ -117,12 +117,12 @@ if (!$apply) {
         $tpNow = $r->tpid ? (int) DB::table('tracked_properties')->where('id', $r->tpid)
             ->value('last_known_asking_price') : null;
         $tpFix = ($r->tpid && $tpNow === (int) $r->new_price);
-        printf("%-8s %-14s %-16s %-13s %-13s %-8s %-13s %-8s\n",
-            $r->lid, $r->portal_ref, mb_substr((string) $r->suburb, 0, 16),
-            number_format((int) $r->old_price), number_format((int) $r->new_price),
-            $r->tpid ?? '-', $tpNow !== null ? number_format($tpNow) : '-', $tpFix ? 'YES' : 'no');
+        printf("%-8s %-14s %-13s %-13s %-8s %-13s %-9s\n",
+            $r->lid, $r->portal_ref, number_format((int) $r->old_price),
+            number_format((int) $r->new_price), $r->tpid ?? '-',
+            $tpNow !== null ? number_format($tpNow) : '-', $tpFix ? 'YES' : 'no');
     }
-    echo str_repeat('-', 116) . "\n";
+    echo str_repeat('-', 96) . "\n";
     echo "DRY-RUN — nothing written. Re-run with --apply (on Johan's go) to restore.\n";
     exit(0);
 }

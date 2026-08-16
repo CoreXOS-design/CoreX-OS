@@ -25,7 +25,7 @@
 
                                         {{-- Tools --}}
                     <x-nav-link :href="route('tools.commission')" :active="request()->routeIs('tools.commission')">Commission Calculator</x-nav-link>
-                    <x-nav-link :href="route('tools.cma')" :active="request()->routeIs('tools.cma')">CMA Certificate Generator</x-nav-link>
+                    <x-nav-link :href="route('tools.cma')" :active="request()->routeIs('tools.cma')">Evaluation Certificate</x-nav-link>
 
 @if($navIsAgent)
                         <x-nav-link :href="route('agent.dashboard')" :active="request()->routeIs('agent.dashboard')">Agent Dashboard</x-nav-link>
@@ -142,7 +142,7 @@
 
                         {{-- Tools --}}
             <x-responsive-nav-link :href="route('tools.commission')" :active="request()->routeIs('tools.commission')">Commission Calculator</x-responsive-nav-link>
-            <x-responsive-nav-link :href="route('tools.cma')" :active="request()->routeIs('tools.cma')">CMA Certificate Generator</x-responsive-nav-link>
+            <x-responsive-nav-link :href="route('tools.cma')" :active="request()->routeIs('tools.cma')">Evaluation Certificate</x-responsive-nav-link>
 
 @if($navIsAgent)
                 <x-responsive-nav-link :href="route('agent.dashboard')" :active="request()->routeIs('agent.dashboard')">Agent Dashboard</x-responsive-nav-link>

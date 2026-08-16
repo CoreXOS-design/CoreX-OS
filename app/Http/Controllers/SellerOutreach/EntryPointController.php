@@ -91,14 +91,20 @@ final class EntryPointController extends Controller
         if ($linked !== null) {
             $contact = $linked;
             $isNew   = false;
+        } elseif ($this->isEntityCapture($request)) {
+            // Manual ENTITY capture (company / CC / trust). The agent picked "Entity" and entered the
+            // registered name (+ optional reg number). A company is reached through its directors, so
+            // there is NO phone/email/SA-ID gate here — reps are added on the entity record afterward.
+            // Reuse the canonical entity dedupe (keys on the registration number, never a 13-digit ID).
+            $contact = $this->resolveEntityContact($request, $agencyId);
+            $isNew   = $contact->wasRecentlyCreated;
         } else {
-            $validated = $request->validate([
+            $validated = $request->validate(array_merge([
                 'first_name' => 'required|string|max:100',
                 'last_name'  => 'nullable|string|max:100',
                 'phone'      => 'nullable|string|max:30',
                 'email'      => 'nullable|email|max:255',
-                'id_number'  => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
-            ]);
+            ], $this->naturalPersonIdRules($request)));
 
             $idNumber = isset($validated['id_number']) ? preg_replace('/\s+/', '', (string) $validated['id_number']) : null;
 
@@ -132,7 +138,7 @@ final class EntryPointController extends Controller
                     'id_number'             => $idNumber,
                     'id_number_captured_at' => $idNumber ? now() : null,
                     'id_number_source'      => $idNumber ? 'seller_outreach_entry' : null,
-                ], static fn ($v) => $v !== null && $v !== ''),
+                ] + $this->naturalPersonIdAttributes($validated), static fn ($v) => $v !== null && $v !== ''),
                 [
                     'last_name' => $validated['last_name'] ?? '',
                     'phone'     => $validated['phone'] ?? '',
@@ -177,6 +183,14 @@ final class EntryPointController extends Controller
             ->first();
         abort_if(!$listing, 404);
 
+        // PITCHED-state route guard (Johan 2026-08-14) — if this item is already PITCHED (Create &
+        // continue committed: pitched_at set + a property), do NOT restart the linking flow (that
+        // risks duplicating the pitch). A pitched item opens the PROPERTY RECORD. Mid-scratchpad
+        // items (pitched_at null) are unaffected — the agent can still return to compose to edit.
+        if (! empty($listing->pitched_at) && ! empty($listing->matched_property_id)) {
+            return redirect()->route('corex.properties.show', ['property' => (int) $listing->matched_property_id]);
+        }
+
         // A.3.4 — prospect-collision detection. Before the temp-lock fires
         // (which would tie up the listing for the next 30 minutes), check
         // whether HFC already has a relationship to this address. The same
@@ -205,12 +219,53 @@ final class EntryPointController extends Controller
                 ->with('error', "⏳ {$blockerName} is currently pitching this listing. Try again after their lock expires ({$expiresIn}).");
         }
 
+        // FIX 1 (Johan 2026-08-14) — DURABLY claim the listing the moment Pitch Now opens the
+        // compose screen, so the agent can leave to scrape CMA/TVA and return with it still theirs
+        // (held for the agency stale window, not the 30-min temp lock). Anti-poaching correctness:
+        // this is what actually closes the duplication window between Pitch Now and submit.
+        try {
+            app(ProspectingClaimService::class)->claimOnPitchNow(
+                listingId: $prospectingListingId,
+                userId: (int) $request->user()->id,
+                agencyId: $agencyId,
+            );
+        } catch (\App\Services\Prospecting\ClaimOwnershipConflictException $e) {
+            $ownerName = DB::table('users')->where('id', $e->currentOwnerUserId)->value('name') ?? 'another agent';
+            return redirect()
+                ->route('market-intelligence.work')
+                ->with('error', "⏳ {$ownerName} has already claimed this listing. Coordinate with them before pitching.");
+        }
+
+        // MIC ↔ Deeds ↔ Contact loop (Part A) — surface the deed the agent scraped. If a deeds
+        // capture exists for this property, its registered owner(s) (name + SA-ID) are already in
+        // CoreX as contacts; resolve them so the capture screen can offer "Use from deeds" instead
+        // of re-typing. Read-only; failure-isolated (a deed-link hiccup must never break capture).
+        $deedLink = $this->safeDeedLink(fn () => app(\App\Services\Prospecting\DeedsCaptureLinkService::class)
+            ->ownersForListing($agencyId, $listing));
+
         return view('seller-outreach.entry.prospecting-create-contact', [
             'listing'      => $listing,
             // #3 Address-first: when the listing carries no street address, the
             // capture form shows a required address field so we land one before
             // creating the Property.
             'needsAddress' => trim((string) ($listing->address ?? '')) === '',
+            'deedLink'     => $deedLink,
+            // Manual "Link a deed" fallback — the full deeds list + the endpoint that remembers
+            // the agent's choice on this listing.
+            'deeds'        => $this->safeAvailableDeeds($agencyId),
+            'linkDeedUrl'  => route('seller-outreach.entry.link-deed-prospecting', ['prospectingListingId' => $listing->id]),
+            // FIX 2 — poll endpoint so a deed/TVA scrape auto-surfaces while the screen is open.
+            'deedPollUrl'  => route('seller-outreach.entry.deed-poll-prospecting', ['prospectingListingId' => $listing->id]),
+            // Multi-seller (Part A) + TVA picker (Part B) — initial state + endpoints.
+            'sellerState'    => app(\App\Services\Prospecting\ComposeSellerService::class)->payload($agencyId, $listing),
+            'linkSellerUrl'  => route('seller-outreach.entry.link-seller-prospecting', ['prospectingListingId' => $listing->id]),
+            'unlinkSellerUrl' => route('seller-outreach.entry.unlink-seller-prospecting', ['prospectingListingId' => $listing->id]),
+            'tvaIngestUrl'   => route('seller-outreach.entry.tva-ingest-prospecting', ['prospectingListingId' => $listing->id]),
+            'primarySellerUrl' => route('seller-outreach.entry.primary-seller-prospecting', ['prospectingListingId' => $listing->id]),
+            'deadEndSellerUrl' => route('seller-outreach.entry.dead-end-seller-prospecting', ['prospectingListingId' => $listing->id]),
+            'unlinkDeedUrl'    => route('seller-outreach.entry.unlink-deed-prospecting', ['prospectingListingId' => $listing->id]),
+            'removeNumberUrl'  => route('seller-outreach.entry.remove-number-prospecting', ['prospectingListingId' => $listing->id]),
+            'primaryNumberUrl' => route('seller-outreach.entry.primary-number-prospecting', ['prospectingListingId' => $listing->id]),
         ]);
     }
 
@@ -257,49 +312,77 @@ final class EntryPointController extends Controller
             $captureAddress = $this->composeAddress($sa);
         }
 
-        // The agent may either PICK an existing contact (search) or CAPTURE a new
-        // one. A chosen contact_id short-circuits the new-contact validation.
+        // Compose redesign (Johan 2026-08-14) — the WORKING SET of linked sellers is the source of
+        // truth, not a single form. The manual create-new form is now OPTIONAL: it runs only when
+        // the agent actually picked an existing contact or typed a new one. Deed sellers are added
+        // via "+ Link as seller" (contact_property role=seller) before this submit. The old
+        // "provide a phone or email" hard gate is replaced by the working-set gate below (a linked
+        // seller with a ticked TVA number satisfies "continue" — never a retype).
+        $isDeadEnd     = false;
+        $deadEndReason = null;
+        $existing      = null;
+        $idNumber      = null;
+        $validated     = [];
+        $isNew         = false;
+        $formEngaged   = false;
+
+        $linkedPropertyId = ! empty($listing->matched_property_id) ? (int) $listing->matched_property_id : null;
+        $hasLinkedSellers = $linkedPropertyId !== null && DB::table('contact_property')
+            ->where('property_id', $linkedPropertyId)->where('role', 'seller')->exists();
+
         $linked = $this->resolveLinkedExistingContact($request, $agencyId);
         if ($linked !== null) {
-            $validated = [];
-            $idNumber  = null;
-            $existing  = $linked;
-            $isNew     = false;
-        } else {
-            $validated = $request->validate([
+            $existing = $linked;
+            $formEngaged = true;
+        } elseif ($this->isEntityCapture($request)) {
+            // Manual ENTITY capture (company / CC / trust) — the agent picked "Entity" and entered the
+            // registered name (+ optional reg number). No phone/email/SA-ID gate: a company is reached
+            // through its directors (reps added on the entity record afterward). The canonical entity
+            // dedupe keys on the registration number; the resolved entity flows through the shared
+            // `$contact = $existing ?: …` create path in the transaction below.
+            $formEngaged = true;
+            $existing    = $this->resolveEntityContact($request, $agencyId);
+            $isNew       = $existing->wasRecentlyCreated;
+        } elseif ($request->filled('first_name')) {
+            $formEngaged = true;
+            $validated = $request->validate(array_merge([
                 'first_name' => 'required|string|max:100',
                 'last_name'  => 'nullable|string|max:100',
                 'phone'      => 'nullable|string|max:30',
                 'email'      => 'nullable|email|max:255',
-                // A.2.5 — optional SA ID number with format + checksum validation.
-                'id_number'  => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
-            ]);
-
+                'no_contact_details' => 'nullable|boolean',
+                'dead_end_reason'    => 'nullable|string|in:opted_out,not_in_tva,no_record_found',
+            ], $this->naturalPersonIdRules($request)));
             $idNumber = isset($validated['id_number']) ? preg_replace('/\s+/', '', (string) $validated['id_number']) : null;
 
-            if (empty($validated['phone']) && empty($validated['email'])) {
+            // Dead-end tick still means "nothing to enter": needs a name + SA ID (still ID-keyed).
+            $isDeadEnd = $request->boolean('no_contact_details') && empty($validated['phone']) && empty($validated['email']);
+            if ($isDeadEnd && empty($idNumber)) {
                 return back()
-                    ->withErrors(['contact_required' => 'Provide a phone or email so we can dedupe and reach the seller.'])
+                    ->withErrors(['contact_required' => 'A dead-end contact needs the owner’s name and SA ID number from the deed.'])
                     ->withInput();
             }
 
-            // Blocking duplicate check AT ADD TIME (parity with the Contacts
-            // screen and the DR2 party-picker). Replaces the old silent
-            // findExistingContact() match-or-create, whose only signal was a
-            // "Linked to existing contact" toast one screen later on the
-            // composer — the deferral behind the duplicate-contact report.
-            $gate = $this->duplicateGate(
-                $request,
-                $agencyId,
-                $validated,
-                $idNumber,
-                route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $prospectingListingId]),
-            );
-            if ($gate instanceof \Illuminate\Http\RedirectResponse) {
-                return $gate;   // blocking duplicate panel — back to the capture page
+            if ($isDeadEnd) {
+                $deadEndReason = \App\Models\ContactDeadEndFlag::normaliseReason($validated['dead_end_reason'] ?? null);
+                $existing = app(\App\Services\ContactDuplicateService::class)
+                    ->findDuplicatesForIdentifiers([], [], $idNumber, $agencyId)->first();
+            } else {
+                $gate = $this->duplicateGate(
+                    $request, $agencyId, $validated, $idNumber,
+                    route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $prospectingListingId]),
+                );
+                if ($gate instanceof \Illuminate\Http\RedirectResponse) {
+                    return $gate;   // blocking duplicate panel — back to the capture page
+                }
+                $existing = $gate;
             }
-            $existing = $gate;  // Contact (auto_link match) or null (create new)
             $isNew = $existing === null;
+        } elseif (! $hasLinkedSellers) {
+            // No manual entry and no linked sellers → nothing to continue with.
+            return back()
+                ->withErrors(['contact_required' => 'Link at least one seller from the deed (“+ Link as seller”), or capture one, before continuing.'])
+                ->withInput();
         }
 
         // Johan's ruling (2026-08-12, the "14 Chesapeake" incident) — the ONLY
@@ -316,49 +399,43 @@ final class EntryPointController extends Controller
         // any case") — this only marks the outcome (withdrawn + notes) and tells
         // the agent immediately instead of leaving them to discover it later on
         // the composer screen.
-        $isOptedOut = $existing !== null && $existing->communicationStatus() !== Contact::COMM_OPTED_IN;
+        $isOptedOut = $formEngaged && $existing !== null && $existing->communicationStatus() !== Contact::COMM_OPTED_IN;
 
-        $result = DB::transaction(function () use ($request, $agencyId, $listing, $validated, $existing, $idNumber, $captureAddress, $structuredAddress, $isOptedOut) {
+        $result = DB::transaction(function () use ($request, $agencyId, $listing, $validated, $existing, $idNumber, $captureAddress, $structuredAddress, $isOptedOut, $isDeadEnd, $deadEndReason, $formEngaged) {
             // Branch context is mandatory on Contact rows in CoreX schema.
             $branchId = $request->user()->branch_id;
 
-            // contacts.last_name + contacts.phone are NOT NULL in the schema —
-            // they must reach Contact::create even when empty, so we merge the
-            // NOT-NULL columns AFTER the array_filter that strips empty values
-            // from the optional ones. Same shape as storeFromTrackedProperty
-            // below. The A.2.5 commit (ea2b0295) introduced the array_filter
-            // wrapper to keep id_number+audit fields out when empty, and in
-            // doing so accidentally stripped last_name='' and phone=null,
-            // causing SQL 1364 on every Pitch Now submit where the agent
-            // skipped last_name or used email-only contact.
-            $contact = $existing ?: Contact::create(array_merge(
-                array_filter([
-                    'agency_id'             => $agencyId,
-                    'branch_id'             => $branchId,
-                    'first_name'            => $validated['first_name'],
-                    'email'                 => $validated['email'] ?? null,
-                    'created_by_user_id'    => $request->user()->id,
-                    // A.2.5 — POPIA audit. captured_at + source are only set when
-                    // the agent actually filled in the ID; null otherwise.
-                    'id_number'             => $idNumber,
-                    'id_number_captured_at' => $idNumber ? now() : null,
-                    'id_number_source'      => $idNumber ? 'seller_outreach_entry' : null,
-                ], static fn ($v) => $v !== null && $v !== ''),
-                [
-                    'last_name' => $validated['last_name'] ?? '',
-                    'phone'     => $validated['phone'] ?? '',
-                ],
-            ));
+            // The manual form contact is OPTIONAL now — created only when the agent picked/typed one.
+            // Deed sellers are already linked (contact_property role=seller) via "+ Link as seller".
+            $contact = null;
+            if ($formEngaged) {
+                // contacts.last_name + contacts.phone are NOT NULL — merge the NOT-NULL columns
+                // AFTER the array_filter that strips empty optional ones (SQL 1364 guard, ea2b0295).
+                $contact = $existing ?: Contact::create(array_merge(
+                    array_filter([
+                        'agency_id'             => $agencyId,
+                        'branch_id'             => $branchId,
+                        'first_name'            => $validated['first_name'],
+                        'email'                 => $validated['email'] ?? null,
+                        'created_by_user_id'    => $request->user()->id,
+                        'id_number'             => $idNumber,
+                        'id_number_captured_at' => $idNumber ? now() : null,
+                        'id_number_source'      => $idNumber ? 'seller_outreach_entry' : null,
+                    ] + $this->naturalPersonIdAttributes($validated), static fn ($v) => $v !== null && $v !== ''),
+                    [
+                        'last_name' => $validated['last_name'] ?? '',
+                        'phone'     => $validated['phone'] ?? '',
+                    ],
+                ));
 
-            // If the contact ALREADY existed (deduped) but the agent supplied
-            // an ID at this entry point, capture-fill it on the existing row
-            // when previously absent — never overwrite.
-            if ($existing && $idNumber && empty($existing->id_number)) {
-                $existing->update([
-                    'id_number'             => $idNumber,
-                    'id_number_captured_at' => now(),
-                    'id_number_source'      => 'seller_outreach_entry',
-                ]);
+                // Capture-fill an ID onto an existing deduped contact when previously absent.
+                if ($existing && $idNumber && empty($existing->id_number)) {
+                    $existing->update([
+                        'id_number'             => $idNumber,
+                        'id_number_captured_at' => now(),
+                        'id_number_source'      => 'seller_outreach_entry',
+                    ]);
+                }
             }
 
             $property = $this->promoteListingToProperty($agencyId, $listing, $request->user(), $captureAddress, $structuredAddress);
@@ -444,19 +521,14 @@ final class EntryPointController extends Controller
                 ]);
             }
 
-            // Link contact ↔ property via the contact_property pivot with role=seller.
-            // Idempotent — re-running the flow for the same pair updates role only.
-            DB::table('contact_property')->updateOrInsert(
-                [
-                    'contact_id'  => $contact->id,
-                    'property_id' => $property->id,
-                ],
-                [
-                    'role'       => 'seller',
-                    'updated_at' => now(),
-                    'created_at' => now(),
-                ]
-            );
+            // Link the FORM contact (when engaged) ↔ property as seller. Deed sellers are already
+            // linked via "+ Link as seller". Idempotent.
+            if ($contact) {
+                DB::table('contact_property')->updateOrInsert(
+                    ['contact_id' => $contact->id, 'property_id' => $property->id],
+                    ['role' => 'seller', 'updated_at' => now(), 'created_at' => now()],
+                );
+            }
 
             // Close the loop: mark the listing as matched to the promoted Property
             // AND link it to the TrackedProperty (so the listing → TP → property chain is whole).
@@ -470,57 +542,91 @@ final class EntryPointController extends Controller
                     'updated_at'           => now(),
                 ], fn ($v) => $v !== null));
 
+            // Part B — persist the dead-end marker on the ONE canonical contact so any future
+            // agent immediately sees it's been chased with nothing contactable. One active flag
+            // per contact (updateOrCreate), plus a note for the compounding human history.
+            if ($isDeadEnd && $contact) {
+                \App\Models\ContactDeadEndFlag::updateOrCreate(
+                    ['contact_id' => $contact->id],
+                    [
+                        'agency_id'          => $agencyId,
+                        'property_id'        => $property->id,
+                        'reason'             => $deadEndReason,
+                        'source'             => 'seller_outreach',
+                        'created_by_user_id' => $request->user()->id,
+                    ],
+                );
+
+                ContactNote::create([
+                    'contact_id' => $contact->id,
+                    'user_id'    => $request->user()->id,
+                    'body'       => 'Marked as a dead-end — no contact details available ('
+                        . \App\Models\ContactDeadEndFlag::reasonLabel($deadEndReason) . '). Captured from the deed; nothing to reach.',
+                ]);
+            }
+
             return [$contact, $property];
         });
 
         [$contact, $property] = $result;
         $property->refresh(); // pick up the withdrawn-status write made inside the transaction
 
-        $name = trim($contact->first_name . ' ' . (string) $contact->last_name);
+        $svc = app(\App\Services\Prospecting\ComposeSellerService::class);
+        $svc->ensurePrimaryDefault((int) $property->id);
 
-        // Pitch lock: capturing + linking a contact via "Pitch now" PERMANENTLY
-        // claims this MIC listing to the agent — it drops out of the default
-        // canvassing pool (MarketIntelligenceController::work hides active
-        // pitched claims) and is exempt from the 48h no-feedback expiry
-        // (ProspectingClaim::isExpired). Consuming the temp lock now (rather than
-        // only at composer-send) is what makes the lock stick the moment the
-        // contact is linked. Failure-isolated: a claim hiccup must never break
-        // the contact/property work or the composer redirect. The later
-        // composer-send call to the same method is idempotent.
+        // WORKING-SET GATE (redesign) — replaces the single-form phone/email gate. Every linked
+        // seller must be reachable (a ticked TVA / typed number or email) OR acknowledged "No
+        // contact details". Data already ticked is NEVER retyped.
+        $needing = $svc->sellersNeedingContact($agencyId, (int) $property->id);
+        if (! empty($needing)) {
+            return redirect()
+                ->route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $listing->id])
+                ->with('error', 'Still need a number (tick a TVA number) or “No contact details” for: ' . implode(', ', $needing) . '.');
+        }
+
+        $sellers = $svc->linkedSellers($agencyId, (int) $property->id);
+        $primary = collect($sellers)->firstWhere('is_primary', true) ?? ($sellers[0] ?? null);
+        $primaryName = $primary ? (trim(($primary['first_name'] ?? '') . ' ' . ($primary['last_name'] ?? '')) ?: 'seller') : 'seller';
+
+        // Consume the durable Pitch-Now claim (idempotent with FIX 1's claimOnPitchNow).
         try {
             app(ProspectingClaimService::class)->consumeLockAsPermanentClaim(
                 listingId:    (int) $listing->id,
                 userId:       (int) $request->user()->id,
                 agencyId:     $agencyId,
-                pitchContext: ['recipient_name' => $name],
+                pitchContext: ['recipient_name' => $primaryName],
             );
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('Pitch-lock claim from prospecting capture failed', [
                 'listing_id' => $listing->id,
-                'contact_id' => $contact->id,
                 'error'      => $e->getMessage(),
             ]);
         }
 
-        // Opted-out outcome: show the agent immediately rather than letting them
-        // land on a compose screen for someone who was just marked uncontactable.
-        // The property/claim/link all still happened exactly as normal above —
-        // only the destination and the message differ.
+        // Opted-out (a form-picked contact) — hard dead outcome; land on the property.
         if ($isOptedOut) {
             return redirect()
                 ->route('corex.properties.show', ['property' => $property->id])
-                ->with('warning', "Linked to existing contact: {$name} — {$name} has opted out of marketing. "
-                    . 'This property has been marked Withdrawn and a note was added to both records.');
+                ->with('warning', "{$primaryName} has opted out of marketing — this property was marked Withdrawn.");
         }
 
+        // Every seller a dead-end → nothing to pitch; land on the property (records + flags saved).
+        $contactableCount = collect($sellers)->where('contactable', true)->count();
+        if ($contactableCount === 0) {
+            return redirect()
+                ->route('corex.properties.show', ['property' => $property->id])
+                ->with('warning', 'All sellers recorded as dead-ends — property and contacts saved and flagged; nothing to pitch.');
+        }
+
+        // PITCHED-state (Johan 2026-08-14) — Create & continue COMMITTED: the property is created +
+        // ≥1 seller linked. Stamp pitched_at (the committed marker driving is_pitched, the deeds-
+        // capture drop, and the compose route-guard). Idempotent.
+        DB::table('prospecting_listings')->where('id', $listing->id)->whereNull('pitched_at')->update(['pitched_at' => now()]);
+
+        // → INTERSTITIAL: "Property created · N contacts — pitch to sellers" (pick who to pitch).
         return redirect()
-            ->route('seller-outreach.composer.show', [
-                'contact'     => $contact->id,
-                'property_id' => $property->id,
-            ])
-            ->with('status', $isNew
-                ? "Created new contact: {$name}"
-                : "Linked to existing contact: {$name}");
+            ->route('seller-outreach.entry.pitch-ready-prospecting', ['prospectingListingId' => $listing->id])
+            ->with('status', count($sellers) . ' seller' . (count($sellers) > 1 ? 's' : '') . ' ready — pick who to pitch.');
     }
 
     /**
@@ -556,9 +662,19 @@ final class EntryPointController extends Controller
                 ->with('error', "⏳ {$blockerName} is currently pitching this property. Try again after their lock expires ({$expiresIn}).");
         }
 
+        // MIC ↔ Deeds ↔ Contact loop (Part A) — same deed surfacing for the map T-pin pitch,
+        // resolved directly off the TrackedProperty in hand.
+        $deedLink = $this->safeDeedLink(fn () => app(\App\Services\Prospecting\DeedsCaptureLinkService::class)
+            ->ownersForTrackedProperty($agencyId, $trackedProperty));
+
         return view('seller-outreach.entry.prospecting-create-contact', [
             'listing'         => null,
             'trackedProperty' => $trackedProperty,
+            'deedLink'        => $deedLink,
+            // Manual "Link a deed" modal is available here too (prefill only — no listing to
+            // remember the link on; the T-pin flow persists the owner via storeFromTrackedProperty).
+            'deeds'           => $this->safeAvailableDeeds($agencyId),
+            'linkDeedUrl'     => null,
         ]);
     }
 
@@ -584,14 +700,21 @@ final class EntryPointController extends Controller
             $idNumber  = null;
             $existing  = $linked;
             $isNew     = false;
+        } elseif ($this->isEntityCapture($request)) {
+            // Manual ENTITY capture (company / CC / trust) — see storeFromProperty. No phone/email/ID
+            // gate; the canonical entity dedupe resolves-or-creates on the registration number. The
+            // resolved entity flows through the existing `$existing ?: Contact::create()` path below.
+            $validated = [];
+            $idNumber  = null;
+            $existing  = $this->resolveEntityContact($request, $agencyId);
+            $isNew     = $existing->wasRecentlyCreated;
         } else {
-            $validated = $request->validate([
+            $validated = $request->validate(array_merge([
                 'first_name' => 'required|string|max:100',
                 'last_name'  => 'nullable|string|max:100',
                 'phone'      => 'nullable|string|max:30',
                 'email'      => 'nullable|email|max:255',
-                'id_number'  => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
-            ]);
+            ], $this->naturalPersonIdRules($request)));
 
             $idNumber = isset($validated['id_number']) ? preg_replace('/\s+/', '', (string) $validated['id_number']) : null;
 
@@ -635,7 +758,7 @@ final class EntryPointController extends Controller
                     'id_number'             => $idNumber,
                     'id_number_captured_at' => $idNumber ? now() : null,
                     'id_number_source'      => $idNumber ? 'seller_outreach_entry' : null,
-                ], static fn ($v) => $v !== null && $v !== ''),
+                ] + $this->naturalPersonIdAttributes($validated), static fn ($v) => $v !== null && $v !== ''),
                 [
                     'last_name' => $validated['last_name'] ?? '',
                     'phone'     => $validated['phone'] ?? '',
@@ -695,6 +818,73 @@ final class EntryPointController extends Controller
         abort_if($contact === null, 404, 'Selected contact not found in this agency.');
 
         return $contact;
+    }
+
+    /**
+     * True when the capture form is submitting an ENTITY (company / CC / trust)
+     * rather than a natural person — the agent toggled "Contact Is → Entity" and
+     * entered an entity name. Shared by all three store-from-* entry points so the
+     * manual entity option behaves identically wherever the pitch is started.
+     */
+    private function isEntityCapture(Request $request): bool
+    {
+        return $request->input('contact_kind') === Contact::TYPE_ENTITY
+            && $request->filled('entity_name');
+    }
+
+    /**
+     * Resolve-or-create the ENTITY seller Contact from the manual capture fields,
+     * via the canonical entity dedupe (keys on the registration number, NEVER a
+     * 13-digit SA ID — Johan 2026-08-14). Reps are added on the entity record
+     * afterward, so no phone/email/ID is required here.
+     */
+    private function resolveEntityContact(Request $request, int $agencyId): Contact
+    {
+        $data = $request->validate([
+            'entity_name'   => 'required|string|max:255',
+            'entity_reg_no' => 'nullable|string|max:100',
+        ]);
+
+        return app(\App\Services\Prospecting\ComposeSellerService::class)
+            ->resolveOrCreateEntitySellerContact(
+                $agencyId,
+                $request->user()->branch_id,
+                (int) $request->user()->id,
+                $data['entity_name'],
+                $data['entity_reg_no'] ?? null,
+            );
+    }
+
+    /**
+     * #17 — SA-ID / foreign-passport validation rules for the natural-person capture, shared by the
+     * three store-from-* entry points (same discriminator + rules as the main contact form). A foreign
+     * national's passport is a free string (max 50); their Date of Birth is entered directly since a
+     * passport can't encode it. Absent/other id_type keeps the validated SA-ID path (backward-compatible).
+     */
+    private function naturalPersonIdRules(Request $request): array
+    {
+        $isForeign = $request->input('id_type') === 'passport';
+
+        return [
+            'id_type'   => ['nullable', \Illuminate\Validation\Rule::in(['sa_id', 'passport'])],
+            'id_number' => $isForeign
+                ? ['nullable', 'string', 'max:50']
+                : ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
+            'birthday'  => ['nullable', 'date', 'required_if:id_type,passport'],
+        ];
+    }
+
+    /**
+     * #17 — id_type + birthday to persist on a newly-created natural-person contact. Returned as a
+     * plain array the caller folds into its Contact::create() array_filter (empty values are stripped,
+     * so a blank DOB / absent id_type is simply not written — backward-compatible).
+     */
+    private function naturalPersonIdAttributes(array $validated): array
+    {
+        return [
+            'id_type'  => $validated['id_type'] ?? null,
+            'birthday' => $validated['birthday'] ?? null,
+        ];
     }
 
     /**
@@ -897,6 +1087,51 @@ final class EntryPointController extends Controller
             }
         }
 
+        // MIC ↔ property-pillar reconciliation (Johan 2026-08-14). The external_id + raw
+        // address-string dedup above only catches EXACT string matches. Before minting a NEW
+        // property, resolve the FINAL address against the canonical TrackedProperty identity spine
+        // (the SAME resolver deeds promote uses: source-ref → GPS ~5m → erf+suburb → normalised
+        // structured address → token) so an address that already exists — e.g. a deeds-promoted
+        // property under a slightly different string — reconciles to it instead of duplicating.
+        // Read-only (findExistingMatch creates nothing); failure-isolated (falls through to create).
+        try {
+            $reconLat = null;
+            $reconLng = null;
+            if (!empty($listing->tracked_property_id)) {
+                $tpGps = DB::table('tracked_properties')
+                    ->where('id', (int) $listing->tracked_property_id)
+                    ->where('agency_id', $agencyId)
+                    ->first(['latitude', 'longitude']);
+                if ($tpGps) {
+                    $reconLat = $tpGps->latitude !== null ? (float) $tpGps->latitude : null;
+                    $reconLng = $tpGps->longitude !== null ? (float) $tpGps->longitude : null;
+                }
+            }
+            $reconFacts = array_filter([
+                'address'       => $address ?: ($listing->address ?? null),
+                'street_number' => $streetNumber ?: ProspectingListing::parseStreetNumber($listing->address ?? null),
+                'street_name'   => $streetName ?: null,
+                'suburb'        => $suburb ?: ($listing->suburb ?? null),
+                'latitude'      => $reconLat,
+                'longitude'     => $reconLng,
+            ], static fn ($v) => $v !== null && $v !== '');
+
+            // Only attempt when we hold a real locating key (a real address or GPS) — never let an
+            // empty/placeholder address collapse onto an existing property (the Ramsgate landmine).
+            if (($address !== '') || ($reconLat !== null && $reconLng !== null)) {
+                $canonical = app(\App\Services\Prospecting\MicPropertyReconciliationService::class)
+                    ->resolveExistingProperty($agencyId, $reconFacts);
+                if ($canonical) {
+                    return $canonical;
+                }
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('MIC property-pillar reconciliation failed (falling through to create)', [
+                'listing_id' => $listing->id ?? null,
+                'error'      => $e->getMessage(),
+            ]);
+        }
+
         // properties.beds/baths/garages/price/suburb/property_type/status are
         // NOT NULL — fall back to the schema defaults (0 / empty / 'house' /
         // 'draft') when the prospecting row doesn't carry the value.
@@ -1006,6 +1241,405 @@ final class EntryPointController extends Controller
             ->wherePivotIn('role', self::SELLER_ROLES)
             ->orderBy('contacts.first_name')
             ->get();
+    }
+
+    /**
+     * MIC ↔ Deeds ↔ Contact loop (Part A) — run the deed-owner resolver, never letting a
+     * failure break the capture screen. Returns the empty shape the blade expects on any error.
+     *
+     * @param  callable():array  $resolver
+     * @return array{tracked_property_id: int|null, address: string|null, owners: array<int, array<string, mixed>>}
+     */
+    private function safeDeedLink(callable $resolver): array
+    {
+        $empty = ['tracked_property_id' => null, 'address' => null, 'owners' => []];
+        try {
+            return $resolver() ?: $empty;
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Deeds-capture link resolution failed (compose screen continues without it)', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return $empty;
+        }
+    }
+
+    /**
+     * The agency's deeds list for the manual "Link a deed" modal, failure-isolated so a hiccup
+     * never breaks the compose screen.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function safeAvailableDeeds(int $agencyId): array
+    {
+        try {
+            return app(\App\Services\Prospecting\DeedsCaptureLinkService::class)->availableDeeds($agencyId);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Deeds list for manual link failed (modal will be empty)', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return [];
+        }
+    }
+
+    /**
+     * MIC ↔ Deeds ↔ Contact loop (Part A, manual link) — the agent picked a deed from the modal.
+     * Remember it on this prospecting listing (teaches the matcher so it auto-surfaces next time)
+     * and return the deed's owner(s) for the form prefill. Agency-scoped; a stale/forged deed id or
+     * an owner-less deed 404/422s rather than linking the wrong tenant's record.
+     */
+    public function linkDeedToProspecting(Request $request, int $prospectingListingId)
+    {
+        $agencyId = $this->resolveAgencyId($request);
+
+        $listing = DB::table('prospecting_listings')
+            ->where('id', $prospectingListingId)
+            ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->first();
+        abort_if(! $listing, 404);
+
+        $validated = $request->validate([
+            'tracked_property_id' => 'required|integer',
+        ]);
+
+        $deedTp = TrackedProperty::withoutGlobalScopes()
+            ->where('agency_id', $agencyId)
+            ->whereKey((int) $validated['tracked_property_id'])
+            ->first();
+        abort_if($deedTp === null, 404, 'Deed not found in this agency.');
+
+        $svc = app(\App\Services\Prospecting\ComposeSellerService::class);
+        if (empty($svc->deedOwners((int) $deedTp->id))) {
+            return response()->json(['ok' => false, 'error' => 'That deed has no registered owner to use.'], 422);
+        }
+
+        // R1 — selecting a deed REPLACES the current deed: it auto-links the deed's owners as sellers
+        // (skipping ones the agent removed) AND pulls the property address from the deeds-office
+        // record, so the Sellers panel + address FOLLOW the selected deed. Returns the full payload.
+        $propertyId = $this->ensurePropertyForListing($agencyId, $listing, $request->user());
+        $svc->selectDeed($agencyId, $listing, $propertyId, (int) $deedTp->id, $request->user()->branch_id, (int) $request->user()->id);
+
+        $listing = DB::table('prospecting_listings')->where('id', $prospectingListingId)->first();
+
+        return response()->json($svc->payload($agencyId, $listing));
+    }
+
+    /** R1 — unlink the deed: revert to auto-match, drop deed-sourced sellers, revert the address. */
+    public function unlinkDeedForProspecting(Request $request, int $prospectingListingId)
+    {
+        $agencyId = $this->resolveAgencyId($request);
+        $listing = DB::table('prospecting_listings')
+            ->where('id', $prospectingListingId)->where('agency_id', $agencyId)->whereNull('deleted_at')->first();
+        abort_if(! $listing, 404);
+
+        $svc = app(\App\Services\Prospecting\ComposeSellerService::class);
+        if (! empty($listing->matched_property_id)) {
+            $svc->unlinkDeed($agencyId, $listing, (int) $listing->matched_property_id);
+        } else {
+            DB::table('prospecting_listings')->where('id', $listing->id)->update([
+                'linked_deed_tracked_property_id' => null, 'linked_deed_by_user_id' => null, 'linked_deed_at' => null, 'updated_at' => now(),
+            ]);
+        }
+
+        $listing = DB::table('prospecting_listings')->where('id', $prospectingListingId)->first();
+
+        return response()->json($svc->payload($agencyId, $listing));
+    }
+
+    /** R3 — remove ONE number from a seller (undo a wrong one). Contact must be a seller here. */
+    public function removeNumberForProspecting(Request $request, int $prospectingListingId)
+    {
+        [$agencyId, $listing, $contact, $svc] = $this->sellerNumberContext($request, $prospectingListingId);
+        $data = $request->validate(['value' => 'required|string|max:255', 'type' => 'required|string|in:cell,tel,phone,email']);
+        $svc->removeNumber($contact, $data['type'] === 'email' ? 'email' : 'phone', $data['value']);
+
+        return response()->json($svc->payload($agencyId, $listing));
+    }
+
+    /** R3 — mark which number is primary (primary phone / primary email) for a seller. */
+    public function setPrimaryNumberForProspecting(Request $request, int $prospectingListingId)
+    {
+        [$agencyId, $listing, $contact, $svc] = $this->sellerNumberContext($request, $prospectingListingId);
+        $data = $request->validate(['value' => 'required|string|max:255', 'type' => 'required|string|in:cell,tel,phone,email']);
+        $svc->setPrimaryNumber($contact, $data['type'] === 'email' ? 'email' : 'phone', $data['value']);
+
+        return response()->json($svc->payload($agencyId, $listing));
+    }
+
+    /**
+     * Shared context for the per-number actions: resolves the listing + the seller contact and
+     * guards that the contact really is a seller on this listing's property.
+     *
+     * @return array{0:int,1:object,2:Contact,3:\App\Services\Prospecting\ComposeSellerService}
+     */
+    private function sellerNumberContext(Request $request, int $prospectingListingId): array
+    {
+        $agencyId = $this->resolveAgencyId($request);
+        $listing = DB::table('prospecting_listings')
+            ->where('id', $prospectingListingId)->where('agency_id', $agencyId)->whereNull('deleted_at')->first();
+        abort_if(! $listing, 404);
+        abort_if(empty($listing->matched_property_id), 422, 'No property yet.');
+
+        $contactId = (int) $request->input('contact_id');
+        $contact = Contact::withoutGlobalScope(\App\Models\Scopes\ContactScope::class)
+            ->where('agency_id', $agencyId)->find($contactId);
+        abort_if($contact === null, 404, 'Contact not found in this agency.');
+
+        $isSeller = DB::table('contact_property')
+            ->where('property_id', (int) $listing->matched_property_id)
+            ->where('contact_id', $contactId)->where('role', 'seller')->exists();
+        abort_unless($isSeller, 422, 'That contact is not a seller on this property.');
+
+        return [$agencyId, $listing, $contact, app(\App\Services\Prospecting\ComposeSellerService::class)];
+    }
+
+    /**
+     * FIX 2 (Johan 2026-08-14) — poll endpoint for the compose screen. Returns the current deed
+     * link state (auto-matched owner(s), candidate deeds) + the full deeds list for the modal, so
+     * a scrape that lands while the screen is open surfaces via a partial refresh (no full reload).
+     * Agency-scoped, read-only, cheap.
+     */
+    public function pollDeedsForProspecting(Request $request, int $prospectingListingId)
+    {
+        $agencyId = $this->resolveAgencyId($request);
+
+        $listing = DB::table('prospecting_listings')
+            ->where('id', $prospectingListingId)
+            ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->first();
+        abort_if(! $listing, 404);
+
+        $deedLink = $this->safeDeedLink(fn () => app(\App\Services\Prospecting\DeedsCaptureLinkService::class)
+            ->ownersForListing($agencyId, $listing));
+
+        $sellers = app(\App\Services\Prospecting\ComposeSellerService::class)->payload($agencyId, $listing);
+
+        return response()->json([
+            'owners'      => $deedLink['owners'],
+            'candidates'  => $deedLink['candidates'],
+            'deeds'       => $this->safeAvailableDeeds($agencyId),
+            'property_id' => $sellers['property_id'],
+            'sellers'     => $sellers['sellers'],
+            'tva'         => $sellers['tva'],
+            'linked_deed' => $sellers['linked_deed'],
+            'removed'     => $sellers['removed'],
+        ]);
+    }
+
+    /**
+     * PART A — link a seller (its own ID-keyed Contact) to the ONE property. A property can carry
+     * many sellers; this resolve-or-creates the contact on its SA ID (never merging two sellers)
+     * and links it via contact_property role=seller, promoting the listing to a Property on first
+     * link. Returns the refreshed seller + TVA state as JSON.
+     */
+    public function linkSellerToProspecting(Request $request, int $prospectingListingId)
+    {
+        $agencyId = $this->resolveAgencyId($request);
+        $listing = DB::table('prospecting_listings')
+            ->where('id', $prospectingListingId)->where('agency_id', $agencyId)->whereNull('deleted_at')->first();
+        abort_if(! $listing, 404);
+
+        $svc = app(\App\Services\Prospecting\ComposeSellerService::class);
+
+        if ($request->filled('contact_id')) {
+            // The owner already resolved to a Contact at capture (a director OR the company ENTITY) —
+            // link that exact contact; no SA-ID needed. This is the normal deed-owner path.
+            $contact = Contact::withoutGlobalScope(\App\Models\Scopes\ContactScope::class)
+                ->where('agency_id', $agencyId)->find((int) $request->input('contact_id'));
+            abort_if($contact === null, 404, 'Contact not found in this agency.');
+        } elseif ($request->boolean('entity')) {
+            // ENTITY owner (company / CC / trust) with no resolved contact yet — key on the
+            // registration number, NEVER a 13-digit SA ID (Johan 2026-08-14). Resolve-or-create the
+            // entity Contact off cc6's entity dedupe so we land on the captured entity, not a clone.
+            $data = $request->validate([
+                'entity_name'   => 'required|string|max:255',
+                'entity_reg_no' => 'nullable|string|max:100',
+            ]);
+            $contact = $svc->resolveOrCreateEntitySellerContact(
+                $agencyId, $request->user()->branch_id, (int) $request->user()->id,
+                $data['entity_name'], $data['entity_reg_no'] ?? null,
+            );
+        } else {
+            $data = $request->validate([
+                'first_name' => 'required|string|max:100',
+                'last_name'  => 'nullable|string|max:100',
+                'id_number'  => ['required', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
+            ]);
+            $idNumber = preg_replace('/\s+/', '', (string) $data['id_number']);
+            $contact = $svc->resolveOrCreateSellerContact(
+                $agencyId, $request->user()->branch_id, (int) $request->user()->id,
+                $data['first_name'], $data['last_name'] ?? '', $idNumber,
+            );
+        }
+
+        $propertyId = $this->ensurePropertyForListing($agencyId, $listing, $request->user());
+        // Manual link (or explicit RE-ADD) — source=manual, and it CLEARS any sticky removal so the
+        // agent's deliberate re-add sticks against the deed auto-link (R2).
+        $svc->linkSellerToProperty((int) $contact->id, $propertyId, 'manual');
+        $svc->clearRemoval((int) $listing->id, $contact->id_number ? (string) $contact->id_number : null);
+
+        $listing = DB::table('prospecting_listings')->where('id', $prospectingListingId)->first();
+
+        return response()->json($svc->payload($agencyId, $listing));
+    }
+
+    /** PART A / R2 — remove ONE seller link and RECORD the removal so the deed auto-link never
+     *  silently re-adds them on reload (sticky until the agent re-adds). Contact + property survive. */
+    public function unlinkSellerFromProspecting(Request $request, int $prospectingListingId)
+    {
+        $agencyId = $this->resolveAgencyId($request);
+        $listing = DB::table('prospecting_listings')
+            ->where('id', $prospectingListingId)->where('agency_id', $agencyId)->whereNull('deleted_at')->first();
+        abort_if(! $listing, 404);
+
+        $data = $request->validate(['contact_id' => 'required|integer']);
+        $svc = app(\App\Services\Prospecting\ComposeSellerService::class);
+
+        if (! empty($listing->matched_property_id)) {
+            $idNumber = Contact::withoutGlobalScope(\App\Models\Scopes\ContactScope::class)
+                ->where('agency_id', $agencyId)->where('id', (int) $data['contact_id'])->value('id_number');
+            $svc->unlinkSeller((int) $data['contact_id'], (int) $listing->matched_property_id);
+            $svc->recordRemoval($agencyId, (int) $listing->id, $idNumber ? (string) $idNumber : null, (int) $request->user()->id);
+        }
+
+        return response()->json($svc->payload($agencyId, $listing));
+    }
+
+    /**
+     * PART B — write the agent-picked TVA numbers onto ONE specific seller Contact. The contact
+     * must be a seller on this listing's property (so numbers are never written to an arbitrary
+     * contact). Returns the refreshed state so the picker updates in place.
+     */
+    public function ingestTvaForProspecting(Request $request, int $prospectingListingId)
+    {
+        $agencyId = $this->resolveAgencyId($request);
+        $listing = DB::table('prospecting_listings')
+            ->where('id', $prospectingListingId)->where('agency_id', $agencyId)->whereNull('deleted_at')->first();
+        abort_if(! $listing, 404);
+
+        $data = $request->validate([
+            'contact_id'  => 'required|integer',
+            'item_ids'    => 'required|array|min:1',
+            'item_ids.*'  => 'integer',
+        ]);
+
+        abort_if(empty($listing->matched_property_id), 422, 'Link the seller to the property first.');
+
+        $contact = Contact::withoutGlobalScope(\App\Models\Scopes\ContactScope::class)
+            ->where('agency_id', $agencyId)->find((int) $data['contact_id']);
+        abort_if($contact === null, 404, 'Contact not found in this agency.');
+
+        $isSeller = DB::table('contact_property')
+            ->where('property_id', (int) $listing->matched_property_id)
+            ->where('contact_id', (int) $contact->id)
+            ->where('role', 'seller')
+            ->exists();
+        abort_unless($isSeller, 422, 'That contact is not a seller on this property.');
+
+        $svc = app(\App\Services\Prospecting\ComposeSellerService::class);
+        $svc->ingestPickedNumbers($agencyId, $contact, array_map('intval', $data['item_ids']));
+
+        return response()->json($svc->payload($agencyId, $listing));
+    }
+
+    /** Compose redesign — click-to-make-primary a seller on the property. */
+    public function setPrimarySellerForProspecting(Request $request, int $prospectingListingId)
+    {
+        $agencyId = $this->resolveAgencyId($request);
+        $listing = DB::table('prospecting_listings')
+            ->where('id', $prospectingListingId)->where('agency_id', $agencyId)->whereNull('deleted_at')->first();
+        abort_if(! $listing, 404);
+
+        $data = $request->validate(['contact_id' => 'required|integer']);
+        $svc = app(\App\Services\Prospecting\ComposeSellerService::class);
+
+        if (! empty($listing->matched_property_id)) {
+            $isSeller = DB::table('contact_property')
+                ->where('property_id', (int) $listing->matched_property_id)
+                ->where('contact_id', (int) $data['contact_id'])->where('role', 'seller')->exists();
+            abort_unless($isSeller, 422, 'That contact is not a seller on this property.');
+            $svc->markPrimary((int) $listing->matched_property_id, (int) $data['contact_id']);
+        }
+
+        return response()->json($svc->payload($agencyId, $listing));
+    }
+
+    /** Compose redesign — per-seller "No contact details" dead-end (or clear it). */
+    public function markSellerDeadEndForProspecting(Request $request, int $prospectingListingId)
+    {
+        $agencyId = $this->resolveAgencyId($request);
+        $listing = DB::table('prospecting_listings')
+            ->where('id', $prospectingListingId)->where('agency_id', $agencyId)->whereNull('deleted_at')->first();
+        abort_if(! $listing, 404);
+
+        $data = $request->validate([
+            'contact_id' => 'required|integer',
+            'reason'     => 'nullable|string|in:opted_out,not_in_tva,no_record_found',
+            'clear'      => 'nullable|boolean',
+        ]);
+
+        abort_if(empty($listing->matched_property_id), 422, 'Link the seller to the property first.');
+        $isSeller = DB::table('contact_property')
+            ->where('property_id', (int) $listing->matched_property_id)
+            ->where('contact_id', (int) $data['contact_id'])->where('role', 'seller')->exists();
+        abort_unless($isSeller, 422, 'That contact is not a seller on this property.');
+
+        $svc = app(\App\Services\Prospecting\ComposeSellerService::class);
+        if ($request->boolean('clear')) {
+            $svc->clearSellerDeadEnd($agencyId, (int) $data['contact_id']);
+        } else {
+            $svc->markSellerDeadEnd($agencyId, (int) $data['contact_id'], (int) $listing->matched_property_id, $data['reason'] ?? 'not_in_tva', (int) $request->user()->id);
+        }
+
+        return response()->json($svc->payload($agencyId, $listing));
+    }
+
+    /**
+     * Compose redesign — the post-continue interstitial. "Property created · N contacts — pitch to
+     * sellers": lists the linked sellers (primary badged), each clickable → the composer on THAT
+     * contact. Replaces dropping straight into a single composer.
+     */
+    public function pitchReadyForProspecting(Request $request, int $prospectingListingId)
+    {
+        $agencyId = $this->resolveAgencyId($request);
+        $listing = DB::table('prospecting_listings')
+            ->where('id', $prospectingListingId)->where('agency_id', $agencyId)->whereNull('deleted_at')->first();
+        abort_if(! $listing, 404);
+        abort_if(empty($listing->matched_property_id), 404);
+
+        $property = Property::withoutGlobalScopes()
+            ->where('agency_id', $agencyId)->find((int) $listing->matched_property_id);
+        abort_if($property === null, 404);
+
+        $sellers = app(\App\Services\Prospecting\ComposeSellerService::class)
+            ->linkedSellers($agencyId, (int) $property->id);
+
+        return view('seller-outreach.entry.pitch-ready', [
+            'property' => $property,
+            'sellers'  => $sellers,
+        ]);
+    }
+
+    /**
+     * Ensure the listing has a promoted Property to link sellers to. Idempotent — reuses the
+     * existing matched Property, else promotes the listing (external_id-keyed) and records the link.
+     */
+    private function ensurePropertyForListing(int $agencyId, object $listing, $actor): int
+    {
+        if (! empty($listing->matched_property_id)) {
+            return (int) $listing->matched_property_id;
+        }
+
+        $property = $this->promoteListingToProperty($agencyId, $listing, $actor);
+        DB::table('prospecting_listings')
+            ->where('id', $listing->id)
+            ->whereNull('matched_property_id')
+            ->update(['matched_property_id' => $property->id, 'matched_at' => now(), 'updated_at' => now()]);
+
+        return (int) $property->id;
     }
 
     private function resolveAgencyId(Request $request): int

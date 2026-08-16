@@ -168,6 +168,9 @@
              every long-lived authenticated screen (spec: .ai/specs/session-armour.md). --}}
         @include('layouts.partials._session-guard')
 
+        {{-- Global container-scroll preserve/restore across full-page reloads. --}}
+        @include('layouts._scroll-restore')
+
         @stack('scripts')
     </body>
 </html>

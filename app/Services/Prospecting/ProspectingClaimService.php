@@ -246,6 +246,9 @@ final class ProspectingClaimService
             'status'          => $newStatus ?? $claim->status,
             'notes'           => $combined,
             'last_updated_at' => now(),
+            // MIC funnel phase 2 — working the claim RESETS the staleness timer: clear the warn so it
+            // re-arms next cycle (and drops out of the BM stale-review until it goes stale again).
+            'warned_at'       => null,
         ]);
     }
 
@@ -256,9 +259,9 @@ final class ProspectingClaimService
      * Callers (controllers) are responsible for authorisation. This service does
      * not gate access — it does the bookkeeping atomically.
      */
-    public function releaseClaim(int $claimId, int $releasedByUserId, string $reason): ProspectingClaim
+    public function releaseClaim(int $claimId, int $releasedByUserId, string $reason, ?string $reasonCode = null): ProspectingClaim
     {
-        return DB::transaction(function () use ($claimId, $releasedByUserId, $reason) {
+        return DB::transaction(function () use ($claimId, $releasedByUserId, $reason, $reasonCode) {
             $claim = ProspectingClaim::lockForUpdate()->findOrFail($claimId);
 
             $existing = (string) ($claim->notes ?? '');
@@ -268,10 +271,64 @@ final class ProspectingClaimService
             $claim->update([
                 'released_at'     => now(),
                 'is_active'       => false,
+                // Structured reason (MIC phase 2) so other agents / the BM see WHY on the pool
+                // (e.g. 'no_address' → "no address could be established, released back"). Free-text
+                // reason still captured in the notes trail above.
+                'release_reason'  => $reasonCode,
                 'notes'           => $combined,
                 'last_updated_at' => now(),
+                'warned_at'       => null,
             ]);
 
+            return $claim->refresh();
+        });
+    }
+
+    /**
+     * MIC funnel phase 2 — BM/admin REASSIGNMENT (anti-poaching: agents never grab stale stock from
+     * each other; the BM/admin moves it). Changes the owning agent, resets the staleness timer, and
+     * leaves an audit note. Returns [claim, oldUserId] so the caller can warn the losing agent.
+     */
+    public function reassignClaim(int $claimId, int $newAgentId, int $byUserId): array
+    {
+        return DB::transaction(function () use ($claimId, $newAgentId, $byUserId) {
+            $claim = ProspectingClaim::lockForUpdate()->findOrFail($claimId);
+            $oldUserId = (int) $claim->user_id;
+
+            $existing = (string) ($claim->notes ?? '');
+            $note = '[' . now()->format('Y-m-d H:i') . '] REASSIGNED by user #' . $byUserId
+                . ' from agent #' . $oldUserId . ' to agent #' . $newAgentId;
+            $combined = trim($note . ($existing === '' ? '' : "\n" . $existing));
+
+            $claim->update([
+                'user_id'         => $newAgentId,
+                'notes'           => $combined,
+                'last_updated_at' => now(),   // fresh start for the new agent
+                'warned_at'       => null,
+                'is_active'       => true,
+                'released_at'     => null,
+            ]);
+
+            return [$claim->refresh(), $oldUserId];
+        });
+    }
+
+    /**
+     * MIC funnel phase 2 — BM/admin KEEP decision: leave the claim with its current agent but reset
+     * the staleness timer (a deliberate "still ours, carry on"), clearing the warn.
+     */
+    public function keepClaim(int $claimId, int $byUserId): ProspectingClaim
+    {
+        return DB::transaction(function () use ($claimId, $byUserId) {
+            $claim = ProspectingClaim::lockForUpdate()->findOrFail($claimId);
+            $existing = (string) ($claim->notes ?? '');
+            $note = '[' . now()->format('Y-m-d H:i') . '] KEPT by user #' . $byUserId . ' — staleness timer reset';
+            $combined = trim($note . ($existing === '' ? '' : "\n" . $existing));
+            $claim->update([
+                'notes'           => $combined,
+                'last_updated_at' => now(),
+                'warned_at'       => null,
+            ]);
             return $claim->refresh();
         });
     }
@@ -309,6 +366,72 @@ final class ProspectingClaimService
             ];
         }
         return $result;
+    }
+
+    /**
+     * FIX 1 (Johan 2026-08-14) — durable anti-poaching claim the MOMENT the agent clicks
+     * "Pitch Now" (opens the compose screen), NOT only at final submit.
+     *
+     * The 30-minute temp lock alone was the whole protection between Pitch Now and submit: an
+     * agent who left the screen to scrape CMA/TVA lost the listing back to the pool once the lock
+     * expired (the pool's durable exclusion keys on `pitched_at`, which was only stamped at submit).
+     * This writes the real prospecting_claims row up front, stamped `pitched_at` so the pool hides
+     * it and the 48h no-feedback expiry is exempted — the listing is held for the agency's stale
+     * window (the phase-2 warn/release rules reclaim it if genuinely abandoned), independent of the
+     * tab staying open.
+     *
+     * Idempotent for the same agent (re-opening refreshes the timer, never duplicates). Throws
+     * ClaimOwnershipConflictException when ANOTHER agent already holds the active claim — the
+     * defence that closes the duplication window. Does NOT release the temp lock (it stays as the
+     * in-session concurrency guard and is consumed later by consumeLockAsPermanentClaim on submit).
+     */
+    public function claimOnPitchNow(int $listingId, int $userId, int $agencyId): ProspectingClaim
+    {
+        return DB::transaction(function () use ($listingId, $userId, $agencyId) {
+            $propertyId = DB::table('prospecting_listings')->where('id', $listingId)->value('matched_property_id');
+            $propertyId = $propertyId !== null ? (int) $propertyId : null;
+
+            $existing = ProspectingClaim::where('prospecting_listing_id', $listingId)
+                ->where('agency_id', $agencyId)
+                ->where('is_active', true)
+                ->whereNull('released_at')
+                ->lockForUpdate()
+                ->first();
+
+            if ($existing) {
+                if ((int) $existing->user_id !== $userId) {
+                    throw new ClaimOwnershipConflictException(currentOwnerUserId: (int) $existing->user_id);
+                }
+                // Same agent re-opening the screen — make sure the claim is durably pitched and
+                // refresh the staleness timer; never duplicate, never un-set pitched_at.
+                if ($existing->pitched_at === null) {
+                    $existing->pitched_at = now();
+                }
+                if ($existing->property_id === null && $propertyId !== null) {
+                    $existing->property_id = $propertyId;
+                }
+                $existing->last_updated_at = now();
+                $existing->warned_at = null;   // working it re-arms the stale timer (phase 2)
+                $existing->save();
+
+                return $existing->refresh();
+            }
+
+            return ProspectingClaim::create([
+                'agency_id'              => $agencyId,
+                'prospecting_listing_id' => $listingId,
+                'property_id'            => $propertyId,
+                'user_id'                => $userId,
+                'status'                 => ProspectingClaim::STATUS_CLAIMED,
+                'notes'                  => '[' . now()->format('Y-m-d H:i') . '] Pitch Now — durable claim opened (anti-poaching; held for the stale window).',
+                'claimed_at'             => now(),
+                // Durable: pitched_at makes the pool hide the listing and exempts the 48h
+                // no-feedback expiry, so leaving to scrape never re-opens the duplication window.
+                'pitched_at'             => now(),
+                'last_updated_at'        => now(),
+                'is_active'              => true,
+            ]);
+        });
     }
 
     private function computeExpiry(int $agencyId): Carbon

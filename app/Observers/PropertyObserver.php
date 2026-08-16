@@ -102,6 +102,25 @@ class PropertyObserver
 
     public function saving(Property $property): void
     {
+        // AT-307 — server-side status-vocabulary guard (the ONE chokepoint every
+        // write path passes through: mobile API, imports, jobs, console, crafted
+        // requests). Reject a DIRTY, non-empty status that is not in the agency's
+        // vocabulary (Property::systemStatuses ∪ the settings-defined property_status
+        // list). Case-insensitive, so capitalised 'Sold'/'Rented'/'Active' pass;
+        // dirty-only, so a legacy row's unrelated save (e.g. a price edit) is never
+        // blocked. Web/mobile requests already 422 via the AllowedPropertyStatus rule
+        // before reaching here — this backstops the non-request paths (fail loud, never
+        // silently persist drift). saving() fires BEFORE creating(), so agency_id may
+        // not be auto-filled yet on an insert; resolve it from the acting user.
+        if ($property->isDirty('status') && filled($property->status)) {
+            $agencyId = $property->agency_id ?? optional(auth()->user())->effectiveAgencyId();
+            if (! Property::isAllowedStatus((string) $property->status, $agencyId ? (int) $agencyId : null)) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'status' => "Refusing to persist out-of-vocabulary property status '{$property->status}'.",
+                ]);
+            }
+        }
+
         // AT-321 — the app layer records this Eloquent write richly (saved()/
         // created()), so suppress the unbypassable DB trigger for it to avoid a
         // duplicate backstop row. Fires before BOTH insert and update; released at
@@ -543,6 +562,10 @@ class PropertyObserver
                     \App\Jobs\Syndication\DesyndicatePropertyFromPortalsJob::dispatch(
                         $property,
                         removeFromWebsite: $this->isWebsiteRemovalStatus((string) $property->status),
+                        // AT-282 — a sold status change keeps the listing on PP as 'Sold' (parity), so the
+                        // PP de-list is skipped for sold here; SyncPpListingStatusJob (dispatched above)
+                        // pushes 'Sold'. Withdrawn/expired/etc. still de-list PP; mandate-expiry still removes.
+                        keepPpForSold: true,
                     );
                 }
             } catch (\Throwable $e) {
@@ -564,6 +587,26 @@ class PropertyObserver
                 \App\Jobs\Prospecting\MatchPropertyProspectingJob::dispatch($property->id);
             } catch (\Throwable $e) {
                 Log::warning("Prospecting stock match dispatch failed for property #{$property->id}: {$e->getMessage()}");
+            }
+        }
+
+        // AT-282 — Private Property status parity. The status fan-out below was
+        // P24-only; PP heard nothing, so under-offer/sold were invisible on PP.
+        // Placed ABOVE the P24 guard: that guard early-returns for any non-P24
+        // listing, which would skip PP entirely for a PP-only property. Queued
+        // (SOAP over the internet) so a save never waits on a portal; the job
+        // re-checks pp_syndication_enabled/pp_ref at run time. Fires on a
+        // status_label change too (an under-offer flagged on an on-market base).
+        $ppChanges = $property->getChanges();
+        if (
+            (isset($ppChanges['status']) || isset($ppChanges['status_label']))
+            && $property->pp_syndication_enabled
+            && $property->pp_ref
+        ) {
+            try {
+                \App\Jobs\PrivateProperty\SyncPpListingStatusJob::dispatch($property->id);
+            } catch (\Throwable $e) {
+                Log::warning("PP status sync dispatch failed for property #{$property->id}: {$e->getMessage()}");
             }
         }
 
@@ -718,6 +761,22 @@ class PropertyObserver
             } catch (\Exception $e) {
                 Log::channel('property24')->error("P24 withdrawal failed for deleted property #{$property->id}: {$e->getMessage()}");
             }
+        }
+    }
+
+    /**
+     * Referential integrity (2026-08-14) — a PERMANENTLY removed property must not leave dangling
+     * contact_property links behind (a contact would otherwise carry a link to a property that no
+     * longer exists). Soft-delete deliberately KEEPS the links (archive is restore-able, and the
+     * contact-page list already hides soft-deleted properties via the belongsToMany SoftDeletingScope);
+     * a force-delete is permanent, so its links are cleaned here.
+     */
+    public function forceDeleted(Property $property): void
+    {
+        try {
+            \Illuminate\Support\Facades\DB::table('contact_property')->where('property_id', $property->id)->delete();
+        } catch (\Throwable $e) {
+            Log::warning("contact_property cleanup failed on force-delete of property #{$property->id}: {$e->getMessage()}");
         }
     }
 

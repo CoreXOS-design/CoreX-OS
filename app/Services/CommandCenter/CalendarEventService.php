@@ -170,13 +170,21 @@ class CalendarEventService
         if (!empty($filters['property_id'])) {
             $parentQuery->where('property_id', $filters['property_id']);
         }
-        // Mirror the base status handling: a dismissed parent = "delete all".
+        // AT-335 — a dismissed parent = "delete all" (no longer generates); a
+        // COMPLETED parent now gets the same treatment. Unlike a single completed
+        // appointment (deliberately kept visible on the base query above — CAL-8,
+        // "users want to see what they finished"), a completed recurring PARENT
+        // gates a whole future-generating series, not one event: a "call the
+        // tenant monthly" reminder completed once must stop repeating, not turn
+        // into a permanent trail of struck-through tiles for dates that haven't
+        // happened yet. Base (non-recurring) query is untouched — this exclusion
+        // is scoped to the parent-expansion query only.
         if (!empty($filters['status'])) {
             if ($filters['status'] !== '*') {
                 $parentQuery->where('status', $filters['status']);
             }
         } else {
-            $parentQuery->where('status', '!=', 'dismissed');
+            $parentQuery->whereNotIn('status', ['dismissed', 'completed']);
         }
 
         $expander = app(RecurrenceExpander::class);
@@ -654,7 +662,11 @@ class CalendarEventService
             return collect();
         }
 
-        $agencyId = $user->agency_id ?: 1;
+        // AT-253 (STANDARDS Rule 17) — an owner/super-admin has agency_id NULL. The old `?: 1`
+        // silently searched HOME FINDERS' contact book for a user who belongs to no agency, and
+        // offered those people as calendar attendees. The sentinel 0 matches no agency, so a
+        // no-tenant user gets an empty picker — which is the honest answer.
+        $agencyId = (int) ($user->agency_id ?: 0);
 
         $contacts = Contact::query()
             ->where('agency_id', $agencyId)
