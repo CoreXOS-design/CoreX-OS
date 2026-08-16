@@ -103,13 +103,14 @@ class OnboardingPortalController extends Controller
         $rows = $q->paginate($perPage)->withQueryString();
         $agency = $portal->agency;
         $counts = $this->counts($portal);
+        $parse = $this->parseProgress($portal);
         $agents = User::withoutGlobalScopes()
             ->where('agency_id', $portal->agency_id)
             ->whereNotNull('p24_agent_id')
             ->orderBy('name')
             ->get(['id', 'name']);
 
-        return view('onboarding.portal.review', compact('portal', 'agency', 'rows', 'counts', 'agents', 'status', 'type', 'search', 'sort', 'perPage'));
+        return view('onboarding.portal.review', compact('portal', 'agency', 'rows', 'counts', 'parse', 'agents', 'status', 'type', 'search', 'sort', 'perPage'));
     }
 
     public function status(Request $request)
@@ -135,6 +136,7 @@ class OnboardingPortalController extends Controller
                 'finished'  => $batch->finished(),
             ] : null,
             'galleries' => $this->galleryProgress($portal),
+            'parse'     => $this->parseProgress($portal),
         ]);
     }
 
@@ -567,6 +569,36 @@ class OnboardingPortalController extends Controller
             ], 404));
         }
         return $row;
+    }
+
+    /**
+     * Async parse status (.ai/specs/importer-async-parse.md) — a portal is
+     * 1:1 with the run that created it for the listings_images flow (always
+     * exactly one id in run_ids_json at creation), so the first id is the
+     * run to report on. Returns nulls once the run has left 'parsing' in the
+     * normal way — true for every portal created before this feature, and
+     * for one that has simply finished — so existing behaviour is untouched.
+     */
+    private function parseProgress(P24OnboardingPortal $portal): array
+    {
+        $runId = $portal->run_ids_json[0] ?? null;
+        $run = $runId ? P24ImportRun::find($runId) : null;
+
+        if (!$run || $run->status !== 'parsing') {
+            $failed = $run && $run->status === 'failed' && $run->kind === 'listings_images' ? $run : null;
+
+            return [
+                'status'        => $failed ? 'failed' : null,
+                'parsed_so_far' => null,
+                'error'         => $failed?->error_message,
+            ];
+        }
+
+        return [
+            'status'        => 'parsing',
+            'parsed_so_far' => (int) ($run->counts_json['listings_parsed_so_far'] ?? 0),
+            'error'         => null,
+        ];
     }
 
     private function counts(P24OnboardingPortal $portal): array

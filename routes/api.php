@@ -114,6 +114,15 @@ Route::prefix('v1/demo')->group(function () {
     Route::post('/login', [\App\Http\Controllers\Api\V1\DemoAuthController::class, 'login'])->name('api.demo.login');
 });
 
+// ════════════════════════════════════════════════════════════════
+// API v1 — Mobile app config / forced-update gate
+// UNAUTHENTICATED on purpose: a build old enough to need forcing may not be
+// able to authenticate, so this must answer on a cold start with no token.
+// See MobileAppConfigController for the DevSetting keys that drive it.
+// ════════════════════════════════════════════════════════════════
+Route::get('v1/mobile/app-config', [\App\Http\Controllers\Api\V1\MobileAppConfigController::class, 'show'])
+    ->name('v1.mobile.app-config');
+
 Route::prefix('v1/client-auth')->group(function () {
     Route::post('/lookup',          [ClientAuthController::class, 'lookup'])->name('client-auth.lookup');
     Route::post('/otp/send',        [ClientAuthController::class, 'sendOtp'])->name('client-auth.otp.send');

@@ -697,9 +697,17 @@
                      the old route group (still mounted during the F.1 migration window) keeps the
                      sidebar entry highlighted if anything internal still routes there.
 
-                     F.2: count badge — canvass-pool size (matched_property_id IS NULL).
-                     Cached 60s per agency. Mirrors the pendingVerificationCount / faultNewCount
-                     precedents elsewhere in this sidebar. --}}
+                     F.2: count badge — canvass-pool size (our own on-market stock excluded,
+                     OnMarketStockService-gated). Cached 60s per agency. Mirrors the
+                     pendingVerificationCount / faultNewCount precedents elsewhere in this
+                     sidebar.
+                     2026-08-11 fix — was whereNull('matched_property_id'), the raw ungated
+                     column: a listing fuzzy-matched to an OFF-MARKET property (same bug
+                     class as the buyer-matches panel / suggested-action chips / stock_filter)
+                     was wrongly treated as "our stock" and dropped OUT of this count, even
+                     though it's genuinely still canvassable. Now uses the same
+                     whereNotCompanyStock() scope the Work-tab canvass pool itself uses, so
+                     the sidebar badge and the list it links to can never disagree. --}}
                 @if(\Illuminate\Support\Facades\Route::has('market-intelligence.work'))
                 @php
                     $miAgencyId = auth()->user()->effectiveAgencyId() ?? auth()->user()->agency_id ?? null;
@@ -708,7 +716,7 @@
                         60,
                         fn () => \App\Models\ProspectingListing::where('agency_id', $miAgencyId)
                             ->where('is_active', true)
-                            ->whereNull('matched_property_id')
+                            ->whereNotCompanyStock($miAgencyId)
                             ->whereNull('deleted_at')
                             ->count(),
                     ) : 0;
@@ -1051,6 +1059,13 @@
                 @permission('view_listings')
                 <a href="{{ route('agent.listings') }}" class="corex-nav-subitem {{ request()->routeIs('agent.listings*') ? 'active' : '' }}">My Listing Stock</a>
                 @endpermission
+
+                {{-- Proforma Invoice list — own/branch/all scoped via proforma.view (Role Manager) --}}
+                @feature('proforma-invoices')
+                @permission('proforma.view')
+                <a href="{{ route('proforma.index') }}" class="corex-nav-subitem {{ request()->routeIs('proforma.index') ? 'active' : '' }}">Proforma Invoices</a>
+                @endpermission
+                @endfeature
 
                 {{-- Agent section (view own stats) --}}
                 @permission('view_own_stats')

@@ -9,6 +9,7 @@ use App\Models\Prospecting\TrackedProperty;
 use App\Models\Scopes\AgencyScope;
 use App\Services\Prospecting\TrackedPropertyMatchOrCreateService;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Phase A.2.5 — collision detector for the map's "Prospect Now" button.
@@ -41,25 +42,62 @@ final class MapProspectStatusService
     /** Property.status values that mean "HFC actively has this property right now". */
     private const HELD_STATUSES = ['active', 'available', 'for_sale', 'to_let'];
 
+    /**
+     * A coordinate shared by AT LEAST this many tracked properties is a
+     * geocode default / suburb-centroid, not a real per-property location — it
+     * cannot disambiguate one property from another, so proximity matching on it
+     * is meaningless. (Real properties never share an identical 7-dp coordinate;
+     * on QA1, 391 addressless tracked properties collide on the Ramsgate centroid
+     * that happens to sit on property #2427 "6 Kerk St", so a no-address Pitch Now
+     * on ANY of them resolved to 6 Kerk St.) Set well above any legitimate
+     * same-building coincidence.
+     */
+    private const SHARED_COORD_THRESHOLD = 5;
+
     public function __construct(
         private readonly TrackedPropertyMatchOrCreateService $matcher = new TrackedPropertyMatchOrCreateService(),
     ) {}
 
     /**
-     * @param array{address: ?string, latitude: ?float, longitude: ?float, suburb: ?string} $facts
+     * @param array{address: ?string, street_number?: ?string, latitude: ?float, longitude: ?float, suburb: ?string} $facts
      * @return array{status: string, property_id?: int, agent_name?: ?string, days_in_state?: int, state_label?: string, sale_date?: ?string, expired_at?: ?string}
      */
     public function resolve(array $facts, int $agencyId, int $currentUserId): array
     {
         $factsForLookup = array_filter([
-            'address'   => $facts['address']   ?? null,
-            'latitude'  => $facts['latitude']  ?? null,
-            'longitude' => $facts['longitude'] ?? null,
-            'suburb'    => $facts['suburb']    ?? null,
+            'address'       => $facts['address']       ?? null,
+            // AT-URGENT — without this, TrackedPropertyMatchOrCreateService's
+            // numbersConflict() veto (built to stop "1 The Oval" colliding with
+            // "2 The Oval") can never fire for a Pitch Now resolution, since it
+            // only activates when a street_number is present on both sides.
+            'street_number' => $facts['street_number'] ?? null,
+            'latitude'      => $facts['latitude']       ?? null,
+            'longitude'     => $facts['longitude']      ?? null,
+            'suburb'        => $facts['suburb']         ?? null,
         ], static fn ($v) => $v !== null && $v !== '');
 
         if (empty($factsForLookup)) {
             return ['status' => 'available'];
+        }
+
+        // Non-disambiguating coordinate guard. A GPS coordinate that many tracked
+        // properties share (a geocode default / suburb-centroid) can't tell one
+        // property from another, so BOTH the 5-strategy matcher's GPS strategy and
+        // the direct GPS fallback below would collapse disparate addressless listings
+        // onto whichever property happens to sit at that point. Drop such a coordinate
+        // so we never proximity-match on it; with no usable key left, the caller falls
+        // through to promoting the listing's OWN property (cc1's promote path).
+        if (isset($factsForLookup['latitude'], $factsForLookup['longitude'])
+            && $this->isNonDisambiguatingCoordinate(
+                (float) $factsForLookup['latitude'],
+                (float) $factsForLookup['longitude'],
+                $agencyId,
+            )) {
+            unset($factsForLookup['latitude'], $factsForLookup['longitude']);
+            // With no address either (addressless Pitch Now), nothing left to match on.
+            if (empty($factsForLookup) || !isset($factsForLookup['address'])) {
+                return ['status' => 'available'];
+            }
         }
 
         // A.2.7 — two-layer match. First the TP-based 5-strategy resolver
@@ -160,13 +198,80 @@ final class MapProspectStatusService
         // 'deleted_at') below is now redundant with SoftDeletes restored
         // but is kept as belt-and-suspenders.
         $box = 0.00018;
-        return Property::withoutGlobalScope(AgencyScope::class)
+        $candidates = Property::withoutGlobalScope(AgencyScope::class)
             ->where('agency_id', $agencyId)
             ->whereNull('deleted_at')
             ->whereBetween('latitude',  [$lat - $box, $lat + $box])
             ->whereBetween('longitude', [$lng - $box, $lng + $box])
             ->orderByDesc('updated_at')
-            ->first();
+            ->get();
+
+        // AT-URGENT — this is the SAME class of bug the TP-based resolver's
+        // numbersConflict() veto exists to stop (e.g. "745 Beatty Drive" sitting
+        // within the GPS box of the already-listed "8 Beatty Drive"), just on the
+        // second, ungated fallback path that queries `properties` directly. A
+        // 20m box on a coastal street can easily span several house numbers, so
+        // this needs the same street-number discriminator before returning a hit.
+        $factNumber = $facts['street_number'] ?? null;
+        if ($factNumber === null || $factNumber === '') {
+            return $candidates->first();
+        }
+        foreach ($candidates as $candidate) {
+            $candNumber = $candidate->street_number ? trim((string) $candidate->street_number) : null;
+            if (!$candNumber && $candidate->street_name) {
+                if (preg_match('/^(\d+)\b/', strtolower(trim($candidate->street_name)), $m)) {
+                    $candNumber = $m[1];
+                }
+            }
+            if ($candNumber === null || $candNumber === '' || $candNumber === (string) $factNumber) {
+                return $candidate;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * True when a coordinate cannot disambiguate one property from another —
+     * an obvious default (0,0), or a point that SHARED_COORD_THRESHOLD+ tracked
+     * properties OR active listings report identically. Exact 7-dp equality: a
+     * real per-property GPS is unique to sub-metre precision, so a coordinate
+     * that many rows share is a placeholder (geocode default / suburb-centroid)
+     * or a whole-building point — either way, proximity on it collapses
+     * DISTINCT addressless listings onto one property. Two signals:
+     *   - many tracked_properties at the point (e.g. the 391-way Ramsgate
+     *     centroid on property #2427 "6 Kerk St"); and
+     *   - many active listings at the point (e.g. 10 addressless listings on the
+     *     single tracked property at Marlin Flats, promoted to the #4140 rental) —
+     *     the tracked count alone is 1 there, so the listing count catches it.
+     */
+    private function isNonDisambiguatingCoordinate(float $lat, float $lng, int $agencyId): bool
+    {
+        if ($lat === 0.0 || $lng === 0.0) {
+            return true;
+        }
+
+        $sharedTracked = DB::table('tracked_properties')
+            ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->where('latitude', $lat)
+            ->where('longitude', $lng)
+            ->limit(self::SHARED_COORD_THRESHOLD)
+            ->count();
+        if ($sharedTracked >= self::SHARED_COORD_THRESHOLD) {
+            return true;
+        }
+
+        $sharedListings = DB::table('prospecting_listings as pl')
+            ->join('tracked_properties as tp', 'tp.id', '=', 'pl.tracked_property_id')
+            ->where('pl.agency_id', $agencyId)
+            ->where('pl.is_active', true)
+            ->whereNull('pl.deleted_at')
+            ->where('tp.latitude', $lat)
+            ->where('tp.longitude', $lng)
+            ->limit(self::SHARED_COORD_THRESHOLD)
+            ->count();
+
+        return $sharedListings >= self::SHARED_COORD_THRESHOLD;
     }
 
     private function resolveAgentName(?int $agentId): ?string
@@ -199,7 +304,7 @@ final class MapProspectStatusService
         // AT-350 — a third-party sale produces NO deal (that is the point: we
         // earned nothing), so the deals lookup above can never date it. The loss
         // record is the only place that date exists.
-        $thirdParty = \DB::table('property_third_party_sales')
+        $thirdParty = DB::table('property_third_party_sales')
             ->where('property_id', $property->id)
             ->whereNull('deleted_at')
             ->whereNotNull('sold_date')

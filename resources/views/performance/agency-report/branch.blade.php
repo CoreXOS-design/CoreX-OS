@@ -15,19 +15,11 @@
             </p>
         </div>
 
-        <form method="GET" action="{{ route('performance.agency-report.branch', $report['branch']['key']) }}"
-              class="flex items-end gap-2 flex-wrap">
-            <label class="text-[11px]" style="color:var(--text-muted);">
-                Period
-                <select name="period" onchange="this.form.submit()"
-                        class="block mt-1 text-xs rounded px-2 py-1"
-                        style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                    @foreach($presets as $p)
-                        <option value="{{ $p }}" @selected($preset === $p)>{{ ucfirst(str_replace('_', ' ', $p)) }}</option>
-                    @endforeach
-                </select>
-            </label>
-        </form>
+        @include('performance.agency-report._period-selector', [
+            'preset' => $preset,
+            'presets' => $presets,
+            'formAction' => route('performance.agency-report.branch', $report['branch']['key']),
+        ])
     </div>
 
     @if(session('period_error'))

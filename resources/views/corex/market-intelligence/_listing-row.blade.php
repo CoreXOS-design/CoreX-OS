@@ -81,19 +81,25 @@
     $companyStockPropertyId = ($companyStockMap ?? [])[$listing->id] ?? null;
     $isCompanyStock = $companyStockPropertyId !== null;
     $agencyLogoUrl = $agencyLogoUrl ?? null;
+    // #2 — synthetic property-backed in-stock row (no scraped listing behind it):
+    // render read-only. There is no listing record, so the slideover fetch would
+    // 404; the IN STOCK badge + address both link to the Property instead.
+    $isPropertyStock = (bool) ($listing->is_property_stock ?? false);
 @endphp
 
 <article
     class="mi-row"
     data-listing-id="{{ $listing->id }}"
+    @unless($isPropertyStock)
     role="button"
     tabindex="0"
     @click="$dispatch('open-slideover', { listingId: {{ $listing->id }}, trigger: $el })"
     @keydown.enter.prevent="$dispatch('open-slideover', { listingId: {{ $listing->id }}, trigger: $el })"
     @keydown.space.prevent="$dispatch('open-slideover', { listingId: {{ $listing->id }}, trigger: $el })"
+    @endunless
     style="display: grid; grid-template-columns: 44px 1fr 200px; gap: 12px; align-items: center;
            padding: 10px 14px; min-height: 70px; background: var(--surface); border-bottom: 1px solid var(--border);
-           cursor: pointer; transition: background 120ms;"
+           cursor: {{ $isPropertyStock ? 'default' : 'pointer' }}; transition: background 120ms;"
     onmouseover="this.style.background='var(--surface-2)'"
     onmouseout="this.style.background='var(--surface)'">
 
@@ -230,9 +236,10 @@
                  source chain across P24/PP/CMA/captures plus action history. --}}
             @if($listing->tracked_property_id)
             <a href="{{ route('corex.tracked-properties.show', $listing->tracked_property_id) }}"
+               target="_blank" rel="noopener"
                onclick="event.stopPropagation();"
                style="{{ $tagOutline }} text-decoration: none;"
-               title="Open this property's full intelligence record — every source we have for it (P24, PP, CMA, captures), every buyer match, every action history.">
+               title="Open this property's full intelligence record (new tab) — every source we have for it (P24, PP, CMA, captures), every buyer match, every action history.">
                 Property intel →
             </a>
             @endif

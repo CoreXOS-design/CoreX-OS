@@ -303,6 +303,24 @@ class CalendarEvent extends Model
         $this->update(['status' => 'dismissed']);
     }
 
+    /**
+     * True when this event is user-owned rather than source-driven — i.e. it is
+     * safe to edit, reschedule and delete from the calendar itself.
+     *
+     * A NULL source_type counts as manual. Every source-driven row stamps a
+     * source_type (a model FQCN, `synthetic:*` or `recurring`), so NULL can only
+     * mean "created directly by a user, from a path that didn't stamp the
+     * column" — e.g. CalendarEventService::createManual() (Ellie voice
+     * scheduling) or rows pre-dating the stamp. Treating NULL as source-driven
+     * locked those events out of edit/reschedule/delete permanently, even
+     * though the write endpoints themselves allow the change.
+     */
+    public function isManualSource(): bool
+    {
+        return $this->source_type === null
+            || in_array($this->source_type, ['manual', 'manual:demo'], true);
+    }
+
     // ── Private event redaction (view-time; ITEM 4) ──────────────────────────
 
     /** Runtime flag: this in-memory instance has been redacted for a non-creator. */

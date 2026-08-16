@@ -139,7 +139,12 @@ class AgencyController extends Controller
             $agency = Agency::create($data);
 
             if ($adminPayload) {
-                $adminUser = User::create([
+                // withoutAgencyStamping: the creating owner may have an
+                // unrelated Agency Switcher session active (session
+                // active_agency_id), which would otherwise force this brand
+                // new admin onto that agency instead of the one just
+                // created above. See BelongsToAgency::withoutAgencyStamping().
+                $adminUser = User::withoutAgencyStamping(fn () => User::create([
                     'name'       => $adminPayload['name'],
                     'email'      => $adminPayload['email'],
                     'password'   => Hash::make(User::pendingInvitePassword()),
@@ -148,7 +153,7 @@ class AgencyController extends Controller
                     'agency_id'  => $agency->id,
                     'is_active'  => true,
                     'invited_at' => now(),
-                ]);
+                ]));
             }
 
             return $agency;

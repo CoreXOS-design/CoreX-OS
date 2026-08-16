@@ -29,9 +29,14 @@ class ProspectingActionPresetService
      */
     public function canvassBaseQuery(int $agencyId): Builder
     {
+        // Canonical canvass pool — Work-tab-consistent: active listings that are NOT
+        // our own on-market stock. Drift fix: was missing is_active and used the old
+        // fuzzy whereNull('matched_property_id') instead of the shared on-market
+        // (ref OR normalized_address) exclusion.
         return ProspectingListing::query()
             ->where('agency_id', $agencyId)
-            ->whereNull('matched_property_id');
+            ->where('is_active', true)
+            ->whereNotCompanyStock($agencyId);
     }
 
     /**
