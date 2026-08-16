@@ -3520,6 +3520,35 @@ class SignatureService
             );
         }
 
+        // Auto-points (mandate.signed) — a mandate e-sign document reaching the
+        // terminal COMPLETED state IS the "mandate signed" action. Credit the
+        // sending agent once, after commit. Guarded to mandate documents only
+        // (an OTP / FICA / generic completion never credits here). Distinct from
+        // tracked_property.promoted_to_stock (the separate manual promote action),
+        // so no double-count. Fire-and-forget: any points failure is swallowed and
+        // NEVER affects the legally-durable completion above.
+        DB::afterCommit(function () use ($template) {
+            try {
+                $document = $template->document;
+                if (! $document) {
+                    return;
+                }
+                $docType = $document->template?->template_type ?? $document->document_type ?? 'other';
+                if ($docType !== 'mandate') {
+                    return;
+                }
+                $agentUserId = $template->requests()->whereNotNull('sent_by')->value('sent_by');
+                $agent = $agentUserId ? \App\Models\User::find((int) $agentUserId) : null;
+                app(\App\Services\Activity\InstantPointService::class)
+                    ->credit('mandate.signed', $agent, $document);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('mandate.signed credit failed (swallowed)', [
+                    'signature_template_id' => $template->id,
+                    'message'               => $e->getMessage(),
+                ]);
+            }
+        });
+
         // Steps 2-6 run AFTER the completion commits. Completion (status +
         // audit above) is the legal record and must be durable on its own.
         // PDF generation (Puppeteer) is slow/external-failure-prone and was
