@@ -1676,6 +1676,7 @@ class PresentationController extends Controller
             'scenarios'    => $savedConfig['scenarios'],
             'narrative'    => $savedConfig['narrative'] ?? '',
             'agentName'    => $agent->name ?? 'Agent',
+            'agencyName'   => $agent?->agency?->name ?? 'Agency',
             'stock'        => $analysisData['stock_absorption'] ?? [],
         ]);
     }

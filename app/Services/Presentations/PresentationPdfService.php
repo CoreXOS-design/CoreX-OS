@@ -512,7 +512,14 @@ class PresentationPdfService
         }
 
         $logoBase64 = null;
-        $agency = $agent ? ($agent->agency ?? \App\Models\Agency::first()) : \App\Models\Agency::first();
+        // Prefer the presentation's OWN agency_id, then the creating agent's
+        // agency — never Agency::first(), which silently picked agency 1 (HFC)
+        // whenever $agent or $agent->agency was missing, stamping another
+        // tenant's PDF with HFC's real name/logo. A genuinely orphaned
+        // presentation renders with no agency at all (the null-safe '?? Agency'
+        // / '$agency && ...' checks below already handle that case).
+        $agency = ($presentation->agency_id ? \App\Models\Agency::withoutGlobalScopes()->find($presentation->agency_id) : null)
+            ?? $agent?->agency;
         if ($agency && $agency->logo_path) {
             $logoFile = storage_path('app/public/' . $agency->logo_path);
             if (file_exists($logoFile)) {
