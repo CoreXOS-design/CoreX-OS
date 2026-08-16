@@ -21,12 +21,25 @@ class PerformanceSettingsController extends Controller
         $vatRate = (float) PerformanceSetting::get('vat_rate', 15);
         $listingsPerSale = (float) PerformanceSetting::get('listings_per_sale', 5);
 
-        // Company settings (global)
-        $companyName = (string) PerformanceSetting::get('company_name', 'Home Finders Coastal');
-        $companyAddress = (string) PerformanceSetting::get('company_address', 'The Emporium Shop 5, Shelly Beach, Margate');
-        $companyTel = (string) PerformanceSetting::get('company_tel', '(039) 315 0857');
-        $companyFfc = (string) PerformanceSetting::get('company_ffc', '2023116041');
-        $companyLogoUrl = (string) PerformanceSetting::get('company_logo_url', '');
+        // Company settings — tenant-scoped (mirrors ToolsController::getPrintSettingsForUser()).
+        // Defaults come from the acting agency's OWN Agency profile, never a literal
+        // HFC string — the previous hardcoded 'Home Finders Coastal'/address/tel/ffc
+        // defaults pre-filled every other agency's edit form with HFC's real business
+        // details whenever that agency had no company_* PerformanceSetting row yet.
+        $agency = auth()->user()?->agency;
+        $agencyDefaults = [
+            'companyName' => $agency?->name ?: 'Agency',
+            'companyAddress' => $agency?->address ?: '',
+            'companyTel' => $agency?->phone ?: '',
+            'companyFfc' => $agency?->ffc_no ?: '',
+            'companyLogoUrl' => ($agency && $agency->logo_path) ? asset('storage/' . $agency->logo_path) : '',
+        ];
+
+        $companyName = (string) PerformanceSetting::get('company_name', $agencyDefaults['companyName']);
+        $companyAddress = (string) PerformanceSetting::get('company_address', $agencyDefaults['companyAddress']);
+        $companyTel = (string) PerformanceSetting::get('company_tel', $agencyDefaults['companyTel']);
+        $companyFfc = (string) PerformanceSetting::get('company_ffc', $agencyDefaults['companyFfc']);
+        $companyLogoUrl = (string) PerformanceSetting::get('company_logo_url', $agencyDefaults['companyLogoUrl']);
 
         return view('admin.performance-settings', [
             'vatRate' => $vatRate,

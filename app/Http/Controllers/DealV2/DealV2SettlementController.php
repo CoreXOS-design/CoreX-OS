@@ -140,7 +140,7 @@ class DealV2SettlementController extends Controller
 
         $deal->load(['agents', 'settlements', 'property', 'listingAgent', 'sellingAgent']);
         $summary = $this->buildSettlementSummary($deal);
-        $companyName = (string) \App\Models\PerformanceSetting::get('company_name', 'Home Finders Coastal');
+        $companyName = (string) \App\Models\PerformanceSetting::get('company_name', auth()->user()?->agency?->name ?: 'Agency');
 
         // Extract variables for V1-compatible template
         return view('deals-v2.settlement.print', [
@@ -171,7 +171,7 @@ class DealV2SettlementController extends Controller
 
         $deal->load(['agents', 'settlements', 'property']);
         $summary = $this->buildSettlementSummary($deal);
-        $companyName = (string) \App\Models\PerformanceSetting::get('company_name', 'Home Finders Coastal');
+        $companyName = (string) \App\Models\PerformanceSetting::get('company_name', auth()->user()?->agency?->name ?: 'Agency');
 
         $uid = $user->id;
         $listingMine = array_values(array_filter($summary['listingRows'], fn ($r) => (int) $r['user_id'] === $uid));

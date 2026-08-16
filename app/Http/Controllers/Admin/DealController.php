@@ -970,7 +970,7 @@ $financialLocked = ($deal->exists && (($deal->commission_status ?? "") === "Paid
         $checksumTotal = $summary['checksumTotal'];
         $checksumOk = $summary['checksumOk'];
 
-        $companyName = (string) \App\Models\PerformanceSetting::get('company_name', 'Home Finders Coastal');
+        $companyName = (string) \App\Models\PerformanceSetting::get('company_name', auth()->user()?->agency?->name ?: 'Agency');
 
         return view('admin.deals.print.settlement', compact(
             'deal',
@@ -1033,7 +1033,7 @@ $financialLocked = ($deal->exists && (($deal->commission_status ?? "") === "Paid
             $mine['company'] += (float)$r['company'];
         }
 
-        $companyName = (string) \App\Models\PerformanceSetting::get('company_name', 'Home Finders Coastal');
+        $companyName = (string) \App\Models\PerformanceSetting::get('company_name', auth()->user()?->agency?->name ?: 'Agency');
 
         return view('admin.deals.print.payslip', [
             'deal' => $deal,
