@@ -91,6 +91,13 @@ final class EntryPointController extends Controller
         if ($linked !== null) {
             $contact = $linked;
             $isNew   = false;
+        } elseif ($this->isEntityCapture($request)) {
+            // Manual ENTITY capture (company / CC / trust). The agent picked "Entity" and entered the
+            // registered name (+ optional reg number). A company is reached through its directors, so
+            // there is NO phone/email/SA-ID gate here — reps are added on the entity record afterward.
+            // Reuse the canonical entity dedupe (keys on the registration number, never a 13-digit ID).
+            $contact = $this->resolveEntityContact($request, $agencyId);
+            $isNew   = $contact->wasRecentlyCreated;
         } else {
             $validated = $request->validate([
                 'first_name' => 'required|string|max:100',
@@ -328,6 +335,15 @@ final class EntryPointController extends Controller
         if ($linked !== null) {
             $existing = $linked;
             $formEngaged = true;
+        } elseif ($this->isEntityCapture($request)) {
+            // Manual ENTITY capture (company / CC / trust) — the agent picked "Entity" and entered the
+            // registered name (+ optional reg number). No phone/email/SA-ID gate: a company is reached
+            // through its directors (reps added on the entity record afterward). The canonical entity
+            // dedupe keys on the registration number; the resolved entity flows through the shared
+            // `$contact = $existing ?: …` create path in the transaction below.
+            $formEngaged = true;
+            $existing    = $this->resolveEntityContact($request, $agencyId);
+            $isNew       = $existing->wasRecentlyCreated;
         } elseif ($request->filled('first_name')) {
             $formEngaged = true;
             $validated = $request->validate([
@@ -686,6 +702,14 @@ final class EntryPointController extends Controller
             $idNumber  = null;
             $existing  = $linked;
             $isNew     = false;
+        } elseif ($this->isEntityCapture($request)) {
+            // Manual ENTITY capture (company / CC / trust) — see storeFromProperty. No phone/email/ID
+            // gate; the canonical entity dedupe resolves-or-creates on the registration number. The
+            // resolved entity flows through the existing `$existing ?: Contact::create()` path below.
+            $validated = [];
+            $idNumber  = null;
+            $existing  = $this->resolveEntityContact($request, $agencyId);
+            $isNew     = $existing->wasRecentlyCreated;
         } else {
             $validated = $request->validate([
                 'first_name' => 'required|string|max:100',
@@ -797,6 +821,41 @@ final class EntryPointController extends Controller
         abort_if($contact === null, 404, 'Selected contact not found in this agency.');
 
         return $contact;
+    }
+
+    /**
+     * True when the capture form is submitting an ENTITY (company / CC / trust)
+     * rather than a natural person — the agent toggled "Contact Is → Entity" and
+     * entered an entity name. Shared by all three store-from-* entry points so the
+     * manual entity option behaves identically wherever the pitch is started.
+     */
+    private function isEntityCapture(Request $request): bool
+    {
+        return $request->input('contact_kind') === Contact::TYPE_ENTITY
+            && $request->filled('entity_name');
+    }
+
+    /**
+     * Resolve-or-create the ENTITY seller Contact from the manual capture fields,
+     * via the canonical entity dedupe (keys on the registration number, NEVER a
+     * 13-digit SA ID — Johan 2026-08-14). Reps are added on the entity record
+     * afterward, so no phone/email/ID is required here.
+     */
+    private function resolveEntityContact(Request $request, int $agencyId): Contact
+    {
+        $data = $request->validate([
+            'entity_name'   => 'required|string|max:255',
+            'entity_reg_no' => 'nullable|string|max:100',
+        ]);
+
+        return app(\App\Services\Prospecting\ComposeSellerService::class)
+            ->resolveOrCreateEntitySellerContact(
+                $agencyId,
+                $request->user()->branch_id,
+                (int) $request->user()->id,
+                $data['entity_name'],
+                $data['entity_reg_no'] ?? null,
+            );
     }
 
     /**

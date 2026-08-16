@@ -101,6 +101,10 @@
     <form method="POST"
           x-data="{
               mode: 'create',
+              // Natural person vs Entity (company / CC / trust) for the manual capture. An agent must be
+              // able to capture an entity seller here, not be forced to a natural person. Reps are added
+              // on the entity record afterward (Johan 2026-08-14) — this modal only needs name + reg no.
+              contactKind: '{{ old('contact_kind', 'natural_person') }}',
               q: '',
               results: [],
               loading: false,
@@ -703,12 +707,26 @@
 
             {{-- ── Create new contact ── --}}
             <div x-show="mode === 'create'" class="space-y-3">
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+            {{-- Contact Is: Natural person OR Entity (company / CC / trust). An entity seller must be
+                 capturable here — not forced to a natural person. Selecting Entity swaps the name fields
+                 for the registered name + reg number; a hidden input carries contact_kind to the store. --}}
+            <input type="hidden" name="contact_kind" :value="contactKind">
+            <div>
+                <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">Contact is <span style="color: var(--ds-crimson);">*</span></label>
+                <div class="flex items-center gap-4 text-sm" style="color: var(--text-secondary);">
+                    <label class="inline-flex items-center gap-1.5 cursor-pointer"><input type="radio" name="contact_kind_toggle" value="natural_person" x-model="contactKind"> Natural person</label>
+                    <label class="inline-flex items-center gap-1.5 cursor-pointer"><input type="radio" name="contact_kind_toggle" value="entity" x-model="contactKind"> Entity <span style="color: var(--text-muted);">(company / CC / trust)</span></label>
+                </div>
+            </div>
+
+            {{-- Natural-person name fields --}}
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" x-show="contactKind === 'natural_person'">
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">
                         First name <span style="color: var(--ds-crimson);">*</span>
                     </label>
-                    <input type="text" name="first_name" x-ref="firstName" value="{{ old('first_name') }}" :required="mode === 'create' && sellers.length === 0" maxlength="100"
+                    <input type="text" name="first_name" x-ref="firstName" value="{{ old('first_name') }}" :required="mode === 'create' && sellers.length === 0 && contactKind === 'natural_person'" maxlength="100"
                            class="w-full px-3 py-2 text-sm rounded-md"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 </div>
@@ -717,6 +735,27 @@
                     <input type="text" name="last_name" x-ref="lastName" value="{{ old('last_name') }}" maxlength="100"
                            class="w-full px-3 py-2 text-sm rounded-md"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                </div>
+            </div>
+
+            {{-- Entity fields (company / CC / trust) — registered name + optional registration number. --}}
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" x-show="contactKind === 'entity'" x-cloak>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">
+                        Registered name <span style="color: var(--ds-crimson);">*</span>
+                    </label>
+                    <input type="text" name="entity_name" value="{{ old('entity_name') }}" :required="mode === 'create' && sellers.length === 0 && contactKind === 'entity'" maxlength="255"
+                           placeholder="e.g. Blue Horizon Trust"
+                           class="w-full px-3 py-2 text-sm rounded-md"
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">Registration number <span style="color: var(--text-muted); font-weight:400;">(optional)</span></label>
+                    <input type="text" name="entity_reg_no" value="{{ old('entity_reg_no') }}" maxlength="100"
+                           placeholder="e.g. 2019/123456/07"
+                           class="w-full px-3 py-2 text-sm rounded-md"
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                    <p class="text-[11px] mt-1" style="color: var(--text-muted);">Add the directors/representatives on the entity record afterward.</p>
                 </div>
             </div>
 
@@ -737,8 +776,9 @@
                 </div>
             </div>
 
-            {{-- A.2.5 — optional SA ID number capture at create time. --}}
-            <div>
+            {{-- A.2.5 — optional SA ID number capture at create time (natural person only; an entity is
+                 keyed on its registration number above). --}}
+            <div x-show="contactKind === 'natural_person'">
                 <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">ID number (optional)</label>
                 <input type="text" name="id_number" x-ref="idNumber" value="{{ old('id_number') }}"
                        inputmode="numeric" maxlength="13" pattern="\d{13}"
@@ -751,8 +791,9 @@
             {{-- Part B — deliberate dead-end override. Only meaningful when NO phone/email is
                  entered (real details win: typing either clears + disables the tick). When on, the
                  seller is still created from the deed (name + ID, deduped on ID) and flagged so no
-                 future agent re-chases a genuinely uncontactable owner. --}}
-            <div class="rounded-md p-3"
+                 future agent re-chases a genuinely uncontactable owner. Natural person only — an
+                 entity is reached through its directors, not a dead-end tick. --}}
+            <div class="rounded-md p-3" x-show="contactKind === 'natural_person'"
                  style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 8%, var(--surface-2)); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 40%, var(--border));">
                 <label class="flex items-start gap-2" style="cursor:pointer;">
                     <input type="checkbox" name="no_contact_details" value="1" x-model="noContactDetails"
@@ -778,8 +819,9 @@
             </div>
 
             <div class="text-xs" style="color: var(--text-muted);">
-                <span x-show="!noContactDetails">Provide at least a phone or email — we'll check if this person already exists in your contacts.</span>
-                <span x-show="noContactDetails" x-cloak>Dead-end mode: no phone/email needed. The owner's name + SA ID (from the deed) are required so the contact is ID-keyed and deduped.</span>
+                <span x-show="contactKind === 'natural_person' && !noContactDetails">Provide at least a phone or email — we'll check if this person already exists in your contacts.</span>
+                <span x-show="contactKind === 'natural_person' && noContactDetails" x-cloak>Dead-end mode: no phone/email needed. The owner's name + SA ID (from the deed) are required so the contact is ID-keyed and deduped.</span>
+                <span x-show="contactKind === 'entity'" x-cloak>We'll match the entity on its registration number (or name) so you land on the captured company, not a duplicate.</span>
             </div>
             </div>{{-- /create-new --}}
         </div>

@@ -4679,7 +4679,7 @@
 
             {{-- Create new contact and link --}}
             <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:20px;"
-                 x-data="{ open: false }">
+                 x-data="{ open: false, kind: 'natural_person' }">
                 <button type="button" @click="open = !open"
                         class="flex items-center gap-2 text-sm font-semibold"
                         style="color:var(--brand-icon); background:none; border:none; cursor:pointer; padding:0;">
@@ -4693,24 +4693,54 @@
                 <div x-show="open" x-cloak class="mt-5 space-y-4">
                     <form @submit.prevent="createAndLink($el, () => { open = false; })" class="space-y-4">
                         @csrf
+                        {{-- Contact Is: Natural person OR Entity (company / CC / trust). An entity owner
+                             must be capturable from the property record — not forced to a natural person.
+                             Entity swaps the name fields for registered name + reg number; the hidden
+                             contact_kind is what the createAndLink controller branches on. Reps/directors
+                             are added on the entity record afterward (Johan 2026-08-14). --}}
+                        <input type="hidden" name="contact_kind" :value="kind">
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Contact Is <span class="prop-required">*</span></label>
+                            <div class="flex items-center gap-4 text-sm" style="color:var(--text-secondary);">
+                                <label class="inline-flex items-center gap-1.5 cursor-pointer"><input type="radio" name="contact_kind_toggle" value="natural_person" x-model="kind"> Natural person</label>
+                                <label class="inline-flex items-center gap-1.5 cursor-pointer"><input type="radio" name="contact_kind_toggle" value="entity" x-model="kind"> Entity <span style="color:var(--text-muted);">(company / CC / trust)</span></label>
+                            </div>
+                        </div>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div>
+                            {{-- Natural-person name/phone --}}
+                            <div x-show="kind === 'natural_person'">
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">First Name <span class="prop-required">*</span></label>
-                                <input type="text" name="first_name" required
+                                <input type="text" name="first_name" :required="kind === 'natural_person'"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
-                            <div>
+                            <div x-show="kind === 'natural_person'">
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Surname <span class="prop-required">*</span></label>
-                                <input type="text" name="last_name" required
+                                <input type="text" name="last_name" :required="kind === 'natural_person'"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
-                            <div>
+                            <div x-show="kind === 'natural_person'">
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Phone <span class="prop-required">*</span></label>
-                                <input type="text" name="phone" required
+                                <input type="text" name="phone" :required="kind === 'natural_person'"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            {{-- Entity: registered name (required) + registration number --}}
+                            <div x-show="kind === 'entity'" x-cloak>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Registered Name <span class="prop-required">*</span></label>
+                                <input type="text" name="entity_name" :required="kind === 'entity'" maxlength="255"
+                                       placeholder="e.g. Blue Horizon Trust"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div x-show="kind === 'entity'" x-cloak>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Registration Number <span style="font-weight:400;">(optional)</span></label>
+                                <input type="text" name="entity_reg_no" maxlength="100"
+                                       placeholder="e.g. 2019/123456/07"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                <p class="mt-1 text-[11px]" style="color:var(--text-muted);">Add directors/representatives on the entity record afterward.</p>
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Email</label>
@@ -4739,8 +4769,9 @@
                                     @endforeach
                                 </select>
                             </div>
-                            {{-- A.2.5 — optional SA ID number with client-side hint. --}}
-                            <div class="sm:col-span-2">
+                            {{-- A.2.5 — optional SA ID number with client-side hint (natural person only;
+                                 an entity is keyed on its registration number above). --}}
+                            <div class="sm:col-span-2" x-show="kind === 'natural_person'">
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID number (optional)</label>
                                 <input type="text" name="id_number" inputmode="numeric" maxlength="13"
                                        pattern="\d{13}" placeholder="e.g. 7610025020081"
