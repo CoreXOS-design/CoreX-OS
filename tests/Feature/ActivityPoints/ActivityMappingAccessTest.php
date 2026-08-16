@@ -80,11 +80,27 @@ final class ActivityMappingAccessTest extends TestCase
         $owner  = $this->makeOwner();
         $agency = $this->makeAgency();
 
+        // 2026-08 consolidation: admin.activity-mappings.index now redirects to
+        // the merged Daily Activities Setup screen (Auto tab) instead of
+        // rendering its own view. The permission/agency gates on THIS route
+        // (what this test class locks down) are unchanged — only the
+        // destination moved.
         $this->actingAs($owner)
             ->withSession(['active_agency_id' => $agency])
             ->get(route('admin.activity-mappings.index'))
+            ->assertRedirect(route('admin.daily-activities.setup', ['tab' => 'auto']));
+    }
+
+    public function test_the_merged_setup_screen_renders_the_auto_tab_for_an_authorised_owner(): void
+    {
+        $owner  = $this->makeOwner();
+        $agency = $this->makeAgency();
+
+        $this->actingAs($owner)
+            ->withSession(['active_agency_id' => $agency])
+            ->get(route('admin.daily-activities.setup', ['tab' => 'auto']))
             ->assertOk()
-            ->assertViewIs('admin.activity-mappings.index');
+            ->assertViewIs('admin.daily-activities.setup');
     }
 
     /** The AJAX save path must say what is wrong, not 403 into a blank fetch. */
@@ -104,9 +120,11 @@ final class ActivityMappingAccessTest extends TestCase
         $agency = $this->makeAgency();
         $this->grant('admin', 'manage_activity_mappings');
 
+        // 2026-08 consolidation: redirects to the merged Setup screen (Auto
+        // tab) rather than rendering directly — see note above.
         $this->actingAs($this->makeUser('admin', $agency))
             ->get(route('admin.activity-mappings.index'))
-            ->assertOk();
+            ->assertRedirect(route('admin.daily-activities.setup', ['tab' => 'auto']));
     }
 
     public function test_a_role_without_the_key_is_forbidden(): void
