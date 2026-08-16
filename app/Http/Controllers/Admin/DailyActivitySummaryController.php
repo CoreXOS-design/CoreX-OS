@@ -54,8 +54,11 @@ class DailyActivitySummaryController extends Controller
         $defIds = $defs->pluck('id')->map(fn($v)=>(int)$v)->all();
 
         // M6.5 — achievement-total filter (confirmed/overridden + manual/auto_*).
+        // Source breakdown (manual vs auto) alongside the total — the achievement-
+        // total filter above already restricts 'e.source' to manual/auto_calendar/
+        // auto_instant, so anything not 'manual' within that set is auto.
         $agg = DB::table('daily_activity_entries as e')
-            ->selectRaw('e.activity_definition_id as def_id, SUM(e.value) as total_count')
+            ->selectRaw("e.activity_definition_id as def_id, SUM(e.value) as total_count, SUM(CASE WHEN e.source = 'manual' THEN e.value ELSE 0 END) as manual_count, SUM(CASE WHEN e.source != 'manual' THEN e.value ELSE 0 END) as auto_count")
             ->whereBetween('e.activity_date', [$start->toDateString(), $end->toDateString()])
             ->whereIn('e.activity_definition_id', $defIds)
             ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
@@ -80,6 +83,8 @@ class DailyActivitySummaryController extends Controller
                 'points' => $points,
                 'scope' => (string)$d->scope,
                 'branch_id' => $d->branch_id !== null ? (int)$d->branch_id : null,
+                'manual_count' => (int)($agg[$d->id]->manual_count ?? 0),
+                'auto_count' => (int)($agg[$d->id]->auto_count ?? 0),
             ];
 
             $grandCount += $count;
@@ -228,11 +233,17 @@ class DailyActivitySummaryController extends Controller
         $agentName = DB::table('users')->where('id', $user)->value('name');
         abort_unless($agentName, 404);
 
+        // M6.5 — achievement-total filter (confirmed/overridden + manual/auto_*).
+        // Was missing here, so the drill-down total could exceed the summary-
+        // level total (which does apply this filter) whenever provisional,
+        // revoked, or auto_other entries existed for the activity.
         $q = DB::table('daily_activity_entries as e')
             ->select(['e.activity_date','e.value'])
             ->where('e.activity_definition_id', (int)$def->id)
             ->where('e.user_id', $user)
-            ->whereBetween('e.activity_date', [$start->toDateString(), $end->toDateString()]);
+            ->whereBetween('e.activity_date', [$start->toDateString(), $end->toDateString()])
+            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
+            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES);
 
         if ($branch > 0) $q->where('e.branch_id', $branch);
         else $q->whereNull('e.branch_id');

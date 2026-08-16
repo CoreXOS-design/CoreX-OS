@@ -1422,15 +1422,41 @@ Route::get('/admin/daily/summary/activity/{definition}/branch/{branch}/agent/{us
 Route::get('/agent/daily/print', [\App\Http\Controllers\Agent\DailyActivityController::class, 'printSheet'])
     ->middleware('permission:access_daily_activity')->name('agent.daily.print');
         Route::post('/agent/daily', [\App\Http\Controllers\Agent\DailyActivityController::class, 'store'])->middleware('permission:access_daily_activity');
+// admin.targets.activity.setup was a dead stub that only ever redirected to
+// admin.targets.activity.definitions. Both names now point at the merged
+// Daily Activities Setup screen (2026-08 consolidation) so any stale link
+// (dashboard tiles, old bookmarks) lands on the live screen instead of a
+// retired one. The underlying legacy controller methods/views are left
+// untouched — orphaned, not deleted — since nothing routes to them anymore.
 Route::get('/admin/targets/activity-setup', function () {
-    return redirect()->route('admin.targets.activity.definitions');
+    return redirect()->route('admin.daily-activities.setup', ['tab' => 'manual']);
 })->name('admin.targets.activity.setup')->middleware('permission:manage_targets');
     Route::post('/admin/targets/activity-setup', [TargetController::class, 'activitySetupSave'])->name('admin.targets.activity.setup.save')->middleware('permission:manage_targets');
-Route::get('/admin/targets/activity-definitions', [TargetController::class, 'activityDefinitions'])->name('admin.targets.activity.definitions')->middleware('permission:manage_targets');
+Route::get('/admin/targets/activity-definitions', function () {
+    return redirect()->route('admin.daily-activities.setup', ['tab' => 'manual']);
+})->name('admin.targets.activity.definitions')->middleware('permission:manage_targets');
     Route::post('/admin/targets/activity-definitions', [TargetController::class, 'activityDefinitionsSave'])->name('admin.targets.activity.definitions.save')->middleware('permission:manage_targets');
 
 
       Route::post('/admin/targets/activity-columns', [TargetController::class, 'activityColumnCreate'])->name('admin.targets.activity.columns.create')->middleware('permission:manage_targets');
+
+    // ===== DAILY ACTIVITIES SETUP (merged) =====
+    // Replaces admin.targets.activity.definitions* + admin.activity-mappings.*
+    // with one two-tab screen: Manual Daily Activities (ActivityDefinition
+    // catalogue) + Auto Daily Activities (calendar/instant mapping catalogue).
+    // Gated on EITHER manage_targets OR manage_activity_mappings (OR semantics
+    // via comma-separated permission middleware) so a Manual-only or Auto-only
+    // user still reaches the screen; each tab's content is further gated inside
+    // the controller/view on its own original permission.
+    Route::prefix('admin/daily-activities/setup')
+        ->middleware(['permission:manage_targets,manage_activity_mappings'])
+        ->group(function () {
+            Route::get('/', [\App\Http\Controllers\Admin\DailyActivitySetupController::class, 'index'])->name('admin.daily-activities.setup');
+            Route::post('/definition', [\App\Http\Controllers\Admin\DailyActivitySetupController::class, 'storeDefinition'])->name('admin.daily-activities.setup.store-definition');
+            Route::put('/definition/{id}', [\App\Http\Controllers\Admin\DailyActivitySetupController::class, 'updateDefinition'])->whereNumber('id')->name('admin.daily-activities.setup.update-definition');
+            Route::put('/mapping/{id}', [\App\Http\Controllers\Admin\DailyActivitySetupController::class, 'updateMapping'])->whereNumber('id')->name('admin.daily-activities.setup.update-mapping');
+            Route::post('/mapping/{id}/toggle-active', [\App\Http\Controllers\Admin\DailyActivitySetupController::class, 'toggleMapping'])->whereNumber('id')->name('admin.daily-activities.setup.toggle-mapping');
+        });
 });
 
 
@@ -3109,10 +3135,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     //     which is exactly what RequireAgencyContext does (redirect to
     //     agency.select preserving the intended URL; 422 JSON for the AJAX
     //     save/toggle calls).
+    // admin.activity-mappings.index now redirects to the merged Daily
+    // Activities Setup screen (2026-08 consolidation, Auto tab). The
+    // update/toggle-active endpoints are left pointed at the legacy
+    // controller — nothing routes to them anymore since the view that
+    // POSTed to them is retired, but they're harmless to leave live.
     Route::prefix('admin/activity-mappings')
         ->middleware(['permission:manage_activity_mappings', 'agency.required'])
         ->name('admin.activity-mappings.')->group(function () {
-        Route::get('/',                       [\App\Http\Controllers\Admin\ActivityCalendarMappingController::class, 'index'])->name('index');
+        Route::get('/', function () {
+            return redirect()->route('admin.daily-activities.setup', ['tab' => 'auto']);
+        })->name('index');
         Route::put('/{id}',                   [\App\Http\Controllers\Admin\ActivityCalendarMappingController::class, 'update'])->whereNumber('id')->name('update');
         Route::post('/{id}/toggle-active',    [\App\Http\Controllers\Admin\ActivityCalendarMappingController::class, 'toggleActive'])->whereNumber('id')->name('toggle-active');
     });
