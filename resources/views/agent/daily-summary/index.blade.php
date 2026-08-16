@@ -57,6 +57,7 @@
                     <tr style="background: var(--surface-2);">
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Activity</th>
                         <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Count</th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Manual / Auto</th>
                         <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Points</th>
                         <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">% (Points)</th>
                     </tr>
@@ -75,12 +76,15 @@
                                     {{ number_format((int)$it['count']) }}
                                 </span>
                             </td>
+                            <td class="px-4 py-2.5 text-right">
+                                @include('daily-summary._source-badge', ['it' => $it])
+                            </td>
                             <td class="px-4 py-2.5 text-right" style="color: var(--text-secondary);">{{ number_format((float)$it['points'], 0) }}</td>
                             <td class="px-4 py-2.5 text-right" style="color: var(--text-secondary);">{{ number_format((float)$it['pct_points'], 1) }}%</td>
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="4" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">
+                            <td colspan="5" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">
                                 No activity recorded in this range.
                             </td>
                         </tr>

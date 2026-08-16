@@ -118,7 +118,7 @@
         'admin.performance', 'admin.agent.performance*', 'admin.branch.performance*',
         'admin.listings.*',
         'admin.deals*', 'admin.daily*', 'admin.targets*', 'admin.worksheet-market*',
-        'admin.tv-messages*', 'admin.activity-mappings.*',
+        'admin.tv-messages*', 'admin.activity-mappings.*', 'admin.daily-activities.setup*',
         'corex.admin.deal-link-review.*',
         // Both links live in the Agency Tracker panel, so their routes must open it.
         // 'corex.compliance.rcr.*' does NOT match the 'compliance.*' matcher below —
@@ -1094,9 +1094,13 @@
                 @permission('view_own_stats')
                 <div class="corex-nav-sublabel">My Performance</div>
                 @permission('view_daily_activity')
-                <a href="{{ route('agent.daily.summary') }}" class="corex-nav-subitem {{ request()->routeIs('agent.daily.summary*') ? 'active' : '' }}">Daily Activity Summary</a>
+                <div class="corex-nav-sublabel">Daily Activities</div>
                 <a href="{{ route('agent.daily') }}" class="corex-nav-subitem {{ request()->routeIs('agent.daily') ? 'active' : '' }}">My Daily Activity</a>
+                <a href="{{ route('agent.daily.summary') }}" class="corex-nav-subitem {{ request()->routeIs('agent.daily.summary*') ? 'active' : '' }}">Daily Activity Summary</a>
                 @endpermission
+                @if(auth()->user()?->hasPermission('manage_targets') || auth()->user()?->hasPermission('manage_activity_mappings'))
+                <a href="{{ route('admin.daily-activities.setup') }}" class="corex-nav-subitem {{ request()->routeIs('admin.daily-activities.setup*') ? 'active' : '' }}">Setup</a>
+                @endif
                 @permission('view_deals')
                 <a href="{{ route('agent.deals.index') }}" class="corex-nav-subitem {{ request()->routeIs('agent.deals.*') ? 'active' : '' }}">My Deals</a>
                 @endpermission
@@ -1107,9 +1111,6 @@
                 <div class="corex-nav-sublabel">Branch</div>
                 @permission('view_performance')
                 <a href="{{ route('bm.performance') }}" class="corex-nav-subitem {{ request()->routeIs('bm.performance*') ? 'active' : '' }}">Branch Performance</a>
-                @endpermission
-                @permission('view_daily_activity')
-                <a href="{{ route('bm.daily.summary') }}" class="corex-nav-subitem {{ request()->routeIs('bm.daily.summary*') ? 'active' : '' }}">Daily Activity Summary</a>
                 @endpermission
                 @permission('access_listing_stock')
                 <a href="{{ route('bm.listings') }}" class="corex-nav-subitem {{ request()->routeIs('bm.listings*') ? 'active' : '' }}">Branch Listing Stock</a>
@@ -1202,24 +1203,30 @@
                     </a>
                 @endif
 
+                {{-- Daily Activities group — capture + summary + merged Setup, all in one place. --}}
+                @permission('view_daily_activity')
+                <div class="corex-nav-sublabel">Daily Activities</div>
+                @if($effectiveBranchId)
+                <a href="{{ route('agent.daily') }}" class="corex-nav-subitem {{ request()->routeIs('agent.daily') && !request()->routeIs('agent.daily.summary*') ? 'active' : '' }}">Daily Activity Capture</a>
+                @endif
+                <a href="{{ route('bm.daily.summary') }}" class="corex-nav-subitem {{ request()->routeIs('bm.daily.summary*') ? 'active' : '' }}">Daily Activity Summary</a>
+                @endpermission
+                @if(auth()->user()?->hasPermission('manage_targets') || auth()->user()?->hasPermission('manage_activity_mappings'))
+                <a href="{{ route('admin.daily-activities.setup') }}" class="corex-nav-subitem {{ request()->routeIs('admin.daily-activities.setup*') ? 'active' : '' }}">Setup</a>
+                @endif
+
                 <div class="corex-nav-sublabel">Setup</div>
                 @permission('access_worksheet_market')
                 <a href="{{ route('bm.worksheet.market') }}" class="corex-nav-subitem {{ request()->routeIs('bm.worksheet.market*') ? 'active' : '' }}">Worksheet Market</a>
                 @endpermission
                 @permission('manage_targets')
                 <a href="{{ route('admin.targets') }}" class="corex-nav-subitem {{ request()->routeIs('admin.targets') ? 'active' : '' }}">Targets</a>
-                <a href="{{ route('admin.targets.activity.definitions') }}" class="corex-nav-subitem {{ request()->routeIs('admin.targets.activity.definitions*') ? 'active' : '' }}">Activity Definitions</a>
                 @endpermission
                 @feature('tv-display')
                 @permission('manage_tv_messages')
                 <a href="{{ route('bm.tv-messages') }}" class="corex-nav-subitem {{ request()->routeIs('bm.tv-messages*') ? 'active' : '' }}">TV Messages</a>
                 @endpermission
                 @endfeature
-                @permission('view_daily_activity')
-                @if($effectiveBranchId)
-                <a href="{{ route('agent.daily') }}" class="corex-nav-subitem {{ request()->routeIs('agent.daily') && !request()->routeIs('agent.daily.summary*') ? 'active' : '' }}">Daily Activity Capture</a>
-                @endif
-                @endpermission
                 @endpermission
 
                 {{-- Admin section (view company stats) --}}
@@ -1247,20 +1254,23 @@
                 <a href="{{ route('admin.listings.import') }}" class="corex-nav-subitem {{ request()->routeIs('admin.listings.import*') ? 'active' : '' }}">Import Listings</a>
                 <a href="{{ route('admin.minion.setup') }}" class="corex-nav-subitem {{ request()->routeIs('admin.minion.*') ? 'active' : '' }}">P24 Auto-Import</a>
                 @endpermission
+                {{-- Daily Activities group — summary + merged Setup. De-dupe: the Branch
+                     "Setup" section above already renders the Setup link for users with
+                     view_branch_stats — only render it here for company-admins who don't
+                     see that section, so it appears exactly once. --}}
                 @permission('view_daily_activity')
+                <div class="corex-nav-sublabel">Daily Activities</div>
                 <a href="{{ route('admin.daily.summary') }}" class="corex-nav-subitem {{ request()->routeIs('admin.daily.summary*') ? 'active' : '' }}">Daily Activity Summary</a>
                 @endpermission
+                @unless(auth()->user()?->hasPermission('view_branch_stats'))
+                    @if(auth()->user()?->hasPermission('manage_targets') || auth()->user()?->hasPermission('manage_activity_mappings'))
+                    <a href="{{ route('admin.daily-activities.setup') }}" class="corex-nav-subitem {{ request()->routeIs('admin.daily-activities.setup*') ? 'active' : '' }}">Setup</a>
+                    @endif
+                @endunless
                 @permission('manage_targets')
-                {{-- De-dupe: the Setup section above already renders these two links for
-                     users with view_branch_stats. Only render them here for company-admins
-                     who do NOT see the Setup section, so each destination appears once. --}}
                 @unless(auth()->user()?->hasPermission('view_branch_stats'))
                 <a href="{{ route('admin.targets') }}" class="corex-nav-subitem {{ request()->routeIs('admin.targets') ? 'active' : '' }}">Targets</a>
-                <a href="{{ route('admin.targets.activity.definitions') }}" class="corex-nav-subitem {{ request()->routeIs('admin.targets.activity.definitions*') ? 'active' : '' }}">Activity Definitions</a>
                 @endunless
-                @endpermission
-                @permission('manage_activity_mappings')
-                <a href="{{ route('admin.activity-mappings.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.activity-mappings.*') ? 'active' : '' }}">Activity Scoring</a>
                 @endpermission
                 @permission('edit_worksheet')
                 <a href="{{ route('admin.worksheet-market') }}" class="corex-nav-subitem {{ request()->routeIs('admin.worksheet-market*') ? 'active' : '' }}">Worksheet Market</a>
