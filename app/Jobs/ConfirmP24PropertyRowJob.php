@@ -103,6 +103,17 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
                 $attrs['agent_id']  = $row->resolved_agent_id;
                 $attrs['agency_id'] = $run->agency_id;
 
+                // The P24 CSV carries no mandate/exclusivity field at all — P24
+                // only ever exports what's live on their platform, never the
+                // agency's private mandate terms with the seller (audit
+                // 2026-08-16: confirmed absent from all 68 export columns).
+                // Default imported stock to 'Open' rather than leaving
+                // mandate_type silently blank forever; never overwrite one a
+                // human has since set manually in CoreX.
+                if (empty($existing?->mandate_type)) {
+                    $attrs['mandate_type'] = 'Open';
+                }
+
                 // branch_id is NOT NULL with no default. This job runs on the
                 // queue with no auth user, so BelongsToBranch cannot auto-fill
                 // it — leaving it null 1364s the whole confirm. Source it from
@@ -174,15 +185,35 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
                 // existing P24 listing instead of CREATING a duplicate. The
                 // syndication push (Property24ListingMapper::map) decides
                 // update-vs-create on p24_ref — NOT p24_listing_number — so the
-                // import MUST set p24_ref too, or every imported property pushes
-                // as a brand-new duplicate. This stock is, by definition,
-                // already live on P24 (it came from a P24 export), so reflect
-                // that with an 'active' syndication status / activation stamp.
+                // import MUST set p24_ref too, regardless of the listing's own
+                // status, or a later real push for this property creates a
+                // duplicate on P24.
                 if (is_numeric($listingNumber)) {
                     $attrs['p24_ref'] = (string) $listingNumber;
-                    if (empty($existing?->p24_syndication_status)) {
-                        $attrs['p24_syndication_status'] = 'active';
-                        $attrs['p24_activated_at'] = now();
+
+                    // The CSV is a point-in-time P24 export, not a feed of only
+                    // currently-live stock — most rows are historical
+                    // (Withdrawn/Expired/Sold/Cancelled/Rented). Unconditionally
+                    // stamping every row 'active' told every downstream consumer
+                    // (Property24SyndicationService's refresh loop, AdManager,
+                    // SellerOutreach's "advertised" check, the stats dashboard)
+                    // that sold/withdrawn stock was still being pushed live to
+                    // P24 — found in the 2026-08-16 import audit: 4,507/4,753
+                    // Demo Agency Test rows landed 'active' though only 232
+                    // actually carried status=Active. Gate on the listing's own
+                    // status instead, and only touch this when CoreX has never
+                    // made a REAL outbound push of its own
+                    // (p24_last_submitted_at) — once we've genuinely submitted,
+                    // our own syndication history is authoritative, not a
+                    // re-import of the original source export.
+                    if ($existing?->p24_last_submitted_at === null) {
+                        if (($attrs['status'] ?? null) === 'Active') {
+                            $attrs['p24_syndication_status'] = 'active';
+                            $attrs['p24_activated_at'] = $existing?->p24_activated_at ?? now();
+                        } else {
+                            $attrs['p24_syndication_status'] = null;
+                            $attrs['p24_activated_at'] = null;
+                        }
                     }
                 }
 
