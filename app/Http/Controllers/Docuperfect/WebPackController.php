@@ -32,7 +32,8 @@ class WebPackController extends Controller
             abort(403);
         }
 
-        $templates = Template::where('render_type', 'web')
+        $templates = Template::visibleTo($user)
+            ->where('render_type', 'web')
             ->whereNull('archived_at')
             ->orderBy('name')
             ->get();
@@ -88,7 +89,8 @@ class WebPackController extends Controller
 
         $webPack = WebPack::with('items.template')->findOrFail($id);
 
-        $templates = Template::where('render_type', 'web')
+        $templates = Template::visibleTo($user)
+            ->where('render_type', 'web')
             ->whereNull('archived_at')
             ->orderBy('name')
             ->get();
