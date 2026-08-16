@@ -190,7 +190,9 @@
                                 </td>
 
                                 <td class="px-4 py-3">
-                                    @php($sm = (string)($d->scoring_mode ?? 'count'))
+                                    @php
+                                        $sm = (string)($d->scoring_mode ?? 'count');
+                                    @endphp
                                     <select form="acty-def-{{ $d->id }}" name="scoring_mode" class="acty-input acty-input-sm">
                                         <option value="count" @selected($sm === 'count')>Per action</option>
                                         <option value="once" @selected($sm === 'once')>Once (tick)</option>
