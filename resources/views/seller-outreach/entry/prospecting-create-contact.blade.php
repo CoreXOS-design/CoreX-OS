@@ -105,6 +105,10 @@
               // able to capture an entity seller here, not be forced to a natural person. Reps are added
               // on the entity record afterward (Johan 2026-08-14) — this modal only needs name + reg no.
               contactKind: '{{ old('contact_kind', 'natural_person') }}',
+              // #17 — for a natural person, SA ID vs foreign passport. SA validates the 13-digit ID;
+              // a foreign national enters a passport + a directly-entered DOB (the passport doesn't
+              // encode it). Same discriminator + rules as the main contact form.
+              idKind: '{{ old('id_type', 'sa_id') }}',
               q: '',
               results: [],
               loading: false,
@@ -776,16 +780,36 @@
                 </div>
             </div>
 
-            {{-- A.2.5 — optional SA ID number capture at create time (natural person only; an entity is
-                 keyed on its registration number above). --}}
-            <div x-show="contactKind === 'natural_person'">
-                <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">ID number (optional)</label>
-                <input type="text" name="id_number" x-ref="idNumber" value="{{ old('id_number') }}"
-                       inputmode="numeric" maxlength="13" pattern="\d{13}"
-                       placeholder="e.g. 7610025020081" title="13 digits — empty is fine"
-                       class="w-full px-3 py-2 text-sm rounded-md"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                <p class="text-[11px] mt-1" style="color: var(--text-muted);">SA ID — 13 digits. Leave blank if not known.</p>
+            {{-- #17 — SA ID vs foreign passport at create time (natural person only; an entity is keyed on
+                 its registration number above). SA path validates the 13-digit ID; a foreign national
+                 enters a passport + a directly-entered Date of Birth (the passport doesn't encode it).
+                 Same discriminator + rules as the main contact form. Backward-compatible. --}}
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" x-show="contactKind === 'natural_person'">
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">ID Type</label>
+                    <select name="id_type" x-model="idKind"
+                            class="w-full px-3 py-2 text-sm rounded-md"
+                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                        <option value="sa_id">South African ID</option>
+                        <option value="passport">Foreign / Passport</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);"><span x-text="idKind === 'passport' ? 'Passport Number' : 'ID Number'"></span> <span style="color: var(--text-muted); font-weight:400;">(optional)</span></label>
+                    <input type="text" name="id_number" x-ref="idNumber" value="{{ old('id_number') }}"
+                           :inputmode="idKind === 'passport' ? 'text' : 'numeric'"
+                           :maxlength="idKind === 'passport' ? 50 : 13"
+                           :placeholder="idKind === 'passport' ? 'e.g. AB1234567' : 'e.g. 7610025020081'"
+                           class="w-full px-3 py-2 text-sm rounded-md"
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">Date of Birth <span style="color: var(--text-muted); font-weight:400;" x-show="idKind !== 'passport'">(optional)</span><span class="text-red-500" x-show="idKind === 'passport'" x-cloak>*</span></label>
+                    <input type="date" name="birthday" value="{{ old('birthday') }}"
+                           :required="contactKind === 'natural_person' && idKind === 'passport'"
+                           class="w-full px-3 py-2 text-sm rounded-md"
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                </div>
             </div>
 
             {{-- Part B — deliberate dead-end override. Only meaningful when NO phone/email is

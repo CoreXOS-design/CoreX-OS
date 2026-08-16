@@ -99,13 +99,12 @@ final class EntryPointController extends Controller
             $contact = $this->resolveEntityContact($request, $agencyId);
             $isNew   = $contact->wasRecentlyCreated;
         } else {
-            $validated = $request->validate([
+            $validated = $request->validate(array_merge([
                 'first_name' => 'required|string|max:100',
                 'last_name'  => 'nullable|string|max:100',
                 'phone'      => 'nullable|string|max:30',
                 'email'      => 'nullable|email|max:255',
-                'id_number'  => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
-            ]);
+            ], $this->naturalPersonIdRules($request)));
 
             $idNumber = isset($validated['id_number']) ? preg_replace('/\s+/', '', (string) $validated['id_number']) : null;
 
@@ -139,7 +138,7 @@ final class EntryPointController extends Controller
                     'id_number'             => $idNumber,
                     'id_number_captured_at' => $idNumber ? now() : null,
                     'id_number_source'      => $idNumber ? 'seller_outreach_entry' : null,
-                ], static fn ($v) => $v !== null && $v !== ''),
+                ] + $this->naturalPersonIdAttributes($validated), static fn ($v) => $v !== null && $v !== ''),
                 [
                     'last_name' => $validated['last_name'] ?? '',
                     'phone'     => $validated['phone'] ?? '',
@@ -346,15 +345,14 @@ final class EntryPointController extends Controller
             $isNew       = $existing->wasRecentlyCreated;
         } elseif ($request->filled('first_name')) {
             $formEngaged = true;
-            $validated = $request->validate([
+            $validated = $request->validate(array_merge([
                 'first_name' => 'required|string|max:100',
                 'last_name'  => 'nullable|string|max:100',
                 'phone'      => 'nullable|string|max:30',
                 'email'      => 'nullable|email|max:255',
-                'id_number'  => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
                 'no_contact_details' => 'nullable|boolean',
                 'dead_end_reason'    => 'nullable|string|in:opted_out,not_in_tva,no_record_found',
-            ]);
+            ], $this->naturalPersonIdRules($request)));
             $idNumber = isset($validated['id_number']) ? preg_replace('/\s+/', '', (string) $validated['id_number']) : null;
 
             // Dead-end tick still means "nothing to enter": needs a name + SA ID (still ID-keyed).
@@ -423,7 +421,7 @@ final class EntryPointController extends Controller
                         'id_number'             => $idNumber,
                         'id_number_captured_at' => $idNumber ? now() : null,
                         'id_number_source'      => $idNumber ? 'seller_outreach_entry' : null,
-                    ], static fn ($v) => $v !== null && $v !== ''),
+                    ] + $this->naturalPersonIdAttributes($validated), static fn ($v) => $v !== null && $v !== ''),
                     [
                         'last_name' => $validated['last_name'] ?? '',
                         'phone'     => $validated['phone'] ?? '',
@@ -711,13 +709,12 @@ final class EntryPointController extends Controller
             $existing  = $this->resolveEntityContact($request, $agencyId);
             $isNew     = $existing->wasRecentlyCreated;
         } else {
-            $validated = $request->validate([
+            $validated = $request->validate(array_merge([
                 'first_name' => 'required|string|max:100',
                 'last_name'  => 'nullable|string|max:100',
                 'phone'      => 'nullable|string|max:30',
                 'email'      => 'nullable|email|max:255',
-                'id_number'  => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
-            ]);
+            ], $this->naturalPersonIdRules($request)));
 
             $idNumber = isset($validated['id_number']) ? preg_replace('/\s+/', '', (string) $validated['id_number']) : null;
 
@@ -761,7 +758,7 @@ final class EntryPointController extends Controller
                     'id_number'             => $idNumber,
                     'id_number_captured_at' => $idNumber ? now() : null,
                     'id_number_source'      => $idNumber ? 'seller_outreach_entry' : null,
-                ], static fn ($v) => $v !== null && $v !== ''),
+                ] + $this->naturalPersonIdAttributes($validated), static fn ($v) => $v !== null && $v !== ''),
                 [
                     'last_name' => $validated['last_name'] ?? '',
                     'phone'     => $validated['phone'] ?? '',
@@ -856,6 +853,38 @@ final class EntryPointController extends Controller
                 $data['entity_name'],
                 $data['entity_reg_no'] ?? null,
             );
+    }
+
+    /**
+     * #17 — SA-ID / foreign-passport validation rules for the natural-person capture, shared by the
+     * three store-from-* entry points (same discriminator + rules as the main contact form). A foreign
+     * national's passport is a free string (max 50); their Date of Birth is entered directly since a
+     * passport can't encode it. Absent/other id_type keeps the validated SA-ID path (backward-compatible).
+     */
+    private function naturalPersonIdRules(Request $request): array
+    {
+        $isForeign = $request->input('id_type') === 'passport';
+
+        return [
+            'id_type'   => ['nullable', \Illuminate\Validation\Rule::in(['sa_id', 'passport'])],
+            'id_number' => $isForeign
+                ? ['nullable', 'string', 'max:50']
+                : ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
+            'birthday'  => ['nullable', 'date', 'required_if:id_type,passport'],
+        ];
+    }
+
+    /**
+     * #17 — id_type + birthday to persist on a newly-created natural-person contact. Returned as a
+     * plain array the caller folds into its Contact::create() array_filter (empty values are stripped,
+     * so a blank DOB / absent id_type is simply not written — backward-compatible).
+     */
+    private function naturalPersonIdAttributes(array $validated): array
+    {
+        return [
+            'id_type'  => $validated['id_type'] ?? null,
+            'birthday' => $validated['birthday'] ?? null,
+        ];
     }
 
     /**

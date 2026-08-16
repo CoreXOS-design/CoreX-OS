@@ -4679,7 +4679,7 @@
 
             {{-- Create new contact and link --}}
             <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:20px;"
-                 x-data="{ open: false, kind: 'natural_person' }">
+                 x-data="{ open: false, kind: 'natural_person', idKind: 'sa_id' }">
                 <button type="button" @click="open = !open"
                         class="flex items-center gap-2 text-sm font-semibold"
                         style="color:var(--brand-icon); background:none; border:none; cursor:pointer; padding:0;">
@@ -4769,16 +4769,35 @@
                                     @endforeach
                                 </select>
                             </div>
-                            {{-- A.2.5 — optional SA ID number with client-side hint (natural person only;
-                                 an entity is keyed on its registration number above). --}}
-                            <div class="sm:col-span-2" x-show="kind === 'natural_person'">
-                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID number (optional)</label>
-                                <input type="text" name="id_number" inputmode="numeric" maxlength="13"
-                                       pattern="\d{13}" placeholder="e.g. 7610025020081"
-                                       title="13 digits — empty is fine"
+                            {{-- #17 — SA ID vs foreign passport (natural person only; an entity is keyed on
+                                 its registration number above). The SA path validates the 13-digit ID; a
+                                 foreign national enters a passport + a directly-entered Date of Birth (the
+                                 passport doesn't encode it). Same discriminator + rules as the main
+                                 contact form. Backward-compatible: absent id_type defaults to the SA path. --}}
+                            <div x-show="kind === 'natural_person'">
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID Type</label>
+                                <select name="id_type" x-model="idKind"
+                                        class="w-full rounded-md px-3 py-2 text-sm"
+                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <option value="sa_id">South African ID</option>
+                                    <option value="passport">Foreign / Passport</option>
+                                </select>
+                            </div>
+                            <div x-show="kind === 'natural_person'">
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);"><span x-text="idKind === 'passport' ? 'Passport Number' : 'ID Number'"></span> <span style="font-weight:400;">(optional)</span></label>
+                                <input type="text" name="id_number"
+                                       :inputmode="idKind === 'passport' ? 'text' : 'numeric'"
+                                       :maxlength="idKind === 'passport' ? 50 : 13"
+                                       :placeholder="idKind === 'passport' ? 'e.g. AB1234567' : 'e.g. 7610025020081'"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                <p class="mt-1 text-[11px]" style="color:var(--text-muted);">SA ID — 13 digits. Leave blank if not known.</p>
+                            </div>
+                            <div x-show="kind === 'natural_person'">
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Date of Birth <span style="font-weight:400;" x-show="idKind !== 'passport'">(optional)</span><span class="text-red-500" x-show="idKind === 'passport'" x-cloak>*</span></label>
+                                <input type="date" name="birthday"
+                                       :required="kind === 'natural_person' && idKind === 'passport'"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                         </div>
                         <button type="submit"
