@@ -2,9 +2,7 @@
 
 namespace App\Http\Concerns;
 
-use App\Models\P24City;
-use App\Models\P24Province;
-use App\Models\P24Suburb;
+use App\Services\P24\P24LocationResolver;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -40,12 +38,15 @@ trait AppliesP24Location
             return $data;
         }
 
-        $suburb = P24Suburb::find($suburbId);
-        if (!$suburb || !$suburb->p24_city_id) {
+        $resolved = P24LocationResolver::resolve((int) $suburbId);
+        if (!$resolved) {
             throw ValidationException::withMessages([
                 'p24_suburb_id' => 'Selected suburb is no longer recognised by Property24.',
             ]);
         }
+        $suburb = $resolved['suburb'];
+        $city = $resolved['city'];
+        $province = $resolved['province'];
 
         // Existence guard: the suburb→city→province chain being internally
         // consistent is NOT enough — the suburb's p24_id must actually be one
@@ -59,20 +60,12 @@ trait AppliesP24Location
             ]);
         }
 
-        $city = P24City::find($suburb->p24_city_id);
-        if (!$city) {
-            throw ValidationException::withMessages([
-                'p24_suburb_id' => 'Selected suburb has no parent city on Property24.',
-            ]);
-        }
-
         if ($cityId && (int) $cityId !== (int) $city->id) {
             throw ValidationException::withMessages([
                 'p24_city_id' => 'Suburb does not belong to the selected city.',
             ]);
         }
 
-        $province = P24Province::find($city->p24_province_id);
         if ($provinceId && $province && (int) $provinceId !== (int) $province->id) {
             throw ValidationException::withMessages([
                 'p24_province_id' => 'City does not belong to the selected province.',
