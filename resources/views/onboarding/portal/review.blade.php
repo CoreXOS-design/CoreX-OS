@@ -32,16 +32,20 @@
             <div class="flex items-center gap-2">
                 <button type="button" @click="confirmAllPending()"
                         class="portal-cta rounded-md px-3 py-1.5 text-xs font-semibold"
-                        :disabled="progress.active" :class="progress.active ? 'opacity-50 cursor-not-allowed' : ''">
+                        :disabled="progress.active || parse.status === 'parsing'"
+                        :class="(progress.active || parse.status === 'parsing') ? 'opacity-50 cursor-not-allowed' : ''">
                     Import all pending
                 </button>
                 <button type="button" @click="bulkConfirm()"
                         class="rounded-md px-3 py-1.5 text-xs bg-surface-2 border border-subtle"
-                        :disabled="progress.active" :class="progress.active ? 'opacity-50 cursor-not-allowed' : ''">
+                        :disabled="progress.active || parse.status === 'parsing'"
+                        :class="(progress.active || parse.status === 'parsing') ? 'opacity-50 cursor-not-allowed' : ''">
                     Import selected
                 </button>
                 <button type="button" @click="bulkExclude()"
-                        class="rounded-md px-3 py-1.5 text-xs bg-surface-2 border border-subtle">
+                        class="rounded-md px-3 py-1.5 text-xs bg-surface-2 border border-subtle"
+                        :disabled="parse.status === 'parsing'"
+                        :class="parse.status === 'parsing' ? 'opacity-50 cursor-not-allowed' : ''">
                     Exclude selected
                 </button>
                 <span class="text-xs text-muted" x-text="selected.length + ' selected'"></span>
@@ -113,6 +117,25 @@
                 </button>
             </div>
         </div>
+    </div>
+
+    {{-- Async parse progress (.ai/specs/importer-async-parse.md) — shown while
+         ParseP24ListingsImportJob is still creating rows from the uploaded
+         CSVs. The table below still renders whatever has landed so far
+         (progressive reveal); actions are disabled until parsing finishes. --}}
+    <div x-show="parse.status === 'parsing'" x-cloak class="rounded-md bg-surface p-3 border border-subtle/30">
+        <div class="flex items-center gap-2 text-xs">
+            <svg class="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            </svg>
+            <span>Parsing your listings — <span x-text="parse.parsed_so_far ?? 0"></span> so far…</span>
+        </div>
+    </div>
+    <div x-show="parse.status === 'failed'" x-cloak
+         class="rounded-md bg-surface p-3 border" style="border-color: var(--ds-red, #dc2626);">
+        <div class="text-xs font-semibold" style="color: var(--ds-red, #dc2626);">Import failed</div>
+        <div class="text-xs text-muted mt-1" x-text="parse.error || 'The listings CSV could not be parsed.'"></div>
     </div>
 
     {{-- Property-write progress (fast lane) --}}
@@ -313,6 +336,10 @@ function portalReview(token) {
         selected: [],
         rowState: {},
         counts: @json($counts),
+        // Async parse progress (.ai/specs/importer-async-parse.md) — server-
+        // seeded so a "still parsing" page shows the right state on first
+        // paint, before the first poll tick.
+        parse: @json($parse ?? ['status' => null, 'parsed_so_far' => null, 'error' => null]),
         // Property-write progress (the fast, wide lane — the Bus batch).
         progress: { active: false, total: 0, done: 0, errors: 0, label: '' },
         // Gallery-download progress (the slow, narrow lane — streams in behind).
@@ -321,6 +348,35 @@ function portalReview(token) {
         polling: false,
         errorModal: { open: false, errors: [] },
         csrf: document.querySelector('meta[name=csrf-token]')?.content ?? '',
+
+        init() {
+            if (this.parse.status === 'parsing') this.pollParse();
+        },
+
+        // Polls /status until the run's async parse leaves 'parsing', then
+        // reloads once — the table on this page only shows whatever has
+        // landed so far while parsing is in progress (progressive reveal),
+        // so a full reload is what actually surfaces the complete, now-
+        // actionable list. A 'failed' result is left on screen, not reloaded
+        // away, so the admin sees it.
+        async pollParse() {
+            const tick = async () => {
+                let data = null;
+                try {
+                    const res = await fetch(`/onboarding/${token}/status`, { headers: { Accept: 'application/json' } });
+                    data = await res.json();
+                } catch (e) {}
+
+                if (data?.parse) this.parse = data.parse;
+
+                if (this.parse.status === 'parsing') {
+                    setTimeout(tick, 2500);
+                } else if (this.parse.status !== 'failed') {
+                    this.reloadFresh();
+                }
+            };
+            tick();
+        },
 
         recordError(id, r) {
             const tr = document.querySelector('tr[data-row="' + id + '"]');
@@ -343,12 +399,14 @@ function portalReview(token) {
         },
 
         canSelect(id, status, isProcessing) {
+            if (this.parse.status === 'parsing') return false;
             const st = this.rowState[id];
             if (st?.hidden) return false;
             const current = st?.status ?? status;
             return (current === 'pending' || current === 'error') && !(st?.busy) && !isProcessing;
         },
         canAct(id, status, isProcessing) {
+            if (this.parse.status === 'parsing') return false;
             const st = this.rowState[id];
             if (st?.hidden) return false;
             const current = st?.status ?? status;

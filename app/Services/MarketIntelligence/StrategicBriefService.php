@@ -118,7 +118,9 @@ final class StrategicBriefService
         $inflowLeader = DB::table('prospecting_listings')
             ->where('agency_id', $agencyId)
             ->where('is_active', true)
-            ->whereNull('matched_property_id')
+            // Canonical "our on-market stock" exclusion — same pool as the Work tab
+            // (was the old fuzzy whereNull('matched_property_id')).
+            ->where(fn ($q) => app(\App\Services\Prospecting\OnMarketStockService::class)->applyNotStock($q, $agencyId))
             ->whereNull('deleted_at')
             ->whereNotNull('suburb')->where('suburb', '!=', '')
             ->where('first_seen_at', '>=', now()->subDays(30))
@@ -177,7 +179,9 @@ final class StrategicBriefService
         $row = DB::table('prospecting_listings')
             ->where('agency_id', $agencyId)
             ->where('is_active', true)
-            ->whereNull('matched_property_id')
+            // Canonical "our on-market stock" exclusion — same pool as the Work tab
+            // (was the old fuzzy whereNull('matched_property_id')).
+            ->where(fn ($q) => app(\App\Services\Prospecting\OnMarketStockService::class)->applyNotStock($q, $agencyId))
             ->whereNull('deleted_at')
             ->whereNotNull('suburb')->where('suburb', '!=', '')
             ->select('suburb', DB::raw('COUNT(*) as c'))

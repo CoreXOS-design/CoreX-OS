@@ -13,6 +13,7 @@ class ProspectingClaim extends Model
     protected $fillable = [
         'agency_id',
         'prospecting_listing_id',
+        'property_id',
         'user_id',
         'status',
         'notes',
@@ -104,6 +105,16 @@ class ProspectingClaim extends Model
     public function listing()
     {
         return $this->belongsTo(ProspectingListing::class, 'prospecting_listing_id');
+    }
+
+    /**
+     * The agency property this claim locks (Pitch Now #4). Rotating portal refs
+     * mean the claim must key on the property so it can't be re-pitched under a
+     * fresh ref. Nullable — a claim for a listing with no matched property yet.
+     */
+    public function property()
+    {
+        return $this->belongsTo(Property::class, 'property_id');
     }
 
     public function user()

@@ -67,11 +67,12 @@ class RegenerateBuyerMatchesJob implements ShouldQueue, ShouldBeUnique
         public readonly bool $truncate = true,
         public readonly ?string $traceId = null,
     ) {
-        // 2026-08-05 incident — this job runs 10-15min per invocation and was
-        // sharing the `default` queue with DeliverAgencyWebhook, starving
-        // website webhook delivery for ~20 minutes. Dedicated lane so a
-        // long/failing run here never blocks anything else. See
-        // .ai/specs/unified-buyer-wishlist-spec.md §9.1 incident note.
+        // 2026-08-05 incident (Johan, ca906ba4) — this job runs 10-15min per
+        // invocation and was sharing the `default` queue with
+        // DeliverAgencyWebhook, starving website webhook delivery for ~20
+        // minutes. Dedicated lane so a long/failing run here never blocks
+        // anything else. See .ai/specs/unified-buyer-wishlist-spec.md §9.1
+        // incident note.
         $this->onQueue('buyer-matching');
     }
 

@@ -235,7 +235,12 @@ class UserManagementController extends Controller
             'branch_id'                   => ($data['branch_id'] ?? null) ?: null,
             'agency_id'                   => auth()->user()?->effectiveAgencyId(),
             'designation'                 => ($data['designation'] ?? null) ?: null,
-            'is_active'                   => true,
+            // Agent Activation Gate (.ai/specs/agent-activation-gate.md) — an invited
+            // agent stays inactive until they set a password and sign in for the first
+            // time. AgencyAdminFirstLoginService flips this on genuine first login. The
+            // test-agent bypass below force-activates immediately, same as it already
+            // force-verifies, since there is no real person expected to sign in.
+            'is_active'                   => false,
             'is_admin'                    => in_array($data['role'], ['admin', 'super_admin']) ? 1 : 0,
             'email_verified_at'           => null,
             'agent_cut_percent'           => $data['agent_cut_percent'] ?? 50,
@@ -277,9 +282,9 @@ class UserManagementController extends Controller
         }
 
         if ($isTestAgent) {
-            // Test-agent flow: mark verified immediately (bypass invite),
-            // force-fill because email_verified_at is not in $fillable.
-            $user->forceFill(['email_verified_at' => now()])->save();
+            // Test-agent flow: mark verified AND active immediately (bypass invite) —
+            // force-fill because email_verified_at/is_active are not both in $fillable.
+            $user->forceFill(['email_verified_at' => now(), 'is_active' => true])->save();
 
             // Register on P24 so the agent gets an ID — on the queue, so the
             // create request returns instantly instead of blocking on P24.
@@ -731,9 +736,17 @@ class UserManagementController extends Controller
         // mark the hold closed even if save() then failed for an unrelated reason,
         // silently defeating the lock: a later reactivation would find no open
         // hold at all. toggle() and restore() already get this order right.
+        // Agent Activation Gate (.ai/specs/agent-activation-gate.md) — first_login_at is
+        // only ever set once, on a genuine first sign-in. A NULL here means this agent
+        // has never activated (still holds the unguessable invite password) — a
+        // role/branch/designation touch must never reactivate or auto-verify them; that
+        // silently strands their invite link (AccountSetupController::show() would see
+        // email_verified_at set and refuse to let them set a password at all). The
+        // AT-278 seat-lock reinstatement gate below applies ONLY to an agent who has
+        // been active before and was later deactivated by an admin.
         $seatLockNote = '';
         $reinstating  = false;
-        if (! $user->is_active) {
+        if (! $user->is_active && $user->first_login_at !== null) {
             try {
                 app(AgentSeatLockService::class)->assertCanReinstate($user, auth()->user());
                 $user->is_active = 1;
@@ -743,7 +756,7 @@ class UserManagementController extends Controller
             }
         }
 
-        if (!$user->email_verified_at) $user->email_verified_at = now();
+        if (!$user->email_verified_at && $user->first_login_at !== null) $user->email_verified_at = now();
 
         AgentSeatLockService::bypass(fn () => $user->save());
 

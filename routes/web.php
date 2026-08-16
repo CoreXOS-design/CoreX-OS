@@ -849,6 +849,9 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
 
 // ===== PROFORMA INVOICES — view/download + ADMIN-ONLY overrides + settings =====
 Route::prefix('proforma')->middleware(['auth', 'feature:proforma-invoices'])->name('proforma.')->group(function () {
+    // Admin/agent-facing list — registered before the {invoice} wildcard so
+    // GET /proforma never gets swallowed by the numeric-invoice route below.
+    Route::get('/',                   [\App\Http\Controllers\Proforma\ProformaController::class, 'index'])->middleware('permission:proforma.view')->name('index');
     Route::get('/{invoice}',          [\App\Http\Controllers\Proforma\ProformaController::class, 'show'])->whereNumber('invoice')->middleware('permission:proforma.generate')->name('show');
     Route::get('/{invoice}/download', [\App\Http\Controllers\Proforma\ProformaController::class, 'download'])->whereNumber('invoice')->middleware('permission:proforma.generate')->name('download');
     // Admin-only (permission re-checked in the controller too).
@@ -2596,6 +2599,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::get('/properties/{property}/outreach/compose',
                 [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'fromProperty'])
                 ->name('from-property');
+            Route::post('/properties/{property}/outreach/compose',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'storeFromProperty'])
+                ->name('store-from-property');
             Route::get('/prospecting/{prospectingListingId}/outreach/compose',
                 [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'fromProspecting'])
                 ->where('prospectingListingId', '\d+')
@@ -3111,6 +3117,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{property}/publish-toggle', [\App\Http\Controllers\CoreX\PropertyController::class, 'publishToggle'])->name('publish-toggle');
         Route::post('/{property}/upload-images',[\App\Http\Controllers\CoreX\PropertyController::class, 'uploadImages'])->name('upload-images');
         Route::post('/{property}/delete-image',[\App\Http\Controllers\CoreX\PropertyController::class, 'deleteImage'])->name('deleteImage');
+        // Bulk gallery delete — "Delete selected" / "Delete all". One transaction,
+        // same permission + HARD-delete semantics as the single delete above.
+        Route::post('/{property}/delete-images',[\App\Http\Controllers\CoreX\PropertyController::class, 'deleteImages'])->name('deleteImages');
         Route::post('/{property}/reorder-images',[\App\Http\Controllers\CoreX\PropertyController::class, 'reorderImages'])->name('reorderImages');
         // Gallery image rotation — sibling of upload/delete/reorder. Browser-only,
         // session-authed (the /api/v1 group has stateful middleware removed for
@@ -3120,6 +3129,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{property}/rental-images/upload',[\App\Http\Controllers\CoreX\PropertyController::class, 'uploadRentalImages'])->name('rental-images.upload');
         Route::post('/{property}/rental-images/save',  [\App\Http\Controllers\CoreX\PropertyController::class, 'saveRentalImagesMeta'])->name('rental-images.save');
         Route::post('/{property}/rental-images/delete',[\App\Http\Controllers\CoreX\PropertyController::class, 'deleteRentalImage'])->name('rental-images.delete');
+        // Bulk rental-image delete — "Delete selected" / "Delete all". One transaction,
+        // same permission + HARD-delete semantics as the single rental delete above.
+        Route::post('/{property}/rental-images/delete-bulk',[\App\Http\Controllers\CoreX\PropertyController::class, 'deleteRentalImages'])->name('rental-images.delete-bulk');
         // Notes
         Route::post('/{property}/notes',                [\App\Http\Controllers\CoreX\PropertyNoteController::class, 'store'])->name('notes.store');
         Route::delete('/{property}/notes/{note}',       [\App\Http\Controllers\CoreX\PropertyNoteController::class, 'destroy'])->name('notes.destroy');

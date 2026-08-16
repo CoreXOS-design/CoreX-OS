@@ -4,6 +4,7 @@ namespace App\Services\Performance;
 
 use App\Services\Performance\Providers\AppointmentsProvider;
 use App\Services\Performance\Providers\BuyersAddedProvider;
+use App\Services\Performance\Providers\CommissionGrossProvider;
 use App\Services\Performance\Providers\ContactsCreatedProvider;
 use App\Services\Performance\Providers\DealsCreatedProvider;
 use App\Services\Performance\Providers\DealsRegisteredProvider;
@@ -39,6 +40,7 @@ class MetricProviderRegistry
             app(FicaSubmissionsProvider::class),
             app(DealsCreatedProvider::class),
             app(DealsRegisteredProvider::class),
+            app(CommissionGrossProvider::class),
         ];
     }
 }

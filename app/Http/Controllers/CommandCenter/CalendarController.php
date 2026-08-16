@@ -754,7 +754,11 @@ class CalendarController extends Controller
         $colour = $this->thresholdResolver->resolveForEvent($calendarEvent);
         $cfg = CalendarEventClassSetting::forAgencyAndClass($calendarEvent->agency_id, $calendarEvent->category);
 
-        $isManual = in_array($calendarEvent->source_type, ['manual', 'manual:demo']);
+        // NULL source_type == manual (see CalendarEvent::isManualSource()). The
+        // old inline in_array() excluded NULL, so a plain user event created via
+        // a path that doesn't stamp source_type came back is_editable:false and
+        // the mobile edit sheet refused to open it.
+        $isManual = $calendarEvent->isManualSource();
 
         // Check current user's invitation status for this event
         $userInvitation = \App\Models\CommandCenter\CalendarEventInvitation::where('event_id', $calendarEvent->id)
@@ -1539,7 +1543,7 @@ class CalendarController extends Controller
         // ITEM 4 — a private event may only be moved by its creator (role-blind).
         if ($calendarEvent->isPrivateHiddenFrom($request->user())) { abort(403); }
 
-        if (!in_array($calendarEvent->source_type, ['manual', 'manual:demo'])) {
+        if (!$calendarEvent->isManualSource()) {
             return response()->json(['error' => 'Source-driven events cannot be rescheduled.'], 422);
         }
 
@@ -1727,7 +1731,7 @@ class CalendarController extends Controller
         // source-driven events (deal steps, birthdays) are removed at their source,
         // not here. Mirrors is_editable, and guards the endpoint against a crafted
         // request soft-deleting a system-generated row.
-        if (!in_array($calendarEvent->source_type, ['manual', 'manual:demo'], true)) {
+        if (!$calendarEvent->isManualSource()) {
             return $request->wantsJson()
                 ? response()->json(['error' => 'This event cannot be deleted from the calendar.'], 422)
                 : back()->with('error', 'This event cannot be deleted from the calendar.');

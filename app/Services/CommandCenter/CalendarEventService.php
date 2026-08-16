@@ -51,6 +51,10 @@ class CalendarEventService
             // in a whereIn list. Default to 'manual' so manual events
             // are visible on both surfaces.
             'category'      => $data['category'] ?? 'manual',
+            // MUST be stamped — is_editable / reschedule / delete all key off
+            // source_type. Leaving it NULL used to render the event read-only
+            // on the calendar surfaces (CalendarEventCreator already stamps it).
+            'source_type'   => $data['source_type'] ?? 'manual',
             'status'        => 'pending',
             'colour'        => $data['colour'] ?? null,
         ]));

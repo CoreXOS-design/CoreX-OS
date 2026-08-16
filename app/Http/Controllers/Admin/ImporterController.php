@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\ConfirmP24PropertyRowJob;
+use App\Jobs\ParseP24ListingsImportJob;
 use App\Jobs\ProcessImporterRunJob;
 use App\Jobs\SendAgentInviteJob;
 use App\Models\Agency;
@@ -17,8 +18,6 @@ use App\Models\Scopes\BranchScope;
 use App\Models\User;
 use App\Notifications\OnboardingPortalInvitation;
 use App\Services\Importer\P24AgentsCsvParser;
-use App\Services\Importer\P24ImagesCsvParser;
-use App\Services\Importer\P24ListingsCsvParser;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -212,87 +211,13 @@ class ImporterController extends Controller
             'mark_compliant_on_confirm' => $request->boolean('mark_compliant_on_confirm'),
         ]);
 
-        try {
-            $listings = (new P24ListingsCsvParser())->parse(\Storage::path($listingsPath));
-            $images   = (new P24ImagesCsvParser())->parse(\Storage::path($imagesPath));
-
-            $totalImages = array_sum(array_map('count', $images));
-            $counts = [
-                'listings'      => count($listings),
-                'images_total'  => $totalImages,
-                'listings_with_images' => count(array_intersect_key($images, array_flip(array_column($listings, 'external_id')))),
-            ];
-
-            // Build agent resolver map: p24_agent_id → users.id for this agency
-            $agentMap = User::withoutGlobalScopes()
-                ->where('agency_id', $agencyId)
-                ->whereNotNull('p24_agent_id')
-                ->pluck('id', 'p24_agent_id')
-                ->toArray();
-
-            // Fallback owner for listings whose P24 agent isn't in this agency.
-            // Rather than fail the row, assign it to an active admin so the
-            // listing still imports; it can be reassigned from the portal
-            // later. Prefer the admin running the import. The Agency Admin
-            // Rule (User::booted) guarantees ≥1 active admin per agency.
-            $fallbackAdmin = User::withoutGlobalScopes()
-                ->where('agency_id', $agencyId)
-                ->where('role', 'admin')
-                ->where('is_active', 1)
-                ->orderByRaw('CASE WHEN id = ? THEN 0 ELSE 1 END', [auth()->id()])
-                ->orderBy('id')
-                ->first();
-            $fallbackAdminId = $fallbackAdmin?->id;
-
-            foreach ($listings as $r) {
-                $errors = $r['errors'];
-                $primary = $r['primary_agent_p24'];
-                $resolvedId = $primary ? ($agentMap[$primary] ?? null) : null;
-                if (!$resolvedId) {
-                    if ($fallbackAdminId) {
-                        // Auto-assign to admin so the listing imports. Keep the
-                        // "Primary agent not resolved" phrase so the reassign
-                        // endpoints can detect and clear this note.
-                        $resolvedId = $fallbackAdminId;
-                        $errors[] = 'Primary agent not resolved (p24_agent_id=' . ($primary ?? 'null')
-                            . ') — auto-assigned to ' . ($fallbackAdmin->name ?? 'admin') . '; reassign if needed.';
-                    } else {
-                        // No admin to fall back to — keep it a hard error.
-                        $errors[] = 'Primary agent not resolved (p24_agent_id=' . ($primary ?? 'null') . ')';
-                    }
-                }
-
-                $urls = $images[$r['external_id']] ?? [];
-
-                // A row only blocks (status=error) on a fatal parser problem,
-                // or an unresolved agent with no admin fallback. An auto-assigned
-                // listing is importable, so it stays pending.
-                $isError = !empty($r['errors']) || !$resolvedId;
-
-                P24ImportRow::create([
-                    'run_id'            => $run->id,
-                    'row_type'          => 'listing',
-                    'external_id'       => $r['external_id'],
-                    'payload_json'      => $r['payload'],
-                    'mapped_json'       => $r['mapped'],
-                    'resolved_agent_id' => $resolvedId,
-                    'image_urls_json'   => $urls,
-                    'errors_json'       => $errors ?: null,
-                    'action'            => $r['action'],
-                    'status'            => $isError ? 'error' : 'pending',
-                ]);
-            }
-
-            $run->update(['status' => 'pending_confirm', 'counts_json' => $counts]);
-        } catch (\Throwable $e) {
-            $run->update(['status' => 'failed', 'error_message' => $e->getMessage()]);
-            if ($request->ajax() || $request->expectsJson()) {
-                return response()->json(['errors' => ['listings_csv' => ['Parse failed: ' . $e->getMessage()]]], 422);
-            }
-            return back()->withErrors(['listings_csv' => 'Parse failed: ' . $e->getMessage()]);
-        }
-
-        // Each listings upload gets its own portal so prior runs stay isolated.
+        // Async parse (.ai/specs/importer-async-parse.md) — thousands of
+        // individual P24ImportRow inserts used to run fully synchronously in
+        // this request; for a large agency that request could run long enough
+        // to interact badly with session/CSRF handling under load (observed
+        // live 2026-08-14, 4,753 listings). The portal is created NOW, before
+        // parsing even starts, so the admin gets a shareable link immediately;
+        // the review page shows a "still parsing" state until the job finishes.
         $agency = Agency::find($agencyId);
         $label  = ($agency?->name ?? 'Agency') . ' · ' . now()->format('Y-m-d H:i');
         $portal = P24OnboardingPortal::create([
@@ -310,9 +235,13 @@ class ImporterController extends Controller
             'actor_type'  => 'admin',
             'actor_label' => auth()->user()?->name ?? 'admin',
             'event'       => 'portal.created',
-            'meta_json'   => ['auto' => true, 'run_id' => $run->id, 'rows' => $counts['listings'] ?? null],
+            // Row count is not yet known — parsing has not started. Unlike the
+            // pre-fix synchronous flow, this event fires before that count exists.
+            'meta_json'   => ['auto' => true, 'run_id' => $run->id, 'rows' => null],
             'ip'          => $request->ip(),
         ]);
+
+        ParseP24ListingsImportJob::dispatch($run->id);
 
         if ($request->ajax() || $request->expectsJson()) {
             return response()->json([
@@ -321,7 +250,7 @@ class ImporterController extends Controller
             ]);
         }
         return redirect()->route('admin.importer.review', ['run_id' => $run->id])
-            ->with('status', 'Upload complete. Review link: ' . $portal->publicUrl());
+            ->with('status', 'Upload received — parsing in the background. Review link: ' . $portal->publicUrl());
     }
 
     /**

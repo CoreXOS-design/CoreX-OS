@@ -64,6 +64,21 @@ class MarketIntelligenceController extends Controller
         $agencyId = $user->effectiveAgencyId() ?? $user->agency_id ?? 1;
         $isProspectingManager = $user?->hasPermission('prospecting_setup.manage') ?? false;
 
+        // Tick refresh (cc6): an AJAX filter toggle requests ?_fragments=1 and is
+        // answered with ONLY the listings + stats-strip + filter-rail + header-actions
+        // fragments (JSON), not a full-page render — so a tick never reloads the page.
+        // Every full-page-only shell computation below is guarded out for these
+        // requests (that is the whole speed win); the fragment branch returns just
+        // after the shared shell data (KPIs / rail counts / suggested actions) is built.
+        $isFragment = $request->boolean('_fragments');
+        // Now that $isFragment is captured, strip _fragments from the query bag so it
+        // never leaks into any URL this request builds — the paginator's baked query
+        // (LengthAwarePaginator options['query']), the filter-rail/sort links, and the
+        // canonical push-state URL. Previously stripped only inside the fragment branch,
+        // AFTER the paginator was built, so page links carried _fragments=1 and a
+        // full-navigation "next page" click hit the JSON branch → raw JSON dump.
+        $request->query->remove('_fragments');
+
         // F.3 — the legacy ->with('activeClaim.user') eager-load is gone.
         // All claim state for the row is now read from $listingStates['claims']
         // (populated by ProspectingListingStateEnricher::loadClaims in one
@@ -103,17 +118,56 @@ class MarketIntelligenceController extends Controller
             $query->whereDoesntHave('activeClaim', function ($q) {
                 $q->whereNotNull('pitched_at');
             });
-        }
 
-        // BUG 3 — a listing flagged sole/exclusive mandate is already spoken
-        // for by another agency; canvassing it is a professional courtesy
-        // issue, not an opportunity. Default-exclude, same shape as the
-        // in-stock/pitch-lock toggles above. ?include_mandated=1 reveals them.
-        if (! $request->boolean('include_mandated')) {
-            $query->where(function ($q) {
-                $q->whereNull('mandate_type')
-                    ->orWhereRaw('LOWER(mandate_type) NOT IN (?, ?)', ['sole', 'exclusive']);
-            });
+            // Pitch Now #4 — PROPERTY-level pitch lock (rotating-ref safe). Portal
+            // refs rotate, so the same property returns under a new ref whose OWN
+            // activeClaim is null. Hide EVERY listing that resolves to a property
+            // already held by an active pitched claim (keyed on the claim's
+            // property_id), not just the ref that happened to be pitched.
+            $pitchedClaimPropertyIds = ProspectingClaim::where('agency_id', $agencyId)
+                ->where('is_active', true)
+                ->whereNull('released_at')
+                ->whereNotNull('pitched_at')
+                ->whereNotNull('property_id')
+                ->distinct()
+                ->pluck('property_id')
+                ->all();
+            if (! empty($pitchedClaimPropertyIds)) {
+                // NULL-safe: a listing with no matched property stays in the pool.
+                $query->where(function ($q) use ($pitchedClaimPropertyIds) {
+                    $q->whereNull('matched_property_id')
+                      ->orWhereNotIn('matched_property_id', $pitchedClaimPropertyIds);
+                });
+            }
+
+            // ADDRESS-level pitch lock — the property-level lock above keys on
+            // matched_property_id, which is NEVER set when the pitched property is an
+            // OFF-MARKET DRAFT (the matcher is on-market gated). A "Pitch now" on an
+            // address-less listing creates exactly such a draft, so its cross-portal /
+            // rotating-ref twins (same normalized_address, different ref) stayed
+            // "unclaimed". Hide every listing sharing a pitched-claimed listing's
+            // normalized_address — robust regardless of the property's status.
+            // Raw DB::table (NOT the ProspectingClaim model) — the model's SoftDeletes
+            // scope would inject `prospecting_claims.deleted_at` while the table is
+            // aliased `c`, throwing 1054. Filter deleted rows explicitly on the alias.
+            $pitchedClaimNormAddrs = DB::table('prospecting_claims as c')
+                ->join('prospecting_listings as cl', 'cl.id', '=', 'c.prospecting_listing_id')
+                ->where('c.agency_id', $agencyId)
+                ->where('c.is_active', true)
+                ->whereNull('c.deleted_at')
+                ->whereNull('c.released_at')
+                ->whereNotNull('c.pitched_at')
+                ->whereNotNull('cl.normalized_address')
+                ->where('cl.normalized_address', '<>', '')
+                ->distinct()
+                ->pluck('cl.normalized_address')
+                ->all();
+            if (! empty($pitchedClaimNormAddrs)) {
+                $query->where(function ($q) use ($pitchedClaimNormAddrs) {
+                    $q->whereNull('normalized_address')
+                      ->orWhereNotIn('normalized_address', $pitchedClaimNormAddrs);
+                });
+            }
         }
 
         // Filters
@@ -186,11 +240,17 @@ class MarketIntelligenceController extends Controller
 
         // Stock match filter (legacy ?stock_filter= explicit override — still honoured
         // when the manager wants to inspect just the in-stock or out-of-stock subset).
+        // 2026-08-11 fix — was whereNotNull/whereNull('matched_property_id'), the raw
+        // ungated column (same bug class as the buyer-matches panel / suggested-action
+        // chips): a listing matched to an off-market/withdrawn property showed under
+        // ?stock_filter=in_stock and was wrongly excluded from not_in_stock. Routed
+        // through the canonical on-market-gated identity instead.
         if ($request->filled('stock_filter')) {
+            $onMarketStock = app(\App\Services\Prospecting\OnMarketStockService::class);
             if ($request->stock_filter === 'in_stock') {
-                $query->whereNotNull('matched_property_id');
+                $onMarketStock->applyIsStock($query, $agencyId);
             } elseif ($request->stock_filter === 'not_in_stock') {
-                $query->whereNull('matched_property_id');
+                $onMarketStock->applyNotStock($query, $agencyId);
             }
         }
 
@@ -537,6 +597,60 @@ class MarketIntelligenceController extends Controller
             $rows = $rows->sortByDesc('selected_buyer_score')->values();
         }
 
+        // #2 — property-backed in-stock rows. When a manager toggles "show in stock",
+        // the list should reflect our REAL on-market stock for the suburb (from the
+        // properties table via OnMarketStockService), not only the handful of
+        // properties that happen to have a scraped listing. Inject a synthetic,
+        // read-only row for each on-market owned property (honouring the active
+        // LITERAL suburb filter) that has NO representing listing in the current
+        // result, so the in-stock view + count match the KPI (e.g. Uvongo 14, not ~5).
+        // Sentinel id = -propertyId; flagged is_property_stock so the row template
+        // renders it non-interactively (links to the Property, no listing slideover).
+        // Per-suburb count of injected synthetic rows — fed to the filter rail so its
+        // by-suburb count reflects the surfaced stock too (list total ⇄ rail agree).
+        $injectedStockCountBySuburb = [];
+        if ($request->boolean('include_in_stock') && $isProspectingManager) {
+            $onMarketStock = app(\App\Services\Prospecting\OnMarketStockService::class);
+            // Which on-market properties are ALREADY represented by a company-stock
+            // listing in this result — by the canonical ref/normaddr identity (the
+            // same definition the IN STOCK badge uses), NOT the fuzzy matched_property_id.
+            $stockIdentity = $onMarketStock->stockMapForListings($rows, $agencyId); // [listing_id => property_id]
+            $representedPropertyIds = array_values(array_unique(array_map('intval', $stockIdentity)));
+            $stockProps = \App\Models\Property::withoutGlobalScopes()
+                ->onMarket()
+                ->where('agency_id', $agencyId)
+                ->whereNull('deleted_at')
+                ->when($request->filled('suburb'), fn ($q) => $q->where('suburb', $request->get('suburb')))
+                ->when(! empty($representedPropertyIds), fn ($q) => $q->whereNotIn('id', $representedPropertyIds))
+                ->get(['id', 'address', 'suburb', 'beds', 'baths', 'garages', 'price', 'property_type']);
+            $injectedStockCountBySuburb = $stockProps->groupBy('suburb')->map->count()->toArray();
+            foreach ($stockProps as $p) {
+                $syn = new ProspectingListing();
+                $syn->id = -1 * (int) $p->id;      // sentinel — never collides with a real listing id
+                $syn->matched_property_id = (int) $p->id;
+                $syn->is_property_stock = true;    // dynamic flag read by _listing-row
+                $syn->address = $p->address;
+                $syn->suburb = $p->suburb;
+                $syn->bedrooms = $p->beds;
+                $syn->bathrooms = $p->baths;
+                $syn->garages = $p->garages;
+                $syn->price = $p->price;
+                $syn->property_type = $p->property_type;
+                $syn->portal_ref = null;
+                $syn->portal_url = route('corex.properties.show', $p->id);
+                $syn->buyer_match_count = 0;
+                $rows->push($syn);
+            }
+
+            // Surface our stock: float ALL on-market stock rows (the real company-stock
+            // listings identified above + the synthetic property rows) to the TOP so the
+            // manager sees the full per-suburb stock at a glance (matching the KPI), not
+            // buried deep in the pool. Stable within each group (PHP 8 sort).
+            $rows = $rows->sortBy(fn ($r) =>
+                (($r->is_property_stock ?? false) || isset($stockIdentity[$r->id])) ? 0 : 1
+            )->values();
+        }
+
         $page = $request->get('page', 1);
         $perPage = 50;
         $listings = new LengthAwarePaginator(
@@ -548,22 +662,48 @@ class MarketIntelligenceController extends Controller
         );
 
         // Company-stock map for the visible page (Johan's model): listing_id →
-        // agency Property id, by EXACT portal_ref match. Powers the IN STOCK badge
-        // and the company-logo-in-place-of-pitch treatment on the tile. One join.
-        $companyStockMap = [];
-        $companyStockRefMap = ProspectingListing::companyStockRefMapFor($agencyId);
-        if (!empty($companyStockRefMap)) {
-            foreach ($listings->items() as $it) {
-                if (isset($companyStockRefMap[$it->portal_ref])) {
-                    $companyStockMap[(int) $it->id] = $companyStockRefMap[$it->portal_ref];
+        // agency Property id, by exact portal_ref OR exact normalized_address match
+        // to an ON-MARKET owned property (canonical OnMarketStockService). Powers the
+        // IN STOCK badge + the company-logo-in-place-of-pitch tile. Some rows that the
+        // old exact-ref-only map missed now correctly gain the tile (address match);
+        // rows matching an off-market property correctly lose it.
+        $companyStockMap = app(\App\Services\Prospecting\OnMarketStockService::class)
+            ->stockMapForListings($listings->items(), $agencyId);
+        // #2 — synthetic property-backed rows ARE our stock by construction; badge them
+        // IN STOCK / company-tile directly (they carry no portal_ref for stockMapForListings).
+        foreach ($listings->items() as $__row) {
+            if (($__row->is_property_stock ?? false) && $__row->matched_property_id) {
+                $companyStockMap[$__row->id] = (int) $__row->matched_property_id;
+            }
+        }
+
+        // #3 — a company-stock listing scraped WITHOUT an address renders a blank
+        // row even though we hold the matched property (which has an address). Since
+        // it IS our stock, show the MATCHED PROPERTY's address: hydrate the row's
+        // address from the property when the listing's own address is blank. Only
+        // touches company-stock rows; prospecting rows keep their own address.
+        if (! empty($companyStockMap)) {
+            $companyPropAddresses = \App\Models\Property::withoutGlobalScopes()
+                ->whereIn('id', array_values($companyStockMap))
+                ->pluck('address', 'id');
+            foreach ($listings->items() as $__it) {
+                $__pid = $companyStockMap[$__it->id] ?? null;
+                if ($__pid && blank($__it->address) && filled($companyPropAddresses[$__pid] ?? null)) {
+                    $__it->address = $companyPropAddresses[$__pid];
                 }
             }
         }
+
         $agencyRecord = \App\Models\Agency::find($agencyId);
         $agencyLogoUrl = ($agencyRecord && $agencyRecord->logo_path)
             ? asset('storage/' . $agencyRecord->logo_path)
             : null;
 
+        // Full-page shell only: the top-bar $stats and the suburb/type dropdown
+        // lists are not rendered by the fragment partials, so the tick path skips
+        // them (the fragment stats-strip reads $snapshotKpis, the rail reads
+        // $filterRailAggregates — both computed below on every path).
+        if (! $isFragment) {
         // Stats — also reflect the same in-stock filter the user has selected so
         // the headline counts agree with the table below them.
         $statsBase = ProspectingListing::where('agency_id', $agencyId)->where('is_active', true);
@@ -592,17 +732,21 @@ class MarketIntelligenceController extends Controller
             ->count('prospecting_buyer_matches.prospecting_listing_id');
 
         $stats = [
-            'total'            => (clone $statsBase)->count(),
+            // Pool total as DISTINCT properties (rotating-ref de-dup) — consistent
+            // with the $active KPI + the per-suburb facet counts.
+            'total'            => (int) (clone $statsBase)->selectRaw(
+                                    app(\App\Services\Prospecting\OnMarketStockService::class)->distinctPropertyCountSql() . ' as c'
+                                  )->value('c'),
             'avg_price'        => (int) (clone $statsBase)->avg('price'),
             'new_this_week'    => (clone $statsBase)->where('first_seen_at', '>=', $weekAgo)->count(),
             'price_reductions' => ProspectingListing::where('agency_id', $agencyId)
                                     ->where('price_changed_at', '>=', $weekAgo)->count(),
             'cross_listed'     => $crossListed,
             'buyer_matched'    => $matchedListingCount,
-            'in_stock'         => ProspectingListing::where('agency_id', $agencyId)
-                                    ->where('is_active', true)
-                                    ->whereCompanyStock($agencyId)
-                                    ->count(),
+            // TRUE in-stock = count of our ON-MARKET owned properties (canonical
+            // OnMarketStockService), not the exact-ref listing match that undercounts.
+            'in_stock'         => app(\App\Services\Prospecting\OnMarketStockService::class)
+                                    ->totalCount($agencyId),
         ];
 
         $suburbs = ProspectingListing::where('agency_id', $agencyId)
@@ -612,7 +756,9 @@ class MarketIntelligenceController extends Controller
         $propertyTypes = ProspectingListing::where('agency_id', $agencyId)
             ->whereNotNull('property_type')->where('property_type', '!=', '')
             ->distinct()->orderBy('property_type')->pluck('property_type');
+        } // end !$isFragment (stats + facet lists)
 
+        // $users feeds the filter rail "captured by" list — needed on both paths.
         $users = User::whereIn('id',
             ProspectingListing::where('agency_id', $agencyId)
                 ->distinct()->pluck('captured_by_user_id')
@@ -687,6 +833,8 @@ class MarketIntelligenceController extends Controller
             ->sortBy('label')
             ->values();
 
+        // Claim-stat headline + match regeneration flag — full-page shell only.
+        if (! $isFragment) {
         $claimStats = [
             'my_claims'     => ProspectingClaim::where('user_id', $user->id)->active()->count(),
             'total_claimed' => ProspectingClaim::where('agency_id', $agencyId)->active()->count(),
@@ -698,8 +846,17 @@ class MarketIntelligenceController extends Controller
         ];
 
         $regenerating = app(\App\Services\PropertyMatchScoringService::class)->isRegenerating();
+        } // end !$isFragment (claim stats + regenerating flag)
 
         $setupSvc                          = app(\App\Services\Prospecting\ProspectingConfigurationService::class);
+        // Sale price bands feed the filter rail "By price band" section — both paths.
+        $prospectingSetupPriceBandsSale    = $setupSvc->priceBandsFor($agencyId, 'sale');
+
+        // Setup-wizard datasets + the redundant second listing resolution
+        // ($resolvedListings/$snapshot/$segmentLabels — the double-resolution flagged
+        // as a separate task) are full-page-only. The fragment partials render none
+        // of them, so the tick path skips this whole block (biggest single saving).
+        if (! $isFragment) {
         $prospectingSetupTowns             = \App\Models\Prospecting\Town::withoutGlobalScopes()
                                                 ->where('agency_id', $agencyId)
                                                 ->orderBy('display_order')
@@ -708,7 +865,6 @@ class MarketIntelligenceController extends Controller
                                                 ->get();
         $prospectingSetupPropertyTypes     = $setupSvc->propertyTypes($agencyId, activeOnly: false);
         $prospectingSetupBedroomSegments   = $setupSvc->bedroomSegments($agencyId);
-        $prospectingSetupPriceBandsSale    = $setupSvc->priceBandsFor($agencyId, 'sale');
         $prospectingSetupPriceBandsRental  = $setupSvc->priceBandsFor($agencyId, 'rental');
         $prospectingSetupSuggestionRegions = app(\App\Services\Prospecting\RegionSuggestionService::class)->regions();
         $prospectingSetupUnmappedSuburbs   = $setupSvc->unmappedSuburbsFor($agencyId);
@@ -721,6 +877,7 @@ class MarketIntelligenceController extends Controller
             page:    (int) ($request->query('page') ?: 1),
         );
         $segmentLabels   = $this->buildSegmentLabelMap($config, $agencyId);
+        } // end !$isFragment (setup-wizard data + redundant double-resolution)
 
         $listingStates = app(\App\Services\Prospecting\ProspectingListingStateEnricher::class)
             ->enrich($listings->items(), $agencyId);
@@ -748,6 +905,11 @@ class MarketIntelligenceController extends Controller
                                      && isset($listingStates['promotions'][(int) $listingItem->matched_property_id]),
                 'needs_reminder'  => $listingStates['claims'][$listingItem->id]['needs_reminder'] ?? false,
                 'needs_bm_flag'   => $listingStates['claims'][$listingItem->id]['needs_bm_flag']  ?? false,
+                // 2026-08-11 fix — on-market-gated stock identity (same
+                // $companyStockMap the IN STOCK badge uses), NOT the raw
+                // matched_property_id column. Feeds SuggestedActionResolver's
+                // R5/R6/R7/R10 in-stock gate + property links.
+                'company_stock_property_id' => $companyStockMap[$listingItem->id] ?? null,
             ];
             $tierSlice = [
                 'strong'    => $buyerTiers[$listingItem->id]['strong']    ?? 0,
@@ -773,14 +935,81 @@ class MarketIntelligenceController extends Controller
         $includeInStock = $request->boolean('include_in_stock') && $isProspectingManager;
         // BUG B — pass the filtered count bases captured above so the KPI tiles and
         // filter-rail counts move with the same filters as the list.
-        $snapshotKpis = $this->computeSnapshotKpis($agencyId, $includeInStock, $kpiCountBase);
+        // Pass the active LITERAL suburb filter so the in-stock KPI reflects that
+        // suburb's real on-market owned-property count (canonical OnMarketStockService).
+        $snapshotKpis = $this->computeSnapshotKpis(
+            $agencyId,
+            $includeInStock,
+            $kpiCountBase,
+            $request->filled('suburb') ? (string) $request->get('suburb') : null,
+        );
         $actionPresetCounts = $this->computeActionPresetCounts(
             $agencyId,
             $user?->id !== null ? (int) $user->id : null,
             $thresholdsForPreset,
+            // Suburb-scope the preset tiles (Pitch now·high / My claims / Expiring) so
+            // they honour the active LITERAL suburb filter like the rest of the strip,
+            // instead of leaking agency-wide counts (e.g. Pitch now·high 2,537).
+            $request->filled('suburb') ? (string) $request->get('suburb') : null,
         );
-        $filterRailAggregates = $this->computeFilterRailAggregates($agencyId, $includeInStock, $railCountBase);
+        $filterRailAggregates = $this->computeFilterRailAggregates(
+            $agencyId,
+            $includeInStock,
+            $railCountBase,
+            // #1 — always keep the active suburb in the rail; #2 — add its surfaced
+            // synthetic-stock count so the rail agrees with the (stock-inclusive) list.
+            $request->filled('suburb') ? (string) $request->get('suburb') : null,
+            $injectedStockCountBySuburb,
+        );
         $demandPockets = $this->computeDemandPockets($agencyId, $thresholdsForPreset);
+
+        // ── Tick refresh (cc6): AJAX fragment response ──────────────────────────
+        // Everything the four swapped partials read is now built. Return just those
+        // fragments as JSON — no full-page shell, no reload. Strip the _fragments
+        // flag first so the links the partials render (and the pushState URL) carry
+        // only real filter params.
+        if ($isFragment) {
+            // _fragments was already stripped from the query bag right after capture
+            // (see top of work()), so the partial links are clean. Build the canonical
+            // push-state URL explicitly — fullUrl() reads the raw QUERY_STRING, which
+            // the bag mutation does not touch.
+            $canonicalParams = $request->except('_fragments');
+            $canonicalUrl = $request->url()
+                . (empty($canonicalParams) ? '' : ('?' . http_build_query($canonicalParams)));
+
+            $fragmentData = [
+                'listings'                       => $listings,
+                'listingStates'                  => $listingStates,
+                'buyerTiers'                     => $buyerTiers,
+                'tierConfig'                     => $tierConfig,
+                'suggestedActions'               => $suggestedActions,
+                'selectedBuyer'                  => $selectedBuyer,
+                'isProspectingManager'           => $isProspectingManager,
+                'companyStockMap'                => $companyStockMap,
+                'agencyLogoUrl'                  => $agencyLogoUrl,
+                'snapshotKpis'                   => $snapshotKpis,
+                'actionPresetCounts'             => $actionPresetCounts,
+                'actionPreset'                   => $actionPreset,
+                'filterRailAggregates'           => $filterRailAggregates,
+                'demandPockets'                  => $demandPockets,
+                'micBuyers'                      => $micBuyers,
+                'micRegions'                     => $micRegions,
+                'buyerScope'                     => $buyerScope,
+                'buyerScopeOptions'              => $buyerScopeOptions,
+                'activeBuyerId'                  => $activeBuyerId,
+                'users'                          => $users,
+                'prospectingSetupPriceBandsSale' => $prospectingSetupPriceBandsSale,
+                'includeInStock'                 => $includeInStock,
+            ];
+
+            return response()->json([
+                'listings'      => view('corex.market-intelligence._listings', $fragmentData)->render(),
+                'statsStrip'    => view('corex.market-intelligence._stats-strip', $fragmentData)->render(),
+                'filterRail'    => view('corex.market-intelligence._filter-rail', $fragmentData)->render(),
+                'headerActions' => view('corex.market-intelligence.partials._header-actions', $fragmentData)->render(),
+                'url'           => $canonicalUrl,
+            ]);
+        }
 
         // Sidebar count badge — drives V12. Mirrors the sidebar-count precedent
         // (see corex-sidebar.blade.php pendingVerificationCount / faultNewCount
@@ -833,7 +1062,10 @@ class MarketIntelligenceController extends Controller
             // Phase D2 — This Week hero
             'tiles', 'tilesGeneratedAt',
             // Company stock (exact portal_ref) — IN STOCK badge + company logo tile
-            'companyStockMap', 'agencyLogoUrl'
+            'companyStockMap', 'agencyLogoUrl',
+            // Trust-strip (display-only) — already-computed synthetic-row breakdown,
+            // just wired through so the list header can show its composition.
+            'injectedStockCountBySuburb',
         ));
     }
 
@@ -1943,8 +2175,10 @@ class MarketIntelligenceController extends Controller
      */
     private function applyNotCompanyStockRaw($query, int $agencyId)
     {
-        $refs = ProspectingListing::companyStockRefsFor($agencyId);
-        return empty($refs) ? $query : $query->whereNotIn('portal_ref', $refs);
+        // Canonical canvass-pool exclusion (on-market stock by ref OR normalized_address,
+        // NULL-safe) for RAW DB::table builders — same source of truth as the scope.
+        return app(\App\Services\Prospecting\OnMarketStockService::class)
+            ->applyNotStock($query, $agencyId);
     }
 
     /**
@@ -1986,7 +2220,7 @@ class MarketIntelligenceController extends Controller
      * canvass pool (or full set when audit toggle is on) plus a tiny aggregate
      * for cross-listed groups.
      */
-    protected function computeSnapshotKpis(int $agencyId, bool $includeInStock, $scopedBase = null): array
+    protected function computeSnapshotKpis(int $agencyId, bool $includeInStock, $scopedBase = null, ?string $suburbFilter = null): array
     {
         // BUG B — when the caller (Work mode) hands us the filtered list query, the
         // pool metrics count from THAT exact query so the KPI tiles move with every
@@ -2004,7 +2238,22 @@ class MarketIntelligenceController extends Controller
             }
         }
 
-        $active = (clone $baseQuery)->count();
+        // Perf (cc6): the pool scalars ($active + $new_today) share ONE base query,
+        // so compute them in a single pass instead of two separate scans.
+        // De-dup: $active is the pool TOTAL, counted as DISTINCT properties (canonical
+        // group = portal_source + normalized_address) so rotating-ref re-scrapes of the
+        // same property don't inflate it. $new_today stays a raw row count (it's a
+        // "new since midnight" signal, not the headline total).
+        $onMarketStock = app(\App\Services\Prospecting\OnMarketStockService::class);
+        $poolScalars = (clone $baseQuery)
+            ->selectRaw(
+                $onMarketStock->distinctPropertyCountSql() . ' as active_count, '
+                . 'SUM(CASE WHEN first_seen_at >= ? THEN 1 ELSE 0 END) as new_today_count',
+                [now()->startOfDay()->toDateTimeString()]
+            )
+            ->first();
+        $active   = (int) ($poolScalars->active_count ?? 0);
+        $newToday = (int) ($poolScalars->new_today_count ?? 0);
 
         // AT-75 — threshold-anchored, two honest units (NOT "any match ≥1%").
         //   buyers_matched     = distinct countable buyers with a real canonical
@@ -2013,24 +2262,25 @@ class MarketIntelligenceController extends Controller
         // Only countable buyers are ever cached (AT-71), so distinct contact_id
         // here is the distinct-countable-buyer truth.
         $threshold = AgencyContactSettings::forAgency($agencyId)->micMatchThreshold();
-        $matchAtThreshold = DB::table('prospecting_buyer_matches')
+        // Perf (cc6): both distinct-counts come from ONE pass over the same match
+        // set rather than two identical scans. Same COUNT(DISTINCT …) semantics.
+        $matchAgg = DB::table('prospecting_buyer_matches')
             ->where('agency_id', $agencyId)
             ->whereNull('dismissed_at')
             ->where('score', '>=', $threshold)
-            ->whereIn('prospecting_listing_id', (clone $baseQuery)->select('id'));
+            ->whereIn('prospecting_listing_id', (clone $baseQuery)->select('id'))
+            ->selectRaw('COUNT(DISTINCT contact_id) as bm, COUNT(DISTINCT prospecting_listing_id) as pm')
+            ->first();
+        $buyersMatched     = (int) ($matchAgg->bm ?? 0);
+        $propertiesMatched = (int) ($matchAgg->pm ?? 0);
 
-        $buyersMatched     = (clone $matchAtThreshold)->distinct()->count('contact_id');
-        $propertiesMatched = (clone $matchAtThreshold)->distinct()->count('prospecting_listing_id');
-
-        $inStock = ProspectingListing::where('agency_id', $agencyId)
-            ->where('is_active', true)
-            ->whereCompanyStock($agencyId)
-            ->whereNull('deleted_at')
-            ->count();
-
-        $newToday = (clone $baseQuery)
-            ->where('first_seen_at', '>=', now()->startOfDay())
-            ->count();
+        // In-stock = the TRUE count of our ON-MARKET owned PROPERTIES (canonical
+        // OnMarketStockService), driven from the properties table — NOT the
+        // exact-ref listing match that undercounts. A DIFFERENT population from the
+        // canvass pool. Honours the active LITERAL suburb filter so a suburb-filtered
+        // view shows that suburb's real on-market stock (Uvongo → 14, not 6).
+        $inStock = app(\App\Services\Prospecting\OnMarketStockService::class)
+            ->totalCount($agencyId, $suburbFilter);
 
         // Cross-listed: same property_group_id appearing on >1 portal_source.
         // Derived from $baseQuery so it honours the SAME canvass-pool + active
@@ -2065,8 +2315,10 @@ class MarketIntelligenceController extends Controller
         int $agencyId,
         ?int $viewerId,
         SuggestedActionThresholds $thresholds,
+        ?string $suburbFilter = null,
     ): array {
         $strongMin = (int) $thresholds->high_value_strong_min;
+        $hasSuburb = $suburbFilter !== null && trim($suburbFilter) !== '';
 
         // Listing IDs with at least one strong-tier match
         $strongMatches = DB::table('prospecting_buyer_matches')
@@ -2092,8 +2344,14 @@ class MarketIntelligenceController extends Controller
 
         $canvassPool = ProspectingListing::where('agency_id', $agencyId)
             ->where('is_active', true)
-            ->whereNull('matched_property_id')
+            // Canonical canvass pool: exclude our own on-market stock (ref OR
+            // normalized_address, OnMarketStockService) — the SAME definition the
+            // list/KPI use. Was the old fuzzy whereNull('matched_property_id'), which
+            // slightly over-counted pitch_now_high (cc3). NULL-safe via the scope.
+            ->whereNotCompanyStock($agencyId)
             ->whereNull('deleted_at')
+            // Suburb-scope so Pitch now·high / Pitch now honour the active filter.
+            ->when($hasSuburb, fn ($q) => $q->where('suburb', $suburbFilter))
             ->pluck('id')->all();
 
         $pitchHigh = count(array_intersect($pitchHighIds, $canvassPool)) -
@@ -2115,6 +2373,7 @@ class MarketIntelligenceController extends Controller
                     $q->whereNull('s.outcome')->orWhere('s.outcome', 'sent');
                 })
                 ->whereBetween('s.sent_at', [$stale, $overdue])
+                ->when($hasSuburb, fn ($q) => $q->where('pl.suburb', $suburbFilter))
                 ->distinct()->count(DB::raw('pl.id'));
         }
 
@@ -2122,21 +2381,28 @@ class MarketIntelligenceController extends Controller
         $myClaims = 0;
         $expiring = 0;
         if ($viewerId !== null) {
-            $myClaims = DB::table('prospecting_claims')
-                ->where('agency_id', $agencyId)
-                ->where('user_id', $viewerId)
-                ->where('is_active', true)
-                ->whereNull('released_at')
+            // Suburb-scope owner claim tiles via the claim's listing suburb.
+            $myClaims = DB::table('prospecting_claims as c')
+                ->where('c.agency_id', $agencyId)
+                ->where('c.user_id', $viewerId)
+                ->where('c.is_active', true)
+                ->whereNull('c.released_at')
+                ->when($hasSuburb, fn ($q) => $q
+                    ->join('prospecting_listings as pl', 'pl.id', '=', 'c.prospecting_listing_id')
+                    ->where('pl.suburb', $suburbFilter))
                 ->count();
 
             $hoursOlderThan = 48 - (int) $thresholds->expiry_warning_hours;
-            $expiring = DB::table('prospecting_claims')
-                ->where('agency_id', $agencyId)
-                ->where('user_id', $viewerId)
-                ->where('is_active', true)
-                ->whereNull('released_at')
-                ->whereNull('feedback_at')
-                ->where('last_updated_at', '<=', now()->subHours($hoursOlderThan))
+            $expiring = DB::table('prospecting_claims as c')
+                ->where('c.agency_id', $agencyId)
+                ->where('c.user_id', $viewerId)
+                ->where('c.is_active', true)
+                ->whereNull('c.released_at')
+                ->whereNull('c.feedback_at')
+                ->where('c.last_updated_at', '<=', now()->subHours($hoursOlderThan))
+                ->when($hasSuburb, fn ($q) => $q
+                    ->join('prospecting_listings as pl', 'pl.id', '=', 'c.prospecting_listing_id')
+                    ->where('pl.suburb', $suburbFilter))
                 ->count();
         }
 
@@ -2154,8 +2420,13 @@ class MarketIntelligenceController extends Controller
      * pool scope as the listings query so each count matches what clicking
      * would show.
      */
-    protected function computeFilterRailAggregates(int $agencyId, bool $includeInStock, $scopedBase = null): array
-    {
+    protected function computeFilterRailAggregates(
+        int $agencyId,
+        bool $includeInStock,
+        $scopedBase = null,
+        ?string $activeSuburb = null,
+        array $stockCountBySuburb = [],
+    ): array {
         // BUG B — in Work mode the caller hands us $railCountBase: the list query
         // with every filter applied EXCEPT the three rail dimensions (suburb,
         // property_type, bedrooms_exact). Each facet counts from a fresh clone of
@@ -2178,24 +2449,70 @@ class MarketIntelligenceController extends Controller
             return $q;
         };
 
+        // De-dup rotating-ref duplicates: per-suburb (and type/beds) counts reflect
+        // DISTINCT properties, not raw rows (canonical group = portal_source +
+        // normalized_address, agency-scoped). Uvongo de-inflates ~204 → ~183.
+        $distinctCount = app(\App\Services\Prospecting\OnMarketStockService::class)->distinctPropertyCountSql();
+
         $bySuburb = $base()
             ->whereNotNull('suburb')->where('suburb', '!=', '')
-            ->select('suburb', DB::raw('COUNT(*) as c'))
+            ->select('suburb', DB::raw($distinctCount . ' as c'))
             ->groupBy('suburb')
-            ->orderByDesc('c')
+            // Deterministic tie-break — orderByDesc('c') alone left suburbs tied at
+            // the rank-20 cutoff in arbitrary MySQL order, so the same suburb flipped
+            // in/out of the top-20 as other filters shifted the counts.
+            ->orderByDesc('c')->orderBy('suburb')
             ->limit(20)
             ->get();
 
+        // Normalised lookup for the surfaced synthetic-stock counts (LITERAL suburb).
+        $stockLookup = [];
+        foreach ($stockCountBySuburb as $sName => $n) {
+            $stockLookup[strtolower(trim((string) $sName))] = (int) $n;
+        }
+
+        // #2 — reflect the surfaced synthetic property-stock rows in each suburb's
+        // count so the by-suburb rail agrees with the (stock-inclusive) list total.
+        if (! empty($stockLookup)) {
+            foreach ($bySuburb as $r) {
+                $add = $stockLookup[strtolower(trim((string) $r->suburb))] ?? 0;
+                if ($add) {
+                    $r->c = (int) $r->c + $add;
+                }
+            }
+        }
+
+        // #1 — the ACTIVE (selected) suburb must always be present in the rail. The
+        // top-20 limit can drop it (especially at a tie boundary once in-stock company
+        // stock shifts the counts), which made Shelly Beach vanish from its own rail.
+        if ($activeSuburb !== null && trim($activeSuburb) !== '') {
+            $needle = strtolower(trim($activeSuburb));
+            $present = $bySuburb->first(fn ($r) => strtolower(trim((string) $r->suburb)) === $needle);
+            if (! $present) {
+                $cnt = (int) $base()
+                    ->whereRaw('LOWER(TRIM(suburb)) = ?', [$needle])
+                    ->selectRaw($distinctCount . ' as c')
+                    ->value('c');
+                $bySuburb->push((object) [
+                    'suburb' => $activeSuburb,
+                    'c'      => $cnt + ($stockLookup[$needle] ?? 0),
+                ]);
+            }
+        }
+
+        // Re-order after the boost / active-suburb add so the rail stays count-desc.
+        $bySuburb = $bySuburb->sortByDesc('c')->values();
+
         $byType = $base()
             ->whereNotNull('property_type')->where('property_type', '!=', '')
-            ->select('property_type', DB::raw('COUNT(*) as c'))
+            ->select('property_type', DB::raw($distinctCount . ' as c'))
             ->groupBy('property_type')
             ->orderByDesc('c')
             ->get();
 
         $byBeds = $base()
             ->whereNotNull('bedrooms')
-            ->select('bedrooms', DB::raw('COUNT(*) as c'))
+            ->select('bedrooms', DB::raw($distinctCount . ' as c'))
             ->groupBy('bedrooms')
             ->orderBy('bedrooms')
             ->get();
@@ -2264,10 +2581,22 @@ class MarketIntelligenceController extends Controller
         $tierConfig = app(\App\Services\Prospecting\ProspectingConfigurationService::class)
             ->buyerMatchTiers($agencyId);
 
+        // 2026-08-11 fix — this legacy panel's "IN STOCK · view property" badge
+        // read $listing->matched_property_id directly, completely ungated on
+        // the linked property's market status (the same class of bug already
+        // fixed on PropertyIntelligencePanelService's slideover header — this
+        // is the THIRD, separate surface it turned up on: 46 Taylor Road badged
+        // IN STOCK and linked to 46 Marine Drive, a rental withdrawn ~3 years).
+        // Same canonical, on-market-gated identity via OnMarketStockService —
+        // a listing matching an off-market property now correctly shows no badge.
+        $companyStockPropertyId = app(\App\Services\Prospecting\OnMarketStockService::class)
+            ->stockMapForListings([$listing], $agencyId)[(int) $listing->id] ?? null;
+
         return view('prospecting._buyer-matches-panel', [
-            'listing'    => $listing,
-            'buyers'     => $buyers,
-            'tierConfig' => $tierConfig,
+            'listing'                => $listing,
+            'buyers'                 => $buyers,
+            'tierConfig'             => $tierConfig,
+            'companyStockPropertyId' => $companyStockPropertyId,
         ]);
     }
 
@@ -2496,6 +2825,12 @@ class MarketIntelligenceController extends Controller
         $user = auth()->user();
         $agencyId = $user->agency_id ?? $user->effectiveAgencyId() ?? 1;
 
+        // Stale-tab guard — re-derives CURRENT claim state server-side on every
+        // submit rather than trusting whatever the (possibly stale) page showed
+        // when it loaded, so a tab that never refreshed can't double-claim a
+        // listing someone else (or a genuinely-still-active claim of the same
+        // agent's own) already holds. See release() below for the matching
+        // guard on the un-claim side.
         $existing = ProspectingClaim::where('prospecting_listing_id', $listing->id)
             ->active()->first();
 
@@ -2558,9 +2893,18 @@ class MarketIntelligenceController extends Controller
     {
         $user = auth()->user();
 
+        // Stale-tab guard — a tab left open across a claim/pitch/release cycle
+        // elsewhere shows an outdated "Claim"/"Release" state until reloaded.
+        // A clear message here (not firstOrFail()'s raw 404) tells the agent
+        // their view is out of date instead of a dead-end error page; the
+        // redirect back re-renders this listing's row with CURRENT state.
         $claim = ProspectingClaim::where('prospecting_listing_id', $listing->id)
             ->where('user_id', $user->id)
-            ->active()->firstOrFail();
+            ->active()->first();
+
+        if ($claim === null) {
+            return back()->with('error', 'This claim was already released or updated elsewhere — refreshed to current state.');
+        }
 
         $claim->update([
             'is_active'   => false,
@@ -2629,7 +2973,15 @@ class MarketIntelligenceController extends Controller
             ]));
         }
 
-        return view('prospecting.show', compact('listing', 'buyerMatches', 'demand'));
+        // The full-page legacy detail view (prospecting.show) was never built —
+        // the module's canonical listing detail is the slide-over served by
+        // details() via fetch, and nothing links to this full page. Rather than
+        // 500 on a missing view, redirect bookmark/direct-URL hits to the Market
+        // Intelligence surface, mirroring the bare /prospecting → /corex/market-
+        // intelligence 301 (web.php). Query string preserved. JSON callers above
+        // are unaffected.
+        $qs = request()->getQueryString();
+        return redirect('/corex/market-intelligence' . ($qs ? '?' . $qs : ''), 301);
     }
 
     public function thumbnail(ProspectingListing $listing)

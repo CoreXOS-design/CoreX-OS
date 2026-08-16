@@ -38,6 +38,15 @@ final class SuggestedActionResolver
         $claim = $state['claim'] ?? null;
         $pitch = $state['pitch'] ?? null;
         $viewerId = $viewer?->id !== null ? (int) $viewer->id : null;
+        // 2026-08-11 fix — was $listing->matched_property_id throughout this
+        // method (R5/R6 in-stock gate, R7 condition + link, R10 in-stock
+        // branch + link): that raw column is ungated on the linked property's
+        // market status, same bug class as the buyer-matches panel and the
+        // slideover header (both already fixed). The caller now passes the
+        // canonical, on-market-gated identity (OnMarketStockService via the
+        // already-computed companyStockMap) instead. Null when the listing
+        // isn't genuinely in on-market stock.
+        $companyStockPropertyId = $state['company_stock_property_id'] ?? null;
 
         // R1 — manager-only, stale listing-status claim
         if ($isManager && $claim
@@ -86,7 +95,7 @@ final class SuggestedActionResolver
             && $this->daysSince($pitch['sent_at'] ?? null) < $thresholds->pitch_recency_days;
         $noActiveClaim = $claim === null;
         $listingActive = (bool) $listing->is_active;
-        $notInStock    = $listing->matched_property_id === null;
+        $notInStock    = $companyStockPropertyId === null;
         $strongCount   = (int) ($tiers['strong'] ?? 0);
         $topScore      = $tiers['top_score'] ?? null;
 
@@ -104,12 +113,12 @@ final class SuggestedActionResolver
         }
 
         // R7 — re-pitch a stock listing where new strong matches arrived
-        if ($listing->matched_property_id !== null
+        if ($companyStockPropertyId !== null
             && (! $pitch || $this->daysSince($pitch['sent_at'] ?? null) >= $thresholds->stock_repitch_days)
             && $strongCount >= 1
             && ($claim === null || ($viewerId !== null && (int) ($claim['user_id'] ?? 0) === $viewerId))
         ) {
-            return $this->buildR7($listing, $strongCount);
+            return $this->buildR7($listing, $strongCount, $companyStockPropertyId);
         }
 
         // R8 — manager-only, colleague's claim stale
@@ -152,7 +161,7 @@ final class SuggestedActionResolver
             || ($viewerId !== null && (int) ($claim['user_id'] ?? 0) === $viewerId);
 
         if ($viewerCanPitch && $listingActive && $notClaimedByOther && ! $hasRecentPitch) {
-            return $this->buildR10($listing);
+            return $this->buildR10($listing, $companyStockPropertyId);
         }
 
         return null;
@@ -287,7 +296,7 @@ final class SuggestedActionResolver
         );
     }
 
-    private function buildR7(ProspectingListing $listing, int $strongCount): SuggestedAction
+    private function buildR7(ProspectingListing $listing, int $strongCount, int $companyStockPropertyId): SuggestedAction
     {
         $tooltip = $this->tooltip(
             'Already in agency stock. '
@@ -303,7 +312,7 @@ final class SuggestedActionResolver
             tooltipHtml: $tooltip,
             clickType:   'anchor',
             href:        route('seller-outreach.entry.from-property', [
-                'property' => (int) $listing->matched_property_id,
+                'property' => $companyStockPropertyId,
             ]),
         );
     }
@@ -353,16 +362,16 @@ final class SuggestedActionResolver
      * "PITCH NOW" — when buyer signal exists, R5 ("PITCH NOW · HIGH") or
      * R6 ("PITCH NOW" + buyer-count tooltip) wins above.
      */
-    private function buildR10(ProspectingListing $listing): SuggestedAction
+    private function buildR10(ProspectingListing $listing, ?int $companyStockPropertyId): SuggestedAction
     {
-        $inStock = $listing->matched_property_id !== null;
+        $inStock = $companyStockPropertyId !== null;
 
         if ($inStock) {
             $tooltip = $this->tooltip(
                 'In agency stock — pitch this seller. Buyer matches will surface here as they come in.'
             );
             $href = route('seller-outreach.entry.from-property', [
-                'property' => (int) $listing->matched_property_id,
+                'property' => $companyStockPropertyId,
             ]);
         } else {
             $tooltip = $this->tooltip(

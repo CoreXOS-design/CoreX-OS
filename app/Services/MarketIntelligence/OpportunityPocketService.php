@@ -45,7 +45,8 @@ final class OpportunityPocketService
             })
             ->where('pl.agency_id', $agencyId)
             ->where('pl.is_active', true)
-            ->whereNull('pl.matched_property_id')
+            // Canonical "our on-market stock" exclusion (aliased pl.) — same pool.
+            ->where(fn ($q) => app(\App\Services\Prospecting\OnMarketStockService::class)->applyNotStock($q, $agencyId, 'pl.portal_ref', 'pl.normalized_address'))
             ->whereNull('pl.deleted_at')
             ->whereNotNull('pl.suburb')->where('pl.suburb', '!=', '')
             ->whereNotNull('pl.bedrooms')->where('pl.bedrooms', '>=', 1)

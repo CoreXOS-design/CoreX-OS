@@ -56,6 +56,13 @@ class MatchingService
      * family. A raw value not found here returns null (unmapped, not
      * penalised) rather than being force-classified — an agency-custom type
      * must never silently hard-exclude a buyer (false-negative guardrail).
+     *
+     * 2026-08-11 gap fix: bare "Land" (PrivateProperty's raw property_type,
+     * distinct from P24's "Vacant land") was missing from the land family —
+     * an unmapped type is never gated, so PP land listings silently matched
+     * house/apartment wishlists. Added 'land'. Audited every distinct
+     * property_type currently in `properties` and `prospecting_listings`
+     * against this list before landing the fix — 'land' was the only gap.
      */
     private const PROPERTY_TYPE_FAMILIES = [
         'built' => [
@@ -64,7 +71,7 @@ class MatchingService
             'studio_apartment', 'simplex', 'unit', 'villa',
         ],
         'land' => [
-            'vacant_land', 'vacant_land_plot', 'vacantland', 'plot', 'stand', 'development',
+            'vacant_land', 'vacant_land_plot', 'vacantland', 'plot', 'stand', 'development', 'land',
         ],
         'farm' => [
             'farm', 'agricultural', 'agricultural_holding', 'smallholding',
@@ -490,6 +497,68 @@ class MatchingService
             }
         }
 
+        // Suburb hard gate (Johan's ruling, 2026-08-11 — Caroline King matched
+        // 100% on a Ramsgate property against her Southbroom wishlist). Reuses
+        // suburbCompatible() — AT-289's existing single source of truth for the
+        // suburb rule, already a hard gate in canonicalBestAcross() and the
+        // demand-claim count — so score() itself is authoritative for every
+        // caller, not just the ones that remember to pre-gate suburb before
+        // calling in. Open wishlist (no suburbs specified) still matches
+        // anywhere — unchanged, never a false-negative exclusion.
+        if (!$this->suburbCompatible($property, $match)) {
+            return 0;
+        }
+
+        // Bedrooms hard gate (Johan's ruling — Vian Lourens's 4-bed-minimum
+        // wishlist matched 95% on a 3-bed property). Only gates when the
+        // PROPERTY actually reports a bed count: 0/null beds means the
+        // listing's data is incomplete, not a mismatch — the same
+        // "incomplete listings shouldn't be penalised" rule used throughout
+        // this method, never a false-negative exclusion on missing data.
+        if ($match->beds_min && (int) $property->beds > 0 && (int) $property->beds < (int) $match->beds_min) {
+            return 0;
+        }
+
+        // Price hard gate (Johan's ruling — Lucille Maxwell's R951,501 ceiling
+        // matched 88-91% on a property ~R130k over budget). Gate boundary is
+        // the SAME tolerance-widened band priceFitRatio() below decays from
+        // (the agency-configurable $priceBandPct — Johan's price-band-width
+        // setting), so a listing just outside the stated range but still
+        // inside the tolerated band keeps matching exactly as before; only a
+        // property genuinely outside the band now excludes instead of merely
+        // losing points. Only gates when the PROPERTY reports a price: 0/null
+        // price is incomplete data, not a mismatch.
+        if (($match->price_min || $match->price_max) && (int) $property->price > 0) {
+            $price   = (int) $property->price;
+            $bandPct = max(0.0, $priceBandPct);
+            $min     = (int) ($match->price_min ?: 0);
+            $max     = (int) ($match->price_max ?: 0);
+            $minFull = $min ? (int) floor($min * (1 - $bandPct)) : 0;
+            $maxFull = $max ? (int) ceil($max * (1 + $bandPct)) : 0;
+            if (($minFull && $price < $minFull) || ($maxFull && $price > $maxFull)) {
+                return 0;
+            }
+        }
+
+        // Size hard gate (Johan's ruling, 2026-08-11 — same class of bug as
+        // price/beds: a stated floor/erf size range must actually exclude, not
+        // just lose a few points). Only gates when the PROPERTY reports a real
+        // size (>0) — 0/null size is incomplete listing data, not a mismatch.
+        if (($match->floor_size_min || $match->floor_size_max) && (int) $property->size_m2 > 0) {
+            $size = (int) $property->size_m2;
+            if (($match->floor_size_min && $size < (int) $match->floor_size_min)
+                || ($match->floor_size_max && $size > (int) $match->floor_size_max)) {
+                return 0;
+            }
+        }
+        if (($match->erf_size_min || $match->erf_size_max) && (int) $property->erf_size_m2 > 0) {
+            $size = (int) $property->erf_size_m2;
+            if (($match->erf_size_min && $size < (int) $match->erf_size_min)
+                || ($match->erf_size_max && $size > (int) $match->erf_size_max)) {
+                return 0;
+            }
+        }
+
         $mustHaves = $match->must_have_features ?? [];
         if (!empty($mustHaves)) {
             // A must-have is a HARD gate — but only against a listing that
@@ -513,20 +582,40 @@ class MatchingService
 
         $components = [];
 
+        // Anti-inflation guardrail (Johan's ruling, 2026-08-11 — "a single
+        // near-blank wishlist can't produce 100% on everything"). SUBSTANTIAL
+        // components are criteria a buyer explicitly stated as a real number
+        // or list (price, suburb, beds, baths, garages, nice-to-haves) —
+        // these are trusted to carry a match on their own. category,
+        // property_type (exact-string), floor_size and erf_size are COSMETIC:
+        // secondary, easy to leave stray/garbage values in (confirmed: the
+        // Caroline King case was a 2,000,000 m² erf_size_max typo, the only
+        // wishlist like it agency-wide, that alone drove a 100% match once it
+        // was the sole component). If NO substantial component is present,
+        // the fallback below treats the wishlist the same as truly blank —
+        // cosmetic-only agreement is never enough to carry a match, closing
+        // this off for whichever cosmetic field the next typo lands in.
+        $hasSubstantialSignal = false;
+
         if ($match->price_min || $match->price_max) {
             $components[] = [25, $this->priceFitRatio($property, $match, $priceBandPct)];
+            $hasSubstantialSignal = true;
         }
         if (!empty($match->p24SuburbIdList())) {
             $components[] = [20, $this->suburbFitRatio($property, $match)];
+            $hasSubstantialSignal = true;
         }
         if ($match->beds_min) {
             $components[] = [8, $this->minMetRatio((int) $property->beds, (int) $match->beds_min)];
+            $hasSubstantialSignal = true;
         }
         if ($match->baths_min) {
             $components[] = [7, $this->minMetRatio((int) $property->baths, (int) $match->baths_min)];
+            $hasSubstantialSignal = true;
         }
         if ($match->garages_min) {
             $components[] = [5, $this->minMetRatio((int) $property->garages, (int) $match->garages_min)];
+            $hasSubstantialSignal = true;
         }
         // String criteria: a NULL value on the PROPERTY side means the listing is
         // incomplete, not a mismatch — "incomplete listings shouldn't be
@@ -534,13 +623,19 @@ class MatchingService
         // component (neutral) when the property has no value; only a present-but-
         // different value scores 0. (AT-75 — prospecting listings carry no
         // category, so without this a category-specifying wishlist was unfairly
-        // dragged down on every canvass listing.)
+        // dragged down on every canvass listing.) Cosmetic — does not set
+        // $hasSubstantialSignal, see the guardrail note above.
         if ($match->category && $property->category) {
             $components[] = [5, $property->category === $match->category ? 1.0 : 0.0];
         }
         if ($match->property_type && $property->property_type) {
             $components[] = [5, $property->property_type === $match->property_type ? 1.0 : 0.0];
         }
+        // Floor/erf size — cosmetic (see guardrail note above): already hard-
+        // gated when violated (above), so a present component here has
+        // already passed the ceiling/floor and can only ever score 1.0. Kept
+        // for score differentiation when combined with a substantial
+        // component; alone it can no longer carry a match to 100%.
         if ($match->floor_size_min || $match->floor_size_max) {
             $components[] = [5, $this->rangeFitRatio((int) $property->size_m2, $match->floor_size_min, $match->floor_size_max)];
         }
@@ -554,15 +649,32 @@ class MatchingService
                 if ($this->propertyHasFeature($property, (string) $f)) $hits++;
             }
             $components[] = [15, $hits / count($wants)];
+            $hasSubstantialSignal = true;
         }
 
-        if (empty($components)) {
+        if (empty($components) || !$hasSubstantialSignal) {
             // AT-71 — belt-and-braces against the empty-wishlist inflation bug.
-            // No scorable component means either (a) the wishlist is uncountable
-            // (no criteria at all) → must NOT inflate to a full match → 0; or
-            // (b) it specified ONLY must-have features, which were already
-            // verified above → a genuine full match → 100.
-            return $match->isCountable() ? 100 : 0;
+            // 2026-08-11 fix: was `$match->isCountable() ? 100 : 0`, but
+            // isCountable() only requires ONE criteria group present anywhere
+            // on the wishlist — a wishlist with ONLY a property_type selected
+            // (already gated above, separately, and not itself a $components
+            // entry) and nothing else satisfied it, so a near-blank wishlist
+            // scored a flat 100. Via canonicalBestAcross()'s best-across-all-
+            // wishlists selection, that blank wishlist could then outrank a
+            // buyer's real, fully-specified one and surface a wrong-suburb
+            // property at 100% (confirmed: Caroline King's Southbroom+budget
+            // wishlists correctly scored low against a Ramsgate listing, but
+            // a separate blank wishlist of hers — no suburb, no price, no
+            // beds — won the "best" comparison at 100 every time). Extended
+            // 2026-08-11 (same day, follow-up): the guard now also fires when
+            // $components is non-empty but every entry is COSMETIC (no
+            // substantial signal) — the same inflation, just via a satisfied
+            // cosmetic component (e.g. a garbage erf_size_max) instead of zero
+            // components. No real signal now means either (a) it specified
+            // ONLY must-have features, which were already verified above → a
+            // genuine full match → 100; or (b) it specified nothing
+            // substantial at all → no real signal → 0, never inflated.
+            return !empty($mustHaves) ? 100 : 0;
         }
 
         $totalWeight = 0;
