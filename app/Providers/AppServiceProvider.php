@@ -495,6 +495,7 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\PresentationGenerated::class                        => 'handlePresentationGenerated',
             \App\Events\Presentation\PresentationOutcomeRecorded::class     => 'handlePresentationOutcomeRecorded',
             \App\Events\SellerOutreach\PitchSent::class                     => 'handlePitchSent',
+            \App\Events\SellerOutreach\OutreachOutcomeUpdated::class        => 'handleOutreachOutcomeUpdated',
             \App\Events\Prospecting\TrackedPropertyPromotedToStock::class   => 'handleTrackedPropertyPromotedToStock',
             \App\Events\Compliance\RcrSubmissionSubmitted::class            => 'handleRcrSubmissionSubmitted',
             // SPINE-3 — FICA (outcome-independent reviewer credit + agent
@@ -508,6 +509,7 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Fica\FicaRejected::class                            => 'handleFicaRejectedReview',
             \App\Events\Prospecting\ClaimCreated::class                     => 'handleClaimCreated',
             \App\Events\Prospecting\ClaimReleased::class                    => 'handleClaimReleased',
+            \App\Events\Prospecting\ClaimFeedbackRecorded::class            => 'handleClaimFeedbackRecorded',
             \App\Events\Property\PropertyCaptured::class                    => 'handlePropertyCaptured',
             \App\Events\Property\PropertyPublished::class                   => 'handlePropertyPublished',
             \App\Events\Property\PropertyCompliancePassed::class            => 'handlePropertyCompliancePassed',

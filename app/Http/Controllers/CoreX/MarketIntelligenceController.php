@@ -2930,6 +2930,11 @@ class MarketIntelligenceController extends Controller
 
         $newStatus = $request->status;
 
+        // First-feedback detection — the activity-points credit (mic.claim_feedback)
+        // fires ONCE, when feedback_at transitions null→now. Re-editing the status
+        // later keeps the original feedback_at and does NOT re-award.
+        $isFirstFeedback = $claim->feedback_at === null;
+
         $claim->update([
             'status'          => $newStatus,
             'notes'           => $request->notes,
@@ -2942,6 +2947,13 @@ class MarketIntelligenceController extends Controller
                 'is_active'   => false,
                 'released_at' => now(),
             ]);
+        }
+
+        // Auto-points (mic.claim_feedback) — score the agent for working the claim
+        // and logging feedback, on the first feedback only. Fire-and-forget: the
+        // listener wraps InstantPointService in try/catch so this never blocks the save.
+        if ($isFirstFeedback) {
+            event(new \App\Events\Prospecting\ClaimFeedbackRecorded($claim->fresh(), $newStatus, $request->notes));
         }
 
         return back()->with('success', 'Feedback saved');

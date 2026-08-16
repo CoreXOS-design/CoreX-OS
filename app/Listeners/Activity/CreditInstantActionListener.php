@@ -20,8 +20,10 @@ use App\Events\Property\PropertyCaptured;
 use App\Events\Property\PropertyCompliancePassed;
 use App\Events\Property\PropertyPublished;
 use App\Events\Prospecting\ClaimCreated;
+use App\Events\Prospecting\ClaimFeedbackRecorded;
 use App\Events\Prospecting\ClaimReleased;
 use App\Events\Prospecting\TrackedPropertyPromotedToStock;
+use App\Events\SellerOutreach\OutreachOutcomeUpdated;
 use App\Events\SellerOutreach\PitchSent;
 use App\Models\Compliance\Rcr\RcrSubmission;
 use App\Models\Presentation;
@@ -184,6 +186,17 @@ final class CreditInstantActionListener
         $this->safeCredit('outreach.pitch_sent', $this->user($event->actorUserId), $event->send);
     }
 
+    public function handleOutreachOutcomeUpdated(OutreachOutcomeUpdated $event): void
+    {
+        // Distinct action from outreach.pitch_sent: the agent came back and LOGGED
+        // the pitch outcome (interested / not / meeting / etc.). Score the logging
+        // action, not the specific outcome value — a "not interested" logged is still
+        // the agent doing the follow-up work. Idempotent per (agent, day, send) in
+        // InstantPointService, so re-editing the same send's outcome the same day
+        // never double-awards.
+        $this->safeCredit('outreach.outcome_logged', $this->user($event->actorUserId), $event->send);
+    }
+
     public function handleTrackedPropertyPromotedToStock(TrackedPropertyPromotedToStock $event): void
     {
         $subject = TrackedProperty::withoutGlobalScopes()->find($event->trackedPropertyId);
@@ -259,6 +272,17 @@ final class CreditInstantActionListener
         // audit.
         $reason = 'manual_release' . ($event->reason ? (': ' . $event->reason) : '');
         $this->safeRevoke('mic.claim_taken', $event->claim, $reason);
+    }
+
+    public function handleClaimFeedbackRecorded(ClaimFeedbackRecorded $event): void
+    {
+        // Distinct action from mic.claim_taken: the agent worked the claim and
+        // logged FEEDBACK (contacted / meeting-set / listing / not-interested /
+        // lost). Dispatched only on the FIRST feedback (feedback_at null→now) by
+        // the MIC feedback controller, so re-editing the status later never
+        // re-fires; InstantPointService idempotency (per agent/day/claim) is the
+        // second guard. Credits the claiming agent (claim->user_id).
+        $this->safeCredit('mic.claim_feedback', $this->user((int) $event->claim->user_id), $event->claim);
     }
 
     // ───────────────────────────────────────────────────────────────────
