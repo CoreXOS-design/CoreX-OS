@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\P24ImportRow;
 use App\Models\Property;
+use App\Services\P24\P24LocationResolver;
 use Illuminate\Bus\Batchable;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -126,14 +127,47 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
                     }
                 }
 
-                // p24_suburb_id is FK-constrained to p24_suburbs. The CSV's raw
-                // P24 SuburbId only matches when that suburb is seeded locally
-                // (reference tables can be partial per environment); an unseeded
-                // id 1452s the whole confirm. Only set it when it resolves — the
-                // raw value is always preserved in features_json.p24_source_suburb_id.
-                if (!empty($attrs['p24_suburb_id'])
-                    && !DB::table('p24_suburbs')->where('id', $attrs['p24_suburb_id'])->exists()) {
-                    unset($attrs['p24_suburb_id']);
+                // `$attrs['p24_suburb_id']` at this point is still the CSV's raw
+                // value — Property24's EXTERNAL suburb id (`p24_suburbs.p24_id`),
+                // NOT our internal `p24_suburbs.id`. `properties.p24_suburb_id`
+                // is a FK to our internal id, so it must be resolved via the
+                // external id before it's usable — never stored as-is.
+                //
+                // P24 suburb-id import bug (2026-08-16), two issues found the same day on the same
+                // column:
+                //  1. The FK was stored raw with no suburb/city text ever
+                //     derived from it — every CSV import left suburb/city blank
+                //     (4,753/4,755 on the Demo Agency Test run of 2026-08-14).
+                //  2. The first fix for #1 still matched the raw external
+                //     SuburbId against `p24_suburbs.id` (our internal PK) —
+                //     resolveByP24Id() below is what that should have been all
+                //     along. Both external and internal ids are called "the P24
+                //     suburb id" throughout this codebase and are NOT
+                //     interchangeable — see P24LocationResolver's docblock. The
+                //     collision is silent: whenever a listing's external id
+                //     happened to also exist as an internal row id, the wrong
+                //     property landed on it as blocked-nothing/dropped-nothing
+                //     wrong-suburb data (100% of the 4,753 confirmed rows on
+                //     that run — every external SuburbId in a real P24 export is
+                //     large enough to always collide with SOME unrelated
+                //     internal row).
+                //
+                // Unverified or unseeded suburbs are never guessed — the FK (and
+                // suburb/city text) is simply left unset.
+                if (!empty($attrs['p24_suburb_id'])) {
+                    $resolved = P24LocationResolver::resolveByP24Id((int) $attrs['p24_suburb_id']);
+                    if ($resolved && $resolved['suburb']->p24_verified_at) {
+                        $attrs['p24_suburb_id']   = $resolved['suburb']->id;
+                        $attrs['p24_city_id']     = $resolved['city']->id;
+                        $attrs['p24_province_id'] = $resolved['province']?->id;
+                        $attrs['suburb']          = $resolved['suburb']->name;
+                        $attrs['city']            = $resolved['city']->name;
+                        if ($resolved['province']) {
+                            $attrs['province'] = $resolved['province']->name;
+                        }
+                    } else {
+                        unset($attrs['p24_suburb_id']);
+                    }
                 }
 
                 // Link the P24 listing number so a later push UPDATES the
