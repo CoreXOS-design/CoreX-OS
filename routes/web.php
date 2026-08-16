@@ -4012,6 +4012,19 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::get('/esign/api/contacts', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'searchContacts'])->name('docuperfect.esign.api.contacts');
     Route::get('/esign/api/template/{templateId}/pages', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'templatePages'])->name('docuperfect.esign.api.templatePages');
 
+    // ── E-Sign → Recipient Presets (agency setup for entity-representative phrasing) ──
+    Route::middleware(['permission:esign.settings', 'agency.required'])
+        ->prefix('esign/settings/recipient-presets')
+        ->name('docuperfect.esign.recipient-presets.')
+        ->group(function () {
+            Route::get('/',              [\App\Http\Controllers\Docuperfect\EsignRecipientPresetController::class, 'index'])->name('index');
+            Route::get('/create',        [\App\Http\Controllers\Docuperfect\EsignRecipientPresetController::class, 'create'])->name('create');
+            Route::post('/',             [\App\Http\Controllers\Docuperfect\EsignRecipientPresetController::class, 'store'])->name('store');
+            Route::get('/{preset}/edit', [\App\Http\Controllers\Docuperfect\EsignRecipientPresetController::class, 'edit'])->name('edit');
+            Route::put('/{preset}',      [\App\Http\Controllers\Docuperfect\EsignRecipientPresetController::class, 'update'])->name('update');
+            Route::delete('/{preset}',   [\App\Http\Controllers\Docuperfect\EsignRecipientPresetController::class, 'destroy'])->name('destroy');
+        });
+
     // Pack FICA per-party duplication (MERGE pack model — the legacy
     // initPackChain/nextPackDocument/packStatus CHAIN engine was removed:
     // dead, unreferenced, no SignatureRequest<->pack linkage; audit BL-1).

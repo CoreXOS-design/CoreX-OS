@@ -1263,6 +1263,10 @@ class ESignWizardController extends Controller
                     // lives in is_buyer / contact_property role='owner'. Match
                     // either the (rare) typed contacts OR the canonical column.
                     $query->where(function ($w) use ($typeIds, $wantsBuyer, $wantsSeller) {
+                        // Entity/company recipients are ALWAYS eligible regardless of
+                        // owner/buyer typing — they sign via their representative(s),
+                        // which the wizard expands server-side (entity recipient builder).
+                        $w->orWhere('contact_kind', Contact::TYPE_ENTITY);
                         if ($typeIds->isNotEmpty()) {
                             // Legacy single mirror OR the AT-79 multi-parent pivot.
                             $w->orWhereIn('contact_type_id', $typeIds);
@@ -1277,7 +1281,8 @@ class ESignWizardController extends Controller
                     });
                 } elseif ($typeIds->isNotEmpty()) {
                     $query->where(function ($w) use ($typeIds) {
-                        $w->whereIn('contact_type_id', $typeIds)
+                        $w->where('contact_kind', Contact::TYPE_ENTITY) // entities always eligible (sign via rep)
+                          ->orWhereIn('contact_type_id', $typeIds)
                           ->orWhereHas('parentTypes', fn ($q) => $q->whereIn('contact_types.id', $typeIds));
                     });
                 }
@@ -1285,14 +1290,42 @@ class ESignWizardController extends Controller
                 // Fallback: match by contact_type name directly (for witness, spouse, etc.)
                 $typeId = DB::table('contact_types')->where('name', 'like', '%' . $role . '%')->value('id');
                 if ($typeId) {
-                    $query->where('contact_type_id', $typeId);
+                    $query->where(fn ($w) => $w->where('contact_type_id', $typeId)
+                        ->orWhere('contact_kind', Contact::TYPE_ENTITY)); // entities always eligible
                 }
             }
         }
 
         $contacts = $query->limit(10)->get();
 
-        return response()->json($contacts->map(function ($c) use ($q) {
+        // Precompute the agency's entity preset once so each entity result can
+        // preview what it expands to (rep(s) + capacity + proxy + phrasing) on
+        // the recipient row — the "define on setup → shown on recipient screen".
+        $actingAgencyId = (int) ($request->user()?->agency_id ?? 0);
+        $entityPreset = $actingAgencyId
+            ? \App\Models\Docuperfect\EsignRecipientPreset::resolveFor($actingAgencyId, 'entity')
+            : null;
+
+        return response()->json($contacts->map(function ($c) use ($q, $entityPreset) {
+            $representation = null;
+            if ($c->isEntity()) {
+                $signers = $c->signingRepresentatives();
+                $representation = [
+                    'needs_representative' => $signers->isEmpty(),
+                    'signers' => $signers->map(function ($rep) use ($c, $entityPreset) {
+                        $capacity = $rep->pivot->capacity ?? null;
+                        $isProxy  = (bool) ($rep->pivot->signs_as_proxy ?? false);
+                        $phrase   = $entityPreset
+                            ? $entityPreset->renderPhrase($c, $rep, $capacity, $isProxy)
+                            : \App\Models\Docuperfect\EsignRecipientPreset::substitute(
+                                $isProxy
+                                    ? \App\Models\Docuperfect\EsignRecipientPreset::DEFAULT_PROXY_PHRASING
+                                    : \App\Models\Docuperfect\EsignRecipientPreset::DEFAULT_PHRASING,
+                                $c, $rep, $capacity);
+                        return ['rep_name' => $rep->full_name, 'capacity' => $capacity, 'is_proxy' => $isProxy, 'phrase' => $phrase];
+                    })->values()->all(),
+                ];
+            }
             return [
                 'id'                  => $c->id,
                 'first_name'          => $c->first_name,
@@ -1319,6 +1352,9 @@ class ESignWizardController extends Controller
                 'bank_branch_name'    => $c->bank_branch_name ?? '',
                 'bank_branch_code'    => $c->bank_branch_code ?? '',
                 'bank_account_type'   => $c->bank_account_type ?? '',
+                // Entity recipient preview — the rep(s)/capacity/proxy + resolved
+                // "herein represented by …" phrasing this company expands into.
+                'representation'      => $representation,
             ];
         }));
     }
@@ -3104,7 +3140,9 @@ class ESignWizardController extends Controller
         }
 
         $agencyId = $user->agency_id ?? optional($contacts->first())->agency_id;
-        $preset   = $agencyId ? \App\Models\Docuperfect\EsignRecipientPreset::defaultFor((int) $agencyId) : null;
+        // The APPLICABLE recipient preset (agency-defined on the setup screen):
+        // an 'entity'/'all' default, falling back to the agency default.
+        $preset   = $agencyId ? \App\Models\Docuperfect\EsignRecipientPreset::resolveFor((int) $agencyId, 'entity') : null;
 
         $out = [];
         $order = 0;
@@ -3130,10 +3168,16 @@ class ESignWizardController extends Controller
 
             foreach ($signers as $rep) {
                 $capacity = $rep->pivot->capacity ?? null;
+                // A PROXY signer renders with the distinct proxy wording.
+                $isProxy  = (bool) ($rep->pivot->signs_as_proxy ?? false);
                 $label    = $preset
-                    ? $preset->renderPhrase($contact, $rep, $capacity)
-                    : \App\Models\Docuperfect\EsignRecipientPreset::substitute(\App\Models\Docuperfect\EsignRecipientPreset::DEFAULT_PHRASING, $contact, $rep, $capacity);
-                $caption  = $preset ? $preset->renderCaption($contact, $rep, $capacity) : '';
+                    ? $preset->renderPhrase($contact, $rep, $capacity, $isProxy)
+                    : \App\Models\Docuperfect\EsignRecipientPreset::substitute(
+                        $isProxy
+                            ? \App\Models\Docuperfect\EsignRecipientPreset::DEFAULT_PROXY_PHRASING
+                            : \App\Models\Docuperfect\EsignRecipientPreset::DEFAULT_PHRASING,
+                        $contact, $rep, $capacity);
+                $caption  = $preset ? $preset->renderCaption($contact, $rep, $capacity, $isProxy) : '';
 
                 $out[] = [
                     'order'                 => ++$order,
@@ -3149,6 +3193,7 @@ class ESignWizardController extends Controller
                     '_entity_contact_id'    => (int) $contact->id,
                     '_entity_name'          => (string) $contact->entity_name,
                     '_capacity'             => $capacity,
+                    '_is_proxy'             => $isProxy,
                     '_representation_label' => $label,
                     '_signature_caption'    => $caption,
                     'bank_name'             => $rep->bank_name ?? '',

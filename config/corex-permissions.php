@@ -263,6 +263,7 @@ return [
         ['key' => 'esign.compiler.compile',      'label' => 'Compile Templates',           'section' => 'docuperfect',      'type' => 'action',  'module' => 'esign-compiler',   'sort_order' => 31],
         ['key' => 'esign.compiler.publish',      'label' => 'Publish Compiled Versions',   'section' => 'docuperfect',      'type' => 'action',  'module' => 'esign-compiler',   'sort_order' => 32],
         ['key' => 'esign.compiler.dictionary',   'label' => 'Manage Data Dictionary',      'section' => 'docuperfect',      'type' => 'action',  'module' => 'esign-compiler',   'sort_order' => 33],
+        ['key' => 'esign.settings',              'label' => 'Manage E-Sign Recipient Presets', 'section' => 'docuperfect',  'type' => 'access',  'module' => 'esign',            'sort_order' => 40],
 
         // ── Document Library ──
         ['key' => 'access_document_library',     'label' => 'Access Document Library',    'section' => 'document-library', 'type' => 'access',  'module' => 'document_library', 'sort_order' => 1],
