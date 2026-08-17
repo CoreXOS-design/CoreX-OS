@@ -334,6 +334,17 @@
                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                             <div>
+                                <div class="flex items-center justify-between mb-1">
+                                    <label class="block text-xs" style="color:var(--text-secondary);">WhatsApp</label>
+                                    <button type="button"
+                                            onclick="const f=this.closest('form'); const w=f.querySelector('[name=whatsapp_number]'); w.value=f.querySelector('[name=cell]').value; w.dispatchEvent(new Event('input'));"
+                                            class="text-xs font-medium" style="color:var(--brand-icon, #0ea5e9);">Same as cell</button>
+                                </div>
+                                <input type="tel" name="whatsapp_number" value="{{ old('whatsapp_number', $u->whatsapp_number) }}" placeholder="WhatsApp number"
+                                       class="w-full rounded-md px-3 py-2 text-sm outline-none"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
                                 <label class="block text-xs mb-1" style="color:var(--text-secondary);">Fax</label>
                                 <input type="tel" name="fax" value="{{ old('fax', $u->fax) }}" placeholder="Fax number"
                                        class="w-full rounded-md px-3 py-2 text-sm outline-none"
