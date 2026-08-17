@@ -240,28 +240,6 @@
                 <div class="ds-value-lg">{{ number_format((int)($a['daily_rows'] ?? 0)) }}</div>
                 <div class="mt-1 text-xs" style="color: var(--text-muted);">All-time: {{ number_format((int)($a['daily_rows_all_time'] ?? 0)) }}</div>
             </div>
-            <div class="ds-status-card" data-tour="at-agent-dashboard-listing-stock">
-                <div class="ds-label">Listing stock</div>
-                <div class="mt-2 grid grid-cols-2 gap-3">
-                    <div>
-                        <div class="text-xs" style="color: var(--text-muted);">Active</div>
-                        <div class="ds-value-lg"><a class="ds-link" href="{{ route('agent.listings', ['filter' => 'active']) }}">{{ number_format((int)($listingStats['total'] ?? 0)) }}</a></div>
-                    </div>
-                    <div>
-                        <div class="text-xs" style="color: var(--text-muted);">Avg DOM</div>
-                        <div class="ds-value-lg"><a class="ds-link" href="{{ route('agent.listings', ['filter' => 'dom']) }}">{{ number_format((int)($listingStats['avg_days_on_market'] ?? 0)) }}</a></div>
-                    </div>
-                    <div>
-                        <div class="text-xs" style="color: var(--text-muted);">Stale (14d)</div>
-                        <div class="ds-value-lg"><a class="ds-link" href="{{ route('agent.listings', ['filter' => 'stale']) }}">{{ number_format((int)($listingStats['stale'] ?? 0)) }}</a></div>
-                    </div>
-                    <div>
-                        <div class="text-xs" style="color: var(--text-muted);">Expiring (14d)</div>
-                        <div class="ds-value-lg"><a class="ds-link" href="{{ route('agent.listings', ['filter' => 'expiring']) }}">{{ number_format((int)($listingStats['expiring_soon'] ?? 0)) }}</a></div>
-                    </div>
-                </div>
-                <div class="mt-2 text-xs" style="color: var(--text-muted);">Expired: <a class="ds-link" href="{{ route('agent.listings', ['filter' => 'expired']) }}">{{ number_format((int)($listingStats['expired'] ?? 0)) }}</a></div>
-            </div>
         </div>
     </div>
 

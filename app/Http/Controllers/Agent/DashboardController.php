@@ -28,45 +28,9 @@ class DashboardController extends Controller
         $snapshot['period'] = $snapshot['period'] ?? $period;
         $snapshot['comparisons'] = $snapshot['comparisons'] ?? ['branch' => null, 'company' => null];
         $snapshot['daily_map'] = $snapshot['daily_map'] ?? [];
-        // -----------------------------
-        // Listing Stock Stats (Agent)
-        // -----------------------------
-        $listings = \App\Models\ListingStock::query()
-            ->where('user_id', $u->id)
-            ->where('source', 'propcon')
-            ->where(function ($q) {
-                $q->whereRaw("lower(coalesce(status,'')) like '%active%'")
-                  ->orWhereRaw("lower(coalesce(status,'')) like '%for sale%'");
-            })
-            ->get();
 
-        $totalListings = $listings->count();
-
-        $avgDaysOnMarket = $totalListings > 0
-            ? (int) round($listings->filter(fn($l) => $l->days_on_market !== null)->avg('days_on_market') ?? 0)
-            : 0;
-
-        $staleCount = $listings->filter(fn($l) => $l->is_stale)->count();
-
-        $expiringSoonCount = $listings->filter(fn($l) => $l->is_expiring_soon)->count();
-
-        $expiredCount = $listings->filter(fn($l) => $l->is_expired)->count();
-
-        $listingStats = [
-            'total' => $totalListings,
-            'avg_days_on_market' => $avgDaysOnMarket,
-            'stale' => $staleCount,
-            'expiring_soon' => $expiringSoonCount,
-            'expired' => $expiredCount,
-        ];
-
-
-
-
-
-return view('agent.dashboard', [
+        return view('agent.dashboard', [
             'snapshot' => $snapshot,
-            'listingStats' => $listingStats,
         ]);
     }
 }
