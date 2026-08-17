@@ -3,17 +3,26 @@
 namespace App\Models\Docuperfect;
 
 use App\Models\Branch;
+use App\Models\Concerns\BelongsToAgency;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+/**
+ * (HFC tenant-isolation, Wave 3, ported from main) — added BelongsToAgency.
+ * scopeVisibleTo()'s 'all' branch was fully unscoped (every agency's
+ * clauses visible) and the table had no agency_id column at all. Fixed
+ * "for free" by the global scope; scopeVisibleTo()'s own is_global/branch
+ * check is unchanged and now just layers on top.
+ */
 class Clause extends Model
 {
-    use SoftDeletes;
+    use BelongsToAgency, SoftDeletes;
 
     protected $table = 'docuperfect_clauses';
 
     protected $fillable = [
+        'agency_id',
         'name',
         'text',
         'is_global',
