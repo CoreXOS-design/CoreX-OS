@@ -3,23 +3,33 @@
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Scopes\AgencyScope;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
- * 2026-08-20 (HFC tenant-isolation, Wave 3) — added BelongsToAgency.
- * Knowledge Base had NO tenant boundary at all: no agency_id, no is_global,
- * no scope check anywhere in KnowledgeController — every agency's uploaded
- * policy/compliance documents were visible to every other agency
- * unconditionally. Fixed "for free" by the global scope, including Ellie's
- * RAG search (KnowledgeSearchService queries KnowledgeChunk::whereHas
- * ('document', ...), which inherits this model's scope through the
- * relationship) and KnowledgeCategory::withCount('documents') (relationship
- * subqueries inherit global scopes too — no change needed on
- * KnowledgeCategory itself, which stays pure shared taxonomy like
- * document_types).
+ * 2026-08-20 (HFC tenant-isolation, Wave 3) — added BelongsToAgency. Every
+ * direct id lookup (toggleActive/toggleEllie/reprocess/destroy) and the
+ * automatic global scope protect a document from being read OR managed by
+ * another agency "for free" — no per-call-site change needed for those.
+ *
+ * 2026-08-21 (#9, selectable ownership) — added is_global. A document can
+ * now be agency-private (default) or CoreX-global (visible to every
+ * agency, but still only manageable by its owning agency or an unscoped
+ * System Owner — BelongsToAgency's automatic scope is untouched on the
+ * write/manage paths above). scopeVisibleTo() is the ONLY place that
+ * widens visibility across agencies: it explicitly drops the automatic
+ * scope for that one query and applies its own is_global-aware OR, the
+ * same pattern docuperfect_templates already uses and for the same reason
+ * (BelongsToAgency's blanket `agency_id = X` would otherwise AND away any
+ * OR clause a caller adds, silently making is_global inert — see the
+ * Wave 3 migration's docblock). Every READ surface that must see global
+ * docs (index listing, category view, preview, Ellie's RAG search) calls
+ * ->visibleTo($user) explicitly; every WRITE/manage surface deliberately
+ * does not, so a global doc can be seen by any agency but only
+ * edited/deleted/toggled by the agency that owns it.
  */
 class KnowledgeDocument extends Model
 {
@@ -30,6 +40,7 @@ class KnowledgeDocument extends Model
 
     protected $fillable = [
         'agency_id',
+        'is_global',
         'category_id',
         'uploaded_by',
         'title',
@@ -52,9 +63,29 @@ class KnowledgeDocument extends Model
     protected $casts = [
         'is_active' => 'boolean',
         'is_ellie_enabled' => 'boolean',
+        'is_global' => 'boolean',
         'effective_date' => 'date',
         'expiry_date' => 'date',
     ];
+
+    /**
+     * Cross-agency visibility: this agency's own docs + anything flagged
+     * is_global. See the class docblock for why this bypasses the
+     * automatic BelongsToAgency scope for this one query only.
+     */
+    public function scopeVisibleTo($query, User $user)
+    {
+        $agencyId = method_exists($user, 'effectiveAgencyId')
+            ? $user->effectiveAgencyId()
+            : $user->agency_id;
+
+        return $query->withoutGlobalScope(AgencyScope::class)->where(function ($q) use ($agencyId) {
+            $q->where('is_global', true);
+            if ($agencyId) {
+                $q->orWhere('agency_id', $agencyId);
+            }
+        });
+    }
 
     public function category(): BelongsTo
     {

@@ -80,6 +80,24 @@
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                            placeholder="e.g. v2.1" value="{{ old('version') }}">
                 </div>
+                @if($canUploadGlobal)
+                <div>
+                    <label class="ds-label">Ownership</label>
+                    <div class="flex items-center gap-4 mt-2">
+                        <label class="inline-flex items-center gap-1.5 text-sm" style="color: var(--text-primary);">
+                            <input type="radio" name="ownership" value="agency" {{ old('ownership', 'agency') === 'agency' ? 'checked' : '' }}>
+                            This agency only
+                        </label>
+                        <label class="inline-flex items-center gap-1.5 text-sm" style="color: var(--text-primary);">
+                            <input type="radio" name="ownership" value="global" {{ old('ownership') === 'global' ? 'checked' : '' }}>
+                            All agencies (CoreX global)
+                        </label>
+                    </div>
+                    <div class="text-xs mt-1" style="color: var(--text-muted);">Global documents are visible to every agency on the platform.</div>
+                </div>
+                @else
+                    <input type="hidden" name="ownership" value="agency">
+                @endif
                 <div class="flex items-end">
                     <button type="submit" class="corex-btn-primary px-4 py-2 text-sm">Upload Document</button>
                 </div>
@@ -337,7 +355,12 @@
                     <tbody>
                         @foreach($recentDocuments as $doc)
                             <tr class="transition-all duration-300">
-                                <td class="px-4 py-3 text-sm font-medium" style="color: var(--text-primary);">{{ Str::limit($doc->title, 40) }}</td>
+                                <td class="px-4 py-3 text-sm font-medium" style="color: var(--text-primary);">
+                                    {{ Str::limit($doc->title, 40) }}
+                                    @if($doc->is_global)
+                                        <span class="ds-badge ds-badge-success ml-1">Global</span>
+                                    @endif
+                                </td>
                                 <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $doc->category->name ?? '-' }}</td>
                                 <td class="px-4 py-3 text-center">{!! $doc->status_badge !!}</td>
                                 <td class="px-4 py-3 text-center text-sm" style="color: var(--text-secondary);">{{ $doc->chunk_count }}</td>

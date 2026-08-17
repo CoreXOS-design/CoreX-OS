@@ -120,10 +120,10 @@ final class EllieRetrievalRepairTest extends TestCase
 
     public function test_clause_number_retrieves_the_matching_section(): void
     {
-        $this->seedUser();
+        $user = $this->seedUser();
         $this->seedOtpDocument();
 
-        $results = app(KnowledgeSearchService::class)->search('Offer to Purchase clause 11', 3);
+        $results = app(KnowledgeSearchService::class)->search('Offer to Purchase clause 11', 3, $user);
 
         $this->assertNotEmpty($results['sources']);
         $this->assertSame(
@@ -135,13 +135,13 @@ final class EllieRetrievalRepairTest extends TestCase
 
     public function test_decimal_clause_numbers_survive_tokenisation(): void
     {
-        $this->seedUser();
+        $user = $this->seedUser();
         $this->seedOtpDocument();
 
         // "2.6" used to be stripped to "26" by punctuation removal, and a bare
         // "9" was dropped entirely by the 3-character minimum — so every
         // clause-number question silently degraded to searching "clause".
-        $results = app(KnowledgeSearchService::class)->search('Offer to Purchase clause 2.1', 3);
+        $results = app(KnowledgeSearchService::class)->search('Offer to Purchase clause 2.1', 3, $user);
 
         $this->assertNotEmpty($results['sources']);
         $this->assertSame('2.1 BOND FINANCE', $results['sources'][0]['section']);
@@ -149,11 +149,11 @@ final class EllieRetrievalRepairTest extends TestCase
 
     public function test_the_named_document_outranks_a_same_numbered_clause_elsewhere(): void
     {
-        $this->seedUser();
+        $user = $this->seedUser();
         $this->seedOtpDocument();
         $this->seedDocument('Dual Mandate', [['11. POPIA', 'Processing of personal information under the mandate.']]);
 
-        $results = app(KnowledgeSearchService::class)->search('Offer to Purchase clause 11', 3);
+        $results = app(KnowledgeSearchService::class)->search('Offer to Purchase clause 11', 3, $user);
 
         $this->assertSame(
             'Offer to Purchase',
@@ -164,7 +164,7 @@ final class EllieRetrievalRepairTest extends TestCase
 
     public function test_named_document_wins_on_the_embedded_path_too(): void
     {
-        $this->seedUser();
+        $user = $this->seedUser();
 
         // Both documents have a clause 11, both embedded with the SAME vector —
         // so cosine and the clause-number anchor are identical and the document
@@ -187,7 +187,7 @@ final class EllieRetrievalRepairTest extends TestCase
             ['11. (1) When land has been sold', 'When land has been sold in terms of a contract, the seller shall...'],
         ], embedding: $vector);
 
-        $results = app(KnowledgeSearchService::class)->search('Offer to Purchase clause 11', 2);
+        $results = app(KnowledgeSearchService::class)->search('Offer to Purchase clause 11', 2, $user);
 
         $this->assertNotEmpty($results['sources']);
         $this->assertSame('Offer to Purchase', $results['sources'][0]['title']);
@@ -217,7 +217,7 @@ final class EllieRetrievalRepairTest extends TestCase
 
     public function test_knowledge_base_stays_searchable_without_embeddings(): void
     {
-        $this->seedUser();
+        $user = $this->seedUser();
         $this->seedOtpDocument();
 
         // Embedding service unreachable -> embed() returns null. This path used
@@ -232,7 +232,7 @@ final class EllieRetrievalRepairTest extends TestCase
         // are identical.
         Http::fake(['*/embed' => Http::response('service unavailable', 503)]);
 
-        $results = app(KnowledgeSearchService::class)->search('fixtures and fittings', 3);
+        $results = app(KnowledgeSearchService::class)->search('fixtures and fittings', 3, $user);
 
         $this->assertNotEmpty(
             $results['context'],
