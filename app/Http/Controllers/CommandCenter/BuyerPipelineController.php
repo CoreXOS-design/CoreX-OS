@@ -19,6 +19,13 @@ class BuyerPipelineController extends Controller
         $view = $request->get('view', 'kanban');
         $stateFilter = $request->get('state');
         $agentFilter = $request->get('agent_id');
+        // Rentals vs Sales (Johan) — a portal/enquiry buyer's derived wishlist carries the
+        // enquired listing's listing_type (BuyerLeadCascadeService::deriveCriteria), so a
+        // tenant/rental lead is separable from a buyer/sale lead by contact_matches.listing_type.
+        // 'rental' = has a rental wishlist; 'sale' = has no rental wishlist (untyped/manual
+        // buyers default to sale); null/'' = all. Rentals + Sales partition the board exactly.
+        $leadType = $request->get('lead_type');
+        $leadType = in_array($leadType, ['sale', 'rental'], true) ? $leadType : null;
 
         // Layer 3: Pipeline workspace scope (independent of Layer 2 contact access)
         $pipelineScope = $request->get('scope', $this->defaultPipelineScope($user));
@@ -43,6 +50,7 @@ class BuyerPipelineController extends Controller
             // never the capturer (created_by_user_id). Filter on the loaded agent.
             $query->where('agent_id', (int) $agentFilter);
         }
+        $this->applyLeadTypeFilter($query, $leadType);
 
         // Buyer WON (Johan 2026-08-13) — converted buyers live in a SEPARATE success section, OUT of
         // the active pipeline. Build the success list from the same scope, and exclude 'won' from the
@@ -53,6 +61,7 @@ class BuyerPipelineController extends Controller
         if ($agentFilter) {
             $wonQuery->where('agent_id', (int) $agentFilter);
         }
+        $this->applyLeadTypeFilter($wonQuery, $leadType);
         $wonBuyers = $wonQuery->orderByDesc('last_activity_at')->get();
 
         if (! $stateFilter) {
@@ -96,9 +105,10 @@ class BuyerPipelineController extends Controller
                 'view' => 'list',
                 'buyers' => $buyers,
                 'wonBuyers' => $wonBuyers,
-                'counts' => $this->stateCounts($user, $pipelineScope),
+                'counts' => $this->stateCounts($user, $pipelineScope, $leadType),
                 'coreMatchCounts' => $this->coreMatchCounts($buyers->pluck('id')->merge($wonBuyers->pluck('id'))),
                 'pipelineScope' => $pipelineScope,
+                'leadType' => $leadType,
                 'canSeeBranch' => (bool) $user->branch_id,
                 'contextListing' => $contextListing,
             ]);
@@ -208,17 +218,41 @@ class BuyerPipelineController extends Controller
         // 'agency' = no additional filter (Layer 2 controls access)
     }
 
-    private function stateCounts($user, string $pipelineScope): array
+    private function stateCounts($user, string $pipelineScope, ?string $leadType = null): array
     {
         $query = Contact::buyers();
 
         // Same rule as index(): honour the explicit scope for ALL roles so the
         // header totals match the kanban columns under every scope.
         $this->applyPipelineScope($query, $user, $pipelineScope);
+        // Header totals must reconcile with the board under the active Rentals/Sales filter.
+        $this->applyLeadTypeFilter($query, $leadType);
 
         return $query->selectRaw('buyer_state, count(*) as cnt')
             ->groupBy('buyer_state')
             ->pluck('cnt', 'buyer_state')
             ->toArray();
+    }
+
+    /**
+     * Rentals vs Sales filter on a buyers query, keyed on the buyer's wishlist
+     * listing_type (contact_matches.listing_type, seeded from the enquired listing).
+     *   'rental' → buyers with at least one rental wishlist (tenant leads)
+     *   'sale'   → buyers with NO rental wishlist (sale/untyped/manual buyers)
+     *   null     → no filter (All). The two branches partition the board exactly.
+     */
+    private function applyLeadTypeFilter($query, ?string $leadType): void
+    {
+        if ($leadType !== 'rental' && $leadType !== 'sale') {
+            return;
+        }
+        $rentalTypes = ['rental', 'rent', 'to_let', 'to let', 'letting'];
+        $rentalMatch = fn ($m) => $m->whereIn(DB::raw('LOWER(listing_type)'), $rentalTypes);
+
+        if ($leadType === 'rental') {
+            $query->whereHas('matches', $rentalMatch);
+        } else { // 'sale'
+            $query->whereDoesntHave('matches', $rentalMatch);
+        }
     }
 }
