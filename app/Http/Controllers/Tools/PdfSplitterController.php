@@ -127,12 +127,35 @@ class PdfSplitterController extends Controller
             return response()->json(['contacts' => []], 404);
         }
 
-        $contacts = $prop->contacts()->withoutGlobalScope(ContactScope::class)->get()->map(function ($c) {
+        $linked = $prop->contacts()->withoutGlobalScope(ContactScope::class)->get();
+
+        // Sole-contact fallback — mirrors Property::sellerOwnerContact()'s own
+        // "falls back to the sole linked contact when there is exactly one"
+        // rule. Without this, a property with ONE linked contact whose pivot
+        // role is blank/unrecognised renders NO Seller/Owner candidate on the
+        // splitter review screen at all (roleCandidates() does an exact role
+        // match with no fallback) — the agent sees "No seller/owner linked"
+        // even though the contact genuinely is the property's only party.
+        // Only fires when unambiguous: exactly one linked contact AND no
+        // existing seller-side match — a property with 2+ contacts and no
+        // role tag stays untouched, same as sellerOwnerContact()'s own
+        // "ambiguous → null, no wrong guess" behaviour.
+        $sellerSide = ['seller', 'owner', 'landlord', 'lessor'];
+        $hasSellerSideMatch = $linked->contains(function ($c) use ($sellerSide) {
+            return in_array(strtolower(trim((string) ($c->pivot->role ?? ''))), $sellerSide, true);
+        });
+        $soleFallbackId = (! $hasSellerSideMatch && $linked->count() === 1) ? $linked->first()->id : null;
+
+        $contacts = $linked->map(function ($c) use ($soleFallbackId) {
             $name = trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? ''));
+            $role = strtolower(trim((string) ($c->pivot->role ?? '')));
+            if ($role === '' && $c->id === $soleFallbackId) {
+                $role = 'seller';
+            }
             return [
                 'id'          => $c->id,
                 'name'        => $name !== '' ? $name : '(no name)',
-                'role'        => strtolower(trim((string) ($c->pivot->role ?? ''))),
+                'role'        => $role,
                 'fica_status' => $c->ficaStatus(), // complete|expiring|incomplete
             ];
         })->values();
