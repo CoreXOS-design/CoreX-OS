@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\KnowledgeCategory;
 use App\Models\KnowledgeDocument;
+use App\Models\Scopes\AgencyScope;
 use App\Services\AI\DocumentProcessingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -12,43 +13,51 @@ use Illuminate\Support\Str;
 
 class KnowledgeController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
+        $user = $request->user();
+
         $categories = KnowledgeCategory::ordered()
-            ->withCount('documents')
+            ->withCount(['documents' => fn ($q) => $q->visibleTo($user)])
             ->get();
 
-        $recentDocuments = KnowledgeDocument::with(['category', 'uploader'])
+        $recentDocuments = KnowledgeDocument::visibleTo($user)
+            ->with(['category', 'uploader'])
             ->latest()
             ->limit(20)
             ->get();
 
         $stats = [
-            'total_documents' => KnowledgeDocument::count(),
-            'total_chunks' => \App\Models\KnowledgeChunk::count(),
-            'ellie_enabled' => KnowledgeDocument::where('is_ellie_enabled', true)->count(),
+            'total_documents' => KnowledgeDocument::visibleTo($user)->count(),
+            'total_chunks' => \App\Models\KnowledgeChunk::whereHas('document', fn ($q) => $q->visibleTo($user))->count(),
+            'ellie_enabled' => KnowledgeDocument::visibleTo($user)->where('is_ellie_enabled', true)->count(),
             'by_status' => [
-                'ready' => KnowledgeDocument::where('status', 'ready')->count(),
-                'processing' => KnowledgeDocument::where('status', 'processing')->count(),
-                'error' => KnowledgeDocument::where('status', 'error')->count(),
+                'ready' => KnowledgeDocument::visibleTo($user)->where('status', 'ready')->count(),
+                'processing' => KnowledgeDocument::visibleTo($user)->where('status', 'processing')->count(),
+                'error' => KnowledgeDocument::visibleTo($user)->where('status', 'error')->count(),
             ],
         ];
 
-        return view('admin.knowledge.index', compact('categories', 'recentDocuments', 'stats'));
+        $canUploadGlobal = $user->isOwnerRole();
+
+        return view('admin.knowledge.index', compact('categories', 'recentDocuments', 'stats', 'canUploadGlobal'));
     }
 
-    public function show($categoryId)
+    public function show(Request $request, $categoryId)
     {
+        $user = $request->user();
         $category = KnowledgeCategory::findOrFail($categoryId);
 
-        $documents = KnowledgeDocument::where('category_id', $categoryId)
+        $documents = KnowledgeDocument::visibleTo($user)
+            ->where('category_id', $categoryId)
             ->with('uploader')
             ->latest()
             ->paginate(20);
 
         $allCategories = KnowledgeCategory::ordered()->get();
+        $canUploadGlobal = $user->isOwnerRole();
 
-        return view('admin.knowledge.category', compact('category', 'documents', 'allCategories'));
+        return view('admin.knowledge.category', compact('category', 'documents', 'allCategories', 'canUploadGlobal'));
     }
 
     public function upload(Request $request)
@@ -59,16 +68,28 @@ class KnowledgeController extends Controller
             'file' => 'required|file|mimes:pdf,docx,doc,txt,md|max:20480',
             'description' => 'nullable|string|max:2000',
             'version' => 'nullable|string|max:50',
+            'ownership' => 'nullable|in:agency,global',
         ]);
+
+        $user = $request->user();
+
+        // Only a CoreX System Owner may flag a document as global. Enforced
+        // here even though the UI already hides the option from everyone
+        // else — a direct POST must not be able to force it.
+        $wantsGlobal = $request->input('ownership') === 'global';
+        if ($wantsGlobal && !$user->isOwnerRole()) {
+            abort(403, 'Only a CoreX System Owner can upload a document for all agencies.');
+        }
 
         $service = app(DocumentProcessingService::class);
         $document = $service->processUpload(
             $request->file('file'),
             $request->input('category_id'),
-            auth()->id(),
+            $user->id,
             $request->input('title'),
             $request->input('description'),
             $request->input('version'),
+            $wantsGlobal,
         );
 
         $statusMsg = $document->status === 'ready'
@@ -126,11 +147,13 @@ class KnowledgeController extends Controller
         return redirect()->back()->with('status', "Document '{$title}' archived.");
     }
 
-    public function preview($documentId)
+    public function preview(Request $request, $documentId)
     {
-        $document = KnowledgeDocument::with(['chunks' => function ($q) {
-            $q->orderBy('chunk_index');
-        }, 'category', 'uploader'])->findOrFail($documentId);
+        $document = KnowledgeDocument::visibleTo($request->user())
+            ->with(['chunks' => function ($q) {
+                $q->orderBy('chunk_index');
+            }, 'category', 'uploader'])
+            ->findOrFail($documentId);
 
         return view('admin.knowledge.preview', compact('document'));
     }
@@ -177,10 +200,18 @@ class KnowledgeController extends Controller
 
     public function deleteCategory($id)
     {
-        $category = KnowledgeCategory::withCount('documents')->findOrFail($id);
+        $category = KnowledgeCategory::findOrFail($id);
 
-        if ($category->documents_count > 0) {
-            return redirect()->back()->with('error', "Cannot delete — category '{$category->name}' has {$category->documents_count} document(s). Move or delete them first.");
+        // Categories are shared taxonomy across every agency (like
+        // document_types) — count documents WITHOUT the agency scope so one
+        // agency can't delete a category another agency (or a global doc)
+        // still depends on.
+        $docsCount = KnowledgeDocument::withoutGlobalScope(AgencyScope::class)
+            ->where('category_id', $id)
+            ->count();
+
+        if ($docsCount > 0) {
+            return redirect()->back()->with('error', "Cannot delete — category '{$category->name}' has {$docsCount} document(s) across agencies. Move or delete them first.");
         }
 
         $name = $category->name;

@@ -6,6 +6,7 @@ use App\Models\KnowledgeChunk;
 use App\Models\KnowledgeDocument;
 use App\Models\Training\TrainingDoc;
 use App\Models\Training\TrainingDocChunk;
+use App\Models\User;
 
 class KnowledgeSearchService
 {
@@ -21,7 +22,7 @@ class KnowledgeSearchService
      *
      * @return array{context: string, sources: array}
      */
-    public function search(string $query, int $limit = 5): array
+    public function search(string $query, int $limit = 5, ?User $user = null): array
     {
         try {
             // Embedded as a QUERY, not a passage — BGE is trained
@@ -47,14 +48,18 @@ class KnowledgeSearchService
             if ($queryEmbedding === null) {
                 \Log::warning('KnowledgeSearchService: no query embedding — falling back to keyword search across the full KB.');
 
-                return $this->buildKeywordResults($query, $limit);
+                return $this->buildKeywordResults($query, $limit, $user);
             }
 
             // Load all embedded chunks from active, ready, ellie-enabled documents
-            $chunks = KnowledgeChunk::whereHas('document', function ($q) {
+            // visible to this user (their agency's own + any is_global docs).
+            $chunks = KnowledgeChunk::whereHas('document', function ($q) use ($user) {
                 $q->where('is_active', true)
                   ->where('status', 'ready')
                   ->where('is_ellie_enabled', true);
+                if ($user) {
+                    $q->visibleTo($user);
+                }
             })
                 ->where('has_embedding', true)
                 ->with('document')
@@ -73,7 +78,7 @@ class KnowledgeSearchService
 
             // Nothing embedded at all — keyword search is the only option left.
             if ($chunks->isEmpty() && $trainingChunks->isEmpty()) {
-                return $this->buildKeywordResults($query, $limit);
+                return $this->buildKeywordResults($query, $limit, $user);
             }
 
             // Extract structural signals from query for hybrid scoring
@@ -366,7 +371,7 @@ class KnowledgeSearchService
      * Training chunks keep their canonical-answer boost, mirroring the hybrid
      * path, so the hand-written user-facing guides still win ties.
      */
-    private function buildKeywordResults(string $query, int $limit): array
+    private function buildKeywordResults(string $query, int $limit, ?User $user = null): array
     {
         $words = $this->meaningfulWords($query);
         if (empty($words)) {
@@ -386,7 +391,7 @@ class KnowledgeSearchService
                 'score'       => $this->keywordScore($c->heading_path ?? '', $c->content ?? '', $words, $c->doc->title ?? '') * 1.2,
             ]);
 
-        $knowledge = $this->keywordMatchKnowledgeChunks($query, $limit * 3)
+        $knowledge = $this->keywordMatchKnowledgeChunks($query, $limit * 3, $user)
             ->map(fn ($c) => [
                 'chunk'       => $c,
                 'is_training' => false,
@@ -411,7 +416,7 @@ class KnowledgeSearchService
      * Mirrors keywordMatchTrainingChunks(). Scores in PHP after a LIKE-based
      * candidate fetch, weighting section-title hits above body hits.
      */
-    private function keywordMatchKnowledgeChunks(string $query, int $limit = 15): \Illuminate\Support\Collection
+    private function keywordMatchKnowledgeChunks(string $query, int $limit = 15, ?User $user = null): \Illuminate\Support\Collection
     {
         $words = $this->meaningfulWords($query);
 
@@ -422,10 +427,13 @@ class KnowledgeSearchService
         $numbers = $this->numericTokens($words);
         $terms   = array_values(array_diff($words, $numbers));
 
-        $candidates = KnowledgeChunk::whereHas('document', function ($q) {
+        $candidates = KnowledgeChunk::whereHas('document', function ($q) use ($user) {
                 $q->where('is_active', true)
                   ->where('status', 'ready')
                   ->where('is_ellie_enabled', true);
+                if ($user) {
+                    $q->visibleTo($user);
+                }
             })
             ->with('document')
             ->where(function ($q) use ($terms, $numbers) {
