@@ -82,5 +82,22 @@ Either point closes it; doing both is defence-in-depth. This is a code change fo
 
 **⛔ HOLD:** no consent flag is touched until Johan gives an explicit go. This document is the record; the reversal command is not written yet.
 
+## IMPLEMENTED on QA1 (commit `898d86c91`, branch feat/esign-recipient-enrichment) — live apply HELD for Johan
+
+**Code fix (delivery-anchored clock):**
+- `SellerOutreachSenderService` — clock starts at compose ONLY for email (system-sent); WhatsApp no longer armed at click-to-chat compose.
+- `CommunicationSendStatusService::markSent` — starts the clock on confirmed delivery, gated to outreach pitches only (a linked `SellerOutreachSend`), so normal chats never arm it.
+- `RecomputeOutreachNoResponse` — belt gate: lapse only when the latest send has delivery evidence (email `sent_at`, or WhatsApp send whose linked communication is `send_status='sent'`), window measured from that delivery time. No evidence ⇒ never lapses.
+
+**Reversal command:** `outreach:reverse-false-no-response {--agency=} {--dry-run} {--apply} {--restore=<batch>} {--limit=}` + snapshot table `outreach_no_response_reversal_backups` (migration `2026_08_29_000001`). Dry-run is the default (no writes).
+
+**Verification:** QA1 19/19 (transaction-rolled-back). Live `nexus_os` read-only: `candidateQuery` selects **exactly 632** (agency 1), **0 declined** swept in, **787** suppressions to lift for that subset.
+
+### Runbook (live, ONLY on Johan's explicit go)
+1. Deploy the branch to live (`git pull` on /corex → `php artisan migrate --force` creates the backup table → clear caches → reload php-fpm → restart worker). The §4 code fix must ship WITH the reversal so the 04:15 job stops re-lapsing.
+2. **Preview:** `php artisan outreach:reverse-false-no-response --agency=1 --dry-run` → confirm `candidates: 632`, `declined MUST be 0: 0`.
+3. **Apply:** `php artisan outreach:reverse-false-no-response --agency=1 --apply` → prints `batch=<id>`; clears the 632 opt-out triplets → NULL and lifts their 787 suppressions; snapshots every prior value.
+4. **Undo (if ever needed):** `php artisan outreach:reverse-false-no-response --restore=<batch>` → restores the triplet + re-activates suppressions exactly.
+
 ## Evidence / method
 Read-only probes against live `nexus_os` (agency 1), since removed from the live serving dir. Code refs are against live `/corex` @ `main` (`afe6abb01`). No data was modified.
