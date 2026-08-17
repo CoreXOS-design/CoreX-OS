@@ -25,6 +25,14 @@ class User extends Authenticatable
     /** Per-instance memo of branch_id → agency_id (see effectiveAgencyId — AgencyScope N+1). */
     private array $branchAgencyMemo = [];
 
+    /**
+     * SA mobile-number validation regex (raw form input, before normalisation).
+     * Accepts 0-leading national (0821234567), +27/27 international (+27821234567,
+     * 27821234567), and common separators (spaces, dashes, dots, brackets).
+     * Shared by the user-facing WhatsApp-number fields.
+     */
+    public const SA_MOBILE_REGEX = '/^(\+?27|0)[\s.\-()]*(?:\d[\s.\-()]*){9}$/';
+
     protected $fillable = [
         'name',
         'email',
@@ -89,6 +97,7 @@ class User extends Authenticatable
         // Contact fields (email signatures, profile, presentations)
         'phone',
         'cell',
+        'whatsapp_number',
         'fax',
         'ffc_number',
         'ffc_expiry_date',
@@ -227,6 +236,17 @@ class User extends Authenticatable
     public function setCellAttribute($value): void
     {
         $this->attributes['cell'] = SaPhoneNumber::normalize($value === null ? null : (string) $value);
+    }
+
+    /**
+     * Distinct WhatsApp number (often the same as cell, but stored separately).
+     * Normalised to the same leading-zero national format as cell/phone so the
+     * WhatsApp deep-link formatter (App\Support\WhatsAppNumberFormatter) can turn
+     * it into a wa.me target consistently.
+     */
+    public function setWhatsappNumberAttribute($value): void
+    {
+        $this->attributes['whatsapp_number'] = SaPhoneNumber::normalize($value === null ? null : (string) $value);
     }
 
     public function setFaxAttribute($value): void

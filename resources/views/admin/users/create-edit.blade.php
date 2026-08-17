@@ -201,6 +201,22 @@
                         @enderror
                     </div>
                     <div>
+                        <div class="flex items-center justify-between mb-1.5">
+                            <label class="block text-xs font-medium" style="color:var(--text-secondary);">WhatsApp</label>
+                            <button type="button"
+                                    onclick="const f=this.closest('form'); const w=f.querySelector('[name=whatsapp_number]'); w.value=f.querySelector('[name=cell]').value; w.dispatchEvent(new Event('input'));"
+                                    class="text-xs font-medium" style="color:var(--brand-icon, #0ea5e9);">Same as cell</button>
+                        </div>
+                        <input type="tel" name="whatsapp_number" value="{{ old('whatsapp_number', $isEdit ? $user->whatsapp_number : '') }}" placeholder="WhatsApp number"
+                               autocomplete="off"
+                               class="w-full rounded-md px-3 py-2.5 text-sm outline-none transition-colors"
+                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                               onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
+                        @error('whatsapp_number')
+                            <p class="text-xs mt-1" style="color:var(--ds-crimson, #c41e3a);">{{ $message }}</p>
+                        @enderror
+                    </div>
+                    <div>
                         <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">Fax</label>
                         <input type="tel" name="fax" value="{{ old('fax', $isEdit ? $user->fax : '') }}" placeholder="Fax number"
                                autocomplete="off"

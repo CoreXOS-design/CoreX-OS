@@ -155,6 +155,7 @@ class UserManagementController extends Controller
             'display_email' => ['nullable', 'email', 'max:255'],
             'phone'         => ['nullable', 'string', 'max:50'],
             'cell'          => ['required', 'string', 'max:50'],
+            'whatsapp_number' => ['nullable', 'string', 'max:50', 'regex:' . \App\Models\User::SA_MOBILE_REGEX],
             'fax'           => ['nullable', 'string', 'max:50'],
             'ffc_number'    => ['nullable', 'string', 'max:100'],
             'website'       => ['nullable', 'string', 'max:255'],
@@ -254,6 +255,7 @@ class UserManagementController extends Controller
             'counts_for_branch_split'     => isset($data['counts_for_branch_split']) && $data['counts_for_branch_split'] == '1' ? 1 : 0,
             'phone'                       => $data['phone'] ?? null,
             'cell'                        => $data['cell'] ?? null,
+            'whatsapp_number'             => $data['whatsapp_number'] ?? null,
             'fax'                         => $data['fax'] ?? null,
             'ffc_number'                  => $data['ffc_number'] ?? null,
             'website'                     => $data['website'] ?? null,
@@ -334,6 +336,7 @@ class UserManagementController extends Controller
             'display_email' => ['nullable', 'email', 'max:255'],
             'phone'         => ['nullable', 'string', 'max:50'],
             'cell'          => ['required', 'string', 'max:50'],
+            'whatsapp_number' => ['nullable', 'string', 'max:50', 'regex:' . \App\Models\User::SA_MOBILE_REGEX],
             'fax'           => ['nullable', 'string', 'max:50'],
             'ffc_number'    => ['nullable', 'string', 'max:100'],
             'ffc_expiry_date' => ['nullable', 'date'],
@@ -416,6 +419,7 @@ class UserManagementController extends Controller
 
         $user->phone      = $data['phone'] ?? null;
         $user->cell        = $data['cell'] ?? null;
+        $user->whatsapp_number = $data['whatsapp_number'] ?? null;
         $user->fax         = $data['fax'] ?? null;
         $user->ffc_number  = $data['ffc_number'] ?? null;
         $user->ffc_expiry_date = $data['ffc_expiry_date'] ?? null;
@@ -659,12 +663,14 @@ class UserManagementController extends Controller
         $contact = $request->validate([
             'phone' => ['nullable','string','max:50'],
             'cell' => ['required','string','max:50'],
+            'whatsapp_number' => ['nullable','string','max:50','regex:' . \App\Models\User::SA_MOBILE_REGEX],
             'fax' => ['nullable','string','max:50'],
             'ffc_number' => ['nullable','string','max:100'],
             'website' => ['nullable','string','max:255'],
         ]);
         $user->phone = $contact['phone'] ?? null;
         $user->cell = $contact['cell'] ?? null;
+        $user->whatsapp_number = $contact['whatsapp_number'] ?? null;
         $user->fax = $contact['fax'] ?? null;
         $user->ffc_number = $contact['ffc_number'] ?? null;
         $user->website = $contact['website'] ?? null;

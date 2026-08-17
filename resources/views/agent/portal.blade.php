@@ -419,6 +419,20 @@
                         @error('cell') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
                     </div>
 
+                    {{-- WhatsApp --}}
+                    <div>
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+                            <label for="whatsapp_number" style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">WhatsApp</label>
+                            <button type="button"
+                                    onclick="const f=this.closest('form'); const w=f.querySelector('[name=whatsapp_number]'); w.value=f.querySelector('[name=cell]').value; w.dispatchEvent(new Event('input'));"
+                                    style="font-size:0.6875rem; font-weight:600; color:var(--brand-button); background:none; border:none; cursor:pointer; padding:0;">Same as cell</button>
+                        </div>
+                        <input id="whatsapp_number" name="whatsapp_number" type="tel" value="{{ old('whatsapp_number', $user->whatsapp_number) }}" placeholder="WhatsApp number"
+                               style="width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box; transition:border-color 200ms;"
+                               onfocus="this.style.borderColor='var(--brand-button)'" onblur="this.style.borderColor='var(--border)'">
+                        @error('whatsapp_number') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
+                    </div>
+
                     {{-- ID Number --}}
                     <div>
                         <label for="id_number" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">ID Number</label>
