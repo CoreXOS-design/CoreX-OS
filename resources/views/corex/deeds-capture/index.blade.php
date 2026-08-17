@@ -11,16 +11,19 @@
     </div>
 
     @if(session('success'))
-        {{-- success_link (2026-08-14) — optional, set only by promote() alongside
-             'success'; dismiss actions keep sending a plain string with no link,
-             so this stays backward-compatible rather than changing the shape of
-             session('success') itself. Closes the "Open the property to
-             continue" dead-end — the message used to name an action with no
-             actual link to take it. --}}
+        {{-- success_link (2026-08-14) — optional, set only by promote() (and,
+             2026-08-17, ingestTva()) alongside 'success'; dismiss actions keep
+             sending a plain string with no link, so this stays backward-
+             compatible rather than changing the shape of session('success')
+             itself. Closes the "action named with no way to take it" dead-end.
+             success_link_label defaults to promote()'s original copy so that
+             call site is unaffected; ingestTva() supplies its own ("Open
+             contact →") since the link target differs (a contact, not a
+             property). --}}
         <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green, #16a34a) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-green, #16a34a) 35%, transparent); color: var(--text-primary);">
             {{ session('success') }}
             @if(session('success_link'))
-                <a href="{{ session('success_link') }}" class="font-semibold underline" style="color: var(--ds-green, #16a34a);">Open property &rarr;</a>
+                <a href="{{ session('success_link') }}" class="font-semibold underline" style="color: var(--ds-green, #16a34a);">{{ session('success_link_label', 'Open property →') }}</a>
             @endif
         </div>
     @endif
