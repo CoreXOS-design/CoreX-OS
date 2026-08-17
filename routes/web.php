@@ -1520,6 +1520,11 @@ Route::middleware(['auth', 'permission:manage_p24'])->group(function () {
         ->where('municipality', '.*')->name('admin.p24-suburbs.alias');
 });
 
+// P24 IMAP per-agency (#3) — each agency's own P24 alert-email mailbox config.
+Route::middleware(['auth', 'permission:manage_p24_imap_settings', 'agency.required'])->prefix('settings/p24-imap')->name('admin.p24-imap-settings.')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Admin\AgencyP24ImapSettingsController::class, 'edit'])->name('edit');
+    Route::put('/', [\App\Http\Controllers\Admin\AgencyP24ImapSettingsController::class, 'update'])->name('update');
+});
 
 
 
