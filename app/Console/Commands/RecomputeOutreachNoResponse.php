@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\AgencyContactSettings;
+use App\Models\Communications\Communication;
 use App\Models\Contact;
 use App\Models\SellerOutreach\SellerOutreachSend;
 use App\Services\SellerOutreach\MarketingConsentService;
@@ -25,9 +26,14 @@ use Illuminate\Console\Command;
  * the pending marker at the moment it happens (opt-in/opt-out/click), so this
  * command only ever sees truly silent contacts — the guards are belt-and-braces.
  *
- * Anchors on outreach_permission_asked_at (set going forward), NOT historical
- * seller_outreach_sends.sent_at, so pre-feature back-catalogue contacts are NOT
- * mass-lapsed on the first run.
+ * Candidate pre-filter is outreach_permission_asked_at (the PENDING marker), but
+ * the lapse itself is DELIVERY-ANCHORED: a contact is only lapsed when its latest
+ * send was actually delivered — email at sent_at, or a WhatsApp pitch whose linked
+ * communication was confirmed sent (send_status='sent') — and the window is measured
+ * from that delivery time. A composed-but-never-delivered pitch (WhatsApp click-to-
+ * chat that the agent never confirmed) has no delivery evidence and is NEVER lapsed.
+ * This is the fix for the HFC false "no_response" opt-out, where a bulk WhatsApp
+ * pitch blast at import wrongly lapsed contacts who were never actually messaged.
  *
  * Mirrors buyers:recompute-states (RecomputeBuyerStates): candidate load,
  * service resolve, --dry-run. Scheduled in routes/console.php.
@@ -69,12 +75,6 @@ class RecomputeOutreachNoResponse extends Command
             $windowDays = $windowByAgency[$agencyId]
                 ??= AgencyContactSettings::forAgency($agencyId)->outreachNoResponseDays();
 
-            // Still inside the window — leave pending.
-            if ($contact->outreach_permission_asked_at?->greaterThan(now()->subDays($windowDays))) {
-                $withinWindow++;
-                continue;
-            }
-
             // The latest send must still be a clean, unclicked 'sent'. A click /
             // manual outcome (replied/booked/etc.) signals engagement → not silence.
             $latestSend = SellerOutreachSend::withoutGlobalScopes()
@@ -88,6 +88,36 @@ class RecomputeOutreachNoResponse extends Command
                 || $latestSend->outcome !== SellerOutreachSend::OUTCOME_SENT
                 || $latestSend->first_clicked_at !== null) {
                 $skipped++;
+                continue;
+            }
+
+            // BELT-AND-BRACES delivery gate (AT-81 false-opt-out fix). A no-response
+            // lapse must be driven by a message that was ACTUALLY delivered, measured
+            // from the delivery time — never from a merely-composed pitch:
+            //  • EMAIL is system-sent → delivered at the send's sent_at.
+            //  • WHATSAPP is click-to-chat → delivered ONLY when its linked
+            //    communication was confirmed sent (send_status='sent'); outcome='sent'
+            //    alone means "pitch composed", not delivered.
+            // No delivery evidence ⇒ $deliveredAt stays null ⇒ NEVER auto-opt-out.
+            $deliveredAt = null;
+            if ($latestSend->channel === Communication::CHANNEL_EMAIL) {
+                $deliveredAt = $latestSend->sent_at;
+            } elseif ($latestSend->communication_id) {
+                $comm = Communication::withoutGlobalScopes()->find($latestSend->communication_id);
+                if ($comm && $comm->send_status === Communication::SEND_STATUS_SENT) {
+                    $deliveredAt = $comm->send_status_set_at ?? $latestSend->sent_at;
+                }
+            }
+
+            if ($deliveredAt === null) {
+                // Nothing was ever actually delivered — cannot be "no response".
+                $skipped++;
+                continue;
+            }
+
+            // Still inside the window (measured from actual delivery) — leave pending.
+            if ($deliveredAt->greaterThan(now()->subDays($windowDays))) {
+                $withinWindow++;
                 continue;
             }
 
