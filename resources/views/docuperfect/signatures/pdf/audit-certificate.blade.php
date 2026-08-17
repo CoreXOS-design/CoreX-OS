@@ -1,7 +1,7 @@
 <div class="audit-page">
     <div class="audit-header">
         <h1>ELECTRONIC SIGNATURE CERTIFICATE</h1>
-        <p>Home Finders Coastal &mdash; Document Signing System</p>
+        <p>{{ $agencyName ?? 'Agency' }} &mdash; Document Signing System</p>
     </div>
 
     {{-- Document Information --}}
@@ -110,7 +110,7 @@
         @endif
 
         <p style="margin-top: 15px; font-size: 8px; color: #999;">
-            Generated on {{ now()->format('d F Y, H:i:s') }} SAST by Home Finders Coastal Document Signing System
+            Generated on {{ now()->format('d F Y, H:i:s') }} SAST by {{ $agencyName ?? 'Agency' }} Document Signing System
         </p>
     </div>
 </div>

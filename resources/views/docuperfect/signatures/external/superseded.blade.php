@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Document Updated — Home Finders Coastal</title>
+    <title>Document Updated — {{ $agencyName ?? 'Agency' }}</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-50 min-h-screen flex items-center justify-center p-4">
@@ -48,7 +48,7 @@
         </div>
 
         <div class="text-center text-xs text-slate-400 mt-4">
-            Home Finders Coastal &mdash; Document Signing
+            {{ $agencyName ?? 'Agency' }} &mdash; Document Signing
         </div>
     </div>
 </body>
