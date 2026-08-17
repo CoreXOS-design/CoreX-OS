@@ -47,6 +47,7 @@
               contactInfo: null,
               results: [],
               loading: false,
+              _searchTimer: null,
               searchUrl: {{ \Illuminate\Support\Js::from(route('compliance.fica.contacts.search')) }},
               doSearch() {
                   const q = this.search.trim();
@@ -82,7 +83,7 @@
                       .finally(() => { this.docsLoading = false; this.docsLoaded = true; });
               }
           }"
-          x-init="$watch('selected', () => { links.fica_form = null; links.id_copy = null; links.proof_of_address = null; supportingLinks = []; fetchDocs(); }); if (selected) fetchDocs();">
+          x-init="$watch('search', () => { clearTimeout(_searchTimer); _searchTimer = setTimeout(() => doSearch(), 250); }); $watch('selected', () => { links.fica_form = null; links.id_copy = null; links.proof_of_address = null; supportingLinks = []; fetchDocs(); }); if (selected) fetchDocs();">
         @csrf
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -94,7 +95,6 @@
                     <input type="text"
                            x-model="search"
                            @focus="open = true"
-                           @input.debounce.300ms="doSearch()"
                            @click.away="open = false"
                            placeholder="Search contacts..."
                            class="w-full rounded-md px-3 py-2 text-sm outline-none"

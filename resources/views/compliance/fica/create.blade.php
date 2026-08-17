@@ -48,6 +48,7 @@
               newEmail: '',
               results: [],
               loading: false,
+              _searchTimer: null,
               searchUrl: {{ \Illuminate\Support\Js::from(route('compliance.fica.contacts.search')) }},
               doSearch() {
                   const q = this.search.trim();
@@ -64,7 +65,8 @@
                   this.selected = c.id; this.selectedName = c.name; this.open = false; this.results = [];
                   this.contactInfo = { name: c.name, email: c.email, phone: c.phone };
               }
-          }">
+          }"
+          x-init="$watch('search', () => { clearTimeout(_searchTimer); _searchTimer = setTimeout(() => doSearch(), 250); })">
         @csrf
 
         {{-- Select Contact --}}
@@ -75,7 +77,6 @@
                 <input type="text"
                        x-model="search"
                        @focus="open = true"
-                       @input.debounce.300ms="doSearch()"
                        @click.away="open = false"
                        placeholder="Search contacts..."
                        class="w-full rounded-md px-3 py-2 text-sm outline-none"
