@@ -481,9 +481,23 @@
 
   /**
    * The reveal unmasks the Owner's ID cell's VALUE in place rather than
-   * mutating the icon, so this doesn't wait on a DOM signal from the icon
-   * — it just gives the listener a moment to run, then the caller re-reads
-   * the cell via the normal label-driven extractor (findValueByLabel).
+   * mutating the icon (the cell's text changes; the icon itself may not) —
+   * so this polls the SAME cell's text for the mask to actually clear
+   * rather than trusting a fixed delay. 2026-08-17 (Johan, live cmainfo
+   * confirm): cmainfo masks Owner's ID by default ("560728*******") until
+   * this click's listener unmasks it; a FIXED 200ms grace period was
+   * unreliable — sometimes the unmask hadn't landed yet, and the STILL-
+   * MASKED value got captured and stored verbatim (the "stars" bug). Same
+   * settle-by-polling shape as domIsSettled() elsewhere in this file,
+   * scoped to this one cell instead of the whole panel.
+   *
+   * A cell holding multiple owners' IDs joined " ; " (multi-owner) is
+   * handled naturally — the poll waits for ZERO asterisks anywhere in the
+   * cell's text, i.e. every owner's ID in it, not just the first. An
+   * opted-out (permanently red/masked) owner sharing a cell with a
+   * revealable one means the poll runs out its full timeoutMs before
+   * giving up — buildOwnersArray()'s existing opted-out drop and the
+   * masked-value fallback below both still apply correctly after that.
    *
    * Not yet confirmed live: whether a second click re-masks the value
    * (i.e. whether fa-eye is a toggle). Each capture click currently calls
@@ -497,7 +511,17 @@
       if (!control) { resolve(false); return; }
       const dispatched = dispatchRealClick(control);
       if (!dispatched) { resolve(false); return; }
-      setTimeout(() => resolve(true), 200);
+
+      const salePanel = findSectionPanel(findSectionHeader('Sale Information'));
+      const cell = findValueElementByLabel("Owner's ID", salePanel || undefined);
+      if (!cell) { setTimeout(() => resolve(true), 200); return; } // no cell found — fall back to the old fixed wait rather than resolve instantly
+
+      const start = Date.now();
+      (function poll() {
+        const stillMasked = /\*/.test(cell.textContent || '');
+        if (!stillMasked || Date.now() - start >= timeoutMs) { resolve(true); return; }
+        setTimeout(poll, 50);
+      })();
     });
   }
 
@@ -542,12 +566,72 @@
    * through sections on cmainfo's own UI and captures each one via a
    * separate button click, same mental model as re-running the button.
    */
+  // Signature of the last successfully-captured property's address/scheme
+  // block, keyed against its title deed. Persists across captures within one
+  // page session (cmainfo never navigates — see PROPERTY-LOADED DETECTION
+  // below) so a NEW deed can be compared against the PREVIOUS capture's
+  // address, not just against whatever the panel happens to show right now.
+  let lastCaptureSignature = null;
+
+  function propertySignature(property, titleDeed) {
+    return {
+      titleDeed: titleDeed || null,
+      street: property.address || property.situated_at || null,
+      suburb: property.suburb || null,
+      scheme: property.scheme_name || null,
+    };
+  }
+
+  function signaturesMatchAddress(a, b) {
+    return a.street === b.street && a.suburb === b.suburb && a.scheme === b.scheme;
+  }
+
   async function extractDeed() {
     await ensureSectionExpanded('Property Information');
-    const property = extractPropertyInformation();
+    let property = extractPropertyInformation();
 
     await ensureSectionExpanded('Sale Information');
     const sale = await extractSaleInformation();
+
+    const signature = propertySignature(property, sale.title_deed);
+
+    // 2026-08-17 (Johan, live cmainfo confirm) — NATSPAT: 3 captures with
+    // DIFFERENT title deeds (T45154/2022, T32926/1988, T2398/1992) all
+    // stored the IDENTICAL "60 Lilliecrona Boulevard / NATSPAT / MANABA
+    // BEACH" address/scheme block. erf/deed/sale/owner are proven to update
+    // correctly on every capture (they come from Sale Information, read via
+    // its own settle-gated await above); address/suburb/scheme come from
+    // Property Information, read synchronously right after its OWN
+    // settle-gated await resolves. A DIFFERENT deed with an IDENTICAL
+    // address/scheme block to the immediately-previous capture is the exact
+    // fingerprint of that bug — ensureSectionExpanded()'s settle check can
+    // pass (quiet for DOM_SETTLE_MS) without the panel's address cells
+    // having actually been touched at all, if cmainfo's postback for this
+    // navigation path updates Sale Information but leaves Property
+    // Information's address block untouched. No amount of waiting on a
+    // quiet-DOM signal detects that — there's nothing to observe mutating.
+    // Give it one genuine extra settle cycle in case it's a plain slow
+    // race (self-heals if the address really did just need more time);
+    // if the re-read still matches, don't trust it — null the 3 fields
+    // rather than silently attach a different property's address, and
+    // flag it loudly so it's visible instead of silently wrong.
+    if (lastCaptureSignature && signature.titleDeed
+        && signature.titleDeed !== lastCaptureSignature.titleDeed
+        && signaturesMatchAddress(signature, lastCaptureSignature)) {
+      lastMutationAt = Date.now(); // force a fresh settle window, not whatever already elapsed
+      await new Promise((resolve) => setTimeout(resolve, DOM_SETTLE_MS + 50));
+      const recheck = extractPropertyInformation();
+      const recheckSignature = propertySignature(recheck, signature.titleDeed);
+      if (!signaturesMatchAddress(recheckSignature, signature)) {
+        console.info('[CoreX] deeds-capture: property-info block self-healed after an extra settle wait for deed ' + signature.titleDeed + ' — using the updated address.');
+        property = recheck;
+      } else {
+        console.warn('[CoreX] deeds-capture: address/suburb/scheme unchanged from the previous capture (deed ' + lastCaptureSignature.titleDeed + ') despite this capture being a different deed (' + signature.titleDeed + ') — sending address/suburb/scheme as null rather than a possibly-wrong value. Re-capture this property manually if it needs a full address.');
+        property = Object.assign({}, property, { address: null, situated_at: null, suburb: null, scheme_name: null });
+      }
+    }
+
+    lastCaptureSignature = signature.titleDeed ? propertySignature(property, signature.titleDeed) : lastCaptureSignature;
 
     return {
       property_information: property,
@@ -804,12 +888,26 @@
         console.warn('[CoreX] deeds-capture: could not confidently parse owner name "' + rawName + '" into surname/first names — sending the raw string; storage falls back to a naive split.');
       }
 
+      // 2026-08-17 (Johan, live cmainfo confirm — the "stars" bug): if the ID
+      // is STILL masked here despite revealOwnerIdIfNeeded()'s poll (reveal
+      // control not found, click didn't register, or the reveal genuinely
+      // never completes within its timeout), sending the partial masked
+      // string ("560728*******") stores a value that LOOKS like real data
+      // but isn't — worse than sending nothing, because nothing visibly
+      // prompts a human to go complete it. Fall back to null so this reads
+      // as "ID not captured, needs manual entry" rather than a plausible-
+      // looking wrong ID.
+      const isMasked = /\*/.test(rawId);
+      if (isMasked) {
+        console.warn('[CoreX] deeds-capture: owner "' + rawName + '" ID is still masked after the reveal wait — sending null instead of the partial value; needs manual entry.');
+      }
+
       owners.push({
         name: parsed.confident ? [parsed.first_names, parsed.surname].filter(Boolean).join(' ') : rawName,
         surname: parsed.confident ? parsed.surname : null,
         first_names: parsed.confident ? parsed.first_names : null,
-        id_number: rawId || null,
-        id_type: idType,
+        id_number: isMasked ? null : (rawId || null),
+        id_type: isMasked ? null : idType,
       });
     }
     owners.blockedCompanies = blockedCompanies; // smuggled alongside the array — see buildDeedsCapturePayload()
