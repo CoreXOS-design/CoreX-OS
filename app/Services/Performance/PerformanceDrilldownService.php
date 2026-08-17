@@ -219,17 +219,33 @@ class PerformanceDrilldownService
             'url' => $r->contact_id ? '/corex/contacts/' . $r->contact_id : '#']);
     }
 
-    /** Commission drilldown = the money lines (per deal) contributing an agent's gross ex-VAT. */
+    /**
+     * Commission drilldown = the money lines (per deal) contributing an agent's gross ex-VAT.
+     *
+     * 2026-08 (company-share refinement) — one row per money LINE (per agent per deal), not
+     * per deal, so a joint deal legitimately appears more than once here. Without an agent
+     * label that read as a duplicate; now every row carries its own agent name + that agent's
+     * company_gross_ex_vat share alongside their agent_gross_ex_vat, so a 2-agent deal's two
+     * rows are visibly two different people's cuts, not "the same entry twice".
+     */
     private function commission(array $cohort, Period $period, int $agencyId): array
     {
         $q = DB::table('deal_money_lines as ml')->join('deals as d', 'd.id', '=', 'ml.deal_id')
+            ->leftJoin('users as u', 'u.id', '=', 'ml.user_id')
             ->whereNull('ml.deleted_at')->whereNull('d.deleted_at')->where('d.agency_id', $agencyId)
             ->whereIn('ml.user_id', $cohort)->whereNotNull('d.deal_date')
             ->whereBetween('d.deal_date', [$period->start->toDateString(), $period->end->toDateString()])
             ->orderByDesc('ml.agent_gross_ex_vat')
-            ->select('d.id', 'd.property_address', 'd.deal_no', DB::raw('ml.agent_gross_ex_vat as commission'));
+            ->select(
+                'd.id', 'd.property_address', 'd.deal_no', 'u.name as agent_name',
+                DB::raw('ml.agent_gross_ex_vat as commission'),
+                DB::raw('ml.company_gross_ex_vat as company_commission'),
+            );
         return $this->pack($q, fn ($r) => ['id' => (int) $r->id,
             'address' => $r->property_address ?: ('Deal ' . ($r->deal_no ?: $r->id)),
-            'commission' => (float) $r->commission, 'url' => '/admin/deals/' . $r->id]);
+            'agent' => $r->agent_name ?: 'Unknown agent',
+            'commission' => (float) $r->commission,
+            'company_commission' => (float) $r->company_commission,
+            'url' => '/admin/deals/' . $r->id]);
     }
 }

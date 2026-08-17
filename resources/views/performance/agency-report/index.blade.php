@@ -90,8 +90,12 @@
                         <div class="text-[10px]" style="color:var(--text-muted);">value (selected)</div>
                     </div>
                     <div class="text-right">
-                        <div class="text-xl font-bold" style="color:var(--text-primary);" x-text="'R ' + statusCommission().toLocaleString()"></div>
-                        <div class="text-[10px]" style="color:var(--text-muted);">commission (selected)</div>
+                        <div class="text-xl font-bold" style="color:var(--text-primary);" x-text="fmtMoney(statusGrossCommission())"></div>
+                        <div class="text-[10px]" style="color:var(--text-muted);">gross commission (selected)</div>
+                        <div class="text-[10px] mt-0.5" style="color:var(--text-secondary);">
+                            Agent <span x-text="fmtMoney(statusCommission())"></span>
+                            &middot; Company <span class="font-semibold" x-text="fmtMoney(statusCompanyCommission())"></span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -107,14 +111,27 @@
                         class="rounded p-3 text-left" style="background:var(--surface-2); border:1px solid var(--border); cursor:pointer;"
                         title="Click to see the detail">
                     @if($m['key'] === 'commission_gross_ex_vat')
-                        {{-- The Commission tile moves in LOCKSTEP with the deal-status ticks: when cc6
-                             ships per-status data (hasDealStatus) it binds to the SAME reactive
-                             selected-deals commission the "commission (selected)" selector line uses
-                             (statusCommission), so ticking a status recomputes both together. When no
-                             per-status data is present it shows the server gross-ex-VAT total. Always
-                             money-formatted (fmtMoney) to match the selector line. --}}
+                        @php
+                            $companySrv = (float) ($report['company']['commission_gross_ex_vat_company'] ?? 0);
+                            $agentSrv   = (float) ($report['company'][$m['key']] ?? 0);
+                            $grossSrv   = $agentSrv + $companySrv;
+                        @endphp
+                        {{-- 2026-08 (company-share refinement) — three numbers, not one: Gross
+                             (agent+company), Agent share, and the COMPANY share Johan needs for
+                             the meeting. Moves in LOCKSTEP with the deal-status ticks exactly like
+                             before: when cc6's per-status data is present (hasDealStatus) all three
+                             bind to the SAME reactive selected-deals figures the toggle-bar tile
+                             uses, so ticking a status recomputes both tiles together and they can
+                             never show two different numbers for the same selection. With no
+                             per-status data, falls back to the server-rendered period totals. --}}
                         <div class="text-xl font-bold" style="color:var(--text-primary);"
-                             x-text="fmtMoney(hasDealStatus ? statusCommission() : {{ (float) ($report['company'][$m['key']] ?? 0) }})">{{ $report['company'][$m['key']] ?? 0 }}</div>
+                             x-text="fmtMoney(hasDealStatus ? statusGrossCommission() : {{ $grossSrv }})">{{ $grossSrv }}</div>
+                        <div class="text-[11px] mt-0.5" style="color:var(--text-secondary);">
+                            Agent share <span x-text="fmtMoney(hasDealStatus ? statusCommission() : {{ $agentSrv }})">{{ $agentSrv }}</span>
+                        </div>
+                        <div class="text-[11px]" style="color:var(--text-primary); font-weight:600;">
+                            Company share <span x-text="fmtMoney(hasDealStatus ? statusCompanyCommission() : {{ $companySrv }})">{{ $companySrv }}</span>
+                        </div>
                     @else
                         <div class="text-xl font-bold" style="color:var(--text-primary);">{{ $report['company'][$m['key']] ?? 0 }}</div>
                     @endif
@@ -415,6 +432,16 @@ function agencyReport(cfg) {
             if (!this.companyStatus) return 0;
             return this.statusKeys.reduce((s, k) => s + (this.statusOn[k] ? Number(this.companyStatus[k]?.commission ?? 0) : 0), 0);
         },
+        // 2026-08 (company-share refinement) — mirrors statusCommission() exactly, but sums
+        // company_commission (deal_money_lines.company_gross_ex_vat) instead of the agent's
+        // own commission. Same selected-status reduction, so it never double-counts a
+        // co-agent deal and always reconciles: statusCommission() + statusCompanyCommission()
+        // == statusGrossCommission() for the same selection.
+        statusCompanyCommission() {
+            if (!this.companyStatus) return 0;
+            return this.statusKeys.reduce((s, k) => s + (this.statusOn[k] ? Number(this.companyStatus[k]?.company_commission ?? 0) : 0), 0);
+        },
+        statusGrossCommission() { return this.statusCommission() + this.statusCompanyCommission(); },
 
         // ---- #9 drilldown modal ----
         drillOpen: false, drillLoading: false, drillError: '', drillTitle: '',

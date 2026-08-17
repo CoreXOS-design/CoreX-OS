@@ -21,7 +21,13 @@ use Illuminate\Support\Facades\DB;
  * reconcile with the "Commission (gross ex-VAT)" KPI). DR2 contributes 0 commission
  * (money lines are DR1-only), matching the KPI.
  *
- * Returns per user: bucket => ['count'=>int,'value'=>float,'commission'=>float]
+ * 2026-08 (company-share refinement) — `company_commission` mirrors `commission`
+ * exactly, but sums deal_money_lines.company_gross_ex_vat (the company's own
+ * retained share of the same line) instead of agent_gross_ex_vat. Same per-agent-
+ * own-line rule applies, so the company-share bucket reconciles the same way and
+ * never double-counts a co-agent deal.
+ *
+ * Returns per user: bucket => ['count'=>int,'value'=>float,'commission'=>float,'company_commission'=>float]
  * for all five buckets. Company/branch rollups are computed from DISTINCT deals
  * (a co-agent deal counts once at rollup level; each agent still sees it in their row).
  */
@@ -48,7 +54,7 @@ class DealStatusBreakdownService
 
     private function emptyBuckets(): array
     {
-        $z = ['count' => 0, 'value' => 0.0, 'commission' => 0.0];
+        $z = ['count' => 0, 'value' => 0.0, 'commission' => 0.0, 'company_commission' => 0.0];
         return array_fill_keys(self::BUCKETS, $z);
     }
 
@@ -68,9 +74,10 @@ class DealStatusBreakdownService
         $start = $period->start->toDateString();
         $end   = $period->end->toDateString();
 
-        $add = function (array &$slot, string $bucket, float $val, float $comm) {
+        $add = function (array &$slot, string $bucket, float $val, float $comm, float $companyComm) {
             foreach (['all', $bucket] as $b) {
                 $slot[$b]['count']++; $slot[$b]['value'] += $val; $slot[$b]['commission'] += $comm;
+                $slot[$b]['company_commission'] += $companyComm;
             }
         };
 
@@ -86,13 +93,17 @@ class DealStatusBreakdownService
         // (agent_gross_ex_vat); since the company rollup sums agents, using the agent's own line
         // (not the deal's full sum) is what makes All-selected == the KPI and avoids double-counting
         // a co-agent deal. Distinct rollup uses the deal's full money-line sum (once).
-        $mlByDealUser = [];  // [deal_id][user_id] => ex-VAT
-        $mlByDeal     = [];  // [deal_id] => ex-VAT (all in-scope agents on the deal)
+        $mlByDealUser = [];  // [deal_id][user_id] => agent ex-VAT
+        $mlByDeal     = [];  // [deal_id] => agent ex-VAT (all in-scope agents on the deal)
+        $mlCompanyByDealUser = [];  // [deal_id][user_id] => company ex-VAT
+        $mlCompanyByDeal     = [];  // [deal_id] => company ex-VAT (all in-scope agents on the deal)
         foreach (DB::table('deal_money_lines')->whereNull('deleted_at')
                     ->whereIn('deal_id', $dr1->pluck('id'))->whereIn('user_id', $userIds)
-                    ->get(['deal_id', 'user_id', 'agent_gross_ex_vat']) as $r) {
+                    ->get(['deal_id', 'user_id', 'agent_gross_ex_vat', 'company_gross_ex_vat']) as $r) {
             $mlByDealUser[$r->deal_id][(int) $r->user_id] = ($mlByDealUser[$r->deal_id][(int) $r->user_id] ?? 0.0) + (float) $r->agent_gross_ex_vat;
             $mlByDeal[$r->deal_id] = ($mlByDeal[$r->deal_id] ?? 0.0) + (float) $r->agent_gross_ex_vat;
+            $mlCompanyByDealUser[$r->deal_id][(int) $r->user_id] = ($mlCompanyByDealUser[$r->deal_id][(int) $r->user_id] ?? 0.0) + (float) $r->company_gross_ex_vat;
+            $mlCompanyByDeal[$r->deal_id] = ($mlCompanyByDeal[$r->deal_id] ?? 0.0) + (float) $r->company_gross_ex_vat;
         }
         foreach ($dr1 as $d) {
             $bucket = self::dr1Bucket($d);
@@ -100,8 +111,8 @@ class DealStatusBreakdownService
             $agents = [];
             if (in_array((int) $d->managed_by_user_id, $userIds, true)) $agents[(int) $d->managed_by_user_id] = true;
             foreach ($pivot1[$d->id] ?? [] as $p) $agents[(int) $p->user_id] = true;
-            foreach (array_keys($agents) as $uid) $add($perAgent[$uid], $bucket, $val, (float) ($mlByDealUser[$d->id][$uid] ?? 0));
-            if ($agents) { $key = '1:' . $d->id; if (empty($distinctSeen[$key])) { $distinctSeen[$key] = true; $add($distinct, $bucket, $val, (float) ($mlByDeal[$d->id] ?? 0)); } }
+            foreach (array_keys($agents) as $uid) $add($perAgent[$uid], $bucket, $val, (float) ($mlByDealUser[$d->id][$uid] ?? 0), (float) ($mlCompanyByDealUser[$d->id][$uid] ?? 0));
+            if ($agents) { $key = '1:' . $d->id; if (empty($distinctSeen[$key])) { $distinctSeen[$key] = true; $add($distinct, $bucket, $val, (float) ($mlByDeal[$d->id] ?? 0), (float) ($mlCompanyByDeal[$d->id] ?? 0)); } }
         }
 
         // ---- DR2 (unlinked only — dedup) ----
@@ -114,14 +125,14 @@ class DealStatusBreakdownService
         foreach ($dr2 as $d) {
             $bucket = self::dr2Bucket($d);
             // DR2 commission = 0 here: the "Commission (gross ex-VAT)" KPI is deal_money_lines
-            // (DR1) only, so DR2 contributes 0 commission to the buckets too — keeps the tile
-            // reconciled with the KPI. (DR2 still contributes qty + value.)
-            $val = (float) ($d->purchase_price ?? 0); $comm = 0.0;
+            // (DR1) only, so DR2 contributes 0 commission (agent AND company) to the buckets
+            // too — keeps both tiles reconciled with the KPI. (DR2 still contributes qty + value.)
+            $val = (float) ($d->purchase_price ?? 0); $comm = 0.0; $companyComm = 0.0;
             $agents = [];
             foreach (['listing_agent_id', 'selling_agent_id'] as $c) if (in_array((int) $d->$c, $userIds, true)) $agents[(int) $d->$c] = true;
             foreach ($pivot2[$d->id] ?? [] as $p) $agents[(int) $p->user_id] = true;
-            foreach (array_keys($agents) as $uid) $add($perAgent[$uid], $bucket, $val, $comm);
-            if ($agents) { $key = '2:' . $d->id; if (empty($distinctSeen[$key])) { $distinctSeen[$key] = true; $add($distinct, $bucket, $val, $comm); } }
+            foreach (array_keys($agents) as $uid) $add($perAgent[$uid], $bucket, $val, $comm, $companyComm);
+            if ($agents) { $key = '2:' . $d->id; if (empty($distinctSeen[$key])) { $distinctSeen[$key] = true; $add($distinct, $bucket, $val, $comm, $companyComm); } }
         }
 
         return ['perAgent' => $perAgent, 'distinct' => $distinct];

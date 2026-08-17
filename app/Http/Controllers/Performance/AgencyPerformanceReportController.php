@@ -267,7 +267,12 @@ class AgencyPerformanceReportController extends Controller
             ],
             'commission' => [
                 ['key' => 'address', 'label' => 'Deal', 'align' => 'left'],
-                ['key' => 'commission', 'label' => 'Commission (ex-VAT)', 'align' => 'right', 'format' => 'currency'],
+                // 2026-08 (company-share refinement) — a joint deal has one row per agent
+                // (per deal_money_lines line); without this column two rows for the same
+                // deal read as a duplicate. Now each row is visibly a different agent's cut.
+                ['key' => 'agent', 'label' => 'Agent', 'align' => 'left'],
+                ['key' => 'commission', 'label' => 'Agent share (ex-VAT)', 'align' => 'right', 'format' => 'currency'],
+                ['key' => 'company_commission', 'label' => 'Company share (ex-VAT)', 'align' => 'right', 'format' => 'currency'],
             ],
             default => [],
         };
@@ -287,7 +292,7 @@ class AgencyPerformanceReportController extends Controller
             'portal_views' => ['title' => $r['title'], 'views' => $r['views'], 'href' => $r['url']],
             'appointments' => ['title' => $r['title'], 'category' => ucfirst(str_replace('_', ' ', (string) ($r['category'] ?? ''))), 'date' => $r['event_date'], 'href' => $r['url']],
             'outreach_messages' => ['contact' => $r['contact'], 'channel' => ucfirst((string) ($r['channel'] ?? '')), 'sent' => $r['sent_at'], 'href' => $r['url']],
-            'commission' => ['address' => $r['address'], 'commission' => $r['commission'], 'href' => $r['url']],
+            'commission' => ['address' => $r['address'], 'agent' => $r['agent'] ?? '—', 'commission' => $r['commission'], 'company_commission' => $r['company_commission'] ?? 0, 'href' => $r['url']],
             default => $r,
         };
     }
