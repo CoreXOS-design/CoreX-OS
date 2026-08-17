@@ -196,8 +196,32 @@ final class DeedsCaptureController extends Controller
             $identifiers->reconcileEmails($contact->id);
         }
 
+        // Johan: "the balance of the numbers can be dumped — if it's not
+        // active we don't need them." Ticking a subset and submitting is a
+        // one-shot decision on the WHOLE capture, not a partial one — anything
+        // left un-ticked at this point is discarded, not left pending for a
+        // future ingest. Discarded == ingested_at set / ingested_contact_id
+        // left null, so it drops off index()'s whereNull('ingested_at')
+        // pending list exactly like a real ingest does, without a hard
+        // delete (non-negotiable #1) — the row (and its value) stays in the
+        // table, just marked resolved-without-a-contact.
+        $tvaContactCapture->items()
+            ->whereNotIn('id', $data['item_ids'])
+            ->whereNull('ingested_at')
+            ->update(['ingested_at' => now()]);
+
         return redirect()->route('corex.deeds-capture.index')
-            ->with('success', 'Ingested ' . $items->count() . ' contact value' . ($items->count() > 1 ? 's' : '') . ' into ' . trim($contact->first_name . ' ' . $contact->last_name) . '.');
+            ->with('success', 'Ingested ' . $items->count() . ' contact value' . ($items->count() > 1 ? 's' : '') . ' into ' . trim($contact->first_name . ' ' . $contact->last_name) . '.')
+            // 2026-08-17 — ingestTva() never got the success_link treatment
+            // promote() got on 2026-08-14 (see that method's comment): the
+            // flash named the contact but gave the agent nothing to click,
+            // so after a successful ingest the browser just sat on the same
+            // list screen with no visible change — read by Johan as "the
+            // contact details did not load." The contact IS created/updated
+            // correctly (verified: exact ticked numbers land on it, nothing
+            // else) — this was purely a missing link, not a data bug.
+            ->with('success_link', route('corex.contacts.show', $contact->id))
+            ->with('success_link_label', 'Open contact →');
     }
 
     public function promote(Request $request, TrackedProperty $trackedProperty, TrackedPropertyMatchOrCreateService $matcher)
