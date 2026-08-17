@@ -846,6 +846,10 @@ class CalendarController extends Controller
                 ] : null;
             })(),
             'viewing_pack_launch_url' => route('corex.viewing-packs.from-event', $calendarEvent),
+            // Gate the panel's "Create viewing pack" button (Path B) to viewing-type
+            // events only — mirrors buildEventViewingPack()'s isViewing gate so a
+            // listing-presentation / meeting / other event no longer offers a pack.
+            'supports_viewing_pack' => in_array($calendarEvent->category, ['viewing', 'viewings'], true),
             'linked_property' => $calendarEvent->property_id ? [
                 'id' => $calendarEvent->property_id,
                 'address' => $calendarEvent->property?->address ?? ('Property #' . $calendarEvent->property_id),

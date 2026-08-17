@@ -63,6 +63,30 @@ class CalendarEventClassSetting extends Model
     public const NATURE_ACTIONABLE    = 'actionable';
     public const NATURE_INFORMATIONAL = 'informational';
 
+    /**
+     * Categories that are ACTIONABLE by nature — they require feedback / go
+     * red-overdue (viewings + listing presentations). Everything else is a
+     * marker/reminder and is informational.
+     */
+    public const ACTIONABLE_CATEGORIES = ['viewing', 'viewings', 'buyer_viewing', 'listing_presentation'];
+
+    /**
+     * Canonical category -> event nature. THE single source of truth for
+     * deriving actionable/informational when an event has no explicit nature
+     * (no per-event metadata override AND no class-config row) — i.e. legacy
+     * NULL events, resolved at render time without touching data.
+     *
+     * cc6's data backfill MUST mirror this mapping EXACTLY.
+     */
+    public static function natureForCategory(?string $category): string
+    {
+        $c = strtolower(trim((string) $category));
+
+        return in_array($c, self::ACTIONABLE_CATEGORIES, true)
+            ? self::NATURE_ACTIONABLE
+            : self::NATURE_INFORMATIONAL;
+    }
+
     protected $casts = [
         'is_active'             => 'boolean',
         'daily_digest_enabled'  => 'boolean',

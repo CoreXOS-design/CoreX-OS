@@ -2322,7 +2322,7 @@
                 </template>
             </span>
         </template>
-        <template x-if="!panelData.linked_viewing_pack && panelData.is_editable">
+        <template x-if="!panelData.linked_viewing_pack && panelData.is_editable && panelData.supports_viewing_pack">
             <form :action="panelData.viewing_pack_launch_url" method="POST" class="inline">
                 @csrf
                 <button type="submit"

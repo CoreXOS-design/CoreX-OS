@@ -384,7 +384,11 @@ class CalendarEvent extends Model
             return $override;
         }
         $cfg = CalendarEventClassSetting::forAgencyAndClass($this->agency_id, (string) ($this->category ?? ''));
-        return $cfg?->event_nature ?? 'actionable';
+        // No explicit nature (no class-config row / null column) → DERIVE from the
+        // category via the canonical shared map, so legacy NULL events render with
+        // the right actionable/informational nature without touching data. (Was a
+        // blanket 'actionable', which wrongly made meeting/other/etc. actionable.)
+        return $cfg?->event_nature ?? CalendarEventClassSetting::natureForCategory($this->category);
     }
 
     /** Informational = a marker/time-block: never goes red/overdue, never asks for feedback. */
