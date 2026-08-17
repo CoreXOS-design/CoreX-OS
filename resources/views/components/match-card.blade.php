@@ -32,9 +32,16 @@
     $tier  = $property->match_tier ?? \App\Services\Matching\MatchingService::tierFor($score);
     $scoreVariant = match($tier) {
         'strong' => 'ds-badge-success',
-        'good'   => 'ds-badge-info',
+        'good'   => '',
         default  => 'ds-badge-warning',
     };
+    // 'good' tier: ds-badge-info renders as dark navy (#0b2a4a) in LIGHT mode —
+    // illegible against the app chrome (it's the brand-default navy). Give it a
+    // scoped legible blue (#4f7cff — the design's own info-blue that ds-badge-info
+    // already shows in DARK mode), so the global ds-badge-info stays navy for its
+    // intended uses (rental / sold status). Inline, not a new CSS class, so the fix
+    // ships blade-only with no asset rebuild. Johan-approved 2026-08-17.
+    $scoreStyle = $tier === 'good' ? 'background:#4f7cff;color:#fff;' : '';
     $scoreLabel = match($tier) {
         'strong' => 'Strong',
         'good'   => 'Good',
@@ -99,7 +106,7 @@
         <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2 flex-wrap mb-1.5">
                 @if($score > 0)
-                <span class="ds-badge {{ $scoreVariant }}" title="{{ $scoreLabel }} match">
+                <span class="ds-badge {{ $scoreVariant }}" style="{{ $scoreStyle }}" title="{{ $scoreLabel }} match">
                     {{ $score }}% · {{ $scoreLabel }}
                 </span>
                 @endif
