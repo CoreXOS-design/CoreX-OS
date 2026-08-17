@@ -52,7 +52,7 @@
         if ($agency) { $tabs['branches'] = 'Branches'; }
         $tabs['syndication'] = 'Syndication';
         if ($agency && auth()->user()?->hasPermission('agency_api.view')) { $tabs['api-access'] = 'API Access'; }
-        if (!$agency) { $tabs['admin'] = 'First Admin'; }
+        if (!$agency) { $tabs['admin'] = 'Branch & Admin'; }
     @endphp
     <div class="flex gap-1 rounded-md p-1 flex-wrap" style="background: var(--surface); border:1px solid var(--border);">
         @foreach($tabs as $key => $label)
@@ -561,7 +561,35 @@
         {{-- ── FIRST ADMIN TAB (create only) ── --}}
         @if(!$agency)
         <div x-show="activeTab === 'admin'" x-cloak data-tab-panel="admin" class="ds-status-card p-4 space-y-5">
-            <label class="flex items-start gap-3 cursor-pointer">
+            {{-- AT-378 — every agency needs at least one branch from the moment it
+                 exists, live or demo. Without it the first Admin (and everyone
+                 invited after them) lands with branch_id=NULL, which every other
+                 user in the system has set and which silently breaks any
+                 branch-filtered feature for that account. --}}
+            <div class="space-y-4">
+                <div>
+                    <h3 class="text-sm font-bold" style="color:var(--text-primary);">First Branch <span style="color:var(--ds-crimson);">*</span></h3>
+                    <p class="text-xs mt-0.5" style="color:var(--text-muted);">Every agency needs at least one branch before anyone can be added. You can add more branches later from the agency's Branches tab.</p>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Branch name <span style="color:var(--ds-crimson);">*</span></label>
+                        <input type="text" name="branch_name" value="{{ old('branch_name') }}" required
+                               class="w-full rounded-md px-3 py-2 text-sm"
+                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                               placeholder="e.g. Head Office">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Branch code <span style="color:var(--ds-crimson);">*</span></label>
+                        <input type="text" name="branch_code" value="{{ old('branch_code') }}" required
+                               class="w-full rounded-md px-3 py-2 text-sm"
+                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                               placeholder="e.g. HQ">
+                    </div>
+                </div>
+            </div>
+
+            <label class="flex items-start gap-3 cursor-pointer pt-2" style="border-top: 1px solid var(--border);">
                 <input type="checkbox" name="is_demo" value="1" x-model="isDemo" class="mt-1 h-4 w-4 rounded cursor-pointer"
                        style="accent-color:var(--brand-icon);">
                 <span>

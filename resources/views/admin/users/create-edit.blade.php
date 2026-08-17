@@ -9,6 +9,15 @@
     $designList  = $designations ?? collect();
     $roleList    = $roles ?? collect();
 
+    // AT-378 follow-up — a brand-new agency's only branch should be the
+    // obvious default for every agent invited into it, not a blank "(no
+    // branch)" the admin has to remember to change. Only applies to NEW
+    // users with no branch already picked (old() input wins on validation
+    // redisplay) — an existing user's branch is never silently changed.
+    $defaultBranchId = (!$isEdit && $branchList->count() === 1)
+        ? (string) $branchList->first()->id
+        : '';
+
     $nameParts = $isEdit ? explode(' ', $user->name, 2) : [];
     $firstName = old('name', $nameParts[0] ?? '');
     $surname   = old('surname', $nameParts[1] ?? '');
@@ -257,7 +266,7 @@
                                 style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                             <option value="">(no branch)</option>
                             @foreach($branchList as $b)
-                            <option value="{{ $b->id }}" {{ (string) old('branch_id', $isEdit ? $user->branch_id : '') === (string) $b->id ? 'selected' : '' }}>{{ $b->name }}</option>
+                            <option value="{{ $b->id }}" {{ (string) old('branch_id', $isEdit ? $user->branch_id : $defaultBranchId) === (string) $b->id ? 'selected' : '' }}>{{ $b->name }}</option>
                             @endforeach
                         </select>
                     </div>

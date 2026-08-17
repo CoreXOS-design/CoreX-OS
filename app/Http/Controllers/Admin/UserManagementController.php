@@ -187,6 +187,19 @@ class UserManagementController extends Controller
 
         $fullName = trim($data['name'] . ' ' . $data['surname']);
 
+        // AT-378 follow-up — same defense the agency-creation form now has:
+        // if the caller didn't pick a branch AND the agency has exactly one,
+        // default onto it server-side too (not just the form's preselect),
+        // so a blank branch_id can't slip through a bypassed form, an API
+        // caller, or a future UI regression the way it did for AT-378.
+        if (empty($data['branch_id'])) {
+            $agencyId = auth()->user()?->effectiveAgencyId();
+            $onlyBranch = Branch::when($agencyId, fn ($q) => $q->where('agency_id', $agencyId))->limit(2)->pluck('id');
+            if ($agencyId && $onlyBranch->count() === 1) {
+                $data['branch_id'] = $onlyBranch->first();
+            }
+        }
+
         // AT-278 — re-creating someone is the same act as reinstating them, and
         // is gated identically. Spec: agent-seat-release-lock.md §6.4.
         //
