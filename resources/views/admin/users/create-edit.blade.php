@@ -351,6 +351,16 @@
                                {{ old('counts_for_branch_split', $isEdit ? (int)($user->counts_for_branch_split ?? 1) : 1) ? 'checked' : '' }}>
                         Counts for Branch Split
                     </label>
+                    {{-- ROI report user selector — persistent exclude for IT/office-admin accounts
+                         (Johan, Andre, Ronel) so they never appear on the Agency Performance &
+                         ROI report. Default checked (on) for every user. --}}
+                    <label class="flex items-center gap-2.5 text-sm cursor-pointer" style="color:var(--text-secondary);">
+                        <input type="hidden" name="show_in_performance_reports" value="0">
+                        <input type="checkbox" name="show_in_performance_reports" value="1" class="rounded"
+                               style="accent-color:var(--brand-icon, #0ea5e9);"
+                               {{ old('show_in_performance_reports', $isEdit ? (int)($user->show_in_performance_reports ?? 1) : 1) ? 'checked' : '' }}>
+                        Show on Performance &amp; ROI Report
+                    </label>
                     {{-- Agency Public API — agent appears on the agency website(s). Spec §2 (layer 3).
                          Only shown once the agency has a website (≥1 API key). --}}
                     @php

@@ -139,6 +139,43 @@ class PerformanceFoundationTest extends TestCase
         $this->assertSame(2, $cc['delta'], 'delta = current - prior');
     }
 
+    /**
+     * Stale attribution fix (2026-08, Johan-confirmed) — contacts_created must follow
+     * the CURRENT owner (agent_id), not whoever originally created the record
+     * (created_by_user_id). Proves the exact "Falan created it, Maggie has it now"
+     * scenario: the creator gets ZERO credit once ownership moves, the new owner
+     * gets it, and the company total is unaffected either way (same contact, same
+     * period — attribution just moves to a different agent's row).
+     */
+    public function test_contacts_created_attributes_to_current_owner_not_creator(): void
+    {
+        $agency = Agency::create(['name' => 'A', 'slug' => 'a']);
+        $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'B']);
+        $creator = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent']);
+        $newOwner = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent']);
+        $this->actingAs($creator);
+
+        // Created by $creator, but reassigned to $newOwner (agent_id != created_by_user_id).
+        $c = new Contact();
+        $c->forceFill([
+            'agency_id' => $agency->id, 'branch_id' => $branch->id,
+            'first_name' => 'C', 'last_name' => 'X',
+            'created_by_user_id' => $creator->id,
+            'agent_id' => $newOwner->id,
+        ])->save();
+        DB::table('contacts')->where('id', $c->id)->update(['created_at' => '2026-08-10 09:00:00']);
+
+        $period = (new PeriodResolver())->resolve('this_month', null, null, CarbonImmutable::parse('2026-08-15'));
+        $report = app(AgencyPerformanceReportService::class)->build(new PerformanceScope($agency->id), $period);
+
+        $creatorRow = collect($report['agents'])->firstWhere('user_id', $creator->id);
+        $newOwnerRow = collect($report['agents'])->firstWhere('user_id', $newOwner->id);
+
+        $this->assertSame(0, $creatorRow['metrics']['contacts_created'], 'the original creator gets NO credit once reassigned');
+        $this->assertSame(1, $newOwnerRow['metrics']['contacts_created'], 'the current owner gets the credit');
+        $this->assertSame(1, $report['company']['contacts_created'], 'company total unaffected — same contact, different attribution');
+    }
+
     private function makeContact(Agency $agency, Branch $branch, User $creator, string $date): void
     {
         $c = new Contact();
@@ -148,6 +185,9 @@ class PerformanceFoundationTest extends TestCase
             'first_name'         => 'C',
             'last_name'          => 'X',
             'created_by_user_id' => $creator->id,
+            // contacts_created attributes by CURRENT owner (agent_id), not creator —
+            // set both to the same user here since this helper isn't testing reassignment.
+            'agent_id'           => $creator->id,
         ])->save();
 
         // Pin created_at to the target day (bypass the auto timestamp).
