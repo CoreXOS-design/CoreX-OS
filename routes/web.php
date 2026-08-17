@@ -2256,6 +2256,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/wet-ink/create', [\App\Http\Controllers\Compliance\FicaController::class, 'createWetInk'])->name('wet-ink.create');
         Route::post('/wet-ink', [\App\Http\Controllers\Compliance\FicaController::class, 'storeWetInk'])->name('wet-ink.store');
         // AT-361 — contact's existing documents feed for the wet-ink link picker (before /{submission}).
+        // Type-ahead contact search for the create + wet-ink pickers (registered before /{submission}).
+        Route::get('/contacts/search', [\App\Http\Controllers\Compliance\FicaController::class, 'searchContacts'])->name('contacts.search');
         Route::get('/contact/{contact}/documents', [\App\Http\Controllers\Compliance\FicaController::class, 'contactDocuments'])->name('contact-documents');
         Route::get('/{submission}', [\App\Http\Controllers\Compliance\FicaController::class, 'show'])->name('show');
         Route::get('/{submission}/pdf', [\App\Http\Controllers\Compliance\FicaController::class, 'downloadPdf'])->name('pdf');
