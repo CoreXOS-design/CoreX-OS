@@ -28,7 +28,8 @@ class DocumentProcessingService
         int $uploadedBy,
         string $title,
         ?string $description = null,
-        ?string $version = null
+        ?string $version = null,
+        bool $isGlobal = false
     ): KnowledgeDocument {
         $extension = strtolower($file->getClientOriginalExtension());
         $fileName = $file->getClientOriginalName();
@@ -45,6 +46,7 @@ class DocumentProcessingService
             'file_size' => $file->getSize(),
             'status' => 'processing',
             'version' => $version,
+            'is_global' => $isGlobal,
         ]);
 
         try {

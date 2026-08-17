@@ -267,7 +267,7 @@ class EllieToolkit
     {
         try {
             $result = match ($tool) {
-                'search_knowledge'        => $this->searchKnowledge($input),
+                'search_knowledge'        => $this->searchKnowledge($input, $user),
                 'search_reference_sites'  => $this->searchReferenceSites($input),
                 'find_page'               => $this->findPage($input, $user),
                 'find_how_to'             => $this->findHowTo($input, $user),
@@ -296,14 +296,14 @@ class EllieToolkit
 
     // ── Knowledge & help ────────────────────────────────────────────────────
 
-    private function searchKnowledge(array $input): array
+    private function searchKnowledge(array $input, User $user): array
     {
         $query = trim((string) ($input['query'] ?? ''));
         if ($query === '') {
             return ['error' => 'A search query is required.'];
         }
 
-        $found = $this->knowledge->search($query, $this->limit($input, 4, 8));
+        $found = $this->knowledge->search($query, $this->limit($input, 4, 8), $user);
 
         $context = trim((string) ($found['context'] ?? ''));
 
