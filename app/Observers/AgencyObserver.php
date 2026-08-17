@@ -50,6 +50,16 @@ class AgencyObserver
             // never empty for a brand-new agency.
             \App\Models\ContactIdentifierLabel::seedDefaultsFor($agency->id);
 
+            // Payroll onboarding (#20) — seed SA-standard default earning + deduction
+            // types so a brand-new agency's payroll (earning-types / deduction-types
+            // pages, payslip lines, PAYE/UIF calculation) is usable immediately rather
+            // than opening to empty tables. Idempotent (firstOrCreate on agency_id+code).
+            // Inside withoutEvents() so BelongsToAgency does not re-stamp agency_id onto
+            // the acting admin's own agency. Backfill existing agencies with
+            // `php artisan payroll:seed-default-types --all`.
+            \App\Models\Payroll\PayrollEarningType::seedDefaultsFor((int) $agency->id);
+            \App\Models\Payroll\PayrollDeductionType::seedDefaultsFor((int) $agency->id);
+
             // Seed leave visibility matrix with defaults
             foreach (AgencyLeaveVisibilityMatrix::defaultRows() as $row) {
                 AgencyLeaveVisibilityMatrix::withoutGlobalScopes()->firstOrCreate(
