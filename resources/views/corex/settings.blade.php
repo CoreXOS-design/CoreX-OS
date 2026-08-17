@@ -127,6 +127,9 @@
                         : null,
                     ['key'=>'leave-visibility',      'label'=>'Leave Visibility',      'type'=>'section', 'keywords'=>'leave calendar matrix roles branch'],
                     $can('compliance.whistleblow.configure') ? ['key'=>'whistleblow-settings', 'label'=>'Compliance Reporting', 'type'=>'section', 'keywords'=>'whistleblower ppra approver complaints'] : null,
+                    ($u && $u->hasFeature('proforma-invoices') && $can('proforma.manage'))
+                        ? ['key'=>'proforma-settings', 'label'=>'Proforma Invoices', 'type'=>'link', 'href'=>route('admin.proforma-settings'), 'keywords'=>'accounting invoice numbering vat bank details terms']
+                        : null,
                 ])),
             ],
             [

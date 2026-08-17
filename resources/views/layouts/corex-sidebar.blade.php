@@ -111,7 +111,7 @@
     // ── Active group detection (ONE mechanism: routeIs) ──
     $activeGroup = null;
     if (request()->routeIs(
-        'worksheet.*', 'agent.listings*', 'rentals.*',
+        'worksheet.*', 'rentals.*',
         'agent.dashboard', 'agent.daily*', 'agent.deals.*',
         'bm.performance*', 'bm.daily*', 'bm.listings*', 'bm.my.dashboard',
         'bm.worksheet.market*', 'bm.tv-messages*', 'bm.agent.performance*',
@@ -1056,17 +1056,6 @@
                 <a href="{{ route('worksheet.index') }}" class="corex-nav-subitem {{ request()->routeIs('worksheet.*') ? 'active' : '' }}">Worksheet</a>
                 @endpermission
 
-                @permission('view_listings')
-                <a href="{{ route('agent.listings') }}" class="corex-nav-subitem {{ request()->routeIs('agent.listings*') ? 'active' : '' }}">My Listing Stock</a>
-                @endpermission
-
-                {{-- Proforma Invoice list — own/branch/all scoped via proforma.view (Role Manager) --}}
-                @feature('proforma-invoices')
-                @permission('proforma.view')
-                <a href="{{ route('proforma.index') }}" class="corex-nav-subitem {{ request()->routeIs('proforma.index') ? 'active' : '' }}">Proforma Invoices</a>
-                @endpermission
-                @endfeature
-
                 {{-- Agent section (view own stats) --}}
                 @permission('view_own_stats')
                 <div class="corex-nav-sublabel">My Performance</div>
@@ -1713,11 +1702,12 @@
         <div class="corex-nav-section-label">Admin</div>
 
         {{-- Company (slide-panel group) — agency-level configuration and people admin --}}
-        {{-- `billing.view` and `assistants.view` are in this gate because the Company GROUP is only
-             rendered when the user holds at least one of its children's permissions — without them, a
-             role granted only billing.view (or only assistants.view) would have the whole group hidden
-             and could never reach Billing / Assistants. --}}
-        @if($user && $user->hasAnyPermission(['manage_performance_settings', 'access_role_manager', 'assistants.view', 'access_soft_deletes', 'manage_staff_take_on', 'billing.view']))
+        {{-- `billing.view`, `assistants.view` and `proforma.view` are in this gate because the Company
+             GROUP is only rendered when the user holds at least one of its children's permissions —
+             without them, a role granted only billing.view (or only assistants.view, or only
+             proforma.view) would have the whole group hidden and could never reach Billing /
+             Assistants / Proforma Invoices. --}}
+        @if($user && $user->hasAnyPermission(['manage_performance_settings', 'access_role_manager', 'assistants.view', 'access_soft_deletes', 'manage_staff_take_on', 'billing.view', 'proforma.view']))
         <div>
             <button type="button" @click="push('company')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'company' ? 'active' : '' }}">
@@ -1762,6 +1752,14 @@
                 <a href="{{ route('billing.index') }}" class="corex-nav-subitem {{ request()->routeIs('billing.*') ? 'active' : '' }}">Billing</a>
                 @endpermission
 
+                {{-- Proforma Invoice list — moved here from Agency Tracker. Still
+                     scoped own/branch/all via proforma.view (Role Manager). --}}
+                @feature('proforma-invoices')
+                @permission('proforma.view')
+                <a href="{{ route('proforma.index') }}" class="corex-nav-subitem {{ request()->routeIs('proforma.index') ? 'active' : '' }}">Proforma Invoices</a>
+                @endpermission
+                @endfeature
+
                 @permission('access_role_manager')
                 <a href="{{ route('corex.role-manager') }}" class="corex-nav-subitem {{ request()->routeIs('corex.role-manager*') ? 'active' : '' }}">Role Manager</a>
                 @endpermission
@@ -1787,18 +1785,6 @@
             </div>
         </div>
         @endif
-
-        {{-- Proforma Invoices settings (Accounting pillar) --}}
-        @feature('proforma-invoices')
-        @permission('proforma.manage')
-        <a href="{{ route('admin.proforma-settings') }}" class="corex-nav-item {{ request()->routeIs('admin.proforma-settings*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 3h6m2 6H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414a1 1 0 0 1 .293.707V19a2 2 0 0 1-2 2Z" />
-            </svg>
-            <span>Proforma Invoices</span>
-        </a>
-        @endpermission
-        @endfeature
 
         {{-- Knowledge Base --}}
         @feature('knowledge-base')
