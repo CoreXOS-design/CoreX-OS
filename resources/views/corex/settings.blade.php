@@ -3762,6 +3762,22 @@
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" class="w-4 h-4 flex-shrink-0" style="color:var(--border-hover);"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
                     </a>
 
+                    {{-- P24 IMAP per-agency (#3) — each agency's own P24 alert mailbox --}}
+                    @permission('manage_p24_imap_settings')
+                    <a href="{{ route('admin.p24-imap-settings.edit') }}"
+                       class="flex items-center gap-3 p-3 rounded-md transition-all duration-300 no-underline hover:bg-[color:var(--surface-2)]"
+                       style="border:1px solid var(--border);">
+                        <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent);">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color: var(--brand-icon, #0ea5e9);" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
+                        </div>
+                        <div class="flex-1">
+                            <div class="text-sm font-semibold" style="color:var(--text-primary);">P24 IMAP Settings</div>
+                            <div class="text-xs" style="color:var(--text-secondary);">Your own Property24 alert-email mailbox for Market Pulse</div>
+                        </div>
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" class="w-4 h-4 flex-shrink-0" style="color:var(--border-hover);"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+                    </a>
+                    @endpermission
+
                     <button type="button"
                        @click="activeSection = 'commission'; $nextTick(() => window.scrollTo({top:0, behavior:'smooth'}))"
                        class="w-full text-left flex items-center gap-3 p-3 rounded-md transition-all duration-300 no-underline hover:bg-[color:var(--surface-2)]"
