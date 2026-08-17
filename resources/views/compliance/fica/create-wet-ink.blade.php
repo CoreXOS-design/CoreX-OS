@@ -45,6 +45,24 @@
               selectedName: {{ \Illuminate\Support\Js::from('') }},
               entityType: {{ \Illuminate\Support\Js::from(old('entity_type', 'natural')) }},
               contactInfo: null,
+              results: [],
+              loading: false,
+              searchUrl: {{ \Illuminate\Support\Js::from(route('compliance.fica.contacts.search')) }},
+              doSearch() {
+                  const q = this.search.trim();
+                  this.selected = null; this.contactInfo = null;
+                  if (q.length < 2) { this.results = []; this.open = false; return; }
+                  this.open = true; this.loading = true;
+                  fetch(this.searchUrl + '?q=' + encodeURIComponent(q), { headers: { Accept: 'application/json' } })
+                      .then(r => r.ok ? r.json() : { contacts: [] })
+                      .then(j => { this.results = j.contacts || []; })
+                      .catch(() => { this.results = []; })
+                      .finally(() => { this.loading = false; });
+              },
+              pick(c) {
+                  this.selected = c.id; this.selectedName = c.name; this.open = false; this.results = [];
+                  this.contactInfo = { name: c.name, email: c.email, phone: c.phone, id_number: c.id_number };
+              },
               // AT-361 — link existing contact documents instead of re-uploading.
               contactDocs: [],
               docsLoading: false,
@@ -76,6 +94,7 @@
                     <input type="text"
                            x-model="search"
                            @focus="open = true"
+                           @input.debounce.300ms="doSearch()"
                            @click.away="open = false"
                            placeholder="Search contacts..."
                            class="w-full rounded-md px-3 py-2 text-sm outline-none"
@@ -90,25 +109,16 @@
                     <div x-show="open && search.length >= 2" x-cloak
                          class="absolute z-30 mt-1 w-full max-h-60 overflow-y-auto rounded-md"
                          style="background:var(--surface); border:1px solid var(--border); box-shadow:0 8px 24px rgba(0,0,0,0.18);">
-                        @foreach($contacts as $c)
-                            @php
-                                $haystack = strtolower(trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? '') . ' ' . ($c->email ?? '') . ' ' . ($c->id_number ?? '')));
-                                $label = trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? ''));
-                                $info = json_encode([
-                                    'name' => $label,
-                                    'email' => $c->email ?? 'No email',
-                                    'phone' => $c->phone ?? 'No phone',
-                                    'id_number' => $c->id_number ?? 'Not set',
-                                ]);
-                            @endphp
+                        <template x-for="c in results" :key="c.id">
                             <button type="button"
-                                    x-show="{{ \Illuminate\Support\Js::from($haystack) }}.includes(search.toLowerCase())"
-                                    @click="selected = {{ (int) $c->id }}; selectedName = {{ \Illuminate\Support\Js::from($label) }}; open = false; contactInfo = {{ $info }}"
+                                    @click="pick(c)"
                                     class="w-full text-left px-3 py-2 text-sm transition-colors hover:bg-[var(--surface-2)]" style="border-bottom:1px solid var(--border);">
-                                <div class="font-medium" style="color:var(--text-primary);">{{ $c->first_name }} {{ $c->last_name }}</div>
-                                <div class="text-xs" style="color:var(--text-muted);">{{ $c->email ?? 'No email' }} {{ $c->id_number ? '/ ID: ' . $c->id_number : '' }}</div>
+                                <div class="font-medium" style="color:var(--text-primary);" x-text="c.name"></div>
+                                <div class="text-xs" style="color:var(--text-muted);" x-text="c.email + (c.id_number && c.id_number !== 'Not set' ? ' / ID: ' + c.id_number : '')"></div>
                             </button>
-                        @endforeach
+                        </template>
+                        <div x-show="loading" class="px-3 py-2 text-xs" style="color:var(--text-muted);">Searching&hellip;</div>
+                        <div x-show="!loading && search.length >= 2 && results.length === 0" class="px-3 py-2 text-xs" style="color:var(--text-muted);">No matching contacts.</div>
                     </div>
                 </div>
 
