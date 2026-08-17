@@ -2,6 +2,7 @@
 
 namespace App\Services\P24;
 
+use App\Models\AgencyP24ImapSetting;
 use App\Models\P24Listing;
 use App\Models\P24PriceChange;
 use App\Models\P24ImportLog;
@@ -20,23 +21,40 @@ class P24ImapImportService
     }
 
     /**
-     * Connect to IMAP, find unprocessed P24 emails, parse and store.
+     * P24 IMAP per-agency (#3) — poll EVERY agency's own active, configured
+     * P24 mailbox in turn. A single agency's broken credentials (bad host,
+     * expired password, connection timeout) is recorded on THAT agency's
+     * settings row and never aborts the run for the others.
      */
-    public function import(): array
+    public function importAllAgencies(): array
     {
-        $config = config('services.p24_imap');
+        $settings = AgencyP24ImapSetting::withoutGlobalScopes()->active()->configured()->get();
 
-        if (!$config['enabled']) {
-            return ['status' => 'disabled', 'message' => 'P24 import is disabled. Set P24_IMPORT_ENABLED=true in .env'];
+        if ($settings->isEmpty()) {
+            return ['status' => 'disabled', 'message' => 'No agency has an active, configured P24 IMAP mailbox.'];
         }
 
-        if (empty($config['host']) || empty($config['username']) || empty($config['password'])) {
-            return ['status' => 'error', 'message' => 'P24 IMAP credentials not configured in .env'];
+        $perAgency = [];
+        foreach ($settings as $setting) {
+            $perAgency[] = [
+                'agency_id' => $setting->agency_id,
+                'result'    => $this->importForAgency($setting),
+            ];
         }
 
-        $agencyId = $this->resolveAgencyId();
-        if (!$agencyId) {
-            return ['status' => 'error', 'message' => 'No agency with p24_agency_id configured — cannot attribute imported listings.'];
+        return ['status' => 'success', 'agencies' => $perAgency];
+    }
+
+    /**
+     * Connect to ONE agency's own IMAP mailbox, find unprocessed P24 emails,
+     * parse and store — all rows attributed to that agency's own agency_id.
+     */
+    public function importForAgency(AgencyP24ImapSetting $setting): array
+    {
+        $agencyId = (int) $setting->agency_id;
+
+        if (! $setting->isConfigured()) {
+            return ['status' => 'error', 'message' => 'P24 IMAP mailbox is missing host, username or password.'];
         }
 
         try {
@@ -44,12 +62,12 @@ class P24ImapImportService
                 'default' => 'p24',
                 'accounts' => [
                     'p24' => [
-                        'host'          => $config['host'],
-                        'port'          => (int) $config['port'],
+                        'host'          => $setting->imap_host,
+                        'port'          => (int) $setting->imap_port,
                         'protocol'      => 'imap',
-                        'encryption'    => $config['encryption'],
-                        'username'      => $config['username'],
-                        'password'      => $config['password'],
+                        'encryption'    => $setting->imap_encryption,
+                        'username'      => $setting->username,
+                        'password'      => $setting->encrypted_password,
                         'validate_cert' => true,
                         'timeout'       => 30,
                     ],
@@ -59,21 +77,25 @@ class P24ImapImportService
             $client = $manager->account();
             $client->connect();
         } catch (\Throwable $e) {
-            Log::error("P24 IMAP connection failed: {$e->getMessage()}");
+            Log::error("P24 IMAP connection failed (agency {$agencyId}): {$e->getMessage()}");
+            $this->recordFailure($setting, 'connect_failed');
             return ['status' => 'error', 'message' => "IMAP connection failed: {$e->getMessage()}"];
         }
 
         $stats = ['processed' => 0, 'new' => 0, 'updated' => 0, 'errors' => 0, 'skipped' => 0];
 
         try {
-            $folder = $client->getFolder($config['folder']);
+            $folder = $client->getFolder($setting->imap_folder ?: 'INBOX');
 
             if (!$folder) {
-                return ['status' => 'error', 'message' => "IMAP folder '{$config['folder']}' not found"];
+                $this->recordFailure($setting, 'connect_failed');
+                return ['status' => 'error', 'message' => "IMAP folder '{$setting->imap_folder}' not found"];
             }
 
-            // Use last successful import date instead of hardcoded 30 days
-            $lastLog = P24ImportLog::where('status', 'success')
+            // Use this agency's own last successful import date instead of a hardcoded window.
+            $lastLog = P24ImportLog::withoutGlobalScopes()
+                ->where('agency_id', $agencyId)
+                ->where('status', 'success')
                 ->orderByDesc('created_at')
                 ->first();
 
@@ -81,7 +103,7 @@ class P24ImapImportService
                 // IMAP SINCE is date-only (no time), so subtract 1 day as buffer
                 $since = Carbon::parse($lastLog->created_at)->subDay()->startOfDay();
             } else {
-                // First run ever — fall back to 30 days
+                // First run ever for this agency — fall back to 30 days
                 $since = Carbon::now()->subDays(30);
             }
 
@@ -93,21 +115,25 @@ class P24ImapImportService
                     ->get();
             } catch (\Webklex\PHPIMAP\Exceptions\GetMessagesFailedException $e) {
                 // "empty response" from the IMAP server means no matches — treat as zero results, not failure.
-                Log::info("P24 IMAP search returned no results: {$e->getMessage()}");
+                Log::info("P24 IMAP search returned no results (agency {$agencyId}): {$e->getMessage()}");
                 $client->disconnect();
+                $this->recordSuccess($setting);
                 return ['status' => 'success', 'message' => 'No P24 emails found', 'stats' => $stats];
             }
 
             if ($messages->count() === 0) {
                 $client->disconnect();
+                $this->recordSuccess($setting);
                 return ['status' => 'success', 'message' => 'No P24 emails found', 'stats' => $stats];
             }
 
             foreach ($messages as $liteMessage) {
                 $uid = (string) $liteMessage->getUid();
 
-                // Skip if already processed (before the body fetch — never re-reads a done alert)
-                if (P24ImportLog::where('email_uid', $uid)->exists()) {
+                // Skip if already processed for THIS agency (before the body fetch —
+                // never re-reads a done alert). Scoped by agency_id so two agencies
+                // polling different mailboxes never collide on the same UID space.
+                if (P24ImportLog::withoutGlobalScopes()->where('agency_id', $agencyId)->where('email_uid', $uid)->exists()) {
                     $stats['skipped']++;
                     continue;
                 }
@@ -139,7 +165,10 @@ class P24ImapImportService
                             continue;
                         }
 
-                        $existing = P24Listing::where('p24_listing_number', $data['p24_listing_number'])->first();
+                        $existing = P24Listing::withoutGlobalScopes()
+                            ->where('agency_id', $agencyId)
+                            ->where('p24_listing_number', $data['p24_listing_number'])
+                            ->first();
 
                         if ($existing) {
                             // Check for price change
@@ -210,9 +239,14 @@ class P24ImapImportService
                         'error_message' => Str::limit($e->getMessage(), 500),
                     ]);
                     $stats['errors']++;
-                    Log::error("P24 email parse error: {$e->getMessage()}", ['uid' => $uid]);
+                    Log::error("P24 email parse error (agency {$agencyId}): {$e->getMessage()}", ['uid' => $uid]);
                 }
             }
+        } catch (\Throwable $e) {
+            $client->disconnect();
+            $this->recordFailure($setting, 'read_timeout');
+            Log::error("P24 IMAP read failed (agency {$agencyId}): {$e->getMessage()}");
+            return ['status' => 'error', 'message' => "IMAP read failed: {$e->getMessage()}"];
         } finally {
             $client->disconnect();
         }
@@ -230,16 +264,28 @@ class P24ImapImportService
             'status'           => 'success',
         ]);
 
+        $this->recordSuccess($setting);
+
         return ['status' => 'success', 'stats' => $stats];
     }
 
-    private function resolveAgencyId(): ?int
+    private function recordSuccess(AgencyP24ImapSetting $setting): void
     {
-        $id = \Illuminate\Support\Facades\DB::table('agencies')
-            ->whereNotNull('p24_agency_id')
-            ->orderBy('id')
-            ->value('id');
+        $setting->forceFill([
+            'last_polled_at' => now(),
+            'last_error' => null,
+            'last_error_at' => null,
+            'consecutive_failures' => 0,
+        ])->save();
+    }
 
-        return $id ? (int) $id : null;
+    private function recordFailure(AgencyP24ImapSetting $setting, string $reason): void
+    {
+        $setting->forceFill([
+            'last_polled_at' => now(),
+            'last_error' => $reason,
+            'last_error_at' => now(),
+            'consecutive_failures' => $setting->consecutive_failures + 1,
+        ])->save();
     }
 }

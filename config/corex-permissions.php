@@ -407,6 +407,7 @@ return [
         ['key' => 'manage_p24',                  'label' => 'Manage P24 Market Intel',     'section' => 'p24',              'type' => 'access',  'module' => 'p24',              'sort_order' => 1],
         ['key' => 'p24.view',                    'label' => 'View',                        'section' => 'p24',              'type' => 'action',  'module' => 'p24',              'sort_order' => 10],
         ['key' => 'p24.manage',                  'label' => 'Manage',                      'section' => 'p24',              'type' => 'action',  'module' => 'p24',              'sort_order' => 11],
+        ['key' => 'manage_p24_imap_settings',    'label' => 'Manage P24 IMAP Settings (mailbox credentials)', 'section' => 'p24', 'type' => 'action', 'module' => 'p24', 'sort_order' => 12],
 
         // ── Prospecting ──
         ['key' => 'access_prospecting',          'label' => 'Access Prospecting',          'section' => 'prospecting',      'type' => 'access',  'module' => 'prospecting',      'sort_order' => 1],

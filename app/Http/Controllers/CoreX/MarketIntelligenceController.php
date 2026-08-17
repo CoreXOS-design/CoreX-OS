@@ -1410,9 +1410,14 @@ class MarketIntelligenceController extends Controller
         $newThisMonth = P24Listing::where('agency_id', $agencyId)->where('first_seen_date', '>=', $thisMonthStart)->count();
         $avgAskingPrice = (float) P24Listing::where('agency_id', $agencyId)->active()->avg('asking_price');
 
-        $imapConfigured = !empty(config('services.p24_imap.host'))
-            && !empty(config('services.p24_imap.username'))
-            && !empty(config('services.p24_imap.password'));
+        // P24 IMAP per-agency (#3) — the global .env mailbox (services.p24_imap.*)
+        // used to be read here directly, so every agency saw the SAME "configured"
+        // status regardless of whether they had their own P24 mailbox. Now reads
+        // the CURRENT agency's own agency_p24_imap_settings row.
+        $agencyImapSetting = \App\Models\AgencyP24ImapSetting::forAgency((int) $agencyId);
+        $imapConfigured = $agencyImapSetting !== null
+            && $agencyImapSetting->active
+            && $agencyImapSetting->isConfigured();
 
         $kpis = [
             'last_import_at'      => $lastImport?->created_at,
