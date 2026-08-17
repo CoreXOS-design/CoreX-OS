@@ -531,7 +531,13 @@ class SignaturePdfService
      */
     private function buildAuditData(SignatureTemplate $template, $document): array
     {
+        // White-label: the audit certificate reads the DOCUMENT's own agency
+        // (the template creator's agency), never a hardcoded default.
+        $agencyId = optional($template->creator)->agency_id;
+        $agencyName = $agencyId ? (\App\Models\Agency::find($agencyId)?->name ?? 'Agency') : 'Agency';
+
         return [
+            'agencyName' => $agencyName,
             'template' => $template,
             'document' => $document,
             'parties' => $template->parties_json ?? [],

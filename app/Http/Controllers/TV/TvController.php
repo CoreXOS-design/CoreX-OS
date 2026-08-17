@@ -198,7 +198,11 @@ class TvController extends Controller
         $tvCode->update(['last_used_at' => now()]);
 
         $period = Carbon::now()->format('Y-m');
-        $companyName = 'Home Finders Coastal';
+        // White-label: the company TV display reads the code owner's own agency, never HFC.
+        $tvCreator = \App\Models\User::find($tvCode->created_by);
+        $companyName = ($tvCreator && $tvCreator->agency_id)
+            ? (\App\Models\Agency::find($tvCreator->agency_id)?->name ?? 'Agency')
+            : 'Agency';
 
         // Company-wide rollup (already aggregates all branches)
         $rollup = $service->getPeriodRollup($period);

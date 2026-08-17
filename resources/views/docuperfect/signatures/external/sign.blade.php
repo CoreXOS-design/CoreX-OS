@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Sign Document — Home Finders Coastal</title>
+    <title>Sign Document — {{ $template->creator?->agency?->name ?? 'Agency' }}</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
@@ -288,7 +288,7 @@
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">{{ $document->name }}</h1>
                 <div class="text-sm text-white/60 mt-1">
-                    Sent by {{ $template->creator->name ?? 'Home Finders Coastal' }}
+                    Sent by {{ $template->creator->name ?? ($template->creator?->agency?->name ?? 'Agency') }}
                     @if($request->sent_at)
                         on {{ $request->sent_at->format('d M Y') }}
                     @endif
@@ -1341,7 +1341,7 @@
                 {{-- Email alternative --}}
                 <div class="mt-4 pt-4 border-t border-slate-200 text-center">
                     <p class="text-xs text-slate-400 mb-1">Or email your signed copy to:</p>
-                    <p class="text-sm font-medium text-slate-700">signatures@hfcoastal.co.za</p>
+                    <p class="text-sm font-medium text-slate-700">{{ $template->creator?->agency?->email ?? 'the sending agency' }}</p>
                     <p class="text-xs text-slate-400 mt-1">
                         Subject: <code class="bg-slate-100 px-1.5 py-0.5 rounded text-xs">SIGN-{{ substr($token, 0, 8) }}</code>
                     </p>
@@ -1405,7 +1405,7 @@
 
     {{-- Footer --}}
     <div class="text-center text-xs text-slate-400 pb-6">
-        Home Finders Coastal &mdash; Secure Document Signing
+        {{ $template->creator?->agency?->name ?? 'Agency' }} &mdash; Secure Document Signing
     </div>
 
 </div>

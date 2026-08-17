@@ -79,7 +79,7 @@
 
         <div class="gate-footer">
             <p>Once your FICA verification has been approved, you will be able to proceed to sign the document.</p>
-            <p style="margin-top: 0.5rem;">{{ $agencyName ?? 'Home Finders Coastal' }}</p>
+            <p style="margin-top: 0.5rem;">{{ $agencyName ?? 'Agency' }}</p>
         </div>
     </div>
 </body>
