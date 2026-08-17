@@ -48,8 +48,6 @@
          csrf: @js(csrf_token()),
          sentConfirm: { open: false, communicationId: null },
          emailAddress: @js($contact->email),
-         emailSubject: {{ Js::from($matchEmailSubject) }},
-         emailBody: {{ Js::from($matchEmailBody) }},
          async increment(channel, payload = {}) {
              try {
                  const res = await fetch(this.incrementUrl, {
