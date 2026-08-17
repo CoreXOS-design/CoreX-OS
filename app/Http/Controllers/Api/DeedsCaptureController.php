@@ -39,6 +39,28 @@ final class DeedsCaptureController extends Controller
         TrackedPropertyMatchOrCreateService $matcher,
         ContactDuplicateService $dupes
     ): JsonResponse {
+        // cmainfo.co.za PropSearch often returns a comparable with a '0' / blank /
+        // unparseable sale or registered date. `nullable|date` only skips a NULL — a
+        // non-null '0' hits the `date` rule, fails, and (because validation runs over
+        // the whole captures[] array up front) 422s the ENTIRE capture batch before a
+        // single record is ingested. Coerce any date the `date` rule would reject to
+        // null here so one bad comp date never blocks the import; genuine dates are
+        // left untouched and validate + store exactly as before.
+        $captures = $request->input('captures');
+        if (is_array($captures)) {
+            foreach ($captures as $i => $capture) {
+                if (!isset($capture['sale']) || !is_array($capture['sale'])) {
+                    continue;
+                }
+                foreach (['sale_date', 'registered_date'] as $dateField) {
+                    if (array_key_exists($dateField, $capture['sale'])) {
+                        $captures[$i]['sale'][$dateField] = $this->sanitizeCaptureDate($capture['sale'][$dateField]);
+                    }
+                }
+            }
+            $request->merge(['captures' => $captures]);
+        }
+
         $validated = $request->validate([
             'source'                                => 'nullable|string|max:50',
             'captures'                              => 'required|array|min:1',
@@ -100,6 +122,35 @@ final class DeedsCaptureController extends Controller
         }
 
         return response()->json(['ok' => true, 'results' => $results]);
+    }
+
+    /**
+     * Return the value unchanged when it is a date the `nullable|date` rule would
+     * accept, otherwise null. cmainfo PropSearch comps arrive with '0' / '' /
+     * unparseable sale + registered dates; nulling them lets the capture proceed
+     * instead of 422-ing the whole batch. Mirrors Laravel's `date` rule (strtotime
+     * must parse it, and a full calendar date must be real per checkdate — so an
+     * impossible date like 2023-02-30 is nulled too, never stored).
+     */
+    private function sanitizeCaptureDate($value): ?string
+    {
+        if ($value === null || (!is_string($value) && !is_numeric($value))) {
+            return null;
+        }
+        $v = trim((string) $value);
+        if ($v === '' || $v === '0' || strtotime($v) === false) {
+            return null;
+        }
+        $parts = date_parse($v);
+        if (!is_array($parts) || $parts['error_count'] > 0) {
+            return null;
+        }
+        if ($parts['year'] && $parts['month'] && $parts['day']
+            && !checkdate((int) $parts['month'], (int) $parts['day'], (int) $parts['year'])) {
+            return null;
+        }
+
+        return $v;
     }
 
     private function ingestOne(array $capture, int $agencyId, $user, $matcher, $dupes): array
