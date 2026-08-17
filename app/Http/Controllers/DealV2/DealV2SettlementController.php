@@ -230,7 +230,7 @@ class DealV2SettlementController extends Controller
      */
     private function resolveCompanyName(DealV2 $deal): string
     {
-        $default = $deal->agency?->name ?: 'Home Finders Coastal';
+        $default = $deal->agency?->name ?: 'Agency';
 
         $companyName = (string) PerformanceSetting::get('company_name', $default, $deal->agency_id);
 

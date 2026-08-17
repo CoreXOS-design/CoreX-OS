@@ -375,7 +375,7 @@ class DealSettlementController extends Controller
         $checksumTotal = $summary['checksumTotal'];
         $checksumOk = $summary['checksumOk'];
 
-        $companyName = (string) \App\Models\PerformanceSetting::get('company_name', 'Home Finders Coastal');
+        $companyName = (string) \App\Models\PerformanceSetting::get('company_name', $deal->agency?->name ?: 'Agency', $deal->agency_id);
 
         return view('dr2.print.settlement', compact(
             'deal',
@@ -438,7 +438,7 @@ class DealSettlementController extends Controller
             $mine['company'] += (float)$r['company'];
         }
 
-        $companyName = (string) \App\Models\PerformanceSetting::get('company_name', 'Home Finders Coastal');
+        $companyName = (string) \App\Models\PerformanceSetting::get('company_name', $deal->agency?->name ?: 'Agency', $deal->agency_id);
 
         return view('dr2.print.payslip', [
             'deal' => $deal,

@@ -21,11 +21,14 @@ class PerformanceSettingsController extends Controller
         $vatRate = (float) PerformanceSetting::get('vat_rate', 15);
         $listingsPerSale = (float) PerformanceSetting::get('listings_per_sale', 5);
 
-        // Company settings (global)
-        $companyName = (string) PerformanceSetting::get('company_name', 'Home Finders Coastal');
-        $companyAddress = (string) PerformanceSetting::get('company_address', 'The Emporium Shop 5, Shelly Beach, Margate');
-        $companyTel = (string) PerformanceSetting::get('company_tel', '(039) 315 0857');
-        $companyFfc = (string) PerformanceSetting::get('company_ffc', '2023116041');
+        // Company settings — agency-scoped (see PerformanceSetting::isAgencyOnlyKey()).
+        // Falls back to this agency's own Agency-model fields, never another
+        // tenant's data, when nothing has been saved to Performance Settings yet.
+        $agency = auth()->user()?->agency;
+        $companyName = (string) PerformanceSetting::get('company_name', $agency?->name ?: 'Agency');
+        $companyAddress = (string) PerformanceSetting::get('company_address', $agency?->address ?: '');
+        $companyTel = (string) PerformanceSetting::get('company_tel', $agency?->phone ?: '');
+        $companyFfc = (string) PerformanceSetting::get('company_ffc', $agency?->ffc_no ?: '');
         $companyLogoUrl = (string) PerformanceSetting::get('company_logo_url', '');
 
         return view('admin.performance-settings', [

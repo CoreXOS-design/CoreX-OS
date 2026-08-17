@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Letting Mandate (V5) JR test — Home Finders Coastal</title>
+    <title>Letting Mandate (V5) JR test</title>
     <style>
         @page {
             size: A4;
