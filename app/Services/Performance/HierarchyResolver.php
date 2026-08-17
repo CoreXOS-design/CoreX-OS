@@ -14,16 +14,22 @@ use Illuminate\Support\Collection;
  * platform identities, not agency members). Company grouping is on agency_id
  * directly; branch is the middle tier when present, null-branch agents roll up
  * under "Unassigned" (handled by the report service).
+ *
+ * ROI report user selector — show_in_performance_reports (default true) lets an
+ * admin permanently exclude non-agent accounts (IT/office admin) from the
+ * report without re-filtering every visit. Excludes at the SAME query level as
+ * is_active, so an excluded user never enters any downstream rollup.
  */
 class HierarchyResolver
 {
-    /** @return Collection<int, User> agents (agency members, active) in scope */
+    /** @return Collection<int, User> agents (agency members, active, report-visible) in scope */
     public function agents(PerformanceScope $scope): Collection
     {
         $q = User::query()
             ->agencyMembers()
             ->where('agency_id', $scope->agencyId)
-            ->where('is_active', 1);
+            ->where('is_active', 1)
+            ->where('show_in_performance_reports', 1);
 
         if ($scope->branchId !== null) {
             $q->where('branch_id', $scope->branchId);

@@ -171,6 +171,7 @@ class UserManagementController extends Controller
             'sliding_tier3_cut_percent'   => ['nullable', 'numeric', 'min:0', 'max:100'],
             'can_capture_rentals'         => ['nullable', 'in:0,1'],
             'counts_for_branch_split'     => ['nullable', 'in:0,1'],
+            'show_in_performance_reports' => ['nullable', 'in:0,1'],
             'agent_photo'     => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
             'ffc_certificate' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120'],
             'test_agent'      => ['nullable', 'in:0,1'],
@@ -253,6 +254,7 @@ class UserManagementController extends Controller
             'sliding_tier3_cut_percent'   => $data['sliding_tier3_cut_percent'] ?? null,
             'can_capture_rentals'         => isset($data['can_capture_rentals']) && $data['can_capture_rentals'] == '1' ? 1 : 0,
             'counts_for_branch_split'     => isset($data['counts_for_branch_split']) && $data['counts_for_branch_split'] == '1' ? 1 : 0,
+            'show_in_performance_reports' => isset($data['show_in_performance_reports']) && $data['show_in_performance_reports'] == '1' ? 1 : 0,
             'phone'                       => $data['phone'] ?? null,
             'cell'                        => $data['cell'] ?? null,
             'whatsapp_number'             => $data['whatsapp_number'] ?? null,
@@ -355,6 +357,7 @@ class UserManagementController extends Controller
             'sliding_tier3_cut_percent'   => ['nullable', 'numeric', 'min:0', 'max:100'],
             'can_capture_rentals'         => ['nullable', 'in:0,1'],
             'counts_for_branch_split'     => ['nullable', 'in:0,1'],
+            'show_in_performance_reports' => ['nullable', 'in:0,1'],
             'agent_photo'     => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
             'ffc_certificate' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120'],
             'password'        => ['nullable', 'string', 'min:8'],
@@ -416,6 +419,7 @@ class UserManagementController extends Controller
         $user->sliding_tier3_cut_percent = $data['sliding_tier3_cut_percent'] ?? null;
         $user->can_capture_rentals       = isset($data['can_capture_rentals']) && $data['can_capture_rentals'] == '1' ? 1 : 0;
         $user->counts_for_branch_split   = isset($data['counts_for_branch_split']) && $data['counts_for_branch_split'] == '1' ? 1 : 0;
+        $user->show_in_performance_reports = isset($data['show_in_performance_reports']) && $data['show_in_performance_reports'] == '1' ? 1 : 0;
 
         $user->phone      = $data['phone'] ?? null;
         $user->cell        = $data['cell'] ?? null;

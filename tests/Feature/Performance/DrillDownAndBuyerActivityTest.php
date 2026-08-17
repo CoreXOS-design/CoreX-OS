@@ -144,6 +144,9 @@ class DrillDownAndBuyerActivityTest extends TestCase
         $c->forceFill([
             'agency_id' => $agency->id, 'branch_id' => $branch->id,
             'first_name' => 'C', 'last_name' => 'X', 'created_by_user_id' => $creator->id,
+            // contacts_created attributes by CURRENT owner (agent_id), not creator —
+            // set both to the same user here since this helper isn't testing reassignment.
+            'agent_id' => $creator->id,
         ])->save();
         DB::table('contacts')->where('id', $c->id)->update(['created_at' => $date . ' 09:00:00']);
     }

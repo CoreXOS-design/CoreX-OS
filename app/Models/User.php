@@ -60,6 +60,7 @@ class User extends Authenticatable
         'branch_id',
         'agency_id',
         'is_active',
+        'show_in_performance_reports',
         // AT — was write-only via mass assignment (User::create(['invited_at' =>
         // ...])) without being fillable, so it silently never persisted. Only a
         // cast existed before this. No functional gating currently reads it back
@@ -195,6 +196,7 @@ class User extends Authenticatable
         'pp_exclusivity_explainer_seen_at' => 'datetime',
         'password' => 'hashed',
         'is_active' => 'boolean',
+        'show_in_performance_reports' => 'boolean',
         'is_assistant' => 'boolean',
         'fica_required' => 'boolean',
         'show_on_website' => 'boolean',
