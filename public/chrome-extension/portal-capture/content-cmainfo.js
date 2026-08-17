@@ -355,12 +355,49 @@
     return false;
   }
 
+  // ROOT CAUSE (2026-08-17, Johan — SS-then-FH capture, both wrong address;
+  // theorised as a timing race, confirmed here): sectionHasPopulatedValues()
+  // proves a value cell is non-empty, but NOT that it belongs to the
+  // property currently selected on cmainfo's own results list. The page
+  // never navigates (WebForms postback swaps content IN PLACE — see
+  // isPropertyLoaded()'s comment) — so when the agent selects a NEW property
+  // while a section is ALREADY expanded from viewing the PREVIOUS one, the
+  // panel is simultaneously "not collapsed" AND "populated" for the ENTIRE
+  // window between the click and the postback finishing, because the OLD
+  // property's values are still sitting there, not yet overwritten.
+  // ensureSectionExpanded()'s fast path (added in bbfb35b3a to fix a
+  // DIFFERENT race — collapsed-panel value cells being genuinely blank —
+  // does not cover this one) resolves the instant it sees ANY populated
+  // value, which is immediately, and hands extraction stale data. A slow
+  // second attempt "worked" simply because enough wall-clock time had
+  // passed for the postback to finish before the agent clicked Capture.
+  //
+  // Fix: track the timestamp of the most recent DOM mutation (markDomActivity(),
+  // driven by the SAME pageObserver already used for button-visibility sync —
+  // see the LIFECYCLE section below) and require the panel to have been
+  // BOTH populated AND quiet for DOM_SETTLE_MS before treating its content
+  // as safe to read. A property switch keeps mutating the panel for some
+  // number of milliseconds after the values first look "populated" (rows
+  // update one at a time, not atomically) — waiting for quiet closes that
+  // window without needing any cmainfo-specific "which property is this"
+  // signal, which the page's own markup never exposes.
+  const DOM_SETTLE_MS = 350;
+  let lastMutationAt = 0;
+
+  function domIsSettled() {
+    // No mutation observed yet this page load (lastMutationAt still 0) counts
+    // as settled — otherwise a property loaded before the observer's first
+    // callback ever fires would wait out the full timeout for nothing.
+    return lastMutationAt === 0 || (Date.now() - lastMutationAt) >= DOM_SETTLE_MS;
+  }
+
   /**
-   * Ensure a section's panel is expanded AND populated before reading it.
-   * button.click() toggles the panel from display:none to visible via a
-   * plain event listener, but the VALUE cells can still be empty for a
-   * moment after that (see sectionHasPopulatedValues above) — this polls
-   * for both display and real content, not display alone.
+   * Ensure a section's panel is expanded, populated, AND the page has been
+   * quiet for DOM_SETTLE_MS before reading it. button.click() toggles the
+   * panel from display:none to visible via a plain event listener, but the
+   * VALUE cells can still be empty — or stale from whatever property was
+   * previously loaded — for a moment after that; this polls for display,
+   * real content, and settle-time together, not any one alone.
    */
   function ensureSectionExpanded(sectionTitle, timeoutMs = 4000) {
     return new Promise((resolve) => {
@@ -382,14 +419,14 @@
         }
       }
 
-      if (!isPanelCollapsed(panel) && sectionHasPopulatedValues(panel)) {
+      if (!isPanelCollapsed(panel) && sectionHasPopulatedValues(panel) && domIsSettled()) {
         resolve(clicked);
         return;
       }
 
       const start = Date.now();
       (function poll() {
-        if (!isPanelCollapsed(panel) && sectionHasPopulatedValues(panel)) { resolve(true); return; }
+        if (!isPanelCollapsed(panel) && sectionHasPopulatedValues(panel) && domIsSettled()) { resolve(true); return; }
         if (Date.now() - start >= timeoutMs) { resolve(false); return; }
         setTimeout(poll, 50);
       })();
@@ -1063,7 +1100,16 @@
     syncTimer = setTimeout(syncButtonToPageState, 300);
   }
 
-  const pageObserver = new MutationObserver(scheduleSync);
+  // markDomActivity() is also read by ensureSectionExpanded() (see the
+  // DOM_SETTLE_MS gate above it) — declared here so both the button-sync
+  // debounce and the extraction-readiness gate share ONE "when did the page
+  // last change" clock, instead of each guessing independently.
+  function markDomActivity() {
+    lastMutationAt = Date.now();
+    scheduleSync();
+  }
+
+  const pageObserver = new MutationObserver(markDomActivity);
   pageObserver.observe(document.body, { childList: true, subtree: true });
   syncButtonToPageState();
 
