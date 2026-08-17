@@ -150,16 +150,34 @@
               deed: { owners: @js($deedLink['owners'] ?? []), candidates: @js($deedLink['candidates'] ?? []) },
               deedPollUrl: @js($deedPollUrl ?? null),
               _deedTimer: null,
+              _deedBurst: [],
+              _startDeedInterval() {
+                  if (this._deedTimer) clearInterval(this._deedTimer);
+                  this._deedTimer = setInterval(() => this.pollDeed(), 5000);
+              },
+              _clearDeedBurst() {
+                  (this._deedBurst || []).forEach(id => clearTimeout(id));
+                  this._deedBurst = [];
+              },
               startDeedPoll() {
                   if (!this.deedPollUrl) return;
-                  this._deedTimer = setInterval(() => this.pollDeed(), 5000);
+                  this._startDeedInterval();
                   // The agent LEAVES this tab to run the CMA / TVA / deeds scrape, so the capture
                   // lands while this tab is backgrounded — where the browser freezes or throttles the
-                  // interval to about once a minute. Without an immediate catch-up on return, the panel
-                  // sits stale until the next slow tick and the agent gives up and links the deed by
-                  // hand (Johan 2026-08-14 live blocker). Fire a poll the instant the tab is shown /
-                  // regains focus so a scrape done while away surfaces the moment they are back.
-                  this._onDeedVisible = () => { if (!document.hidden) this.pollDeed(); };
+                  // interval to about once a minute. A SINGLE catch-up poll on return is not enough
+                  // (Johan: still has to hit refresh sometimes): the capture usually commits a beat
+                  // AFTER the agent is back, so that one poll races the write and misses it, while the
+                  // throttled interval next tick can be tens of seconds out — the panel sits stale and
+                  // they refresh by hand. On return: RE-PHASE the steady interval (fresh cadence from
+                  // this moment) AND fire a short retry burst so a just-committed scrape always
+                  // surfaces within about 3s, no manual refresh.
+                  this._onDeedVisible = () => {
+                      if (document.hidden) return;
+                      this._startDeedInterval();
+                      this.pollDeed();
+                      this._clearDeedBurst();
+                      this._deedBurst = [1200, 2800].map(ms => setTimeout(() => this.pollDeed(), ms));
+                  };
                   document.addEventListener('visibilitychange', this._onDeedVisible);
                   window.addEventListener('focus', this._onDeedVisible);
                   // And poll once now, closing the gap between the server render and the first tick.
