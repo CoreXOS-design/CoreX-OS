@@ -332,6 +332,47 @@ class ComposeSellerService
     }
 
     /**
+     * Cross-path fix (2026-08-18, Johan repro — "Tracey Hummel"): linking a
+     * seller HERE (the outreach/MIC compose "+ Link as seller" action) is a
+     * complete identity decision on its own — the agent never has to touch
+     * the TVA numbers picker at all to consider this person handled. But the
+     * Deeds Capture screen's TVA block visibility is gated purely on
+     * `tva_contact_capture_items.ingested_at IS NULL` (any pending item),
+     * which this action never touched — so a fully-linked seller's TVA block
+     * sat on the Deeds Capture screen forever, looking untouched even though
+     * the agent had already resolved the person via this screen.
+     *
+     * Same one-shot-decision semantics as ingestTva() (CoreX\
+     * DeedsCaptureController, 027b3fd80): every still-pending item on the
+     * matching capture(s) is marked resolved-without-a-contact
+     * (ingested_at = now(), ingested_contact_id left null) — soft/logical
+     * discard only, per non-negotiable #1, nothing hard-deleted. Matches on
+     * SA ID only (never on name — TVA's raw scraped name and the resolved
+     * Contact's name can legitimately differ, e.g. "Tracey Hummel" vs "Kim
+     * Tracey Whittle" sharing one real ID number).
+     */
+    public function dismissMatchingTvaCapture(int $agencyId, ?string $idNumber): void
+    {
+        if (! $idNumber) {
+            return;
+        }
+
+        $captureIds = TvaContactCapture::query()
+            ->where('agency_id', $agencyId)
+            ->where('id_number', $idNumber)
+            ->pluck('id');
+
+        if ($captureIds->isEmpty()) {
+            return;
+        }
+
+        TvaContactCaptureItem::query()
+            ->whereIn('tva_contact_capture_id', $captureIds)
+            ->whereNull('ingested_at')
+            ->update(['ingested_at' => now()]);
+    }
+
+    /**
      * Write the agent-picked TVA numbers onto ONE specific seller Contact (Part B). Mirrors the
      * deeds-capture TVA ingest: dedupes, marks each item ingested, reconciles identifiers. Only the
      * passed item ids are written, and only onto this contact — never merged across sellers.
@@ -380,6 +421,22 @@ class ComposeSellerService
                 }
             }
             $item->update(['ingested_at' => now(), 'ingested_contact_id' => $contact->id]);
+        }
+
+        // (2026-08-18) Twin fix to ingestTva()'s discard-non-ticked-items behaviour
+        // (027b3fd80) — flagged as a known gap at the time ("the twin implementation
+        // ... has the same leftover items linger forever shape"), now confirmed hit.
+        // Ticking a subset here is a one-shot decision on the WHOLE capture the ticked
+        // items came from, not a partial one — anything left un-ticked is discarded
+        // (ingested_at set, ingested_contact_id left null), same soft/logical discard
+        // as ingestTva(), never a hard delete (non-negotiable #1).
+        $captureIds = $items->pluck('tva_contact_capture_id')->unique();
+        if ($captureIds->isNotEmpty()) {
+            TvaContactCaptureItem::query()
+                ->whereIn('tva_contact_capture_id', $captureIds)
+                ->whereNotIn('id', $itemIds)
+                ->whereNull('ingested_at')
+                ->update(['ingested_at' => now()]);
         }
 
         if ($addedPhones) {

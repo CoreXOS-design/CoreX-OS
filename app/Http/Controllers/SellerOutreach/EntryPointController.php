@@ -1480,6 +1480,11 @@ final class EntryPointController extends Controller
         // agent's deliberate re-add sticks against the deed auto-link (R2).
         $svc->linkSellerToProperty((int) $contact->id, $propertyId, 'manual');
         $svc->clearRemoval((int) $listing->id, $contact->id_number ? (string) $contact->id_number : null);
+        // Cross-path fix (2026-08-18) — linking the seller here is a complete identity
+        // decision; dismiss any matching TVA capture on the Deeds Capture screen so it
+        // doesn't sit there looking untouched. See ComposeSellerService::
+        // dismissMatchingTvaCapture() for the full rationale.
+        $svc->dismissMatchingTvaCapture($agencyId, $contact->id_number ? (string) $contact->id_number : null);
 
         $listing = DB::table('prospecting_listings')->where('id', $prospectingListingId)->first();
 
