@@ -197,7 +197,11 @@ class PropertyMarketingController extends Controller
         }
 
         try {
-            $pagesData = $this->oauthService->exchangeCodeForPages($code, $state);
+            // A code obtained via the Facebook JS SDK's config_id login
+            // (FB.login) is NOT tied to a redirect_uri and must be exchanged
+            // with an empty one — see exchangeCodeForPages()'s docblock.
+            $redirectUri = $request->query('flow') === 'js' ? '' : null;
+            $pagesData   = $this->oauthService->exchangeCodeForPages($code, $state, $redirectUri);
 
             if ((int) $pagesData['user_id'] !== (int) auth()->id()) {
                 return redirect()->route('agent.portal')

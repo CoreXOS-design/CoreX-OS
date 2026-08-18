@@ -800,7 +800,7 @@
                         <button type="submit" style="font-size:0.6875rem; padding:5px 12px; border-radius:6px; background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent); cursor:pointer;">Disconnect</button>
                     </form>
                     @else
-                    <a href="{{ route('corex.social.oauth.redirect', ['platform' => 'facebook']) }}" target="_blank" rel="noopener" style="font-size:0.6875rem; padding:5px 12px; border-radius:6px; background:#1877f2; color:#fff; text-decoration:none; font-weight:600;">Connect</a>
+                    <button type="button" onclick="corexConnectSocial('facebook')" style="font-size:0.6875rem; padding:5px 12px; border-radius:6px; background:#1877f2; color:#fff; border:none; cursor:pointer; font-weight:600;">Connect</button>
                     @endif
                 </div>
             </div>
@@ -1459,4 +1459,59 @@
         </div>{{-- .w-full content --}}
     </div>{{-- .p-4 --}}
 </div>{{-- .-m-4 x-data --}}
+
+@if($user->portal_show_social_accounts && \Illuminate\Support\Facades\Route::has('corex.social.oauth.redirect'))
+@push('scripts')
+<script>
+    // Meta requires Page permissions (pages_show_list, pages_manage_posts, etc.)
+    // for a Business-owned app to be requested via a Facebook Login for Business
+    // "Configuration" through the JS SDK — a plain server-side redirect to
+    // /dialog/oauth silently strips them down to public_profile only, even for
+    // an app Administrator. This is Meta's own documented pattern for config_id.
+    window.fbAsyncInit = function () {
+        FB.init({
+            appId: '{{ config('services.meta.app_id') }}',
+            cookie: true,
+            xfbml: false,
+            version: 'v19.0',
+        });
+    };
+    (function (d, s, id) {
+        var js, fjs = d.getElementsByTagName(s)[0];
+        if (d.getElementById(id)) { return; }
+        js = d.createElement(s); js.id = id;
+        js.src = 'https://connect.facebook.net/en_US/sdk.js';
+        fjs.parentNode.insertBefore(js, fjs);
+    }(document, 'script', 'facebook-jssdk'));
+
+    function corexConnectSocial(platform) {
+        var configId = @json(config('services.meta.login_config_id'));
+        var state = btoa(JSON.stringify({ user_id: {{ auth()->id() }}, platform: platform }));
+
+        // No Business Login configuration set up for this platform yet, or the
+        // SDK failed to load — fall back to the classic scope-based redirect.
+        if (!configId || typeof FB === 'undefined') {
+            window.location.href = '{{ route('corex.social.oauth.redirect') }}?platform=' + encodeURIComponent(platform);
+            return;
+        }
+
+        FB.login(function (response) {
+            if (response.authResponse && response.authResponse.code) {
+                window.location.href = '{{ route('corex.social.oauth.callback') }}'
+                    + '?flow=js'
+                    + '&code=' + encodeURIComponent(response.authResponse.code)
+                    + '&state=' + encodeURIComponent(state);
+            } else {
+                window.location.href = '{{ route('agent.portal') }}?tab=user';
+            }
+        }, {
+            config_id: configId,
+            response_type: 'code',
+            override_default_response_type: true,
+            auth_type: 'rerequest',
+        });
+    }
+</script>
+@endpush
+@endif
 @endsection

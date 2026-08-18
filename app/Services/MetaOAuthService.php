@@ -77,8 +77,15 @@ class MetaOAuthService
      *
      * For 'instagram', only Pages with a linked Instagram Business Account are
      * returned (a Page without one can never be connected for that platform).
+     *
+     * $redirectUri MUST match whatever redirect_uri (if any) was used to
+     * obtain $code. The classic full-page redirect flow issues codes tied to
+     * our configured META_REDIRECT_URI. The FB JS SDK's config_id login
+     * (FB.login) issues codes that are NOT tied to a redirect at all — Meta
+     * requires an EMPTY string here for those, or the exchange is rejected.
+     * Pass null to use the configured redirect_uri (the classic-flow default).
      */
-    public function exchangeCodeForPages(string $code, string $state): array
+    public function exchangeCodeForPages(string $code, string $state, ?string $redirectUri = null): array
     {
         $decoded  = json_decode(base64_decode($state), true);
         $userId   = (int) ($decoded['user_id'] ?? 0);
@@ -88,12 +95,14 @@ class MetaOAuthService
             throw new \RuntimeException('Invalid OAuth state: missing user_id.');
         }
 
+        $redirectUri ??= config('services.meta.redirect_uri');
+
         // Exchange code for short-lived token
         $tokenResponse = $this->http->get(self::GRAPH_BASE . '/oauth/access_token', [
             'query' => [
                 'client_id'     => config('services.meta.app_id'),
                 'client_secret' => config('services.meta.app_secret'),
-                'redirect_uri'  => config('services.meta.redirect_uri'),
+                'redirect_uri'  => $redirectUri,
                 'code'          => $code,
             ],
         ]);
