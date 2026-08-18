@@ -363,7 +363,7 @@ class AgentPortalController extends Controller
         // .ai/specs/agent-photo.md. Other document types store as-is.
         if ($isPhoto) {
             app(AgentProfilePhotoService::class)->set($user, $file);
-            return back()->with('success', 'Photo uploaded.');
+            return back()->withFragment('profile')->with('success', 'Photo uploaded.');
         }
 
         // Private disk — these are sensitive compliance/identity docs (FFC/ID/PI/tax).
@@ -397,7 +397,7 @@ class AgentPortalController extends Controller
             $user->update($updates);
         }
 
-        return back()->with('success', 'Document uploaded — pending verification.');
+        return back()->withFragment('documents')->with('success', 'Document uploaded — pending verification.');
     }
 
     /**
@@ -435,7 +435,7 @@ class AgentPortalController extends Controller
             'uploaded_by'   => $user->id,
         ]);
 
-        return back()->with('success', 'ID copy uploaded — pending verification.');
+        return back()->withFragment('documents')->with('success', 'ID copy uploaded — pending verification.');
     }
 
     // ══════════════════════════════════════════════════════════════
