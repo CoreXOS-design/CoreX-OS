@@ -90,6 +90,31 @@ final class GarageMustHaveFeatureTest extends TestCase
         $this->assertGreaterThan(0, $score, 'a property with a real garage must satisfy a garage must-have, even with no "Garage" text tag');
     }
 
+    public function test_single_garage_text_tag_satisfies_a_plain_garage_must_have(): void
+    {
+        // Confirmed live incident data: 2 of the 4 affected properties were
+        // explicitly tagged "Single Garage" — canonicalizes to single_garage,
+        // never plain 'garage', without this synonym.
+        $property = $this->property([
+            'garages'       => 0, // isolate the synonym fix from the numeric-column bridge
+            'features_json' => ['Single Garage', 'Sea View'],
+        ]);
+        $match = ContactMatch::create([
+            'agency_id'          => $this->agency->id,
+            'contact_id'         => $this->contact->id,
+            'created_by_user_id' => $this->agent->id,
+            'listing_type'       => 'sale',
+            'status'             => ContactMatch::STATUS_ACTIVE,
+            'price_min'          => 1500000,
+            'price_max'          => 2500000,
+            'beds_min'           => 3,
+            'must_have_features' => ['garage'],
+        ]);
+
+        $score = app(MatchingService::class)->score($property, $match);
+        $this->assertGreaterThan(0, $score, '"Single Garage" must canonicalize to garage, not single_garage');
+    }
+
     public function test_garage_must_have_still_fails_a_property_with_zero_garages(): void
     {
         $property = $this->property(['garages' => 0]);
