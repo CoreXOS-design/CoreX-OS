@@ -231,13 +231,24 @@ class CalendarEvent extends Model
         // AT-267 — an assistant's 'own' is their Assigned Agent's; everyone else: [$user->id].
         $identityIds = $user->dataIdentityIds();
 
+        // An event the user has ACCEPTED (or tentatively accepted) an invitation to
+        // is visible to them too — it renders on the invitee's calendar alongside
+        // their own events (including a same-time duplicate shown side by side).
+        // ADDITIVE: only ever widens the invitee's view; never hides or alters their
+        // own events. (Was missing entirely — the feed only queried user_id, so an
+        // accepted invite never appeared on the invitee's calendar.)
+        $invitedEventIds = \App\Models\CommandCenter\CalendarEventInvitation::query()
+            ->whereIn('invitee_user_id', $identityIds)
+            ->whereIn('status', ['accepted', 'tentative'])
+            ->select('event_id');
+
         return match ($scope) {
             'all'    => $query,
             'branch' => $user->effectiveBranchId()
-                ? $query->where('branch_id', $user->effectiveBranchId())
-                : $query->whereIn('user_id', $identityIds),
+                ? $query->where(fn ($q) => $q->where('branch_id', $user->effectiveBranchId())->orWhereIn('id', $invitedEventIds))
+                : $query->where(fn ($q) => $q->whereIn('user_id', $identityIds)->orWhereIn('id', $invitedEventIds)),
             'none'   => $query->whereRaw('1 = 0'),
-            default  => $query->whereIn('user_id', $identityIds), // 'own' or null
+            default  => $query->where(fn ($q) => $q->whereIn('user_id', $identityIds)->orWhereIn('id', $invitedEventIds)), // 'own' or null
         };
     }
 
