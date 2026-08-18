@@ -1,28 +1,44 @@
 /**
- * CoreX — deeds-capture "true clean slate" regression harness (v3.4.2).
+ * CoreX — deeds-capture "true clean slate" regression harness (v3.4.1 -> v3.4.3).
  *
- * Repro for Johan's bug: capturing a SECTIONAL (complex) property then a
- * FREEHOLD still showed the freehold with the previous complex's
- * scheme/section, because cmainfo never re-renders the sectional-only
- * fields (Scheme name/no, Section number, Flat/Unit no, Section extent,
- * Situated at) when the current property is a freehold — they sit frozen
- * in the live DOM. v3.4.0's fix (clear sectional fields when byte-identical
- * to the PREVIOUS capture) still misses the case where there is no previous
- * capture in THIS script instance to diff against (e.g. the extension was
- * reloaded mid-session — the page's DOM keeps its frozen sectional content
- * regardless, but the script's own module-level memory does not) — see
+ * Test A/B/C/D — repro for Johan's ORIGINAL bug: capturing a SECTIONAL
+ * (complex) property then a FREEHOLD still showed the freehold with the
+ * previous complex's scheme/section, because cmainfo never re-renders the
+ * sectional-only fields (Scheme name/no, Section number, Flat/Unit no,
+ * Section extent, Situated at) when the current property is a freehold —
+ * they sit frozen in the live DOM. v3.4.0's fix (clear sectional fields when
+ * byte-identical to the PREVIOUS capture) still misses the case where there
+ * is no previous capture in THIS script instance to diff against — see
  * content-cmainfo.js's own v3.4.0 comment: "the very FIRST capture in a
  * page session has no previous capture to diff against ... isn't caught."
- * That is exactly what Test A below reproduces.
+ * That is exactly what Test A reproduces. Fixed in v3.4.2.
+ *
+ * Test E — repro for the v3.4.2 REGRESSION Johan reported next: capturing
+ * two DIFFERENT properties in sequence silently dropped the 2nd. v3.4.2's
+ * clean-slate rewrite over-applied "no memory of the previous scrape" to
+ * lastCaptureCompletedAt — a TIMESTAMP, not an extracted value — which
+ * broke domIsSettled()'s ability to tell "quiet because the postback
+ * finished" from "quiet because the postback for THIS property hasn't
+ * started yet". A capture requested soon after selecting a new property
+ * could read the PREVIOUS property's still-frozen Sale Information
+ * (including its title_deed, which source_ref is built from), causing the
+ * server to exact-match and silently enrich the previous capture's
+ * TrackedProperty instead of creating a new, distinctly-visible one. Fixed
+ * in v3.4.3 by restoring lastCaptureCompletedAt (timing memory — safe) while
+ * keeping the address-bleed fix's removal of VALUE memory intact.
  *
  * Runs the REAL content-cmainfo.js source (unmodified — no test-only hooks)
  * inside a Node `vm` sandbox with a minimal mock DOM + chrome API, driving
  * extraction through the exact same chrome.runtime.onMessage('getDeedDetail')
- * entry point background.js/popup.js use in production.
+ * entry point background.js/popup.js use in production. Test E additionally
+ * drives the sandbox's real MutationObserver callback (fireMutation()) on a
+ * delayed timer to simulate cmainfo's async postback landing AFTER the
+ * capture is requested — the actual race that causes the regression.
  *
- * Usage: node tests/deeds-cleanslate.test.js
- * Exits 0 if every check passes (both the "old file must reproduce the bug"
- * check and the "new file must be fixed" checks), 1 otherwise.
+ * Usage: node tests/deeds-cleanslate.test.cjs
+ * Exits 0 if every check passes (old/regression fixtures reproduce their
+ * bug, current working-tree file is fixed and has no regressions), 1
+ * otherwise.
  */
 'use strict';
 
@@ -32,6 +48,7 @@ const vm = require('vm');
 const { setFieldValue, buildCmaInfoDocument } = require('./mock-dom.cjs');
 
 const OLD_FILE = path.join(__dirname, 'fixtures', 'content-cmainfo.v3.4.1.js');
+const REGRESSION_FILE = path.join(__dirname, 'fixtures', 'content-cmainfo.v3.4.2.js');
 const NEW_FILE = path.join(__dirname, '..', 'content-cmainfo.js');
 
 function makeChromeMock() {
@@ -45,9 +62,19 @@ function makeChromeMock() {
   };
 }
 
-/** Loads the real content script source into a fresh sandboxed vm context (fresh module-level state every call) bound to the given mock document/chrome. */
+/**
+ * Loads the real content script source into a fresh sandboxed vm context
+ * (fresh module-level state every call) bound to the given mock document/
+ * chrome. Returns { sandbox, fireMutation } — fireMutation() invokes the
+ * content script's OWN MutationObserver callback (markDomActivity), the
+ * same call a real DOM mutation would trigger, so tests can simulate cmainfo
+ * genuinely updating the panel at a controlled point in time instead of the
+ * mock DOM's synchronous field writes being (wrongly) treated as "the page
+ * was already quiet".
+ */
 function loadContentScript(filePath, doc, chromeMock) {
   const src = fs.readFileSync(filePath, 'utf8');
+  let mutationCallback = null;
   const sandbox = {
     document: doc,
     chrome: chromeMock,
@@ -64,15 +91,17 @@ function loadContentScript(filePath, doc, chromeMock) {
     JSON,
     Set,
     RegExp,
-    MutationObserver: class { observe() {} disconnect() {} },
+    MutationObserver: class { constructor(cb) { mutationCallback = cb; } observe() {} disconnect() {} },
     getComputedStyle: (elm) => ({ display: (elm && elm.style && elm.style.display) || '', color: (elm && elm._color) || 'rgb(51, 122, 183)' }),
     MouseEvent: class { constructor(type, opts) { this.type = type; Object.assign(this, opts || {}); } },
   };
   sandbox.window = { location: { href: 'https://www.cmainfo.co.za/Mapping/PropSearch.aspx' }, alert: () => {}, document: doc };
   vm.createContext(sandbox);
   vm.runInContext(src, sandbox, { filename: filePath });
-  return sandbox;
+  return { sandbox, fireMutation: () => { if (mutationCallback) mutationCallback([]); } };
 }
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function captureViaMessageHandler(chromeMock) {
   const listener = chromeMock._getListener();
@@ -197,6 +226,67 @@ const FALLBACK_FREEHOLD_PROPERTY_FIELDS = PARK_ST_PROPERTY_FIELDS_FROZEN.map(([l
   label === 'Type' ? [label, ''] : [label, value]
 );
 
+// v3.4.2 REGRESSION repro — two DISTINCT freehold properties captured back
+// to back. Property Alpha is loaded and captured first (its own postback
+// long since settled). Property Beta is a genuinely DIFFERENT property
+// (different address/erf/title deed) — but the mock DOM is mutated to
+// Beta's values ONLY on a delayed timer (simulating cmainfo's async
+// postback actually finishing), while the capture is triggered IMMEDIATELY
+// (simulating the agent clicking Capture right after selecting Beta, before
+// cmainfo has mutated anything yet). A correct extension must wait for the
+// genuine update; the v3.4.2 regression reads Alpha's still-frozen Sale
+// Information (crucially its Title Deed) for what should be Beta's capture.
+const ALPHA_PROPERTY_FIELDS = [
+  ['Deeds Office', 'Port Shepstone'],
+  ['Scheme no', ''],
+  ['Scheme name', ''],
+  ['Situated at', ''],
+  ['Section number', ''],
+  ['Flat/Unit no', ''],
+  ['Street number', '5'],
+  ['Estate', ''],
+  ['Address', '5 Main Road'],
+  ['Erf no', '100'],
+  ['Suburb', 'Uvongo'],
+  ['Municipality', 'Hibiscus Coast'],
+  ['Province', 'KwaZulu-Natal'],
+  ['GPS', '-30.83, 30.38'],
+  ['Section extent', ''],
+  ['Type', 'Freehold'],
+  ['Usage', 'Residential'],
+];
+
+const ALPHA_SALE_FIELDS = [
+  ['Owner', 'PETERS ANNA'],
+  ["Owner's ID", '6002015800087'],
+  ['Sale Price', 'R 900 000'],
+  ['Sale Date', '01/01/2019'],
+  ['Registered Date', '10/01/2019'],
+  ['Title Deed', 'T1111/2019'],
+  ['Bond Holder', ''],
+  ['Bond Amount', ''],
+  ['Sale Type', 'Normal Sale'],
+];
+
+const BETA_PROPERTY_UPDATES = {
+  'Street number': '99',
+  'Address': '99 Beach Road',
+  'Erf no': '200',
+  'Suburb': 'Margate',
+  'GPS': '-30.86, 30.36',
+  'Type': 'Freehold',
+};
+
+const BETA_SALE_UPDATES = {
+  'Owner': 'DLAMINI SIPHO',
+  "Owner's ID": '7208015800086',
+  'Sale Price': 'R 1 400 000',
+  'Sale Date': '05/05/2022',
+  'Registered Date': '15/05/2022',
+  'Title Deed': 'T2222/2022',
+  'Sale Type': 'Normal Sale',
+};
+
 // ── Test runner ──────────────────────────────────────────────────────────
 
 const results = [];
@@ -289,15 +379,70 @@ async function testD_erfOnlyFallbackSignal(filePath, label) {
     `type=${JSON.stringify(p.type)} scheme_name=${JSON.stringify(p.scheme_name)} section_number=${JSON.stringify(p.section_number)} erf_no=${JSON.stringify(p.erf_no)}`);
 }
 
+async function testE_twoDistinctPropertiesInSequence(filePath, label, expectDropRegression) {
+  // Property Alpha: fully captured and settled first — establishes
+  // lastCaptureCompletedAt in the content script's own module state.
+  const doc = buildCmaInfoDocument(ALPHA_PROPERTY_FIELDS, ALPHA_SALE_FIELDS);
+  const chromeMock = makeChromeMock();
+  const { fireMutation } = loadContentScript(filePath, doc, chromeMock);
+
+  // A mutation "long ago" (Alpha's own postback finishing) — real elapsed
+  // time so the 1st-capture wide settle window (850ms) genuinely elapses.
+  fireMutation();
+  await sleep(900);
+  const alpha = await captureViaMessageHandler(chromeMock);
+
+  check(`[${label}] Test E — Alpha capture is Alpha's own data`,
+    alpha.property_information.address === '5 Main Road' && alpha.sale_information.title_deed === 'T1111/2019',
+    `address=${JSON.stringify(alpha.property_information.address)} title_deed=${JSON.stringify(alpha.sale_information.title_deed)}`);
+
+  // Property Beta: a genuinely DIFFERENT property. cmainfo's postback for
+  // switching to it is scheduled to land 150ms from now (mutating the DOM
+  // AND firing the mutation event, exactly like a real async postback) —
+  // but the capture is requested IMMEDIATELY, before that happens, exactly
+  // as an agent clicking Capture right after selecting a new property.
+  let betaLanded = false;
+  setTimeout(() => {
+    Object.entries(BETA_PROPERTY_UPDATES).forEach(([label2, value]) => setFieldValue(doc._propPanel, label2, value));
+    Object.entries(BETA_SALE_UPDATES).forEach(([label2, value]) => setFieldValue(doc._salePanel, label2, value));
+    betaLanded = true;
+    fireMutation();
+  }, 150);
+
+  const beta = await captureViaMessageHandler(chromeMock);
+  const p = beta.property_information;
+  const s = beta.sale_information;
+
+  const gotBeta = p.address === '99 Beach Road' && p.erf_no === '200' && s.title_deed === 'T2222/2022';
+  const gotStaleAlpha = s.title_deed === 'T1111/2019';
+
+  check(`[${label}] Test E — Beta capture waited for the real update (not read before it landed)`, betaLanded,
+    'extraction resolved before the scheduled DOM update ever ran — betaLanded=false',
+    !expectDropRegression);
+  check(`[${label}] Test E — Beta capture returns Beta's OWN distinct, non-empty data`, gotBeta,
+    `address=${JSON.stringify(p.address)} erf_no=${JSON.stringify(p.erf_no)} title_deed=${JSON.stringify(s.title_deed)}`,
+    !expectDropRegression);
+  check(`[${label}] Test E — Beta capture did NOT collide with Alpha's identity (title_deed)`, !gotStaleAlpha,
+    `title_deed=${JSON.stringify(s.title_deed)} (Alpha's was T1111/2019)`,
+    !expectDropRegression);
+  check(`[${label}] Test E — Alpha and Beta captures are distinct source identities`, alpha.sale_information.title_deed !== s.title_deed,
+    `alpha.title_deed=${JSON.stringify(alpha.sale_information.title_deed)} beta.title_deed=${JSON.stringify(s.title_deed)}`,
+    !expectDropRegression);
+}
+
 async function main() {
   console.log('=== Running against OLD file (pre-fix, v3.4.1 fixture) — Test A is EXPECTED to FAIL (bug reproduction) ===');
   await testA_frozenFreehold_firstCaptureInInstance(OLD_FILE, 'OLD 3.4.1');
 
-  console.log('=== Running against NEW file (working tree, v3.4.2) — everything EXPECTED to PASS ===');
-  await testA_frozenFreehold_firstCaptureInInstance(NEW_FILE, 'NEW 3.4.2');
-  await testB_consecutiveRealCaptures(NEW_FILE, 'NEW 3.4.2');
-  await testC_legitimateSectionalWithAddress_noRegression(NEW_FILE, 'NEW 3.4.2');
-  await testD_erfOnlyFallbackSignal(NEW_FILE, 'NEW 3.4.2');
+  console.log('=== Running against v3.4.2 REGRESSION fixture — Test E is EXPECTED to FAIL (regression reproduction) ===');
+  await testE_twoDistinctPropertiesInSequence(REGRESSION_FILE, 'REGRESSION 3.4.2', true);
+
+  console.log('=== Running against NEW file (working tree, v3.4.3) — everything EXPECTED to PASS ===');
+  await testA_frozenFreehold_firstCaptureInInstance(NEW_FILE, 'NEW 3.4.3');
+  await testB_consecutiveRealCaptures(NEW_FILE, 'NEW 3.4.3');
+  await testC_legitimateSectionalWithAddress_noRegression(NEW_FILE, 'NEW 3.4.3');
+  await testD_erfOnlyFallbackSignal(NEW_FILE, 'NEW 3.4.3');
+  await testE_twoDistinctPropertiesInSequence(NEW_FILE, 'NEW 3.4.3', false);
 
   console.log('');
   let overallOk = true;
@@ -309,7 +454,7 @@ async function main() {
 
   console.log('');
   if (overallOk) {
-    console.log('ALL CHECKS OK — bug reproduced on 3.4.1, fixed on 3.4.2, no regressions.');
+    console.log('ALL CHECKS OK — address-bleed bug fixed since 3.4.2, multi-capture regression fixed in 3.4.3, no regressions.');
     process.exit(0);
   } else {
     console.log('SOME CHECKS FAILED — see [UNEXPECTED] lines above.');

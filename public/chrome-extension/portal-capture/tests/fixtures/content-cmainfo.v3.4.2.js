@@ -407,47 +407,22 @@
   // without live access to cmainfo's search-results markup, which this
   // extension has never needed to interact with before).
   //
-  // Fallback: require GENUINE evidence of a fresh update, not just quiet.
-  //   - 2nd+ capture in a session: require at least one mutation observed
-  //     AFTER the previous capture completed, in addition to the existing
-  //     quiet-350ms check — "quiet" must mean "quiet after a real update",
-  //     not "nothing has happened yet". Closes the exact failure mode above
-  //     for every capture after the first.
-  //   - 1st capture in a session: no previous capture to require a mutation
-  //     against, so there's nothing to gate on — widen the settle window
-  //     instead, giving a slow-starting postback a wider margin.
+  // Fallback (2026-08-18): require GENUINE evidence of a fresh update, not
+  // just quiet — widen the settle window rather than trust "quiet" alone,
+  // giving a slow-starting postback a wider margin.
   //
-  // v3.4.2 REGRESSION (2026-08-19, live-reported by Johan): the v3.4.2
-  // clean-slate rewrite dropped the "mutation observed AFTER the previous
-  // capture completed" branch along with the OTHER module-level state it was
-  // (correctly) removing — reasoning that ALL cross-capture memory was the
-  // same kind of thing the address-bleed fix needed gone. It isn't. The
-  // address-bleed bug (v3.4.0/v3.4.2) was caused by remembering the PREVIOUS
-  // CAPTURE'S EXTRACTED VALUES (scheme_name, section_number, ...) and either
-  // comparing against or carrying them forward — THAT memory is gone for
-  // good (see nullSectionalFieldsIfFreehold() below, which needs none of
-  // it). lastCaptureCompletedAt never held a captured VALUE — only a
-  // TIMESTAMP of when extraction last finished, used purely to require
-  // genuine NEW DOM activity before trusting "quiet" again. Removing it
-  // left domIsSettled() as a pure elapsed-time check with no requirement
-  // that the CURRENT property's postback had mutated anything at all: if
-  // the agent clicked Capture on a 2nd property soon after selecting it —
-  // before cmainfo's postback had started mutating the panel — but MORE
-  // than 850ms had passed since whatever the LAST mutation on the page was
-  // (e.g. selecting the FIRST property), domIsSettled() reported "settled"
-  // immediately and extraction read the 1st property's STILL-FROZEN Sale
-  // Information (crucially, its title_deed) for what was supposed to be the
-  // 2nd, distinct capture. Since buildSourceRef() keys off title_deed, the
-  // 2nd capture's payload got the SAME source_ref as the 1st, so the server
-  // exact-matched it (TrackedPropertyMatchOrCreateService strategy 1) to the
-  // 1st capture's TrackedProperty and enriched it instead of creating a new
-  // one — capture_kind (which gates the Deeds Capture list) is only set on
-  // CREATE, so the 2nd property never appeared, even though the extension
-  // reported "Captured ✓ (enriched existing)" — a success message that LOOKS
-  // like it worked. Restored: lastCaptureCompletedAt is a TIMING signal, not
-  // a VALUE, and never caused the address-bleed bug — keeping it is safe.
+  // v3.4.2 — this used to widen the window only for the FIRST capture in a
+  // page session, and additionally require a mutation observed AFTER the
+  // previous capture completed for every capture thereafter (tracked via
+  // lastCaptureCompletedAt). That "since the previous capture" branch was
+  // itself a form of cross-capture memory, and Johan's explicit instruction
+  // for the true-clean-slate fix is that NO module-level state survives
+  // between captures (extractDeed() resets its capture-memory variables at
+  // the start of every extraction — see the TRUE CLEAN SLATE block below).
+  // With nothing left to remember a "previous capture completed at", every
+  // capture now unconditionally takes the wider settle window — a small,
+  // constant, always-safe cost instead of a per-capture-history fast path.
   const FIRST_CAPTURE_EXTRA_SETTLE_MS = 500;
-  let lastCaptureCompletedAt = 0;
 
   function domIsSettled() {
     // No mutation observed yet this page load (lastMutationAt still 0) counts
@@ -455,17 +430,7 @@
     // callback ever fires would wait out the full timeout for nothing.
     if (lastMutationAt === 0) return true;
 
-    const requiredQuietMs = lastCaptureCompletedAt === 0
-      ? (DOM_SETTLE_MS + FIRST_CAPTURE_EXTRA_SETTLE_MS)
-      : DOM_SETTLE_MS;
-    if ((Date.now() - lastMutationAt) < requiredQuietMs) return false;
-
-    // 2nd+ capture: refuse to trust a panel that hasn't mutated AT ALL since
-    // the previous capture completed — that's the exact "nothing has
-    // happened yet" false-positive, not a real settle.
-    if (lastCaptureCompletedAt > 0 && lastMutationAt <= lastCaptureCompletedAt) return false;
-
-    return true;
+    return (Date.now() - lastMutationAt) >= (DOM_SETTLE_MS + FIRST_CAPTURE_EXTRA_SETTLE_MS);
   }
 
   /**
@@ -670,18 +635,22 @@
   // that it changed from the previous one.
   //
   // v3.4.2 fix — two parts, per Johan's explicit instruction that every
-  // capture must start truly fresh with NO memory of the previous scrape's
-  // EXTRACTED VALUES:
-  //   1. All module-level memory of a previous capture's PROPERTY DATA is
-  //      removed — nothing from a prior capture's scheme/address/etc can
-  //      influence this one, full stop. The old byte-identical-to-prior
-  //      heuristic and its NATSPAT title-deed-mismatch self-heal
-  //      (propertySignature/signaturesMatchAddress/lastCaptureSignature/
-  //      lastCapturedProperty/clearFrozenSectionalFields, all formerly here)
-  //      are REMOVED along with it — both depended on remembering the
-  //      previous capture's VALUES, and the byte-identical heuristic is the
-  //      one just proven insufficient (see nullSectionalFieldsIfFreehold()
-  //      below for what replaces it).
+  // capture must start truly fresh with NO memory of the previous scrape:
+  //   1. All module-level capture memory is reset at the START of every
+  //      extraction (see the top of extractDeed() below) — nothing from a
+  //      prior capture can influence this one, full stop. The old
+  //      byte-identical-to-prior heuristic and its NATSPAT title-deed-
+  //      mismatch self-heal (propertySignature/signaturesMatchAddress/
+  //      lastCaptureSignature/lastCapturedProperty/
+  //      clearFrozenSectionalFields, all formerly here) are REMOVED along
+  //      with it — both depended on the exact cross-capture memory Johan
+  //      wants gone, and the byte-identical heuristic is the one just
+  //      proven insufficient. domIsSettled()'s mutation-based settle gate
+  //      (a LIVE DOM signal, not a memory of prior extracted values) is
+  //      unaffected and still guards slow-loading panels — see its comment
+  //      for the one consequence of this removal (no more "quiet since the
+  //      previous capture" fast path; every capture now uses the same,
+  //      wider, safer settle window).
   //   2. Sectional-vs-freehold is decided from the CURRENT property's OWN
   //      signal — never from a comparison — and a freehold NEVER
   //      legitimately has a scheme/section (that is definitionally what
@@ -691,15 +660,6 @@
   //      below. This is the airtight rule the byte-identical heuristic
   //      lacked: it doesn't matter what the DOM residue says or what the
   //      previous capture was — a freehold's scheme/section is ALWAYS null.
-  //
-  // v3.4.3 CORRECTION (2026-08-19): "no memory of the previous scrape" was
-  // over-applied to `lastCaptureCompletedAt` too (a TIMESTAMP, never an
-  // extracted value — see domIsSettled()'s comment for the regression that
-  // caused and the reasoning for restoring it). The clean-slate rule is
-  // specifically about not remembering a previous capture's PROPERTY DATA;
-  // remembering WHEN the last extraction finished is a live-DOM timing
-  // signal, the same category as lastMutationAt, and was never part of the
-  // address-bleed bug.
   const SECTIONAL_ONLY_FIELDS = ['scheme_name', 'scheme_no', 'section_number', 'flat_number', 'section_extent', 'situated_at'];
 
   /**
@@ -758,11 +718,10 @@
   }
 
   async function extractDeed() {
-    // v3.4.2 — TRUE clean slate: this function keeps NO module-level memory
-    // of a previous capture's PROPERTY DATA any more (see the TRUE CLEAN
-    // SLATE block above) — every extraction reads the DOM fresh, top to
-    // bottom, with no scheme/address/etc carried over from whatever the
-    // previous capture saw.
+    // v3.4.2 — TRUE clean slate: this function keeps NO module-level
+    // capture-memory variable at all any more (see the TRUE CLEAN SLATE
+    // block above) — every extraction reads the DOM fresh, top to bottom,
+    // with nothing carried over from whatever the previous capture saw.
 
     await ensureSectionExpanded('Property Information');
     let property = extractPropertyInformation();
@@ -775,14 +734,6 @@
     // unconditionally when it says freehold. No comparison to any previous
     // capture, no DOM-residue trust.
     property = nullSectionalFieldsIfFreehold(property);
-
-    // v3.3.9, restored v3.4.3 — stamped on EVERY capture so domIsSettled()
-    // can require genuine evidence (a real DOM mutation) that THIS
-    // property's postback actually ran before the NEXT capture trusts a
-    // "quiet" panel — see domIsSettled()'s v3.4.2 REGRESSION comment. A
-    // timestamp, never a captured field value — does not reintroduce the
-    // address-bleed memory that was removed.
-    lastCaptureCompletedAt = Date.now();
 
     return {
       property_information: property,
