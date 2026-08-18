@@ -25,7 +25,7 @@
         {!! $kindIcon !!}
     </div>
     <div style="min-width: 0;">
-        <div style="font-size: 0.8125rem; color: var(--text-primary); line-height: 1.4;">
+        <div style="font-size: 0.8125rem; color: var(--text-primary); line-height: 1.4; white-space: pre-line;">
             {{ $entry['summary'] ?? '' }}
         </div>
         <div style="font-size: 0.6875rem; color: var(--text-muted); margin-top: 2px;">
