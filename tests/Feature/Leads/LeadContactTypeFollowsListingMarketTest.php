@@ -29,11 +29,14 @@ use Tests\TestCase;
  * — systemic across all three intake channels, not a one-off.
  *
  * Fix: resolve the listing's listing_type at contact-creation time and pick
- * 'Tenant' for a rental enquiry, 'Buyer' otherwise (existing fallback to
- * 'Lead' preserved). is_buyer / BuyerLeadCascadeService are untouched — the
- * Buyer Pipeline already correctly separates rental wishlists via
- * ContactMatch.listing_type (BuyerPipelineController::applyLeadTypeFilter),
- * this fix is purely about the CONTACT's own type, not the pipeline.
+ * 'Lessee' — the canonical, permanently-locked rental-side parent type
+ * (ContactType::CANONICAL, AT-79) — for a rental enquiry, 'Buyer' otherwise
+ * (legacy 'Tenant' kept as a fallback for agencies that haven't run the
+ * types-collapse migration; 'Lead' preserved as the ultimate fallback).
+ * is_buyer / BuyerLeadCascadeService are untouched — the Buyer Pipeline
+ * already correctly separates rental wishlists via ContactMatch.listing_type
+ * (BuyerPipelineController::applyLeadTypeFilter), this fix is purely about
+ * the CONTACT's own type, not the pipeline.
  */
 final class LeadContactTypeFollowsListingMarketTest extends TestCase
 {
@@ -56,8 +59,8 @@ final class LeadContactTypeFollowsListingMarketTest extends TestCase
             'agency_id' => $this->agency->id, 'branch_id' => $branch->id, 'role' => 'agent',
         ]);
 
-        ContactType::firstOrCreate(['name' => 'Buyer']);
-        ContactType::firstOrCreate(['name' => 'Tenant']);
+        ContactType::firstOrCreate(['name' => 'Buyer'], ['esign_role' => 'buyer']);
+        ContactType::firstOrCreate(['name' => 'Lessee'], ['esign_role' => 'lessee']);
         ContactSource::firstOrCreate(['name' => 'Property24']);
         ContactSource::firstOrCreate(['name' => 'Private Property']);
     }
@@ -89,7 +92,7 @@ final class LeadContactTypeFollowsListingMarketTest extends TestCase
 
         $contact = Contact::where('email', 'rental-enquirer@example.co.za')->first();
         $this->assertNotNull($contact);
-        $this->assertSame('Tenant', $contact->type?->name);
+        $this->assertSame('Lessee', $contact->type?->name);
     }
 
     public function test_p24_sale_enquiry_creates_a_buyer_contact(): void
@@ -128,7 +131,7 @@ final class LeadContactTypeFollowsListingMarketTest extends TestCase
 
         $contact = Contact::where('email', 'pp-rental@example.co.za')->first();
         $this->assertNotNull($contact);
-        $this->assertSame('Tenant', $contact->type?->name);
+        $this->assertSame('Lessee', $contact->type?->name);
     }
 
     public function test_pp_sale_enquiry_creates_a_buyer_contact(): void
@@ -178,7 +181,7 @@ final class LeadContactTypeFollowsListingMarketTest extends TestCase
 
         $contact = Contact::where('email', 'web-rental@example.co.za')->first();
         $this->assertNotNull($contact);
-        $this->assertSame('Tenant', $contact->type?->name);
+        $this->assertSame('Lessee', $contact->type?->name);
     }
 
     public function test_website_sale_enquiry_creates_a_buyer_contact(): void

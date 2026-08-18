@@ -165,9 +165,18 @@ class WebsiteLeadService
         // enquiry must land as a Tenant, not a Buyer. Was hardcoded to
         // 'Buyer' unconditionally (same defect as P24LeadService).
         $isRental = $listing?->listing_type === 'rental';
-        $contactTypeId = ContactType::query()->where('name', $isRental ? 'Tenant' : 'Buyer')->value('id')
-                    ?? ContactType::query()->where('name', 'Buyer')->value('id')
-                    ?? ContactType::query()->where('name', 'Lead')->value('id');
+        // 'Lessee' is the canonical, permanently-locked rental-side parent
+        // type (ContactType::CANONICAL, AT-79) — legacy 'Tenant'/'Prospective
+        // Tenant' names are soft-deleted on agencies that have run the
+        // types-collapse migration (confirmed on staging; live has not yet
+        // run it, so 'Tenant' is kept as a fallback for now).
+        $contactTypeId = $isRental
+            ? (ContactType::query()->where('name', 'Lessee')->value('id')
+                ?? ContactType::query()->where('name', 'Tenant')->value('id')
+                ?? ContactType::query()->where('name', 'Buyer')->value('id')
+                ?? ContactType::query()->where('name', 'Lead')->value('id'))
+            : (ContactType::query()->where('name', 'Buyer')->value('id')
+                ?? ContactType::query()->where('name', 'Lead')->value('id'));
 
         // "Website" contact source is per-agency (contact_sources is tenant-scoped);
         // create it once per agency on first website lead.
