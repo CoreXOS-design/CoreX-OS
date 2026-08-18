@@ -1061,10 +1061,25 @@ class CalendarController extends Controller
         $feedbackMode = $cfg?->feedback_mode
             ?? ($calendarEvent->category === 'listing_presentation' ? 'per_property' : 'per_contact');
 
+        // 2026-08-18 (Johan) — feedback_mode controls GROUPING only (one block per
+        // property vs one per contact) and must stay exactly as configured: viewing
+        // needs per_property so a multi-stop trip gets one feedback block per
+        // property visited. WHICH OUTCOME VOCABULARY populates that block is a
+        // separate question — who the appointment is FOR — driven by actor_role
+        // (already correctly seeded: viewing=buyer_action, listing_presentation/
+        // property_evaluation=seller_action), never by feedback_mode. Before this
+        // fix both questions were conflated onto feedback_mode, which is exactly
+        // what let viewing (per_property) and listing_presentation (per_contact)
+        // silently swap vocabularies: a buyer viewing got the seller "Mandate
+        // signed / Lost" list, and a seller-facing listing presentation / property
+        // evaluation got the buyer "Interested / Made offer" list.
+        $isSellerFacing = ($cfg?->actor_role ?? null) === 'seller_action';
+        $outcomeCategory = $isSellerFacing ? 'lp_outcome' : 'outcome';
+
         $properties = $calendarEvent->linkedProperties;
 
         $outcomes = \App\Models\CommandCenter\AgencyFeedbackOption::withoutGlobalScopes()
-            ->where('category', 'outcome')
+            ->where('category', $outcomeCategory)
             ->where('is_active', true)
             ->where(fn ($q) => $q->whereNull('agency_id')->orWhere('agency_id', $agencyId))
             ->orderBy('sort_order')
@@ -1100,25 +1115,27 @@ class CalendarController extends Controller
                     'internal_notes' => optional($existing->get($p->id))->internal_notes,
                     'next_action'    => optional($existing->get($p->id))->next_action_notes,
                 ]),
-                // CAL-7 Class 4 — read lp_outcome + lp_mandate_type from the
-                // same agency_feedback_options table the per_contact mode
-                // uses (the seeder now seeds them). Empty seed -> empty
-                // array -> CAL-6 empty-state banner fires consistently
-                // across both feedback modes.
-                'lp_outcomes' => \App\Models\CommandCenter\AgencyFeedbackOption::withoutGlobalScopes()
-                    ->where('category', 'lp_outcome')
-                    ->where('is_active', true)
-                    ->where(fn ($q) => $q->whereNull('agency_id')->orWhere('agency_id', $agencyId))
-                    ->orderBy('sort_order')
-                    ->pluck('label')
-                    ->values(),
-                'lp_mandate_types' => \App\Models\CommandCenter\AgencyFeedbackOption::withoutGlobalScopes()
-                    ->where('category', 'lp_mandate_type')
-                    ->where('is_active', true)
-                    ->where(fn ($q) => $q->whereNull('agency_id')->orWhere('agency_id', $agencyId))
-                    ->orderBy('sort_order')
-                    ->pluck('label')
-                    ->values(),
+                // CAL-7 Class 4 — read from the SAME $outcomeCategory resolved
+                // above (lp_outcome for a seller-facing class, outcome for a
+                // buyer-facing one) so the per-property dropdown always shows
+                // the vocabulary that actually matches who the appointment is
+                // for — never hardcoded to lp_outcome regardless of class.
+                // Reuses $outcomes (already fetched, same category) rather than
+                // re-querying, so the two can never drift.
+                'lp_outcomes' => $outcomes->pluck('label')->values(),
+                // Mandate type has no meaning for a buyer-facing appointment
+                // (a viewing) — empty list, and the "Mandate type" field hides
+                // itself client-side when this is empty (see the x-show gate
+                // on that field in the blade).
+                'lp_mandate_types' => $isSellerFacing
+                    ? \App\Models\CommandCenter\AgencyFeedbackOption::withoutGlobalScopes()
+                        ->where('category', 'lp_mandate_type')
+                        ->where('is_active', true)
+                        ->where(fn ($q) => $q->whereNull('agency_id')->orWhere('agency_id', $agencyId))
+                        ->orderBy('sort_order')
+                        ->pluck('label')
+                        ->values()
+                    : collect(),
                 'lp_concerns' => $concerns,
                 'outcomes' => $outcomes,
                 'concerns' => $concerns,
