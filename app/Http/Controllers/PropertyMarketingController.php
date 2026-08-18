@@ -188,20 +188,23 @@ class PropertyMarketingController extends Controller
      */
     public function oauthCallback(Request $request)
     {
-        $code  = $request->query('code');
-        $state = $request->query('state');
+        $code        = $request->query('code');
+        $accessToken = $request->query('access_token');
+        $state       = $request->query('state');
 
-        if (!$code || !$state) {
+        if ((!$code && !$accessToken) || !$state) {
             return redirect()->route('agent.portal')
                 ->with('error', 'Meta OAuth was cancelled or failed.');
         }
 
         try {
-            // A code obtained via the Facebook JS SDK's config_id login
-            // (FB.login) is NOT tied to a redirect_uri and must be exchanged
-            // with an empty one — see exchangeCodeForPages()'s docblock.
-            $redirectUri = $request->query('flow') === 'js' ? '' : null;
-            $pagesData   = $this->oauthService->exchangeCodeForPages($code, $state, $redirectUri);
+            // The FB JS SDK's config_id login (FB.login) hands back a ready
+            // access_token directly — no code exchange needed, and none of
+            // the redirect_uri matching classic codes require (see
+            // exchangeAccessTokenForPages()'s docblock).
+            $pagesData = $accessToken
+                ? $this->oauthService->exchangeAccessTokenForPages($accessToken, $state)
+                : $this->oauthService->exchangeCodeForPages($code, $state);
 
             if ((int) $pagesData['user_id'] !== (int) auth()->id()) {
                 return redirect()->route('agent.portal')
