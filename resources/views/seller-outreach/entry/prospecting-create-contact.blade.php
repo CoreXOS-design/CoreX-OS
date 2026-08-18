@@ -407,20 +407,7 @@
                             </div>
                             <div class="text-xs mt-0.5" style="color: var(--text-muted);">
                                 <template x-if="owner.is_entity"><span><span x-show="owner.entity_reg_no">Reg: <span class="font-mono" x-text="owner.entity_reg_no"></span></span><span x-show="!owner.entity_reg_no" class="italic">Company / entity owner</span></span></template>
-                                <template x-if="!owner.is_entity && owner.id_number">
-                                    <span class="inline-flex items-center gap-2">
-                                        <span>ID: <span class="font-mono" x-text="owner.id_number"></span></span>
-                                        {{-- Copy ID (2026-08-18) — mirrors the deeds-capture "Copy ID" button
-                                             (resources/views/corex/deeds-capture/index.blade.php) exactly, adapted
-                                             from Blade's Js::from() to a plain Alpine expression since this card is
-                                             x-for-driven off the reactive `deed` object, not a server @foreach. --}}
-                                        <button type="button" x-data="{ copied: false }"
-                                                @click="navigator.clipboard.writeText(owner.id_number); copied = true; setTimeout(() => copied = false, 1500)"
-                                                class="text-[10px] font-semibold px-1.5 py-0.5 rounded"
-                                                style="border:1px solid var(--border); color: var(--brand-icon, #2563eb);"
-                                                x-text="copied ? 'Copied!' : 'Copy ID'"></button>
-                                    </span>
-                                </template>
+                                <template x-if="!owner.is_entity && owner.id_number"><span>ID: <span class="font-mono" x-text="owner.id_number"></span></span></template>
                                 <template x-if="!owner.is_entity && !owner.id_number"><span class="italic">No ID on the deed record</span></template>
                             </div>
                         </div>
