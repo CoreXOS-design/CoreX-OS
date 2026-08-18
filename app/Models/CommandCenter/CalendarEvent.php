@@ -222,7 +222,12 @@ class CalendarEvent extends Model
      * only narrows within the current agency.
      *
      *   own    → events owned by this user
-     *   branch → events in the user's branch (falls back to own if no branch)
+     *   branch → events in the user's branch. A user with NO single branch_id
+     *            (branch_id is null) is either (a) an admin/principal who
+     *            legitimately spans every branch — `branches.view_all` — in
+     *            which case "branch" IS "all" for them, so no narrowing is
+     *            applied; or (b) genuinely unassigned, which falls back to
+     *            'own' as a safe default.
      *   all    → no extra narrowing (whole agency)
      *   none   → nothing (no access)
      */
@@ -235,7 +240,9 @@ class CalendarEvent extends Model
             'all'    => $query,
             'branch' => $user->effectiveBranchId()
                 ? $query->where('branch_id', $user->effectiveBranchId())
-                : $query->whereIn('user_id', $identityIds),
+                : ($user->hasPermission('branches.view_all')
+                    ? $query
+                    : $query->whereIn('user_id', $identityIds)),
             'none'   => $query->whereRaw('1 = 0'),
             default  => $query->whereIn('user_id', $identityIds), // 'own' or null
         };
