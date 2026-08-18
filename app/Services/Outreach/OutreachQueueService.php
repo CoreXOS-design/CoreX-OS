@@ -60,8 +60,14 @@ class OutreachQueueService
         // §9 — reachability: never queue what can never be dispatched on this channel
         // (closes the gap for the MIC/map endpoint, which doesn't run the composer's
         // validationIssues). The composer path also blocks this upstream.
+        //
+        // whatsapp: filled($contact->phone) alone only looked at the legacy mirror
+        // column, so a contact reachable ONLY via an AT-125 contact_phones row (the
+        // same source SellerOutreachComposerService::normalisePhone() now resolves
+        // from) failed here even after passing compose — a contact could pass compose
+        // then fail the queue. Any contact_phones row OR the legacy column counts.
         $reachable = match ($channel) {
-            'whatsapp' => filled($contact->phone),
+            'whatsapp' => $contact->phones->isNotEmpty() || filled($contact->phone),
             'email'    => filled($contact->email),
             default    => true,
         };
