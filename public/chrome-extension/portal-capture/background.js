@@ -15,6 +15,33 @@
 // chrome.storage.local array queue that silently dropped batches on quota.
 importScripts('queue-idb.js');
 
+// Robust PP price read — mirrors ppPriceFrom in content-pp.js (same fix,
+// separate copy: this file runs in the service-worker parsing static HTML
+// via DOMParser, not as a content script, so it doesn't share scope with
+// content-pp.js). See content-pp.js for the full incident writeup — the old
+// `el.textContent.replace(/[^\d]/g, '')` here had the identical
+// no-bounds-check, no-grouping-check vulnerability.
+const PP_PRICE_PLAUSIBLE = (v) => Number.isFinite(v) && v >= 100000 && v <= 500000000;
+function ppPriceFrom(text) {
+  if (!text) return null;
+  const candidates = [];
+  const re = /R\s*([\d\s,]+)/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const chunks = m[1].trim().split(/[\s,]+/).filter(Boolean);
+    if (chunks.length === 0 || chunks[0].length > 3) continue;
+    let digits = chunks[0];
+    for (let i = 1; i < chunks.length; i++) {
+      if (chunks[i].length !== 3) break;
+      digits += chunks[i];
+    }
+    if (digits.length < 4 || digits.length > 9) continue;
+    const v = parseInt(digits, 10);
+    if (PP_PRICE_PLAUSIBLE(v)) candidates.push(v);
+  }
+  return candidates.length > 0 ? Math.max(...candidates) : null;
+}
+
 // ── Capture state (in-memory, persisted to chrome.storage) ───
 let capture = defaultCaptureState();
 
@@ -891,10 +918,11 @@ function extractPPListing(tile) {
   } catch (e) { /* */ }
 
   try {
-    const el = tile.querySelector('[class*="price"], [class*="Price"]');
-    if (el) {
-      const cleaned = el.textContent.replace(/[^\d]/g, '');
-      if (cleaned) listing.price = parseInt(cleaned, 10);
+    const preciseEl = tile.querySelector('.featured-listing__price');
+    listing.price = ppPriceFrom(preciseEl ? preciseEl.textContent : null);
+    if (!listing.price) {
+      const looseEl = tile.querySelector('[class*="price"], [class*="Price"]');
+      listing.price = ppPriceFrom(looseEl ? looseEl.textContent : null);
     }
   } catch (e) { /* */ }
 
