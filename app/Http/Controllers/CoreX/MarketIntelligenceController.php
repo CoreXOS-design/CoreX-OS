@@ -734,6 +734,28 @@ class MarketIntelligenceController extends Controller
             }
         }
 
+        // MIC property row comments (.ai/specs/mic-property-row-comments.md) —
+        // one batched count query for the whole visible page, mirroring the
+        // $companyStockMap precedent above. Zero N+1 regardless of row count.
+        $canViewComments = (bool) ($user?->hasPermission('mic.comments.view') ?? false);
+        $commentCounts = collect();
+        if ($canViewComments) {
+            $tpIdsForComments = collect($listings->items())
+                ->pluck('tracked_property_id')
+                ->filter()
+                ->unique()
+                ->values();
+            if ($tpIdsForComments->isNotEmpty()) {
+                $commentCounts = \App\Models\Prospecting\TrackedPropertyComment::query()
+                    ->whereIn('tracked_property_id', $tpIdsForComments)
+                    ->where('agency_id', $agencyId)
+                    ->whereNull('deleted_at')
+                    ->select('tracked_property_id', DB::raw('count(*) as cnt'))
+                    ->groupBy('tracked_property_id')
+                    ->pluck('cnt', 'tracked_property_id');
+            }
+        }
+
         $agencyRecord = \App\Models\Agency::find($agencyId);
         $agencyLogoUrl = ($agencyRecord && $agencyRecord->logo_path)
             ? asset('storage/' . $agencyRecord->logo_path)
@@ -1029,6 +1051,8 @@ class MarketIntelligenceController extends Controller
                 'isProspectingManager'           => $isProspectingManager,
                 'companyStockMap'                => $companyStockMap,
                 'agencyLogoUrl'                  => $agencyLogoUrl,
+                'commentCounts'                  => $commentCounts,
+                'canViewComments'                => $canViewComments,
                 'snapshotKpis'                   => $snapshotKpis,
                 'actionPresetCounts'             => $actionPresetCounts,
                 'actionPreset'                   => $actionPreset,
@@ -1105,6 +1129,8 @@ class MarketIntelligenceController extends Controller
             'tiles', 'tilesGeneratedAt',
             // Company stock (exact portal_ref) — IN STOCK badge + company logo tile
             'companyStockMap', 'agencyLogoUrl',
+            // MIC property row comments — .ai/specs/mic-property-row-comments.md
+            'commentCounts', 'canViewComments',
             // Trust-strip (display-only) — already-computed synthetic-row breakdown,
             // just wired through so the list header can show its composition.
             'injectedStockCountBySuburb',

@@ -182,6 +182,18 @@
         </div>
     </div>
 
+    {{-- MIC property row comments — .ai/specs/mic-property-row-comments.md.
+         AT-363 fix pattern (documented in .ai/CHAT_STARTER.md and used by
+         command-center/buyers/detail.blade.php's buyerWishlists component):
+         the behaviour lives in a REGISTERED Alpine.data() component (real
+         <script> block below), not inline in this HTML attribute, so a
+         double quote inside any JS string here can never re-break x-data
+         parsing again. Wraps the row stack (chip buttons call
+         openCommentsModal) and the comments modal (reads
+         commentsModalOpen/Html) so both share one component instance.
+         Deliberately does NOT wrap the buyer-panel markup below — that
+         stays under the outer scope, untouched. --}}
+    <div x-data="micRowComments()">
     {{-- Row stack --}}
     @if($listings->isEmpty())
         <div style="text-align: center; padding: 64px 24px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px;">
@@ -247,6 +259,8 @@
                     'viewerId'  => $viewerId,
                     'showProspectedBadge' => $showProspectedBadge,
                     'selectedScore' => $listing->selected_buyer_score ?? null,
+                    'commentCounts' => $commentCounts ?? [],
+                    'canViewComments' => $canViewComments ?? false,
                 ])
             @endforeach
         </div>
@@ -256,9 +270,34 @@
         </div>
     @endif
 
+    {{-- MIC property row comments — centered modal (list + add), matching
+         the existing "Add note" modal shell already used elsewhere in MIC
+         (_slideover-header.blade.php), not the side-panel shape below.
+         .ai/specs/mic-property-row-comments.md --}}
+    <div x-show="commentsModalOpen" x-cloak
+         @keydown.escape.window="commentsModalOpen = false"
+         @click.self="commentsModalOpen = false"
+         style="position: fixed; inset: 0; z-index: 70; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center;">
+        <div @click.stop style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 16px; width: 92%; max-width: 480px; max-height: 85vh; display: flex; flex-direction: column;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                <h3 style="font-size: 0.875rem; font-weight: 600; color: var(--text-primary);">Property comments</h3>
+                <button type="button" @click="commentsModalOpen = false"
+                        style="background: none; border: none; cursor: pointer; font-size: 1.25rem; line-height: 1; color: var(--text-muted);">&times;</button>
+            </div>
+            <template x-if="commentsModalLoading">
+                <div class="p-8 text-center text-sm" style="color: var(--text-muted);">Loading…</div>
+            </template>
+            <div x-show="!commentsModalLoading" x-html="commentsModalHtml" style="overflow-y: auto;"></div>
+        </div>
+    </div>
+    </div>
+
     {{-- Buyer-match side panel (slides from right) — Alpine wired above.
          Same shape as the F.1/F.2 panel. F.4 will add the row-click slide-over;
-         this one is unchanged. --}}
+         this one is unchanged. Deliberately OUTSIDE the micRowComments()
+         wrapper above — it reads only the outer (buyerPanel*) scope and was
+         moved here, unmodified, purely so the comments wrapper could close
+         cleanly around the row stack + its own modal. --}}
     <div x-show="buyerPanelOpen" x-cloak
          @click="buyerPanelOpen = false"
          class="fixed inset-0 z-40"
@@ -288,6 +327,63 @@
         <div x-show="!buyerPanelLoading" x-html="buyerPanelHtml"></div>
     </div>
 </div>
+
+<script>
+document.addEventListener('alpine:init', () => {
+    // MIC property row comments — .ai/specs/mic-property-row-comments.md.
+    // Registered component (real <script>, unambiguous JS string quoting) —
+    // NOT inline in an x-data HTML attribute. See the AT-363 note above.
+    Alpine.data('micRowComments', () => ({
+        commentsModalOpen: false,
+        commentsModalLoading: false,
+        commentsModalHtml: '',
+        async openCommentsModal(trackedPropertyId) {
+            this.commentsModalOpen = true;
+            this.commentsModalLoading = true;
+            this.commentsModalHtml = '';
+            try {
+                const r = await fetch(`/corex/tracked-properties/${trackedPropertyId}/comments`, {
+                    headers: { 'Accept': 'text/html', 'X-Requested-With': 'XMLHttpRequest' },
+                    credentials: 'same-origin',
+                });
+                if (!r.ok) throw new Error('Failed (' + r.status + ')');
+                this.commentsModalHtml = await r.text();
+            } catch (e) {
+                this.commentsModalHtml = '<div style="padding:24px; color: var(--ds-crimson);">Failed to load comments: ' + (e.message || 'error') + '</div>';
+            } finally {
+                this.commentsModalLoading = false;
+            }
+        },
+        // Called by the fetched fragment (add/edit/remove) after a mutation
+        // returns the fresh count — patches every matching row badge on the
+        // page without a full row re-render.
+        updateCommentBadge(trackedPropertyId, count) {
+            document.querySelectorAll('[data-tp-comment-count="' + trackedPropertyId + '"]').forEach((el) => {
+                el.textContent = count > 0 ? String(count) : '';
+                el.style.marginLeft = count > 0 ? '3px' : '0';
+            });
+        },
+        async removeComment(trackedPropertyId, commentId) {
+            try {
+                const res = await fetch(`/corex/tracked-properties/${trackedPropertyId}/comments/${commentId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content || ''
+                    },
+                    credentials: 'same-origin',
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.message || ('HTTP ' + res.status));
+                this.commentsModalHtml = data.comments_html;
+                this.updateCommentBadge(trackedPropertyId, data.count);
+            } catch (e) {
+                alert('Could not remove comment: ' + (e.message || 'error'));
+            }
+        },
+    }));
+});
+</script>
 
 <style>
     .mi-row:not(:last-child) { border-bottom: 1px solid var(--border); }

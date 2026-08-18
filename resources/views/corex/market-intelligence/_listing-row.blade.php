@@ -312,6 +312,23 @@
                 </span>
             </span>
             @endif
+
+            {{-- Comment chip — .ai/specs/mic-property-row-comments.md. Johan's
+                 explicit placement: same chip group as the claim/buyer chips,
+                 built the same way as the buyer-match chip above (tagOutline
+                 button + numeric count), but NEVER hidden at zero — an agent
+                 must be able to add the first comment from the row. --}}
+            @if($listing->tracked_property_id && ($canViewComments ?? false))
+                @php $commentCount = (int) (($commentCounts ?? [])[$listing->tracked_property_id] ?? 0); @endphp
+                <button type="button"
+                        @click.stop="openCommentsModal({{ $listing->tracked_property_id }})"
+                        style="{{ $tagOutline }} cursor: pointer;"
+                        title="{{ $commentCount > 0 ? ($commentCount . ' comment' . ($commentCount === 1 ? '' : 's') . ' on this property — click to view and add.') : 'No comments yet on this property — click to add the first one for other agents.' }}">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;">
+                        <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+                    </svg><span data-tp-comment-count="{{ $listing->tracked_property_id }}" style="font-weight: 700; margin-left: {{ $commentCount > 0 ? '3px' : '0' }};">{{ $commentCount > 0 ? $commentCount : '' }}</span>
+                </button>
+            @endif
         </div>
     </div>
 
