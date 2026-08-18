@@ -407,22 +407,18 @@
   // without live access to cmainfo's search-results markup, which this
   // extension has never needed to interact with before).
   //
-  // Fallback (2026-08-18): require GENUINE evidence of a fresh update, not
-  // just quiet — widen the settle window rather than trust "quiet" alone,
-  // giving a slow-starting postback a wider margin.
-  //
-  // v3.4.2 — this used to widen the window only for the FIRST capture in a
-  // page session, and additionally require a mutation observed AFTER the
-  // previous capture completed for every capture thereafter (tracked via
-  // lastCaptureCompletedAt). That "since the previous capture" branch was
-  // itself a form of cross-capture memory, and Johan's explicit instruction
-  // for the true-clean-slate fix is that NO module-level state survives
-  // between captures (extractDeed() resets its capture-memory variables at
-  // the start of every extraction — see the TRUE CLEAN SLATE block below).
-  // With nothing left to remember a "previous capture completed at", every
-  // capture now unconditionally takes the wider settle window — a small,
-  // constant, always-safe cost instead of a per-capture-history fast path.
+  // Fallback: require GENUINE evidence of a fresh update, not just quiet.
+  //   - 2nd+ capture in a session: require at least one mutation observed
+  //     AFTER the previous capture completed, in addition to the existing
+  //     quiet-350ms check — "quiet" must mean "quiet after a real update",
+  //     not "nothing has happened yet". Closes the exact failure mode above
+  //     for every capture after the first.
+  //   - 1st capture in a session: no previous capture to require a mutation
+  //     against, so there's nothing to gate on — widen the settle window
+  //     instead, giving a slow-starting postback a wider margin. This is a
+  //     narrower, honestly-flagged residual gap, not eliminated.
   const FIRST_CAPTURE_EXTRA_SETTLE_MS = 500;
+  let lastCaptureCompletedAt = 0;
 
   function domIsSettled() {
     // No mutation observed yet this page load (lastMutationAt still 0) counts
@@ -430,7 +426,17 @@
     // callback ever fires would wait out the full timeout for nothing.
     if (lastMutationAt === 0) return true;
 
-    return (Date.now() - lastMutationAt) >= (DOM_SETTLE_MS + FIRST_CAPTURE_EXTRA_SETTLE_MS);
+    const requiredQuietMs = lastCaptureCompletedAt === 0
+      ? (DOM_SETTLE_MS + FIRST_CAPTURE_EXTRA_SETTLE_MS)
+      : DOM_SETTLE_MS;
+    if ((Date.now() - lastMutationAt) < requiredQuietMs) return false;
+
+    // 2nd+ capture: refuse to trust a panel that hasn't mutated AT ALL since
+    // the previous capture completed — that's the exact "nothing has
+    // happened yet" false-positive, not a real settle.
+    if (lastCaptureCompletedAt > 0 && lastMutationAt <= lastCaptureCompletedAt) return false;
+
+    return true;
   }
 
   /**
@@ -608,132 +614,167 @@
    * through sections on cmainfo's own UI and captures each one via a
    * separate button click, same mental model as re-running the button.
    */
-  // ══════════════════════════════════════════════════════════
-  // ── TRUE CLEAN SLATE (v3.4.2, 2026-08-18) ──────────────────
-  // ══════════════════════════════════════════════════════════
-  // Johan: capturing a SECTIONAL (complex) property, then a FREEHOLD, still
-  // showed the freehold with the PREVIOUS complex's scheme/section — after
-  // BOTH v3.3.9 (settle-timing) and v3.4.0 (byte-identical-to-prior
-  // heuristic, below this block until 2026-08-18). Root cause (confirmed):
-  // cmainfo's Property Information panel does NOT re-render the
-  // sectional-only fields (Scheme name/no, Section number, Flat/Unit no,
-  // Section extent, Situated at) when the CURRENT property is a freehold —
-  // no new markup means no postback ever touches that row, so whatever
-  // sectional property was viewed BEFORE it sits frozen in the live DOM
-  // indefinitely, for the rest of the page session, no matter how long the
-  // extension waits or how quiet the DOM has been.
-  //
-  // v3.4.0's fix compared the CURRENT capture's sectional fields against the
-  // PREVIOUS capture's (byte-identical + a freehold-native field changed).
-  // Insufficient by its own admission: the FIRST capture in a page session
-  // has no previous capture to diff against, so leftover DOM content from
-  // before the extension was even opened wasn't caught, and it only fired
-  // when EVERY sectional field was byte-identical to last time — one field
-  // differing defeated the whole check. Both are symptoms of the same flaw:
-  // comparing against MEMORY of a previous capture can never be airtight,
-  // because the bug is that the DOM lies about the CURRENT property, not
-  // that it changed from the previous one.
-  //
-  // v3.4.2 fix — two parts, per Johan's explicit instruction that every
-  // capture must start truly fresh with NO memory of the previous scrape:
-  //   1. All module-level capture memory is reset at the START of every
-  //      extraction (see the top of extractDeed() below) — nothing from a
-  //      prior capture can influence this one, full stop. The old
-  //      byte-identical-to-prior heuristic and its NATSPAT title-deed-
-  //      mismatch self-heal (propertySignature/signaturesMatchAddress/
-  //      lastCaptureSignature/lastCapturedProperty/
-  //      clearFrozenSectionalFields, all formerly here) are REMOVED along
-  //      with it — both depended on the exact cross-capture memory Johan
-  //      wants gone, and the byte-identical heuristic is the one just
-  //      proven insufficient. domIsSettled()'s mutation-based settle gate
-  //      (a LIVE DOM signal, not a memory of prior extracted values) is
-  //      unaffected and still guards slow-loading panels — see its comment
-  //      for the one consequence of this removal (no more "quiet since the
-  //      previous capture" fast path; every capture now uses the same,
-  //      wider, safer settle window).
-  //   2. Sectional-vs-freehold is decided from the CURRENT property's OWN
-  //      signal — never from a comparison — and a freehold NEVER
-  //      legitimately has a scheme/section (that is definitionally what
-  //      sectional title means), so the sectional fields are forced empty
-  //      UNCONDITIONALLY whenever the current read says freehold. See
-  //      currentPropertyLooksFreehold() / nullSectionalFieldsIfFreehold()
-  //      below. This is the airtight rule the byte-identical heuristic
-  //      lacked: it doesn't matter what the DOM residue says or what the
-  //      previous capture was — a freehold's scheme/section is ALWAYS null.
-  const SECTIONAL_ONLY_FIELDS = ['scheme_name', 'scheme_no', 'section_number', 'flat_number', 'section_extent', 'situated_at'];
+  // Signature of the last successfully-captured property's address/scheme
+  // block, keyed against its title deed. Persists across captures within one
+  // page session (cmainfo never navigates — see PROPERTY-LOADED DETECTION
+  // below) so a NEW deed can be compared against the PREVIOUS capture's
+  // address, not just against whatever the panel happens to show right now.
+  let lastCaptureSignature = null;
 
-  /**
-   * Decide whether the CURRENTLY loaded property is a freehold, from signals
-   * confirmed to describe the property presently on screen — never from a
-   * comparison to any previous capture.
-   *
-   * Primary signal: the panel's own "Type" label (extracted as p.type,
-   * PROPERTY_INFORMATION_LABELS above) — cmainfo's direct title-type
-   * indicator for the property currently loaded. Pattern-matched rather than
-   * exact-matched since the live text hasn't been enumerated exhaustively
-   * across every deeds office; recognised sectional wording is authoritative
-   * one way, recognised freehold/full-title wording the other.
-   *
-   * Fallback signal (Type blank/unrecognised): "Erf no" — CONFIRMED LIVE
-   * (2026-08-13) as a row that exists for full-title properties specifically
-   * ("separate from the sectional-title fields" — see
-   * PROPERTY_INFORMATION_LABELS above), and one of the fields cmainfo is
-   * confirmed (by the v3.4.0 Park Street repro this replaces) to always
-   * render fresh for whichever property is CURRENTLY loaded — unlike the
-   * sectional-only fields, it is never left frozen. A populated Erf no is
-   * reliable evidence the current property is full-title.
-   *
-   * Residual gap, honestly flagged (same spirit as v3.4.0's own residual-gap
-   * notes it replaces): a freehold with neither a recognised Type string nor
-   * an Erf no on the panel would slip past both signals and NOT be forced
-   * empty. Narrower than Johan's repro (which has both a real address and an
-   * Erf no on the freehold), not eliminated.
-   */
-  function currentPropertyLooksFreehold(property) {
-    const type = normalizeLabel(property.type || '');
-    if (type) {
-      if (type.indexOf('sectional') !== -1) return false;
-      if (type.indexOf('freehold') !== -1 || type.indexOf('full title') !== -1 || type.indexOf('full-title') !== -1 || type === 'erf') {
-        return true;
-      }
-    }
-    if (property.erf_no) return true;
-    return false;
+  // v3.4.0 — the FULL property_information object from the previous
+  // successful capture (post all corrections), used by
+  // clearFrozenSectionalFields() below to detect a PARTIAL freeze
+  // (address/erf/suburb moved on to a genuinely new property, but the
+  // sectional-only fields didn't) that lastCaptureSignature's whole-block
+  // comparison can't catch, because it requires the ENTIRE street/suburb/
+  // scheme bundle to match before it'll act.
+  let lastCapturedProperty = null;
+
+  function propertySignature(property, titleDeed) {
+    return {
+      titleDeed: titleDeed || null,
+      street: property.address || property.situated_at || null,
+      suburb: property.suburb || null,
+      scheme: property.scheme_name || null,
+    };
   }
 
-  /**
-   * A freehold never legitimately carries a scheme/section — so when
-   * currentPropertyLooksFreehold() says freehold, every sectional-only field
-   * is forced null UNCONDITIONALLY, regardless of what value is sitting in
-   * the DOM for it. This is independent of the previous capture entirely:
-   * it would clear the exact same fields whether the previous capture was
-   * sectional, freehold, or there was no previous capture at all.
-   */
-  function nullSectionalFieldsIfFreehold(property) {
-    if (!currentPropertyLooksFreehold(property)) return property;
+  function signaturesMatchAddress(a, b) {
+    return a.street === b.street && a.suburb === b.suburb && a.scheme === b.scheme;
+  }
+
+  // v3.4.0 (2026-08-18, Johan LIVE repro — Park Street freehold, TWO
+  // separate properties, both came back showing "Section 3" / "SKIPPERS OF
+  // SHELLY", the sectional-title COMPLEX he'd captured immediately before).
+  // Structurally different bug from v3.3.9's timing race, and NOT fixable
+  // by waiting longer: cmainfo's Property Information panel renders
+  // sectional-only fields (Scheme name/no, Section number, Flat/Unit no,
+  // Section extent, Situated at) via markup that is conditionally NOT
+  // re-rendered at all when the current property is a freehold — no new
+  // markup means no postback touches that row, so its LAST REAL value (from
+  // whatever sectional property was viewed before it) sits frozen in the
+  // live DOM indefinitely. Confirmed by the repro shape itself: Address/
+  // Erf/Suburb (fields cmainfo DOES render+update for every property type)
+  // were correct on both broken captures — only the sectional-only fields
+  // carried over. Since the frozen row never mutates again, v3.3.9's
+  // mutation-since-last-capture settle guard cannot detect or wait this
+  // out — it correctly rules out ITS failure mode (a slow-starting update),
+  // polls out to ensureSectionExpanded's timeout with nothing to see, gives
+  // up, and reads the frozen value anyway, reproducing the bug exactly.
+  //
+  // First attempt at a fix ("a populated Address means this is a freehold,
+  // so always null the sectional fields") was WRONG and caught by the
+  // existing NATSPAT regression test before shipping: a real confirmed live
+  // capture (60 Lilliecrona Boulevard, 2026-08-17) has an Address AND a
+  // real Scheme name TOGETHER — sectional units can legitimately carry a
+  // street address too, so "Address present" alone does not mean "no
+  // legitimate scheme". Address presence can't be the trigger on its own.
+  //
+  // Correct fix: compare against the PREVIOUS capture directly, the same
+  // shape as the existing whole-block bleed check above, but scoped to the
+  // sectional-only fields specifically and INDEPENDENT of whether the
+  // address/suburb/scheme bundle as a whole matched (that check requires
+  // the ENTIRE bundle to match, which is why it doesn't fire here — Park
+  // Street's address/suburb/erf all genuinely changed, only the sectional
+  // subset stayed pinned). Trigger only when ALL of:
+  //   (a) at least one sectional-only field is currently populated,
+  //   (b) it is BYTE-IDENTICAL to what the previous capture had for that
+  //       same field (the frozen-row fingerprint), AND
+  //   (c) at least one of address/erf_no/suburb — fields cmainfo is
+  //       confirmed (by this repro) to always render fresh — genuinely
+  //       differs from the previous capture, proving this really is a
+  //       different property and not a legitimate repeat capture of the
+  //       same unit (e.g. two co-owners' separate deeds on one real unit,
+  //       where the sectional fields SHOULD match every time).
+  // Residual gap, honestly flagged: the very FIRST capture in a page
+  // session has no previous capture to diff against, so a freehold loaded
+  // as the first-ever capture on a page that already has leftover
+  // sectional DOM content (e.g. from browsing before the extension was
+  // reloaded) isn't caught. Not exercised by Johan's repro (a multi-capture
+  // sequence), narrower than the general case, not eliminated.
+  const SECTIONAL_ONLY_FIELDS = ['scheme_name', 'scheme_no', 'section_number', 'flat_number', 'section_extent', 'situated_at'];
+  const FREEHOLD_NATIVE_FIELDS = ['address', 'erf_no', 'suburb'];
+
+  function clearFrozenSectionalFields(property, prevProperty) {
+    if (!property || !prevProperty) return property;
+
+    const anyNativeFieldChanged = FREEHOLD_NATIVE_FIELDS.some((key) => property[key] !== prevProperty[key]);
+    if (!anyNativeFieldChanged) return property; // same property (or a total freeze the whole-block check above already owns) — nothing to correct here
+
+    const hasAnyCurrentSectionalValue = SECTIONAL_ONLY_FIELDS.some((key) => !!property[key]);
+    if (!hasAnyCurrentSectionalValue) return property;
+
+    const looksFrozen = SECTIONAL_ONLY_FIELDS.every((key) => property[key] === prevProperty[key]);
+    if (!looksFrozen) return property;
+
     const cleared = Object.assign({}, property);
     SECTIONAL_ONLY_FIELDS.forEach((key) => { cleared[key] = null; });
-    console.warn('[CoreX] deeds-capture: current property looks like a freehold (Type/Erf no signal) — scheme/section/unit/extent/situated-at forced empty regardless of what is sitting in the DOM, since cmainfo does not re-render those rows for a freehold and a freehold never legitimately has them.');
+    console.warn('[CoreX] deeds-capture: Address/Erf/Suburb changed from the previous capture (proving this is a different property) but the sectional fields (scheme/section/unit) are byte-identical to the previous capture — those belong to that PREVIOUSLY-viewed property and cmainfo never re-rendered this row for the current one. Cleared rather than sent as this property\'s data.');
     return cleared;
   }
 
   async function extractDeed() {
-    // v3.4.2 — TRUE clean slate: this function keeps NO module-level
-    // capture-memory variable at all any more (see the TRUE CLEAN SLATE
-    // block above) — every extraction reads the DOM fresh, top to bottom,
-    // with nothing carried over from whatever the previous capture saw.
-
     await ensureSectionExpanded('Property Information');
     let property = extractPropertyInformation();
 
     await ensureSectionExpanded('Sale Information');
     const sale = await extractSaleInformation();
 
-    // v3.4.2 — the airtight rule: decide freehold-vs-sectional from THIS
-    // property's own current signal and force the sectional fields empty
-    // unconditionally when it says freehold. No comparison to any previous
-    // capture, no DOM-residue trust.
-    property = nullSectionalFieldsIfFreehold(property);
+    const signature = propertySignature(property, sale.title_deed);
+
+    // 2026-08-17 (Johan, live cmainfo confirm) — NATSPAT: 3 captures with
+    // DIFFERENT title deeds (T45154/2022, T32926/1988, T2398/1992) all
+    // stored the IDENTICAL "60 Lilliecrona Boulevard / NATSPAT / MANABA
+    // BEACH" address/scheme block. erf/deed/sale/owner are proven to update
+    // correctly on every capture (they come from Sale Information, read via
+    // its own settle-gated await above); address/suburb/scheme come from
+    // Property Information, read synchronously right after its OWN
+    // settle-gated await resolves. A DIFFERENT deed with an IDENTICAL
+    // address/scheme block to the immediately-previous capture is the exact
+    // fingerprint of that bug — ensureSectionExpanded()'s settle check can
+    // pass (quiet for DOM_SETTLE_MS) without the panel's address cells
+    // having actually been touched at all, if cmainfo's postback for this
+    // navigation path updates Sale Information but leaves Property
+    // Information's address block untouched. No amount of waiting on a
+    // quiet-DOM signal detects that — there's nothing to observe mutating.
+    // Give it one genuine extra settle cycle in case it's a plain slow
+    // race (self-heals if the address really did just need more time);
+    // if the re-read still matches, don't trust it — null the 3 fields
+    // rather than silently attach a different property's address, and
+    // flag it loudly so it's visible instead of silently wrong.
+    if (lastCaptureSignature && signature.titleDeed
+        && signature.titleDeed !== lastCaptureSignature.titleDeed
+        && signaturesMatchAddress(signature, lastCaptureSignature)) {
+      lastMutationAt = Date.now(); // force a fresh settle window, not whatever already elapsed
+      await new Promise((resolve) => setTimeout(resolve, DOM_SETTLE_MS + 50));
+      const recheck = extractPropertyInformation();
+      const recheckSignature = propertySignature(recheck, signature.titleDeed);
+      if (!signaturesMatchAddress(recheckSignature, signature)) {
+        console.info('[CoreX] deeds-capture: property-info block self-healed after an extra settle wait for deed ' + signature.titleDeed + ' — using the updated address.');
+        property = recheck;
+      } else {
+        console.warn('[CoreX] deeds-capture: address/suburb/scheme unchanged from the previous capture (deed ' + lastCaptureSignature.titleDeed + ') despite this capture being a different deed (' + signature.titleDeed + ') — sending address/suburb/scheme as null rather than a possibly-wrong value. Re-capture this property manually if it needs a full address.');
+        property = Object.assign({}, property, { address: null, situated_at: null, suburb: null, scheme_name: null });
+      }
+    }
+
+    // v3.4.0 — runs AFTER the self-heal block above so it sees whichever
+    // property object that block settled on, and BEFORE lastCapturedProperty
+    // is stamped so a frozen sectional value never gets carried forward as
+    // if it were this property's own confirmed data.
+    property = clearFrozenSectionalFields(property, lastCapturedProperty);
+
+    lastCaptureSignature = signature.titleDeed ? propertySignature(property, signature.titleDeed) : lastCaptureSignature;
+    // v3.4.0 — snapshot of the FULL property object, stamped every capture,
+    // so the next capture always has a real previous-property to diff its
+    // sectional fields against (independent of whether a title deed was
+    // resolved this time).
+    lastCapturedProperty = property;
+    // v3.3.9 — stamped on EVERY capture (not just successfully-identified
+    // ones) so the mutation-since-last-capture guard in domIsSettled() has a
+    // reference point for the NEXT capture regardless of whether this one
+    // had a title deed to key a signature on.
+    lastCaptureCompletedAt = Date.now();
 
     return {
       property_information: property,
