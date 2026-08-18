@@ -43,6 +43,13 @@ class MetaOAuthService
             'scope'         => implode(',', $scopes),
             'response_type' => 'code',
             'state'         => $state,
+            // Without this, Facebook silently reuses whichever Page(s) were
+            // granted the FIRST time this account ever connected (the "Continue
+            // as X with your previous settings" screen) and skips straight past
+            // its own Page-selection dialog — so our in-app picker never even
+            // gets more than one Page to choose from. rerequest forces Facebook
+            // to show the full consent + Page-picker dialog every time.
+            'auth_type'     => 'rerequest',
         ]);
 
         return 'https://www.facebook.com/v19.0/dialog/oauth?' . $params;
