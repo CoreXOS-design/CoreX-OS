@@ -180,7 +180,11 @@ class PropertyMarketingController extends Controller
     }
 
     /**
-     * Handle the OAuth callback from Meta.
+     * Handle the OAuth callback from Meta. If the account only administers one
+     * Page, connect it immediately (unchanged single-page UX). If there is
+     * more than one, stash the list in the session and show a picker so the
+     * agent chooses the right agency Page instead of always getting the first
+     * one Facebook happens to return.
      */
     public function oauthCallback(Request $request)
     {
@@ -188,17 +192,84 @@ class PropertyMarketingController extends Controller
         $state = $request->query('state');
 
         if (!$code || !$state) {
-            return redirect()->route('corex.settings', ['tab' => 'user'])
+            return redirect()->route('agent.portal')
                 ->with('error', 'Meta OAuth was cancelled or failed.');
         }
 
         try {
-            $this->oauthService->handleCallback($code, $state);
-            return redirect()->route('corex.settings', ['tab' => 'user'])
-                ->with('success', 'Social account connected successfully.');
+            $pagesData = $this->oauthService->exchangeCodeForPages($code, $state);
+
+            if ((int) $pagesData['user_id'] !== (int) auth()->id()) {
+                return redirect()->route('agent.portal')
+                    ->with('error', 'Meta OAuth session mismatch. Please try connecting again.');
+            }
+
+            if (count($pagesData['pages']) === 1) {
+                $this->oauthService->connectPage(
+                    auth()->id(),
+                    $pagesData['platform'],
+                    $pagesData['pages'][0]['id'],
+                    $pagesData['pages'],
+                );
+
+                return redirect()->route('agent.portal')
+                    ->with('success', 'Social account connected successfully.');
+            }
+
+            session([
+                'meta_oauth_platform' => $pagesData['platform'],
+                'meta_oauth_pages'    => $pagesData['pages'],
+            ]);
+
+            return redirect()->route('corex.social.oauth.choose-page');
         } catch (\Throwable $e) {
             Log::error('PropertyMarketingController::oauthCallback failed: ' . $e->getMessage());
-            return redirect()->route('corex.settings', ['tab' => 'user'])
+            return redirect()->route('agent.portal')
+                ->with('error', 'Connection failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Show the "which Page do you want to connect?" picker — only reached
+     * when the agent administers more than one Facebook Page.
+     */
+    public function oauthChoosePageForm()
+    {
+        $platform = session('meta_oauth_platform');
+        $pages    = session('meta_oauth_pages');
+
+        if (!$platform || !$pages) {
+            return redirect()->route('agent.portal')
+                ->with('error', 'Your Meta connection session expired. Please connect again.');
+        }
+
+        return view('marketing.social-choose-page', compact('platform', 'pages'));
+    }
+
+    /**
+     * Persist the Page the agent picked from oauthChoosePageForm().
+     */
+    public function oauthChoosePage(Request $request)
+    {
+        $pageId = $request->validate(['page_id' => 'required|string'])['page_id'];
+
+        $platform = session('meta_oauth_platform');
+        $pages    = session('meta_oauth_pages');
+
+        if (!$platform || !$pages) {
+            return redirect()->route('agent.portal')
+                ->with('error', 'Your Meta connection session expired. Please connect again.');
+        }
+
+        try {
+            $this->oauthService->connectPage(auth()->id(), $platform, $pageId, $pages);
+            session()->forget(['meta_oauth_platform', 'meta_oauth_pages']);
+
+            return redirect()->route('agent.portal')
+                ->with('success', 'Social account connected successfully.');
+        } catch (\Throwable $e) {
+            Log::error('PropertyMarketingController::oauthChoosePage failed: ' . $e->getMessage());
+            return redirect()->route('agent.portal')
                 ->with('error', 'Connection failed: ' . $e->getMessage());
         }
     }
