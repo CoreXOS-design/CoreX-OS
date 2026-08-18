@@ -1267,9 +1267,10 @@ class PdfSplitterController extends Controller
         $docSpine     = app(DealDocumentService::class);
 
         $slugs    = collect($groups)->pluck('label')->filter()->unique()->values();
-        $typeRows = DocumentType::query()->whereIn('slug', $slugs)->get(['id', 'slug', 'label']);
-        $typeMap    = $typeRows->pluck('id', 'slug')->toArray();
-        $typeLabels = $typeRows->pluck('label', 'slug')->toArray();
+        $typeRows = DocumentType::query()->whereIn('slug', $slugs)->get(['id', 'slug', 'label', 'grouping']);
+        $typeMap       = $typeRows->pluck('id', 'slug')->toArray();
+        $typeLabels    = $typeRows->pluck('label', 'slug')->toArray();
+        $typeGroupings = $typeRows->pluck('grouping', 'slug')->toArray();
 
         // Meaningful, collision-safe saved-document names for CLASSIFIED docs
         // ("{property} · {type label} · {date}"). Cached per document_type_id
@@ -1301,6 +1302,16 @@ class PdfSplitterController extends Controller
                 : ['property' => true, 'contact' => false];
             $typeId = $labelSlug ? ($typeMap[$labelSlug] ?? null) : null;
 
+            // Resolve the EXPLICIT per-page ticked contacts to [id => party_role].
+            // Only contacts actually attached to THIS property are honoured; the
+            // pivot role is the party truth (decision B). Anything else is dropped.
+            $contacts = [];
+            foreach ($g['contact_ids'] ?? [] as $cid) {
+                $contact = $attached->get($cid);
+                if (! $contact) continue;
+                $contacts[(int) $cid] = strtolower(trim((string) ($contact->pivot->role ?? ''))) ?: 'seller';
+            }
+
             // Classified doc (real type, not the 'other' catch-all) gets a
             // meaningful, collision-safe display name. Unclassified/'other'
             // pages keep the raw extracted filename — the name doesn't matter
@@ -1314,24 +1325,39 @@ class PdfSplitterController extends Controller
                         ->pluck('original_name')
                         ->all();
                 }
-                $displayName = $this->buildClassifiedDocumentName(
-                    $property,
-                    $typeLabels[$labelSlug] ?? $labelSlug,
-                    $existingNamesByType[$typeId]
-                );
+
+                // A CONTACT-type doc (document_types.grouping === 'contact':
+                // fica, ids, por, bank_statement, tax_clearance, company_
+                // registration, trust_deed) is named by the person, not the
+                // property — a contact who holds >1 property shouldn't get
+                // contact docs named by whichever property they were uploaded
+                // against. Deliberately keyed on grouping, NOT $dest['contact']
+                // — mandate/levy/rates are 'shared'/'property' grouping (still
+                // address-named) even though an agency may ALSO route a copy
+                // to the contact's file (save_to_contact=1); that routing
+                // choice doesn't make them person-documents. Falls back to
+                // property naming when there's genuinely no ticked contact.
+                $primaryContact = null;
+                if (! empty($contacts)) {
+                    $primaryContact = $attached->get(array_key_first($contacts));
+                }
+
+                $isContactType = ($typeGroupings[$labelSlug] ?? null) === 'contact';
+
+                $displayName = $isContactType && $primaryContact
+                    ? $this->buildContactDocumentName(
+                        $primaryContact,
+                        $typeLabels[$labelSlug] ?? $labelSlug,
+                        $existingNamesByType[$typeId]
+                    )
+                    : $this->buildClassifiedDocumentName(
+                        $property,
+                        $typeLabels[$labelSlug] ?? $labelSlug,
+                        $existingNamesByType[$typeId]
+                    );
                 $existingNamesByType[$typeId][] = $displayName;
             } else {
                 $displayName = $filename;
-            }
-
-            // Resolve the EXPLICIT per-page ticked contacts to [id => party_role].
-            // Only contacts actually attached to THIS property are honoured; the
-            // pivot role is the party truth (decision B). Anything else is dropped.
-            $contacts = [];
-            foreach ($g['contact_ids'] ?? [] as $cid) {
-                $contact = $attached->get($cid);
-                if (! $contact) continue;
-                $contacts[(int) $cid] = strtolower(trim((string) ($contact->pivot->role ?? ''))) ?: 'seller';
             }
 
             // ONE canonical create + attach + deal-step auto-complete.
@@ -1393,6 +1419,31 @@ class PdfSplitterController extends Controller
         }
 
         return $name;
+    }
+
+    /**
+     * Meaningful saved-document name for a CONTACT-filed classified split
+     * page (fica, id, por, ...): "{first name} {last name} · {document type
+     * label} · {YYYY-MM-DD}.pdf". Falls back to a "Contact #{id}" placeholder
+     * if both name fields are blank.
+     *
+     * Collision-safe the same way as buildClassifiedDocumentName(): because
+     * the contact's name is baked into $base, two contacts with the same doc
+     * type on the same day never collide with each other — only repeats for
+     * the SAME contact append " (2)", " (3)" ...
+     */
+    private function buildContactDocumentName(Contact $contact, string $typeLabel, array $existingNames): string
+    {
+        $name = trim((string) $contact->full_name) ?: "Contact #{$contact->id}";
+        $base = "{$name} · {$typeLabel} · " . now()->format('Y-m-d');
+
+        $taken = array_flip($existingNames);
+        $out   = "{$base}.pdf";
+        for ($n = 2; isset($taken[$out]); $n++) {
+            $out = "{$base} ({$n}).pdf";
+        }
+
+        return $out;
     }
 
     /**
