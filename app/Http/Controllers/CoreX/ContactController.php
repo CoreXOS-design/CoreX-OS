@@ -215,7 +215,13 @@ class ContactController extends Controller
                 ->whereIn('calendar_event_id', $buyerEventIds)->get()->groupBy('calendar_event_id');
             $agents = \App\Models\User::withoutGlobalScopes()
                 ->whereIn('id', $events->pluck('user_id')->unique()->filter())->pluck('name', 'id');
-            $outcomeLabels = \DB::table('agency_feedback_options')->where('category', 'outcome')->pluck('label', 'id');
+            // 2026-08-18 (Johan, AT-calendar-buttons §D) — unioned across BOTH
+            // vocabularies (outcome = buyer-facing, lp_outcome = seller-facing).
+            // agency_feedback_options.id is the primary key, globally unique across
+            // categories, so one id->label map safely resolves either vocabulary —
+            // fixes 2ee1159ad's actor_role split silently blanking this label
+            // whenever it wrote from the OTHER category than this hardcoded one.
+            $outcomeLabels = \DB::table('agency_feedback_options')->whereIn('category', ['outcome', 'lp_outcome'])->pluck('label', 'id');
 
             foreach ($propLinks as $pl) {
                 $ev = $events->get($pl->calendar_event_id);
@@ -229,7 +235,14 @@ class ContactController extends Controller
                     'event_date' => $ev->event_date,
                     'agent_name' => $agents->get($ev->user_id, 'Unknown'),
                     'feedback' => $fb ? [
-                        'outcome_label' => $outcomeLabels->get($fb->outcome_option_id),
+                        // per-property-mode captures (feedback_kind=listing_presentation)
+                        // never populate outcome_option_id — they store the outcome as a
+                        // label string in kind_specific_data.outcome instead. Fall back to
+                        // that so per-property feedback (now viewing's default too, §C)
+                        // still renders a label instead of going blank.
+                        'outcome_label' => $fb->outcome_option_id
+                            ? $outcomeLabels->get($fb->outcome_option_id)
+                            : (json_decode($fb->kind_specific_data ?? 'null', true)['outcome'] ?? null),
                         'seller_notes' => $fb->seller_visible_notes,
                         'internal_notes' => $fb->internal_notes,
                         'captured_at' => $fb->captured_at,
@@ -281,7 +294,9 @@ class ContactController extends Controller
                 $sFeedback = $sFeedbackQuery->get()->groupBy('calendar_event_id');
                 $sAgents = \App\Models\User::withoutGlobalScopes()
                     ->whereIn('id', $sEvents->pluck('user_id')->unique()->filter())->pluck('name', 'id');
-                $sOutcomes = \DB::table('agency_feedback_options')->where('category', 'outcome')->pluck('label', 'id');
+                // 2026-08-18 (Johan, AT-calendar-buttons §D) — see the matching buyer-
+                // perspective comment above: unioned across both vocabularies.
+                $sOutcomes = \DB::table('agency_feedback_options')->whereIn('category', ['outcome', 'lp_outcome'])->pluck('label', 'id');
 
                 $sPropLinks = \DB::table('calendar_event_links')
                     ->whereIn('calendar_event_id', $sellerEventIds)
@@ -301,7 +316,12 @@ class ContactController extends Controller
                         'agent_name' => $sAgents->get($sEv->user_id, 'Unknown'),
                         'buyer_label' => 'Interested Buyer',
                         'feedback' => $sFb ? [
-                            'outcome_label' => $sOutcomes->get($sFb->outcome_option_id),
+                            // See the buyer-perspective block above — per-property
+                            // captures store the outcome as a label string in
+                            // kind_specific_data.outcome, not outcome_option_id.
+                            'outcome_label' => $sFb->outcome_option_id
+                                ? $sOutcomes->get($sFb->outcome_option_id)
+                                : (json_decode($sFb->kind_specific_data ?? 'null', true)['outcome'] ?? null),
                             'seller_notes' => $sFb->seller_visible_notes,
                             'captured_at' => $sFb->captured_at,
                         ] : null,

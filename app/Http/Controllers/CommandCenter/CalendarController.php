@@ -812,21 +812,24 @@ class CalendarController extends Controller
             'actor_role' => $cfg?->actor_role ?? 'both',
             'completion_behaviour' => $cfg?->completion_behaviour ?? 'freeform',
             'is_draggable' => $isManual && !$calendarEvent->is_recurring,
-            // 2026-08-18 (Johan) — per-type action-bar gates. Neither existed before:
-            // the viewing-pack buttons (both the "linked pack" and "create pack"
-            // templates) had NO category check at all, so a meeting (or any event
-            // type) with is_editable=true showed "Create viewing pack" — confirmed
-            // live bug ("Fetch 1A Alan Street Keys"). Only 'viewing' events may ever
-            // have a real viewing pack.
+            // 2026-08-18 (Johan) — per-type action-bar gate for viewing-pack buttons.
+            // Only 'viewing' events may ever have a real viewing pack — this stays a
+            // class-slug check (not derived from a column) because Johan scoped the
+            // viewing-pack UI to "viewing class only" explicitly; see the audit at
+            // .ai/audits/2026-08-18-calendar-action-buttons-by-event-type.md §3/§4.
             'supports_viewing_pack' => in_array($calendarEvent->category, ['viewing', 'viewings'], true),
-            // Meeting/Other/Private/Task are event_nature=informational (is_actionable
-            // false), so the existing freeform "Complete" button — gated on
-            // is_actionable — never showed for them, even though Johan wants a plain
-            // Mark Complete for these 4 types specifically. This is a narrow,
-            // button-only override: it does NOT touch event_nature/is_actionable
-            // itself, so RAG colour / overdue / daily-digest behaviour for these
-            // classes is unchanged — only this one button's visibility.
-            'supports_plain_complete' => in_array($calendarEvent->category, ['meeting', 'other', 'private', 'task'], true),
+            // 2026-08-18 (Johan) — the Capture-Feedback / Mark-Complete choice is
+            // driven ENTIRELY by completion_behaviour now (see index.blade.php's
+            // footer action bar): require_feedback -> Capture Feedback, freeform ->
+            // Mark Complete. This derives from the calendar_event_class_settings
+            // column so a newly configured class gets the right button with zero
+            // code change — no hardcoded class-slug list. The former
+            // 'supports_plain_complete' hardcoded array (meeting/other/private/task)
+            // is gone: completion_behaviour === 'freeform' already covers exactly
+            // those 4 classes on today's data (verified in the audit above) and
+            // needs no OR against is_actionable, since meeting/other/private being
+            // event_nature=informational never made their completion_behaviour
+            // anything but freeform.
             // AT-111 — the viewing pack linked to THIS appointment (if any), for the
             // event panel's "Open pack" + download buttons. When none exists, the
             // launch URL lets the panel start one from this event (reverse link).
@@ -1226,7 +1229,23 @@ class CalendarController extends Controller
             ]);
         }
 
-        DB::transaction(function () use ($data, $calendarEvent, $user, $feedbackKind) {
+        // 2026-08-18 (Johan, AT-calendar-buttons §C) — per-property feedback
+        // (viewing / property_evaluation / listing_presentation, now all
+        // feedback_mode=per_property) is keyed by property, but Johan also
+        // requires it stay visible from the linked CONTACT ("an agent looks in
+        // both places"). Only the buyer-facing class (viewing) has a single
+        // contact whose feedback belongs on their Contact page (buyer-
+        // perspective query joins calendar_event_feedback.contact_id); the
+        // seller-facing classes (property_evaluation, listing_presentation)
+        // already surface via property ownership, not contact_id, so they keep
+        // contact_id=null exactly as before. visibility mirrors what per-contact
+        // viewing feedback always used (public_to_seller — the seller may see
+        // a buyer's feedback on their property); seller-facing captures stay
+        // internal_only, unchanged.
+        $cfg = CalendarEventClassSetting::forAgencyAndClass($calendarEvent->agency_id, $calendarEvent->category);
+        $isBuyerFacing = ($cfg?->actor_role ?? null) === 'buyer_action';
+
+        DB::transaction(function () use ($data, $calendarEvent, $user, $feedbackKind, $isBuyerFacing) {
             // Cross-agent feedback notification (Defect 3): collect the properties
             // whose feedback was actually created or changed in this capture, so a
             // no-op re-save (which only bumps captured_at) does NOT notify. Purely
@@ -1243,8 +1262,8 @@ class CalendarController extends Controller
                             'feedback_kind'     => 'listing_presentation',
                         ],
                         [
-                            'contact_id'         => null,
-                            'visibility'         => 'internal_only',
+                            'contact_id'         => $isBuyerFacing ? $this->eventBuyerContactId($calendarEvent) : null,
+                            'visibility'         => $isBuyerFacing ? 'public_to_seller' : 'internal_only',
                             'kind_specific_data' => $row['kind_specific_data'] ?? [],
                             'internal_notes'     => $row['internal_notes'] ?? null,
                             'next_action_notes'  => $row['next_action_notes'] ?? null,

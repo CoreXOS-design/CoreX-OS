@@ -2273,8 +2273,10 @@
             </div>
         </template>
 
-        {{-- Feedback CTA --}}
-        <template x-if="panelData.is_actionable && panelData.is_past && panelData.has_contacts">
+        {{-- Feedback CTA — 2026-08-18 (Johan): gated on completion_behaviour, not
+             is_actionable, so a freeform class (e.g. task, which is is_actionable=true
+             but freeform) never offers a feedback CTA it shouldn't have. --}}
+        <template x-if="panelData.completion_behaviour === 'require_feedback' && panelData.is_past && panelData.has_contacts">
             <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
                 <button type="button" @click="openFeedbackModal(panelData.id)"
                         class="text-xs font-medium transition-colors hover:underline" style="color: var(--brand-button); background: none; border: none; cursor: pointer;">
@@ -2285,8 +2287,30 @@
 
     </div>
 
-    {{-- Sticky footer action bar --}}
-    <div class="px-5 py-2.5 flex items-center gap-4 flex-shrink-0" style="border-top: 1px solid var(--border); background: var(--surface);">
+    {{-- Sticky footer action bar — 2026-08-18 (Johan) — the row can carry up to 7
+         controls (viewing + linked pack: Edit, Download Buyer Pack, Download Agent
+         Sheet, Regenerate, Capture Feedback, Dismiss, Delete). At the panel's
+         normal widths (resizable, and computed as ~27% of the content area —
+         narrows on smaller screens) that never fits on one line, so this uses
+         flex-wrap — the house pattern for crowded rows documented in
+         UI_DESIGN_SYSTEM.md §6.5/§6.6 and used by docuperfect/packs/index.blade.php's
+         card footer and the filter-bar in components/list-header.blade.php: a
+         control that doesn't fit starts a new line INSIDE the panel. There is no
+         edge to overflow past, at any width.
+         2026-08-18 (Johan, second pass) — an earlier version of this fix tucked
+         Download Buyer Pack / Download Agent Sheet / Regenerate behind a "⋮ More"
+         overflow menu. Reverted: Johan named Edit/Delete/Regenerate together as
+         all needed when a pack exists, and wants both pack downloads reachable
+         (not one canonical link standing in for both) — hiding any of them behind
+         a menu the agent has to discover is wrong here. Every control that
+         applies is a direct, always-visible sibling in this wrapping row; none
+         are grouped or collapsed. This also drops the old plain "Download viewing
+         pack" link (opened the pack's own page, not actually a download) as a
+         duplicate of the two real downloads below it.
+         Delete stays last, pushed right with ml-auto (same separation
+         docuperfect/packs/index.blade.php uses for its own Delete), so it is
+         never the easiest control to hit by accident. --}}
+    <div data-testid="event-panel-actionbar" class="px-5 py-2.5 flex flex-wrap items-center gap-2 flex-shrink-0" style="border-top: 1px solid var(--border); background: var(--surface);">
         <template x-if="panelData.is_editable">
             <button type="button" @click="editFromPanel()"
                     class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
@@ -2296,41 +2320,49 @@
             </button>
         </template>
 
-        {{-- AT-111 — Viewing pack ↔ appointment. Both buttons show together on a
-             viewing (Johan, 2026-08-18 revision): "Download viewing pack" appears
-             only once a pack exists for this event; "Create viewing pack" stays
-             available regardless, so an agent can start an ADDITIONAL pack (e.g.
-             a re-run after the property list changed) — not a create-vs-download
-             toggle. Both gated to supports_viewing_pack (viewing events only) —
-             was ungated, so ANY editable event (a meeting, a listing
-             presentation, …) offered "Create viewing pack". --}}
-        <template x-if="panelData.linked_viewing_pack && panelData.supports_viewing_pack">
-            <span class="inline-flex items-center gap-4">
-                <a :href="panelData.linked_viewing_pack.url"
-                   class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
-                   style="color: var(--text-primary); text-decoration:none;">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"/></svg>
-                    Download viewing pack
-                </a>
-                <template x-if="panelData.linked_viewing_pack.property_count > 0">
-                    <span class="inline-flex items-center gap-4">
-                        <a :href="panelData.linked_viewing_pack.buyer_pack_url"
-                           class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
-                           style="color: var(--brand-button); text-decoration:none;">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
-                            Download Buyer Pack
-                        </a>
-                        <a :href="panelData.linked_viewing_pack.agent_sheet_url"
-                           class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
-                           style="color: var(--text-secondary); text-decoration:none;">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
-                            Download Agent Sheet
-                        </a>
-                    </span>
-                </template>
-            </span>
+        {{-- AT-111 — Viewing pack ↔ appointment. Exactly one of two states: no
+             pack linked -> "Create viewing pack" only; a pack IS linked ->
+             Download Buyer Pack + Download Agent Sheet (each its own real PDF,
+             both always reachable — not one link standing in for both) +
+             Regenerate (never "Create" alongside a linked pack). Gated to
+             supports_viewing_pack (viewing events only) — was ungated, so ANY
+             editable event (a meeting, a listing presentation, …) offered
+             "Create viewing pack". --}}
+        <template x-if="panelData.linked_viewing_pack && panelData.supports_viewing_pack && panelData.linked_viewing_pack.property_count > 0">
+            <a :href="panelData.linked_viewing_pack.buyer_pack_url"
+               class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+               style="color: var(--brand-button); text-decoration:none;">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+                Download Buyer Pack
+            </a>
         </template>
-        <template x-if="panelData.is_editable && panelData.supports_viewing_pack">
+        <template x-if="panelData.linked_viewing_pack && panelData.supports_viewing_pack && panelData.linked_viewing_pack.property_count > 0">
+            <a :href="panelData.linked_viewing_pack.agent_sheet_url"
+               class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+               style="color: var(--text-secondary); text-decoration:none;">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+                Download Agent Sheet
+            </a>
+        </template>
+        {{-- 2026-08-18 (Johan) — rebuilds the linked pack from the event's CURRENT
+             property set (fixes the pack/event property-set drift the calendar-
+             buttons audit found, e.g. event #7047). Supersedes (soft-deletes) the
+             old direct-linked pack rather than mutating it in place — no hard
+             deletes, ever. Always offered whenever a pack is linked, regardless
+             of property_count (it's how a 0-property pack gets fixed). --}}
+        <template x-if="panelData.linked_viewing_pack && panelData.supports_viewing_pack">
+            <form :action="'/corex/command-center/calendar/' + panelData.id + '/viewing-pack/regenerate'" method="POST" class="inline">
+                @csrf
+                <button type="submit"
+                        class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                        style="color: var(--text-primary); background:none; border:none; cursor:pointer;"
+                        onclick="return confirm('Regenerate the viewing pack from this appointment\'s current properties? The existing pack will be archived, not deleted.');">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+                    Regenerate viewing pack
+                </button>
+            </form>
+        </template>
+        <template x-if="panelData.is_editable && panelData.supports_viewing_pack && !panelData.linked_viewing_pack">
             <form :action="panelData.viewing_pack_launch_url" method="POST" class="inline">
                 @csrf
                 <button type="submit"
@@ -2342,7 +2374,7 @@
             </form>
         </template>
 
-        <template x-if="panelData.is_actionable && panelData.completion_behaviour === 'require_feedback'">
+        <template x-if="panelData.completion_behaviour === 'require_feedback'">
             <button type="button" @click="openFeedbackModal(panelData.id)"
                     class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
                     style="color: #00d4aa; background: none; border: none; cursor: pointer;">
@@ -2358,13 +2390,14 @@
                 Complete with Reason
             </button>
         </template>
-        {{-- 2026-08-18 (Johan) — supports_plain_complete (meeting/other/private/task)
-             is a deliberate OR alongside is_actionable, not a replacement: those 4
-             classes are event_nature=informational (is_actionable false) by design —
-             this button-only override doesn't change that, it only lets THIS button
-             show for them too. Every other freeform+actionable class (property_showday,
-             manual, …) keeps working exactly as before via the is_actionable side. --}}
-        <template x-if="(panelData.is_actionable || panelData.supports_plain_complete) && (!panelData.completion_behaviour || panelData.completion_behaviour === 'freeform')">
+        {{-- 2026-08-18 (Johan) — derived purely from completion_behaviour (no
+             hardcoded class-slug list): freeform -> Mark Complete, require_feedback
+             -> Capture Feedback above, require_reason -> Complete with Reason above.
+             meeting/other/private/task all read freeform from
+             calendar_event_class_settings, so this covers them without needing an
+             is_actionable OR — a newly configured freeform class gets this button
+             automatically, with zero code change. --}}
+        <template x-if="panelData.completion_behaviour === 'freeform'">
             {{-- AT-335 — a recurring event needs a this/all scope decision first;
                  intercept the native submit and hand off to the scope modal instead. --}}
             <form :action="'/corex/command-center/calendar/' + panelData.id + '/complete'" method="POST"
@@ -2392,10 +2425,13 @@
         </template>
         {{-- Delete — on EVERY editable panel (incl. private/informational events that
              have no Complete/Dismiss). Soft-delete, audited. Recurring events branch
-             into the this/future/all scope modal; one-offs get a simple confirm. --}}
+             into the this/future/all scope modal; one-offs get a simple confirm.
+             ml-auto pushes it to the far right, separated from every other control —
+             same separation docuperfect/packs/index.blade.php uses for its own
+             Delete — so it is never the easiest thing in the row to hit by accident. --}}
         <template x-if="panelData.is_editable">
             <button type="button" @click="deleteEvent()"
-                    class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                    class="ml-auto text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
                     style="color: #ef4444; background: none; border: none; cursor: pointer;">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/></svg>
                 <span x-text="panelData.is_recurring ? 'Delete…' : 'Delete'"></span>
