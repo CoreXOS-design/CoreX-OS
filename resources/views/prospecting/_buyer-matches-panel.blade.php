@@ -32,19 +32,28 @@
         @if(!empty($companyStockPropertyId))
             <a href="{{ route('corex.properties.show', $companyStockPropertyId) }}" target="_blank"
                class="inline-block text-[10px] font-semibold mt-2 px-1.5 py-0.5 rounded no-underline"
-               style="background: var(--brand-default); color: #fff;">
+               style="background: var(--brand-default, #0b2a4a); color: #fff;">
                 IN STOCK · view property ↗
             </a>
         @endif
     </div>
 
     @php
+        // DESIGN SYSTEM COMPLIANCE — same token-based action-pill convention as
+        // this popup's siblings (_slideover-header.blade.php's $actionSecondary /
+        // $actionDisabled). Neutral surface treatment for every action here
+        // (Call/WhatsApp/View contact alike) — never a brand-colored or raw-hex
+        // WhatsApp-green pill, which doesn't adapt between light/dark theme.
+        $actionPill = 'display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 4px; font-size: 0.625rem; font-weight: 600; text-decoration: none; white-space: nowrap;';
+        $actionPillNeutral = $actionPill . 'background: var(--surface); color: var(--text-primary); border: 1px solid var(--border);';
+        $actionPillDisabled = $actionPill . 'background: var(--surface); color: var(--text-muted); border: 1px dashed var(--border); cursor: not-allowed;';
+
         $byTier = $buyers->groupBy('tier');
         $tierOrder = ['strong', 'mid', 'weak'];
         $tierMeta = [
-            'strong' => ['icon' => '🟢', 'label' => $tierConfig['strong_label'] ?? 'Strong', 'color' => 'var(--ds-green, #10b981)'],
-            'mid'    => ['icon' => '🟡', 'label' => $tierConfig['mid_label']    ?? 'Mid',    'color' => 'var(--ds-amber, #f59e0b)'],
-            'weak'   => ['icon' => '⚪', 'label' => $tierConfig['weak_label']   ?? 'Weak',   'color' => 'var(--text-muted)'],
+            'strong' => ['label' => $tierConfig['strong_label'] ?? 'Strong', 'color' => 'var(--ds-green, #10b981)'],
+            'mid'    => ['label' => $tierConfig['mid_label']    ?? 'Mid',    'color' => 'var(--ds-amber, #f59e0b)'],
+            'weak'   => ['label' => $tierConfig['weak_label']   ?? 'Weak',   'color' => 'var(--text-muted)'],
         ];
         $anyShown = false;
     @endphp
@@ -54,7 +63,7 @@
             @php $anyShown = true; @endphp
             <div class="mb-5">
                 <div class="text-[10px] uppercase tracking-wider font-semibold mb-2" style="color: {{ $tierMeta[$tierKey]['color'] }};">
-                    {{ $tierMeta[$tierKey]['icon'] }} {{ $tierMeta[$tierKey]['label'] }} — {{ $byTier->get($tierKey)->count() }}
+                    {{ $tierMeta[$tierKey]['label'] }} — {{ $byTier->get($tierKey)->count() }}
                 </div>
 
                 <div class="space-y-2">
@@ -87,10 +96,10 @@
                             </div>
 
                             <div class="text-xs space-y-0.5" style="color: var(--text-secondary);">
-                                @if($buyer->phone) <div>📞 {{ $buyer->phone }}</div> @endif
-                                @if($buyer->email) <div class="truncate">✉️ {{ $buyer->email }}</div> @endif
+                                @if($buyer->phone) <div>{{ $buyer->phone }}</div> @endif
+                                @if($buyer->email) <div class="truncate">{{ $buyer->email }}</div> @endif
                                 @if($buyer->messaging_opt_out_at)
-                                    <div style="color: var(--ds-crimson, #dc2626);">⚠ Opted out of messaging</div>
+                                    <div style="color: var(--ds-crimson, #dc2626);">Opted out of messaging</div>
                                 @endif
 
                                 @if($buyer->wishlist_id)
@@ -113,29 +122,24 @@
 
                             <div class="mt-2 flex items-center gap-1 flex-wrap">
                                 <a href="/corex/contacts/{{ $buyer->contact_id }}" target="_blank"
-                                   class="text-[10px] font-medium px-2 py-1 rounded no-underline"
-                                   style="background: var(--surface); color: var(--text-primary); border: 1px solid var(--border);">
+                                   style="{{ $actionPillNeutral }}">
                                     View contact ↗
                                 </a>
                                 @if($buyer->phone)
-                                    <a href="tel:{{ $buyer->phone }}"
-                                       class="text-[10px] font-medium px-2 py-1 rounded no-underline"
-                                       style="background: var(--brand-button); color: #fff;">
-                                        📞 Call
+                                    <a href="tel:{{ $buyer->phone }}" style="{{ $actionPillNeutral }}">
+                                        Call
                                     </a>
                                 @endif
                                 @if($waPhone)
                                     @if($outreachWindow['allowed'] ?? true)
                                     <a href="https://wa.me/{{ $waPhone }}" target="_blank" rel="noopener"
-                                       class="text-[10px] font-medium px-2 py-1 rounded no-underline"
-                                       style="background: #25D366; color: #fff;">
-                                        💬 WhatsApp
+                                       style="{{ $actionPillNeutral }}">
+                                        WhatsApp
                                     </a>
                                     @else
                                     {{-- AT-117 §4a — outside the outreach send-window. --}}
-                                    <span class="text-[10px] font-medium px-2 py-1 rounded"
-                                          style="background: #9ca3af; color: #fff; cursor: not-allowed;"
-                                          title="{{ $outreachWindow['message'] ?? '' }}">💬 Closed</span>
+                                    <span style="{{ $actionPillDisabled }}"
+                                          title="{{ $outreachWindow['message'] ?? '' }}">WhatsApp closed</span>
                                     @endif
                                 @endif
                             </div>
