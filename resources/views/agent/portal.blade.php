@@ -1527,18 +1527,21 @@
         }
 
         FB.login(function (response) {
-            if (response.authResponse && response.authResponse.code) {
+            // Default response_type ('token') hands back a ready-to-use user
+            // access token directly — avoids the /oauth/access_token code
+            // exchange entirely, which rejects codes minted by FB.login()
+            // because they're tied to an internal xd_arbiter redirect_uri
+            // our server can't reproduce.
+            if (response.authResponse && response.authResponse.accessToken) {
                 window.location.href = '{{ route('corex.social.oauth.callback') }}'
                     + '?flow=js'
-                    + '&code=' + encodeURIComponent(response.authResponse.code)
+                    + '&access_token=' + encodeURIComponent(response.authResponse.accessToken)
                     + '&state=' + encodeURIComponent(state);
             } else {
                 window.location.href = '{{ route('agent.portal') }}?tab=user';
             }
         }, {
             config_id: configId,
-            response_type: 'code',
-            override_default_response_type: true,
             auth_type: 'rerequest',
         });
     }

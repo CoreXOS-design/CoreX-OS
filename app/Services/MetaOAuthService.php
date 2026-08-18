@@ -87,14 +87,6 @@ class MetaOAuthService
      */
     public function exchangeCodeForPages(string $code, string $state, ?string $redirectUri = null): array
     {
-        $decoded  = json_decode(base64_decode($state), true);
-        $userId   = (int) ($decoded['user_id'] ?? 0);
-        $platform = (string) ($decoded['platform'] ?? 'facebook');
-
-        if ($userId <= 0) {
-            throw new \RuntimeException('Invalid OAuth state: missing user_id.');
-        }
-
         $redirectUri ??= config('services.meta.redirect_uri');
 
         // Exchange code for short-lived token
@@ -112,6 +104,28 @@ class MetaOAuthService
 
         if (!$shortToken) {
             throw new \RuntimeException('Meta OAuth: no access_token in response.');
+        }
+
+        return $this->exchangeAccessTokenForPages($shortToken, $state);
+    }
+
+    /**
+     * Same end result as exchangeCodeForPages(), starting from a short-lived
+     * USER access token instead of an authorization code. This is what the
+     * Facebook JS SDK's FB.login() hands back directly — a code minted by
+     * FB.login() ties to an internal xd_arbiter redirect_uri we cannot
+     * reliably reproduce server-side, so the JS connect flow requests a
+     * token instead of a code and skips the /oauth/access_token code
+     * exchange entirely.
+     */
+    public function exchangeAccessTokenForPages(string $shortToken, string $state): array
+    {
+        $decoded  = json_decode(base64_decode($state), true);
+        $userId   = (int) ($decoded['user_id'] ?? 0);
+        $platform = (string) ($decoded['platform'] ?? 'facebook');
+
+        if ($userId <= 0) {
+            throw new \RuntimeException('Invalid OAuth state: missing user_id.');
         }
 
         // Exchange for long-lived 60-day token
