@@ -381,11 +381,18 @@
                         if (!commId) return;
                         if (!didSend) return; // No — the row was born not_delivered; nothing counts, nothing to do.
                         // Yes, I sent it — the ONLY path a WhatsApp send reaches sent (+1 the counter).
+                        // keepalive: true — outreach's "sent" confirmation page (same shared modal
+                        // contract) shows "Back to contact" the instant this fires, before the fetch
+                        // resolves; without keepalive the browser cancels the in-flight request on
+                        // that navigation, leaving the mirrored Communication stuck not_delivered
+                        // forever while SellerOutreachSend.outcome already reads 'sent' — the exact
+                        // outreach-says-sent / info-panel-never-updates disconnect.
                         try {
                             const res = await fetch('{{ url('corex/contacts/'.$contact->id.'/communications') }}/' + commId + '/mark-sent', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'X-Requested-With': 'XMLHttpRequest' },
-                                body: '{}'
+                                body: '{}',
+                                keepalive: true
                             });
                             const d = await res.json();
                             if (d && typeof d.count === 'number') this.waCount = d.count;
