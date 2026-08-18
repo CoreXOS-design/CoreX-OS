@@ -284,16 +284,62 @@ final class DeedsCaptureController extends Controller
         // string, so every promote-side use of section_number below is
         // gated on $hasRealSection, never raw truthiness.
         $hasRealSection = filled($trackedProperty->section_number) && preg_match('/\d/', (string) $trackedProperty->section_number);
-        $isSectional = filled($trackedProperty->complex_name)
+        $hasSectionalSignal = filled($trackedProperty->complex_name)
             || filled($trackedProperty->scheme_name)
             || filled($trackedProperty->scheme_number)
             || $hasRealSection;
+        $isSectional = $hasSectionalSignal; // kept as the existing name for the address/unit_number logic below
 
-        $displayAddress = implode(', ', array_filter([
-            $trackedProperty->complex_name,
-            $hasRealSection ? ('Section ' . $trackedProperty->section_number) : null,
-            $trackedProperty->suburb,
-        ])) ?: $trackedProperty->displayAddress();
+        // property_type fix (2026-08-19, mapping-proof audit) — CONFIRMED
+        // live on real captures (TrackedProperty 11563/9636/9641): the old
+        // `$isSectional ? 'Apartment / Flat' : 'House'` binary ALWAYS picked
+        // one, even when $hasSectionalSignal was false ONLY because the
+        // extension's pre-v3.5.0 stale-residue bug had wiped a genuinely
+        // sectional capture's own scheme_name/scheme_number/section_number —
+        // TP 11563 (Uvongo Breeze, a real sectional unit) would have promoted
+        // as 'House'. A second, independent freehold signal (erf_number) is
+        // now required to confidently call it a freehold — and when NEITHER
+        // signal is present, or (a page-state anomaly) BOTH are, this no
+        // longer guesses: property_type is left as '' (the property edit
+        // form's own established "Choose a type…" sentinel — see
+        // resources/views/corex/properties/wizard.blade.php:173), which
+        // TitleTypeClassifier::fromPropertyType() already handles cleanly
+        // (returns null, no crash — verified by reading that class). Per
+        // Johan: "a blank an agent can correct, a confidently wrong type
+        // they will never notice."
+        $hasFreeholdSignal = filled($trackedProperty->erf_number);
+        $propertyType = match (true) {
+            $hasSectionalSignal && !$hasFreeholdSignal => 'Apartment / Flat',
+            $hasFreeholdSignal && !$hasSectionalSignal => 'House',
+            default => '', // neither signal, or both (contradictory) — do not guess
+        };
+
+        // Title/display-address fix (2026-08-19, mapping-proof audit) —
+        // spec §6.3. CONFIRMED live: the old version only ever combined
+        // complex_name + "Section N" + suburb, so a FREEHOLD (no
+        // complex_name, no section) always collapsed to JUST the suburb
+        // ("BEACON ROCKS" for 39 Bairn Street) — the street address was
+        // silently dropped on EVERY freehold deeds-capture promotion, and
+        // the `?: $trackedProperty->displayAddress()` fallback the old
+        // comment relied on never actually fired, because `suburb` alone
+        // already made the array_filter()'d string truthy. Rebuilt to match
+        // Johan's exact §6.3 formats: freehold "Erf {n}, {street}, {suburb}",
+        // sectional "Section {n}, {scheme}, {street}, {suburb}" — both now
+        // always include the street line when present.
+        $streetLine = trim(($trackedProperty->street_number ?? '') . ' ' . ($trackedProperty->street_name ?? ''));
+        $displayAddress = $isSectional
+            ? implode(', ', array_filter([
+                $hasRealSection ? ('Section ' . $trackedProperty->section_number) : null,
+                $trackedProperty->complex_name,
+                $streetLine ?: null,
+                $trackedProperty->suburb,
+            ]))
+            : implode(', ', array_filter([
+                filled($trackedProperty->erf_number) ? ('Erf ' . $trackedProperty->erf_number) : null,
+                $streetLine ?: null,
+                $trackedProperty->suburb,
+            ]));
+        $displayAddress = $displayAddress ?: $trackedProperty->displayAddress();
 
         // Suburb → town resolution (2026-08-18) — a deeds capture's raw `town`
         // is the district MUNICIPALITY (e.g. "Ray Nkonyeni"), not the actual
@@ -307,12 +353,30 @@ final class DeedsCaptureController extends Controller
         $p24Suburb = $trackedProperty->suburb ? P24Suburb::lookup($trackedProperty->suburb) : null;
         $p24City = $p24Suburb?->city;
 
+        // Extent fix (2026-08-19, mapping-proof audit) — spec §6.4, binding.
+        // CONFIRMED live (TrackedProperty 9635, a real sectional unit): the
+        // old `'erf_size_m2' => $trackedProperty->cadastral_extent` wrote 70
+        // (THE SECTION'S OWN size) into the property's ERF-size column.
+        // `cadastral_extent` is NOT an erf size for either title type — it
+        // holds a FREEHOLD's own "Cadastral extent" OR a SECTIONAL unit's own
+        // "Section extent" (type-dependent single storage slot; see
+        // buildDeedsCapturePayload() on the extension side and
+        // .ai/specs/deeds-capture.md §6.4's "never merge into one size field"
+        // rule) — writing it into erf_size_m2 is exactly the cross-type
+        // substitution the spec forbids, for BOTH types. There is no captured
+        // field for a freehold's true "Extent" (erf size) yet — §2's payload
+        // contract has no slot for it — so erf_size_m2 is deliberately left
+        // UNSET below (absent is absent, never substituted) until that lands.
+        // size_m2 (the correct sectional unit-size field, per §6.4) now gets
+        // the sectional's own extent from that same slot — it was previously
+        // wired ONLY to floor_size_m2, a column deeds-capture never
+        // populates, so size_m2 was ALWAYS null for every sectional
+        // promotion regardless of how good the capture was.
         $overrides = array_filter([
             'title_deed_number' => $trackedProperty->title_deed_number,
             'title'             => $displayAddress,
             'complex_name'      => $trackedProperty->complex_name,   // = CMA scheme name
-            'erf_size_m2'       => $trackedProperty->cadastral_extent,
-            'size_m2'           => $trackedProperty->floor_size_m2,  // unit/floor size — was never mapped
+            'size_m2'           => $isSectional ? $trackedProperty->cadastral_extent : $trackedProperty->floor_size_m2,
             'town'              => $p24City?->name ?? $trackedProperty->town,
             'city'              => $p24City?->name,
             'p24_suburb_id'     => $p24Suburb?->id,
@@ -325,7 +389,7 @@ final class DeedsCaptureController extends Controller
         // these overrides exist to strip. array_filter above would drop a
         // null/false value and let that fallthrough happen.
         $overrides['unit_number']         = $hasRealSection ? $trackedProperty->section_number : null; // = CMA section number, garbage-guarded
-        $overrides['property_type']       = $isSectional ? 'Apartment / Flat' : 'House'; // derived from structural signal — raw captured value is only ever '-' or 'Residence', never a real type
+        $overrides['property_type']       = $propertyType;
         $overrides['p24_suburb_mismatch'] = $p24City === null;
 
         // No "asking price" concept on a deeds capture — Johan (2026-08-18):
