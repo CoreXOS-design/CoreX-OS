@@ -1240,6 +1240,13 @@ class MarketIntelligenceController extends Controller
                 $q->whereNull('capture_kind')->orWhere('capture_kind', '<>', 'deeds_capture');
             });
 
+        // MIC property row comments (.ai/specs/mic-property-row-comments.md) —
+        // fast-follow onto Opportunities. Same batched-count mechanism this
+        // method already uses for listing_count/strong_match_count (one
+        // query for the whole page — zero N+1); comments_count just rides
+        // along on the existing withCount() chain.
+        $canViewComments = (bool) ($user?->hasPermission('mic.comments.view') ?? false);
+
         $query = (clone $base)
             ->with(['primaryAddress', 'externalRefs'])
             ->withCount(['prospectingListings as listing_count'])
@@ -1247,7 +1254,8 @@ class MarketIntelligenceController extends Controller
                 'prospectingListings as strong_match_count' => function ($q) {
                     $q->whereHas('buyerMatches', fn ($qb) => $qb->where('score', '>=', 80));
                 },
-            ]);
+            ])
+            ->when($canViewComments, fn ($q) => $q->withCount('comments as comments_count'));
 
         // Filter chip — primary filter from §5.4.3.
         match ($filter) {
@@ -1350,6 +1358,7 @@ class MarketIntelligenceController extends Controller
             'activeSource'   => $sourceParam,
             'activeStatus'   => $statusParam,
             'activeSearch'   => $search,
+            'canViewComments' => $canViewComments,
         ]);
     }
 
