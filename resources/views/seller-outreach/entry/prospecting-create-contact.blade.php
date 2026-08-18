@@ -406,8 +406,8 @@
                                 <template x-if="owner.dead_end"><span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-primary);">⚠ Dead end · <span x-text="owner.dead_end && owner.dead_end.label"></span></span></template>
                             </div>
                             <div class="text-xs mt-0.5" style="color: var(--text-muted);">
-                                <template x-if="owner.is_entity"><span><span x-show="owner.entity_reg_no">Reg: <span class="font-mono" x-text="owner.entity_reg_no"></span></span><span x-show="!owner.entity_reg_no" class="italic">Company / entity owner</span></span></template>
-                                <template x-if="!owner.is_entity && owner.id_number"><span>ID: <span class="font-mono" x-text="owner.id_number"></span></span></template>
+                                <template x-if="owner.is_entity"><span><span x-show="owner.entity_reg_no">Reg: <span class="font-mono" x-text="owner.entity_reg_no"></span> @include('corex._partials.copy-id-btn', ['value' => 'owner.entity_reg_no', 'label' => 'Copy reg'])</span><span x-show="!owner.entity_reg_no" class="italic">Company / entity owner</span></span></template>
+                                <template x-if="!owner.is_entity && owner.id_number"><span>ID: <span class="font-mono" x-text="owner.id_number"></span> @include('corex._partials.copy-id-btn', ['value' => 'owner.id_number', 'label' => 'Copy ID'])</span></template>
                                 <template x-if="!owner.is_entity && !owner.id_number"><span class="italic">No ID on the deed record</span></template>
                             </div>
                         </div>
@@ -456,8 +456,8 @@
                                                 <template x-if="owner.dead_end"><span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-primary);">⚠ Dead end · <span x-text="owner.dead_end && owner.dead_end.label"></span></span></template>
                                     </div>
                                     <div class="text-xs mt-0.5" style="color: var(--text-muted);">
-                                        <template x-if="owner.is_entity"><span><span x-show="owner.entity_reg_no">Reg: <span class="font-mono" x-text="owner.entity_reg_no"></span></span><span x-show="!owner.entity_reg_no" class="italic">Company / entity owner</span></span></template>
-                                        <template x-if="!owner.is_entity && owner.id_number"><span>ID: <span class="font-mono" x-text="owner.id_number"></span></span></template>
+                                        <template x-if="owner.is_entity"><span><span x-show="owner.entity_reg_no">Reg: <span class="font-mono" x-text="owner.entity_reg_no"></span> @include('corex._partials.copy-id-btn', ['value' => 'owner.entity_reg_no', 'label' => 'Copy reg'])</span><span x-show="!owner.entity_reg_no" class="italic">Company / entity owner</span></span></template>
+                                        <template x-if="!owner.is_entity && owner.id_number"><span>ID: <span class="font-mono" x-text="owner.id_number"></span> @include('corex._partials.copy-id-btn', ['value' => 'owner.id_number', 'label' => 'Copy ID'])</span></template>
                                         <template x-if="!owner.is_entity && !owner.id_number"><span class="italic">No ID on the deed record</span></template>
                                     </div>
                                 </div>
@@ -508,11 +508,11 @@
                                     <template x-if="s.dead_end"><span class="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-primary);">⚠ Dead end · <span x-text="s.dead_end && s.dead_end.label"></span></span></template>
                                 </div>
                                 <div class="text-xs mt-0.5" style="color: var(--text-muted);">
-                                    <template x-if="!s.is_entity && s.id_number"><span>ID: <span class="font-mono" x-text="s.id_number"></span></span></template>
+                                    <template x-if="!s.is_entity && s.id_number"><span>ID: <span class="font-mono" x-text="s.id_number"></span> @include('corex._partials.copy-id-btn', ['value' => 's.id_number', 'label' => 'Copy ID'])</span></template>
                                     {{-- Entity seller: reg number + the representative directors (cc6's link) who are the contactable people. --}}
                                     <template x-if="s.is_entity">
                                         <span>
-                                            <span x-show="s.entity_reg_no">Reg: <span class="font-mono" x-text="s.entity_reg_no"></span><span x-show="s.representatives && s.representatives.length"> · </span></span>
+                                            <span x-show="s.entity_reg_no">Reg: <span class="font-mono" x-text="s.entity_reg_no"></span> @include('corex._partials.copy-id-btn', ['value' => 's.entity_reg_no', 'label' => 'Copy reg'])<span x-show="s.representatives && s.representatives.length"> · </span></span>
                                             <span x-show="s.representatives && s.representatives.length">Represented by <span x-text="(s.representatives || []).map(r => r.name).join(', ')"></span></span>
                                             <span x-show="!s.representatives || !s.representatives.length" class="italic">Directors link separately from the deed rows above</span>
                                         </span>
