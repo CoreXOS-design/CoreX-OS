@@ -1247,7 +1247,9 @@ class PdfSplitterController extends Controller
             throw new \RuntimeException('extractPageSet called with no pages.');
         }
 
-        $proc = new Process([self::qpdfPath(), $origAbsNorm, '--pages', $origAbsNorm, $spec, '--', $outAbsNorm]);
+        // See qpdfPageCount() — same warnings-vs-errors tolerance is needed on
+        // the extract path so a warned-but-readable original can still split.
+        $proc = new Process([self::qpdfPath(), '--warning-exit-0', $origAbsNorm, '--pages', $origAbsNorm, $spec, '--', $outAbsNorm]);
         $proc->setTimeout(120);
         $proc->run();
 
@@ -1291,6 +1293,7 @@ class PdfSplitterController extends Controller
         $slugs   = collect($groups)->pluck('label')->filter()->unique()->values();
         $typeMap = DocumentType::query()->whereIn('slug', $slugs)->pluck('id', 'slug')->toArray();
         $typeLabelMap = DocumentType::query()->whereIn('slug', $slugs)->pluck('label', 'slug')->toArray();
+        $typeGroupingMap = DocumentType::query()->whereIn('slug', $slugs)->pluck('grouping', 'slug')->toArray();
 
         // Property filing convention (Johan 2026-08-18): a pack filed AGAINST a
         // property names each split "{address} · {doc type} · {YYYY-MM-DD}" so
@@ -1313,13 +1316,57 @@ class PdfSplitterController extends Controller
 
             $labelSlug = $g['label'];
 
-            // Self-describing name from property + doc type + date, deduped so a
-            // repeat (same property, same type, same day) never overwrites.
+            $dest = $labelSlug
+                ? $destinations->destinationForSlug($agencyId, $labelSlug)
+                : ['property' => true, 'contact' => false];
+
+            // Resolve the EXPLICIT per-page ticked contacts to [id => party_role].
+            // Only contacts actually attached to THIS property are honoured; the
+            // pivot role is the party truth (decision B). Anything else is dropped.
+            // Moved ahead of naming (was after $dest below) so the CONTACT-type
+            // naming branch immediately below can see who's ticked.
+            $contacts = [];
+            foreach ($g['contact_ids'] ?? [] as $cid) {
+                $contact = $attached->get($cid);
+                if (! $contact) continue;
+                $contacts[(int) $cid] = strtolower(trim((string) ($contact->pivot->role ?? ''))) ?: 'seller';
+            }
+
+            // Self-describing name from property/contact + doc type + date,
+            // deduped so a repeat (same subject, same type, same day) never
+            // overwrites.
+            //
+            // CONTACT-type doc types (document_types.grouping === 'contact':
+            // fica, ids, por, bank_statement, tax_clearance, company_
+            // registration, trust_deed) are named by the person, not the
+            // property — a contact who holds >1 property shouldn't get contact
+            // docs named by whichever property they were uploaded against.
+            // Everything else (mandate, levy statement, rates & taxes, ... —
+            // 'shared'/'property' grouping) keeps the existing address-based
+            // naming above UNCHANGED, even when an agency also routes a copy
+            // to the contact's file — that routing choice doesn't make it a
+            // person-document. Falls back to address naming when there's
+            // genuinely no ticked contact to name it after.
             $docLabel = $typeLabelMap[$labelSlug] ?? Str::headline((string) $labelSlug);
-            $baseName = $addressLabel . ' · ' . $docLabel . ' · ' . $fileDate;
+
+            $primaryContact = null;
+            if (! empty($contacts)) {
+                $primaryContact = $attached->get(array_key_first($contacts));
+            }
+            $isContactType = ($typeGroupingMap[$labelSlug] ?? null) === 'contact';
+
+            if ($isContactType && $primaryContact) {
+                $subjectLabel = trim((string) $primaryContact->full_name) ?: ('Contact #' . $primaryContact->id);
+                $nameAlreadyFiled = fn (string $name) => $this->contactDocNameExists($primaryContact->id, $name);
+            } else {
+                $subjectLabel = $addressLabel;
+                $nameAlreadyFiled = fn (string $name) => $this->propertyDocNameExists($property->id, $name);
+            }
+
+            $baseName = $subjectLabel . ' · ' . $docLabel . ' · ' . $fileDate;
             $n = 1;
             $filename = $baseName . '.pdf';
-            while (in_array($filename, $usedNames, true) || $this->propertyDocNameExists($property->id, $filename)) {
+            while (in_array($filename, $usedNames, true) || $nameAlreadyFiled($filename)) {
                 $n++;
                 $filename = $baseName . ' (' . $n . ').pdf';
             }
@@ -1331,20 +1378,6 @@ class PdfSplitterController extends Controller
             if (! $stream) continue;
             $publicDisk->put($relPath, $stream);
             if (is_resource($stream)) { @fclose($stream); }
-
-            $dest = $labelSlug
-                ? $destinations->destinationForSlug($agencyId, $labelSlug)
-                : ['property' => true, 'contact' => false];
-
-            // Resolve the EXPLICIT per-page ticked contacts to [id => party_role].
-            // Only contacts actually attached to THIS property are honoured; the
-            // pivot role is the party truth (decision B). Anything else is dropped.
-            $contacts = [];
-            foreach ($g['contact_ids'] ?? [] as $cid) {
-                $contact = $attached->get($cid);
-                if (! $contact) continue;
-                $contacts[(int) $cid] = strtolower(trim((string) ($contact->pivot->role ?? ''))) ?: 'seller';
-            }
 
             // ONE canonical create + attach + deal-step auto-complete.
             $filed = $docSpine->fileClassifiedDocument(
@@ -1406,6 +1439,20 @@ class PdfSplitterController extends Controller
         return \App\Models\Document::query()
             ->where('original_name', $name)
             ->whereHas('properties', fn ($q) => $q->where('properties.id', $propertyId))
+            ->exists();
+    }
+
+    /**
+     * True when a Document with this display name is already filed to the
+     * contact — used to append a "(2)" suffix so a same-contact/type/same-day
+     * split never overwrites an existing filing. Contact-naming counterpart
+     * to propertyDocNameExists() above.
+     */
+    private function contactDocNameExists(int $contactId, string $name): bool
+    {
+        return \App\Models\Document::query()
+            ->where('original_name', $name)
+            ->whereHas('contacts', fn ($q) => $q->where('contacts.id', $contactId))
             ->exists();
     }
 
@@ -1511,7 +1558,14 @@ class PdfSplitterController extends Controller
 
     private function qpdfPageCount(string $pdfAbsNorm): array
     {
-        $proc = new Process([self::qpdfPath(), '--show-npages', $pdfAbsNorm]);
+        // --warning-exit-0: some real-world exports (e.g. viewing-pack PDFs)
+        // trip qpdf's "reported number of objects is not one plus the highest
+        // object number" xref-table quirk — qpdf still reads the file fine and
+        // reports a correct page count, it just exits 3 ("success with
+        // warnings") instead of 0. Without this flag Process::isSuccessful()
+        // treats that as a hard failure and the file gets skipped as if
+        // corrupt. Genuine corruption still exits 2 and is unaffected.
+        $proc = new Process([self::qpdfPath(), '--warning-exit-0', '--show-npages', $pdfAbsNorm]);
         $proc->setTimeout(120);
         $proc->run();
 
@@ -1530,7 +1584,9 @@ class PdfSplitterController extends Controller
     private function qpdfExtractRange(string $pdfAbsNorm, int $from, int $to, string $outAbsNorm): void
     {
         $range = $from === $to ? (string)$from : ($from . '-' . $to);
-        $proc  = new Process([self::qpdfPath(), $pdfAbsNorm, '--pages', $pdfAbsNorm, $range, '--', $outAbsNorm]);
+        // See qpdfPageCount() — same warnings-vs-errors tolerance is needed on
+        // the extract path so a warned-but-readable original can still split.
+        $proc  = new Process([self::qpdfPath(), '--warning-exit-0', $pdfAbsNorm, '--pages', $pdfAbsNorm, $range, '--', $outAbsNorm]);
         $proc->setTimeout(120);
         $proc->run();
 
