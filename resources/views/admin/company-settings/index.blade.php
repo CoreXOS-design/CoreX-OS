@@ -618,6 +618,11 @@
 
                 <form method="POST" action="{{ route('admin.branches.store') }}" class="flex flex-wrap gap-3 items-end">
                     @csrf
+                    <input type="hidden" name="from_company_settings" value="{{ $agency->id }}">
+                    {{-- Without this, an owner managing a DIFFERENT agency via the
+                         selector above would create the branch under their own
+                         agency context instead of the one actually selected. --}}
+                    <input type="hidden" name="agency_id" value="{{ $agency->id }}">
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Name</label>
                         <input class="w-full rounded-md px-3 py-2 text-sm" name="name" required
@@ -645,6 +650,7 @@
                             <form method="POST" action="{{ route('admin.branches.delete', $branch) }}"
                                   onsubmit="return confirm('Delete this branch? This cannot be undone.');">
                                 @csrf
+                                <input type="hidden" name="from_company_settings" value="{{ $agency->id }}">
                                 <button class="text-xs font-semibold" style="color: var(--ds-crimson);">Delete</button>
                             </form>
                         </div>
@@ -673,6 +679,7 @@
                               style="background: var(--surface-2); border: 1px solid var(--border);"
                               x-data="{ removelogo: false, open: false }">
                             @csrf
+                            <input type="hidden" name="from_company_settings" value="{{ $agency->id }}">
 
                             <div class="flex items-center justify-between gap-4 cursor-pointer select-none" @click="open = !open">
                                 <div class="flex items-center gap-2 font-semibold" style="color: var(--text-primary);">
@@ -1319,7 +1326,18 @@
 function companySettingsPage(initialId) {
     return {
         selectedAgencyId: initialId,
-        activeTab: 'company',
+        // Restore the tab from the URL fragment on load — without this, ANY
+        // save action (branches, branding, etc.) that redirects back here via
+        // back()/withFragment() always landed on Company regardless of which
+        // tab the admin was actually on, since this page never read the hash
+        // at all (unlike admin/agencies/create-edit.blade.php's same pattern).
+        activeTab: ['company', 'branding', 'branches', 'website', 'performance']
+            .includes((window.location.hash || '').replace('#', ''))
+            ? (window.location.hash || '').replace('#', '')
+            : 'company',
+        init() {
+            this.$watch('activeTab', t => history.replaceState(null, '', '#' + t));
+        },
         switchAgency() {
             const url = new URL(window.location.href);
             url.searchParams.set('agency', this.selectedAgencyId);

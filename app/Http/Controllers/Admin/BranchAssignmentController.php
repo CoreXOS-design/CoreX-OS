@@ -80,12 +80,21 @@ class BranchAssignmentController extends Controller
 
         Branch::create($data);
 
-        // This route is shared by two callers: the standalone Branch
+        // This route is shared by THREE callers: the standalone Branch
         // Assignments admin page (no agency_id posted — its own hash-free
-        // page, so a bare back() is fine) and the Agency edit page's
-        // "branches" tab (agency_id posted — its tab state lives only in the
-        // URL fragment, which back() would silently drop, bouncing the admin
-        // to the Company tab).
+        // page, so a bare back() is fine), the Agency edit page's "branches"
+        // tab (agency_id posted, no from_company_settings), and Company
+        // Settings' own Branches tab (posts BOTH agency_id, so the branch
+        // lands under the correct agency for an owner managing a different
+        // one, AND from_company_settings for the redirect target — check
+        // this FIRST, or it would fall through to the agency_id branch below
+        // and redirect to the wrong page). The latter two's tab state lives
+        // only in the URL fragment, which back() would silently drop,
+        // bouncing the admin to the Company/Company-Settings-default tab.
+        if ($request->filled('from_company_settings')) {
+            return redirect()->route('admin.company-settings', ['agency' => $request->input('from_company_settings')])
+                ->withFragment('branches');
+        }
         if (!empty($data['agency_id'])) {
             return redirect()->route('agencies.edit', $data['agency_id'])->withFragment('branches');
         }
@@ -99,17 +108,21 @@ class BranchAssignmentController extends Controller
      * These branch-mutation routes are shared by THREE callers: the standalone
      * Branch Assignments admin page, the Company Settings page's own Branches
      * tab (resources/views/admin/company-settings/index.blade.php), and the
-     * Agency edit page's "branches" tab. Only the agency-edit page's tab state
-     * lives in a URL fragment that a plain back() would silently drop — so
-     * that caller alone flags itself with a hidden `from_agency_edit` field.
-     * Every other caller keeps the original back() behaviour, which is
-     * correct for both of them since it simply returns to whichever page the
-     * request actually came from.
+     * Agency edit page's "branches" tab. The latter two's tab state lives only
+     * in a URL fragment that a plain back() would silently drop — so each
+     * flags itself with a hidden field (from_agency_edit / from_company_settings).
+     * The standalone page sends neither and keeps the original back()
+     * behaviour, which is correct for it since it simply returns to wherever
+     * the request came from.
      */
     private function branchContextRedirect(Request $request, Branch $branch)
     {
         if ($request->boolean('from_agency_edit')) {
             return redirect()->route('agencies.edit', $branch->agency_id)->withFragment('branches');
+        }
+        if ($request->filled('from_company_settings')) {
+            return redirect()->route('admin.company-settings', ['agency' => $request->input('from_company_settings')])
+                ->withFragment('branches');
         }
 
         return back();

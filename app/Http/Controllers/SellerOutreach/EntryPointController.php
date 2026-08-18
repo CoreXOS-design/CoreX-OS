@@ -1054,8 +1054,19 @@ final class EntryPointController extends Controller
             return $contextBranchId;
         }
 
-        return DB::table('agencies')->where('id', $agencyId)->value('default_branch_id')
+        $fallback = DB::table('agencies')->where('id', $agencyId)->value('default_branch_id')
             ?? DB::table('branches')->where('agency_id', $agencyId)->orderBy('id')->value('id');
+
+        if ($fallback) {
+            return $fallback;
+        }
+
+        // AT-378 guarantees every agency a first branch on creation, so this is
+        // unreachable for any agency created after that landed — reachable
+        // only for a pre-AT-378 legacy agency. Raise a clear domain error
+        // instead of letting the NOT NULL constraint surface as a raw SQL
+        // 1364 500 (the exact failure this method exists to prevent).
+        throw new \App\Exceptions\MissingAgencyBranchException($agencyId, 'this contact');
     }
 
     /**

@@ -644,12 +644,20 @@ class AgencySetupWizardTest extends TestCase
 
         // No admin_password — email-only invite (spec §R1a), the field no
         // longer exists on the form or in validation.
+        //
+        // branch_name/branch_code: AT-378 requires a branch on agency
+        // creation. A live (non-demo) agency now redirects into Market
+        // Intelligence / Prospecting Setup rather than back to the agency
+        // list — see AgencyControllerCreateTest::
+        // test_creating_a_live_agency_switches_into_it_and_redirects_to_prospecting_setup.
         $this->actingAs($owner)->post(route('agencies.store'), [
             'name'        => 'New Live Agency',
             'is_demo'     => '0',
             'admin_name'  => 'Ann Admin',
             'admin_email' => 'ann@newlive.co.za',
-        ])->assertRedirect(route('agencies.index'));
+            'branch_name' => 'Head Office',
+            'branch_code' => 'HQ',
+        ])->assertRedirect(route('settings.prospecting.index'));
 
         Event::assertDispatched(AgencyCreated::class);
     }

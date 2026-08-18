@@ -87,9 +87,13 @@ final class OutreachActivityFeedService
 
         if (! empty($filters['user_id'])) {
             $query->where('user_id', (int) $filters['user_id']);
-        } elseif (! empty($filters['user_ids'])) {
+        } elseif (array_key_exists('user_ids', $filters)) {
             // AT-380 — branch-scope: every user_id in the acting user's branch.
-            $query->whereIn('user_id', (array) $filters['user_ids']);
+            // Checked via array_key_exists, not !empty(): a branch-scoped caller
+            // that resolved to ZERO teammates must see NOTHING, not silently
+            // fall through to unfiltered (agency-wide) results.
+            $ids = (array) $filters['user_ids'];
+            $query->whereIn('user_id', $ids ?: [-1]);
         }
 
         // Pull one extra to detect truncation.

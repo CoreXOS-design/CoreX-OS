@@ -197,9 +197,10 @@
         @endphp
         @if($_micHasFilters)
             @include('prospecting._empty-state', [
-                'kind'       => 'filtered_to_zero',
-                'filters'    => request()->only($_micFilterKeys),
-                'urlWithout' => fn (string $k) => route('market-intelligence.work', request()->except([$k, 'page'])),
+                'kind'        => 'filtered_to_zero',
+                'filters'     => request()->only($_micFilterKeys),
+                'urlWithout'  => fn (string $k) => route('market-intelligence.work', request()->except([$k, 'page'])),
+                'clearAllUrl' => route('market-intelligence.work', request()->except(array_merge($_micFilterKeys, ['page']))),
             ])
         @else
             @include('prospecting._empty-state', ['kind' => 'no_data'])

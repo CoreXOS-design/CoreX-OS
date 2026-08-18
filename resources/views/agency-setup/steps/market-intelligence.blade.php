@@ -6,17 +6,21 @@
      $micPriceBandsSale, $micPriceBandsRental. --}}
 <div class="px-6 py-5 space-y-8">
 
+    {{-- One error banner for the whole step — the four sections below (towns/
+         suburbs, property types, bedroom segments, price bands) all post to
+         the same wizard collection routes and can all throw the same
+         validation errors, so this can't live under just the first section. --}}
+    @if ($errors->any())
+        <div class="rounded-md px-3 py-2 text-sm"
+             style="background: color-mix(in srgb, var(--ds-crimson,#e11d48) 10%, transparent); color: var(--text-primary,#0f172a); border:1px solid color-mix(in srgb, var(--ds-crimson,#e11d48) 30%, transparent);">
+            {{ $errors->first() }}
+        </div>
+    @endif
+
     {{-- Towns + suburbs --}}
     <div>
         <h2 class="text-sm font-bold" style="color:var(--text-primary);">Towns &amp; suburbs</h2>
         <p class="text-xs mt-1" style="color:var(--text-muted);">The areas you work. Add a town, then add its suburbs underneath — Market Intelligence groups every listing and buyer by these.</p>
-
-        @if ($errors->any())
-            <div class="rounded-md px-3 py-2 text-sm mt-3"
-                 style="background: color-mix(in srgb, var(--ds-crimson,#e11d48) 10%, transparent); color: var(--text-primary,#0f172a); border:1px solid color-mix(in srgb, var(--ds-crimson,#e11d48) 30%, transparent);">
-                {{ $errors->first() }}
-            </div>
-        @endif
 
         <form method="POST" action="{{ route('corex.agency-setup.collection.add', ['collection' => 'mic_town']) }}"
               class="flex flex-wrap items-end gap-2 mt-3">

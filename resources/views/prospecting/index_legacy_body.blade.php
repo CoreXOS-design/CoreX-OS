@@ -312,9 +312,10 @@
 
     @if($intelEmpty && $userFilterCount > 0)
         @include('prospecting._empty-state', [
-            'kind'       => 'filtered_to_zero',
-            'filters'    => $filters ?? [],
-            'urlWithout' => $urlWithoutBuilder,
+            'kind'        => 'filtered_to_zero',
+            'filters'     => $filters ?? [],
+            'urlWithout'  => $urlWithoutBuilder,
+            'clearAllUrl' => route('prospecting.index'),
         ])
     @endif
 

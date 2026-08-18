@@ -751,6 +751,7 @@ class MarketIntelligenceController extends Controller
             'avg_price'        => (int) (clone $statsBase)->avg('price'),
             'new_this_week'    => (clone $statsBase)->where('first_seen_at', '>=', $weekAgo)->count(),
             'price_reductions' => ProspectingListing::where('agency_id', $agencyId)
+                                    ->visibleTo($user, $micScope)
                                     ->where('price_changed_at', '>=', $weekAgo)->count(),
             'cross_listed'     => $crossListed,
             'buyer_matched'    => $matchedListingCount,
@@ -761,17 +762,22 @@ class MarketIntelligenceController extends Controller
         ];
 
         $suburbs = ProspectingListing::where('agency_id', $agencyId)
+            ->visibleTo($user, $micScope)
             ->whereNotNull('suburb')->where('suburb', '!=', '')
             ->distinct()->orderBy('suburb')->pluck('suburb');
 
         $propertyTypes = ProspectingListing::where('agency_id', $agencyId)
+            ->visibleTo($user, $micScope)
             ->whereNotNull('property_type')->where('property_type', '!=', '')
             ->distinct()->orderBy('property_type')->pluck('property_type');
         } // end !$isFragment (stats + facet lists)
 
         // $users feeds the filter rail "captured by" list — needed on both paths.
+        // Scoped the same as the main table: a branch/own-scoped user should not
+        // see OTHER agents' names populate the "captured by" filter dropdown.
         $users = User::whereIn('id',
             ProspectingListing::where('agency_id', $agencyId)
+                ->visibleTo($user, $micScope)
                 ->distinct()->pluck('captured_by_user_id')
         )->orderBy('name')->get(['id', 'name']);
 
