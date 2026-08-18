@@ -39,6 +39,42 @@ final class DeedsCaptureController extends Controller
         TrackedPropertyMatchOrCreateService $matcher,
         ContactDuplicateService $dupes
     ): JsonResponse {
+        // cmainfo.co.za PropSearch often returns a comparable with a '0' / blank /
+        // unparseable sale or registered date. `nullable|date` only skips a NULL — a
+        // non-null '0' hits the `date` rule, fails, and (because validation runs over
+        // the whole captures[] array up front) 422s the ENTIRE capture batch before a
+        // single record is ingested. Coerce any date the `date` rule would reject to
+        // null here so one bad comp date never blocks the import; genuine dates are
+        // left untouched and validate + store exactly as before.
+        $captures = $request->input('captures');
+        if (is_array($captures)) {
+            foreach ($captures as $i => $capture) {
+                if (!isset($capture['sale']) || !is_array($capture['sale'])) {
+                    continue;
+                }
+                foreach (['sale_date', 'registered_date'] as $dateField) {
+                    if (array_key_exists($dateField, $capture['sale'])) {
+                        $captures[$i]['sale'][$dateField] = $this->sanitizeCaptureDate($capture['sale'][$dateField]);
+                    }
+                }
+                // Same shape of bug, numeric side: a comp with no sale price shows as
+                // '-' on cmainfo. The extension's own parseCurrency() already turns
+                // that into null before sending — verified live-repro 2026-08-17 — so
+                // this rule's real-world exposure is a case parseCurrency doesn't (a
+                // future source, or a payload built another way) sending a literal
+                // non-numeric placeholder straight through. `numeric` doesn't skip a
+                // non-null, non-numeric string, so it would 422 the whole batch the
+                // same way an unsanitized date does. Sanitizing here closes that gap
+                // symmetrically rather than leaving it to the sender's own parsing.
+                foreach (['sale_price', 'bond_amount'] as $numericField) {
+                    if (array_key_exists($numericField, $capture['sale'])) {
+                        $captures[$i]['sale'][$numericField] = $this->sanitizeCaptureNumeric($capture['sale'][$numericField]);
+                    }
+                }
+            }
+            $request->merge(['captures' => $captures]);
+        }
+
         $validated = $request->validate([
             'source'                                => 'nullable|string|max:50',
             'captures'                              => 'required|array|min:1',
@@ -100,6 +136,60 @@ final class DeedsCaptureController extends Controller
         }
 
         return response()->json(['ok' => true, 'results' => $results]);
+    }
+
+    /**
+     * Return the value unchanged when it is a date the `nullable|date` rule would
+     * accept, otherwise null. cmainfo PropSearch comps arrive with '0' / '' /
+     * unparseable sale + registered dates; nulling them lets the capture proceed
+     * instead of 422-ing the whole batch. Mirrors Laravel's `date` rule (strtotime
+     * must parse it, and a full calendar date must be real per checkdate — so an
+     * impossible date like 2023-02-30 is nulled too, never stored).
+     */
+    private function sanitizeCaptureDate($value): ?string
+    {
+        if ($value === null || (!is_string($value) && !is_numeric($value))) {
+            return null;
+        }
+        $v = trim((string) $value);
+        if ($v === '' || $v === '0' || strtotime($v) === false) {
+            return null;
+        }
+        $parts = date_parse($v);
+        if (!is_array($parts) || $parts['error_count'] > 0) {
+            return null;
+        }
+        if ($parts['year'] && $parts['month'] && $parts['day']
+            && !checkdate((int) $parts['month'], (int) $parts['day'], (int) $parts['year'])) {
+            return null;
+        }
+
+        return $v;
+    }
+
+    /**
+     * Return the value unchanged when it is something the `numeric` rule would
+     * accept, otherwise null. Mirrors sanitizeCaptureDate() for the price/bond
+     * side — a non-null, non-numeric placeholder (e.g. '-') would otherwise hit
+     * `numeric` and 422 the whole batch the same way an unsanitized date does.
+     */
+    private function sanitizeCaptureNumeric($value): ?float
+    {
+        if ($value === null) {
+            return null;
+        }
+        if (is_int($value) || is_float($value)) {
+            return (float) $value;
+        }
+        if (!is_string($value)) {
+            return null;
+        }
+        $v = trim($value);
+        if ($v === '' || !is_numeric($v)) {
+            return null;
+        }
+
+        return (float) $v;
     }
 
     private function ingestOne(array $capture, int $agencyId, $user, $matcher, $dupes): array
