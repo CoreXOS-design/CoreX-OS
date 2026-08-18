@@ -355,12 +355,97 @@
     return false;
   }
 
+  // ROOT CAUSE (2026-08-17, Johan — SS-then-FH capture, both wrong address;
+  // theorised as a timing race, confirmed here): sectionHasPopulatedValues()
+  // proves a value cell is non-empty, but NOT that it belongs to the
+  // property currently selected on cmainfo's own results list. The page
+  // never navigates (WebForms postback swaps content IN PLACE — see
+  // isPropertyLoaded()'s comment) — so when the agent selects a NEW property
+  // while a section is ALREADY expanded from viewing the PREVIOUS one, the
+  // panel is simultaneously "not collapsed" AND "populated" for the ENTIRE
+  // window between the click and the postback finishing, because the OLD
+  // property's values are still sitting there, not yet overwritten.
+  // ensureSectionExpanded()'s fast path (added in bbfb35b3a to fix a
+  // DIFFERENT race — collapsed-panel value cells being genuinely blank —
+  // does not cover this one) resolves the instant it sees ANY populated
+  // value, which is immediately, and hands extraction stale data. A slow
+  // second attempt "worked" simply because enough wall-clock time had
+  // passed for the postback to finish before the agent clicked Capture.
+  //
+  // Fix: track the timestamp of the most recent DOM mutation (markDomActivity(),
+  // driven by the SAME pageObserver already used for button-visibility sync —
+  // see the LIFECYCLE section below) and require the panel to have been
+  // BOTH populated AND quiet for DOM_SETTLE_MS before treating its content
+  // as safe to read. A property switch keeps mutating the panel for some
+  // number of milliseconds after the values first look "populated" (rows
+  // update one at a time, not atomically) — waiting for quiet closes that
+  // window without needing any cmainfo-specific "which property is this"
+  // signal, which the page's own markup never exposes.
+  const DOM_SETTLE_MS = 350;
+  let lastMutationAt = 0;
+
+  // v3.3.9 (2026-08-18, Johan — Coniston Road / "Skippers of Shelly" incident)
+  // — a REAL confirmed miss the settle-check above didn't catch: a full,
+  // internally-consistent capture of the WRONG property (every field —
+  // address, scheme, section, erf, deed, sale price/date, owner — coherently
+  // matched a DIFFERENT, earlier deed). Server-side evidence (source_chain.ref
+  // is built client-side from the extracted title deed) proved this was a
+  // clean client-side stale read, not a partial bleed the v3.3.8 signature
+  // check would catch. Root cause: "quiet for DOM_SETTLE_MS" only proves
+  // nothing has changed RECENTLY — it can't distinguish "quiet because the
+  // postback finished" from "quiet because the postback hasn't started yet"
+  // (e.g. the agent clicked Capture within milliseconds of selecting a new
+  // property, before cmainfo's own postback began mutating anything).
+  //
+  // Investigated whether cmainfo exposes a per-property identifier the
+  // extension could read at click-time and poll the panel against (the
+  // airtight fix) — confirmed NOT AVAILABLE: buildSourceRef()'s own
+  // docblock above already establishes "the CMA URL itself doesn't encode
+  // one either — it's a search/click state, not a per-property URL", and
+  // there is no click listener on cmainfo's own search-results list to
+  // capture a click-time reference from even if one existed (unconfirmed
+  // without live access to cmainfo's search-results markup, which this
+  // extension has never needed to interact with before).
+  //
+  // Fallback: require GENUINE evidence of a fresh update, not just quiet.
+  //   - 2nd+ capture in a session: require at least one mutation observed
+  //     AFTER the previous capture completed, in addition to the existing
+  //     quiet-350ms check — "quiet" must mean "quiet after a real update",
+  //     not "nothing has happened yet". Closes the exact failure mode above
+  //     for every capture after the first.
+  //   - 1st capture in a session: no previous capture to require a mutation
+  //     against, so there's nothing to gate on — widen the settle window
+  //     instead, giving a slow-starting postback a wider margin. This is a
+  //     narrower, honestly-flagged residual gap, not eliminated.
+  const FIRST_CAPTURE_EXTRA_SETTLE_MS = 500;
+  let lastCaptureCompletedAt = 0;
+
+  function domIsSettled() {
+    // No mutation observed yet this page load (lastMutationAt still 0) counts
+    // as settled — otherwise a property loaded before the observer's first
+    // callback ever fires would wait out the full timeout for nothing.
+    if (lastMutationAt === 0) return true;
+
+    const requiredQuietMs = lastCaptureCompletedAt === 0
+      ? (DOM_SETTLE_MS + FIRST_CAPTURE_EXTRA_SETTLE_MS)
+      : DOM_SETTLE_MS;
+    if ((Date.now() - lastMutationAt) < requiredQuietMs) return false;
+
+    // 2nd+ capture: refuse to trust a panel that hasn't mutated AT ALL since
+    // the previous capture completed — that's the exact "nothing has
+    // happened yet" false-positive, not a real settle.
+    if (lastCaptureCompletedAt > 0 && lastMutationAt <= lastCaptureCompletedAt) return false;
+
+    return true;
+  }
+
   /**
-   * Ensure a section's panel is expanded AND populated before reading it.
-   * button.click() toggles the panel from display:none to visible via a
-   * plain event listener, but the VALUE cells can still be empty for a
-   * moment after that (see sectionHasPopulatedValues above) — this polls
-   * for both display and real content, not display alone.
+   * Ensure a section's panel is expanded, populated, AND the page has been
+   * quiet for DOM_SETTLE_MS before reading it. button.click() toggles the
+   * panel from display:none to visible via a plain event listener, but the
+   * VALUE cells can still be empty — or stale from whatever property was
+   * previously loaded — for a moment after that; this polls for display,
+   * real content, and settle-time together, not any one alone.
    */
   function ensureSectionExpanded(sectionTitle, timeoutMs = 4000) {
     return new Promise((resolve) => {
@@ -382,14 +467,14 @@
         }
       }
 
-      if (!isPanelCollapsed(panel) && sectionHasPopulatedValues(panel)) {
+      if (!isPanelCollapsed(panel) && sectionHasPopulatedValues(panel) && domIsSettled()) {
         resolve(clicked);
         return;
       }
 
       const start = Date.now();
       (function poll() {
-        if (!isPanelCollapsed(panel) && sectionHasPopulatedValues(panel)) { resolve(true); return; }
+        if (!isPanelCollapsed(panel) && sectionHasPopulatedValues(panel) && domIsSettled()) { resolve(true); return; }
         if (Date.now() - start >= timeoutMs) { resolve(false); return; }
         setTimeout(poll, 50);
       })();
@@ -444,9 +529,23 @@
 
   /**
    * The reveal unmasks the Owner's ID cell's VALUE in place rather than
-   * mutating the icon, so this doesn't wait on a DOM signal from the icon
-   * — it just gives the listener a moment to run, then the caller re-reads
-   * the cell via the normal label-driven extractor (findValueByLabel).
+   * mutating the icon (the cell's text changes; the icon itself may not) —
+   * so this polls the SAME cell's text for the mask to actually clear
+   * rather than trusting a fixed delay. 2026-08-17 (Johan, live cmainfo
+   * confirm): cmainfo masks Owner's ID by default ("560728*******") until
+   * this click's listener unmasks it; a FIXED 200ms grace period was
+   * unreliable — sometimes the unmask hadn't landed yet, and the STILL-
+   * MASKED value got captured and stored verbatim (the "stars" bug). Same
+   * settle-by-polling shape as domIsSettled() elsewhere in this file,
+   * scoped to this one cell instead of the whole panel.
+   *
+   * A cell holding multiple owners' IDs joined " ; " (multi-owner) is
+   * handled naturally — the poll waits for ZERO asterisks anywhere in the
+   * cell's text, i.e. every owner's ID in it, not just the first. An
+   * opted-out (permanently red/masked) owner sharing a cell with a
+   * revealable one means the poll runs out its full timeoutMs before
+   * giving up — buildOwnersArray()'s existing opted-out drop and the
+   * masked-value fallback below both still apply correctly after that.
    *
    * Not yet confirmed live: whether a second click re-masks the value
    * (i.e. whether fa-eye is a toggle). Each capture click currently calls
@@ -460,7 +559,17 @@
       if (!control) { resolve(false); return; }
       const dispatched = dispatchRealClick(control);
       if (!dispatched) { resolve(false); return; }
-      setTimeout(() => resolve(true), 200);
+
+      const salePanel = findSectionPanel(findSectionHeader('Sale Information'));
+      const cell = findValueElementByLabel("Owner's ID", salePanel || undefined);
+      if (!cell) { setTimeout(() => resolve(true), 200); return; } // no cell found — fall back to the old fixed wait rather than resolve instantly
+
+      const start = Date.now();
+      (function poll() {
+        const stillMasked = /\*/.test(cell.textContent || '');
+        if (!stillMasked || Date.now() - start >= timeoutMs) { resolve(true); return; }
+        setTimeout(poll, 50);
+      })();
     });
   }
 
@@ -505,12 +614,167 @@
    * through sections on cmainfo's own UI and captures each one via a
    * separate button click, same mental model as re-running the button.
    */
+  // Signature of the last successfully-captured property's address/scheme
+  // block, keyed against its title deed. Persists across captures within one
+  // page session (cmainfo never navigates — see PROPERTY-LOADED DETECTION
+  // below) so a NEW deed can be compared against the PREVIOUS capture's
+  // address, not just against whatever the panel happens to show right now.
+  let lastCaptureSignature = null;
+
+  // v3.4.0 — the FULL property_information object from the previous
+  // successful capture (post all corrections), used by
+  // clearFrozenSectionalFields() below to detect a PARTIAL freeze
+  // (address/erf/suburb moved on to a genuinely new property, but the
+  // sectional-only fields didn't) that lastCaptureSignature's whole-block
+  // comparison can't catch, because it requires the ENTIRE street/suburb/
+  // scheme bundle to match before it'll act.
+  let lastCapturedProperty = null;
+
+  function propertySignature(property, titleDeed) {
+    return {
+      titleDeed: titleDeed || null,
+      street: property.address || property.situated_at || null,
+      suburb: property.suburb || null,
+      scheme: property.scheme_name || null,
+    };
+  }
+
+  function signaturesMatchAddress(a, b) {
+    return a.street === b.street && a.suburb === b.suburb && a.scheme === b.scheme;
+  }
+
+  // v3.4.0 (2026-08-18, Johan LIVE repro — Park Street freehold, TWO
+  // separate properties, both came back showing "Section 3" / "SKIPPERS OF
+  // SHELLY", the sectional-title COMPLEX he'd captured immediately before).
+  // Structurally different bug from v3.3.9's timing race, and NOT fixable
+  // by waiting longer: cmainfo's Property Information panel renders
+  // sectional-only fields (Scheme name/no, Section number, Flat/Unit no,
+  // Section extent, Situated at) via markup that is conditionally NOT
+  // re-rendered at all when the current property is a freehold — no new
+  // markup means no postback touches that row, so its LAST REAL value (from
+  // whatever sectional property was viewed before it) sits frozen in the
+  // live DOM indefinitely. Confirmed by the repro shape itself: Address/
+  // Erf/Suburb (fields cmainfo DOES render+update for every property type)
+  // were correct on both broken captures — only the sectional-only fields
+  // carried over. Since the frozen row never mutates again, v3.3.9's
+  // mutation-since-last-capture settle guard cannot detect or wait this
+  // out — it correctly rules out ITS failure mode (a slow-starting update),
+  // polls out to ensureSectionExpanded's timeout with nothing to see, gives
+  // up, and reads the frozen value anyway, reproducing the bug exactly.
+  //
+  // First attempt at a fix ("a populated Address means this is a freehold,
+  // so always null the sectional fields") was WRONG and caught by the
+  // existing NATSPAT regression test before shipping: a real confirmed live
+  // capture (60 Lilliecrona Boulevard, 2026-08-17) has an Address AND a
+  // real Scheme name TOGETHER — sectional units can legitimately carry a
+  // street address too, so "Address present" alone does not mean "no
+  // legitimate scheme". Address presence can't be the trigger on its own.
+  //
+  // Correct fix: compare against the PREVIOUS capture directly, the same
+  // shape as the existing whole-block bleed check above, but scoped to the
+  // sectional-only fields specifically and INDEPENDENT of whether the
+  // address/suburb/scheme bundle as a whole matched (that check requires
+  // the ENTIRE bundle to match, which is why it doesn't fire here — Park
+  // Street's address/suburb/erf all genuinely changed, only the sectional
+  // subset stayed pinned). Trigger only when ALL of:
+  //   (a) at least one sectional-only field is currently populated,
+  //   (b) it is BYTE-IDENTICAL to what the previous capture had for that
+  //       same field (the frozen-row fingerprint), AND
+  //   (c) at least one of address/erf_no/suburb — fields cmainfo is
+  //       confirmed (by this repro) to always render fresh — genuinely
+  //       differs from the previous capture, proving this really is a
+  //       different property and not a legitimate repeat capture of the
+  //       same unit (e.g. two co-owners' separate deeds on one real unit,
+  //       where the sectional fields SHOULD match every time).
+  // Residual gap, honestly flagged: the very FIRST capture in a page
+  // session has no previous capture to diff against, so a freehold loaded
+  // as the first-ever capture on a page that already has leftover
+  // sectional DOM content (e.g. from browsing before the extension was
+  // reloaded) isn't caught. Not exercised by Johan's repro (a multi-capture
+  // sequence), narrower than the general case, not eliminated.
+  const SECTIONAL_ONLY_FIELDS = ['scheme_name', 'scheme_no', 'section_number', 'flat_number', 'section_extent', 'situated_at'];
+  const FREEHOLD_NATIVE_FIELDS = ['address', 'erf_no', 'suburb'];
+
+  function clearFrozenSectionalFields(property, prevProperty) {
+    if (!property || !prevProperty) return property;
+
+    const anyNativeFieldChanged = FREEHOLD_NATIVE_FIELDS.some((key) => property[key] !== prevProperty[key]);
+    if (!anyNativeFieldChanged) return property; // same property (or a total freeze the whole-block check above already owns) — nothing to correct here
+
+    const hasAnyCurrentSectionalValue = SECTIONAL_ONLY_FIELDS.some((key) => !!property[key]);
+    if (!hasAnyCurrentSectionalValue) return property;
+
+    const looksFrozen = SECTIONAL_ONLY_FIELDS.every((key) => property[key] === prevProperty[key]);
+    if (!looksFrozen) return property;
+
+    const cleared = Object.assign({}, property);
+    SECTIONAL_ONLY_FIELDS.forEach((key) => { cleared[key] = null; });
+    console.warn('[CoreX] deeds-capture: Address/Erf/Suburb changed from the previous capture (proving this is a different property) but the sectional fields (scheme/section/unit) are byte-identical to the previous capture — those belong to that PREVIOUSLY-viewed property and cmainfo never re-rendered this row for the current one. Cleared rather than sent as this property\'s data.');
+    return cleared;
+  }
+
   async function extractDeed() {
     await ensureSectionExpanded('Property Information');
-    const property = extractPropertyInformation();
+    let property = extractPropertyInformation();
 
     await ensureSectionExpanded('Sale Information');
     const sale = await extractSaleInformation();
+
+    const signature = propertySignature(property, sale.title_deed);
+
+    // 2026-08-17 (Johan, live cmainfo confirm) — NATSPAT: 3 captures with
+    // DIFFERENT title deeds (T45154/2022, T32926/1988, T2398/1992) all
+    // stored the IDENTICAL "60 Lilliecrona Boulevard / NATSPAT / MANABA
+    // BEACH" address/scheme block. erf/deed/sale/owner are proven to update
+    // correctly on every capture (they come from Sale Information, read via
+    // its own settle-gated await above); address/suburb/scheme come from
+    // Property Information, read synchronously right after its OWN
+    // settle-gated await resolves. A DIFFERENT deed with an IDENTICAL
+    // address/scheme block to the immediately-previous capture is the exact
+    // fingerprint of that bug — ensureSectionExpanded()'s settle check can
+    // pass (quiet for DOM_SETTLE_MS) without the panel's address cells
+    // having actually been touched at all, if cmainfo's postback for this
+    // navigation path updates Sale Information but leaves Property
+    // Information's address block untouched. No amount of waiting on a
+    // quiet-DOM signal detects that — there's nothing to observe mutating.
+    // Give it one genuine extra settle cycle in case it's a plain slow
+    // race (self-heals if the address really did just need more time);
+    // if the re-read still matches, don't trust it — null the 3 fields
+    // rather than silently attach a different property's address, and
+    // flag it loudly so it's visible instead of silently wrong.
+    if (lastCaptureSignature && signature.titleDeed
+        && signature.titleDeed !== lastCaptureSignature.titleDeed
+        && signaturesMatchAddress(signature, lastCaptureSignature)) {
+      lastMutationAt = Date.now(); // force a fresh settle window, not whatever already elapsed
+      await new Promise((resolve) => setTimeout(resolve, DOM_SETTLE_MS + 50));
+      const recheck = extractPropertyInformation();
+      const recheckSignature = propertySignature(recheck, signature.titleDeed);
+      if (!signaturesMatchAddress(recheckSignature, signature)) {
+        console.info('[CoreX] deeds-capture: property-info block self-healed after an extra settle wait for deed ' + signature.titleDeed + ' — using the updated address.');
+        property = recheck;
+      } else {
+        console.warn('[CoreX] deeds-capture: address/suburb/scheme unchanged from the previous capture (deed ' + lastCaptureSignature.titleDeed + ') despite this capture being a different deed (' + signature.titleDeed + ') — sending address/suburb/scheme as null rather than a possibly-wrong value. Re-capture this property manually if it needs a full address.');
+        property = Object.assign({}, property, { address: null, situated_at: null, suburb: null, scheme_name: null });
+      }
+    }
+
+    // v3.4.0 — runs AFTER the self-heal block above so it sees whichever
+    // property object that block settled on, and BEFORE lastCapturedProperty
+    // is stamped so a frozen sectional value never gets carried forward as
+    // if it were this property's own confirmed data.
+    property = clearFrozenSectionalFields(property, lastCapturedProperty);
+
+    lastCaptureSignature = signature.titleDeed ? propertySignature(property, signature.titleDeed) : lastCaptureSignature;
+    // v3.4.0 — snapshot of the FULL property object, stamped every capture,
+    // so the next capture always has a real previous-property to diff its
+    // sectional fields against (independent of whether a title deed was
+    // resolved this time).
+    lastCapturedProperty = property;
+    // v3.3.9 — stamped on EVERY capture (not just successfully-identified
+    // ones) so the mutation-since-last-capture guard in domIsSettled() has a
+    // reference point for the NEXT capture regardless of whether this one
+    // had a title deed to key a signature on.
+    lastCaptureCompletedAt = Date.now();
 
     return {
       property_information: property,
@@ -643,8 +907,27 @@
    * consume every token after the first (no base surname word to anchor on)
    * — captured raw rather than guessed, per Johan's instruction.
    */
+  // v3.4.1 (2026-08-18, cc1 handoff — HANDOFF-cc5-deeds-name-share-parse-
+  // 20260818.md, Johan repro: staging contact 16399 rendered as "50%").
+  // cmainfo's "Owner" cell is surname-first with the ownership share
+  // appended per owner ("EADY ROGER GRAEME 50%") — there is no separate
+  // share column (SALE_INFORMATION_LABELS only has owner/owner_id_number).
+  // Left in the token stream, "50%" both (a) pollutes first_names
+  // ("Roger Graeme 50%") and (b) defeats the compound-surname prefix
+  // walk-back just below — it starts scanning from the LAST token, hits
+  // "50%" (not a prefix word), and stops immediately, so "RUIT DOUGLAS
+  // PETER VAN DER 50%" resolves to surname="Ruit" instead of "Van Der
+  // Ruit". Strip trailing share tokens BEFORE the walk-back runs so both
+  // are fixed by the same change. Share is discarded, not stored — the
+  // server has no share field today (a possible follow-up if Johan wants
+  // it kept structured; never belongs in a name field regardless).
+  const OWNERSHIP_SHARE_TOKEN = /^(\d{1,3}([.,]\d+)?%|\d+\/\d+)$/; // 50% 100% 50.00% 1/2 3/4
+
   function parsePersonName(raw) {
     const tokens = String(raw || '').trim().split(/\s+/).filter(Boolean);
+    while (tokens.length > 1 && OWNERSHIP_SHARE_TOKEN.test(tokens[tokens.length - 1])) {
+      tokens.pop();
+    }
     if (tokens.length === 0) {
       return { surname: null, first_names: null, confident: false };
     }
@@ -767,12 +1050,26 @@
         console.warn('[CoreX] deeds-capture: could not confidently parse owner name "' + rawName + '" into surname/first names — sending the raw string; storage falls back to a naive split.');
       }
 
+      // 2026-08-17 (Johan, live cmainfo confirm — the "stars" bug): if the ID
+      // is STILL masked here despite revealOwnerIdIfNeeded()'s poll (reveal
+      // control not found, click didn't register, or the reveal genuinely
+      // never completes within its timeout), sending the partial masked
+      // string ("560728*******") stores a value that LOOKS like real data
+      // but isn't — worse than sending nothing, because nothing visibly
+      // prompts a human to go complete it. Fall back to null so this reads
+      // as "ID not captured, needs manual entry" rather than a plausible-
+      // looking wrong ID.
+      const isMasked = /\*/.test(rawId);
+      if (isMasked) {
+        console.warn('[CoreX] deeds-capture: owner "' + rawName + '" ID is still masked after the reveal wait — sending null instead of the partial value; needs manual entry.');
+      }
+
       owners.push({
         name: parsed.confident ? [parsed.first_names, parsed.surname].filter(Boolean).join(' ') : rawName,
         surname: parsed.confident ? parsed.surname : null,
         first_names: parsed.confident ? parsed.first_names : null,
-        id_number: rawId || null,
-        id_type: idType,
+        id_number: isMasked ? null : (rawId || null),
+        id_type: isMasked ? null : idType,
       });
     }
     owners.blockedCompanies = blockedCompanies; // smuggled alongside the array — see buildDeedsCapturePayload()
@@ -1063,7 +1360,16 @@
     syncTimer = setTimeout(syncButtonToPageState, 300);
   }
 
-  const pageObserver = new MutationObserver(scheduleSync);
+  // markDomActivity() is also read by ensureSectionExpanded() (see the
+  // DOM_SETTLE_MS gate above it) — declared here so both the button-sync
+  // debounce and the extraction-readiness gate share ONE "when did the page
+  // last change" clock, instead of each guessing independently.
+  function markDomActivity() {
+    lastMutationAt = Date.now();
+    scheduleSync();
+  }
+
+  const pageObserver = new MutationObserver(markDomActivity);
   pageObserver.observe(document.body, { childList: true, subtree: true });
   syncButtonToPageState();
 
