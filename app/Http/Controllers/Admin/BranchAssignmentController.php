@@ -96,12 +96,15 @@ class BranchAssignmentController extends Controller
     /**
      * Redirect back to wherever this branch action was submitted from.
      *
-     * These branch-mutation routes are shared between the standalone Branch
-     * Assignments admin page and the Agency edit page's "branches" tab. The
-     * agency-edit page's tab state lives only in the URL fragment, which a
-     * plain back()/route() redirect silently drops — so the caller flags
-     * itself with a hidden `from_agency_edit` field and this carries the
-     * fragment; otherwise we return to the standalone page as before.
+     * These branch-mutation routes are shared by THREE callers: the standalone
+     * Branch Assignments admin page, the Company Settings page's own Branches
+     * tab (resources/views/admin/company-settings/index.blade.php), and the
+     * Agency edit page's "branches" tab. Only the agency-edit page's tab state
+     * lives in a URL fragment that a plain back() would silently drop — so
+     * that caller alone flags itself with a hidden `from_agency_edit` field.
+     * Every other caller keeps the original back() behaviour, which is
+     * correct for both of them since it simply returns to whichever page the
+     * request actually came from.
      */
     private function branchContextRedirect(Request $request, Branch $branch)
     {
@@ -109,7 +112,7 @@ class BranchAssignmentController extends Controller
             return redirect()->route('agencies.edit', $branch->agency_id)->withFragment('branches');
         }
 
-        return redirect()->route('admin.branch-assignments');
+        return back();
     }
 
     public function deleteBranch(Request $request, Branch $branch)
@@ -258,11 +261,11 @@ class BranchAssignmentController extends Controller
 
     // ── Restore soft-deleted branch ──
 
-    public function restoreBranch($id)
+    public function restoreBranch(Request $request, $id)
     {
         abort_unless(auth()->user()->hasPermission('manage_system'), 403);
         $record = Branch::onlyTrashed()->findOrFail($id);
         $record->restore();
-        return redirect()->back()->with('success', 'Record restored.');
+        return $this->branchContextRedirect($request, $record)->with('success', 'Record restored.');
     }
 }
