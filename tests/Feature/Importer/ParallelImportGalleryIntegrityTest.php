@@ -302,6 +302,45 @@ class ParallelImportGalleryIntegrityTest extends TestCase
         Queue::assertNotPushed(\App\Jobs\SubmitListingToProperty24::class);
     }
 
+    // ---- Go-live compliance auto-stamp is Active-status-only ----------------
+
+    public function test_active_status_row_is_marked_compliant_when_run_flag_is_set(): void
+    {
+        $run = $this->makeRun(markCompliantOnConfirm: true);
+        $row = $this->listingRow($this->urls(1), $run, ['status' => 'active']);
+
+        (new ConfirmP24PropertyRowJob($row->id, $this->owner->id))->handle();
+
+        $property = Property::withoutGlobalScopes()->find($row->fresh()->target_id);
+        $this->assertSame('active', $property->status);
+        $this->assertNotNull($property->compliance_snapshot_at);
+        $this->assertSame('p24_go_live_migration', $property->compliance_snapshot_data['source'] ?? null);
+    }
+
+    /**
+     * @dataProvider nonActiveStatuses
+     */
+    public function test_non_active_status_row_is_never_marked_compliant_even_when_run_flag_is_set(string $status): void
+    {
+        $run = $this->makeRun(markCompliantOnConfirm: true);
+        $row = $this->listingRow($this->urls(1), $run, ['status' => $status]);
+
+        (new ConfirmP24PropertyRowJob($row->id, $this->owner->id))->handle();
+
+        $property = Property::withoutGlobalScopes()->find($row->fresh()->target_id);
+        $this->assertSame($status, $property->status);
+        $this->assertNull($property->compliance_snapshot_at, "{$status} stock must never be auto-marked compliant, even with the run flag on.");
+    }
+
+    public static function nonActiveStatuses(): array
+    {
+        return [
+            'Withdrawn' => ['Withdrawn'],
+            'Sold'      => ['Sold'],
+            'Rented'    => ['Rented'],
+        ];
+    }
+
     // ---- Import All = one Bus batch -----------------------------------------
 
     public function test_confirm_job_is_batchable_so_import_all_can_dispatch(): void
@@ -435,7 +474,7 @@ class ParallelImportGalleryIntegrityTest extends TestCase
         ], $overrides));
     }
 
-    private function makeRun(string $status = 'importing'): P24ImportRun
+    private function makeRun(string $status = 'importing', bool $markCompliantOnConfirm = false): P24ImportRun
     {
         // 'importing' — an ACTIVE run. The confirm job deliberately refuses to
         // process rows of a completed/cancelled/failed run, so a fixture that
@@ -445,12 +484,13 @@ class ParallelImportGalleryIntegrityTest extends TestCase
             'agency_id' => $this->agency->id,
             'kind' => 'listings_images',
             'status' => $status,
+            'mark_compliant_on_confirm' => $markCompliantOnConfirm,
         ]);
     }
 
-    private function listingRow(array $urls): P24ImportRow
+    private function listingRow(array $urls, ?P24ImportRun $run = null, array $mappedOverrides = []): P24ImportRow
     {
-        $run = $this->makeRun();
+        $run ??= $this->makeRun();
         $ext = (string) random_int(1000000, 9999999);
         return P24ImportRow::create([
             'run_id' => $run->id,
@@ -458,13 +498,13 @@ class ParallelImportGalleryIntegrityTest extends TestCase
             'external_id' => $ext,
             'status' => 'pending',
             'resolved_agent_id' => $this->agent->id,
-            'mapped_json' => [
+            'mapped_json' => array_merge([
                 'p24_listing_number' => $ext,
                 'title' => 'Listing ' . $ext,
                 'listing_type' => 'Sale',
                 'status' => 'active',
                 'price' => 1500000,
-            ],
+            ], $mappedOverrides),
             'image_urls_json' => $urls,
         ]);
     }
