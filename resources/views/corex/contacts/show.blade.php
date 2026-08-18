@@ -381,8 +381,8 @@
                         if (!commId) return;
                         if (!didSend) return; // No — the row was born not_delivered; nothing counts, nothing to do.
                         // Yes, I sent it — the ONLY path a WhatsApp send reaches sent (+1 the counter).
-                        // keepalive: true — outreach's "sent" confirmation page (same shared modal
-                        // contract) shows "Back to contact" the instant this fires, before the fetch
+                        // keepalive: true — outreach's the sent confirmation page (same shared modal
+                        // contract) shows a Back-to-contact link the instant this fires, before the fetch
                         // resolves; without keepalive the browser cancels the in-flight request on
                         // that navigation, leaving the mirrored Communication stuck not_delivered
                         // forever while SellerOutreachSend.outcome already reads 'sent' — the exact
