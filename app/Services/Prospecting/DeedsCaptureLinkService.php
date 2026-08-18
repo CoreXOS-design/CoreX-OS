@@ -415,8 +415,19 @@ class DeedsCaptureLinkService
      */
     public function availableDeeds(int $agencyId, int $limit = 500): array
     {
+        // withoutGlobalScopes() strips BOTH AgencyScope and the SoftDeletingScope
+        // — agency tenancy is re-applied explicitly below (agency_id), but the
+        // soft-delete + status filters must be too, or a dismissed/cleared
+        // capture (DeedsCaptureController::dismissProperty() soft-deletes it)
+        // or an archived/duplicate/already-promoted one keeps showing up here
+        // forever — exactly the "lists every deed ever imported" bug reported
+        // against this modal. STATUS_ACTIVE excludes 'archived'/'duplicate'
+        // (explicitly non-current) and 'promoted' (already converted to a real
+        // Property, no longer a raw capture to link).
         $tps = TrackedProperty::withoutGlobalScopes()
             ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->where('status', TrackedProperty::STATUS_ACTIVE)
             ->whereExists(function ($q) {
                 $q->select(DB::raw(1))
                     ->from('tracked_property_owners as tpo')
