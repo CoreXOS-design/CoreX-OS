@@ -232,6 +232,12 @@ class AgencyController extends Controller
         // moment the agency exists — see ActivityDefinitionDefaultsService.
         app(\App\Services\ActivityDefinitions\ActivityDefinitionDefaultsService::class)->ensureDefaults($agency->id);
 
+        // Seed a starter WhatsApp outreach template (cloned from HFC's own
+        // first template) so a brand-new agency's Seller Outreach composer
+        // is never empty — see SellerOutreachTemplateDefaultsService.
+        app(\App\Services\SellerOutreach\SellerOutreachTemplateDefaultsService::class)
+            ->ensureDefaults($agency->id, $adminUser?->id);
+
         if ($request->hasFile('logo')) {
             $ext = $request->file('logo')->getClientOriginalExtension();
             $path = $request->file('logo')->storeAs(

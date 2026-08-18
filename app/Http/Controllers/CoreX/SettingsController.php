@@ -217,7 +217,7 @@ class SettingsController extends Controller
         // Mirrors TemplatesController::index so the channel panels render inline.
         if ($user?->hasPermission('outreach_templates.manage') && $prospectingAgencyId) {
             $outreachTemplate = \App\Models\SellerOutreach\SellerOutreachTemplate::class;
-            $data['whatsappTemplates'] = $outreachTemplate::withoutGlobalScopes()
+            $fetchWhatsappTemplates = fn () => $outreachTemplate::withoutGlobalScopes()
                 ->where('agency_id', $prospectingAgencyId)
                 ->where('channel', $outreachTemplate::CHANNEL_WHATSAPP)
                 ->whereNull('deleted_at')
@@ -225,6 +225,20 @@ class SettingsController extends Controller
                 ->orderByDesc('is_active')
                 ->orderBy('name')
                 ->get();
+
+            $data['whatsappTemplates'] = $fetchWhatsappTemplates();
+
+            // Backfill: any agency that reaches this page with zero WhatsApp
+            // templates (every agency but HFC, before this fix) gets HFC's
+            // starter template cloned in — see SellerOutreachTemplateDefaultsService.
+            // Gated on the fetch above being empty rather than a separate
+            // exists() check, so an already-seeded agency (the steady-state
+            // case, forever) pays no extra query on this hot settings page.
+            if ($data['whatsappTemplates']->isEmpty()) {
+                app(\App\Services\SellerOutreach\SellerOutreachTemplateDefaultsService::class)
+                    ->ensureDefaults($prospectingAgencyId, $user->id);
+                $data['whatsappTemplates'] = $fetchWhatsappTemplates();
+            }
             $data['emailTemplates'] = $outreachTemplate::withoutGlobalScopes()
                 ->where('agency_id', $prospectingAgencyId)
                 ->where('channel', $outreachTemplate::CHANNEL_EMAIL)
