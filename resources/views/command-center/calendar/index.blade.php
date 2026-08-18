@@ -2296,11 +2296,14 @@
             </button>
         </template>
 
-        {{-- AT-111 — Viewing pack ↔ appointment. Linked pack → Open + (when prepared)
-             download buttons, straight from the event. No pack yet → launch one from
-             this appointment (schedule-now-prep-later). Gated to supports_viewing_pack
-             (viewing events only, 2026-08-18) — was ungated, so ANY editable event
-             (a meeting, a listing presentation, …) offered "Create viewing pack". --}}
+        {{-- AT-111 — Viewing pack ↔ appointment. Both buttons show together on a
+             viewing (Johan, 2026-08-18 revision): "Download viewing pack" appears
+             only once a pack exists for this event; "Create viewing pack" stays
+             available regardless, so an agent can start an ADDITIONAL pack (e.g.
+             a re-run after the property list changed) — not a create-vs-download
+             toggle. Both gated to supports_viewing_pack (viewing events only) —
+             was ungated, so ANY editable event (a meeting, a listing
+             presentation, …) offered "Create viewing pack". --}}
         <template x-if="panelData.linked_viewing_pack && panelData.supports_viewing_pack">
             <span class="inline-flex items-center gap-4">
                 <a :href="panelData.linked_viewing_pack.url"
@@ -2327,7 +2330,7 @@
                 </template>
             </span>
         </template>
-        <template x-if="!panelData.linked_viewing_pack && panelData.is_editable && panelData.supports_viewing_pack">
+        <template x-if="panelData.is_editable && panelData.supports_viewing_pack">
             <form :action="panelData.viewing_pack_launch_url" method="POST" class="inline">
                 @csrf
                 <button type="submit"
