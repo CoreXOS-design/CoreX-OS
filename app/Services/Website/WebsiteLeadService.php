@@ -161,7 +161,12 @@ class WebsiteLeadService
             return [$existing, true, $existing->created_by_user_id];
         }
 
-        $buyerTypeId = ContactType::query()->where('name', 'Buyer')->value('id')
+        // Type follows the enquired listing's market (2026-08-18) — a rental
+        // enquiry must land as a Tenant, not a Buyer. Was hardcoded to
+        // 'Buyer' unconditionally (same defect as P24LeadService).
+        $isRental = $listing?->listing_type === 'rental';
+        $contactTypeId = ContactType::query()->where('name', $isRental ? 'Tenant' : 'Buyer')->value('id')
+                    ?? ContactType::query()->where('name', 'Buyer')->value('id')
                     ?? ContactType::query()->where('name', 'Lead')->value('id');
 
         // "Website" contact source is per-agency (contact_sources is tenant-scoped);
@@ -173,13 +178,13 @@ class WebsiteLeadService
 
         [$first, $last] = $this->splitName($name);
 
-        $contact = DB::transaction(function () use ($agencyId, $first, $last, $email, $phone, $buyerTypeId, $sourceId, $listingAgentId, $listing) {
+        $contact = DB::transaction(function () use ($agencyId, $first, $last, $email, $phone, $contactTypeId, $sourceId, $listingAgentId, $listing) {
             $c = new Contact([
                 'first_name'         => $first,
                 'last_name'          => $last,
                 'email'              => $email,
                 'phone'              => $phone,
-                'contact_type_id'    => $buyerTypeId,
+                'contact_type_id'    => $contactTypeId,
                 'contact_source_id'  => $sourceId,
                 'created_by_user_id' => $listingAgentId,
                 'agency_id'          => $agencyId,

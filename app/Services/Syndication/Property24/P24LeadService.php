@@ -320,20 +320,28 @@ class P24LeadService
             return [$existing, true, $existing->created_by_user_id];
         }
 
-        // Create new buyer contact assigned to the listing agent.
-        $buyerTypeId = ContactType::query()->where('name', 'Buyer')->value('id')
+        // Create new contact assigned to the listing agent. Type follows the
+        // enquired listing's market (2026-08-18) — a rental enquiry must land
+        // as a Tenant, not a Buyer. Was hardcoded to 'Buyer' unconditionally,
+        // so every P24 rental lead that created a NEW contact came in typed
+        // (and is_buyer-flagged via seedBuyerFromLead below) as a sale buyer.
+        // Scope check on live: 118 of 119 rental-listing leads affected.
+        $isRental = $listingId && Property::query()->withoutGlobalScopes()
+            ->where('id', $listingId)->value('listing_type') === 'rental';
+        $contactTypeId = ContactType::query()->where('name', $isRental ? 'Tenant' : 'Buyer')->value('id')
+                    ?? ContactType::query()->where('name', 'Buyer')->value('id')
                     ?? ContactType::query()->where('name', 'Lead')->value('id');
         $sourceId    = ContactSource::query()->where('name', 'Property24')->value('id');
 
         [$first, $last] = $this->splitName($name);
 
-        $contact = DB::transaction(function () use ($agencyId, $first, $last, $email, $phone, $buyerTypeId, $sourceId, $listingAgentId, $listingId) {
+        $contact = DB::transaction(function () use ($agencyId, $first, $last, $email, $phone, $contactTypeId, $sourceId, $listingAgentId, $listingId) {
             $c = new Contact([
                 'first_name'         => $first,
                 'last_name'          => $last,
                 'email'              => $email,
                 'phone'              => $phone,
-                'contact_type_id'    => $buyerTypeId,
+                'contact_type_id'    => $contactTypeId,
                 'contact_source_id'  => $sourceId,
                 'created_by_user_id' => $listingAgentId,
                 'agency_id'          => $agencyId,
