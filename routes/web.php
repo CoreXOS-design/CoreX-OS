@@ -157,6 +157,9 @@ Route::get('/data-deletion', [\App\Http\Controllers\Public\LegalController::clas
 Route::get('/support', [\App\Http\Controllers\Public\LegalController::class, 'support'])
     ->middleware('throttle:60,1')
     ->name('public.support');
+Route::get('/terms', [\App\Http\Controllers\Public\LegalController::class, 'terms'])
+    ->middleware('throttle:60,1')
+    ->name('public.terms');
 
 Route::post('/m/{shortcode}/callback', [\App\Http\Controllers\SellerOutreach\PublicLandingController::class, 'callback'])
     ->where('shortcode', '[A-Za-z0-9]{6}')

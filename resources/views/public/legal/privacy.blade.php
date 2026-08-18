@@ -5,19 +5,21 @@
 @section('legal-body')
     <p>
         This Privacy Policy explains how <strong>CoreX OS</strong> ("CoreX", "we", "us"),
-        the real-estate operating system operated by <strong>Home Finders Coastal</strong>,
-        collects, uses, stores and protects your information. It is provided in line with
-        the South African <strong>Protection of Personal Information Act (POPIA)</strong> and
-        applies to all users of CoreX, including estate agents and agencies who connect their
-        social-media accounts to CoreX.
+        the real-estate operating system owned and operated by
+        <strong>R R Technologies (Pty) Ltd</strong>, collects, uses, stores and protects your
+        information. It is provided in line with the South African
+        <strong>Protection of Personal Information Act (POPIA)</strong> and applies to all users
+        of CoreX, including estate agents and agencies who use CoreX and connect their
+        social-media accounts to it.
     </p>
 
     <h2>1. Who we are</h2>
     <p>
-        CoreX OS is software used by real-estate agencies to manage properties, contacts,
-        deals and marketing. The responsible party (data controller) for personal information
-        processed through CoreX is Home Finders Coastal. For any privacy query you can reach us
-        at <a href="mailto:{{ $contactEmail }}">{{ $contactEmail }}</a>.
+        CoreX OS is software owned and operated by <strong>R R Technologies (Pty) Ltd</strong>,
+        used by real-estate agencies to manage properties, contacts, deals and marketing.
+        The responsible party (data controller) for personal
+        information processed through CoreX is R R Technologies (Pty) Ltd. For any privacy query
+        you can reach us at <a href="mailto:{{ $contactEmail }}">{{ $contactEmail }}</a>.
     </p>
     <p>
         <strong>Registered company details:</strong> [TODO — company registration number,
