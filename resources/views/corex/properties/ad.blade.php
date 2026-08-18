@@ -71,15 +71,43 @@
         // Full property photo gallery for the "change photo" picker (generator step).
         // adSafeImageUrl → host-relative "/storage/…" so a swapped image stays
         // same-origin and html2canvas can still read it into the exported PNG.
-        $galleryImages = array_values(array_filter(array_map(
-            fn ($u) => \App\Models\Property::adSafeImageUrl($u),
+        // $galleryThumbs is the SAME list run through thumbFor() first — the
+        // modal grid displays these (small, fast) while chooseImage() still
+        // receives the full-res $galleryImages URL, since that's what actually
+        // gets rendered into the template/exported PNG. Built as one pass over
+        // paired [full, thumb] so the two arrays can never drift out of index
+        // alignment (independent array_filter calls could filter differently).
+        $galleryPairs = array_values(array_filter(array_map(
+            function ($u) use ($property) {
+                $full = \App\Models\Property::adSafeImageUrl($u);
+                if ($full === null) {
+                    return null;
+                }
+                return [
+                    'full'  => $full,
+                    'thumb' => \App\Models\Property::adSafeImageUrl($property->thumbFor($u)) ?? $full,
+                ];
+            },
             $property->allImages(),
         )));
+        $galleryImages = array_column($galleryPairs, 'full');
+        $galleryThumbs = array_column($galleryPairs, 'thumb');
         $img1 = $propertyData['image_1'] ?? null;
         $img2 = $propertyData['image_2'] ?? null;
         $img3 = $propertyData['image_3'] ?? null;
         $img4 = $propertyData['image_4'] ?? null;
         $img5 = $propertyData['image_5'] ?? null;
+        // Thumbnail variants — used ONLY by the picker-card previews below (each
+        // pre-built template is rendered at real 1200x628 size then CSS-scaled to
+        // a ~320px card, so a full-res 1-3MB photo was being fetched per template
+        // for a preview shown at 27% scale). The actual generate step (the real
+        // working canvas + exported PNG) keeps using $img1..$img5 (full-res)
+        // untouched — this override is passed to that @include call only.
+        $img1Thumb = $property->thumbFor($img1);
+        $img2Thumb = $property->thumbFor($img2);
+        $img3Thumb = $property->thumbFor($img3);
+        $img4Thumb = $property->thumbFor($img4);
+        $img5Thumb = $property->thumbFor($img5);
         $agent      = $property->agent;
         $initial    = strtoupper(substr($agent?->name ?? 'A', 0, 1));
         $agentName  = strtoupper($agent?->name ?? '');
@@ -178,7 +206,7 @@
         .ad-gallery-thumb .ad-current-tag { position: absolute; top: 6px; left: 6px; font-size: 9px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: #fff; background: var(--brand-button,#00b4d8); padding: 3px 7px; border-radius: 5px; }
     </style>
 </head>
-<body x-data="adApp({{ Js::from($savedTemplates) }}, {{ Js::from($propertyData) }}, {{ Js::from(['listing' => $listingAgentCard, 'co' => $coAgentCard]) }}, {{ Js::from($galleryImages) }})">
+<body x-data="adApp({{ Js::from($savedTemplates) }}, {{ Js::from($propertyData) }}, {{ Js::from(['listing' => $listingAgentCard, 'co' => $coAgentCard]) }}, {{ Js::from($galleryImages) }}, {{ Js::from($galleryThumbs) }})">
 
 {{-- ═══ BRANDED HEADER (UI_DESIGN_SYSTEM.md §2.4 Pattern A) — full width ═══ --}}
 <header style="background:var(--brand-default,#0b2a4a);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;">
@@ -281,7 +309,11 @@
         <div class="tpl-card" x-show="matchesSearch(@js(strtolower($tplDef['name'].' '.$tplDef['desc'].' '.$tplDef['tags'])))" @click="selectTemplate('{{ $tplDef['key'] }}')">
             <div class="tpl-thumb" style="width:100%; aspect-ratio:1200/628; overflow:hidden; position:relative; background:#071325;">
                 <div class="tpl-thumb-inner" style="position:absolute;top:0;left:0;width:1200px;height:628px;transform-origin:top left;transform:scale(0.2667);">
-                    @include('corex.properties._ad-templates', ['tpl' => $tplDef['key'], 'baseFontPx' => 16])
+                    @include('corex.properties._ad-templates', [
+                        'tpl' => $tplDef['key'], 'baseFontPx' => 16,
+                        'img1' => $img1Thumb, 'img2' => $img2Thumb, 'img3' => $img3Thumb,
+                        'img4' => $img4Thumb, 'img5' => $img5Thumb,
+                    ])
                 </div>
             </div>
             <div style="padding:18px 20px 22px;">
@@ -522,7 +554,7 @@
                 <div class="ad-gallery-grid">
                     <template x-for="(url, i) in galleryImages" :key="i">
                         <div class="ad-gallery-thumb" :class="{ current: url === picker.currentSrc }" @click="chooseImage(url)">
-                            <img :src="url" alt="" loading="lazy">
+                            <img :src="galleryThumbs[i] || url" alt="" loading="lazy">
                             <span class="ad-current-tag" x-show="url === picker.currentSrc">In use</span>
                         </div>
                     </template>
@@ -554,7 +586,7 @@ const PREBUILT_SEARCH = @json(collect($prebuilt)->map(fn($t) => strtolower($t['n
 // (public/js/corex-ad-render.js) — the one the Ad Builder previews with. Nothing about
 // how an element looks is decided in this file any more.
 
-function adApp(savedTemplates, propertyData, agentCfg, galleryImages) {
+function adApp(savedTemplates, propertyData, agentCfg, galleryImages, galleryThumbs) {
     agentCfg = agentCfg || { listing: null, co: null };
     // Kept OUT of Alpine's reactive object on purpose: a live DOM node (the image
     // being edited) and the per-custom-element image overrides. Wrapping a DOM
@@ -587,7 +619,10 @@ function adApp(savedTemplates, propertyData, agentCfg, galleryImages) {
         savedTemplates: savedTemplates || [],
         propertyData: propertyData || {},
         // Full property photo gallery + "change photo" picker modal state.
+        // galleryThumbs is index-aligned with galleryImages (small preview vs
+        // the full-res URL chooseImage() actually applies to the template).
         galleryImages: galleryImages || [],
+        galleryThumbs: galleryThumbs || [],
         picker: { open: false, currentSrc: '', canReset: false },
         _customLayout: null,
         _customTemplateId: null,

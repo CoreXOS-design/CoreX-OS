@@ -300,14 +300,12 @@ class PropertyWizardController extends Controller
             'gallery_images.*.max'    => 'One or more photos is larger than the 200MB limit.',
         ]);
 
-        $newUrls = [];
-        $thumbs  = app(\App\Services\Images\PropertyThumbnailService::class);
-        foreach ($request->file('gallery_images', []) as $file) {
-            $path      = $file->store("properties/{$property->id}", 'public');
-            $url       = Storage::url($path);
-            $thumbs->generateForUrl($url);   // list-view thumbnail; original untouched
-            $newUrls[] = $url;
-        }
+        // Canonical store+downscale+thumbnail, same as the web gallery upload
+        // (PropertyController::uploadImages) — this path used to store the raw
+        // upload untouched (no downscale), so a wizard-uploaded photo could be
+        // several MB while the main gallery upload's photos were capped at 2560px.
+        $storer  = app(\App\Services\Images\PropertyImageStorer::class);
+        $newUrls = $storer->storeMany($request->file('gallery_images', []), $property->id);
 
         $existing = $property->gallery_images_json ?? [];
         $property->update([

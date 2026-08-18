@@ -707,9 +707,17 @@ class MobilePropertyController extends Controller
         app(\App\Services\Images\ImageOrientationNormalizer::class)
             ->normalizeInPlace(Storage::disk('public')->path($path));
 
+        // Downscale to the same 2560px web-size cap the main gallery upload
+        // (PropertyController::uploadImages, via PropertyImageStorer::store)
+        // already applies — this path used to skip it entirely, so a mobile
+        // upload could stay several MB while a web upload of the same photo
+        // would have been capped. Mirrors PropertyImageStorer::store()'s own
+        // ordering (EXIF-normalize, then downscale, then thumbnail).
+        app(\App\Services\Images\PropertyImageStorer::class)->downscale($path);
+
         $url = Storage::url($path);
 
-        // List-view thumbnail (now generated from the upright original).
+        // List-view thumbnail (now generated from the upright, downscaled original).
         app(\App\Services\Images\PropertyThumbnailService::class)->generateForUrl($url);
 
         // Serialise the gallery mutation on the property row. The gallery lives in
