@@ -6,12 +6,15 @@ namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
+use App\Models\P24Suburb;
 use App\Models\Prospecting\TrackedProperty;
 use App\Models\Prospecting\TvaContactCapture;
+use App\Models\PropertyNote;
 use App\Services\ContactDuplicateService;
 use App\Services\Contacts\ContactIdentifierService;
 use App\Services\Prospecting\TrackedPropertyMatchOrCreateService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -239,14 +242,14 @@ final class DeedsCaptureController extends Controller
         // Deeds-specific field mapping (2026-08-12) — promoteToStock()'s own
         // defaults are shared with the general MIC/prospecting promotion path
         // (TrackedPropertyController), so the deeds-only fields (scheme/
-        // section, cadastral extent, a real address string, a price fallback)
-        // are built HERE, as overrides, rather than changed in the shared
-        // method. Was previously passing ONLY title_deed_number, so every
-        // other field silently fell through to promoteToStock()'s generic
-        // defaults — for a sectional-title deeds capture with no street
-        // address, that default composed from street_number/street_name
-        // alone, which are never populated by CMA, so it fell back to an
-        // effectively-empty address/title and a R0 price.
+        // section, cadastral extent, a real address string) are built HERE,
+        // as overrides, rather than changed in the shared method. Was
+        // previously passing ONLY title_deed_number, so every other field
+        // silently fell through to promoteToStock()'s generic defaults — for
+        // a sectional-title deeds capture with no street address, that
+        // default composed from street_number/street_name alone, which are
+        // never populated by CMA, so it fell back to an effectively-empty
+        // address/title.
         // NOTE: 'address' is deliberately NOT set here — PropertyObserver::saving()
         // always recomputes it from unit_number/complex_name/street via
         // composeAddressFromParts() and silently overwrites any value passed to
@@ -254,23 +257,88 @@ final class DeedsCaptureController extends Controller
         // rule). Setting complex_name/unit_number below is what actually
         // controls the real address; a redundant 'address' override here would
         // just be discarded and mislead a future reader.
+
+        // Garbage-placeholder guard (2026-08-18) — mirrors index.blade.php's
+        // proven $hasRealSection/$isSectional check (2026-08-14, CONFIRMED
+        // live on 56 Avenue Svea / 53 Broadway / this capture's own property
+        // 6100): the extension sometimes leaks the source page's placeholder
+        // LABEL text ("Flat number") into section_number when the field was
+        // genuinely empty on a FREEHOLD record — no scheme_name is present,
+        // so this is not the complex→freehold state-bleed v3.4.0 fixed
+        // (Skippers/Section 3 carrying into an unrelated freehold), it's a
+        // separate empty-field-scrapes-as-placeholder defect. A bare
+        // truthiness check on section_number mislabels the property as
+        // sectional and corrupts unit_number/address with the placeholder
+        // string, so every promote-side use of section_number below is
+        // gated on $hasRealSection, never raw truthiness.
+        $hasRealSection = filled($trackedProperty->section_number) && preg_match('/\d/', (string) $trackedProperty->section_number);
+        $isSectional = filled($trackedProperty->complex_name)
+            || filled($trackedProperty->scheme_name)
+            || filled($trackedProperty->scheme_number)
+            || $hasRealSection;
+
         $displayAddress = implode(', ', array_filter([
             $trackedProperty->complex_name,
-            $trackedProperty->section_number ? ('Section ' . $trackedProperty->section_number) : null,
+            $hasRealSection ? ('Section ' . $trackedProperty->section_number) : null,
             $trackedProperty->suburb,
         ])) ?: $trackedProperty->displayAddress();
 
-        $property = $matcher->promoteToStock($trackedProperty->id, (int) $user->id, array_filter([
+        // Suburb → town resolution (2026-08-18) — a deeds capture's raw `town`
+        // is the district MUNICIPALITY (e.g. "Ray Nkonyeni"), not the actual
+        // town an agent/buyer recognises ("Margate"). Resolve the real town +
+        // the P24 suburb/city FK chain the rest of the app relies on (map
+        // pins, portal sync, matching) via the same p24_suburbs table
+        // AppliesP24Location trusts. Soft — never blocks promotion; when the
+        // captured suburb text doesn't match a known P24 suburb, the raw town
+        // is kept and p24_suburb_mismatch is flagged for the nightly
+        // SyncP24Locations/ReconcileP24Suburbs reconcile to pick up later.
+        $p24Suburb = $trackedProperty->suburb ? P24Suburb::lookup($trackedProperty->suburb) : null;
+        $p24City = $p24Suburb?->city;
+
+        $overrides = array_filter([
             'title_deed_number' => $trackedProperty->title_deed_number,
             'title'             => $displayAddress,
             'complex_name'      => $trackedProperty->complex_name,   // = CMA scheme name
-            'unit_number'       => $trackedProperty->section_number, // = CMA section number
             'erf_size_m2'       => $trackedProperty->cadastral_extent,
-            // No "asking price" concept on a deeds capture — the last known
-            // SOLD price is the only real price signal available; falls back
-            // to promoteToStock()'s own 0-default when there isn't one.
-            'price'             => $trackedProperty->last_known_sold_price,
-        ], static fn ($v) => $v !== null && $v !== ''));
+            'size_m2'           => $trackedProperty->floor_size_m2,  // unit/floor size — was never mapped
+            'town'              => $p24City?->name ?? $trackedProperty->town,
+            'city'              => $p24City?->name,
+            'p24_suburb_id'     => $p24Suburb?->id,
+            'p24_city_id'       => $p24Suburb?->p24_city_id,
+        ], static fn ($v) => $v !== null && $v !== '');
+
+        // Always-set overrides — must win even when "empty", so
+        // promoteToStock()'s own defaults (which re-derive from these SAME
+        // raw tracked_property fields) can never reintroduce the garbage
+        // these overrides exist to strip. array_filter above would drop a
+        // null/false value and let that fallthrough happen.
+        $overrides['unit_number']         = $hasRealSection ? $trackedProperty->section_number : null; // = CMA section number, garbage-guarded
+        $overrides['property_type']       = $isSectional ? 'Apartment / Flat' : 'House'; // derived from structural signal — raw captured value is only ever '-' or 'Residence', never a real type
+        $overrides['p24_suburb_mismatch'] = $p24City === null;
+
+        // No "asking price" concept on a deeds capture — Johan (2026-08-18):
+        // "we cannot prefill the price - remove that... if anything, save it
+        // on the logs or notes but not as the price." Was:
+        // 'price' => $trackedProperty->last_known_sold_price, which silently
+        // prefilled the SELLING price with a stale HISTORICAL sale price
+        // (property 6100: R420,000 from 2008-08-28). Falls through to
+        // promoteToStock()'s own 0-default; the sale price is logged as a
+        // PropertyNote below instead.
+        $property = $matcher->promoteToStock($trackedProperty->id, (int) $user->id, $overrides);
+
+        if ($trackedProperty->last_known_sold_price) {
+            PropertyNote::create([
+                'agency_id'   => $agencyId,
+                'property_id' => $property->id,
+                'user_id'     => $user->id,
+                'content'     => 'Last sale price (deeds history): R'
+                    . number_format((float) $trackedProperty->last_known_sold_price, 0, '.', ',')
+                    . ($trackedProperty->last_known_sold_date
+                        ? ' on ' . Carbon::parse($trackedProperty->last_known_sold_date)->format('Y-m-d')
+                        : '')
+                    . '. Not the current asking price.',
+            ]);
+        }
 
         // Link EVERY captured owner as the property's OWNER (contact_property
         // role='owner') — multi-owner support (2026-08-12), was only linking

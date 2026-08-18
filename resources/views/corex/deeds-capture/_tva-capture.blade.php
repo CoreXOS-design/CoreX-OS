@@ -79,8 +79,19 @@
             </tbody>
         </table>
 
+        {{-- Label as a link-through, not a bare "ingest" (Johan, 2026-08-18):
+             the button now names the destination contact so it reads as
+             navigation to a result, not an opaque data operation. Same
+             submit/action underneath — nothing about ingestTva() changes.
+             Js::from() (established pattern, see x-data above) so a name
+             with a quote/apostrophe can never break the enclosing JS
+             string. --}}
         <button type="submit" class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background: var(--brand-button, #0ea5e9);">
-            Ingest ticked
+            <span x-text="
+                target === 'matched'
+                    ? ('Ingest → ' + {{ Js::from($capture->matchedContact ? trim($capture->matchedContact->first_name . ' ' . $capture->matchedContact->last_name) : 'contact') }})
+                    : (target === 'existing' && picked ? ('Ingest → ' + (picked.label || picked.name)) : 'Ingest → new contact')
+            "></span>
         </button>
     </form>
 
