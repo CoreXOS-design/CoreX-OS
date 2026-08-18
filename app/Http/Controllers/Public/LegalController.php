@@ -28,6 +28,14 @@ final class LegalController extends Controller
         ]);
     }
 
+    public function terms()
+    {
+        return view('public.legal.terms', [
+            'contactEmail' => self::CONTACT_EMAIL,
+            'lastUpdated'  => '18 August 2026',
+        ]);
+    }
+
     public function dataDeletion()
     {
         return view('public.legal.data-deletion', [
