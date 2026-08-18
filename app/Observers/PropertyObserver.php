@@ -566,6 +566,12 @@ class PropertyObserver
                         // PP de-list is skipped for sold here; SyncPpListingStatusJob (dispatched above)
                         // pushes 'Sold'. Withdrawn/expired/etc. still de-list PP; mandate-expiry still removes.
                         keepPpForSold: true,
+                        // Property #6099 (2026-08-18) — a sold status change keeps the listing on P24 as
+                        // 'Sold' too (pushed synchronously below, in this same save). Without this, the
+                        // queued job's P24 step raced that push with a hard 'Withdrawn' and instantly
+                        // delisted a listing that should have stayed live ~1 week as sold stock.
+                        // Withdrawn/expired/etc. still de-list P24; mandate-expiry still removes.
+                        keepP24ForSold: true,
                     );
                 }
             } catch (\Throwable $e) {

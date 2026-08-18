@@ -30,7 +30,9 @@ use Illuminate\Support\Facades\Log;
  * P24 status on a manual change is set per-status by PropertyObserver's own
  * status-sync (Sold/Withdrawn/Expired…); this job's P24 step is the safety net
  * that catches anything that path missed (guard skips an already-deactivated
- * row, so the two never conflict).
+ * row). A plain sold status change also opts into $keepP24ForSold so this
+ * safety net can't race the status-sync's own 'Sold' push with a hard
+ * 'Withdrawn' — see AT-282-style guard on delistProperty24() below.
  *
  * A dedicated Job (rather than a queued listener) is used because the
  * MandateExpired domain event's readonly properties cannot be restored by
@@ -58,6 +60,12 @@ class DesyndicatePropertyFromPortalsJob implements ShouldQueue
         // 'Sold' (set by SyncPpListingStatusJob) instead of being de-listed. Default false so the
         // mandate-expiry / manual-delist callers still remove PP even for a sold listing.
         public readonly bool $keepPpForSold = false,
+        // P24 equivalent of $keepPpForSold, added after property #6099 (2026-08-18): a plain SOLD
+        // status change dispatches this job in the SAME request as PropertyObserver's synchronous
+        // 'Sold' push. Without this guard the queued job's delistProperty24() ran a moment later and
+        // sent a hard 'Withdrawn', instantly pulling a listing that should have stayed live ~1 week
+        // as sold stock. Default false so mandate-expiry / manual-delist callers still remove P24.
+        public readonly bool $keepP24ForSold = false,
     ) {
     }
 
@@ -102,6 +110,17 @@ class DesyndicatePropertyFromPortalsJob implements ShouldQueue
     private function delistProperty24(Property $property, array &$failures): void
     {
         if (! $property->mayBeLiveOnP24()) {
+            return;
+        }
+
+        // Mirrors the PP guard above — a SOLD listing stays on P24 as 'Sold' (pushed
+        // synchronously by PropertyObserver's status-sync), so this safety net must
+        // NOT also fire a delisting 'Withdrawn' for the same status change. Only
+        // skips when the caller opted in (the observer's off-market dispatch);
+        // mandate-expiry / manual delist still remove a sold listing from P24.
+        if ($this->keepP24ForSold
+            && \App\Services\Syndication\ListingLifecycle::resolve($property->status, $property->status_label)
+                === \App\Services\Syndication\ListingLifecycle::SOLD) {
             return;
         }
 
