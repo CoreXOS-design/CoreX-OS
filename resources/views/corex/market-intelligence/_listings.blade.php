@@ -184,16 +184,26 @@
 
     {{-- Row stack --}}
     @if($listings->isEmpty())
-        <div style="text-align: center; padding: 64px 24px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px;">
-            <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-muted); margin-bottom: 12px;">
-                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-            </svg>
-            <h3 style="font-size: 1rem; font-weight: 600; color: var(--text-primary); margin-bottom: 4px;">No listings match your filters</h3>
-            <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 12px;">Try widening your search or clearing some filters.</p>
-            <a href="{{ route('market-intelligence.work') }}" class="corex-btn-primary">
-                Clear filters
-            </a>
-        </div>
+        @php
+            // Same distinction the legacy Prospecting page already makes
+            // (prospecting/_summary-block.blade.php) but the F.1 redesign left
+            // behind: "no listings" reads very differently for a brand-new
+            // agency with zero data (needs Prospecting Setup, not "clear your
+            // filters" — a message that makes no sense when nothing was ever
+            // filtered) than for an agent who has genuinely filtered down to
+            // nothing. Same filter-key list _empty-state.blade.php itself uses.
+            $_micFilterKeys = ['town_id', 'property_type_slug', 'bedroom_segment_id', 'price_band_id', 'buyer_state', 'buyers_since', 'unmapped_only', 'sources', 'suburb_normalised', 'buyer_id'];
+            $_micHasFilters = collect($_micFilterKeys)->contains(fn ($k) => request()->filled($k));
+        @endphp
+        @if($_micHasFilters)
+            @include('prospecting._empty-state', [
+                'kind'       => 'filtered_to_zero',
+                'filters'    => request()->only($_micFilterKeys),
+                'urlWithout' => fn (string $k) => route('market-intelligence.work', request()->except([$k, 'page'])),
+            ])
+        @else
+            @include('prospecting._empty-state', ['kind' => 'no_data'])
+        @endif
     @else
         @if(!empty($selectedBuyer))
             @php

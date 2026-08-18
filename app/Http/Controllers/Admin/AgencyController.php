@@ -165,6 +165,13 @@ class AgencyController extends Controller
                 'agency_id' => $agency->id,
             ]));
 
+            // This was never actually set here despite AT-378 guaranteeing every
+            // agency a first branch — every branch-context fallback that reads
+            // agencies.default_branch_id (e.g. SellerOutreach\EntryPointController
+            // ::resolveBranchId()) had nothing to land on for an agency created
+            // through this form until now.
+            $agency->update(['default_branch_id' => $branch->id]);
+
             if ($adminPayload) {
                 // withoutAgencyStamping: the creating owner may have an
                 // unrelated Agency Switcher session active (session
@@ -256,6 +263,26 @@ class AgencyController extends Controller
         $msg = $isDemo
             ? "Demo agency \"{$data['name']}\" created (no Admin required)."
             : "Agency \"{$data['name']}\" created. A password-setup email has been sent to {$adminPayload['email']}.";
+
+        // Market Intelligence (the daily canvassing-pool workspace) has no
+        // data of its own to show until Prospecting Setup — towns, suburbs,
+        // property types, price bands — is configured for THIS agency; none
+        // of that can be auto-cloned the way the WhatsApp template default
+        // is, since it's genuinely region/business-specific. Left alone, a
+        // new agency's admin opens Market Intelligence to a page with
+        // nothing on it and no obvious next step. So the creator (who is
+        // rarely a member of the agency they just made — session
+        // active_agency_id gives them the same cross-agency context the
+        // Agency Switcher uses, per AgencySwitcherController::switch())
+        // goes straight into Prospecting Setup for the new agency instead
+        // of back to the agency list. Demo agencies skip this — they're
+        // sandboxes, not a real agent's first day.
+        if (!$isDemo) {
+            session(['active_agency_id' => $agency->id]);
+
+            return redirect()->route('settings.prospecting.index')
+                ->with('success', $msg . ' Now set up Market Intelligence (towns, suburbs, price bands) so it isn\'t blank for their first agent.');
+        }
 
         return redirect()->route('agencies.index')->with('success', $msg);
     }
