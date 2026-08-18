@@ -907,8 +907,27 @@
    * consume every token after the first (no base surname word to anchor on)
    * — captured raw rather than guessed, per Johan's instruction.
    */
+  // v3.4.1 (2026-08-18, cc1 handoff — HANDOFF-cc5-deeds-name-share-parse-
+  // 20260818.md, Johan repro: staging contact 16399 rendered as "50%").
+  // cmainfo's "Owner" cell is surname-first with the ownership share
+  // appended per owner ("EADY ROGER GRAEME 50%") — there is no separate
+  // share column (SALE_INFORMATION_LABELS only has owner/owner_id_number).
+  // Left in the token stream, "50%" both (a) pollutes first_names
+  // ("Roger Graeme 50%") and (b) defeats the compound-surname prefix
+  // walk-back just below — it starts scanning from the LAST token, hits
+  // "50%" (not a prefix word), and stops immediately, so "RUIT DOUGLAS
+  // PETER VAN DER 50%" resolves to surname="Ruit" instead of "Van Der
+  // Ruit". Strip trailing share tokens BEFORE the walk-back runs so both
+  // are fixed by the same change. Share is discarded, not stored — the
+  // server has no share field today (a possible follow-up if Johan wants
+  // it kept structured; never belongs in a name field regardless).
+  const OWNERSHIP_SHARE_TOKEN = /^(\d{1,3}([.,]\d+)?%|\d+\/\d+)$/; // 50% 100% 50.00% 1/2 3/4
+
   function parsePersonName(raw) {
     const tokens = String(raw || '').trim().split(/\s+/).filter(Boolean);
+    while (tokens.length > 1 && OWNERSHIP_SHARE_TOKEN.test(tokens[tokens.length - 1])) {
+      tokens.pop();
+    }
     if (tokens.length === 0) {
       return { surname: null, first_names: null, confident: false };
     }
