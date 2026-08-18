@@ -597,6 +597,7 @@ final class SellerOutreachComposerService
             ->where('contact_id', $contact->id)
             ->whereNull('deleted_at')
             ->where('outcome', '!=', SellerOutreachSend::OUTCOME_NOT_SENT)
+            ->whereNotNull('outcome_set_at') // AT-323 — only a pitch the agent explicitly confirmed via the Yes/No modal counts; an unconfirmed optimistic 'sent' must never start the cooldown
             ->where('sent_at', '>=', now()->subDays(7))
             ->latest('sent_at')
             ->first();
