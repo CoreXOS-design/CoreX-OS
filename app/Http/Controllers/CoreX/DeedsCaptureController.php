@@ -36,7 +36,19 @@ final class DeedsCaptureController extends Controller
             ->with(['ownerContact', 'owners.contact'])
             ->where('agency_id', $agencyId)
             ->whereNull('deleted_at')
-            ->where('capture_kind', 'deeds_capture')
+            // DEEDS BUG 1 fix (2026-08-19) — surface on the EVENT marker
+            // (deeds_captured_at IS NOT NULL), not just the pipeline
+            // classification (capture_kind='deeds_capture'). capture_kind is
+            // deliberately left alone by a deeds capture that lands on an
+            // EXISTING prospecting/P24 lead (so the lead stays in MIC
+            // Opportunities), but the capture itself must still show here —
+            // otherwise it silently vanishes. Either signal is enough:
+            // capture_kind alone still catches historical rows captured
+            // before deeds_captured_at existed and never re-captured since.
+            ->where(function ($q) {
+                $q->where('capture_kind', 'deeds_capture')
+                    ->orWhereNotNull('deeds_captured_at');
+            })
             ->whereNull('promoted_to_property_id')   // un-promoted only
             // PITCHED-state (Johan 2026-08-14) — this is a SUSPENSE screen, not a deed-import host.
             // Drop deeds already CONSUMED by a worked (PITCHED) item, via EITHER signal:

@@ -59,6 +59,9 @@ final class TrackedProperty extends Model
         // CMA / deeds capture (phase 1)
         'capture_kind', 'deeds_office', 'scheme_name', 'scheme_number', 'section_number',
         'bond_holder', 'bond_amount', 'sale_type', 'deeds_registered_date',
+        // DEEDS BUG 1 fix — the deeds-capture EVENT marker, stamped on every
+        // deeds capture (created or existing), independent of capture_kind.
+        'deeds_captured_at',
     ];
 
     protected $casts = [
@@ -84,6 +87,7 @@ final class TrackedProperty extends Model
         'last_enriched_at'         => 'datetime',
         'bond_amount'              => 'decimal:2',
         'deeds_registered_date'    => 'date',
+        'deeds_captured_at'        => 'datetime',
     ];
 
     protected static function booted(): void

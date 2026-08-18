@@ -91,7 +91,22 @@
                         {{-- Property --}}
                         <div class="min-w-0 flex-1">
                             <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">Property</div>
-                            <div class="font-semibold text-sm" style="color: var(--text-primary);">{{ $headline !== '' ? $headline : ('Tracked property #' . $tp->id) }}</div>
+                            <div class="font-semibold text-sm flex items-center gap-2 flex-wrap" style="color: var(--text-primary);">
+                                {{ $headline !== '' ? $headline : ('Tracked property #' . $tp->id) }}
+                                {{-- DEEDS BUG 1 fix (2026-08-19) — this row is showing on the
+                                     deeds_captured_at marker, not because it's classified as a
+                                     deeds capture (capture_kind='deeds_capture'). It's an EXISTING
+                                     record (a prospecting/P24 lead, or a scheme unit already
+                                     tracked) that a deeds capture just landed on — flag it rather
+                                     than let it look identical to a brand-new deeds capture. --}}
+                                @if($tp->capture_kind !== 'deeds_capture')
+                                    <span class="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded"
+                                          style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 18%, transparent); color: var(--ds-amber, #f59e0b); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 40%, transparent);"
+                                          title="This deed matched a property already tracked from another source — the deed enriched it rather than creating a new record.">
+                                        Already tracked · deed linked
+                                    </span>
+                                @endif
+                            </div>
                             @if($secondaryAddr !== '')
                                 <div class="text-xs mt-1" style="color: var(--text-muted);">{{ $secondaryAddr }}</div>
                             @endif

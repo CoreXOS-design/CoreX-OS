@@ -305,6 +305,20 @@ final class DeedsCaptureController extends Controller
             $tp->capture_kind = 'deeds_capture';
         }
 
+        // DEEDS BUG 1 fix (2026-08-19) — the deeds-capture EVENT marker, stamped
+        // on EVERY deeds capture (created OR existing), independent of the
+        // capture_kind pipeline classification above. Without this, a capture
+        // landing on a property already classified as a prospecting/P24 lead (or
+        // already deeds-captured previously) enriched the TrackedProperty but the
+        // capture_kind guard above never fired — the capture "vanished": the
+        // extension reported success, but nothing appeared on the Deeds Capture
+        // screen. DeedsCaptureController::index() (CoreX, the screen's own
+        // controller) surfaces on deeds_captured_at IS NOT NULL so a re-capture of
+        // an existing lead now shows there too, flagged as existing/linked,
+        // WITHOUT changing capture_kind and therefore without pulling the lead out
+        // of its MIC Opportunities pipeline.
+        $tp->deeds_captured_at = now();
+
         $tp->save();
 
         $this->syncOwners($tp, $resolvedOwners);
