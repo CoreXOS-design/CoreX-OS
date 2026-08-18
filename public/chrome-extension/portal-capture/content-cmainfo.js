@@ -56,6 +56,16 @@
   // buildDeedsCapturePayload() below.
 
   const PROPERTY_INFORMATION_LABELS = [
+    // v3.4.5 (2026-08-19, Johan — architectural rebuild after 3.4.4's
+    // per-field heuristics still failed live SS<->FH captures). LPI Code
+    // (e.g. "N0ET03630000063200000") is cmainfo's own unique per-property
+    // identifier — present on BOTH sectional and freehold properties, unlike
+    // Erf no (freehold-only) or Scheme no (sectional-only). It is now the
+    // authoritative signal for "which property is this extraction actually
+    // reading", replacing the Type-text/Erf-no guessing this file relied on
+    // through 3.4.4 — see waitForPanelIdentityStable() and extractDeed()'s
+    // LPI-transition gate below.
+    ['lpi_code',        'LPI Code'],
     ['deeds_office',    'Deeds Office'],
     ['scheme_no',       'Scheme no'],
     ['scheme_name',     'Scheme name'],
@@ -622,47 +632,72 @@
   // ══════════════════════════════════════════════════════════
 
   // v3.4.4 (2026-08-19, Johan — live repro: 62 Bairn Street captured with
-  // Address = "20 Lilliecrona Drive", the PREVIOUS capture's address, while
-  // Erf no/Title Deed/Sale Price/Owner all read correctly for Bairn Street.
-  // Ruled out: no module-level address cache exists (grepped — none), and
-  // Erf no is extracted via the exact same extractByLabelMap/findValueByLabel
-  // call, against the exact same panel, in the same pass — so this isn't a
-  // whole-panel timing race either (domIsSettled()/sectionHasPopulatedValues()
-  // already cover that class of bug, and both fields sit in the same panel
-  // read at the same moment). What's left, matching the ONLY hypothesis that
-  // fits "one field in the panel is stale, the rest of the SAME read is not":
-  // the Address row's own DOM node updates on a slower/later timeline than
-  // the rest of the Property Information panel during cmainfo's postback —
-  // sectionHasPopulatedValues()/domIsSettled() only prove SOME row changed
-  // and things went quiet, never that Address's OWN cell specifically
-  // finished updating. The panel can look "settled" while Address is still
-  // one mutation away from landing.
+  // Address = "20 Lilliecrona Drive", the PREVIOUS capture's address). Fixed
+  // by polling the Address cell alone for two consecutive identical reads —
+  // but 3.4.4 shipped and Johan's REAL in-page SS<->FH loop still bled
+  // history: address AND type/scheme could still carry over, because
+  // address-only stability proves nothing about the REST of the panel, and
+  // the whole-panel domIsSettled()/sectionHasPopulatedValues() gate (see
+  // above) only proves SOME row changed and things went quiet — never that
+  // the fields that actually IDENTIFY the current property are mutually
+  // consistent.
   //
-  // Fix: the same defensive shape already used for a different slow/async
-  // cell on this page — revealOwnerIdIfNeeded() doesn't trust a fixed delay,
-  // it polls the SAME cell's text until the condition it cares about is
-  // actually true. Here there's no fixed target to poll for (we don't know
-  // the correct address in advance), so the condition is STABILITY: read the
-  // Address cell, wait, read it again — if it changed, a trailing mutation
-  // was still landing, so keep polling; two consecutive identical reads means
-  // it's genuinely done. A cell that was always going to read the same value
-  // costs one extra poll interval; a cell still catching up gets caught
-  // instead of captured mid-update.
-  const ADDRESS_STABILITY_POLL_MS = 120;
-  const ADDRESS_STABILITY_TIMEOUT_MS = 2000;
-  function waitForAddressStable(panelEl) {
+  // v3.4.5 — architectural rebuild. Generalizes the same poll-until-stable
+  // shape (from waitForAddressStable(), which this replaces) across a
+  // COMPOSITE identity signature — LPI Code, Address, Erf no — instead of
+  // Address alone. cmainfo's LPI Code (e.g. "N0ET03630000063200000") is
+  // confirmed to exist on BOTH sectional and freehold properties and is the
+  // authoritative "which property is this" marker Johan identified; Address
+  // and Erf no are the two OTHER fields already confirmed (by the 3.4.0 Park
+  // Street repro and this file's own history) to be attempted-fresh for
+  // whichever property is CURRENTLY loaded, regardless of title type —
+  // exactly matching Johan's own point 2: "the address you read and the LPI
+  // belong to the SAME currently-shown property". Requiring all three to
+  // read identically on two consecutive polls closes the exact gap
+  // address-only stability had: if the postback lands its fields in a burst
+  // (LPI+Erf first, Address trailing, or any other order), the composite
+  // signature keeps changing until every one of them has actually landed —
+  // not just the one field 3.4.4 happened to have been burned by.
+  //
+  // Deliberately EXCLUDES Scheme/Section/Situated-at (SECTIONAL_ONLY_FIELDS
+  // below) — two independent reasons, not one:
+  //   1. They're CONFIRMED to sometimes never re-render at all for the rest
+  //      of the page's life once a freehold is loaded (no new markup, no
+  //      mutation, ever — see the TRUE CLEAN SLATE history below), so
+  //      waiting for them to "stabilize" would either false-negative forever
+  //      (blocking every freehold capture) or trivially "stabilize" on
+  //      frozen residue (proving nothing about freshness).
+  //   2. Circularity: extractDeed()'s LPI-transition gate below decides
+  //      whether to TRUST these fields by comparing a baseline snapshot
+  //      (taken right after this stability poll resolves) against a LATER
+  //      read, watching for a genuine change. If Situated-at were ALSO part
+  //      of what this poll waits to stabilize, the poll itself would already
+  //      have absorbed any fresh scheme-row update before the gate ever took
+  //      its baseline — making the gate's "did it change AFTER my baseline"
+  //      check always see "no", even when the row genuinely did just update.
+  // Their trustworthiness is entirely the LPI-transition freshness gate's
+  // job (extractDeed() below), kept strictly separate from this poll.
+  const IDENTITY_STABILITY_POLL_MS = 120;
+  const IDENTITY_STABILITY_TIMEOUT_MS = 2000;
+  const IDENTITY_SIGNAL_LABELS = ['LPI Code', 'Address', 'Erf no'];
+
+  function identitySignatureOf(panelEl) {
+    return IDENTITY_SIGNAL_LABELS.map((label) => findValueByLabel(label, panelEl) || '').join('␟');
+  }
+
+  function waitForPanelIdentityStable(panelEl) {
     return new Promise((resolve) => {
       if (!panelEl) { resolve(); return; }
       const start = Date.now();
-      let previous = findValueByLabel('Address', panelEl);
+      let previous = identitySignatureOf(panelEl);
       (function poll() {
-        if (Date.now() - start >= ADDRESS_STABILITY_TIMEOUT_MS) { resolve(); return; }
+        if (Date.now() - start >= IDENTITY_STABILITY_TIMEOUT_MS) { resolve(); return; }
         setTimeout(() => {
-          const current = findValueByLabel('Address', panelEl);
+          const current = identitySignatureOf(panelEl);
           if (current === previous) { resolve(); return; }
           previous = current;
           poll();
-        }, ADDRESS_STABILITY_POLL_MS);
+        }, IDENTITY_STABILITY_POLL_MS);
       })();
     });
   }
@@ -673,7 +708,7 @@
   // of the panel's own real row.
   async function extractPropertyInformation() {
     const panel = findSectionPanel(findSectionHeader('Property Information'));
-    await waitForAddressStable(panel);
+    await waitForPanelIdentityStable(panel);
     return extractByLabelMap(PROPERTY_INFORMATION_LABELS, panel || undefined);
   }
 
@@ -747,34 +782,43 @@
   // remembering WHEN the last extraction finished is a live-DOM timing
   // signal, the same category as lastMutationAt, and was never part of the
   // address-bleed bug.
+  //
+  // v3.4.4 (2026-08-19): the Type/Erf-no freehold guess above shipped as the
+  // PRIMARY mechanism. Johan's real in-page SS<->FH loop still bled history
+  // afterwards — the guess was never airtight (its own docblock flagged the
+  // residual gap), and "Type/Erf-no says freehold" is a proxy, not proof.
+  //
+  // v3.4.5 (2026-08-19) — ARCHITECTURAL REBUILD, per Johan's explicit
+  // direction. currentPropertyLooksFreehold()/nullSectionalFieldsIfFreehold()
+  // below are DEMOTED from primary mechanism to a narrow fallback (see
+  // extractDeed()) — the PRIMARY mechanism is now the LPI Code transition
+  // gate: cmainfo's own unique per-property identifier (present on BOTH
+  // sectional and freehold properties) tells us definitively when the
+  // CURRENTLY loaded property is NOT the one we last captured, and — per
+  // Johan's explicit rule — the sectional fields are EMPTY BY DEFAULT for
+  // that new property until a fresh DOM mutation is actually observed
+  // touching them, not "trusted because Type/Erf-no looks a certain way".
+  // This directly fixes the confirmed root cause (scheme/section rows simply
+  // never get new markup for a freehold — see TRUE CLEAN SLATE above) without
+  // ever having to guess from a proxy signal: we don't ASSUME the frozen row
+  // is stale because Type looks like freehold, we PROVE it's stale (or not)
+  // by watching for a genuine update.
   const SECTIONAL_ONLY_FIELDS = ['scheme_name', 'scheme_no', 'section_number', 'flat_number', 'section_extent', 'situated_at'];
 
   /**
-   * Decide whether the CURRENTLY loaded property is a freehold, from signals
-   * confirmed to describe the property presently on screen — never from a
-   * comparison to any previous capture.
-   *
-   * Primary signal: the panel's own "Type" label (extracted as p.type,
-   * PROPERTY_INFORMATION_LABELS above) — cmainfo's direct title-type
-   * indicator for the property currently loaded. Pattern-matched rather than
-   * exact-matched since the live text hasn't been enumerated exhaustively
-   * across every deeds office; recognised sectional wording is authoritative
-   * one way, recognised freehold/full-title wording the other.
-   *
-   * Fallback signal (Type blank/unrecognised): "Erf no" — CONFIRMED LIVE
-   * (2026-08-13) as a row that exists for full-title properties specifically
-   * ("separate from the sectional-title fields" — see
-   * PROPERTY_INFORMATION_LABELS above), and one of the fields cmainfo is
-   * confirmed (by the v3.4.0 Park Street repro this replaces) to always
-   * render fresh for whichever property is CURRENTLY loaded — unlike the
-   * sectional-only fields, it is never left frozen. A populated Erf no is
-   * reliable evidence the current property is full-title.
-   *
-   * Residual gap, honestly flagged (same spirit as v3.4.0's own residual-gap
-   * notes it replaces): a freehold with neither a recognised Type string nor
-   * an Erf no on the panel would slip past both signals and NOT be forced
-   * empty. Narrower than Johan's repro (which has both a real address and an
-   * Erf no on the freehold), not eliminated.
+   * FALLBACK ONLY (see extractDeed()'s LPI-transition gate for the primary
+   * mechanism) — used SOLELY when there is no previously-locked LPI Code to
+   * compare against, i.e. the very first capture since this content script
+   * loaded. In that one case there is no "transition" to detect a mutation
+   * against — cmainfo may have already been navigated through several
+   * properties before the agent ever pressed Capture, so whatever is
+   * currently in the DOM could be fresh OR residual from before this script
+   * ever started watching, and there is no LPI history to tell them apart.
+   * Falls back to the pre-3.4.5 Type/Erf-no proxy signal for this one edge
+   * case only — same residual gap as before (a freehold with neither a
+   * recognised Type string nor an Erf no on the panel would slip past it),
+   * now scoped to a single, rare, explicitly-flagged case instead of being
+   * the mechanism for every capture.
    */
   function currentPropertyLooksFreehold(property) {
     const type = normalizeLabel(property.type || '');
@@ -788,40 +832,141 @@
     return false;
   }
 
-  /**
-   * A freehold never legitimately carries a scheme/section — so when
-   * currentPropertyLooksFreehold() says freehold, every sectional-only field
-   * is forced null UNCONDITIONALLY, regardless of what value is sitting in
-   * the DOM for it. This is independent of the previous capture entirely:
-   * it would clear the exact same fields whether the previous capture was
-   * sectional, freehold, or there was no previous capture at all.
-   */
+  /** FALLBACK ONLY — see currentPropertyLooksFreehold()'s docblock above. */
   function nullSectionalFieldsIfFreehold(property) {
     if (!currentPropertyLooksFreehold(property)) return property;
     const cleared = Object.assign({}, property);
     SECTIONAL_ONLY_FIELDS.forEach((key) => { cleared[key] = null; });
-    console.warn('[CoreX] deeds-capture: current property looks like a freehold (Type/Erf no signal) — scheme/section/unit/extent/situated-at forced empty regardless of what is sitting in the DOM, since cmainfo does not re-render those rows for a freehold and a freehold never legitimately has them.');
+    console.warn('[CoreX] deeds-capture: first capture this session, no LPI history to gate against — falling back to the Type/Erf no signal, which says freehold. Scheme/section/unit/extent/situated-at forced empty.');
     return cleared;
   }
+
+  /** Re-reads ONLY the sectional-only fields, fresh, from the current panel. */
+  function readSectionalFieldsFresh(panelEl) {
+    const out = {};
+    SECTIONAL_ONLY_FIELDS.forEach((key) => {
+      const pair = PROPERTY_INFORMATION_LABELS.find((entry) => entry[0] === key);
+      out[key] = pair ? findValueByLabel(pair[1], panelEl) : null;
+    });
+    return out;
+  }
+
+  function sectionalSignatureOf(fields) {
+    return SECTIONAL_ONLY_FIELDS.map((key) => fields[key] || '').join('␟');
+  }
+
+  /**
+   * The primary v3.4.5 mechanism (see the ARCHITECTURAL REBUILD comment
+   * above). Polls the sectional-only fields against a BASELINE signature
+   * (taken the moment we detected the LPI had changed) until it genuinely
+   * differs — proof a real mutation landed on the Scheme/Section rows for
+   * THIS property — or the timeout elapses, meaning no such proof arrived
+   * and the fields are treated as empty. A property whose scheme/section
+   * legitimately never changes from its own frozen-at-load state (a true
+   * freehold, where cmainfo never touches that row again) will correctly
+   * time out here every time — that IS the desired outcome, not a false
+   * negative: Johan's rule is "empty until proven fresh", and a row that is
+   * NEVER proven fresh stays empty for the property's entire capture.
+   */
+  const SECTIONAL_FRESHNESS_TIMEOUT_MS = 2000;
+  const SECTIONAL_FRESHNESS_POLL_MS = 150;
+  function waitForSectionalMutationSinceBaseline(panelEl, baselineSignature) {
+    return new Promise((resolve) => {
+      const start = Date.now();
+      (function poll() {
+        const current = sectionalSignatureOf(readSectionalFieldsFresh(panelEl));
+        if (current !== baselineSignature) { resolve(true); return; }
+        if (Date.now() - start >= SECTIONAL_FRESHNESS_TIMEOUT_MS) { resolve(false); return; }
+        setTimeout(poll, SECTIONAL_FRESHNESS_POLL_MS);
+      })();
+    });
+  }
+
+  // Watermark of the LPI Code we were locked onto as of the end of the last
+  // COMPLETED capture — an IDENTITY marker, not extracted PROPERTY DATA (same
+  // category as lastCaptureCompletedAt/lastMutationAt above: a TIMING/IDENTITY
+  // signal the TRUE CLEAN SLATE rule was never about, per its own v3.4.3
+  // correction). Used ONLY to detect "has the loaded property actually
+  // changed since we last captured" — never compared field-by-field, never
+  // fed back into a captured value.
+  let lastLockedLpiCode = null;
 
   async function extractDeed() {
     // v3.4.2 — TRUE clean slate: this function keeps NO module-level memory
     // of a previous capture's PROPERTY DATA any more (see the TRUE CLEAN
     // SLATE block above) — every extraction reads the DOM fresh, top to
     // bottom, with no scheme/address/etc carried over from whatever the
-    // previous capture saw.
+    // previous capture saw. (lastLockedLpiCode is identity/timing memory,
+    // not property data — see its own comment just above.)
+
+    const panel = findSectionPanel(findSectionHeader('Property Information'));
+
+    // v3.4.5 — captured BEFORE ensureSectionExpanded's settle-wait even
+    // starts: whatever the sectional fields show RIGHT NOW, this instant,
+    // before we've waited for anything. This is the presumed-possibly-frozen
+    // baseline. Taking it here — not after the panel has already settled —
+    // matters: ensureSectionExpanded()/domIsSettled() share ONE page-wide
+    // "quiet since the last mutation" clock, and a genuine Scheme-row update
+    // landing WHILE that wait is still running resets the SAME clock a
+    // sectional mutation would. A baseline taken AFTER settling would
+    // already include that update — comparing the post-settle read against
+    // ITSELF always says "unchanged", wrongly nulling data that had already
+    // arrived fresh. Reading the panel this early is safe even if the
+    // accordion is collapsed — findSectionPanel() returns the DOM node
+    // regardless of its CSS display state, same as findValueByLabel().
+    const earlySectionalBaseline = panel ? sectionalSignatureOf(readSectionalFieldsFresh(panel)) : '';
 
     await ensureSectionExpanded('Property Information');
     let property = await extractPropertyInformation();
 
+    // v3.4.5 — the LPI-transition gate (Johan's explicit rule): sectional
+    // fields are EMPTY BY DEFAULT for a property we haven't positively
+    // confirmed is the SAME one we captured last, until a fresh mutation
+    // proves otherwise. "Positively confirmed same" requires BOTH captures
+    // to have read a non-blank LPI Code AND those codes to match exactly —
+    // anything else (LPI blank this time, no prior LPI known, or a genuine
+    // change) is treated as "not confirmed same" and gated.
+    const newLpi = property.lpi_code || null;
+    const sameIdentityAsLast = !!newLpi && !!lastLockedLpiCode && newLpi === lastLockedLpiCode;
+
+    if (!sameIdentityAsLast) {
+      if (lastLockedLpiCode === null) {
+        // No prior LPI in this session to detect a transition against — see
+        // currentPropertyLooksFreehold()'s docblock for why this ONE case
+        // still needs the pre-3.4.5 fallback.
+        property = nullSectionalFieldsIfFreehold(property);
+      } else {
+        const currentSignature = sectionalSignatureOf(property);
+        if (currentSignature !== earlySectionalBaseline) {
+          // Already proven: the sectional fields read differently now than
+          // they did before we started waiting at all — a real mutation
+          // landed for THIS property sometime during the settle-wait.
+          // `property` already carries this fresh read — nothing to do.
+        } else {
+          // No evidence yet that anything has changed since before we
+          // started — give it a bounded window to prove itself via a
+          // FURTHER mutation before giving up and nulling.
+          const proved = await waitForSectionalMutationSinceBaseline(panel, currentSignature);
+          if (proved) {
+            Object.assign(property, readSectionalFieldsFresh(panel));
+          } else {
+            SECTIONAL_ONLY_FIELDS.forEach((key) => { property[key] = null; });
+            console.warn('[CoreX] deeds-capture: LPI changed (' + lastLockedLpiCode + ' -> ' + (newLpi || '(blank)') + ') but no fresh mutation observed on the Scheme/Section rows — treating scheme/section/unit/extent/situated-at as EMPTY rather than trusting possibly-frozen residue.');
+          }
+        }
+      }
+    }
+    // else: same LPI as last capture (re-capturing the same property) —
+    // sectional fields are trusted as read, no gating needed.
+
     await ensureSectionExpanded('Sale Information');
     const sale = await extractSaleInformation();
 
-    // v3.4.2 — the airtight rule: decide freehold-vs-sectional from THIS
-    // property's own current signal and force the sectional fields empty
-    // unconditionally when it says freehold. No comparison to any previous
-    // capture, no DOM-residue trust.
-    property = nullSectionalFieldsIfFreehold(property);
+    // Lock onto this capture's identity for the NEXT one to compare against.
+    // A blank LPI this capture clears the watermark rather than keeping the
+    // old one — we cannot positively confirm "same property" without a real
+    // LPI to compare, so the NEXT capture must also go through the gate.
+    lastLockedLpiCode = newLpi;
 
     // v3.3.9, restored v3.4.3 — stamped on EVERY capture so domIsSettled()
     // can require genuine evidence (a real DOM mutation) that THIS
@@ -1163,22 +1308,24 @@
   /**
    * source_ref MUST be stable per property (cc1's idempotency + match-or-
    * create key) — capturing the same property twice must produce the same
-   * ref. None of Johan's confirmed field labels give us a page-native stable
-   * ID (the CMA URL itself doesn't encode one either — it's a search/click
-   * state, not a per-property URL). Best available fallback chain, in order
-   * of how stable each candidate actually is:
-   *   1. Title Deed number — a genuine deeds-registry identifier.
-   *   2. Scheme number + section number — stable for a sectional unit.
-   *   3. The rendered address / "Situated at" text.
-   *   4. A timestamp — LAST resort; NOT idempotent (each capture creates a
+   * ref. v3.4.5: LPI Code (see PROPERTY_INFORMATION_LABELS above) is now the
+   * PRIMARY candidate — it's cmainfo's own unique per-property identifier,
+   * present on both sectional and freehold properties, and doesn't depend on
+   * a sale having a recorded Title Deed. Fallback chain below it unchanged
+   * (kept for the rare case LPI Code itself is blank on a page), in order of
+   * how stable each candidate actually is:
+   *   1. LPI Code — cmainfo's own unique per-property identifier.
+   *   2. Title Deed number — a genuine deeds-registry identifier.
+   *   3. Scheme number + section number — stable for a sectional unit.
+   *   4. The rendered address / "Situated at" text.
+   *   5. A timestamp — LAST resort; NOT idempotent (each capture creates a
    *      new tracked_property). Flagged loudly so it's never silently relied on.
-   * TODO(johan): confirm live whether CMA exposes anything more stable (a
-   * hidden deeds reference, a query param, etc.) — would let us drop #3/#4.
    */
   function buildSourceRef(deed) {
     const p = deed.property_information;
     const s = deed.sale_information;
-    let candidate = s.title_deed
+    let candidate = p.lpi_code
+      || s.title_deed
       || (p.scheme_number && p.section_number ? (p.scheme_number + '-' + p.section_number) : null)
       || p.address
       || p.situated_at

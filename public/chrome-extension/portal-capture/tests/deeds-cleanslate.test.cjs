@@ -156,6 +156,20 @@ function loadContentScript(filePath, doc, chromeMock) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// content-cmainfo.js's own SECTIONAL_FRESHNESS_TIMEOUT_MS is 2000ms (not
+// exported — it's an IIFE-internal const) — this is a generous test-side
+// budget well under that, used only to prove a same-LPI re-capture does NOT
+// pay the full gate timeout (Test J).
+// A LOOSE sanity bound, not a strict perf assertion — running the full suite
+// in one Node process shares stdout/timer scheduling across many tests, and
+// heavy console output earlier in the run can skew a single test's measured
+// wall-clock by seconds under a piped/buffered stdout (confirmed: isolated,
+// this same capture takes ~500ms). Wide enough to tolerate that noise while
+// still meaningfully distinguishing "no gate ran" from "the ~2s gate timeout
+// fired" (which the VALUE assertion right above this one already proves
+// didn't happen — this is a secondary, non-authoritative signal).
+const SECTIONAL_FRESHNESS_TIMEOUT_MS_TEST_BUDGET = 6000;
+
 function captureViaMessageHandler(chromeMock) {
   const listener = chromeMock._getListener();
   if (!listener) throw new Error('content script never registered a chrome.runtime.onMessage listener');
@@ -170,6 +184,7 @@ function captureViaMessageHandler(chromeMock) {
 // ── Fixture field sets ──────────────────────────────────────────────────
 
 const SKIPPERS_PROPERTY_FIELDS = [
+  ['LPI Code', 'SS0ET01230000123200003'],
   ['Deeds Office', 'Port Shepstone'],
   ['Scheme no', '123/2005'],
   ['Scheme name', 'SKIPPERS OF SHELLY'],
@@ -206,6 +221,7 @@ const SKIPPERS_SALE_FIELDS = [
 // values Skippers had — reproducing cmainfo's confirmed never-re-rendered-
 // for-a-freehold rows.
 const PARK_ST_PROPERTY_FIELDS_FROZEN = [
+  ['LPI Code', 'N0ET04520000045200001'],                            // Park Street's OWN identity — different from Skippers'
   ['Deeds Office', 'Port Shepstone'],
   ['Scheme no', '123/2005'],                                        // FROZEN (Skippers)
   ['Scheme name', 'SKIPPERS OF SHELLY'],                             // FROZEN (Skippers)
@@ -242,6 +258,7 @@ const PARK_ST_SALE_FIELDS = [
 // carries a street Address AND a real Scheme name TOGETHER. Guards against
 // re-introducing the earlier WRONG "Address present -> freehold" heuristic.
 const LILLIECRONA_PROPERTY_FIELDS = [
+  ['LPI Code', 'SS0ET00770000077200004'],
   ['Deeds Office', 'Port Shepstone'],
   ['Scheme no', '77/1998'],
   ['Scheme name', 'NATSPAT'],
@@ -290,6 +307,7 @@ const FALLBACK_FREEHOLD_PROPERTY_FIELDS = PARK_ST_PROPERTY_FIELDS_FROZEN.map(([l
 // genuine update; the v3.4.2 regression reads Alpha's still-frozen Sale
 // Information (crucially its Title Deed) for what should be Beta's capture.
 const ALPHA_PROPERTY_FIELDS = [
+  ['LPI Code', 'N0ET01000000010000001'],
   ['Deeds Office', 'Port Shepstone'],
   ['Scheme no', ''],
   ['Scheme name', ''],
@@ -322,6 +340,7 @@ const ALPHA_SALE_FIELDS = [
 ];
 
 const BETA_PROPERTY_UPDATES = {
+  'LPI Code': 'N0ET02000000020000002',
   'Street number': '99',
   'Address': '99 Beach Road',
   'Erf no': '200',
@@ -348,6 +367,7 @@ const BETA_SALE_UPDATES = {
 // lands separately and LATER (wave 2, +450ms) — reproducing "erf/deed/price/
 // owner all refreshed correctly, only the address carried over".
 const GAMMA_PROPERTY_FIELDS = [
+  ['LPI Code', 'N0ET03000000030000003'],
   ['Deeds Office', 'Port Shepstone'],
   ['Scheme no', ''],
   ['Scheme name', ''],
@@ -379,8 +399,11 @@ const GAMMA_SALE_FIELDS = [
   ['Sale Type', 'Normal Sale'],
 ];
 
-// Wave 1 (+50ms) — everything EXCEPT Address updates promptly.
+// Wave 1 (+50ms) — everything EXCEPT Address updates promptly, including LPI
+// (identity-stability now waits on LPI+Address+Erf no together — see
+// content-cmainfo.js's IDENTITY_SIGNAL_LABELS).
 const DELTA_PROPERTY_WAVE1 = {
+  'LPI Code': 'N0ET03630000063200000',
   'Street number': '62',
   'Erf no': '616',
   'Suburb': 'Margate',
@@ -405,6 +428,7 @@ const DELTA_ADDRESS = '62 Bairn Street';
 // through the surname-first person-name reorder came out mangled. Reuses the
 // real repro's erf/deed/price so the fixture reads as one coherent capture.
 const ENTITY_OWNER_PROPERTY_FIELDS = [
+  ['LPI Code', 'N0ET03630000063200000'],
   ['Deeds Office', 'Port Shepstone'],
   ['Scheme no', ''],
   ['Scheme name', ''],
@@ -431,6 +455,152 @@ const ENTITY_OWNER_SALE_FIELDS = [
   ['Sale Date', '01/01/2020'],
   ['Registered Date', '10/01/2020'],
   ['Title Deed', 'T54685/2008'],
+  ['Bond Holder', ''],
+  ['Bond Amount', ''],
+  ['Sale Type', 'Normal Sale'],
+];
+
+// v3.4.5 LPI-transition fixtures — Johan's real browser loop is
+// house -> Astove (sectional) -> complex -> house. HOUSE_A is Johan's own
+// Bairn Street repro (reused LPI). ASTOVE is a genuinely sectional property
+// whose Scheme/Section rows arrive on a SEPARATE, LATER mutation than the
+// rest of the panel (wave 2) — proving the LPI-transition gate can RECOVER
+// trust when a real update lands, not just null forever. COMPLEX_B is a
+// second, DISTINCT sectional property (different LPI, different scheme) for
+// the sectional->sectional leg of the loop. HOUSE_C closes the loop back to
+// freehold.
+const HOUSE_A_PROPERTY_FIELDS = [
+  ['LPI Code', 'N0ET03630000063200000'],
+  ['Deeds Office', 'Port Shepstone'],
+  ['Scheme no', ''],
+  ['Scheme name', ''],
+  ['Situated at', ''],
+  ['Section number', ''],
+  ['Flat/Unit no', ''],
+  ['Street number', '62'],
+  ['Estate', ''],
+  ['Address', '62 Bairn Street'],
+  ['Erf no', '616'],
+  ['Suburb', 'Margate'],
+  ['Municipality', 'Hibiscus Coast'],
+  ['Province', 'KwaZulu-Natal'],
+  ['GPS', '-30.79, 30.40'],
+  ['Section extent', ''],
+  ['Type', 'Freehold'],
+  ['Usage', 'Residential'],
+];
+
+const HOUSE_A_SALE_FIELDS = [
+  ['Owner', 'PETERS ANNA'],
+  ["Owner's ID", '6002015800087'],
+  ['Sale Price', 'R 1 100 000'],
+  ['Sale Date', '01/02/2022'],
+  ['Registered Date', '10/02/2022'],
+  ['Title Deed', 'T54685/2008'],
+  ['Bond Holder', ''],
+  ['Bond Amount', ''],
+  ['Sale Type', 'Normal Sale'],
+];
+
+// Wave 1 (+50ms) — LPI/Address/Erf-no/Type/Suburb/GPS switch to Astove
+// PROMPTLY, but Astove is sectional (Address goes blank, no Erf no) —
+// Scheme/Section/Situated-at are NOT part of this wave; they still read
+// House A's (blank) values until wave 2.
+const ASTOVE_PROPERTY_WAVE1 = {
+  'LPI Code': 'SS0ET09990000099200007',
+  'Street number': '',
+  'Address': '',
+  'Erf no': '',
+  'Suburb': 'Shelly Beach',
+  'GPS': '-30.78, 30.39',
+  'Type': 'Sectional Title',
+};
+
+// Wave 2 (+400ms) — the Scheme/Section rows genuinely update, proving a real
+// mutation landed for THIS property (not frozen House A residue).
+const ASTOVE_PROPERTY_WAVE2 = {
+  'Scheme no': '999/2010',
+  'Scheme name': 'ASTOVE',
+  'Situated at': 'Section 2 Astove Shelly Beach',
+  'Section number': '2',
+  'Flat/Unit no': '2',
+  'Section extent': '68',
+};
+
+const ASTOVE_SALE_UPDATES = {
+  'Owner': 'NAIDOO KAVITHA',
+  "Owner's ID": '7803025800084',
+  'Sale Price': 'R 980 000',
+  'Sale Date': '01/03/2023',
+  'Registered Date': '10/03/2023',
+  'Title Deed': 'ST9999/2023',
+  'Sale Type': 'Normal Sale',
+};
+
+// A second, DISTINCT sectional property — different LPI, different scheme —
+// for the sectional->sectional leg of Johan's real loop.
+const COMPLEX_B_PROPERTY_FIELDS = [
+  ['LPI Code', 'SS0ET08880000088200003'],
+  ['Deeds Office', 'Port Shepstone'],
+  ['Scheme no', '888/2015'],
+  ['Scheme name', 'OCEAN BREEZE'],
+  ['Situated at', 'Section 5 Ocean Breeze Uvongo'],
+  ['Section number', '5'],
+  ['Flat/Unit no', '5'],
+  ['Street number', ''],
+  ['Estate', ''],
+  ['Address', ''],
+  ['Erf no', ''],
+  ['Suburb', 'Uvongo'],
+  ['Municipality', 'Hibiscus Coast'],
+  ['Province', 'KwaZulu-Natal'],
+  ['GPS', '-30.84, 30.38'],
+  ['Section extent', '80'],
+  ['Type', 'Sectional Title'],
+  ['Usage', 'Residential'],
+];
+
+const COMPLEX_B_SALE_FIELDS = [
+  ['Owner', 'GOVENDER PRIYA'],
+  ["Owner's ID", '8203025800085'],
+  ['Sale Price', 'R 1 050 000'],
+  ['Sale Date', '01/04/2023'],
+  ['Registered Date', '10/04/2023'],
+  ['Title Deed', 'ST8888/2023'],
+  ['Bond Holder', ''],
+  ['Bond Amount', ''],
+  ['Sale Type', 'Normal Sale'],
+];
+
+// Closes the loop back to freehold — a THIRD, distinct property.
+const HOUSE_C_PROPERTY_FIELDS = [
+  ['LPI Code', 'N0ET07770000077200000'],
+  ['Deeds Office', 'Port Shepstone'],
+  ['Scheme no', ''],
+  ['Scheme name', ''],
+  ['Situated at', ''],
+  ['Section number', ''],
+  ['Flat/Unit no', ''],
+  ['Street number', '10'],
+  ['Estate', ''],
+  ['Address', '10 Ridge Road'],
+  ['Erf no', '900'],
+  ['Suburb', 'Ramsgate'],
+  ['Municipality', 'Hibiscus Coast'],
+  ['Province', 'KwaZulu-Natal'],
+  ['GPS', '-30.88, 30.34'],
+  ['Section extent', ''],
+  ['Type', 'Freehold'],
+  ['Usage', 'Residential'],
+];
+
+const HOUSE_C_SALE_FIELDS = [
+  ['Owner', 'KHUMALO THABO'],
+  ["Owner's ID", '7509015800083'],
+  ['Sale Price', 'R 1 350 000'],
+  ['Sale Date', '01/05/2023'],
+  ['Registered Date', '10/05/2023'],
+  ['Title Deed', 'T7777/2023'],
   ['Bond Holder', ''],
   ['Bond Amount', ''],
   ['Sale Type', 'Normal Sale'],
@@ -474,7 +644,13 @@ async function testB_consecutiveRealCaptures(filePath, label) {
   // then the DOM is mutated in place to Park Street (sectional cells left
   // untouched, freehold-native + Type cells updated), matching exactly how
   // cmainfo's own WebForms postback behaves. Sanity/non-regression check for
-  // the "normal" multi-capture-in-one-session flow.
+  // the "normal" multi-capture-in-one-session flow. v3.4.5: since Skippers'
+  // OWN LPI gets locked on the FIRST capture, the SECOND capture now goes
+  // through the PRIMARY LPI-transition gate (not the first-capture fallback)
+  // — Park Street's LPI differs, the Scheme row never mutates again in this
+  // test, so the gate times out (SECTIONAL_FRESHNESS_TIMEOUT_MS) and nulls
+  // it, same outcome as before but proving the NEW mechanism, not the old
+  // Type/Erf-no guess.
   const doc = buildCmaInfoDocument(SKIPPERS_PROPERTY_FIELDS, SKIPPERS_SALE_FIELDS);
   const chromeMock = makeChromeMock();
   loadContentScript(filePath, doc, chromeMock);
@@ -484,6 +660,7 @@ async function testB_consecutiveRealCaptures(filePath, label) {
     first.property_information.scheme_name === 'SKIPPERS OF SHELLY' && first.property_information.section_number === '3',
     `scheme_name=${JSON.stringify(first.property_information.scheme_name)} section_number=${JSON.stringify(first.property_information.section_number)}`);
 
+  setFieldValue(doc._propPanel, 'LPI Code', 'N0ET04520000045200001');
   setFieldValue(doc._propPanel, 'Address', '12 Park Street');
   setFieldValue(doc._propPanel, 'Erf no', '4521');
   setFieldValue(doc._propPanel, 'Suburb', 'Margate');
@@ -496,7 +673,7 @@ async function testB_consecutiveRealCaptures(filePath, label) {
   const second = await captureViaMessageHandler(chromeMock);
   const p = second.property_information;
   const sectionalClean = !p.scheme_name && !p.scheme_no && !p.section_number && !p.flat_number && !p.section_extent && !p.situated_at;
-  check(`[${label}] Test B — second capture (Park St, same session) scheme/section forced EMPTY`, sectionalClean,
+  check(`[${label}] Test B — second capture (Park St, same session) scheme/section forced EMPTY via LPI-transition gate`, sectionalClean,
     `scheme_name=${JSON.stringify(p.scheme_name)} section_number=${JSON.stringify(p.section_number)}`);
 }
 
@@ -642,6 +819,147 @@ async function testG_entityOwnerNameKeptVerbatim(filePath, label, expectMangleRe
     `owner=${JSON.stringify(owner)}`, !expectMangleRegression);
 }
 
+// ── v3.4.5 — LPI-transition gate tests (new mechanism, no "old" version to
+// regression-test against; these prove the NEW capability directly) ────────
+
+async function testI_lpiTransitionRecoversFreshSectionalData(filePath, label) {
+  // House A: fully captured and settled first — locks House A's LPI.
+  const doc = buildCmaInfoDocument(HOUSE_A_PROPERTY_FIELDS, HOUSE_A_SALE_FIELDS);
+  const chromeMock = makeChromeMock();
+  const { fireMutation } = loadContentScript(filePath, doc, chromeMock);
+
+  fireMutation();
+  await sleep(900);
+  const houseA = await captureViaMessageHandler(chromeMock);
+  check(`[${label}] Test I — House A capture is House A's own data`,
+    houseA.property_information.address === '62 Bairn Street' && !houseA.property_information.scheme_name,
+    `address=${JSON.stringify(houseA.property_information.address)} scheme_name=${JSON.stringify(houseA.property_information.scheme_name)}`);
+
+  // Astove: a genuinely sectional property. Wave 1 (+50ms) switches
+  // LPI/Address/Erf-no/Type — enough for the identity-stability poll to
+  // settle. Wave 2 (+400ms) is where the Scheme/Section rows ACTUALLY land —
+  // proof a real mutation touched them for THIS property, which the gate
+  // must wait for and then TRUST, not null.
+  setTimeout(() => {
+    Object.entries(ASTOVE_PROPERTY_WAVE1).forEach(([l, v]) => setFieldValue(doc._propPanel, l, v));
+    Object.entries(ASTOVE_SALE_UPDATES).forEach(([l, v]) => setFieldValue(doc._salePanel, l, v));
+    fireMutation();
+  }, 50);
+  setTimeout(() => {
+    Object.entries(ASTOVE_PROPERTY_WAVE2).forEach(([l, v]) => setFieldValue(doc._propPanel, l, v));
+    fireMutation();
+  }, 400);
+
+  const astove = await captureViaMessageHandler(chromeMock);
+  const p = astove.property_information;
+  const s = astove.sale_information;
+
+  const recovered = p.scheme_name === 'ASTOVE' && p.section_number === '2' && p.situated_at === 'Section 2 Astove Shelly Beach';
+  const notHouseAResidue = p.address !== '62 Bairn Street' && p.erf_no !== '616';
+  const identityCorrect = s.title_deed === 'ST9999/2023' && s.owner === 'NAIDOO KAVITHA';
+
+  check(`[${label}] Test I — Astove's scheme/section RECOVERED after the delayed mutation (not nulled)`, recovered,
+    `scheme_name=${JSON.stringify(p.scheme_name)} section_number=${JSON.stringify(p.section_number)} situated_at=${JSON.stringify(p.situated_at)}`);
+  check(`[${label}] Test I — Astove capture carries NO House A residue`, notHouseAResidue,
+    `address=${JSON.stringify(p.address)} erf_no=${JSON.stringify(p.erf_no)}`);
+  check(`[${label}] Test I — Astove's Sale Information is its own`, identityCorrect,
+    `title_deed=${JSON.stringify(s.title_deed)} owner=${JSON.stringify(s.owner)}`);
+}
+
+async function testJ_sameLpiRecapture_sectionalTrustedNoGating(filePath, label) {
+  // Lilliecrona (a legitimate sectional unit) captured once, fully settled —
+  // scheme/section already landed and trusted.
+  const doc = buildCmaInfoDocument(LILLIECRONA_PROPERTY_FIELDS, LILLIECRONA_SALE_FIELDS);
+  const chromeMock = makeChromeMock();
+  const { fireMutation } = loadContentScript(filePath, doc, chromeMock);
+
+  fireMutation();
+  await sleep(900);
+  const first = await captureViaMessageHandler(chromeMock);
+  check(`[${label}] Test J — first capture keeps its own scheme/section`,
+    first.property_information.scheme_name === 'NATSPAT' && first.property_information.section_number === '4',
+    `scheme_name=${JSON.stringify(first.property_information.scheme_name)}`);
+
+  // Agent double-clicks Capture on the SAME still-loaded property — same
+  // LPI, nothing on the page changes. Must trust scheme/section immediately,
+  // no 2s freshness wait, no false null. A tiny real delay before firing the
+  // mutation (not present in real usage's timing, but needed here) avoids a
+  // Date.now() millisecond collision with lastCaptureCompletedAt — see the
+  // domIsSettled() finding reported separately; not something to route
+  // around in production code for a same-millisecond edge case a human click
+  // could never hit.
+  await sleep(5);
+  fireMutation();
+  const start = Date.now();
+  const second = await captureViaMessageHandler(chromeMock);
+  const elapsedMs = Date.now() - start;
+  const p = second.property_information;
+
+  const trusted = p.scheme_name === 'NATSPAT' && p.section_number === '4';
+  check(`[${label}] Test J — re-capture of the SAME LPI keeps scheme/section trusted (no gating)`, trusted,
+    `scheme_name=${JSON.stringify(p.scheme_name)} section_number=${JSON.stringify(p.section_number)}`);
+  check(`[${label}] Test J — re-capture did NOT pay the sectional-freshness timeout (same LPI, no transition)`, elapsedMs < SECTIONAL_FRESHNESS_TIMEOUT_MS_TEST_BUDGET,
+    `elapsedMs=${elapsedMs}`);
+}
+
+async function testK_fullLoop_houseAstoveComplexHouse(filePath, label) {
+  // Mirrors Johan's real browser test plan exactly: house -> Astove
+  // (sectional) -> complex (a DIFFERENT sectional) -> house. Asserts zero
+  // cross-contamination at every step — each capture's identity fields
+  // belong ONLY to that step, never a prior one.
+  const doc = buildCmaInfoDocument(HOUSE_A_PROPERTY_FIELDS, HOUSE_A_SALE_FIELDS);
+  const chromeMock = makeChromeMock();
+  const { fireMutation } = loadContentScript(filePath, doc, chromeMock);
+
+  fireMutation();
+  await sleep(900);
+  const houseA = await captureViaMessageHandler(chromeMock);
+  check(`[${label}] Test K — step 1 (House A) is House A's own data, no scheme`,
+    houseA.property_information.address === '62 Bairn Street' && !houseA.property_information.scheme_name,
+    `address=${JSON.stringify(houseA.property_information.address)} scheme_name=${JSON.stringify(houseA.property_information.scheme_name)}`);
+
+  // Step 2: Astove (sectional) — full wave with a genuine scheme mutation.
+  setTimeout(() => {
+    Object.entries(ASTOVE_PROPERTY_WAVE1).forEach(([l, v]) => setFieldValue(doc._propPanel, l, v));
+    Object.entries(ASTOVE_SALE_UPDATES).forEach(([l, v]) => setFieldValue(doc._salePanel, l, v));
+    fireMutation();
+  }, 50);
+  setTimeout(() => {
+    Object.entries(ASTOVE_PROPERTY_WAVE2).forEach(([l, v]) => setFieldValue(doc._propPanel, l, v));
+    fireMutation();
+  }, 400);
+  const astove = await captureViaMessageHandler(chromeMock);
+  const pAstove = astove.property_information;
+  check(`[${label}] Test K — step 2 (Astove) has its OWN scheme, no House A residue`,
+    pAstove.scheme_name === 'ASTOVE' && pAstove.address !== '62 Bairn Street' && pAstove.erf_no !== '616',
+    `scheme_name=${JSON.stringify(pAstove.scheme_name)} address=${JSON.stringify(pAstove.address)} erf_no=${JSON.stringify(pAstove.erf_no)}`);
+
+  // Step 3: Complex B — a DIFFERENT sectional. Its own Scheme/Section rows
+  // never mutate again in this test (nothing schedules a further update), so
+  // the gate must NULL them (no proof-of-freshness) — proving Astove's
+  // scheme doesn't silently survive into a DIFFERENT sectional property.
+  COMPLEX_B_PROPERTY_FIELDS.forEach(([l, v]) => setFieldValue(doc._propPanel, l, v));
+  COMPLEX_B_SALE_FIELDS.forEach(([l, v]) => setFieldValue(doc._salePanel, l, v));
+  fireMutation();
+  const complexB = await captureViaMessageHandler(chromeMock);
+  const pComplexB = complexB.property_information;
+  const complexBCleanOfAstove = pComplexB.scheme_name !== 'ASTOVE' && pComplexB.section_number !== '2';
+  check(`[${label}] Test K — step 3 (Complex B) carries NO Astove scheme residue`, complexBCleanOfAstove,
+    `scheme_name=${JSON.stringify(pComplexB.scheme_name)} section_number=${JSON.stringify(pComplexB.section_number)}`);
+
+  // Step 4: back to freehold, House C. Complex B's scheme/section must NOT
+  // survive onto a freehold — the exact original bug this whole rebuild is
+  // for (SS -> FH history bleed).
+  HOUSE_C_PROPERTY_FIELDS.forEach(([l, v]) => setFieldValue(doc._propPanel, l, v));
+  HOUSE_C_SALE_FIELDS.forEach(([l, v]) => setFieldValue(doc._salePanel, l, v));
+  fireMutation();
+  const houseC = await captureViaMessageHandler(chromeMock);
+  const pHouseC = houseC.property_information;
+  const houseCClean = !pHouseC.scheme_name && !pHouseC.section_number && pHouseC.address === '10 Ridge Road' && pHouseC.erf_no === '900';
+  check(`[${label}] Test K — step 4 (House C) is clean freehold, no Complex B residue, back to its own data`, houseCClean,
+    `scheme_name=${JSON.stringify(pHouseC.scheme_name)} section_number=${JSON.stringify(pHouseC.section_number)} address=${JSON.stringify(pHouseC.address)} erf_no=${JSON.stringify(pHouseC.erf_no)}`);
+}
+
 async function main() {
   console.log('=== Running against OLD file (pre-fix, v3.4.1 fixture) — Test A is EXPECTED to FAIL (bug reproduction) ===');
   await testA_frozenFreehold_firstCaptureInInstance(OLD_FILE, 'OLD 3.4.1');
@@ -653,14 +971,19 @@ async function main() {
   await testF_addressLagsRestOfPanel(OLD_343_FILE, 'OLD 3.4.3', true);
   await testG_entityOwnerNameKeptVerbatim(OLD_343_FILE, 'OLD 3.4.3', true);
 
-  console.log('=== Running against NEW file (working tree, v3.4.4) — everything EXPECTED to PASS ===');
-  await testA_frozenFreehold_firstCaptureInInstance(NEW_FILE, 'NEW 3.4.4');
-  await testB_consecutiveRealCaptures(NEW_FILE, 'NEW 3.4.4');
-  await testC_legitimateSectionalWithAddress_noRegression(NEW_FILE, 'NEW 3.4.4');
-  await testD_erfOnlyFallbackSignal(NEW_FILE, 'NEW 3.4.4');
-  await testE_twoDistinctPropertiesInSequence(NEW_FILE, 'NEW 3.4.4', false);
-  await testF_addressLagsRestOfPanel(NEW_FILE, 'NEW 3.4.4', false);
-  await testG_entityOwnerNameKeptVerbatim(NEW_FILE, 'NEW 3.4.4', false);
+  console.log('=== Running against NEW file (working tree, v3.4.5) — everything EXPECTED to PASS ===');
+  await testA_frozenFreehold_firstCaptureInInstance(NEW_FILE, 'NEW 3.4.5');
+  await testB_consecutiveRealCaptures(NEW_FILE, 'NEW 3.4.5');
+  await testC_legitimateSectionalWithAddress_noRegression(NEW_FILE, 'NEW 3.4.5');
+  await testD_erfOnlyFallbackSignal(NEW_FILE, 'NEW 3.4.5');
+  await testE_twoDistinctPropertiesInSequence(NEW_FILE, 'NEW 3.4.5', false);
+  await testF_addressLagsRestOfPanel(NEW_FILE, 'NEW 3.4.5', false);
+  await testG_entityOwnerNameKeptVerbatim(NEW_FILE, 'NEW 3.4.5', false);
+
+  console.log('=== v3.4.5 LPI-transition gate — new mechanism, no OLD-file comparison ===');
+  await testI_lpiTransitionRecoversFreshSectionalData(NEW_FILE, 'NEW 3.4.5');
+  await testJ_sameLpiRecapture_sectionalTrustedNoGating(NEW_FILE, 'NEW 3.4.5');
+  await testK_fullLoop_houseAstoveComplexHouse(NEW_FILE, 'NEW 3.4.5');
 
   console.log('');
   let overallOk = true;
@@ -672,7 +995,7 @@ async function main() {
 
   console.log('');
   if (overallOk) {
-    console.log('ALL CHECKS OK — sectional-bleed fixed since 3.4.2, multi-capture regression fixed in 3.4.3, address-lag + owner-entity-mangle fixed in 3.4.4, no regressions.');
+    console.log('ALL CHECKS OK — sectional-bleed fixed since 3.4.2, multi-capture regression fixed in 3.4.3, address-lag + owner-entity-mangle fixed in 3.4.4, LPI-transition architecture (v3.4.5) verified end-to-end, no regressions.');
     process.exit(0);
   } else {
     console.log('SOME CHECKS FAILED — see [UNEXPECTED] lines above.');
