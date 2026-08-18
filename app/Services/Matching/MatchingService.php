@@ -936,6 +936,14 @@ class MatchingService
             'solar_panel'       => 'solar',
             'solar_geyser'      => 'solar',
             'garages'           => 'garage',
+            // 2026-08-18 live incident (contact 17097/match 349, Falan) — a
+            // property tagged "Single Garage"/"Double Garage" canonicalized to
+            // single_garage/double_garage, never plain 'garage', so it failed
+            // a garage must-have despite the tag explicitly saying so. Two of
+            // the 4 properties this incident affects had exactly this tag.
+            'single_garage'     => 'garage',
+            'double_garage'     => 'garage',
+            'triple_garage'     => 'garage',
             'granny_flat'       => 'flatlet',
             'cottage'           => 'flatlet',
         ];
