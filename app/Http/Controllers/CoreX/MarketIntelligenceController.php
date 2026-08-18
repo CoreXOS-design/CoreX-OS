@@ -2872,6 +2872,25 @@ class MarketIntelligenceController extends Controller
         $user = auth()->user();
         $agencyId = $user->agency_id ?? $user->effectiveAgencyId() ?? 1;
 
+        // MIC CRISIS #1 (2026-08-18) — server-side company-stock guard. The
+        // list excludes company stock by default (applyInStockFilter ->
+        // whereNotCompanyStock) and the row template hides the claim button
+        // for it ($isCompanyStock in _listing-row.blade.php) — but both are
+        // RENDERING guards only. A stale tab, a cached page, a listing that
+        // flips to on-market stock after the page loaded, or a future UI
+        // regression all have zero backstop without this: nothing before
+        // today re-checked company-stock status at the point a claim is
+        // actually written. Same canonical, EXACT-match (portal_ref OR
+        // normalized_address) identity every other "our stock" surface in
+        // this controller already uses (see $companyStockMap in work(),
+        // ~line 696) — never a second, divergent definition.
+        $companyStockPropertyId = app(\App\Services\Prospecting\OnMarketStockService::class)
+            ->stockMapForListings([$listing], $agencyId)[$listing->id] ?? null;
+
+        if ($companyStockPropertyId !== null) {
+            return back()->with('error', 'This is already your agency\'s own stock (property #' . $companyStockPropertyId . ') — nothing to claim.');
+        }
+
         // Stale-tab guard — re-derives CURRENT claim state server-side on every
         // submit rather than trusting whatever the (possibly stale) page showed
         // when it loaded, so a tab that never refreshed can't double-claim a
