@@ -264,12 +264,25 @@ class WhatsAppLinkController extends Controller
             $number = $raw !== '' ? preg_replace('/@.*$/', '', $raw) : ($me['pushName'] ?? null);
         }
 
-        $device = CommunicationWaDevice::where('user_id', $user->id)
+        // Match the comm_wa_session_uq unique key EXACTLY — key on waha_session
+        // and include soft-deleted rows. An unlink SOFT-deletes the device but
+        // the unique index still holds waha_session; a re-link (WAHA back to
+        // WORKING) must RESTORE that trashed row, not blind-create a duplicate
+        // that trips a 1062 and 500s every status poll (AT-156 regression).
+        $device = CommunicationWaDevice::withTrashed()
             ->where('waha_session', $session)
             ->first();
 
         if ($device) {
-            $device->forceFill(['active' => true, 'last_seen_at' => now()]);
+            if ($device->trashed()) {
+                $device->restore();
+            }
+            $device->forceFill([
+                'agency_id'    => $user->effectiveAgencyId(),
+                'user_id'      => $user->id,
+                'active'       => true,
+                'last_seen_at' => now(),
+            ]);
             if ($number) {
                 $device->wa_number = $number;
             }
