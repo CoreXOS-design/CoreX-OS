@@ -149,6 +149,11 @@ class PropertyContactController extends Controller
         $this->authorizeProperty($property);
 
         $this->normalizeRole($request);
+
+        // #17 — SA ID vs foreign passport. A foreign national's passport is a free string (max 50)
+        // and their DOB is captured directly (birthday), since a passport can't encode it. Absent/other
+        // id_type keeps the validated SA-ID path, so existing SA-ID captures are unaffected.
+        $isForeign = $request->input('id_type') === 'passport';
         $data = $request->validate([
             'first_name'      => 'required|string|max:100',
             'last_name'       => 'required|string|max:100',
@@ -156,8 +161,12 @@ class PropertyContactController extends Controller
             'email'           => 'nullable|email|max:150',
             'contact_type_id' => 'nullable|exists:contact_types,id',
             'role'            => ['required', 'string', Rule::in(self::LINK_ROLES)],
-            // A.2.5 — optional ID number with SA-format validation.
-            'id_number'       => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
+            // A.2.5 / #17 — optional ID: SA ID validated for SA persons, passport is a free string.
+            'id_type'         => ['nullable', Rule::in(['sa_id', 'passport'])],
+            'id_number'       => $isForeign
+                ? ['nullable', 'string', 'max:50']
+                : ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
+            'birthday'        => ['nullable', 'date', 'required_if:id_type,passport'],
             'bypass_duplicate_check' => 'nullable|boolean',
         ]);
 

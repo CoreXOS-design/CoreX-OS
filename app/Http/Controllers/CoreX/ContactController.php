@@ -683,6 +683,11 @@ class ContactController extends Controller
 
     public function store(Request $request)
     {
+        // #17 — foreign nationals: id_type='passport' captures a free passport number + a
+        // directly-entered DOB (birthday) instead of a 13-digit SA ID. Absent/other id_type keeps
+        // the existing validated SA-ID path, so existing SA-ID captures are unaffected.
+        $isForeign = $request->input('id_type') === 'passport';
+
         $data = $request->validate([
             // Entity-type foundation (.ai/specs/contact-entity-type.md) — the
             // Contact Is radio. first_name/last_name are only required for a
@@ -721,7 +726,13 @@ class ContactController extends Controller
             // Optional SA ID number, captured with a POPIA audit trail. Only
             // meaningful for a natural person — the form doesn't post it for
             // an entity, so this rule doesn't need a contact_kind condition.
-            'id_number'       => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
+            // #17 — SA ID validated for SA persons; a foreign national's passport is a free
+            // string, and their DOB is captured directly (birthday) since it can't be derived.
+            'id_type'         => ['nullable', \Illuminate\Validation\Rule::in(['sa_id', 'passport'])],
+            'id_number'       => $isForeign
+                ? ['nullable', 'string', 'max:50']
+                : ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
+            'birthday'        => ['nullable', 'date', 'required_if:id_type,passport'],
             // Duplicate bypass fields
             'bypass_duplicate_check' => 'nullable|boolean',
             'override_reason'        => 'nullable|string|max:500',
@@ -986,7 +997,10 @@ class ContactController extends Controller
                     ->where('is_active', true),
             ],
             'birthday'        => 'nullable|date',
-            'id_number'       => 'nullable|string|max:20',
+            // #17 — id_type discriminates SA ID vs a foreign passport; id_number widened to 50 to
+            // hold a passport. Kept lenient on edit (no SA-ID checksum) so legacy contacts still save.
+            'id_type'         => ['nullable', \Illuminate\Validation\Rule::in(['sa_id', 'passport'])],
+            'id_number'       => 'nullable|string|max:50',
             // Residential address — where the contact lives. Free text, set
             // ONLY here. Distinct from the structured property-address capture
             // (updatePropertyAddress), which never writes to this column.
