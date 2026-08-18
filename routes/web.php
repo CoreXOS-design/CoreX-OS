@@ -3619,6 +3619,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // Social OAuth
     Route::get('/social/oauth/redirect', [\App\Http\Controllers\PropertyMarketingController::class, 'oauthRedirect'])->middleware('permission:access_properties')->name('corex.social.oauth.redirect');
     Route::get('/social/oauth/callback', [\App\Http\Controllers\PropertyMarketingController::class, 'oauthCallback'])->middleware('permission:access_properties')->name('corex.social.oauth.callback');
+    Route::get('/social/oauth/choose-page', [\App\Http\Controllers\PropertyMarketingController::class, 'oauthChoosePageForm'])->middleware('permission:access_properties')->name('corex.social.oauth.choose-page');
+    Route::post('/social/oauth/choose-page', [\App\Http\Controllers\PropertyMarketingController::class, 'oauthChoosePage'])->middleware('permission:access_properties')->name('corex.social.oauth.choose-page.save');
 });
 
 

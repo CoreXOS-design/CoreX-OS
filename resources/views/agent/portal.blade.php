@@ -831,7 +831,7 @@
                         <button type="submit" style="font-size:0.6875rem; padding:5px 12px; border-radius:6px; background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent); cursor:pointer;">Disconnect</button>
                     </form>
                     @else
-                    <a href="{{ route('corex.social.oauth.redirect', ['platform' => 'facebook']) }}" style="font-size:0.6875rem; padding:5px 12px; border-radius:6px; background:#1877f2; color:#fff; text-decoration:none; font-weight:600;">Connect</a>
+                    <a href="{{ route('corex.social.oauth.redirect', ['platform' => 'facebook']) }}" target="_blank" rel="noopener" style="font-size:0.6875rem; padding:5px 12px; border-radius:6px; background:#1877f2; color:#fff; text-decoration:none; font-weight:600;">Connect</a>
                     @endif
                 </div>
             </div>

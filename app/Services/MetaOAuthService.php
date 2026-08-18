@@ -49,10 +49,14 @@ class MetaOAuthService
     }
 
     /**
-     * Handle the OAuth callback: exchange code for token, find the page/IG account,
-     * and upsert the agent_social_accounts record.
+     * Handle the OAuth callback: exchange code for token, list every Page the
+     * user administers, and return them for the caller to choose from. Does
+     * NOT persist anything — that's connectPage()'s job, once a page is picked.
+     *
+     * For 'instagram', only Pages with a linked Instagram Business Account are
+     * returned (a Page without one can never be connected for that platform).
      */
-    public function handleCallback(string $code, string $state): AgentSocialAccount
+    public function exchangeCodeForPages(string $code, string $state): array
     {
         $decoded  = json_decode(base64_decode($state), true);
         $userId   = (int) ($decoded['user_id'] ?? 0);
@@ -72,8 +76,8 @@ class MetaOAuthService
             ],
         ]);
 
-        $tokenData   = json_decode($tokenResponse->getBody()->getContents(), true);
-        $shortToken  = $tokenData['access_token'] ?? null;
+        $tokenData  = json_decode($tokenResponse->getBody()->getContents(), true);
+        $shortToken = $tokenData['access_token'] ?? null;
 
         if (!$shortToken) {
             throw new \RuntimeException('Meta OAuth: no access_token in response.');
@@ -82,9 +86,12 @@ class MetaOAuthService
         // Exchange for long-lived 60-day token
         $longToken = $this->getLongLivedToken($shortToken);
 
-        // Fetch user's Facebook Pages
+        // Fetch every Page the user administers
         $pagesResponse = $this->http->get(self::GRAPH_BASE . '/me/accounts', [
-            'query' => ['access_token' => $longToken, 'fields' => 'id,name,access_token,instagram_business_account'],
+            'query' => [
+                'access_token' => $longToken,
+                'fields'       => 'id,name,access_token,instagram_business_account,picture',
+            ],
         ]);
 
         $pages = json_decode($pagesResponse->getBody()->getContents(), true)['data'] ?? [];
@@ -93,17 +100,49 @@ class MetaOAuthService
             throw new \RuntimeException('No Facebook Pages found for this account. You must be an Admin of a Page.');
         }
 
-        // Use the first page (agent connects one at a time)
-        $page = $pages[0];
+        if ($platform === 'instagram') {
+            $pages = array_values(array_filter($pages, fn ($p) => !empty($p['instagram_business_account'])));
 
-        // Page access token (from /me/accounts) is required for posting to Pages.
-        // The user long-lived token ($longToken) cannot post — only the page token can.
+            if (empty($pages)) {
+                throw new \RuntimeException('None of your Facebook Pages have an Instagram Business Account linked. Connect Instagram to a Page in Facebook Settings first.');
+            }
+        }
+
+        return [
+            'user_id'  => $userId,
+            'platform' => $platform,
+            'pages'    => array_map(fn ($p) => [
+                'id'                         => $p['id'],
+                'name'                       => $p['name'],
+                // Page access token (from /me/accounts) — required for posting to
+                // Pages. The user long-lived token ($longToken) cannot post.
+                'access_token'               => $p['access_token'],
+                'instagram_business_account' => $p['instagram_business_account'] ?? null,
+                'picture'                    => $p['picture']['data']['url'] ?? null,
+            ], $pages),
+        ];
+    }
+
+    /**
+     * Persist the chosen Page (or its linked Instagram account) as the agent's
+     * connected social account. $pages is the array returned by
+     * exchangeCodeForPages() for the SAME callback — carries every Page's own
+     * access token so no second Graph round-trip to /me/accounts is needed.
+     */
+    public function connectPage(int $userId, string $platform, string $pageId, array $pages): AgentSocialAccount
+    {
+        $page = collect($pages)->firstWhere('id', $pageId);
+
+        if (!$page) {
+            throw new \RuntimeException('That Page is no longer available. Please reconnect.');
+        }
+
         $pageToken = $page['access_token'];
 
         if ($platform === 'instagram') {
             $igAccount = $page['instagram_business_account'] ?? null;
             if (!$igAccount) {
-                throw new \RuntimeException('No Instagram Business Account linked to this Facebook Page. Connect your Instagram account in Facebook Settings first.');
+                throw new \RuntimeException('No Instagram Business Account linked to this Facebook Page.');
             }
 
             $igDetailsResponse = $this->http->get(self::GRAPH_BASE . '/' . $igAccount['id'], [
@@ -111,11 +150,11 @@ class MetaOAuthService
             ]);
             $igDetails = json_decode($igDetailsResponse->getBody()->getContents(), true);
 
-            $pageId   = $igDetails['id'];
-            $pageName = $igDetails['username'] ?? ($igDetails['name'] ?? 'Instagram Account');
+            $connectedId   = $igDetails['id'];
+            $connectedName = $igDetails['username'] ?? ($igDetails['name'] ?? 'Instagram Account');
         } else {
-            $pageId   = $page['id'];
-            $pageName = $page['name'];
+            $connectedId   = $page['id'];
+            $connectedName = $page['name'];
         }
 
         // Calculate expiry (~60 days from now for long-lived tokens)
@@ -130,8 +169,8 @@ class MetaOAuthService
         if ($existing) {
             $existing->restore();
             $existing->update([
-                'platform_page_id'   => $pageId,
-                'platform_page_name' => $pageName,
+                'platform_page_id'   => $connectedId,
+                'platform_page_name' => $connectedName,
                 'access_token'       => $pageToken,
                 'token_expires_at'   => $expiresAt,
                 'is_active'          => true,
@@ -142,8 +181,8 @@ class MetaOAuthService
         return AgentSocialAccount::create([
             'user_id'            => $userId,
             'platform'           => $platform,
-            'platform_page_id'   => $pageId,
-            'platform_page_name' => $pageName,
+            'platform_page_id'   => $connectedId,
+            'platform_page_name' => $connectedName,
             'access_token'       => $pageToken,
             'token_expires_at'   => $expiresAt,
             'is_active'          => true,
