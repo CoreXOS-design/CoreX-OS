@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\DealV2\DealV2;
 use App\Models\Docuperfect\SignedDocumentVersion;
+use App\Models\Document;
 use App\Models\DocumentType;
 use App\Models\FicaSubmission;
 use App\Models\Property;
@@ -1265,8 +1266,17 @@ class PdfSplitterController extends Controller
         $destinations = app(AgencyComplianceDocTypeService::class);
         $docSpine     = app(DealDocumentService::class);
 
-        $slugs   = collect($groups)->pluck('label')->filter()->unique()->values();
-        $typeMap = DocumentType::query()->whereIn('slug', $slugs)->pluck('id', 'slug')->toArray();
+        $slugs    = collect($groups)->pluck('label')->filter()->unique()->values();
+        $typeRows = DocumentType::query()->whereIn('slug', $slugs)->get(['id', 'slug', 'label']);
+        $typeMap    = $typeRows->pluck('id', 'slug')->toArray();
+        $typeLabels = $typeRows->pluck('label', 'slug')->toArray();
+
+        // Meaningful, collision-safe saved-document names for CLASSIFIED docs
+        // ("{property} · {type label} · {date}"). Cached per document_type_id
+        // so two same-type groups in this same batch (e.g. two mandate pages
+        // split into separate groups) see each other's just-assigned name and
+        // never collide, not just docs already in the DB.
+        $existingNamesByType = [];
 
         // 'document_ids' is additive — collected purely so link() can correlate
         // this batch's created Documents back to a caller (e.g. the intake-by-
@@ -1286,9 +1296,33 @@ class PdfSplitterController extends Controller
             $publicDisk->put($relPath, $stream);
             if (is_resource($stream)) { @fclose($stream); }
 
-            $dest = $labelSlug
+            $dest  = $labelSlug
                 ? $destinations->destinationForSlug($agencyId, $labelSlug)
                 : ['property' => true, 'contact' => false];
+            $typeId = $labelSlug ? ($typeMap[$labelSlug] ?? null) : null;
+
+            // Classified doc (real type, not the 'other' catch-all) gets a
+            // meaningful, collision-safe display name. Unclassified/'other'
+            // pages keep the raw extracted filename — the name doesn't matter
+            // there, agents re-triage them anyway.
+            if ($typeId !== null && $labelSlug !== 'other') {
+                if (! array_key_exists($typeId, $existingNamesByType)) {
+                    $existingNamesByType[$typeId] = Document::query()
+                        ->where('source_type', 'pdf_splitter')
+                        ->where('source_id', $property->id)
+                        ->where('document_type_id', $typeId)
+                        ->pluck('original_name')
+                        ->all();
+                }
+                $displayName = $this->buildClassifiedDocumentName(
+                    $property,
+                    $typeLabels[$labelSlug] ?? $labelSlug,
+                    $existingNamesByType[$typeId]
+                );
+                $existingNamesByType[$typeId][] = $displayName;
+            } else {
+                $displayName = $filename;
+            }
 
             // Resolve the EXPLICIT per-page ticked contacts to [id => party_role].
             // Only contacts actually attached to THIS property are honoured; the
@@ -1304,7 +1338,7 @@ class PdfSplitterController extends Controller
             $filed = $docSpine->fileClassifiedDocument(
                 $property,
                 [
-                    'original_name'    => $filename,
+                    'original_name'    => $displayName,
                     'storage_path'     => $relPath,
                     'disk'             => 'public',
                     'mime_type'        => 'application/pdf',
@@ -1313,7 +1347,7 @@ class PdfSplitterController extends Controller
                     // ("file is empty") — only a real stat() failure (false)
                     // should become null.
                     'size'             => (($__sz = @filesize($abs)) !== false ? $__sz : null),
-                    'document_type_id' => $typeMap[$labelSlug] ?? null,
+                    'document_type_id' => $typeId,
                     'source_type'      => 'pdf_splitter',
                     'source_id'        => $property->id,
                     'agency_id'        => $agencyId,
@@ -1334,6 +1368,31 @@ class PdfSplitterController extends Controller
         }
 
         return $result;
+    }
+
+    /**
+     * Meaningful saved-document name for a CLASSIFIED split page:
+     * "{property address} · {document type label} · {YYYY-MM-DD}.pdf".
+     * Falls back to the property title, then a "Property #{id}" placeholder,
+     * if the address is blank.
+     *
+     * Collision-safe: $existingNames is every original_name already used for
+     * this property+type (DB rows plus any assigned earlier in this same
+     * batch) — appends " (2)", " (3)" … so two docs of the same type on one
+     * property (e.g. two mandates) never overwrite each other.
+     */
+    private function buildClassifiedDocumentName(Property $property, string $typeLabel, array $existingNames): string
+    {
+        $address = trim((string) ($property->address ?: $property->title)) ?: "Property #{$property->id}";
+        $base    = "{$address} · {$typeLabel} · " . now()->format('Y-m-d');
+
+        $taken = array_flip($existingNames);
+        $name  = "{$base}.pdf";
+        for ($n = 2; isset($taken[$name]); $n++) {
+            $name = "{$base} ({$n}).pdf";
+        }
+
+        return $name;
     }
 
     /**
