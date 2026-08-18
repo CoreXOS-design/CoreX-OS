@@ -872,6 +872,22 @@ class MatchingService
             }
         }
 
+        // 'garage' bridge (2026-08-18, live incident — contact 17097/match 349
+        // returned ZERO Core Matches for an otherwise-plain sale wishlist).
+        // 'garage' is a normal FEATURE_OPTIONS checkbox agents pick as a
+        // must-have, but garage COUNT is tracked on the dedicated `garages`
+        // numeric column (garages_min already scores this separately below),
+        // never duplicated as a "Garage" text tag inside features_json. Every
+        // property with real structured features_json data (so the must-have
+        // gate above doesn't skip as "unknown") but no redundant "Garage" tag
+        // therefore hard-failed a 'garage' must-have unconditionally — not a
+        // reconcile-merge regression, confirmed identical on pre-merge live
+        // (712f937b2). Same bridge pattern as poolTokens() below: a property
+        // fact the property row already carries becomes a positive token.
+        if ((int) ($property->garages ?? 0) > 0) {
+            $out[] = 'garage';
+        }
+
         return array_values(array_unique(array_merge($out, $property->poolTokens())));
     }
 
