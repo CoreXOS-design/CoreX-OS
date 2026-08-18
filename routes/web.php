@@ -4203,6 +4203,26 @@ Route::middleware(['auth', 'permission:access_prospecting'])
             [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'stubMergeDuplicate'])
             ->middleware('permission:mic.merge_duplicates')
             ->name('merge');
+
+        // Property row comments — .ai/specs/mic-property-row-comments.md.
+        // Agency-wide visibility; add/edit/remove gated per-method inside the
+        // controller (author-only edit, author-or-manage remove).
+        Route::get('/{trackedProperty}/comments',
+            [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'comments'])
+            ->middleware('permission:mic.comments.view')
+            ->name('comments.index');
+        Route::post('/{trackedProperty}/comments',
+            [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'storeComment'])
+            ->middleware('permission:mic.comments.add')
+            ->name('comments.store');
+        Route::patch('/{trackedProperty}/comments/{comment}',
+            [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'updateComment'])
+            ->middleware('permission:mic.comments.add')
+            ->name('comments.update');
+        Route::delete('/{trackedProperty}/comments/{comment}',
+            [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'destroyComment'])
+            ->middleware('permission:mic.comments.add')
+            ->name('comments.destroy');
     });
 
 // ===== MARKET INTELLIGENCE (Build F.1 — rename of Prospecting) =====

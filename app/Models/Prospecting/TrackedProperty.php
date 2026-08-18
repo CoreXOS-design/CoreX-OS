@@ -162,6 +162,16 @@ final class TrackedProperty extends Model
     }
 
     /**
+     * Agency-wide comments (newest first) — the MIC Work-tab row comment
+     * chip. Keyed to this TP so comments survive relisting and claim churn.
+     * Spec: .ai/specs/mic-property-row-comments.md
+     */
+    public function comments(): HasMany
+    {
+        return $this->hasMany(TrackedPropertyComment::class, 'tracked_property_id')->latest();
+    }
+
+    /**
      * Market data points anchored to this property (per-TP metric history).
      * The shared-pool default scope on MarketDataPoint is global — this
      * relation pre-filters to rows whose tracked_property_id matches.

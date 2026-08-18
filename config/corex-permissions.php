@@ -414,6 +414,9 @@ return [
         ['key' => 'mic.regenerate_brief',        'label' => 'Regenerate Strategic Brief (manual)', 'section' => 'prospecting',      'type' => 'action',  'module' => 'mic',              'sort_order' => 54],
         ['key' => 'mic.view_ai_costs',           'label' => 'View AI Token / Cost Dashboard',      'section' => 'prospecting',      'type' => 'access',  'module' => 'mic',              'sort_order' => 55],
         ['key' => 'mic.restore_reports',         'label' => 'Restore Archived Market Reports',     'section' => 'prospecting',      'type' => 'action',  'module' => 'mic',              'sort_order' => 56],
+        // ── MIC property row comments — .ai/specs/mic-property-row-comments.md ──
+        ['key' => 'mic.comments.view',           'label' => 'View Property Comments',              'section' => 'prospecting',      'type' => 'access',  'module' => 'mic',              'sort_order' => 57],
+        ['key' => 'mic.comments.add',            'label' => 'Add Property Comments',               'section' => 'prospecting',      'type' => 'action',  'module' => 'mic',              'sort_order' => 58],
 
         // ── Evaluation (Property/Suburb/Town Reports) ──
         ['key' => 'access_evaluation',           'label' => 'Access Evaluation Reports',   'section' => 'evaluation',       'type' => 'access',  'module' => 'evaluation',       'sort_order' => 1],
@@ -640,7 +643,7 @@ return [
                 // MIC (Phase A2) — admin gets every MIC permission
                 'mic.edit_address', 'mic.merge_duplicates', 'mic.upload_reports',
                 'mic.view_team', 'mic.regenerate_brief', 'mic.view_ai_costs',
-                'mic.restore_reports',
+                'mic.restore_reports', 'mic.comments.view', 'mic.comments.add',
                 // Agency Public API — admins manage their agency's website keys
                 'agency_api.view', 'agency_api.manage',
                 // Testimonials — admins curate which testimonials go on the website
@@ -764,6 +767,8 @@ return [
                 // EXCEPT regenerate_brief and view_ai_costs (admin+ only).
                 'mic.edit_address', 'mic.merge_duplicates', 'mic.upload_reports',
                 'mic.view_team',
+                // MIC property row comments — agency-wide visibility per Johan's spec.
+                'mic.comments.view', 'mic.comments.add',
             ],
         ],
 
@@ -852,6 +857,10 @@ return [
                 // ONLY (per matrix §12.3). No merge, team, brief regen, or
                 // AI cost visibility for agents.
                 'mic.edit_address', 'mic.upload_reports',
+                // MIC property row comments — every agent who can see MIC can
+                // see and add comments (Johan's explicit ask — cross-agent
+                // visibility on a specific property).
+                'mic.comments.view', 'mic.comments.add',
             ],
         ],
 

@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace App\Http\Controllers\CoreX;
 
 use App\Events\Prospecting\TrackedPropertyAddressVerified;
+use App\Events\Prospecting\TrackedPropertyCommentAdded;
 use App\Http\Controllers\Controller;
 use App\Models\Prospecting\TrackedProperty;
 use App\Models\Prospecting\TrackedPropertyAddress;
+use App\Models\Prospecting\TrackedPropertyComment;
 use App\Services\Prospecting\TrackedPropertyMatchOrCreateService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -291,6 +293,137 @@ final class TrackedPropertyController extends Controller
         return view('corex.tracked-properties.merge-stub', [
             'tp'         => $trackedProperty,
             'candidates' => $candidates,
+        ]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // Property row comments — .ai/specs/mic-property-row-comments.md
+    // Agency-wide, cross-agent visibility on a specific TrackedProperty.
+    // Deliberately separate from ProspectingClaim::notes (the claim-screen
+    // note feature) — left untouched — and from PropertyNote (keyed to
+    // properties.id, the wrong entity for the prospecting-pool universe).
+    // ─────────────────────────────────────────────────────────────────
+
+    /**
+     * GET — initial modal-body load (list + add box), fetched as HTML by the
+     * row's comment chip, mirroring buyerMatches()'s fetch-and-inject pattern.
+     */
+    public function comments(Request $request, TrackedProperty $trackedProperty)
+    {
+        $this->assertOwnership($request, $trackedProperty);
+        $user = $request->user();
+        if (! $user->hasPermission('mic.comments.view')) {
+            abort(403, 'You do not have permission to view property comments.');
+        }
+
+        return view('corex.market-intelligence._comments-modal', $this->commentsModalData($trackedProperty, $user));
+    }
+
+    /**
+     * POST — add a comment. Any user who can see MIC can add one (Johan's
+     * explicit ask — cross-agent visibility). Returns the re-rendered
+     * fragment + count so the caller can swap the modal body and the row
+     * badge in one round trip.
+     */
+    public function storeComment(Request $request, TrackedProperty $trackedProperty)
+    {
+        $this->assertOwnership($request, $trackedProperty);
+        $user = $request->user();
+        if (! $user->hasPermission('mic.comments.add')) {
+            abort(403, 'You do not have permission to add property comments.');
+        }
+
+        $validated = $request->validate([
+            'body' => ['required', 'string', 'min:3', 'max:1000'],
+        ]);
+
+        $comment = TrackedPropertyComment::create([
+            'agency_id'           => $trackedProperty->agency_id,
+            'tracked_property_id' => $trackedProperty->id,
+            'user_id'             => $user->id,
+            'body'                => trim($validated['body']),
+        ]);
+
+        TrackedPropertyCommentAdded::dispatch($comment);
+
+        return $this->commentsJsonResponse($trackedProperty, $user);
+    }
+
+    /**
+     * PATCH — edit your own comment. Author-only (no permission overrides
+     * this — a manager cannot silently rewrite someone else's words).
+     */
+    public function updateComment(Request $request, TrackedProperty $trackedProperty, TrackedPropertyComment $comment)
+    {
+        $this->assertOwnership($request, $trackedProperty);
+        $user = $request->user();
+        if ((int) $comment->tracked_property_id !== (int) $trackedProperty->id) {
+            abort(404);
+        }
+        if ((int) $comment->user_id !== (int) $user->id) {
+            abort(403, 'You can only edit your own comment.');
+        }
+
+        $validated = $request->validate([
+            'body' => ['required', 'string', 'min:3', 'max:1000'],
+        ]);
+
+        $comment->update([
+            'body'      => trim($validated['body']),
+            'edited_at' => now(),
+        ]);
+
+        return $this->commentsJsonResponse($trackedProperty, $user);
+    }
+
+    /**
+     * DELETE (soft) — the author OR a prospecting_setup.manage holder may
+     * remove a comment. No hard deletes (CLAUDE.md Non-negotiable #1) — the
+     * row is soft-deleted and excluded from the badge count and list.
+     */
+    public function destroyComment(Request $request, TrackedProperty $trackedProperty, TrackedPropertyComment $comment)
+    {
+        $this->assertOwnership($request, $trackedProperty);
+        $user = $request->user();
+        if ((int) $comment->tracked_property_id !== (int) $trackedProperty->id) {
+            abort(404);
+        }
+        $isAuthor = (int) $comment->user_id === (int) $user->id;
+        $isAdmin = $user->hasPermission('prospecting_setup.manage');
+        if (! $isAuthor && ! $isAdmin) {
+            abort(403, 'Only the comment author or a prospecting manager can remove this comment.');
+        }
+
+        $comment->delete();
+
+        return $this->commentsJsonResponse($trackedProperty, $user);
+    }
+
+    /**
+     * Shared data for the comments-modal partial: the active comment list
+     * (newest first, soft-deleted excluded by default scope) + viewer flags
+     * the partial needs to decide which controls to render per row.
+     */
+    private function commentsModalData(TrackedProperty $trackedProperty, $user): array
+    {
+        return [
+            'trackedProperty' => $trackedProperty,
+            'comments'        => $trackedProperty->comments()->with('user:id,name')->get(),
+            'viewerId'        => (int) $user->id,
+            'canAdd'          => $user->hasPermission('mic.comments.add'),
+            'canModerate'     => $user->hasPermission('prospecting_setup.manage'),
+        ];
+    }
+
+    /** JSON envelope for the three mutation endpoints (store/update/destroy). */
+    private function commentsJsonResponse(TrackedProperty $trackedProperty, $user)
+    {
+        $data = $this->commentsModalData($trackedProperty, $user);
+
+        return response()->json([
+            'success'       => true,
+            'comments_html' => view('corex.market-intelligence._comments-modal', $data)->render(),
+            'count'         => $data['comments']->count(),
         ]);
     }
 
