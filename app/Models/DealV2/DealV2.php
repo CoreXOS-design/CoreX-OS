@@ -71,6 +71,17 @@ class DealV2 extends Model
         'backfilled_at' => 'datetime',
     ];
 
+    protected static function booted(): void
+    {
+        static::saving(function (self $deal): void {
+            if ($deal->listing_external && $deal->selling_external) {
+                throw new \DomainException(
+                    "DealV2 {$deal->id}: both listing_external and selling_external are true — a deal must keep at least one internal agent."
+                );
+            }
+        });
+    }
+
     /**
      * A "pre-pipeline" twin: a DR1 deal backfilled into DR2 for register
      * completeness (Johan-ruled, .ai/specs/dr2-twin-backfill.md). It carries NO

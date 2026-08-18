@@ -353,6 +353,13 @@ class DealV2Controller extends Controller
         $data['listing_external'] = $request->boolean('listing_external');
         $data['selling_external'] = $request->boolean('selling_external');
 
+        // A deal must keep at least one internal agent — both sides can't be external.
+        if ($data['listing_external'] && $data['selling_external']) {
+            return back()->withInput()->withErrors(
+                "A deal must have at least one internal agent — both sides can't be external."
+            );
+        }
+
         // (AT-192 d) Branch attribution mirrors DR1 — NEVER silently fall back to
         // Branch::first() (which lands a NULL-home-branch capturer's deal on an
         // unrelated branch, e.g. Shelly Beach). Prefer the capturer's effective
@@ -671,6 +678,13 @@ class DealV2Controller extends Controller
             $sellingSplit = (float) ($data['selling_split_percent'] ?? 50);
             if (abs(($listingSplit + $sellingSplit) - 100) > 0.01) {
                 return back()->withErrors("Listing + Selling split must equal 100.")->withInput();
+            }
+
+            // A deal must keep at least one internal agent — both sides can't be external.
+            if ($request->boolean('listing_external') && $request->boolean('selling_external')) {
+                return back()->withErrors(
+                    "A deal must have at least one internal agent — both sides can't be external."
+                )->withInput();
             }
 
             $deal->update([
