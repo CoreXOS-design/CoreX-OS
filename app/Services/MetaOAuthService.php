@@ -20,27 +20,11 @@ class MetaOAuthService
      */
     public function getAuthUrl(string $platform, int $userId): string
     {
-        $scopes = match ($platform) {
-            'instagram' => [
-                'pages_show_list',
-                'pages_read_engagement',
-                'instagram_basic',
-                'instagram_content_publish',
-            ],
-            default => [
-                'pages_show_list',
-                'pages_read_engagement',
-                'pages_manage_posts',
-                'read_insights',
-            ],
-        };
-
         $state = base64_encode(json_encode(['user_id' => $userId, 'platform' => $platform]));
 
-        $params = http_build_query([
+        $params = [
             'client_id'     => config('services.meta.app_id'),
             'redirect_uri'  => config('services.meta.redirect_uri'),
-            'scope'         => implode(',', $scopes),
             'response_type' => 'code',
             'state'         => $state,
             // Without this, Facebook silently reuses whichever Page(s) were
@@ -50,9 +34,40 @@ class MetaOAuthService
             // gets more than one Page to choose from. rerequest forces Facebook
             // to show the full consent + Page-picker dialog every time.
             'auth_type'     => 'rerequest',
-        ]);
+        ];
 
-        return 'https://www.facebook.com/v19.0/dialog/oauth?' . $params;
+        $configId = config('services.meta.login_config_id');
+
+        if ($configId) {
+            // This app is owned by a Meta Business (CoreX OS) — Meta requires
+            // Page-related permissions (pages_show_list, pages_manage_posts,
+            // pages_read_engagement, read_insights) to be requested through a
+            // Facebook Login for Business "Configuration" instead of a raw
+            // scope list. A classic scope= request against a business-owned
+            // app is silently stripped down to public_profile only, even for
+            // an app Admin — the Configuration is what actually grants them.
+            $params['config_id'] = $configId;
+        } else {
+            // Fallback for a non-business app / local dev without a
+            // configuration set up: classic scope-based request.
+            $scopes = match ($platform) {
+                'instagram' => [
+                    'pages_show_list',
+                    'pages_read_engagement',
+                    'instagram_basic',
+                    'instagram_content_publish',
+                ],
+                default => [
+                    'pages_show_list',
+                    'pages_read_engagement',
+                    'pages_manage_posts',
+                    'read_insights',
+                ],
+            };
+            $params['scope'] = implode(',', $scopes);
+        }
+
+        return 'https://www.facebook.com/v19.0/dialog/oauth?' . http_build_query($params);
     }
 
     /**
