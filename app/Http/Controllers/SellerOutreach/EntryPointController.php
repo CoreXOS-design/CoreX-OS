@@ -121,7 +121,7 @@ final class EntryPointController extends Controller
             $existing = $gate;
             $isNew = $existing === null;
 
-            $branchId = $request->user()->branch_id;
+            $branchId = $this->resolveBranchId($request, $agencyId, $property->branch_id);
             $contact = $existing ?: Contact::create(array_merge(
                 array_filter([
                     'agency_id'             => $agencyId,
@@ -320,7 +320,7 @@ final class EntryPointController extends Controller
 
         $result = DB::transaction(function () use ($request, $agencyId, $listing, $validated, $existing, $idNumber, $captureAddress, $structuredAddress, $isOptedOut) {
             // Branch context is mandatory on Contact rows in CoreX schema.
-            $branchId = $request->user()->branch_id;
+            $branchId = $this->resolveBranchId($request, $agencyId, $listing->branch_id ?? null);
 
             // contacts.last_name + contacts.phone are NOT NULL in the schema —
             // they must reach Contact::create even when empty, so we merge the
@@ -619,7 +619,10 @@ final class EntryPointController extends Controller
         }
 
         $contact = DB::transaction(function () use ($request, $agencyId, $trackedProperty, $validated, $existing, $idNumber) {
-            $branchId = $request->user()->branch_id;
+            // tracked_properties carries no branch_id of its own (TP→Property
+            // promotion is deferred to mandate-sign — see this method's own
+            // docblock) — resolveBranchId falls back to the agency's default.
+            $branchId = $this->resolveBranchId($request, $agencyId);
 
             // contacts.last_name + contacts.phone are NOT NULL in the schema —
             // they must reach Contact::create even when empty, so we merge the
@@ -1016,6 +1019,43 @@ final class EntryPointController extends Controller
             : ($user->agency_id ?? null);
         abort_if($id === null, 403, 'No agency context — super_admin without an active agency cannot compose pitches.');
         return (int) $id;
+    }
+
+    /**
+     * contacts.branch_id is NOT NULL with no default — a plain
+     * $request->user()->branch_id crashes with SQL 1364 the moment the
+     * acting user has none of their own (an all-branches admin/super_admin,
+     * exactly the population that legitimately has no single branch_id —
+     * see CalendarEvent::scopeVisibleTo's branches.view_all carve-out for
+     * the same population elsewhere in the app).
+     *
+     * Resolution order:
+     *   1. effectiveBranchId() — the acting user's own branch, honouring a
+     *      "View as Branch" session override (unlike the raw column).
+     *   2. $contextBranchId (the property/listing this contact is being
+     *      captured for) — but ONLY if it actually belongs to $agencyId.
+     *      Trusting it blindly is a tenant-isolation risk: this DB has
+     *      properties whose branch_id points at a DIFFERENT agency's
+     *      branch (stale data predating branch enforcement), and stamping
+     *      that onto a new contact would silently leak a cross-agency
+     *      branch reference.
+     *   3. The agency's own default_branch_id, if set.
+     *   4. The agency's first branch, if it has any at all.
+     * Null only if the agency genuinely has zero branches of its own.
+     */
+    private function resolveBranchId(Request $request, int $agencyId, ?int $contextBranchId = null): ?int
+    {
+        $branchId = $request->user()->effectiveBranchId();
+        if ($branchId) {
+            return $branchId;
+        }
+
+        if ($contextBranchId && DB::table('branches')->where('id', $contextBranchId)->where('agency_id', $agencyId)->exists()) {
+            return $contextBranchId;
+        }
+
+        return DB::table('agencies')->where('id', $agencyId)->value('default_branch_id')
+            ?? DB::table('branches')->where('agency_id', $agencyId)->orderBy('id')->value('id');
     }
 
     /**
