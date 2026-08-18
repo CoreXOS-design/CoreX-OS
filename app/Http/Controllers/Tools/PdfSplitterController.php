@@ -1290,6 +1290,17 @@ class PdfSplitterController extends Controller
 
         $slugs   = collect($groups)->pluck('label')->filter()->unique()->values();
         $typeMap = DocumentType::query()->whereIn('slug', $slugs)->pluck('id', 'slug')->toArray();
+        $typeLabelMap = DocumentType::query()->whereIn('slug', $slugs)->pluck('label', 'slug')->toArray();
+
+        // Property filing convention (Johan 2026-08-18): a pack filed AGAINST a
+        // property names each split "{address} · {doc type} · {YYYY-MM-DD}" so
+        // filings are self-describing and two documents of the same type on one
+        // property (e.g. two mandates) never overwrite — the date differentiates,
+        // and a same-property/type/same-day repeat gets a "(2)" suffix. The
+        // Download-ZIP path (no property) keeps the agent's entered base name.
+        $addressLabel = $this->readablePropertyAddress($property);
+        $fileDate     = now()->toDateString();
+        $usedNames    = [];
 
         // 'document_ids' is additive — collected purely so link() can correlate
         // this batch's created Documents back to a caller (e.g. the intake-by-
@@ -1301,8 +1312,20 @@ class PdfSplitterController extends Controller
             if (! $abs || ! is_file($abs)) continue;
 
             $labelSlug = $g['label'];
-            $filename  = basename($abs);
-            $relPath   = $dir . '/' . Str::random(8) . '_' . $filename;
+
+            // Self-describing name from property + doc type + date, deduped so a
+            // repeat (same property, same type, same day) never overwrites.
+            $docLabel = $typeLabelMap[$labelSlug] ?? Str::headline((string) $labelSlug);
+            $baseName = $addressLabel . ' · ' . $docLabel . ' · ' . $fileDate;
+            $n = 1;
+            $filename = $baseName . '.pdf';
+            while (in_array($filename, $usedNames, true) || $this->propertyDocNameExists($property->id, $filename)) {
+                $n++;
+                $filename = $baseName . ' (' . $n . ').pdf';
+            }
+            $usedNames[] = $filename;
+            $fsBase  = Str::slug($baseName) . ($n > 1 ? '-' . $n : '');
+            $relPath = $dir . '/' . Str::random(8) . '_' . ($fsBase !== '' ? $fsBase : 'document') . '.pdf';
 
             $stream = @fopen($abs, 'rb');
             if (! $stream) continue;
@@ -1357,6 +1380,33 @@ class PdfSplitterController extends Controller
         }
 
         return $result;
+    }
+
+    /**
+     * Readable property address for the filing convention — street + suburb
+     * (title-cased), falling back to "Property #id" when the address is blank.
+     */
+    private function readablePropertyAddress(Property $property): string
+    {
+        $street = trim((string) ($property->address ?? ''));
+        $suburb = trim((string) ($property->suburb ?? ''));
+        $suburb = $suburb !== '' ? Str::title(Str::lower($suburb)) : '';
+        $label  = trim(implode(', ', array_filter([$street, $suburb])));
+
+        return $label !== '' ? $label : ('Property #' . $property->id);
+    }
+
+    /**
+     * True when a Document with this display name is already filed to the
+     * property — used to append a "(2)" suffix so a same-property/type/same-day
+     * split never overwrites an existing filing.
+     */
+    private function propertyDocNameExists(int $propertyId, string $name): bool
+    {
+        return \App\Models\Document::query()
+            ->where('original_name', $name)
+            ->whereHas('properties', fn ($q) => $q->where('properties.id', $propertyId))
+            ->exists();
     }
 
     /**
