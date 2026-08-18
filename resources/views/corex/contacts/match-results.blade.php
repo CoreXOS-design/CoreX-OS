@@ -16,26 +16,17 @@
     $waPhoneRecord = $contact->whatsAppPhone();
     $waPhone = \App\Support\WhatsAppNumberFormatter::forDeepLink($waPhoneRecord?->phone ?? $contact->phone, $waPhoneRecord?->dial_code ?? $contact->primaryPhone?->dial_code);
     $renderedWaMsg = str_replace(['{name}', '{link}'], [$contact->first_name, $match->sharedUrl()], $defaultWaMsg);
-
-    $defaultEmailSubject = \App\Models\PerformanceSetting::get('matches_email_subject', 'Your personalised property matches');
-    $defaultEmailMsg = \App\Models\PerformanceSetting::get('matches_email_message',
-        "Hi {name},\n\nI've put together a personalised selection of properties that match your search criteria.\n\nView your property matches here:\n{link}\n\nFeel free to reach out if you'd like to arrange viewings or have any questions!"
-    );
-    $renderedEmailSubject = str_replace(['{name}', '{link}'], [$contact->first_name, $match->sharedUrl()], $defaultEmailSubject);
-    $renderedEmailMsg = str_replace(['{name}', '{link}'], [$contact->first_name, $match->sharedUrl()], $defaultEmailMsg);
-
+    // Email uses the same personalised copy as the WhatsApp share.
+    $matchEmailSubject = 'Your property matches';
+    $matchEmailBody = $renderedWaMsg;
     $totalViews = array_sum($match->property_view_counts ?? []);
     $hiddenCount = count($match->hidden_property_ids ?? []);
 @endphp
 <div class="w-full space-y-6"
      x-data="{
          showWaModal: false,
-         showEmailModal: false,
          waMessage: {{ Js::from($renderedWaMsg) }},
          waPhone: '{{ $waPhone }}',
-         emailSubject: {{ Js::from($renderedEmailSubject) }},
-         emailBody: {{ Js::from($renderedEmailMsg) }},
-         contactEmail: {{ Js::from($contact->email ?? '') }},
          outreachAllowed: {{ ($outreachWindow['allowed'] ?? true) ? 'true' : 'false' }},
          outreachWindowMessage: {{ Js::from($outreachWindow['message'] ?? '') }},
          // AT-323 send-confirm + counter — REUSES the contact-page mechanism: /increment logs a
@@ -48,6 +39,8 @@
          csrf: @js(csrf_token()),
          sentConfirm: { open: false, communicationId: null },
          emailAddress: @js($contact->email),
+         emailSubject: {{ Js::from($matchEmailSubject) }},
+         emailBody: {{ Js::from($matchEmailBody) }},
          async increment(channel, payload = {}) {
              try {
                  const res = await fetch(this.incrementUrl, {
@@ -65,24 +58,16 @@
              try {
                  await fetch(this.commBase + '/' + commId + '/mark-sent', {
                      method: 'POST',
-                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': this.incrementCsrf },
+                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': this.csrf, 'X-Requested-With': 'XMLHttpRequest' },
                      body: '{}',
                  });
              } catch (e) {}
          },
-         async recordSend(channel, payload = {}) {
-             try {
-                 const res = await fetch(this.incrementUrl, {
-                     method: 'POST',
-                     headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.incrementCsrf, 'Accept': 'application/json' },
-                     body: JSON.stringify({ channel, subject: payload.subject ?? null, body: payload.body ?? null }),
-                 });
-                 return await res.json();
-             } catch (e) {
-                 // Network blip: the archive is the source of truth on next load;
-                 // the WhatsApp/email deep link has already fired regardless.
-                 return null;
-             }
+         sendEmail() {
+             if (!this.emailAddress) { alert('This contact has no email address.'); return; }
+             window.location.href = 'mailto:' + encodeURIComponent(this.emailAddress) + '?subject=' + encodeURIComponent(this.emailSubject) + '&body=' + encodeURIComponent(this.emailBody);
+             // Email is client-launched (mailto): counted on send, no did-you-send modal (matches outreach).
+             this.increment('email', { subject: this.emailSubject, body: this.emailBody });
          },
          async sendWhatsApp() {
              if (!this.waPhone) return;
@@ -95,36 +80,29 @@
              // THEN record the send and ask did-you-send.
              window.open('https://wa.me/' + this.waPhone + '?text=' + encodeURIComponent(this.waMessage), '_blank', 'noopener');
              this.showWaModal = false;
-             const data = await this.recordSend('whatsapp', { body: this.waMessage });
+             const data = await this.increment('whatsapp', { body: this.waMessage });
              if (data && data.communication_id) {
                  this.sentConfirm = { open: true, communicationId: data.communication_id };
              }
-         },
-         sendEmail() {
-             if (!this.contactEmail) return;
-             window.location.href = 'mailto:' + encodeURIComponent(this.contactEmail) + '?subject=' + encodeURIComponent(this.emailSubject) + '&body=' + encodeURIComponent(this.emailBody);
-             this.recordSend('email', { subject: this.emailSubject, body: this.emailBody });
-             this.showEmailModal = false;
          },
          // AT-117 — add this composed message to the outreach queue (ready now).
          queueUrl: @js(route('corex.outreach-queue.enqueue')),
          queueContactId: {{ (int) $contact->id }},
          queueCsrf: @js(csrf_token()),
          queuing: false,
-         async addToQueue(channel, body) {
+         async addToQueue() {
              if (this.queuing) return;
              this.queuing = true;
              try {
                  const res = await fetch(this.queueUrl, {
                      method: 'POST',
                      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-TOKEN': this.queueCsrf, 'Accept': 'application/json' },
-                     body: new URLSearchParams({ contact_id: this.queueContactId, channel: channel, source: 'mic', body: body }),
+                     body: new URLSearchParams({ contact_id: this.queueContactId, channel: 'whatsapp', source: 'mic', body: this.waMessage }),
                  });
                  const data = await res.json();
                  if (!res.ok || !data.ok) { alert(data.message || 'Could not queue.'); return; }
                  alert(data.message || 'Added to your outreach queue.');
                  this.showWaModal = false;
-                 this.showEmailModal = false;
              } catch (e) { alert('Network error — try again.'); } finally { this.queuing = false; }
          },
      }">
@@ -136,28 +114,34 @@
     {{-- Page header (Pattern A — branded) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
 
-    {{-- Page header --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+        {{-- Top bar: back nav --}}
+        <div class="flex items-center gap-2 mb-4">
+            <a href="{{ route('corex.contacts.show', $contact) }}?tab=matches"
+               class="inline-flex items-center gap-1.5 text-xs font-semibold no-underline"
+               style="color: rgba(255,255,255,0.6);">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
+                Back to {{ $contact->full_name }}
+            </a>
+            <span class="text-xs" style="color: rgba(255,255,255,0.35);">/</span>
+            <span class="text-xs font-semibold" style="color: rgba(255,255,255,0.6);">Core Matches</span>
+        </div>
 
         <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
 
             {{-- Left: contact + criteria --}}
             <div class="flex items-start gap-4 min-w-0">
                 {{-- Avatar --}}
-                {{-- `text-white` is intentionally NOT a class here: .corex-page-banner
-                     rewrites .text-white to --text-primary, which would kill the
-                     contrast of initials sitting on the coloured avatar fill. --}}
-                <div class="w-12 h-12 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
-                     style="background: {{ $contact->type?->color ?? 'var(--brand-icon)' }}; color: #fff;">
+                <div class="w-12 h-12 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
+                     style="background: {{ $contact->type?->color ?? 'var(--brand-icon)' }};">
                     {{ $contact->initials }}
                 </div>
 
                 <div class="min-w-0">
                     {{-- Title row --}}
                     <div class="flex items-center gap-2 flex-wrap mb-1">
-                        <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $contact->full_name }}</h1>
+                        <h1 class="text-xl font-bold leading-tight text-white">{{ $contact->full_name }}</h1>
                         @if($contact->type)
-                        <span class="ds-badge ds-badge-default" style="background: {{ $contact->type->color }}22; color: {{ $contact->type->color }}; border: 1px solid {{ $contact->type->color }}55;">
+                        <span class="ds-badge ds-badge-default" style="background: {{ $contact->type->color }}33; color: #fff; border-color: {{ $contact->type->color }}55;">
                             {{ $contact->type->name }}
                         </span>
                         @endif
@@ -167,7 +151,8 @@
                         @if(auth()->user()->hasPermission('access_core_matches'))
                         {{-- AT-240 — edit this wishlist/criteria; opens the existing edit flow. --}}
                         <a href="{{ route('corex.contacts.matches.edit', [$contact, $match]) }}"
-                           class="corex-btn-outline text-xs no-underline inline-flex items-center gap-1"
+                           class="ds-badge no-underline inline-flex items-center gap-1"
+                           style="background: rgba(255,255,255,0.12); color:#fff; border:1px solid rgba(255,255,255,0.28);"
                            title="Edit this wishlist / match criteria">
                             <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" /></svg>
                             Edit criteria
@@ -176,7 +161,7 @@
                     </div>
 
                     {{-- Phone / email --}}
-                    <div class="flex items-center gap-3 mb-3 flex-wrap text-xs" style="color: var(--text-muted);">
+                    <div class="flex items-center gap-3 mb-3 flex-wrap text-sm" style="color: rgba(255,255,255,0.6);">
                         @if($contact->phone)<span>{{ $contact->phone }}</span>@endif
                         @if($contact->email)<span>{{ $contact->email }}</span>@endif
                     </div>
@@ -185,44 +170,44 @@
                     <div class="flex items-center gap-1.5 flex-wrap">
                         @if($match->price_min || $match->price_max)
                         <span class="text-xs font-semibold px-2.5 py-1 rounded-md"
-                              style="background: color-mix(in srgb, var(--brand-icon) 10%, transparent); color: var(--brand-icon); border: 1px solid color-mix(in srgb, var(--brand-icon) 22%, transparent);">
+                              style="background: color-mix(in srgb, var(--brand-icon) 18%, transparent); color: #fff; border: 1px solid color-mix(in srgb, var(--brand-icon) 35%, transparent);">
                             {{ $match->priceRangeLabel() }}
                         </span>
                         @endif
                         @foreach($match->suburbList() as $sub)
                         <span class="text-xs font-medium px-2.5 py-1 rounded-md"
-                              style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">
+                              style="background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.75); border: 1px solid rgba(255,255,255,0.15);">
                             {{ $sub }}
                         </span>
                         @endforeach
                         @if($match->category)
                         <span class="text-xs font-medium px-2.5 py-1 rounded-md"
-                              style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">
+                              style="background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.75); border: 1px solid rgba(255,255,255,0.15);">
                             {{ $match->category }}
                         </span>
                         @endif
                         @if($match->property_type)
                         <span class="text-xs font-medium px-2.5 py-1 rounded-md"
-                              style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">
+                              style="background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.75); border: 1px solid rgba(255,255,255,0.15);">
                             {{ $match->property_type }}
                         </span>
                         @endif
                         @foreach([[$match->beds_min,'Beds'],[$match->baths_min,'Baths'],[$match->garages_min,'Gar']] as [$val,$lbl])
                         @if($val !== null)
                         <span class="text-xs font-medium px-2.5 py-1 rounded-md"
-                              style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">
+                              style="background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.75); border: 1px solid rgba(255,255,255,0.15);">
                             {{ $val }}+ {{ $lbl }}
                         </span>
                         @endif
                         @endforeach
                         @if($match->floor_size_min || $match->floor_size_max)
                         <span class="text-xs font-medium px-2.5 py-1 rounded-md"
-                              style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">
+                              style="background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.75); border: 1px solid rgba(255,255,255,0.15);">
                             {{ $match->floor_size_min ? number_format($match->floor_size_min) : '—' }}–{{ $match->floor_size_max ? number_format($match->floor_size_max) : '—' }} m²
                         </span>
                         @endif
                         @if(!$match->category && !$match->property_type && !$match->suburb && !$match->price_min && !$match->price_max && !$match->beds_min && !$match->baths_min)
-                        <span class="text-xs italic" style="color: var(--text-muted);">Any property</span>
+                        <span class="text-xs italic" style="color: rgba(255,255,255,0.5);">Any property</span>
                         @endif
                     </div>
                 </div>
@@ -233,40 +218,35 @@
                 {{-- Stats row --}}
                 <div class="flex items-center gap-4">
                     <div class="md:text-right">
-                        <div class="text-base font-bold leading-tight tabular-nums" style="color: var(--text-primary);">
+                        <div class="text-[1.625rem] font-semibold leading-tight text-white">
                             {{ number_format($properties->count()) }}
                         </div>
-                        <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                        <div class="text-[0.6875rem] font-semibold uppercase tracking-wider" style="color: rgba(255,255,255,0.6);">
                             {{ Str::plural('match', $properties->count()) }}
                         </div>
                     </div>
                     @if($totalViews > 0)
-                    <div style="width:1px; height:26px; background: var(--border);"></div>
+                    <div style="width:1px; height:32px; background: rgba(255,255,255,0.15);"></div>
                     <div class="md:text-right">
-                        <div class="text-base font-bold leading-tight tabular-nums" style="color: var(--text-primary);">{{ number_format($totalViews) }}</div>
-                        <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                        <div class="text-[1.625rem] font-semibold leading-tight text-white">{{ number_format($totalViews) }}</div>
+                        <div class="text-[0.6875rem] font-semibold uppercase tracking-wider" style="color: rgba(255,255,255,0.6);">
                             client {{ Str::plural('view', $totalViews) }}
                         </div>
                     </div>
                     @endif
                     @if($hiddenCount > 0)
-                    <div style="width:1px; height:26px; background: var(--border);"></div>
+                    <div style="width:1px; height:32px; background: rgba(255,255,255,0.15);"></div>
                     <div class="md:text-right">
-                        <div class="text-base font-bold leading-tight tabular-nums" style="color: var(--text-muted);">{{ number_format($hiddenCount) }}</div>
-                        <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">hidden</div>
+                        <div class="text-[1.625rem] font-semibold leading-tight" style="color: rgba(255,255,255,0.6);">{{ number_format($hiddenCount) }}</div>
+                        <div class="text-[0.6875rem] font-semibold uppercase tracking-wider" style="color: rgba(255,255,255,0.5);">hidden</div>
                     </div>
                     @endif
                 </div>
 
                 {{-- Action buttons --}}
-                <div class="flex flex-wrap items-center gap-2">
-                    <a href="{{ route('corex.contacts.show', $contact) }}?tab=matches"
-                       class="corex-btn-outline text-xs whitespace-nowrap inline-flex items-center gap-1.5">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
-                        Back to {{ $contact->full_name }}
-                    </a>
+                <div class="flex items-center gap-2">
                     @if($waPhone)
-                    <button type="button" @click="showWaModal = true" class="corex-btn-primary text-xs" style="background: #25d366; box-shadow: none;">
+                    <button type="button" @click="showWaModal = true" class="corex-btn-primary" style="background: #25d366; box-shadow: none;">
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
                             <path d="M12 0C5.373 0 0 5.373 0 12c0 2.117.554 4.103 1.523 5.824L0 24l6.335-1.509A11.945 11.945 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.854 0-3.6-.483-5.12-1.33l-.368-.214-3.76.896.952-3.656-.238-.384A10.01 10.01 0 0 1 2 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/>
@@ -427,14 +407,14 @@
                 <label class="block text-xs font-medium" style="color: var(--text-secondary);">Edit message before sending</label>
                 <textarea x-model="waMessage" rows="10"
                           class="w-full rounded-md px-3 py-2 text-sm"
-                          style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); resize: vertical; line-height: 1.6;"></textarea>
+                          style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary); resize: vertical; line-height: 1.6;"></textarea>
                 <p class="text-xs" style="color: var(--text-muted);">The client's personalised link is already included in the message.</p>
             </div>
 
             {{-- AT-117 — add to the outreach queue (ready now). Available any time;
                  sending from the queue is gated by the send-window. --}}
             <div class="px-6 pb-4 mt-2 pt-3" style="border-top: 1px solid var(--border);">
-                <button type="button" @click="addToQueue('whatsapp', waMessage)" :disabled="queuing"
+                <button type="button" @click="addToQueue()" :disabled="queuing"
                         class="corex-btn-outline disabled:opacity-40 disabled:cursor-not-allowed">
                     <span x-show="!queuing">Add to queue</span>
                     <span x-show="queuing" x-cloak>Adding…</span>
@@ -453,64 +433,6 @@
                         <path d="M12 0C5.373 0 0 5.373 0 12c0 2.117.554 4.103 1.523 5.824L0 24l6.335-1.509A11.945 11.945 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.854 0-3.6-.483-5.12-1.33l-.368-.214-3.76.896.952-3.656-.238-.384A10.01 10.01 0 0 1 2 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/>
                     </svg>
                     Open in WhatsApp
-                </button>
-            </div>
-        </div>
-    </div>
-
-    {{-- Email Modal — for buyers who don't use WhatsApp. --}}
-    <div x-show="showEmailModal" x-cloak
-         class="fixed inset-0 z-50 flex items-center justify-center p-4"
-         style="background: rgba(0,0,0,0.5);"
-         @keydown.escape.window="showEmailModal = false">
-        <div class="w-full max-w-lg rounded-md overflow-hidden"
-             style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 10px 30px rgba(0,0,0,0.18);"
-             @click.stop>
-
-            {{-- Modal header --}}
-            <div class="flex items-center justify-between px-6 py-4" style="border-bottom: 1px solid var(--border);">
-                <div class="flex items-center gap-3">
-                    <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0"
-                         style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent);">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="var(--brand-icon)" style="width:18px;height:18px;"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
-                    </div>
-                    <div>
-                        <div class="text-lg font-semibold" style="color: var(--text-primary);">Send via Email</div>
-                        <div class="text-xs" style="color: var(--text-muted);">{{ $contact->full_name }}@if($contact->email) · {{ $contact->email }}@endif</div>
-                    </div>
-                </div>
-                <button type="button" @click="showEmailModal = false"
-                        class="w-8 h-8 flex items-center justify-center rounded-md text-sm font-bold"
-                        style="color: var(--text-muted); background: var(--surface-2); border: 1px solid var(--border);">✕</button>
-            </div>
-
-            {{-- Message editor --}}
-            <div class="px-6 py-5 space-y-3">
-                <label class="block text-xs font-medium" style="color: var(--text-secondary);">Subject</label>
-                <input type="text" x-model="emailSubject"
-                       class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                <label class="block text-xs font-medium" style="color: var(--text-secondary);">Edit message before sending</label>
-                <textarea x-model="emailBody" rows="10"
-                          class="w-full rounded-md px-3 py-2 text-sm"
-                          style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); resize: vertical; line-height: 1.6;"></textarea>
-                <p class="text-xs" style="color: var(--text-muted);">The client's personalised link is already included in the message.</p>
-            </div>
-
-            <div class="px-6 pb-4 mt-2 pt-3" style="border-top: 1px solid var(--border);">
-                <button type="button" @click="addToQueue('email', emailBody)" :disabled="queuing"
-                        class="corex-btn-outline disabled:opacity-40 disabled:cursor-not-allowed">
-                    <span x-show="!queuing">Add to queue</span>
-                    <span x-show="queuing" x-cloak>Adding…</span>
-                </button>
-            </div>
-
-            {{-- Footer --}}
-            <div class="px-6 pb-5 flex items-center justify-end gap-3">
-                <button type="button" @click="showEmailModal = false" class="corex-btn-outline">Cancel</button>
-                <button type="button" @click="sendEmail()" class="corex-btn-primary">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
-                    Open in Email
                 </button>
             </div>
         </div>
