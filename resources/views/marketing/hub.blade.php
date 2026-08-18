@@ -24,6 +24,7 @@
          fbMode: null,
          igMode: null,
          useEmojis: false,
+         awaitingEmojiChoice: false,
          get copyKey() { return 'corex_mktg_copy_{{ $property->id }}'; },
          init() {
              // Restore any in-progress copy so navigating to the template picker
@@ -222,7 +223,7 @@
                 {{-- Facebook tab --}}
                 <div x-show="activeTab === 'facebook'">
                     {{-- Mode picker --}}
-                    <div x-show="fbMode === null" class="space-y-3">
+                    <div x-show="fbMode === null && !awaitingEmojiChoice" class="space-y-3">
                         <p class="text-sm font-medium mb-4" style="color:var(--text-primary);">How would you like to create your Facebook ad?</p>
                         <button type="button" @click="fbMode = 'manual'"
                                 class="w-full flex items-start gap-4 rounded-xl p-4 text-left transition-colors hover:border-[#00b4d8]"
@@ -235,7 +236,7 @@
                                 <div class="text-xs mt-0.5" style="color:var(--text-muted);">Type your own headline and ad copy from scratch.</div>
                             </div>
                         </button>
-                        <button type="button" @click="fbMode = 'ai'; regenerate('facebook')"
+                        <button type="button" @click="awaitingEmojiChoice = true"
                                 class="w-full flex items-start gap-4 rounded-xl p-4 text-left transition-colors hover:border-[#1877f2]"
                                 style="background:var(--surface-2); border:1px solid var(--border);">
                             <div class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style="background:rgba(24,119,242,0.12);">
@@ -246,6 +247,24 @@
                                 <div class="text-xs mt-0.5" style="color:var(--text-muted);">Let Ellie write an ad based on this property's details.</div>
                             </div>
                         </button>
+                    </div>
+                    {{-- Emoji prompt — asked BEFORE the first AI generation, not fixed up after --}}
+                    <div x-show="awaitingEmojiChoice" x-cloak class="space-y-3">
+                        <p class="text-sm font-medium" style="color:var(--text-primary);">Include emojis in the ad copy?</p>
+                        <p class="text-xs" style="color:var(--text-muted);">Ellie can add tasteful emojis ✨ to make the post feel more social, or keep it clean and text-only.</p>
+                        <div class="flex gap-3">
+                            <button type="button"
+                                    @click="useEmojis = true; awaitingEmojiChoice = false; fbMode = 'ai'; regenerate('facebook')"
+                                    class="flex-1 text-sm font-semibold px-4 py-2.5 rounded-lg" style="background:#1877f2; color:#fff;">
+                                Yes, include emojis ✨
+                            </button>
+                            <button type="button"
+                                    @click="useEmojis = false; awaitingEmojiChoice = false; fbMode = 'ai'; regenerate('facebook')"
+                                    class="flex-1 text-sm font-semibold px-4 py-2.5 rounded-lg" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                No, keep it clean
+                            </button>
+                        </div>
+                        <button type="button" @click="awaitingEmojiChoice = false" class="text-xs" style="color:var(--text-muted);">← Back</button>
                     </div>
                     {{-- Editor --}}
                     <div x-show="fbMode !== null" x-cloak>
@@ -300,16 +319,24 @@
                         </button>
                     </div>
 
-                    {{-- Property Photos --}}
-                    <div x-show="mediaTab === 'photos'">
+                    {{-- Property Photos — collapsed behind a dropdown by default so a
+                         property with many photos doesn't push the Publish bar far
+                         down the page; it's a big multi-row grid otherwise. --}}
+                    <div x-show="mediaTab === 'photos'" x-data="{ photosOpen: {{ $initialImg ? 'true' : 'false' }} }">
                         @if(count($allImages))
-                        <div class="grid grid-cols-4 gap-2">
+                        <button type="button" @click="photosOpen = !photosOpen"
+                                class="w-full flex items-center justify-between rounded-lg px-3 py-2 text-xs font-semibold"
+                                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            <span><span x-text="selectedImages.length"></span> of {{ count($allImages) }} photo<span x-show="selectedImages.length !== 1">s</span> selected — click to browse</span>
+                            <svg :style="photosOpen ? 'transform:rotate(180deg);' : ''" class="w-4 h-4 flex-shrink-0" style="transition:transform 0.15s;" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+                        </button>
+                        <div x-show="photosOpen" x-cloak class="grid grid-cols-4 gap-2 mt-2">
                             @foreach($allImages as $img)
                             <div @click="toggleImage('{{ $img }}')"
                                  :class="selectedImages.includes('{{ $img }}') ? 'ring-2 ring-[#00b4d8]' : 'ring-1 ring-transparent'"
                                  class="relative rounded-lg overflow-hidden cursor-pointer aspect-square"
                                  style="background:var(--surface-2);">
-                                <img src="{{ $img }}" alt="" class="w-full h-full object-cover">
+                                <img src="{{ $img }}" alt="" class="w-full h-full object-cover" loading="lazy">
                                 <div x-show="selectedImages.includes('{{ $img }}')"
                                      class="absolute inset-0 flex items-center justify-center"
                                      style="background:rgba(0,180,216,0.25);">
@@ -318,7 +345,6 @@
                             </div>
                             @endforeach
                         </div>
-                        <div class="text-xs mt-1" style="color:var(--text-muted);"><span x-text="selectedImages.length"></span> selected</div>
                         @else
                         <div class="text-xs rounded-lg px-3 py-2" style="background:var(--surface-2); color:var(--text-muted);">No photos uploaded for this property. Add photos on the property page first.</div>
                         @endif
