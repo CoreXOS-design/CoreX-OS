@@ -28,8 +28,8 @@
                 ? @js(route('seller-outreach.composer.mark-sent', ['contact' => $contact->id, 'send' => $send->id]))
                 : @js(route('seller-outreach.composer.not-sent', ['contact' => $contact->id, 'send' => $send->id]));
             try {
-                // keepalive: true — "answered"/"result" flip synchronously above (before this
-                // await), so "Back to contact" is live and clickable while this fetch is still
+                // keepalive: true — answered and result flip synchronously above (before this
+                // await), so a Back-to-contact link is live and clickable while this fetch is still
                 // in flight. Without keepalive, navigating there cancels the request mid-flight:
                 // SellerOutreachSend.outcome already reads 'sent' (set at dispatch), but the
                 // mirrored Communication never gets promoted from not_delivered — the contact's
