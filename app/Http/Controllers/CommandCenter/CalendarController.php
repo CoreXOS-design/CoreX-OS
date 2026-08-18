@@ -826,6 +826,21 @@ class CalendarController extends Controller
             'actor_role' => $cfg?->actor_role ?? 'both',
             'completion_behaviour' => $cfg?->completion_behaviour ?? 'freeform',
             'is_draggable' => $isManual && !$calendarEvent->is_recurring,
+            // 2026-08-18 (Johan) — per-type action-bar gates. Neither existed before:
+            // the viewing-pack buttons (both the "linked pack" and "create pack"
+            // templates) had NO category check at all, so a meeting (or any event
+            // type) with is_editable=true showed "Create viewing pack" — confirmed
+            // live bug ("Fetch 1A Alan Street Keys"). Only 'viewing' events may ever
+            // have a real viewing pack.
+            'supports_viewing_pack' => in_array($calendarEvent->category, ['viewing', 'viewings'], true),
+            // Meeting/Other/Private/Task are event_nature=informational (is_actionable
+            // false), so the existing freeform "Complete" button — gated on
+            // is_actionable — never showed for them, even though Johan wants a plain
+            // Mark Complete for these 4 types specifically. This is a narrow,
+            // button-only override: it does NOT touch event_nature/is_actionable
+            // itself, so RAG colour / overdue / daily-digest behaviour for these
+            // classes is unchanged — only this one button's visibility.
+            'supports_plain_complete' => in_array($calendarEvent->category, ['meeting', 'other', 'private', 'task'], true),
             // AT-111 — the viewing pack linked to THIS appointment (if any), for the
             // event panel's "Open pack" + download buttons. When none exists, the
             // launch URL lets the panel start one from this event (reverse link).
