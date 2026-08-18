@@ -60,7 +60,6 @@
 
     {{-- AT-267 — "added by {assistant}" (show_attribution). Renders nothing unless an assistant
          actually changed this contact and their agent has attribution switched on. --}}
-    <x-assistant-attribution type="contact" :id="$contact->id" />
 
     @if($errors->any())
         <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
