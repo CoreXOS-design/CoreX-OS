@@ -107,7 +107,18 @@ class DownloadPortalPropertyImages implements ShouldQueue
 
                     $filename = sprintf('%s/%03d_%s.%s', $dir, $downloaded + 1, Str::random(8), $ext);
                     Storage::disk('public')->put($filename, $body);
-                    $batchStored[] = Storage::disk('public')->url($filename);
+
+                    // Same downscale + list-thumbnail treatment every other property
+                    // image path gets (PropertyImageStorer/PropertyThumbnailService).
+                    // P24 already constrains to ~1280x720 so downscale() is usually a
+                    // no-op here, but it still normalises non-JPEG sources to JPEG —
+                    // and the thumbnail was previously never generated at all for
+                    // P24-pulled photos, so list views fell back to the full image.
+                    app(\App\Services\Images\PropertyImageStorer::class)->downscale($filename);
+                    $url = Storage::disk('public')->url($filename);
+                    app(\App\Services\Images\PropertyThumbnailService::class)->generateForUrl($url);
+
+                    $batchStored[] = $url;
                     $downloaded++;
                 } catch (\Throwable $e) {
                     $failed++;

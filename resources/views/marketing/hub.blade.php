@@ -336,7 +336,10 @@
                                  :class="selectedImages.includes('{{ $img }}') ? 'ring-2 ring-[#00b4d8]' : 'ring-1 ring-transparent'"
                                  class="relative rounded-lg overflow-hidden cursor-pointer aspect-square"
                                  style="background:var(--surface-2);">
-                                <img src="{{ $img }}" alt="" class="w-full h-full object-cover" loading="lazy">
+                                {{-- Grid shows the small thumbnail (fast); the FULL-res
+                                     $img stays the toggle/selection value below, since
+                                     that's what actually gets published/put in the ad. --}}
+                                <img src="{{ $property->thumbFor($img) }}" alt="" class="w-full h-full object-cover" loading="lazy">
                                 <div x-show="selectedImages.includes('{{ $img }}')"
                                      class="absolute inset-0 flex items-center justify-center"
                                      style="background:rgba(0,180,216,0.25);">
