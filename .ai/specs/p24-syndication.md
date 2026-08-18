@@ -461,3 +461,89 @@ Recorded here per CLAUDE.md Non-negotiable #10a.
   removes the listing; that `isOnPortal` / `getListingStatus` read-back returns portal truth; and
   that the queued `DesyndicatePropertyFromPortalsJob` runs end-to-end. QA1 is web-only (no worker)
   and outbound-neutralised, so these cannot be proven there. Johan gates Staging.
+
+---
+
+# Agent deactivation/deletion → confirm P24 removal (reliability + audit-truth)
+
+> Approved (shape) by Johan, 2026-08-18, following the cindy@hfcoastal.co.za incident: her
+> CoreX account was deactivated 2026-07-14 15:18, but her P24 agent profile stayed live and
+> nobody knew until 2026-08-18. **This section is DRAFT — the audit-truth mechanism (below) has
+> an open blocker and must be resolved before build starts.** Do not build against this section
+> until the blocker is cleared and Johan re-confirms.
+
+## What's actually broken
+
+Not missing logic. `UserManagementController::toggle()` and `::destroy()`
+(`app/Http/Controllers/Admin/UserManagementController.php`) already call `pushUserToP24()` on
+both deactivate and delete, which dispatches `SyncAgentToP24Job` →
+`Property24SyndicationService::updateAgentOnP24()` → `agentProfilePayload()`, which correctly
+computes `published = $user->is_active && !$user->trashed() && !$user->exclude_from_p24` and PUTs
+it to P24. That payload logic is correct today and is NOT being changed by this section.
+
+The gap is reliability, not capability:
+
+- The push is a fire-and-forget queued job (`tries=2`, `backoff=60`). P24 has no delete-agent
+  endpoint — Inactive+unpublished PUT is the only removal mechanism, and it is a real outbound
+  HTTP call that can fail like any other P24 call on this codebase (see the refresh-cost section
+  above — P24 has documented multi-minute outages).
+- On failure, `syncAgentIfChanged()` only logs to the `property24` channel and returns — no
+  admin-visible signal, and `p24_profile_signature` is left exactly as it was, so there is no
+  persisted trace that a removal was ever attempted or that it failed.
+- Nothing reconciles drift after the fact. A user who goes inactive during a P24 outage window
+  stays live on the portal indefinitely, silently, until someone happens to check.
+
+**Root-cause confirmation:** cindy@hfcoastal.co.za (`users.id=33`) deactivated 2026-07-14
+15:18:44 — 15 minutes before the documented 120s `cURL 28` P24 timeout at 15:33 in the refresh-cost
+section above. Her `p24_profile_signature` was `NULL` (never confirmed), consistent with that sync
+job dying silently in the outage window. Manually re-running the identical production sync path
+on 2026-08-18 succeeded immediately (`updateAgentOnP24()` returned `true`, signature persisted) —
+confirming the payload/PUT logic itself was never the problem.
+
+## Proposed changes (draft — none of this is built yet)
+
+1. **Audit-truth read-back**, mirroring the AT-68 pattern above (`isOnPortal()` gate before
+   recording a property withdrawal as done): after the Inactive+unpublished PUT acks, call
+   `Property24ApiClient::getAgent()` and only persist confirmation (`p24_profile_signature`, or a
+   new `users.p24_deactivation_confirmed_at`) once P24 itself reports the agent
+   inactive/unpublished. Still-published or inconclusive read-back → do not record success; leave
+   retryable.
+
+   **OPEN BLOCKER:** `getAgent()` returned HTTP 401 when called live against a real agent id
+   (498656, immediately after a successful `updateAgent` PUT to the same id) during the Cindy
+   investigation on 2026-08-18. Unknown whether this is a scope/permission gap on the read
+   endpoint specifically, a token issue, or a genuine P24-side fault. **This must be root-caused
+   before audit-truth read-back can be built as designed** — if `getAgent()` is structurally
+   unavailable to us, an alternate confirmation source is needed (e.g. inferring success from the
+   PUT response body, or asking P24 support to enable read-agent scope on our credentials).
+
+2. **Escalation on final failure** — when a deactivation/deletion's P24 removal cannot be
+   confirmed after retries, raise an in-app admin notification (same pattern as
+   `MandateNeedsResyndicationNotification` above), not just a `property24` log line.
+
+3. **Reconciliation job** — nightly, alongside the existing `p24:warm-agents-cache` job: find
+   users with `is_active = false` OR `deleted_at` set, `p24_agent_id` not null, and no confirmed
+   P24 removal; re-check/re-push. This is the mechanism that would have actually caught Cindy —
+   it does not depend on the original trigger having fired or succeeded.
+
+4. **Deliberately not proposing** a `UserDeactivated`/`UserDeleted` domain event rewire per
+   `corex-domain-events-spec.md`. The existing direct calls in `toggle()`/`destroy()` already fire
+   correctly — that was never the failure mode here. Reconciliation (above) closes the gap
+   regardless of trigger mechanism; an event rewire would be an architectural cleanup, not a fix,
+   and is out of scope for this section unless Johan calls for it separately.
+
+## Open questions for Johan (must be resolved before build)
+
+- Ticket/AT number, if this is being tracked formally.
+- Root cause of the `getAgent()` 401 — blocks item 1 above.
+- Reconciliation cadence — nightly (aligned with `p24:warm-agents-cache`) or more frequent?
+- Escalation channel — in-app notification only, or also Slack/email?
+
+## Acceptance criteria (draft, pending the above)
+
+- A user deactivated/deleted while P24 is reachable: profile flips to Inactive+unpublished on
+  P24, confirmed by read-back, within one queue cycle.
+- A user deactivated/deleted during a P24 outage: caught and corrected by the reconciliation job
+  within its run interval, with no human needing to notice.
+- Any deactivation whose P24 removal cannot be confirmed within a defined window raises a visible
+  admin notification, not just a log line.
