@@ -130,7 +130,7 @@
                     <input type="text" name="vat_no" value="{{ old('vat_no', $agency?->vat_no) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
-                           placeholder="e.g. 4870264498">
+                           placeholder="e.g. 4123456789">
                 </div>
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">FFC No</label>
@@ -947,6 +947,7 @@
                       style="background: var(--surface-2); border: 1px solid var(--border);"
                       x-data="{ removelogo: false, open: false }">
                     @csrf
+                    <input type="hidden" name="from_agency_edit" value="1">
 
                     <div class="flex items-center justify-between gap-4 cursor-pointer select-none" @click="open = !open">
                         <div class="flex items-center gap-2 font-semibold" style="color: var(--text-primary);">
@@ -1099,6 +1100,7 @@
 
                 <form id="delete-branch-{{ $branch->id }}" method="POST" action="{{ route('admin.branches.delete', $branch) }}" class="hidden">
                     @csrf
+                    <input type="hidden" name="from_agency_edit" value="1">
                 </form>
             @empty
                 <div class="rounded-md py-8 px-6 text-center text-sm" style="background: var(--surface-2); color: var(--text-muted);">

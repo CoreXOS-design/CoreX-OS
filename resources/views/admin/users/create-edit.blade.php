@@ -97,6 +97,7 @@
           autocomplete="off">
         @csrf
         @if($isEdit) @method('PUT') @endif
+        <input type="hidden" name="active_tab" :value="activeTab">
 
         {{-- Hidden honeypot to absorb browser autofill --}}
         <input type="text" name="_autocomplete_trap" style="display:none;" tabindex="-1" autocomplete="username">
@@ -600,7 +601,7 @@
                         @if($isEdit && $user->profilePhotoUrl())
                         <button type="button" class="text-[11px] font-medium mt-2 px-2 py-1 rounded-md transition-colors"
                                 style="color:var(--ds-crimson); background:color-mix(in srgb, var(--ds-crimson) 10%, transparent);"
-                                onclick="if(confirm('Remove agent photo?')){let f=document.createElement('form');f.method='POST';f.action='{{ route('admin.users.remove-file', $user) }}';f.innerHTML='<input type=hidden name=_token value='+document.querySelector('meta[name=csrf-token]').getAttribute('content')+'><input name=field value=agent_photo>';document.body.appendChild(f);f.submit();}">Remove current photo</button>
+                                onclick="if(confirm('Remove agent photo?')){let f=document.createElement('form');f.method='POST';f.action='{{ route('admin.users.remove-file', $user) }}';f.innerHTML='<input type=hidden name=_token value='+document.querySelector('meta[name=csrf-token]').getAttribute('content')+'><input name=field value=agent_photo><input type=hidden name=active_tab value=compliance>';document.body.appendChild(f);f.submit();}">Remove current photo</button>
                         @endif
                     </div>
                     {{-- FFC Certificate --}}
@@ -618,7 +619,7 @@
                             </a>
                             <button type="button" class="text-xs font-medium px-2 py-1 rounded-md transition-colors"
                                     style="color:var(--ds-crimson); background:color-mix(in srgb, var(--ds-crimson) 10%, transparent);"
-                                    onclick="if(confirm('Remove FFC certificate?')){let f=document.createElement('form');f.method='POST';f.action='{{ route('admin.users.remove-file', $user) }}';f.innerHTML=document.querySelector('meta[name=csrf-token]').content?'<input type=hidden name=_token value='+document.querySelector('meta[name=csrf-token]').getAttribute('content')+'><input name=field value=ffc_certificate>':'';;document.body.appendChild(f);f.submit();}">Remove</button>
+                                    onclick="if(confirm('Remove FFC certificate?')){let f=document.createElement('form');f.method='POST';f.action='{{ route('admin.users.remove-file', $user) }}';f.innerHTML=document.querySelector('meta[name=csrf-token]').content?'<input type=hidden name=_token value='+document.querySelector('meta[name=csrf-token]').getAttribute('content')+'><input name=field value=ffc_certificate><input type=hidden name=active_tab value=compliance>':'';;document.body.appendChild(f);f.submit();}">Remove</button>
                         </div>
                         @endif
                         <input type="file" name="ffc_certificate" accept=".pdf,.jpg,.jpeg,.png"
@@ -764,6 +765,7 @@
                 <p class="text-xs mb-3" style="color:var(--text-muted);">This user has not yet set up their password. You can resend the invitation email.</p>
                 <form method="POST" action="{{ route('admin.users.resend-invite', $user) }}">
                     @csrf
+                    <input type="hidden" name="active_tab" value="actions">
                     <button type="submit"
                             class="px-4 py-2 rounded-md text-sm font-medium transition-colors"
                             style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); color:var(--ds-amber, #f59e0b); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent);">
@@ -857,6 +859,7 @@
                                         </button>
                                         <form method="POST" action="{{ route('admin.users.toggle', $user) }}">
                                             @csrf
+                                            <input type="hidden" name="active_tab" value="actions">
                                             <button type="submit" class="corex-btn-primary text-xs"
                                                     style="background: var(--ds-crimson); border-color: var(--ds-crimson);">
                                                 Deactivate
@@ -869,6 +872,7 @@
                     @else
                         <form method="POST" action="{{ route('admin.users.toggle', $user) }}" class="inline">
                             @csrf
+                            <input type="hidden" name="active_tab" value="actions">
                             <button type="submit"
                                     class="px-4 py-2 rounded-md text-sm font-medium transition-colors w-full sm:w-auto"
                                     style="background:color-mix(in srgb, var(--ds-green, #059669) 10%, transparent); color:var(--ds-green, #059669); border:1px solid color-mix(in srgb, var(--ds-green, #059669) 25%, transparent);">

@@ -54,7 +54,7 @@ class UserComplianceOverrideController extends Controller
             'created_by' => auth()->id(),
         ]);
 
-        return redirect()->route('admin.users.edit', $user)
+        return redirect()->route('admin.users.edit', $user)->withFragment('compliance')
             ->with('success', ucfirst(str_replace('_', ' ', $validated['override_type'])) . ' override set for ' . $user->name . '.');
     }
 
@@ -79,7 +79,7 @@ class UserComplianceOverrideController extends Controller
             'revoke_reason' => $validated['revoke_reason'],
         ]);
 
-        return redirect()->route('admin.users.edit', $override->user_id)
+        return redirect()->route('admin.users.edit', $override->user_id)->withFragment('compliance')
             ->with('success', 'Override revoked.');
     }
 }
