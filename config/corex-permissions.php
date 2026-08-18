@@ -419,6 +419,11 @@ return [
         ['key' => 'mic.regenerate_brief',        'label' => 'Regenerate Strategic Brief (manual)', 'section' => 'prospecting',      'type' => 'action',  'module' => 'mic',              'sort_order' => 54],
         ['key' => 'mic.view_ai_costs',           'label' => 'View AI Token / Cost Dashboard',      'section' => 'prospecting',      'type' => 'access',  'module' => 'mic',              'sort_order' => 55],
         ['key' => 'mic.restore_reports',         'label' => 'Restore Archived Market Reports',     'section' => 'prospecting',      'type' => 'action',  'module' => 'mic',              'sort_order' => 56],
+        // AT-380 — Market Intelligence canvassing-pool visibility. `.view` is the
+        // SCOPED access key (own/branch/all via scope_defaults + Role Manager) —
+        // same mechanism as outreach_queue.view / calendar.view. Before this, the
+        // canvassing pool was agency-wide with no restriction for every role.
+        ['key' => 'market_intelligence.view',    'label' => 'View Canvassing Pool',        'section' => 'prospecting',      'type' => 'action',  'module' => 'market_intelligence', 'sort_order' => 57],
 
         // ── Evaluation (Property/Suburb/Town Reports) ──
         ['key' => 'access_evaluation',           'label' => 'Access Evaluation Reports',   'section' => 'evaluation',       'type' => 'access',  'module' => 'evaluation',       'sort_order' => 1],
@@ -551,6 +556,12 @@ return [
         ['key' => 'outreach_queue.view',          'label' => 'View Outreach Queue',         'section' => 'outreach', 'type' => 'action', 'module' => 'outreach_queue', 'sort_order' => 4],
         ['key' => 'outreach_queue.dispatch',      'label' => 'Send from Outreach Queue',    'section' => 'outreach', 'type' => 'action', 'module' => 'outreach_queue', 'sort_order' => 5],
         ['key' => 'outreach_queue.cancel',        'label' => 'Remove Outreach Queue items', 'section' => 'outreach', 'type' => 'action', 'module' => 'outreach_queue', 'sort_order' => 6],
+        // AT-380 — Outreach & Canvassing activity board. `.view` is the SCOPED
+        // access key (own/branch/all via scope_defaults + Role Manager) — same
+        // mechanism as outreach_queue.view. Replaces the previous hardcoded
+        // own-vs-everyone binary (mic.view_team / prospecting_setup.manage) with
+        // a real per-role scope, adding a branch tier that didn't exist before.
+        ['key' => 'outreach_canvassing.view',     'label' => 'View Outreach & Canvassing Activity', 'section' => 'outreach', 'type' => 'action', 'module' => 'outreach_canvassing', 'sort_order' => 7],
 
         // ── Payroll ──
         ['key' => 'manage_payroll',        'label' => 'Manage Payroll (employees, types)', 'section' => 'payroll', 'type' => 'action', 'module' => 'payroll', 'sort_order' => 120],
@@ -798,6 +809,9 @@ return [
                 // EXCEPT regenerate_brief and view_ai_costs (admin+ only).
                 'mic.edit_address', 'mic.merge_duplicates', 'mic.upload_reports',
                 'mic.view_team',
+                // AT-380 — .view scope (branch_manager→branch, agent→own via
+                // scope_defaults). Admin/owner get these via '*'/all-minus-exclude.
+                'market_intelligence.view', 'outreach_canvassing.view',
             ],
         ],
 
@@ -885,6 +899,9 @@ return [
                 // ONLY (per matrix §12.3). No merge, team, brief regen, or
                 // AI cost visibility for agents.
                 'mic.edit_address', 'mic.upload_reports',
+                // AT-380 — .view scope (branch_manager→branch, agent→own via
+                // scope_defaults). Admin/owner get these via '*'/all-minus-exclude.
+                'market_intelligence.view', 'outreach_canvassing.view',
             ],
         ],
 
@@ -919,6 +936,12 @@ return [
                 'access_rmcp',
                 'access_policy',
                 'view_own_screening',
+                // AT-380 — viewer already had unrestricted access_prospecting; without
+                // this .view scope key the new canvassing-pool restriction would
+                // silently collapse them to seeing nothing (no scope row -> 'own'
+                // default -> a viewer captures nothing). scope_defaults gives
+                // viewer 'branch', consistent with every other .view key it holds.
+                'market_intelligence.view',
                 // Sidebar sections
                 'sidebar.section.agents', 'sidebar.section.tools',
             ],

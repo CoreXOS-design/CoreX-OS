@@ -89,6 +89,12 @@ class MarketIntelligenceController extends Controller
         // listing per page — is eliminated.
         $query = ProspectingListing::where('agency_id', $agencyId);
 
+        // AT-380 — canvassing-pool visibility scope (own/branch/all), configured
+        // per role in Role Manager (market_intelligence.view). Was previously
+        // unrestricted for every role — every agent saw the entire agency pool.
+        $micScope = \App\Services\PermissionService::marketIntelligenceScope($user);
+        $query = $query->visibleTo($user, $micScope);
+
         // F.2: action preset URL param. Distinct from the legacy ?preset= (Smart
         // Filter Preset) — that one still works for stale_claims / new_today etc.
         // Action presets (pitch_now_high, pitch_now, log_outcomes, my_claims,
@@ -707,9 +713,11 @@ class MarketIntelligenceController extends Controller
         // them (the fragment stats-strip reads $snapshotKpis, the rail reads
         // $filterRailAggregates — both computed below on every path).
         if (! $isFragment) {
-        // Stats — also reflect the same in-stock filter the user has selected so
-        // the headline counts agree with the table below them.
-        $statsBase = ProspectingListing::where('agency_id', $agencyId)->where('is_active', true);
+        // Stats — also reflect the same in-stock filter AND the same AT-380
+        // visibility scope the user has selected, so the headline counts agree
+        // with the table below them.
+        $statsBase = ProspectingListing::where('agency_id', $agencyId)->where('is_active', true)
+            ->visibleTo($user, $micScope);
         if (! ($request->boolean('include_in_stock') && $isProspectingManager)) {
             $statsBase->whereNotCompanyStock($agencyId);
         }

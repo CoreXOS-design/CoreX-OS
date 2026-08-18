@@ -66,7 +66,7 @@ final class OutreachActivityFeedService
     ];
 
     /**
-     * @param  array{days?:int,source?:string,user_id?:int,limit?:int}  $filters
+     * @param  array{days?:int,source?:string,user_id?:int,user_ids?:array<int,int>,limit?:int}  $filters
      * @return array{rows:array<int,array<string,mixed>>,subtotals:array<string,int>,total:int,days:int,source:?string,truncated:bool}
      */
     public function feed(int $agencyId, array $filters = []): array
@@ -87,6 +87,9 @@ final class OutreachActivityFeedService
 
         if (! empty($filters['user_id'])) {
             $query->where('user_id', (int) $filters['user_id']);
+        } elseif (! empty($filters['user_ids'])) {
+            // AT-380 — branch-scope: every user_id in the acting user's branch.
+            $query->whereIn('user_id', (array) $filters['user_ids']);
         }
 
         // Pull one extra to detect truncation.

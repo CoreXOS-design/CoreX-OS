@@ -21,9 +21,11 @@ use Illuminate\Http\Request;
  *
  * Gate: reuses the AT-91 permission (outreach.summary.view) — this board is a
  * superset surface for the same audience and literally embeds the AT-91 board.
- * Activity-feed row visibility: agents see their own actions; team-viewers
- * (mic.view_team / prospecting_setup.manage, owners via permission bypass) see the
- * whole agency and may filter by agent.
+ * Activity-feed row visibility (AT-380): per-role own/branch/all scope, set in
+ * Role Manager (outreach_canvassing.view) — replaces the old hardcoded
+ * own-vs-everyone binary (mic.view_team / prospecting_setup.manage), which had
+ * no branch tier at all. 'branch'/'all' scopes may still drill down via
+ * ?agent_id=.
  */
 class OutreachCanvassingController extends Controller
 {
@@ -38,18 +40,38 @@ class OutreachCanvassingController extends Controller
         $agencyId = (int) ($user->effectiveAgencyId() ?? $user->agency_id ?? 0);
         abort_if($agencyId <= 0, 404);
 
-        $canSeeTeam = $user->hasPermission('mic.view_team')
-            || $user->hasPermission('prospecting_setup.manage');
+        $scope = \App\Services\PermissionService::outreachCanvassingScope($user);
+        $canSeeTeam = in_array($scope, ['branch', 'all'], true);
 
         $filters = [
             'days'   => (int) $request->integer('days', 90),
             'source' => $request->query('source'),
         ];
-        if (! $canSeeTeam) {
-            // Agents only ever see their own canvassing activity.
+        if ($scope === 'branch') {
+            $branchId = $user->effectiveBranchId();
+            if ($branchId) {
+                $filters['user_ids'] = \App\Models\User::withoutGlobalScopes()
+                    ->where('agency_id', $agencyId)
+                    ->where('branch_id', $branchId)
+                    ->pluck('id')->all();
+            } else {
+                // No single branch (e.g. branches.view_all with no branch_id) —
+                // "branch" IS "all" for this user, mirroring ProspectingListing
+                // ::scopeVisibleTo() and CalendarEvent's same carve-out.
+                $canSeeTeam = $canSeeTeam || $user->hasPermission('branches.view_all');
+                if (! $user->hasPermission('branches.view_all')) {
+                    $filters['user_id'] = (int) $user->id;
+                }
+            }
+        } elseif ($scope !== 'all') {
+            // 'own' (or no scope row yet — safe default).
             $filters['user_id'] = (int) $user->id;
-        } elseif (is_numeric($request->query('agent_id'))) {
+        }
+        // Both 'branch' (with a resolvable branch) and 'all' may drill down to
+        // one teammate's activity via the agent filter.
+        if ($canSeeTeam && is_numeric($request->query('agent_id'))) {
             $filters['user_id'] = (int) $request->query('agent_id');
+            unset($filters['user_ids']);
         }
 
         $feed = $feedService->feed($agencyId, $filters);
