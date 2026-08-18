@@ -62,13 +62,7 @@
          actually changed this contact and their agent has attribution switched on. --}}
     <x-assistant-attribution type="contact" :id="$contact->id" />
 
-    @if($errors->any())
-        <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
-             style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--text-primary);">
-            <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-crimson);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/></svg>
-            <div class="flex-1"><strong>Please fix the following:</strong> {{ $errors->first() }}</div>
-        </div>
-    @endif
+    @include('corex.contacts._form-errors')
 
     {{-- Tab bar --}}
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
@@ -517,10 +511,14 @@
                         </div>
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID Number <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
-                            <input type="text" name="id_number" value="{{ old('id_number', $contact->id_number) }}"
-                                   placeholder="e.g. 9001010000000"
+                            <input type="text" id="id_number" name="id_number" value="{{ old('id_number', $contact->id_number) }}"
+                                   inputmode="numeric" maxlength="13" pattern="\d{13}"
+                                   placeholder="e.g. 9001010000000" title="13 digits — empty is fine"
                                    class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                   style="background:var(--surface-2); border:1px solid {{ $errors->has('id_number') ? 'var(--ds-crimson)' : 'var(--border)' }}; color:var(--text-primary); {{ $errors->has('id_number') ? 'box-shadow: 0 0 0 3px color-mix(in srgb, var(--ds-crimson) 20%, transparent);' : '' }}">
+                            @error('id_number')
+                                <p class="mt-1 text-[11px] font-semibold" style="color:var(--ds-crimson);">{{ $message }}</p>
+                            @enderror
                         </div>
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Date of Birth <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>

@@ -3,7 +3,7 @@
 
 @section('corex-content')
 <div class="w-full space-y-5" data-tour-root="contacts"
-     x-data="{ showAdd: {{ (session('duplicate_detected') || old('first_name')) ? 'true' : 'false' }}, showImport: false, editId: null, importLoading: false }">
+     x-data="{ showAdd: {{ (session('duplicate_detected') || old('first_name') || $errors->any()) ? 'true' : 'false' }}, showImport: false, editId: null, importLoading: false }">
 
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
@@ -83,12 +83,7 @@
             {{ session('error') }}
         </div>
     @endif
-    @if($errors->any())
-        <div class="rounded-md px-4 py-3 text-sm"
-             style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--text-primary);">
-            {{ $errors->first() }}
-        </div>
-    @endif
+    @include('corex.contacts._form-errors')
 
     {{-- Add Contact Form (collapsible) --}}
     <div x-show="showAdd" x-cloak data-tour="contact-form"
@@ -224,12 +219,16 @@
                 </div>
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID Number <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
-                    <input type="text" name="id_number" value="{{ old('id_number') }}"
+                    <input type="text" id="id_number" name="id_number" value="{{ old('id_number') }}"
                            inputmode="numeric" maxlength="13" pattern="\d{13}"
-                           placeholder="e.g. 7610025020081" title="13 digits — empty is fine"
+                           placeholder="e.g. 1234567890123" title="13 digits — empty is fine"
                            class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300"
-                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); outline:none;">
-                    <p class="mt-1 text-[11px]" style="color:var(--text-muted);">SA ID — 13 digits. Leave blank if not known.</p>
+                           style="background:var(--surface-2); border:1px solid {{ $errors->has('id_number') ? 'var(--ds-crimson)' : 'var(--border)' }}; color:var(--text-primary); outline:none; {{ $errors->has('id_number') ? 'box-shadow: 0 0 0 3px color-mix(in srgb, var(--ds-crimson) 20%, transparent);' : '' }}">
+                    @error('id_number')
+                        <p class="mt-1 text-[11px] font-semibold" style="color:var(--ds-crimson);">{{ $message }}</p>
+                    @else
+                        <p class="mt-1 text-[11px]" style="color:var(--text-muted);">SA ID — 13 digits. Leave blank if not known.</p>
+                    @enderror
                 </div>
                 <div class="sm:col-span-2 lg:col-span-3" data-tour="contact-type">
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Contact Type <span class="text-red-500">*</span></label>

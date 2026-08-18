@@ -110,7 +110,7 @@
                         <input type="text" name="ppra_number" value="{{ old('ppra_number', $agency->ppra_number) }}"
                                class="w-full rounded-md px-3 py-2 text-sm"
                                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
-                               placeholder="e.g. 2023116041">
+                               placeholder="e.g. 2023000001">
                         <p class="text-[11px] mt-1" style="color:var(--text-muted);">The agency's per-entity registration with the Property Practitioners Regulatory Authority (separate from individual practitioner FFCs).</p>
                     </div>
                     <div>
