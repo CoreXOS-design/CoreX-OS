@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\CompanySettingsController;
 use App\Http\Controllers\Admin\DealPropertySyncSettingsController;
+use App\Http\Controllers\Admin\ProformaSettingsController;
 use App\Http\Controllers\Commission\CommissionSettingsController;
 use App\Http\Controllers\Compliance\FicaOfficerAppointmentsController;
 use App\Http\Controllers\CoreX\FeatureSettingsController;
@@ -38,8 +39,30 @@ use App\Http\Controllers\CoreX\SettingsController;
  */
 return [
 
+    // Explainer only — no savers, no controls, nothing to save. Sets expectations
+    // before asking for a single field: what this wizard is, how long it takes,
+    // and that nothing here is a one-shot decision.
+    'welcome' => [
+        'title' => 'Welcome to CoreX',
+        'intro' => "You're setting up your agency's copy of CoreX. This walks you through "
+            . "everything it needs to work the way your agency actually works — a few "
+            . "screens, save-as-you-go, and every choice can be changed later from Settings.",
+        'what' => [
+            'title' => 'What this onboarding does',
+            'body'  => "CoreX runs differently for every agency — different commission splits, different "
+                . "branches, different portals, different compliance officers. This wizard is how you tell it "
+                . "about YOUR agency, once, instead of hunting through Settings for two dozen separate pages on "
+                . "day one. Each step explains what it's asking for and why before it asks, ships with a sensible "
+                . "default so you can accept-and-continue if you're not sure, and saves the moment you press "
+                . '"Save & continue" — nothing waits until the very end. You can stop at any point and pick up '
+                . "exactly where you left off, and \"Skip for now\" is always there if a step doesn't apply to you "
+                . "yet. Every one of these settings lives on the same Settings pages afterwards, so nothing here "
+                . "is a locked-in, one-time decision — this is just the fastest way through all of them the first time.",
+        ],
+    ],
+
     'identity' => [
-        'title' => 'Welcome — your agency identity',
+        'title' => 'Your agency identity',
         'intro' => "Let's start with who you are. These details appear on your documents, "
             . 'letterheads, email signatures and your public listings. Fill in what you '
             . 'have — nothing here is locked, and you can refine it any time.',
@@ -252,6 +275,53 @@ return [
         ],
     ],
 
+    // Gated on the proforma-invoices feature module (auto-derived toggle in the
+    // Capabilities step) — skipped entirely for an agency that switches it off.
+    'proforma' => [
+        'title' => 'Proforma invoices',
+        'intro' => 'Set how your proforma invoice numbers are formatted and when they fall due. '
+            . 'Ships with sensible defaults — change only what your agency actually needs different.',
+        'what' => [
+            'title' => 'What a proforma invoice is',
+            'body'  => 'A proforma invoice is the commission/fee invoice CoreX generates for a deal before '
+                . 'the real tax invoice is raised — it is what an agent hands a client to show what is owed and '
+                . 'when. Every one CoreX generates gets a sequential number built from the prefix and padding '
+                . 'below, and a due date worked out from the rule you choose here. Your logo, VAT number and '
+                . 'bank details already come from the Identity and Branding steps; this step is only the '
+                . 'numbering and due-date behaviour.',
+        ],
+        'savers' => [
+            ['controller' => ProformaSettingsController::class, 'method' => 'update'],
+        ],
+        'controls' => [
+            ['key' => 'number_prefix', 'source' => 'proforma', 'type' => 'text', 'default' => 'PRO-',
+             'label' => 'Invoice number prefix',
+             'explain' => 'The letters that start every proforma invoice number.',
+             'affects' => 'What every proforma invoice number looks like — e.g. "PRO-" produces PRO-0001, PRO-0002…'],
+            ['key' => 'number_padding', 'source' => 'proforma', 'type' => 'number', 'default' => 4, 'min' => 1, 'max' => 10,
+             'label' => 'Number padding (digits)',
+             'explain' => 'How many digits the sequential number is padded to with leading zeros.',
+             'affects' => 'Whether your invoices read PRO-1 or PRO-0001. 4 digits suits most agencies.'],
+            ['key' => 'start_number', 'source' => 'proforma', 'type' => 'number', 'default' => 1, 'min' => 1,
+             'label' => 'Start numbering from',
+             'explain' => 'The first sequence number to use. Only relevant if you are migrating from another system and want to continue an existing number range — numbering can only move forward, never back or reused.',
+             'affects' => 'The number on your very next proforma invoice. Leave at 1 for a brand-new agency.'],
+            ['key' => 'due_date_rule', 'source' => 'proforma', 'type' => 'select', 'default' => 'end_of_month',
+             'options' => ['end_of_month' => 'End of the month it was issued', 'days_after' => 'A fixed number of days after issue', 'on_receipt' => 'Due immediately on receipt'],
+             'label' => 'When a proforma invoice falls due',
+             'explain' => 'The rule CoreX uses to calculate the due date printed on every proforma invoice it generates.',
+             'affects' => 'The due date shown on the invoice, and when it is flagged overdue if unpaid.'],
+            ['key' => 'due_days', 'source' => 'proforma', 'type' => 'number', 'default' => 30, 'min' => 0, 'max' => 365,
+             'label' => 'Days until due',
+             'explain' => 'Only used when the rule above is "a fixed number of days after issue".',
+             'affects' => 'How many days a client has to pay before the invoice is flagged overdue.'],
+            ['key' => 'bank_details', 'source' => 'proforma', 'type' => 'textarea', 'default' => '',
+             'label' => 'Bank details',
+             'explain' => 'The account details a client pays into — bank name, account name, account number, branch code.',
+             'affects' => 'Printed on every proforma invoice CoreX generates, so a client knows exactly where to pay.'],
+        ],
+    ],
+
     'properties' => [
         'title' => 'Properties & listings',
         // Marketing and portal syndication are switched on in the Capabilities
@@ -391,6 +461,25 @@ return [
         ],
     ],
 
+    // Gated on the prospecting feature module (auto-derived toggle in the
+    // Capabilities step) — skipped entirely for an agency that switches it off.
+    'market_intelligence' => [
+        'title' => 'Market Intelligence',
+        'intro' => 'Market Intelligence is the canvassing-pool workspace for properties that aren\'t on your books yet — '
+            . 'but it has nothing to show until it knows your areas, property types, and price bands. Set that up now, '
+            . 'here, so it is ready the moment portal listings start flowing in.',
+        'what' => [
+            'title' => 'What Market Intelligence is',
+            'body'  => 'Every property CoreX sees through a portal alert — not just your own listings — lands in a '
+                . 'canvassing pool. Market Intelligence groups that pool by the towns, suburbs, property types, bedroom '
+                . 'counts and price bands you define below, then matches it against your buyers\' wishlists, so an agent '
+                . 'opening the page immediately sees which not-yet-mandated properties fit a buyer they already have. '
+                . 'None of this can be filled in for you — it depends on the towns you actually work and how your '
+                . 'agency prices stock — so this is the one setup step that is genuinely yours to do.',
+        ],
+        'aux_partial' => 'agency-setup.steps.market-intelligence',
+    ],
+
     'contacts' => [
         'title' => 'Contacts',
         'intro' => 'Your contacts are the people behind every deal — buyers, sellers, landlords, '
@@ -484,18 +573,18 @@ return [
         'intro' => 'One last decision, then you are set up.',
         'what' => [
             'title' => 'Who can enter your agency',
-            'body'  => 'CoreX platform owners — the people who build and support the system — can switch into an '
-                . 'agency to diagnose a problem or help with a migration. Your data is never visible to another '
-                . 'agency, only to the platform team. If you would rather they ask first, switch the setting below '
-                . 'on: they will have to request your consent, and you will see the request.',
+            'body'  => 'CoreX\'s developers and testers — the people who build and support the system — can switch '
+                . 'into an agency to diagnose a problem or help with a migration. Your data is never visible to '
+                . 'another agency, only to them. If you would rather they ask first, switch the setting below on: '
+                . 'they will have to request your consent, and you will see the request.',
         ],
         'savers' => [
             ['controller' => SettingsController::class, 'method' => 'updateRemoteAccess'],
         ],
         'controls' => [
             ['key' => 'require_external_access_authorization', 'source' => 'agency', 'type' => 'toggle', 'default' => 0,
-             'label' => 'Ask my permission before a platform owner enters my agency',
-             'explain' => 'With this on, a CoreX platform owner must send you a consent request and wait for you to approve it before they can switch into your agency. With it off, they can enter directly to support you.',
+             'label' => 'Ask my permission before a developer or tester enters my agency',
+             'explain' => 'With this on, a CoreX developer or tester must send you a consent request and wait for you to approve it before they can switch into your agency. With it off, they can enter directly to support you.',
              'affects' => 'Whether support can act on an urgent problem immediately, or has to wait for someone at your agency to approve the request first.'],
         ],
     ],
