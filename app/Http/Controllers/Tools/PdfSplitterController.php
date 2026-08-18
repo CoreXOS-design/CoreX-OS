@@ -1225,7 +1225,9 @@ class PdfSplitterController extends Controller
             throw new \RuntimeException('extractPageSet called with no pages.');
         }
 
-        $proc = new Process([self::qpdfPath(), $origAbsNorm, '--pages', $origAbsNorm, $spec, '--', $outAbsNorm]);
+        // See qpdfPageCount() — same warnings-vs-errors tolerance is needed on
+        // the extract path so a warned-but-readable original can still split.
+        $proc = new Process([self::qpdfPath(), '--warning-exit-0', $origAbsNorm, '--pages', $origAbsNorm, $spec, '--', $outAbsNorm]);
         $proc->setTimeout(120);
         $proc->run();
 
@@ -1548,7 +1550,14 @@ class PdfSplitterController extends Controller
 
     private function qpdfPageCount(string $pdfAbsNorm): array
     {
-        $proc = new Process([self::qpdfPath(), '--show-npages', $pdfAbsNorm]);
+        // --warning-exit-0: some real-world exports (e.g. viewing-pack PDFs)
+        // trip qpdf's "reported number of objects is not one plus the highest
+        // object number" xref-table quirk — qpdf still reads the file fine and
+        // reports a correct page count, it just exits 3 ("success with
+        // warnings") instead of 0. Without this flag Process::isSuccessful()
+        // treats that as a hard failure and the file gets skipped as if
+        // corrupt. Genuine corruption still exits 2 and is unaffected.
+        $proc = new Process([self::qpdfPath(), '--warning-exit-0', '--show-npages', $pdfAbsNorm]);
         $proc->setTimeout(120);
         $proc->run();
 
@@ -1567,7 +1576,9 @@ class PdfSplitterController extends Controller
     private function qpdfExtractRange(string $pdfAbsNorm, int $from, int $to, string $outAbsNorm): void
     {
         $range = $from === $to ? (string)$from : ($from . '-' . $to);
-        $proc  = new Process([self::qpdfPath(), $pdfAbsNorm, '--pages', $pdfAbsNorm, $range, '--', $outAbsNorm]);
+        // See qpdfPageCount() — same warnings-vs-errors tolerance is needed on
+        // the extract path so a warned-but-readable original can still split.
+        $proc  = new Process([self::qpdfPath(), '--warning-exit-0', $pdfAbsNorm, '--pages', $pdfAbsNorm, $range, '--', $outAbsNorm]);
         $proc->setTimeout(120);
         $proc->run();
 
