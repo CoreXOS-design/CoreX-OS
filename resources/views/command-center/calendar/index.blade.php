@@ -1536,8 +1536,10 @@
                                             </template>
                                         </select>
                                     </div>
-                                    {{-- Mandate type --}}
-                                    <div>
+                                    {{-- Mandate type — seller-facing classes only (listing presentation /
+                                         property evaluation). No mandate concept for a buyer-facing
+                                         viewing, so this hides itself when the server sends no options. --}}
+                                    <div x-show="feedbackData.lp_mandate_types.length > 0">
                                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Mandate type</label>
                                         <select x-model="feedbackForm['prop:' + item.property_id].mandate_type"
                                                 class="w-full rounded-md px-3 py-2 text-sm"
@@ -1585,12 +1587,13 @@
                             </div>
                         </template>
                         <template x-if="feedbackData.items.length === 0">
-                            <p class="text-sm py-4 text-center" style="color: var(--text-muted);">No properties linked to this listing presentation.</p>
+                            <p class="text-sm py-4 text-center" style="color: var(--text-muted);">No properties linked to this event.</p>
                         </template>
                     </div>
                 </template>
 
-                {{-- Per-contact feedback (viewings — original UI) --}}
+                {{-- Per-contact feedback (listing presentation / property evaluation —
+                     the seller-facing classes; viewing now uses per_property above) --}}
                 <template x-for="contact in (feedbackData.feedback_mode === 'per_property' ? [] : feedbackData.contacts)" :key="contact.id">
                     <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
                         <h3 class="text-sm font-semibold mb-3" style="color: var(--text-primary);" x-text="contact.label"></h3>
