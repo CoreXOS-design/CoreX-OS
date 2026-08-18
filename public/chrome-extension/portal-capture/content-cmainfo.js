@@ -384,11 +384,59 @@
   const DOM_SETTLE_MS = 350;
   let lastMutationAt = 0;
 
+  // v3.3.9 (2026-08-18, Johan — Coniston Road / "Skippers of Shelly" incident)
+  // — a REAL confirmed miss the settle-check above didn't catch: a full,
+  // internally-consistent capture of the WRONG property (every field —
+  // address, scheme, section, erf, deed, sale price/date, owner — coherently
+  // matched a DIFFERENT, earlier deed). Server-side evidence (source_chain.ref
+  // is built client-side from the extracted title deed) proved this was a
+  // clean client-side stale read, not a partial bleed the v3.3.8 signature
+  // check would catch. Root cause: "quiet for DOM_SETTLE_MS" only proves
+  // nothing has changed RECENTLY — it can't distinguish "quiet because the
+  // postback finished" from "quiet because the postback hasn't started yet"
+  // (e.g. the agent clicked Capture within milliseconds of selecting a new
+  // property, before cmainfo's own postback began mutating anything).
+  //
+  // Investigated whether cmainfo exposes a per-property identifier the
+  // extension could read at click-time and poll the panel against (the
+  // airtight fix) — confirmed NOT AVAILABLE: buildSourceRef()'s own
+  // docblock above already establishes "the CMA URL itself doesn't encode
+  // one either — it's a search/click state, not a per-property URL", and
+  // there is no click listener on cmainfo's own search-results list to
+  // capture a click-time reference from even if one existed (unconfirmed
+  // without live access to cmainfo's search-results markup, which this
+  // extension has never needed to interact with before).
+  //
+  // Fallback: require GENUINE evidence of a fresh update, not just quiet.
+  //   - 2nd+ capture in a session: require at least one mutation observed
+  //     AFTER the previous capture completed, in addition to the existing
+  //     quiet-350ms check — "quiet" must mean "quiet after a real update",
+  //     not "nothing has happened yet". Closes the exact failure mode above
+  //     for every capture after the first.
+  //   - 1st capture in a session: no previous capture to require a mutation
+  //     against, so there's nothing to gate on — widen the settle window
+  //     instead, giving a slow-starting postback a wider margin. This is a
+  //     narrower, honestly-flagged residual gap, not eliminated.
+  const FIRST_CAPTURE_EXTRA_SETTLE_MS = 500;
+  let lastCaptureCompletedAt = 0;
+
   function domIsSettled() {
     // No mutation observed yet this page load (lastMutationAt still 0) counts
     // as settled — otherwise a property loaded before the observer's first
     // callback ever fires would wait out the full timeout for nothing.
-    return lastMutationAt === 0 || (Date.now() - lastMutationAt) >= DOM_SETTLE_MS;
+    if (lastMutationAt === 0) return true;
+
+    const requiredQuietMs = lastCaptureCompletedAt === 0
+      ? (DOM_SETTLE_MS + FIRST_CAPTURE_EXTRA_SETTLE_MS)
+      : DOM_SETTLE_MS;
+    if ((Date.now() - lastMutationAt) < requiredQuietMs) return false;
+
+    // 2nd+ capture: refuse to trust a panel that hasn't mutated AT ALL since
+    // the previous capture completed — that's the exact "nothing has
+    // happened yet" false-positive, not a real settle.
+    if (lastCaptureCompletedAt > 0 && lastMutationAt <= lastCaptureCompletedAt) return false;
+
+    return true;
   }
 
   /**
@@ -632,6 +680,11 @@
     }
 
     lastCaptureSignature = signature.titleDeed ? propertySignature(property, signature.titleDeed) : lastCaptureSignature;
+    // v3.3.9 — stamped on EVERY capture (not just successfully-identified
+    // ones) so the mutation-since-last-capture guard in domIsSettled() has a
+    // reference point for the NEXT capture regardless of whether this one
+    // had a title deed to key a signature on.
+    lastCaptureCompletedAt = Date.now();
 
     return {
       property_information: property,
