@@ -216,7 +216,11 @@
                       title="Already prospected by {{ $prospected['claimer_name'] ?? 'a colleague' }} — outcome: {{ $prospOutcome }}{{ $prospDateFull ? ' on ' . $prospDateFull : '' }}. Worked and closed (back in the pool), but check the history before re-canvassing the owner.">
                     Prospected · {{ $prospName }} · {{ $prospOutcome }}{{ $prospDate ? ' · ' . $prospDate : '' }}
                 </span>
-            @else
+            @elseif(!$isCompanyStock)
+                {{-- Company stock has no "unclaimed" state — the teal IN STOCK badge
+                     above already says what this row is, and the claim button is
+                     hidden in the action zone below (Johan's model: own stock is
+                     never claimable, so it must never look claimable either). --}}
                 <span style="{{ $tagNeutral }}"
                       title="Nobody has claimed this listing yet. Click the bookmark icon on the right to claim it for yourself.">unclaimed</span>
             @endif

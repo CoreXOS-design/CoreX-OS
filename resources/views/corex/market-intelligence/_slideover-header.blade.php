@@ -123,7 +123,14 @@
             <span style="{{ $actionDisabled }}" title="No linked contact — pitch first">WhatsApp</span>
         @endif
 
-        @if($claim)
+        @if($h['in_stock'] && !$claim)
+            {{-- Company/agency-owned stock (same canonical OnMarketStockService
+                 identity the server-side claim guard uses) is never claimable —
+                 show an inert state instead of a live Claim button. A pre-existing
+                 claim (e.g. predating this rule) still shows its own
+                 release/manager-release controls above, unchanged. --}}
+            <span style="{{ $actionDisabled }}" title="This is your agency's own stock — nothing to claim.">In stock</span>
+        @elseif($claim)
             @if($claimedByMe)
                 <form method="POST" action="{{ route('market-intelligence.release', $listing->id) }}" style="display: inline; margin: 0;">
                     @csrf
