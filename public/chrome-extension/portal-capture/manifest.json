@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CoreX",
-  "version": "3.4.1",
+  "version": "3.4.4",
   "description": "Pull properties and capture listings from portals into CoreX OS",
   "permissions": ["activeTab", "storage", "unlimitedStorage", "notifications", "alarms"],
   "host_permissions": [
