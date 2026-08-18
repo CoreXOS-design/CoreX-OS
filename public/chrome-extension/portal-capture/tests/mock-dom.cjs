@@ -32,6 +32,19 @@ class MockElement {
     return child;
   }
 
+  // Real DOM reflects the `id` IDL property onto the `id` content attribute
+  // both ways (element.id = 'x' <-> getAttribute('id') / getElementById) —
+  // content scripts commonly set `.id =` directly (content-cmainfo.js's own
+  // injectButton() does), so the mock must reflect it the same way or
+  // getElementById() silently never finds an element set up that way.
+  get id() {
+    return this._attrs.id || '';
+  }
+
+  set id(v) {
+    this._attrs.id = v;
+  }
+
   get classList() {
     const self = this;
     return {

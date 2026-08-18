@@ -1,5 +1,5 @@
 /**
- * CoreX — deeds-capture "true clean slate" regression harness (v3.4.1 -> v3.4.3).
+ * CoreX — deeds-capture "true clean slate" regression harness (v3.4.1 -> v3.4.4).
  *
  * Test A/B/C/D — repro for Johan's ORIGINAL bug: capturing a SECTIONAL
  * (complex) property then a FREEHOLD still showed the freehold with the
@@ -27,13 +27,40 @@
  * in v3.4.3 by restoring lastCaptureCompletedAt (timing memory — safe) while
  * keeping the address-bleed fix's removal of VALUE memory intact.
  *
+ * Test F — repro for Johan's live 3.4.3 STILL-bleeds-address report (62 Bairn
+ * Street captured with Address = "20 Lilliecrona Drive", the PREVIOUS
+ * capture's address, while Erf no/Title Deed/Sale Price/Owner all read
+ * correctly). Distinct from Test E: here the rest of the panel — AND the
+ * entirely separate Sale Information section — updates PROMPTLY; only the
+ * Address cell's own DOM node lands on a later, separate mutation. domIsSettled()/
+ * sectionHasPopulatedValues() only prove SOME row changed and things went
+ * quiet — never that Address's OWN cell specifically finished updating — so
+ * the panel can look "settled" while Address is still one mutation away.
+ * Fixed in v3.4.4 by waitForAddressStable(): poll the Address cell for two
+ * consecutive identical reads (mirrors revealOwnerIdIfNeeded()'s own
+ * poll-until-true shape) before trusting it, instead of trusting the
+ * whole-panel settle check alone.
+ *
+ * Test G — repro for Johan's live 3.4.3 owner-name-mangle report
+ * ("SMIT & WESSELS TRUST-TRUSTEES" stored as "& Wessels Trust-trustees
+ * Smit"). parsePersonName() unconditionally treated every owner string as a
+ * surname-first NATURAL PERSON name and reordered/title-cased it — with no
+ * detection for a juristic entity (trust/company/CC/joint "A & B") name,
+ * which has no surname/first-name split to begin with. Fixed in v3.4.4 by
+ * looksLikeEntityName(): detect TRUST/TRUSTEE(S)/CC/PTY/LTD/BK/&/etc FIRST
+ * and skip the reorder entirely, keeping the raw string verbatim.
+ *
  * Runs the REAL content-cmainfo.js source (unmodified — no test-only hooks)
  * inside a Node `vm` sandbox with a minimal mock DOM + chrome API, driving
  * extraction through the exact same chrome.runtime.onMessage('getDeedDetail')
- * entry point background.js/popup.js use in production. Test E additionally
- * drives the sandbox's real MutationObserver callback (fireMutation()) on a
- * delayed timer to simulate cmainfo's async postback landing AFTER the
- * capture is requested — the actual race that causes the regression.
+ * entry point background.js/popup.js use in production (Test G instead drives
+ * the real on-page Capture button + a chrome.runtime.sendMessage capture hook,
+ * since owner-name parsing only happens in buildDeedsCapturePayload(), which
+ * onCaptureClick() calls — not the getDeedDetail message handler). Test E/F
+ * additionally drive the sandbox's real MutationObserver callback
+ * (fireMutation()) on a delayed timer to simulate cmainfo's async postback
+ * landing AFTER the capture is requested — the actual race that causes the
+ * regression/bleed.
  *
  * Usage: node tests/deeds-cleanslate.test.cjs
  * Exits 0 if every check passes (old/regression fixtures reproduce their
@@ -49,6 +76,7 @@ const { setFieldValue, buildCmaInfoDocument } = require('./mock-dom.cjs');
 
 const OLD_FILE = path.join(__dirname, 'fixtures', 'content-cmainfo.v3.4.1.js');
 const REGRESSION_FILE = path.join(__dirname, 'fixtures', 'content-cmainfo.v3.4.2.js');
+const OLD_343_FILE = path.join(__dirname, 'fixtures', 'content-cmainfo.v3.4.3.js');
 const NEW_FILE = path.join(__dirname, '..', 'content-cmainfo.js');
 
 function makeChromeMock() {
@@ -59,6 +87,31 @@ function makeChromeMock() {
       sendMessage: () => Promise.resolve({}),
     },
     _getListener: () => listener,
+  };
+}
+
+/**
+ * Same shape as makeChromeMock(), but also records whatever payload
+ * onCaptureClick() sends via chrome.runtime.sendMessage({action:'captureDeed',
+ * payload}) — needed for Test G, since owner-name parsing (buildOwnersArray/
+ * parsePersonName) only runs inside buildDeedsCapturePayload(), which is
+ * reached from the on-page button click, not from the getDeedDetail message
+ * handler the other tests drive.
+ */
+function makeChromeMockWithCapture() {
+  let listener = null;
+  let resolveCaptured;
+  const captured = new Promise((resolve) => { resolveCaptured = resolve; });
+  return {
+    runtime: {
+      onMessage: { addListener: (fn) => { listener = fn; } },
+      sendMessage: (msg) => {
+        if (msg && msg.action === 'captureDeed') resolveCaptured(msg.payload);
+        return Promise.resolve({ results: [{ created: true }] });
+      },
+    },
+    _getListener: () => listener,
+    _captured: captured,
   };
 }
 
@@ -287,6 +340,102 @@ const BETA_SALE_UPDATES = {
   'Sale Type': 'Normal Sale',
 };
 
+// Test F repro — Johan's live 3.4.3 report: Gamma ("20 Lilliecrona Drive")
+// captured and settled first. Delta ("62 Bairn Street", Johan's real repro
+// address/erf/deed) is a genuinely different property — but unlike Test E,
+// its postback delivers Erf no/Suburb/GPS/Type AND the entire Sale
+// Information panel PROMPTLY (wave 1, +50ms); the Address cell specifically
+// lands separately and LATER (wave 2, +450ms) — reproducing "erf/deed/price/
+// owner all refreshed correctly, only the address carried over".
+const GAMMA_PROPERTY_FIELDS = [
+  ['Deeds Office', 'Port Shepstone'],
+  ['Scheme no', ''],
+  ['Scheme name', ''],
+  ['Situated at', ''],
+  ['Section number', ''],
+  ['Flat/Unit no', ''],
+  ['Street number', '20'],
+  ['Estate', ''],
+  ['Address', '20 Lilliecrona Drive'],
+  ['Erf no', '300'],
+  ['Suburb', 'Uvongo'],
+  ['Municipality', 'Hibiscus Coast'],
+  ['Province', 'KwaZulu-Natal'],
+  ['GPS', '-30.82, 30.37'],
+  ['Section extent', ''],
+  ['Type', 'Freehold'],
+  ['Usage', 'Residential'],
+];
+
+const GAMMA_SALE_FIELDS = [
+  ['Owner', 'BROWN PETER'],
+  ["Owner's ID", '7001015800080'],
+  ['Sale Price', 'R 700 000'],
+  ['Sale Date', '01/01/2018'],
+  ['Registered Date', '10/01/2018'],
+  ['Title Deed', 'T3000/2018'],
+  ['Bond Holder', ''],
+  ['Bond Amount', ''],
+  ['Sale Type', 'Normal Sale'],
+];
+
+// Wave 1 (+50ms) — everything EXCEPT Address updates promptly.
+const DELTA_PROPERTY_WAVE1 = {
+  'Street number': '62',
+  'Erf no': '616',
+  'Suburb': 'Margate',
+  'GPS': '-30.79, 30.40',
+  'Type': 'Freehold',
+};
+
+const DELTA_SALE_WAVE1 = {
+  'Owner': 'PETERS ANNA',
+  "Owner's ID": '6002015800087',
+  'Sale Price': 'R 1 100 000',
+  'Sale Date': '01/02/2022',
+  'Registered Date': '10/02/2022',
+  'Title Deed': 'T54685/2008',
+  'Sale Type': 'Normal Sale',
+};
+
+// Wave 2 (+450ms) — Address lands separately, later than the rest of the panel.
+const DELTA_ADDRESS = '62 Bairn Street';
+
+// Test G repro — Johan's live 3.4.3 report: an entity/trust owner name run
+// through the surname-first person-name reorder came out mangled. Reuses the
+// real repro's erf/deed/price so the fixture reads as one coherent capture.
+const ENTITY_OWNER_PROPERTY_FIELDS = [
+  ['Deeds Office', 'Port Shepstone'],
+  ['Scheme no', ''],
+  ['Scheme name', ''],
+  ['Situated at', ''],
+  ['Section number', ''],
+  ['Flat/Unit no', ''],
+  ['Street number', '62'],
+  ['Estate', ''],
+  ['Address', '62 Bairn Street'],
+  ['Erf no', '616'],
+  ['Suburb', 'Margate'],
+  ['Municipality', 'Hibiscus Coast'],
+  ['Province', 'KwaZulu-Natal'],
+  ['GPS', '-30.79, 30.40'],
+  ['Section extent', ''],
+  ['Type', 'Freehold'],
+  ['Usage', 'Residential'],
+];
+
+const ENTITY_OWNER_SALE_FIELDS = [
+  ['Owner', 'SMIT & WESSELS TRUST-TRUSTEES'],
+  ["Owner's ID", ''],
+  ['Sale Price', 'R 1 100 000'],
+  ['Sale Date', '01/01/2020'],
+  ['Registered Date', '10/01/2020'],
+  ['Title Deed', 'T54685/2008'],
+  ['Bond Holder', ''],
+  ['Bond Amount', ''],
+  ['Sale Type', 'Normal Sale'],
+];
+
 // ── Test runner ──────────────────────────────────────────────────────────
 
 const results = [];
@@ -430,6 +579,69 @@ async function testE_twoDistinctPropertiesInSequence(filePath, label, expectDrop
     !expectDropRegression);
 }
 
+async function testF_addressLagsRestOfPanel(filePath, label, expectStaleAddressRegression) {
+  // Gamma: fully captured and settled first — establishes lastCaptureCompletedAt.
+  const doc = buildCmaInfoDocument(GAMMA_PROPERTY_FIELDS, GAMMA_SALE_FIELDS);
+  const chromeMock = makeChromeMock();
+  const { fireMutation } = loadContentScript(filePath, doc, chromeMock);
+
+  fireMutation();
+  await sleep(900);
+  const gamma = await captureViaMessageHandler(chromeMock);
+  check(`[${label}] Test F — Gamma capture is Gamma's own data`,
+    gamma.property_information.address === '20 Lilliecrona Drive',
+    `address=${JSON.stringify(gamma.property_information.address)}`);
+
+  // Delta: a genuinely different property (Johan's real repro). Wave 1
+  // (+50ms) updates Erf no/Suburb/GPS/Type AND the entire Sale Information
+  // panel — everything BUT Address. Wave 2 (+450ms) updates Address alone,
+  // separately and later — the exact asymmetry from the live report.
+  setTimeout(() => {
+    Object.entries(DELTA_PROPERTY_WAVE1).forEach(([l, v]) => setFieldValue(doc._propPanel, l, v));
+    Object.entries(DELTA_SALE_WAVE1).forEach(([l, v]) => setFieldValue(doc._salePanel, l, v));
+    fireMutation();
+  }, 50);
+  setTimeout(() => {
+    setFieldValue(doc._propPanel, 'Address', DELTA_ADDRESS);
+    fireMutation();
+  }, 450);
+
+  const delta = await captureViaMessageHandler(chromeMock);
+  const p = delta.property_information;
+  const s = delta.sale_information;
+
+  const nonAddressFresh = p.erf_no === '616' && p.suburb === 'Margate' && s.title_deed === 'T54685/2008' && s.owner === 'PETERS ANNA';
+  const addressFresh = p.address === DELTA_ADDRESS;
+  const addressStale = p.address === '20 Lilliecrona Drive';
+
+  check(`[${label}] Test F — Delta capture: erf/deed/price/owner all fresh (never lagged)`, nonAddressFresh,
+    `erf_no=${JSON.stringify(p.erf_no)} suburb=${JSON.stringify(p.suburb)} title_deed=${JSON.stringify(s.title_deed)} owner=${JSON.stringify(s.owner)}`);
+  check(`[${label}] Test F — Delta capture: address is FRESH (did not carry over from Gamma)`, addressFresh,
+    `address=${JSON.stringify(p.address)}`, !expectStaleAddressRegression);
+  check(`[${label}] Test F — Delta capture: address did NOT bleed from the previous capture`, !addressStale,
+    `address=${JSON.stringify(p.address)} (Gamma's was "20 Lilliecrona Drive")`, !expectStaleAddressRegression);
+}
+
+async function testG_entityOwnerNameKeptVerbatim(filePath, label, expectMangleRegression) {
+  const doc = buildCmaInfoDocument(ENTITY_OWNER_PROPERTY_FIELDS, ENTITY_OWNER_SALE_FIELDS);
+  const chromeMock = makeChromeMockWithCapture();
+  loadContentScript(filePath, doc, chromeMock);
+
+  const btn = doc.getElementById('corex-deeds-capture-btn');
+  if (!btn) {
+    check(`[${label}] Test G — capture button injected`, false, 'no button found on a loaded property page', !expectMangleRegression);
+    return;
+  }
+  btn.click();
+
+  const payload = await Promise.race([chromeMock._captured, sleep(3000).then(() => null)]);
+  const owner = payload && payload.captures && payload.captures[0] && payload.captures[0].owners && payload.captures[0].owners[0];
+
+  const verbatim = !!owner && owner.name === 'SMIT & WESSELS TRUST-TRUSTEES' && owner.surname === null && owner.first_names === null;
+  check(`[${label}] Test G — trust owner name kept VERBATIM, not surname-reordered`, verbatim,
+    `owner=${JSON.stringify(owner)}`, !expectMangleRegression);
+}
+
 async function main() {
   console.log('=== Running against OLD file (pre-fix, v3.4.1 fixture) — Test A is EXPECTED to FAIL (bug reproduction) ===');
   await testA_frozenFreehold_firstCaptureInInstance(OLD_FILE, 'OLD 3.4.1');
@@ -437,12 +649,18 @@ async function main() {
   console.log('=== Running against v3.4.2 REGRESSION fixture — Test E is EXPECTED to FAIL (regression reproduction) ===');
   await testE_twoDistinctPropertiesInSequence(REGRESSION_FILE, 'REGRESSION 3.4.2', true);
 
-  console.log('=== Running against NEW file (working tree, v3.4.3) — everything EXPECTED to PASS ===');
-  await testA_frozenFreehold_firstCaptureInInstance(NEW_FILE, 'NEW 3.4.3');
-  await testB_consecutiveRealCaptures(NEW_FILE, 'NEW 3.4.3');
-  await testC_legitimateSectionalWithAddress_noRegression(NEW_FILE, 'NEW 3.4.3');
-  await testD_erfOnlyFallbackSignal(NEW_FILE, 'NEW 3.4.3');
-  await testE_twoDistinctPropertiesInSequence(NEW_FILE, 'NEW 3.4.3', false);
+  console.log('=== Running against OLD file (pre-fix, v3.4.3 fixture) — Test F/G are EXPECTED to FAIL (bug reproduction) ===');
+  await testF_addressLagsRestOfPanel(OLD_343_FILE, 'OLD 3.4.3', true);
+  await testG_entityOwnerNameKeptVerbatim(OLD_343_FILE, 'OLD 3.4.3', true);
+
+  console.log('=== Running against NEW file (working tree, v3.4.4) — everything EXPECTED to PASS ===');
+  await testA_frozenFreehold_firstCaptureInInstance(NEW_FILE, 'NEW 3.4.4');
+  await testB_consecutiveRealCaptures(NEW_FILE, 'NEW 3.4.4');
+  await testC_legitimateSectionalWithAddress_noRegression(NEW_FILE, 'NEW 3.4.4');
+  await testD_erfOnlyFallbackSignal(NEW_FILE, 'NEW 3.4.4');
+  await testE_twoDistinctPropertiesInSequence(NEW_FILE, 'NEW 3.4.4', false);
+  await testF_addressLagsRestOfPanel(NEW_FILE, 'NEW 3.4.4', false);
+  await testG_entityOwnerNameKeptVerbatim(NEW_FILE, 'NEW 3.4.4', false);
 
   console.log('');
   let overallOk = true;
@@ -454,7 +672,7 @@ async function main() {
 
   console.log('');
   if (overallOk) {
-    console.log('ALL CHECKS OK — address-bleed bug fixed since 3.4.2, multi-capture regression fixed in 3.4.3, no regressions.');
+    console.log('ALL CHECKS OK — sectional-bleed fixed since 3.4.2, multi-capture regression fixed in 3.4.3, address-lag + owner-entity-mangle fixed in 3.4.4, no regressions.');
     process.exit(0);
   } else {
     console.log('SOME CHECKS FAILED — see [UNEXPECTED] lines above.');

@@ -621,59 +621,12 @@
   // ── EXTRACTION ──────────────────────────────────────────────
   // ══════════════════════════════════════════════════════════
 
-  // v3.4.4 (2026-08-19, Johan — live repro: 62 Bairn Street captured with
-  // Address = "20 Lilliecrona Drive", the PREVIOUS capture's address, while
-  // Erf no/Title Deed/Sale Price/Owner all read correctly for Bairn Street.
-  // Ruled out: no module-level address cache exists (grepped — none), and
-  // Erf no is extracted via the exact same extractByLabelMap/findValueByLabel
-  // call, against the exact same panel, in the same pass — so this isn't a
-  // whole-panel timing race either (domIsSettled()/sectionHasPopulatedValues()
-  // already cover that class of bug, and both fields sit in the same panel
-  // read at the same moment). What's left, matching the ONLY hypothesis that
-  // fits "one field in the panel is stale, the rest of the SAME read is not":
-  // the Address row's own DOM node updates on a slower/later timeline than
-  // the rest of the Property Information panel during cmainfo's postback —
-  // sectionHasPopulatedValues()/domIsSettled() only prove SOME row changed
-  // and things went quiet, never that Address's OWN cell specifically
-  // finished updating. The panel can look "settled" while Address is still
-  // one mutation away from landing.
-  //
-  // Fix: the same defensive shape already used for a different slow/async
-  // cell on this page — revealOwnerIdIfNeeded() doesn't trust a fixed delay,
-  // it polls the SAME cell's text until the condition it cares about is
-  // actually true. Here there's no fixed target to poll for (we don't know
-  // the correct address in advance), so the condition is STABILITY: read the
-  // Address cell, wait, read it again — if it changed, a trailing mutation
-  // was still landing, so keep polling; two consecutive identical reads means
-  // it's genuinely done. A cell that was always going to read the same value
-  // costs one extra poll interval; a cell still catching up gets caught
-  // instead of captured mid-update.
-  const ADDRESS_STABILITY_POLL_MS = 120;
-  const ADDRESS_STABILITY_TIMEOUT_MS = 2000;
-  function waitForAddressStable(panelEl) {
-    return new Promise((resolve) => {
-      if (!panelEl) { resolve(); return; }
-      const start = Date.now();
-      let previous = findValueByLabel('Address', panelEl);
-      (function poll() {
-        if (Date.now() - start >= ADDRESS_STABILITY_TIMEOUT_MS) { resolve(); return; }
-        setTimeout(() => {
-          const current = findValueByLabel('Address', panelEl);
-          if (current === previous) { resolve(); return; }
-          previous = current;
-          poll();
-        }, ADDRESS_STABILITY_POLL_MS);
-      })();
-    });
-  }
-
   // Scoped to the section's own panel (2026-08-13 — see the scopeRoot note
   // above findValueByLabel) so a same-named label anywhere ELSE on this
   // search page (another panel, a filter form) can never be matched instead
   // of the panel's own real row.
-  async function extractPropertyInformation() {
+  function extractPropertyInformation() {
     const panel = findSectionPanel(findSectionHeader('Property Information'));
-    await waitForAddressStable(panel);
     return extractByLabelMap(PROPERTY_INFORMATION_LABELS, panel || undefined);
   }
 
@@ -812,7 +765,7 @@
     // previous capture saw.
 
     await ensureSectionExpanded('Property Information');
-    let property = await extractPropertyInformation();
+    let property = extractPropertyInformation();
 
     await ensureSectionExpanded('Sale Information');
     const sale = await extractSaleInformation();
@@ -978,35 +931,8 @@
   // it kept structured; never belongs in a name field regardless).
   const OWNERSHIP_SHARE_TOKEN = /^(\d{1,3}([.,]\d+)?%|\d+\/\d+)$/; // 50% 100% 50.00% 1/2 3/4
 
-  // v3.4.4 (2026-08-19, Johan — live repro: "SMIT & WESSELS TRUST-TRUSTEES"
-  // stored as "& Wessels Trust-trustees Smit"). parsePersonName() below is
-  // ONLY valid for a natural person's SURNAME-FIRST name — it unconditionally
-  // reorders tokens and title-cases them. Run against a TRUST/CC/PTY/LTD/BK/
-  // joint-owner ("A & B") name, the same algorithm treats the entity's own
-  // words as if they were "surname" + "first names" and reorders/mangles
-  // them, because nothing before this fix ever distinguished an entity name
-  // from a person's name. A juristic entity has no surname/first-name split
-  // to begin with — the fix is to detect the entity shape FIRST and skip
-  // reordering entirely, keeping the raw string verbatim (case included).
-  // Matched case-insensitively; "&" (joint/multiple owners written as one
-  // cell, e.g. "SMIT & WESSELS") is included per Johan's explicit list.
-  const ENTITY_NAME_PATTERN = /\b(TRUST|TRUSTEE|TRUSTEES|CC|PTY|LTD|LIMITED|BK|INC|INCORPORATED|NPC|NPO|SOC)\b|&/i;
-
-  function looksLikeEntityName(raw) {
-    return ENTITY_NAME_PATTERN.test(String(raw || ''));
-  }
-
   function parsePersonName(raw) {
-    const rawTrimmed = String(raw || '').trim();
-    if (looksLikeEntityName(rawTrimmed)) {
-      // Entity/juristic name (trust, company, CC, joint "A & B", ...) — kept
-      // VERBATIM, never reordered or case-mangled. confident:false makes the
-      // caller (buildOwnersArray) fall back to sending rawName as-is; the
-      // entity:true flag lets it skip the "could not confidently parse"
-      // warning, since this isn't a parse failure — it's the correct outcome.
-      return { surname: null, first_names: null, confident: false, entity: true };
-    }
-    const tokens = rawTrimmed.split(/\s+/).filter(Boolean);
+    const tokens = String(raw || '').trim().split(/\s+/).filter(Boolean);
     while (tokens.length > 1 && OWNERSHIP_SHARE_TOKEN.test(tokens[tokens.length - 1])) {
       tokens.pop();
     }
@@ -1128,9 +1054,7 @@
       // made server-side → future rule changes need no extension reinstall.
 
       const parsed = parsePersonName(rawName);
-      if (parsed.entity) {
-        console.log('[CoreX] deeds-capture: owner "' + rawName + '" looks like a trust/company/entity name — kept verbatim, not run through person-name reordering.');
-      } else if (!parsed.confident && rawName) {
+      if (!parsed.confident && rawName) {
         console.warn('[CoreX] deeds-capture: could not confidently parse owner name "' + rawName + '" into surname/first names — sending the raw string; storage falls back to a naive split.');
       }
 
