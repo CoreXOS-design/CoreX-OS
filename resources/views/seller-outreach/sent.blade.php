@@ -28,17 +28,10 @@
                 ? @js(route('seller-outreach.composer.mark-sent', ['contact' => $contact->id, 'send' => $send->id]))
                 : @js(route('seller-outreach.composer.not-sent', ['contact' => $contact->id, 'send' => $send->id]));
             try {
-                // keepalive: true — answered and result flip synchronously above (before this
-                // await), so a Back-to-contact link is live and clickable while this fetch is still
-                // in flight. Without keepalive, navigating there cancels the request mid-flight:
-                // SellerOutreachSend.outcome already reads 'sent' (set at dispatch), but the
-                // mirrored Communication never gets promoted from not_delivered — the contact's
-                // Info-panel WhatsApp counter then never reflects this send.
                 await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': @js(csrf_token()), 'X-Requested-With': 'XMLHttpRequest' },
-                    body: '{}',
-                    keepalive: true
+                    body: '{}'
                 });
             } catch (e) { /* keep local state; server is source of truth on next load */ }
         }

@@ -507,53 +507,36 @@ final class SellerOutreachComposerService
     }
 
     /**
-     * Build the digits-only INTERNATIONAL form (27XXXXXXXXX, or the number's own
-     * dial code for a non-SA row) a wa.me / whatsapp:// link needs, at
-     * send/link-build time — so every send is correct regardless of how the
-     * number was stored (no data migration required).
+     * Build the digits-only INTERNATIONAL form (27XXXXXXXXX) a wa.me / whatsapp://
+     * link needs, at send/link-build time — so every send is correct regardless of
+     * how the number was stored (no data migration required).
      *
-     * THE BUG THIS REPLACES: this only ever read the legacy contacts.phone /
-     * cell_number / mobile columns and hard-rejected anything but a 10-digit
-     * leading-0 SA number — ignoring the AT-125 contact_phones table entirely.
-     * A contact with a valid number on file (any dial code, any of the
-     * contact_phones rows) got "Contact has no phone number" at compose even
-     * though the contact-details page (Contact::whatsAppPhone(), same
-     * resolution order used here) would happily send to it.
+     * The old body only prepended 27 when the number ALREADY had a leading 0, so a
+     * number stored WITHOUT it (e.g. "733981843" — the 0 dropped on entry) built an
+     * invalid wa.me target and WhatsApp opened on a broken number. We now route
+     * through the canonical App\Support\SaPhoneNumber normaliser, which restores a
+     * dropped leading 0 on a bare 9-digit national number and folds every
+     * international form (+27 / 27 / 0027, with spaces/dashes/parens/dots) to the
+     * local "0XXXXXXXXX" form, then convert that to wa.me international digits.
      *
-     * Resolution order mirrors Contact::whatsAppPhone(): the primary-WhatsApp
-     * row, else any WhatsApp-flagged row, else the primary contact number,
-     * else the oldest surviving row — same source of truth as the show page,
-     * built with the SAME server formatter (WhatsAppNumberFormatter) so a
-     * contact that can send from /contacts/{id} can send from compose too.
-     * is_whatsapp is a hint for WHICH number to prefer, never a gate on
-     * whether a number can be used at all.
+     * Validity guard: a dialable SA number is EXACTLY 10 digits with a leading 0.
+     * Anything else (too short/long, non-SA, garbage) returns null so the existing
+     * no-phone handling applies instead of shipping a malformed link.
      *
-     * Falls back to the legacy columns (via the SA-only SaPhoneNumber
-     * normaliser + strict 10-digit guard, unchanged) only when the contact has
-     * no contact_phones rows at all (pre-AT-125 contacts). Returns null ONLY
-     * when there is genuinely no usable number anywhere.
+     *   0733981843      → 27733981843
+     *   733981843       → 27733981843   (the dropped-leading-0 bug case)
+     *   +27 73 398 1843 → 27733981843
+     *   27733981843     → 27733981843   (unchanged)
+     *   12345 / non-SA  → null
      */
     private function normalisePhone(Contact $contact): ?string
     {
-        $phones = $contact->phones;
-        $row = $phones->first(fn ($p) => $p->is_primary_whatsapp)
-            ?? $phones->first(fn ($p) => $p->is_whatsapp)
-            ?? $phones->first(fn ($p) => $p->is_primary)
-            ?? $phones->first();
-
-        if ($row !== null) {
-            $digits = \App\Support\WhatsAppNumberFormatter::forDeepLink($row->phone, $row->dial_code);
-            if ($digits !== '') {
-                return $digits;
-            }
-        }
-
-        // No contact_phones rows (or the row had no usable digits) — legacy
-        // fallback, unchanged: canonical SA local form ("0XXXXXXXXX"),
-        // restoring a dropped leading 0, only a valid 10-digit leading-0 SA
-        // number becomes a wa.me target.
         $raw = $contact->phone ?? $contact->cell_number ?? $contact->mobile ?? null;
+
+        // Canonical SA local form ("0XXXXXXXXX"), restoring a dropped leading 0.
         $local = \App\Support\SaPhoneNumber::normalize($raw !== null ? (string) $raw : null);
+
+        // Only a valid 10-digit leading-0 SA number becomes a wa.me target.
         if ($local === null || strlen($local) !== 10 || $local[0] !== '0') {
             return null;
         }
@@ -597,7 +580,6 @@ final class SellerOutreachComposerService
             ->where('contact_id', $contact->id)
             ->whereNull('deleted_at')
             ->where('outcome', '!=', SellerOutreachSend::OUTCOME_NOT_SENT)
-            ->whereNotNull('outcome_set_at') // AT-323 — only a pitch the agent explicitly confirmed via the Yes/No modal counts; an unconfirmed optimistic 'sent' must never start the cooldown
             ->where('sent_at', '>=', now()->subDays(7))
             ->latest('sent_at')
             ->first();

@@ -91,14 +91,20 @@ final class EntryPointController extends Controller
         if ($linked !== null) {
             $contact = $linked;
             $isNew   = false;
+        } elseif ($this->isEntityCapture($request)) {
+            // Manual ENTITY capture (company / CC / trust). The agent picked "Entity" and entered the
+            // registered name (+ optional reg number). A company is reached through its directors, so
+            // there is NO phone/email/SA-ID gate here — reps are added on the entity record afterward.
+            // Reuse the canonical entity dedupe (keys on the registration number, never a 13-digit ID).
+            $contact = $this->resolveEntityContact($request, $agencyId);
+            $isNew   = $contact->wasRecentlyCreated;
         } else {
-            $validated = $request->validate([
+            $validated = $request->validate(array_merge([
                 'first_name' => 'required|string|max:100',
                 'last_name'  => 'nullable|string|max:100',
                 'phone'      => 'nullable|string|max:30',
                 'email'      => 'nullable|email|max:255',
-                'id_number'  => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
-            ]);
+            ], $this->naturalPersonIdRules($request)));
 
             $idNumber = isset($validated['id_number']) ? preg_replace('/\s+/', '', (string) $validated['id_number']) : null;
 
@@ -132,7 +138,7 @@ final class EntryPointController extends Controller
                     'id_number'             => $idNumber,
                     'id_number_captured_at' => $idNumber ? now() : null,
                     'id_number_source'      => $idNumber ? 'seller_outreach_entry' : null,
-                ], static fn ($v) => $v !== null && $v !== ''),
+                ] + $this->naturalPersonIdAttributes($validated), static fn ($v) => $v !== null && $v !== ''),
                 [
                     'last_name' => $validated['last_name'] ?? '',
                     'phone'     => $validated['phone'] ?? '',
@@ -328,17 +334,25 @@ final class EntryPointController extends Controller
         if ($linked !== null) {
             $existing = $linked;
             $formEngaged = true;
+        } elseif ($this->isEntityCapture($request)) {
+            // Manual ENTITY capture (company / CC / trust) — the agent picked "Entity" and entered the
+            // registered name (+ optional reg number). No phone/email/SA-ID gate: a company is reached
+            // through its directors (reps added on the entity record afterward). The canonical entity
+            // dedupe keys on the registration number; the resolved entity flows through the shared
+            // `$contact = $existing ?: …` create path in the transaction below.
+            $formEngaged = true;
+            $existing    = $this->resolveEntityContact($request, $agencyId);
+            $isNew       = $existing->wasRecentlyCreated;
         } elseif ($request->filled('first_name')) {
             $formEngaged = true;
-            $validated = $request->validate([
+            $validated = $request->validate(array_merge([
                 'first_name' => 'required|string|max:100',
                 'last_name'  => 'nullable|string|max:100',
                 'phone'      => 'nullable|string|max:30',
                 'email'      => 'nullable|email|max:255',
-                'id_number'  => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
                 'no_contact_details' => 'nullable|boolean',
                 'dead_end_reason'    => 'nullable|string|in:opted_out,not_in_tva,no_record_found',
-            ]);
+            ], $this->naturalPersonIdRules($request)));
             $idNumber = isset($validated['id_number']) ? preg_replace('/\s+/', '', (string) $validated['id_number']) : null;
 
             // Dead-end tick still means "nothing to enter": needs a name + SA ID (still ID-keyed).
@@ -407,7 +421,7 @@ final class EntryPointController extends Controller
                         'id_number'             => $idNumber,
                         'id_number_captured_at' => $idNumber ? now() : null,
                         'id_number_source'      => $idNumber ? 'seller_outreach_entry' : null,
-                    ], static fn ($v) => $v !== null && $v !== ''),
+                    ] + $this->naturalPersonIdAttributes($validated), static fn ($v) => $v !== null && $v !== ''),
                     [
                         'last_name' => $validated['last_name'] ?? '',
                         'phone'     => $validated['phone'] ?? '',
@@ -686,14 +700,21 @@ final class EntryPointController extends Controller
             $idNumber  = null;
             $existing  = $linked;
             $isNew     = false;
+        } elseif ($this->isEntityCapture($request)) {
+            // Manual ENTITY capture (company / CC / trust) — see storeFromProperty. No phone/email/ID
+            // gate; the canonical entity dedupe resolves-or-creates on the registration number. The
+            // resolved entity flows through the existing `$existing ?: Contact::create()` path below.
+            $validated = [];
+            $idNumber  = null;
+            $existing  = $this->resolveEntityContact($request, $agencyId);
+            $isNew     = $existing->wasRecentlyCreated;
         } else {
-            $validated = $request->validate([
+            $validated = $request->validate(array_merge([
                 'first_name' => 'required|string|max:100',
                 'last_name'  => 'nullable|string|max:100',
                 'phone'      => 'nullable|string|max:30',
                 'email'      => 'nullable|email|max:255',
-                'id_number'  => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
-            ]);
+            ], $this->naturalPersonIdRules($request)));
 
             $idNumber = isset($validated['id_number']) ? preg_replace('/\s+/', '', (string) $validated['id_number']) : null;
 
@@ -737,7 +758,7 @@ final class EntryPointController extends Controller
                     'id_number'             => $idNumber,
                     'id_number_captured_at' => $idNumber ? now() : null,
                     'id_number_source'      => $idNumber ? 'seller_outreach_entry' : null,
-                ], static fn ($v) => $v !== null && $v !== ''),
+                ] + $this->naturalPersonIdAttributes($validated), static fn ($v) => $v !== null && $v !== ''),
                 [
                     'last_name' => $validated['last_name'] ?? '',
                     'phone'     => $validated['phone'] ?? '',
@@ -797,6 +818,73 @@ final class EntryPointController extends Controller
         abort_if($contact === null, 404, 'Selected contact not found in this agency.');
 
         return $contact;
+    }
+
+    /**
+     * True when the capture form is submitting an ENTITY (company / CC / trust)
+     * rather than a natural person — the agent toggled "Contact Is → Entity" and
+     * entered an entity name. Shared by all three store-from-* entry points so the
+     * manual entity option behaves identically wherever the pitch is started.
+     */
+    private function isEntityCapture(Request $request): bool
+    {
+        return $request->input('contact_kind') === Contact::TYPE_ENTITY
+            && $request->filled('entity_name');
+    }
+
+    /**
+     * Resolve-or-create the ENTITY seller Contact from the manual capture fields,
+     * via the canonical entity dedupe (keys on the registration number, NEVER a
+     * 13-digit SA ID — Johan 2026-08-14). Reps are added on the entity record
+     * afterward, so no phone/email/ID is required here.
+     */
+    private function resolveEntityContact(Request $request, int $agencyId): Contact
+    {
+        $data = $request->validate([
+            'entity_name'   => 'required|string|max:255',
+            'entity_reg_no' => 'nullable|string|max:100',
+        ]);
+
+        return app(\App\Services\Prospecting\ComposeSellerService::class)
+            ->resolveOrCreateEntitySellerContact(
+                $agencyId,
+                $request->user()->branch_id,
+                (int) $request->user()->id,
+                $data['entity_name'],
+                $data['entity_reg_no'] ?? null,
+            );
+    }
+
+    /**
+     * #17 — SA-ID / foreign-passport validation rules for the natural-person capture, shared by the
+     * three store-from-* entry points (same discriminator + rules as the main contact form). A foreign
+     * national's passport is a free string (max 50); their Date of Birth is entered directly since a
+     * passport can't encode it. Absent/other id_type keeps the validated SA-ID path (backward-compatible).
+     */
+    private function naturalPersonIdRules(Request $request): array
+    {
+        $isForeign = $request->input('id_type') === 'passport';
+
+        return [
+            'id_type'   => ['nullable', \Illuminate\Validation\Rule::in(['sa_id', 'passport'])],
+            'id_number' => $isForeign
+                ? ['nullable', 'string', 'max:50']
+                : ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
+            'birthday'  => ['nullable', 'date', 'required_if:id_type,passport'],
+        ];
+    }
+
+    /**
+     * #17 — id_type + birthday to persist on a newly-created natural-person contact. Returned as a
+     * plain array the caller folds into its Contact::create() array_filter (empty values are stripped,
+     * so a blank DOB / absent id_type is simply not written — backward-compatible).
+     */
+    private function naturalPersonIdAttributes(array $validated): array
+    {
+        return [
+            'id_type'  => $validated['id_type'] ?? null,
+            'birthday' => $validated['birthday'] ?? null,
+        ];
     }
 
     /**
@@ -1392,6 +1480,11 @@ final class EntryPointController extends Controller
         // agent's deliberate re-add sticks against the deed auto-link (R2).
         $svc->linkSellerToProperty((int) $contact->id, $propertyId, 'manual');
         $svc->clearRemoval((int) $listing->id, $contact->id_number ? (string) $contact->id_number : null);
+        // Cross-path fix (2026-08-18) — linking the seller here is a complete identity
+        // decision; dismiss any matching TVA capture on the Deeds Capture screen so it
+        // doesn't sit there looking untouched. See ComposeSellerService::
+        // dismissMatchingTvaCapture() for the full rationale.
+        $svc->dismissMatchingTvaCapture($agencyId, $contact->id_number ? (string) $contact->id_number : null);
 
         $listing = DB::table('prospecting_listings')->where('id', $prospectingListingId)->first();
 

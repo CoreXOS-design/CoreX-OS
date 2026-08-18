@@ -159,12 +159,22 @@ final class SellerOutreachSenderService
                 ])->save();
             }
 
-            // AT-81 — a consent-request send moves an INITIAL contact to PENDING
-            // and starts the no-response clock. markOutreachPending() is a no-op
-            // for an already-pending / confirmed / opted-out contact, so a repeat
-            // send never resets the window and a consented contact gets no clock.
-            // Inside the same per-recipient transaction as the send + archive row.
-            $context->contact->markOutreachPending();
+            // AT-81 (delivery-anchored fix) — the no-response clock must start only
+            // when a message was ACTUALLY delivered, never at pitch-compose.
+            //  • EMAIL is system-sent (Mail::send below) → delivered at send, so the
+            //    clock legitimately starts here.
+            //  • WHATSAPP is client-side click-to-chat, born not_delivered (see the
+            //    CHANNEL_WHATSAPP block above); CoreX cannot confirm delivery here, so
+            //    its clock is NOT started at compose. It starts later — and only if —
+            //    the agent confirms "Yes I sent it" (CommunicationSendStatusService::
+            //    markSent), the one truthful delivery signal. Otherwise a pitch that
+            //    was never actually sent would wrongly lapse the contact to a
+            //    no_response opt-out (the HFC false-opt-out bug).
+            // markOutreachPending() is idempotent (no-op if opted in/out or already
+            // pending), so a repeat email send never resets the window.
+            if ($context->channel !== Communication::CHANNEL_WHATSAPP) {
+                $context->contact->markOutreachPending();
+            }
 
             return $send;
         });
