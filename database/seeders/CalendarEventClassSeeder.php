@@ -92,9 +92,17 @@ class CalendarEventClassSeeder extends Seeder
             // Appointments (viewing / evaluation / listing presentation) = actionable
             // → can go overdue/red + ask for feedback. Time-blocks (meeting / other /
             // private) = informational → never overdue/red, no feedback prompt.
-            'viewing'              => ['actor_role' => 'buyer_action',  'completion_behaviour' => 'require_feedback', 'event_nature' => 'actionable'],
-            'listing_presentation' => ['actor_role' => 'seller_action', 'completion_behaviour' => 'require_feedback', 'event_nature' => 'actionable'],
-            'property_evaluation'  => ['actor_role' => 'seller_action', 'completion_behaviour' => 'require_feedback', 'event_nature' => 'actionable'],
+            // 2026-08-18 (Johan) — feedback_mode=per_property for all three: "a
+            // presentation will always be on a property, so the feedback is more
+            // relatable to the property than the contact." Was per_contact for
+            // viewing/property_evaluation and drifted back to per_contact for
+            // listing_presentation on qa1 despite migration 2026_05_11_094044's
+            // intent — reasserted here as the canonical source, same as
+            // actor_role/completion_behaviour above, and backfilled for existing
+            // rows by migration 2026_08_18_130000.
+            'viewing'              => ['actor_role' => 'buyer_action',  'completion_behaviour' => 'require_feedback', 'event_nature' => 'actionable', 'feedback_mode' => 'per_property'],
+            'listing_presentation' => ['actor_role' => 'seller_action', 'completion_behaviour' => 'require_feedback', 'event_nature' => 'actionable', 'feedback_mode' => 'per_property'],
+            'property_evaluation'  => ['actor_role' => 'seller_action', 'completion_behaviour' => 'require_feedback', 'event_nature' => 'actionable', 'feedback_mode' => 'per_property'],
             'meeting'              => ['actor_role' => 'both',          'completion_behaviour' => 'freeform',         'event_nature' => 'informational'],
             'other'                => ['actor_role' => 'both',          'completion_behaviour' => 'freeform',         'event_nature' => 'informational'],
             // ITEM 4 — 'both' (NOT 'neither') so a private block counts as a real

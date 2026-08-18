@@ -1784,6 +1784,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // AT-111 direction 2 — launch/open a viewing pack from an existing appointment
         // (schedule-now-prep-later). Gated by the create permission.
         Route::post('/calendar/{calendarEvent}/viewing-pack', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'launchFromEvent'])->middleware('permission:viewing_packs.create')->name('command-center.calendar.viewing-pack.launch');
+        // 2026-08-18 (Johan) — Regenerate: rebuilds the linked pack from the event's
+        // CURRENT property set. Gated like launch (it creates a fresh pack).
+        Route::post('/calendar/{calendarEvent}/viewing-pack/regenerate', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'regenerateFromEvent'])->middleware('permission:viewing_packs.create')->name('command-center.calendar.viewing-pack.regenerate');
         Route::post('/calendar/{calendarEvent}/dismiss', [CommandCenterCalendarController::class, 'dismiss'])->name('command-center.calendar.dismiss');
         Route::patch('/calendar/{calendarEvent}/reschedule', [CommandCenterCalendarController::class, 'reschedule'])->name('command-center.calendar.reschedule');
         Route::get('/calendar/{calendarEvent}/feedback', [CommandCenterCalendarController::class, 'showFeedback'])->name('command-center.calendar.feedback.show');
