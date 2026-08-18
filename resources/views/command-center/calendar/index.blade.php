@@ -2298,8 +2298,10 @@
 
         {{-- AT-111 — Viewing pack ↔ appointment. Linked pack → Open + (when prepared)
              download buttons, straight from the event. No pack yet → launch one from
-             this appointment (schedule-now-prep-later). --}}
-        <template x-if="panelData.linked_viewing_pack">
+             this appointment (schedule-now-prep-later). Gated to supports_viewing_pack
+             (viewing events only, 2026-08-18) — was ungated, so ANY editable event
+             (a meeting, a listing presentation, …) offered "Create viewing pack". --}}
+        <template x-if="panelData.linked_viewing_pack && panelData.supports_viewing_pack">
             <span class="inline-flex items-center gap-4">
                 <a :href="panelData.linked_viewing_pack.url"
                    class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
@@ -2325,7 +2327,7 @@
                 </template>
             </span>
         </template>
-        <template x-if="!panelData.linked_viewing_pack && panelData.is_editable">
+        <template x-if="!panelData.linked_viewing_pack && panelData.is_editable && panelData.supports_viewing_pack">
             <form :action="panelData.viewing_pack_launch_url" method="POST" class="inline">
                 @csrf
                 <button type="submit"
@@ -2353,7 +2355,13 @@
                 Complete with Reason
             </button>
         </template>
-        <template x-if="panelData.is_actionable && (!panelData.completion_behaviour || panelData.completion_behaviour === 'freeform')">
+        {{-- 2026-08-18 (Johan) — supports_plain_complete (meeting/other/private/task)
+             is a deliberate OR alongside is_actionable, not a replacement: those 4
+             classes are event_nature=informational (is_actionable false) by design —
+             this button-only override doesn't change that, it only lets THIS button
+             show for them too. Every other freeform+actionable class (property_showday,
+             manual, …) keeps working exactly as before via the is_actionable side. --}}
+        <template x-if="(panelData.is_actionable || panelData.supports_plain_complete) && (!panelData.completion_behaviour || panelData.completion_behaviour === 'freeform')">
             {{-- AT-335 — a recurring event needs a this/all scope decision first;
                  intercept the native submit and hand off to the scope modal instead. --}}
             <form :action="'/corex/command-center/calendar/' + panelData.id + '/complete'" method="POST"
