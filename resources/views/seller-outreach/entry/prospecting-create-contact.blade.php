@@ -49,9 +49,21 @@
             <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">
                 Tracked Property
             </div>
-            <div class="font-semibold text-sm" style="color: var(--text-primary);">
-                {{ $trackedProperty->displayAddress() }}
-            </div>
+            {{-- Click the address to open the property record — same affordance as
+                 the MIC list (2026-08-19, Johan). Only a link once a real Property
+                 exists (promoted_to_property_id); a bare TrackedProperty has no
+                 property page yet. --}}
+            @if($trackedProperty->promoted_to_property_id)
+                <a href="{{ route('corex.properties.show', $trackedProperty->promoted_to_property_id) }}"
+                   class="font-semibold text-sm" style="color: var(--text-primary); text-decoration: underline; text-decoration-color: var(--border);"
+                   title="Open the property record">
+                    {{ $trackedProperty->displayAddress() }}
+                </a>
+            @else
+                <div class="font-semibold text-sm" style="color: var(--text-primary);">
+                    {{ $trackedProperty->displayAddress() }}
+                </div>
+            @endif
             <div class="text-xs mt-1" style="color: var(--text-muted);">
                 @if(!empty($trackedProperty->last_known_asking_price))R {{ number_format((float) $trackedProperty->last_known_asking_price, 0, '.', ',') }} · @endif
                 {{ $trackedProperty->property_type ?? 'property' }}
@@ -65,9 +77,14 @@
             <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">
                 Property — in agency stock
             </div>
-            <div class="font-semibold text-sm" style="color: var(--text-primary);">
+            {{-- Click the address to open the property record — same affordance as
+                 the MIC list (2026-08-19, Johan). $property already IS the real
+                 Property here, so always linkable. --}}
+            <a href="{{ route('corex.properties.show', $property->id) }}"
+               class="font-semibold text-sm" style="color: var(--text-primary); text-decoration: underline; text-decoration-color: var(--border);"
+               title="Open the property record">
                 {{ $property->address ?: $property->title ?: 'Property #' . $property->id }}{{ !empty($property->suburb) ? ', ' . $property->suburb : '' }}
-            </div>
+            </a>
             <div class="text-xs mt-1" style="color: var(--text-muted);">
                 @if(!empty($property->price))R {{ number_format((float) $property->price, 0, '.', ',') }} · @endif
                 {{ $property->property_type ?? 'property' }}
@@ -83,9 +100,22 @@
             <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">
                 Listing from {{ strtoupper((string) ($listing->portal_source ?? 'portal')) }}
             </div>
-            <div class="font-semibold text-sm" style="color: var(--text-primary);">
-                {{ $listing->address ?? '(no address)' }}{{ !empty($listing->suburb) ? ', ' . $listing->suburb : '' }}
-            </div>
+            {{-- Click the address to open the property record — same affordance as
+                 the MIC list (2026-08-19, Johan: "agents will click on mic, get to
+                 this screen and want to load the ad to check something"). Only a
+                 link once this listing has actually promoted to a Property
+                 (matched_property_id) — most of the time it hasn't yet. --}}
+            @if(!empty($listing->matched_property_id))
+                <a href="{{ route('corex.properties.show', $listing->matched_property_id) }}"
+                   class="font-semibold text-sm" style="color: var(--text-primary); text-decoration: underline; text-decoration-color: var(--border);"
+                   title="Open the property record">
+                    {{ $listing->address ?? '(no address)' }}{{ !empty($listing->suburb) ? ', ' . $listing->suburb : '' }}
+                </a>
+            @else
+                <div class="font-semibold text-sm" style="color: var(--text-primary);">
+                    {{ $listing->address ?? '(no address)' }}{{ !empty($listing->suburb) ? ', ' . $listing->suburb : '' }}
+                </div>
+            @endif
             <div class="text-xs mt-1" style="color: var(--text-muted);">
                 @if(!empty($listing->price))R {{ number_format((float) $listing->price, 0, '.', ',') }} · @endif
                 {{ $listing->property_type ?? 'property' }}
@@ -150,37 +180,75 @@
               deed: { owners: @js($deedLink['owners'] ?? []), candidates: @js($deedLink['candidates'] ?? []) },
               deedPollUrl: @js($deedPollUrl ?? null),
               _deedTimer: null,
+              deedRefreshing: false,
+              deedRefreshMessage: null,
+              // Numbers vs deed-matching (2026-08-19, Johan): "why dont we just put a
+              // refresh button next to link a deed - click refresh to auto link..."
+              // — automatic linking can never be confident (agent-typed vs deed
+              // address genuinely differ), so silently re-picking a deed match on a
+              // background timer is exactly the "system guessing on his behalf" he
+              // doesn't want. Numbers for an ALREADY-linked seller carry no such
+              // risk (TVA matches by exact SA ID, not fuzzy address), so THOSE stay
+              // automatic. The timer below therefore only ever touches
+              // sellers/tva/property_id/linked_deed/removed — never deed.owners or
+              // deed.candidates. Those two update ONLY from refreshDeedMatch(),
+              // which only ever runs on an explicit button click.
               startDeedPoll() {
                   if (!this.deedPollUrl) return;
-                  this._deedTimer = setInterval(() => this.pollDeed(), 5000);
-                  // The agent LEAVES this tab to run the CMA / TVA / deeds scrape, so the capture
-                  // lands while this tab is backgrounded — where the browser freezes or throttles the
-                  // interval to about once a minute. Without an immediate catch-up on return, the panel
-                  // sits stale until the next slow tick and the agent gives up and links the deed by
-                  // hand (Johan 2026-08-14 live blocker). Fire a poll the instant the tab is shown /
-                  // regains focus so a scrape done while away surfaces the moment they are back.
-                  this._onDeedVisible = () => { if (!document.hidden) this.pollDeed(); };
+                  this._deedTimer = setInterval(() => this.pollNumbers(), 5000);
+                  // The agent LEAVES this tab to run TVA, so the import lands while this tab is
+                  // backgrounded — where the browser freezes or throttles the interval to about
+                  // once a minute. Without an immediate catch-up on return, the numbers sit stale
+                  // until the next slow tick (Johan 2026-08-14 live blocker, same shape as the
+                  // deed case). Fire a poll the instant the tab is shown / regains focus.
+                  this._onDeedVisible = () => { if (!document.hidden) this.pollNumbers(); };
                   document.addEventListener('visibilitychange', this._onDeedVisible);
                   window.addEventListener('focus', this._onDeedVisible);
                   // And poll once now, closing the gap between the server render and the first tick.
-                  this.pollDeed();
+                  this.pollNumbers();
               },
-              async pollDeed() {
+              async pollNumbers() {
                   if (document.hidden) return;   // don't poll a backgrounded tab
                   try {
                       const res = await fetch(this.deedPollUrl, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
                       if (!res.ok) return;
                       const d = await res.json();
-                      this.deed.owners = d.owners || [];
-                      this.deed.candidates = d.candidates || [];
-                      if (Array.isArray(d.deeds)) this.deeds = d.deeds;
-                      // Multi-seller (Part A) + TVA (Part B) + reversibility (R1/R2) live state.
+                      // Multi-seller (Part A) + TVA (Part B) + reversibility (R1/R2) live state —
+                      // safe to auto-apply: numbers for a seller already linked by exact ID match.
                       if (d.sellers) this.sellers = d.sellers;
                       if (d.tva) this.tva = d.tva;
                       if (d.property_id) this.propertyId = d.property_id;
                       if ('linked_deed' in d) this.linkedDeed = d.linked_deed;
                       if ('removed' in d) this.removed = d.removed || [];
                   } catch (e) { /* transient — keep polling */ }
+              },
+              // Explicit-only (2026-08-19) — the ONLY thing that ever changes deed.owners /
+              // deed.candidates / the modal's deed list after the initial page render. Bound to
+              // the "Refresh" button beside Link a deed; never called from a timer. Always
+              // states what it found — Johan: "silence reads as broken."
+              async refreshDeedMatch() {
+                  if (!this.deedPollUrl || this.deedRefreshing) return;
+                  this.deedRefreshing = true;
+                  this.deedRefreshMessage = null;
+                  try {
+                      const res = await fetch(this.deedPollUrl, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
+                      if (!res.ok) { this.deedRefreshMessage = 'Refresh failed — try again.'; return; }
+                      const d = await res.json();
+                      this.deed.owners = d.owners || [];
+                      this.deed.candidates = d.candidates || [];
+                      if (Array.isArray(d.deeds)) this.deeds = d.deeds;
+                      if (this.deed.owners.length) {
+                          this.deedRefreshMessage = 'Linked a deed — ' + this.deed.owners.length + ' owner' + (this.deed.owners.length === 1 ? '' : 's') + ' found.';
+                      } else if (this.deed.candidates.length) {
+                          this.deedRefreshMessage = this.deed.candidates.length + ' possible deed' + (this.deed.candidates.length === 1 ? '' : 's') + ' to review below.';
+                      } else {
+                          this.deedRefreshMessage = 'No matching deed found.';
+                      }
+                  } catch (e) {
+                      this.deedRefreshMessage = 'Refresh failed — try again.';
+                  } finally {
+                      this.deedRefreshing = false;
+                  }
               },
               // ── Multi-seller link (Part A) + TVA number picker (Part B) ──
               sellers: @js($sellerState['sellers'] ?? []),
@@ -253,7 +321,7 @@
                   this.sellerBusy = true;
                   try {
                       const res = await fetch(this.unlinkDeedUrl, { method: 'POST', headers: this._postHeaders(), body: '{}' });
-                      if (res.ok) { this.applySellerState(await res.json()); this.pollDeed(); }
+                      if (res.ok) { this.applySellerState(await res.json()); this.refreshDeedMatch(); }
                   } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
               },
               async removeNumber(contactId, type, value) {
@@ -339,11 +407,11 @@
                   this.showDeedModal = false;
                   if (!this.linkDeedUrl || !deed.tracked_property_id || this.sellerBusy) return;
                   // R1 — selecting a deed REPLACES the deed: the Sellers panel + address follow it
-                  // (applySellerState) and the deed panels refresh (pollDeed).
+                  // (applySellerState) and the deed panels refresh (refreshDeedMatch — explicit, this IS the click).
                   this.sellerBusy = true;
                   try {
                       const res = await fetch(this.linkDeedUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify({ tracked_property_id: deed.tracked_property_id }) });
-                      if (res.ok) { this.applySellerState(await res.json()); this.pollDeed(); }
+                      if (res.ok) { this.applySellerState(await res.json()); this.refreshDeedMatch(); }
                   } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
               },
               // ── Part B: 'No contact details available' dead-end override ──
@@ -577,19 +645,31 @@
         </div>
 
         {{-- Manual "Link a deed" fallback — ALWAYS available so the agent can pick the right deed
-             when auto-match doesn't fire (P24 marketing address vs deeds-office scheme address). --}}
+             when auto-match doesn't fire (P24 marketing address vs deeds-office scheme address).
+             No automatic re-matching (2026-08-19, Johan): "the agent knows exactly when they have
+             scraped a deed... that is the reliable trigger, not a timer." Refresh only runs on
+             this click — see refreshDeedMatch() — and always says what it found. --}}
         <div x-show="deeds.length" x-cloak class="flex items-center justify-between gap-3 flex-wrap mb-4 rounded-md p-3"
                  style="background: var(--surface); border: 1px dashed var(--border);">
                 <div class="text-xs" style="color: var(--text-muted);">
-                    <span x-show="!deed.owners.length && !deed.candidates.length">No deed auto-matched to this property — </span>
-                    <span x-show="deed.owners.length || deed.candidates.length">Not the right owner? </span>
-                    pick the scraped deed yourself.
+                    <span x-show="!deedRefreshMessage && !deed.owners.length && !deed.candidates.length">No deed matched to this property yet — </span>
+                    <span x-show="!deedRefreshMessage && (deed.owners.length || deed.candidates.length)">Not the right owner? </span>
+                    <span x-show="!deedRefreshMessage">click Refresh after scraping a deed, or pick one yourself.</span>
+                    <span x-show="deedRefreshMessage" x-text="deedRefreshMessage" style="color: var(--text-primary); font-weight: 600;"></span>
                 </div>
-                <button type="button" @click="showDeedModal = true"
-                        class="shrink-0 px-3 py-1.5 text-xs font-semibold rounded-md border-0"
-                        style="background: var(--brand-default, #0b2a4a); color:#fff; cursor:pointer;">
-                    🔍 Link a deed
-                </button>
+                <div class="flex items-center gap-2 shrink-0">
+                    <button type="button" @click="refreshDeedMatch()" :disabled="deedRefreshing"
+                            class="px-3 py-1.5 text-xs font-semibold rounded-md"
+                            style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border); cursor:pointer;">
+                        <span x-show="!deedRefreshing">↻ Refresh</span>
+                        <span x-show="deedRefreshing">Refreshing…</span>
+                    </button>
+                    <button type="button" @click="showDeedModal = true"
+                            class="px-3 py-1.5 text-xs font-semibold rounded-md border-0"
+                            style="background: var(--brand-default, #0b2a4a); color:#fff; cursor:pointer;">
+                        🔍 Link a deed
+                    </button>
+                </div>
         </div>
 
         {{-- #3 Address-first: when the source listing carries no street address, capture

@@ -415,19 +415,20 @@ class DeedsCaptureLinkService
      */
     public function availableDeeds(int $agencyId, int $limit = 500): array
     {
-        // withoutGlobalScopes() strips BOTH AgencyScope and the SoftDeletingScope
-        // — agency tenancy is re-applied explicitly below (agency_id), but the
-        // soft-delete + status filters must be too, or a dismissed/cleared
-        // capture (DeedsCaptureController::dismissProperty() soft-deletes it)
-        // or an archived/duplicate/already-promoted one keeps showing up here
-        // forever — exactly the "lists every deed ever imported" bug reported
-        // against this modal. STATUS_ACTIVE excludes 'archived'/'duplicate'
-        // (explicitly non-current) and 'promoted' (already converted to a real
-        // Property, no longer a raw capture to link).
+        // Shared scope with DeedsCaptureController::index() (the deeds-capture screen)
+        // — TrackedProperty::scopeStillEligibleDeedsCapture() (2026-08-19). Was
+        // previously its own, DIFFERENT "not yet promoted" signal (status='active')
+        // that never excluded a deed already CONSUMED by a pitched listing the same
+        // way the deeds screen does — Johan's ground truth: "the link a deed button
+        // shows more than whats on the deed screen... it should only show exactly
+        // what the deed screen shows." withoutGlobalScopes() strips BOTH AgencyScope
+        // and SoftDeletingScope — agency tenancy + soft-delete are re-applied inside
+        // the shared scope. whereExists(owners) is an ADDITIONAL narrowing specific
+        // to this picker (a deed with no owner has nothing to offer as a seller) —
+        // it only ever shrinks the set, never reintroduces anything the deeds screen
+        // wouldn't show.
         $tps = TrackedProperty::withoutGlobalScopes()
-            ->where('agency_id', $agencyId)
-            ->whereNull('deleted_at')
-            ->where('status', TrackedProperty::STATUS_ACTIVE)
+            ->stillEligibleDeedsCapture($agencyId)
             ->whereExists(function ($q) {
                 $q->select(DB::raw(1))
                     ->from('tracked_property_owners as tpo')
