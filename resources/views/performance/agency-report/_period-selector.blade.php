@@ -45,14 +45,35 @@
     Optional: $formAction — the branch/agent pages need next requests to
     keep hitting their own drill-down route, not the company report; omit it
     on the company report page to GET the current URL as usual.
+    Optional: $compareMode (string, default 'off'), $compareModes (array) —
+    2026-08-19 (Johan, period-comparison) — the "Compare to" selector. Off by
+    default on branch/agent pages if they don't pass these (index.blade.php
+    always does). Composes with the Period selector above rather than being
+    four separate named preset pairs: "Previous period" alone already reads
+    as "this month vs last month" / "this quarter vs last quarter" / "this
+    year vs last year" depending on whichever Period is selected — see
+    .ai/specs/at366-period-comparison.md §2.
 --}}
 <form method="GET" @if(isset($formAction)) action="{{ $formAction }}" @endif
       class="flex items-end gap-2 flex-wrap"
-      x-data="{ preset: {{ Js::from($preset) }}, start: {{ Js::from((string) request('start')) }}, end: {{ Js::from((string) request('end')) }} }">
+      x-data="{
+          preset: {{ Js::from($preset) }},
+          start: {{ Js::from((string) request('start')) }},
+          end: {{ Js::from((string) request('end')) }},
+          compare: {{ Js::from($compareMode ?? 'off') }},
+          compareStart: {{ Js::from((string) request('compare_start')) }},
+          compareEnd: {{ Js::from((string) request('compare_end')) }},
+          readyToSubmit() {
+              if (this.preset === 'custom' && (!this.start || !this.end)) return false;
+              if (this.compare === 'custom' && (!this.compareStart || !this.compareEnd)) return false;
+              return true;
+          },
+          maybeAutoSubmit(el) { if (this.readyToSubmit()) el.form.submit(); },
+      }">
     <label class="text-[11px]" style="color:var(--text-muted);">
         Period
         <select name="period" x-model="preset"
-                @change="if ($event.target.value !== 'custom') $event.target.form.submit()"
+                @change="maybeAutoSubmit($event.target)"
                 class="block mt-1 text-xs rounded px-2 py-1"
                 style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
             @foreach($presets as $p)
@@ -70,10 +91,39 @@
                 <input type="date" name="end" x-model="end" required
                        class="block mt-1 text-xs rounded px-2 py-1" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
             </label>
-            <button type="submit" :disabled="!start || !end"
-                    :style="(!start || !end) ? 'background:var(--surface-2); color:var(--text-muted); cursor:not-allowed; border:1px solid var(--border);' : 'background:var(--brand-button, #0ea5e9); color:#fff;'"
+        </div>
+    </template>
+    @if(isset($compareModes))
+        <label class="text-[11px]" style="color:var(--text-muted);">
+            Compare to
+            <select name="compare" x-model="compare"
+                    @change="maybeAutoSubmit($event.target)"
+                    class="block mt-1 text-xs rounded px-2 py-1"
+                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                @foreach($compareModes as $c)
+                    <option value="{{ $c }}">{{ $c === 'off' ? 'Off' : ($c === 'same_last_year' ? 'Same period last year' : ucfirst(str_replace('_', ' ', $c))) }}</option>
+                @endforeach
+            </select>
+        </label>
+        <template x-if="compare === 'custom'">
+            <div class="flex items-end gap-2 flex-wrap">
+                <label class="text-[11px]" style="color:var(--text-muted);">Compare start
+                    <input type="date" name="compare_start" x-model="compareStart" required
+                           class="block mt-1 text-xs rounded px-2 py-1" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                </label>
+                <label class="text-[11px]" style="color:var(--text-muted);">Compare end
+                    <input type="date" name="compare_end" x-model="compareEnd" required
+                           class="block mt-1 text-xs rounded px-2 py-1" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                </label>
+            </div>
+        </template>
+    @endif
+    <template x-if="preset === 'custom' || compare === 'custom'">
+        <div class="flex items-end gap-2 flex-wrap">
+            <button type="submit" :disabled="!readyToSubmit()"
+                    :style="!readyToSubmit() ? 'background:var(--surface-2); color:var(--text-muted); cursor:not-allowed; border:1px solid var(--border);' : 'background:var(--brand-button, #0ea5e9); color:#fff;'"
                     class="text-xs px-3 py-1 rounded">Apply</button>
-            <span x-show="!start || !end" class="text-[11px]" style="color:var(--text-muted);">Pick both a start and end date</span>
+            <span x-show="!readyToSubmit()" class="text-[11px]" style="color:var(--text-muted);">Pick both dates for every custom range in use</span>
         </div>
     </template>
 </form>

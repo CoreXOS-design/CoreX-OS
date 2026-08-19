@@ -19,6 +19,8 @@ class CommissionGrossProvider implements MetricProvider
 
     public function label(): string { return 'Commission (gross ex-VAT)'; }
 
+    public function direction(): string { return 'higher_is_better'; }
+
     public function forUsers(array $userIds, Period $period): array
     {
         $out = array_fill_keys($userIds, 0.0);

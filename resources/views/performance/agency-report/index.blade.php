@@ -26,6 +26,7 @@
         metrics: {{ Illuminate\Support\Js::from($metricMeta) }},
         company: {{ Illuminate\Support\Js::from($report['company']) }},
         companyStatus: {{ Illuminate\Support\Js::from($report['company']['deal_status'] ?? null) }},
+        comparison: {{ Illuminate\Support\Js::from($comparison) }},
         branchUrlBase: @js($branchUrlBase),
         agentUrlBase: @js($agentUrlBase),
         drilldownBase: @js($drilldownBase),
@@ -33,6 +34,46 @@
         hasCustomDates: {{ $hasCustomDates ? 'true' : 'false' }},
         defaultUrl: @js(route('performance.agency-report'))
      })">
+
+    {{-- 2026-08-19 (Johan, Phase 2) — "the page should open with the answer, not
+         the data." Commission is the agency's actual return (an ROI report is
+         about money, not activity volume), so it's the hero figure — same source
+         (report.company.commission_gross_ex_vat) as the Company tile below, never
+         a new/derived number. Plain-language sentence, arrow + colour + words
+         together (never colour alone), same $comparisonMeta['phrase'] used
+         everywhere else so the reader is never left to guess what it's compared
+         to. print:hidden is NOT used here — this is exactly what should survive
+         to print, unlike the toolbar buttons. --}}
+    @php
+        $heroValue = (float) ($report['company']['commission_gross_ex_vat'] ?? 0);
+        $heroComp  = $comparison['company']['commission_gross_ex_vat'] ?? null;
+        $compactRand = function (float $v): string {
+            $sign = $v < 0 ? '-' : '';
+            $v = abs($v);
+            if ($v >= 1000000) return $sign . 'R' . rtrim(rtrim(number_format($v / 1000000, 1), '0'), '.') . 'm';
+            if ($v >= 1000)    return $sign . 'R' . rtrim(rtrim(number_format($v / 1000, 1), '0'), '.') . 'k';
+            return $sign . 'R' . number_format($v);
+        };
+    @endphp
+    <div class="rounded p-4 lg:p-5" style="background:var(--surface-2); border:1px solid var(--border);">
+        <p class="text-lg lg:text-xl font-semibold" style="color:var(--text-primary);">
+            {{ $report['period']['label'] }}, the agency earned
+            <span style="color:var(--brand-icon, #0ea5e9);">{{ $compactRand($heroValue) }}</span>
+            in commission
+            @if($heroComp && !($heroComp['value'] == 0 && $heroComp['previous'] == 0))
+                @php
+                    $up = $heroComp['delta'] > 0;
+                    $heroClass = $heroComp['good'] === null ? 'report-delta-neutral' : ($heroComp['good'] ? 'report-delta-good' : 'report-delta-bad');
+                @endphp
+                — <span class="{{ $heroClass }}" style="font-weight:600;">
+                    {{ $up ? '▲' : ($heroComp['delta'] < 0 ? '▼' : '') }}
+                    {{ $up ? 'up' : ($heroComp['delta'] < 0 ? 'down' : 'flat') }}
+                    {{ $heroComp['delta_pct'] !== null ? abs($heroComp['delta_pct']) . '%' : $compactRand(abs($heroComp['delta'])) }}
+                </span> {{ $comparisonMeta['phrase'] ?? '' }}
+            @endif
+            .
+        </p>
+    </div>
 
     {{-- STICKY TOP BLOCK — period selector + deal-status toggles stay pinned while the long
          agent list scrolls beneath (fix #2). Everything from here down to (not incl.) Company. --}}
@@ -57,12 +98,28 @@
                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                    title="Print the whole-company report">🖨 Print report</a>
                 {{-- Period selector (cc5-owned partial — DO NOT edit here, only include it) --}}
-                @include('performance.agency-report._period-selector', ['preset' => $preset, 'presets' => $presets])
+                @include('performance.agency-report._period-selector', ['preset' => $preset, 'presets' => $presets, 'compareMode' => $compareMode, 'compareModes' => $compareModes])
             </div>
         </div>
 
         @if(session('period_error'))
             <div class="text-xs px-3 py-2 rounded" style="background:#fee; color:#900;">{{ session('period_error') }}</div>
+        @endif
+        @if(session('compare_error'))
+            <div class="text-xs px-3 py-2 rounded" style="background:#fee; color:#900;">Comparison range: {{ session('compare_error') }}</div>
+        @endif
+        {{-- 2026-08-19 (Johan, period-comparison) — "unequal-length ranges are stated
+             plainly rather than silently proceeding as if the ranges matched." --}}
+        @if($comparisonMeta)
+            <div class="text-xs px-3 py-2 rounded flex items-center justify-between gap-3 flex-wrap"
+                 style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);">
+                <span>Comparing to <strong style="color:var(--text-primary);">{{ $comparisonMeta['period']['label'] }}</strong></span>
+                @if($comparisonMeta['unequal_length'])
+                    <span style="color:var(--ds-amber, #f59e0b);">
+                        ⚠ Unequal-length ranges — comparing {{ $comparisonMeta['period_days'] }} days to {{ $comparisonMeta['comparison_days'] }} days. Totals are not like-for-like.
+                    </span>
+                @endif
+            </div>
         @endif
 
         {{-- #6 DEAL-STATUS TOGGLES — live QTY + VALUE recompute from cc6's per-status data.
@@ -103,11 +160,13 @@
         <h2 class="text-xs font-bold uppercase tracking-widest mb-2" style="color:var(--text-muted);">Company</h2>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
             @foreach($report['metrics'] as $m)
+                @php $c = $comparison['company'][$m['key']] ?? null; @endphp
                 <button type="button" @click="drill('{{ $m['key'] }}', 'company', null, @js($m['label']))"
                         class="rounded p-3 text-left" style="background:var(--surface-2); border:1px solid var(--border); cursor:pointer;"
                         title="Click to see the detail">
                     <div class="text-xl font-bold" style="color:var(--text-primary);">{{ $report['company'][$m['key']] ?? 0 }}</div>
                     <div class="text-[11px]" style="color:var(--text-muted);">{{ $m['label'] }}</div>
+                    <x-performance-delta :c="$c" :phrase="$comparisonMeta['phrase'] ?? ''" :money="$m['key'] === 'commission_gross_ex_vat'" />
                 </button>
             @endforeach
         </div>
@@ -119,6 +178,24 @@
     {{-- Branch rollup (sortable, drillable) — contained horizontal scroll (fix #1) --}}
     <div>
         <h2 class="text-xs font-bold uppercase tracking-widest mb-2" style="color:var(--text-muted);">By branch</h2>
+        {{-- 2026-08-19 (Johan, Phase 2) — "comparing branches wants bars." Single
+             axis (Rand), never dual — one metric (commission, matching the hero,
+             not a new one) per branch, current vs previous as two fixed-role
+             series (never re-coloured by sort/filter — see initBranchChart()).
+             Not charted: By agent — same reasoning as branches would apply, but
+             at ~30 real agents a bar chart adds noise, not clarity; the table
+             (with the same arrow+colour+delta treatment) stays the agent view.
+             This is a scoping call, flagged here rather than made silently. --}}
+        <div class="corex-chart-container mb-3" style="height:220px; background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:0.75rem;">
+            <canvas x-ref="branchChart" role="img" aria-label="Commission by branch, current vs comparison period"></canvas>
+        </div>
+        @if($comparisonMeta)
+            {{-- 2026-08-19 (Johan, Phase 2) — a dense table repeating "vs previous
+                 period" in every cell would be unreadable; stated ONCE here instead,
+                 so a cell's arrow+colour+number is never ambiguous about what it's
+                 compared to even though the phrase isn't repeated per cell. --}}
+            <p class="text-[10px] mb-1.5" style="color:var(--text-muted);">Δ figures below are {{ $comparisonMeta['phrase'] }}.</p>
+        @endif
         <div class="overflow-x-auto rounded max-w-full" style="border:1px solid var(--border);">
             <table class="w-full text-[11px] report-metric-table" style="border-collapse:collapse;">
                 <thead>
@@ -141,8 +218,12 @@
                             </td>
                             <template x-for="m in metrics" :key="m.key">
                                 <td :class="isMoney(m.key) ? 'num-money' : 'num-qty'"
-                                    @click="drill(m.key, 'branch', b.key, m.label + ' — ' + b.label)"
-                                    x-text="isMoney(m.key) ? fmtMoney(b.metrics[m.key]) : fmt(b.metrics[m.key])"></td>
+                                    @click="drill(m.key, 'branch', b.key, m.label + ' — ' + b.label)">
+                                    <span x-text="isMoney(m.key) ? fmtMoney(b.metrics[m.key]) : fmt(b.metrics[m.key])"></span>
+                                    <template x-if="hasComparison">
+                                        <span class="report-delta" :class="deltaClass(compBranch(b.key, m.key))" x-text="fmtDelta(compBranch(b.key, m.key), m.key)"></span>
+                                    </template>
+                                </td>
                             </template>
                         </tr>
                     </template>
@@ -156,6 +237,9 @@
 
     {{-- Per-agent table with filter toolbar (sortable, drillable) --}}
     <div>
+        @if($comparisonMeta)
+            <p class="text-[10px] mb-1.5" style="color:var(--text-muted);">Δ figures below are {{ $comparisonMeta['phrase'] }}.</p>
+        @endif
         <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
             <h2 class="text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">By agent</h2>
             <div class="flex items-center gap-2 flex-wrap print:hidden" role="group" aria-label="Agent filters">
@@ -193,6 +277,29 @@
             .report-metric-table .metric-money { min-width: 6rem; padding: .375rem .5rem; text-align: right; white-space: normal; }
             .report-metric-table td.num-qty { text-align: right; white-space: nowrap; padding: .375rem .25rem; color: var(--text-primary); cursor: pointer; }
             .report-metric-table td.num-money { text-align: right; white-space: nowrap; padding: .375rem .5rem; color: var(--text-primary); cursor: pointer; font-variant-numeric: tabular-nums; }
+            /* 2026-08-19 (Johan, period-comparison) — colour follows the metric's OWN
+               declared direction-of-good (PeriodComparison::compute()'s `good` field),
+               never the raw sign of the delta. Never invert. */
+            .report-delta { display: block; font-size: 9px; line-height: 1.3; font-weight: 500; white-space: nowrap; }
+            .report-delta-good { color: var(--ds-green, #059669); }
+            .report-delta-bad { color: var(--ds-crimson, #c41e3a); }
+            .report-delta-neutral { color: var(--text-muted); }
+            /* 2026-08-19 (Johan, Phase 2) — "must print/PDF cleanly... charts must
+               render sensibly in print, not vanish or overflow." The interactive
+               page has sticky headers and internal overflow:auto scrollers
+               (report-agent-scroll, the topBlock) so a long agent list doesn't
+               push the page around on screen — exactly the wrong behaviour for
+               print, where a scroller just clips everything past one page-height
+               to invisible. Print unpins them so the full table flows onto as
+               many printed pages as it needs, and gives the chart canvas an
+               explicit height (percentage/vh heights collapse to 0 in most
+               browsers' print engines). */
+            @media print {
+                .sticky { position: static !important; }
+                .report-agent-scroll { position: static !important; max-height: none !important; overflow: visible !important; }
+                .corex-chart-container { height: 220px !important; page-break-inside: avoid; }
+                .report-metric-table thead { display: table-header-group; } /* repeat header per printed page where supported */
+            }
         </style>
         <div class="report-agent-scroll rounded max-w-full"
              style="border:1px solid var(--border); background:var(--bg,#f4f6fb);
@@ -223,8 +330,12 @@
                             <td class="px-2 py-1.5 whitespace-nowrap" style="color:var(--text-muted);" x-text="a.branch_label"></td>
                             <template x-for="m in metrics" :key="m.key">
                                 <td :class="isMoney(m.key) ? 'num-money' : 'num-qty'"
-                                    @click="drill(m.key, 'agent', a.user_id, m.label + ' — ' + a.name)"
-                                    x-text="isMoney(m.key) ? fmtMoney(a.metrics[m.key]) : fmt(a.metrics[m.key])"></td>
+                                    @click="drill(m.key, 'agent', a.user_id, m.label + ' — ' + a.name)">
+                                    <span x-text="isMoney(m.key) ? fmtMoney(a.metrics[m.key]) : fmt(a.metrics[m.key])"></span>
+                                    <template x-if="hasComparison">
+                                        <span class="report-delta" :class="deltaClass(compAgent(a.user_id, m.key))" x-text="fmtDelta(compAgent(a.user_id, m.key), m.key)"></span>
+                                    </template>
+                                </td>
                             </template>
                         </tr>
                     </template>
@@ -288,6 +399,11 @@
     </div>
 </div>
 
+{{-- 2026-08-19 (Johan, Phase 2) — same Chart.js build already loaded by
+     commission/dashboard.blade.php and commission/principal-dashboard.blade.php
+     (v4.4.1 via cdnjs) — reusing the established precedent, not a new
+     charting dependency. --}}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script>
 /* AT-366 report frontend (cc1) — sort/filter (#7), status toggles (#6), drilldown (#9),
    sticky header + reset view (layout fixes). Pure presentation over cc6's already-agency-scoped
@@ -299,6 +415,48 @@ function agencyReport(cfg) {
         metrics: cfg.metrics || [],
         company: cfg.company || {},
         companyStatus: cfg.companyStatus || null,
+        // 2026-08-19 (Johan, period-comparison) — comparison is a SEPARATE, parallel
+        // structure (ReportPeriodComparator output), never merged into
+        // company/branches/agents above, so their existing sort/filter/status-toggle
+        // math is completely untouched whether comparison is on or off. Every field
+        // read here (value/previous/delta/delta_pct/direction/good) is already fully
+        // computed server-side (PeriodComparison::compute) — this file only looks
+        // values up and formats them, no math, no direction logic.
+        comparison: cfg.comparison || null,
+        _compAgentsByUser: null,
+        get hasComparison() { return !!this.comparison; },
+        compCompany(key) { return this.comparison?.company?.[key] || null; },
+        compBranch(branchKey, metricKey) { return this.comparison?.branches?.[branchKey]?.metrics?.[metricKey] || null; },
+        compAgent(userId, metricKey) {
+            if (!this.comparison) return null;
+            if (!this._compAgentsByUser) {
+                this._compAgentsByUser = {};
+                this.comparison.agents.forEach(a => { this._compAgentsByUser[a.user_id] = a; });
+            }
+            return this._compAgentsByUser[userId]?.metrics?.[metricKey] || null;
+        },
+        // key is optional — pass the metric key so money metrics (commission, lost
+        // value, deal value) format with 'R ' via the SAME isMoney(key) check the
+        // raw-value column already uses, so a metric never renders inconsistently
+        // formatted between its value and its own delta.
+        // 2026-08-19 (Johan, Phase 2) — arrow reflects the actual numeric
+        // direction (up/down); deltaClass() (below) reflects c.good, the
+        // metric's OWN declared direction-of-good. "Arrow + colour + label,
+        // never colour alone" — this is the arrow half of that pair.
+        fmtDelta(c, key) {
+            if (!c) return '';
+            if (c.value === 0 && c.previous === 0) return '—';
+            const arrow = c.delta > 0 ? '▲ ' : (c.delta < 0 ? '▼ ' : '');
+            const sign = c.delta > 0 ? '+' : '';
+            const abs = key && this.isMoney(key) ? this.fmtMoney(Math.abs(c.delta)) : this.fmt(Math.abs(c.delta));
+            const signedAbs = arrow + (c.delta < 0 ? '-' : sign) + abs;
+            if (c.delta_pct === null) return signedAbs;
+            return signedAbs + ' (' + (c.delta_pct > 0 ? '+' : '') + c.delta_pct + '%)';
+        },
+        deltaClass(c) {
+            if (!c || c.good === null) return 'report-delta-neutral';
+            return c.good ? 'report-delta-good' : 'report-delta-bad';
+        },
         branchUrlBase: cfg.branchUrlBase,
         agentUrlBase: cfg.agentUrlBase,
         drilldownBase: cfg.drilldownBase,
@@ -321,6 +479,88 @@ function agencyReport(cfg) {
                 this.$nextTick(() => { if (this.$refs.topBlock) this._ro.observe(this.$refs.topBlock); });
             }
             window.addEventListener('resize', measure);
+            this.$nextTick(() => this.initBranchChart());
+        },
+
+        // 2026-08-19 (Johan, Phase 2) — "comparing branches wants bars." Reads
+        // theme colours live via getComputedStyle, same pattern already
+        // established in commission/dashboard.blade.php and
+        // commission/principal-dashboard.blade.php — no new convention. Fixed
+        // colour PER SERIES ROLE (Current = brand, Previous = neutral border
+        // tone), assigned once here and never recomputed from array position,
+        // so table sort/filter interactions elsewhere on the page can never
+        // repaint this chart's bars. Single axis (Rand) — never dual.
+        _branchChart: null,
+        initBranchChart() {
+            const canvas = this.$refs.branchChart;
+            if (!canvas || typeof Chart === 'undefined') return;
+            const style = getComputedStyle(document.documentElement);
+            const textColor = style.getPropertyValue('--text-muted').trim() || '#9ca3af';
+            const gridColor = style.getPropertyValue('--border').trim() || '#e5e7eb';
+            const brandIcon = style.getPropertyValue('--brand-icon').trim() || '#0ea5e9';
+
+            // Fixed order: alphabetical by label, independent of the By-branch
+            // table's current sort — the chart's bar order never follows the
+            // table's interactive sort state.
+            const branches = [...this.branches].sort((a, b) => a.label.localeCompare(b.label));
+            const labels = branches.map(b => b.label);
+            const current = branches.map(b => Number(b.metrics?.commission_gross_ex_vat ?? 0));
+            const datasets = [{
+                label: 'Current',
+                data: current,
+                backgroundColor: brandIcon,
+                borderRadius: 2,
+                maxBarThickness: 28,
+            }];
+            if (this.hasComparison) {
+                const previous = branches.map(b => Number(this.comparison?.branches?.[b.key]?.metrics?.commission_gross_ex_vat?.previous ?? 0));
+                datasets.push({
+                    label: 'Previous',
+                    data: previous,
+                    backgroundColor: gridColor,
+                    borderRadius: 2,
+                    maxBarThickness: 28,
+                });
+            }
+
+            if (this._branchChart) this._branchChart.destroy();
+            if (labels.length === 0) return;
+            this._branchChart = new Chart(canvas, {
+                type: 'bar',
+                data: { labels, datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    // 2px gap between adjacent fills within a group.
+                    categoryPercentage: 0.7,
+                    barPercentage: 0.9,
+                    interaction: { intersect: false, mode: 'index' },
+                    plugins: {
+                        // Legend always present for 2+ series; a single series (comparison
+                        // off) needs none — the section title already names it.
+                        legend: {
+                            display: this.hasComparison,
+                            position: 'top', align: 'end',
+                            labels: { color: textColor, font: { size: 10 }, boxWidth: 10, boxHeight: 10, padding: 12 },
+                        },
+                        tooltip: {
+                            callbacks: { label: (ctx) => ctx.dataset.label + ': R ' + Number(ctx.parsed.y).toLocaleString() },
+                        },
+                    },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { color: textColor, font: { size: 10 } } },
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: gridColor + '40' }, // recessive gridlines
+                            border: { display: false },
+                            ticks: {
+                                color: textColor, font: { size: 10 },
+                                callback: v => v >= 1000 ? 'R' + (v / 1000).toFixed(0) + 'k' : 'R' + v,
+                            },
+                        },
+                    },
+                },
+            });
         },
 
         // ---- #7 sort / filter ----
