@@ -206,6 +206,7 @@ See CLAUDE.md "CoreX Operating Principle" section for the full version.
 - **Every prompt closes:** php -l, php artisan view:clear, scripts/dev-check.ps1 if structural change, Tinker verification, **update this CHAT_STARTER.md**.
 - **No hard deletes.** SoftDeletes only.
 - **PPRA not EAAB. POPIA consent rules apply.**
+- **Johan is not a programmer.** Ask business questions only (what should the user see / what should happen). Never ask him to make a technical or architectural choice — make it yourself and state the business consequence in one sentence. Report in plain language, no code or file paths unless asked. See CLAUDE.md operating rule 8.
 - **Bug report = code is wrong.** Never blame caching or user error.
 
 <!-- ============================================================ -->

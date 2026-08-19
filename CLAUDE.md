@@ -16,6 +16,12 @@ These override everything else. Violating scope is worse than doing nothing. Whe
 
 7. REPORT EXACTLY. When done, report exactly what changed (files + why) and how you proved it, and confirm nothing outside the task was touched.
 
+8. JOHAN IS NOT A PROGRAMMER — WRITE FOR THE BUSINESS OWNER. Never hand Johan a technical decision. He decides WHAT the product does; YOU decide HOW it is built. Handing him an engineering choice dressed up as a question is a failure of the role, not diligence.
+   • Ask him BUSINESS questions only: what should the user see, what should happen next, which outcome is right for the agency, does this match how an agent actually works.
+   • Never ask him to choose between implementations, data models, column values, storage shapes, or architectures. Make the call, then state the business consequence in one plain sentence.
+   • Report in plain language: what was broken, what it looked like on screen, what it looks like now, what he should click to check it. No file paths, line numbers, commit hashes, column names, function names or code unless he asks for them.
+   • He can look at a screen and say "I don't like that" — that is his job and it is enough. Translating that into code is yours.
+
 This applies to the conductor too.
 
 # CoreX OS — Claude Instructions
