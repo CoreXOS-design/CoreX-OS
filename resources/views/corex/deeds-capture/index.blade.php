@@ -161,24 +161,30 @@
                     // sentence." ONE unified plain sentence per row, computed once
                     // here — no chips, no ids, no "tracked"/"enriched"/"fields",
                     // every word an agent would actually say.
+                    // Confirm button (Johan, 2026-08-19): street + number only — the
+                    // full "STREET, SUBURB, TOWN, PROVINCE" string is right for
+                    // identifying WHICH property in the sentence above, but repeated
+                    // on a button it's just noise the agent has to read past.
+                    $shortStreetAddress = fn ($p) => trim((string) ($p->street_number ?? '') . ' ' . (string) ($p->street_name ?? '')) ?: null;
+
                     $isAlreadyTracked = $tp->capture_kind !== 'deeds_capture';
                     if (!$isAlreadyTracked) {
                         $rowStatusLine = "New to us — we don't have this property yet.";
                         $rowWhyLine = null;
-                        $rowConfirmName = $headline !== '' ? $headline : 'this property';
+                        $rowConfirmName = $shortStreetAddress($tp) ?: ($headline !== '' ? $headline : 'this property');
                     } elseif ($stockStatus['state'] === 'live') {
                         $matchedAddress = $stockStatus['property']->address ?: 'a property already on your books';
                         $rowStatusLine = 'We think this is the same as ' . $matchedAddress
                             . ' — currently on the market with ' . ($stockStatus['property']->agent->name ?? 'one of your agents') . '.';
                         $rowWhyLine = $matchDecision->reason ?? null;
-                        $rowConfirmName = $matchedAddress;
+                        $rowConfirmName = $shortStreetAddress($stockStatus['property']) ?: $matchedAddress;
                     } elseif ($stockStatus['state'] === 'stale') {
                         $matchedAddress = $stockStatus['property']->address ?: 'a property already on your books';
                         $lastWorked = $stockStatus['property']->last_activity_at ?? $stockStatus['property']->updated_at;
                         $rowStatusLine = 'We think this is the same as ' . $matchedAddress
                             . ' — not on the market, last worked ' . ($lastWorked ? \Illuminate\Support\Carbon::parse($lastWorked)->diffForHumans() : 'a while ago') . '.';
                         $rowWhyLine = $matchDecision->reason ?? null;
-                        $rowConfirmName = $matchedAddress;
+                        $rowConfirmName = $shortStreetAddress($stockStatus['property']) ?: $matchedAddress;
                     } else {
                         // already tracked, but no existing live property match found —
                         // still a genuine match worth confirming (this is #468's own
@@ -187,9 +193,9 @@
                         // (for rows from before this feature existed) is only that
                         // the reason was never recorded, so say that plainly rather
                         // than inventing doubt that was never there.
-                        $rowStatusLine = 'We think this matches a property already in our system — not yet added to your books.';
-                        $rowWhyLine = $matchDecision->reason ?? 'Not recorded — this was matched before we started keeping track of why.';
-                        $rowConfirmName = $headline !== '' ? $headline : 'this property';
+                        $rowStatusLine = 'We already have this property on file, but it is not on your books.';
+                        $rowWhyLine = $matchDecision->reason ?? 'Not recorded for older captures.';
+                        $rowConfirmName = $shortStreetAddress($tp) ?: ($headline !== '' ? $headline : 'this property');
                     }
                 @endphp
                 <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
@@ -588,12 +594,17 @@
                             // separate, not-yet-built change) — so this is a report, not a
                             // promise, and says so honestly rather than pretending it's still
                             // pending confirmation.
-                            $whatChangedParts = array_filter([
-                                $filledCount > 0 ? ($filledCount . ' new detail' . ($filledCount === 1 ? '' : 's')) : null,
-                                $replacedCount > 0 ? ($replacedCount . ' that replaced something different' . ($replacedCount === 1 ? '' : 'ly')) : null,
-                                $clearedCount > 0 ? ($clearedCount . ' cleared' . ($clearedCount === 1 ? '' : ' out')) : null,
-                            ]);
-                            $whatChangedSummary = 'We already added ' . implode(', ', $whatChangedParts) . ' on this record.';
+                            $whatChangedParts = array_values(array_filter([
+                                $filledCount > 0 ? ('updated ' . $filledCount . ' detail' . ($filledCount === 1 ? '' : 's')) : null,
+                                $replacedCount > 0 ? ('replaced ' . $replacedCount . ' that ' . ($replacedCount === 1 ? 'was' : 'were') . ' different') : null,
+                                $clearedCount > 0 ? ('cleared ' . $clearedCount . ' that no longer applied') : null,
+                            ]));
+                            // "We already updated 10 details on that property, and replaced 4
+                            // that were different." (Johan, 2026-08-19) — "on that property"
+                            // anchors the first clause; further clauses just continue the sentence.
+                            $whatChangedSummary = 'We already ' . $whatChangedParts[0] . ' on that property'
+                                . (count($whatChangedParts) > 1 ? ', and ' . implode(', and ', array_slice($whatChangedParts, 1)) : '')
+                                . '.';
                         @endphp
                         <div class="mt-3" x-data="{ open: false }">
                             <button type="button" @click="open = !open"
