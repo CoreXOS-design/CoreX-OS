@@ -62,6 +62,14 @@ return new class extends Migration {
             // plausible candidate.
             $table->json('candidates')->nullable();
 
+            // Snapshot of exactly what the incoming capture said (street, erf,
+            // GPS, deed number, etc.) at the moment of this match — so a later
+            // rejection with no correct alternative on offer can create a
+            // fresh record from what THIS capture actually said, not from
+            // whatever the wrongly-matched record now shows (which may itself
+            // have since been further overwritten by other sources).
+            $table->json('incoming_facts')->nullable();
+
             $table->timestamp('decided_at');
 
             // Rejection — "Not the same property". Never deleted; this row

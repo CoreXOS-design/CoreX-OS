@@ -42,6 +42,7 @@ class PropertyMatchDecision extends Model
         'strategy',
         'reason',
         'candidates',
+        'incoming_facts',
         'decided_at',
         'rejected_at',
         'rejected_by_user_id',
@@ -51,7 +52,8 @@ class PropertyMatchDecision extends Model
     ];
 
     protected $casts = [
-        'candidates'  => 'array',
+        'candidates'      => 'array',
+        'incoming_facts'  => 'array',
         'decided_at'  => 'datetime',
         'rejected_at' => 'datetime',
     ];

@@ -52,6 +52,31 @@ final class TrackedPropertyMatchOrCreateService
     private const GPS_TOLERANCE_DEGREES = 0.00005;
 
     /**
+     * CX-102 part 2 (2026-08-19, Johan: "the system must show its working").
+     * Set by resolveMatch() right before it returns a candidate, read by
+     * matchOrCreate() immediately after — the label of whichever strategy
+     * actually produced the match, and (Strategy 5 ties only) the other
+     * candidates it considered. Instance state, not a return-type change,
+     * because resolveMatch()/findExistingMatch() are called synchronously
+     * and read back immediately within the same request — nothing else
+     * runs between a strategy setting this and matchOrCreate() reading it.
+     */
+    private ?string $lastMatchStrategy = null;
+
+    /** @var array<int, array{type: string, id: int, label: string}>|null */
+    private ?array $lastMatchCandidates = null;
+
+    /**
+     * Recorded, agent-facing match decisions (CX-102 part 2) exist ONLY for
+     * source types with a screen to show them and a control to reject them.
+     * Deeds Capture is that screen today. Gating here — not by removing the
+     * veto/record calls from every strategy — means turning this on for
+     * another source (P24, PP, a future CX-101 surface) is a one-line change
+     * to this array, not a re-wire of the matcher.
+     */
+    private const DECISION_TRACKED_SOURCE_TYPES = ['deeds_capture'];
+
+    /**
      * Fields where a newer source's value wins over an older value.
      * Other fields keep their first non-null value (first source wins for stable identifiers).
      */
@@ -110,10 +135,31 @@ final class TrackedPropertyMatchOrCreateService
     ): TrackedProperty {
         return DB::transaction(function () use ($agencyId, $facts, $source, $actorUserId) {
             $matched = $this->resolveMatch($agencyId, $facts, $source);
+            $strategy = $this->lastMatchStrategy;
+            $candidates = $this->lastMatchCandidates;
 
             $tp = $matched
                 ? $this->enrich($matched, $facts, $source, $actorUserId)
                 : $this->create($agencyId, $facts, $source, $actorUserId);
+
+            // CX-102 part 2 (2026-08-19, Johan) — record WHY, at the moment of
+            // the match, for whichever screen shows this decision to an agent.
+            // Gated to decision-tracked source types (see
+            // isDecisionTrackedSource) — zero cost on every other ingestion
+            // path, which has no screen to show this on.
+            if ($matched && $strategy !== null && $this->isDecisionTrackedSource($source)) {
+                app(PropertyMatchDecisionService::class)->record(
+                    agencyId: $agencyId,
+                    subjectType: 'deeds_capture',
+                    subjectKey: $this->subjectKeyFor($source),
+                    matchedType: 'tracked_property',
+                    matchedId: $tp->id,
+                    strategy: $strategy,
+                    reason: $this->reasonFor($strategy, $facts, $tp),
+                    candidates: $candidates,
+                    incomingFacts: $facts,
+                );
+            }
 
             // Phase C2 — append (or bump) the ingested address in the TP's
             // address history. Failure-isolated: the underlying match-or-create
@@ -153,16 +199,18 @@ final class TrackedPropertyMatchOrCreateService
      */
     private function resolveMatch(int $agencyId, array $facts, array $source): ?TrackedProperty
     {
+        // CX-102 part 2 — clear any strategy/candidates left over from a
+        // previous call before this one runs, so a caller that reads them
+        // straight after can never see stale state from an earlier match.
+        $this->lastMatchStrategy = null;
+        $this->lastMatchCandidates = null;
+
         // Strategy 0: Address-history match (Phase C2 silent-killer fix).
         // Consult tracked_property_addresses BEFORE the portal-ref / GPS / erf
         // strategies — an agent who has corrected a wrong address once should
         // never see the same wrong-address ingestion create a duplicate TP again.
-        $historyHit = $this->resolveByAddressHistory($agencyId, $facts);
+        $historyHit = $this->resolveByAddressHistory($agencyId, $facts, $source);
         if ($historyHit) {
-            Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch matched via strategy=0_address_history', [
-                'agency_id'           => $agencyId,
-                'tracked_property_id' => $historyHit->id,
-            ]);
             return $historyHit;
         }
 
@@ -194,10 +242,7 @@ final class TrackedPropertyMatchOrCreateService
                     ->where('agency_id', $agencyId)
                     ->whereNull('deleted_at')
                     ->find($ref->tracked_property_id);
-                if ($tp && ! $this->numbersConflict($facts, $tp)) {
-                    Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch matched via strategy=1_source_ref', [
-                        'agency_id' => $agencyId, 'tracked_property_id' => $tp->id,
-                    ]);
+                if ($tp && ! $this->numbersConflict($facts, $tp) && $this->acceptCandidate($agencyId, $source, $tp, '1_source_ref')) {
                     return $tp;
                 }
                 if ($tp) {
@@ -219,10 +264,7 @@ final class TrackedPropertyMatchOrCreateService
                 ->whereBetween('cma_gps_lat', [$lat - $tol, $lat + $tol])
                 ->whereBetween('cma_gps_lng', [$lng - $tol, $lng + $tol])
                 ->first();
-            if ($byCmaGps && ! $this->numbersConflict($facts, $byCmaGps)) {
-                Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch matched via strategy=2_gps_cma', [
-                    'agency_id' => $agencyId, 'tracked_property_id' => $byCmaGps->id,
-                ]);
+            if ($byCmaGps && ! $this->numbersConflict($facts, $byCmaGps) && $this->acceptCandidate($agencyId, $source, $byCmaGps, '2_gps_cma')) {
                 return $byCmaGps;
             }
 
@@ -232,10 +274,7 @@ final class TrackedPropertyMatchOrCreateService
                 ->whereBetween('latitude', [$lat - $tol, $lat + $tol])
                 ->whereBetween('longitude', [$lng - $tol, $lng + $tol])
                 ->first();
-            if ($byGps && ! $this->numbersConflict($facts, $byGps)) {
-                Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch matched via strategy=2_gps_latlng', [
-                    'agency_id' => $agencyId, 'tracked_property_id' => $byGps->id,
-                ]);
+            if ($byGps && ! $this->numbersConflict($facts, $byGps) && $this->acceptCandidate($agencyId, $source, $byGps, '2_gps_latlng')) {
                 return $byGps;
             }
         }
@@ -260,10 +299,7 @@ final class TrackedPropertyMatchOrCreateService
                 ->where('erf_number', trim((string) $facts['erf_number']))
                 ->where('suburb_normalised', TrackedProperty::normaliseSuburb($facts['suburb']))
                 ->first();
-            if ($erfMatch && ! $this->numbersConflict($facts, $erfMatch)) {
-                Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch matched via strategy=3_erf_suburb', [
-                    'agency_id' => $agencyId, 'tracked_property_id' => $erfMatch->id,
-                ]);
+            if ($erfMatch && ! $this->numbersConflict($facts, $erfMatch) && $this->acceptCandidate($agencyId, $source, $erfMatch, '3_erf_suburb')) {
                 return $erfMatch;
             }
         }
@@ -279,10 +315,7 @@ final class TrackedPropertyMatchOrCreateService
                 ->first();
             // street_number already matches exactly here; the gate adds the UNIT
             // dimension so Unit 1 and Unit 2 at "1 The Oval" don't collapse.
-            if ($addressMatch && ! $this->numbersConflict($facts, $addressMatch)) {
-                Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch matched via strategy=4_normalised_address', [
-                    'agency_id' => $agencyId, 'tracked_property_id' => $addressMatch->id,
-                ]);
+            if ($addressMatch && ! $this->numbersConflict($facts, $addressMatch) && $this->acceptCandidate($agencyId, $source, $addressMatch, '4_normalised_address')) {
                 return $addressMatch;
             }
         }
@@ -327,10 +360,18 @@ final class TrackedPropertyMatchOrCreateService
                     }
                 }
 
+                // CX-102 part 2 — drop any candidate an agent has already rejected
+                // for THIS capture before deciding what to do with what's left, so
+                // a rejected pairing can never resurface here even as a runner-up.
+                if ($this->isDecisionTrackedSource($source) && !empty($tied)) {
+                    $tied = array_values(array_filter(
+                        $tied,
+                        fn ($cand) => !$this->isVetoedCandidate($agencyId, $source, $cand)
+                    ));
+                }
+
                 if (count($tied) === 1) {
-                    Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch matched via strategy=5_token_overlap', [
-                        'agency_id' => $agencyId, 'tracked_property_id' => $tied[0]->id,
-                    ]);
+                    $this->lastMatchStrategy = '5_token_overlap';
                     return $tied[0];
                 }
 
@@ -342,12 +383,14 @@ final class TrackedPropertyMatchOrCreateService
                     // would have resolved Von Baumbach Avenue correctly: the deed's
                     // own GPS sat ~10m from the correct record and ~1km from the
                     // one the old rule picked.
+                    $this->lastMatchCandidates = array_map(
+                        fn ($c) => ['type' => 'tracked_property', 'id' => $c->id, 'label' => $this->candidateLabel($c)],
+                        $tied,
+                    );
+
                     $winner = $this->nearestByGps($facts, $tied);
                     if ($winner !== null) {
-                        Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch matched via strategy=5_token_overlap_gps_tiebreak', [
-                            'agency_id' => $agencyId, 'tracked_property_id' => $winner->id,
-                            'tied_candidate_ids' => array_map(fn ($c) => $c->id, $tied),
-                        ]);
+                        $this->lastMatchStrategy = '5_token_overlap_gps_tiebreak';
                         return $winner;
                     }
 
@@ -357,10 +400,7 @@ final class TrackedPropertyMatchOrCreateService
                     // unresolved tie for review is deliberately NOT built here —
                     // that's what the agent-facing "Not the same property" control
                     // is for (CX-102 part 2), not a silent hold.
-                    Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch matched via strategy=5_token_overlap_untiebroken', [
-                        'agency_id' => $agencyId, 'tracked_property_id' => $tied[0]->id,
-                        'tied_candidate_ids' => array_map(fn ($c) => $c->id, $tied),
-                    ]);
+                    $this->lastMatchStrategy = '5_token_overlap_untiebroken';
                     return $tied[0];
                 }
             }
@@ -415,6 +455,110 @@ final class TrackedPropertyMatchOrCreateService
         }
 
         return $nearest;
+    }
+
+    /**
+     * CX-102 part 2 gate — true when this source type has an agent-facing
+     * screen to show/reject a match decision on (see
+     * DECISION_TRACKED_SOURCE_TYPES). Everything else (P24, PP, CMA, manual)
+     * matches exactly as before: no decision recorded, no veto consulted —
+     * zero added cost on high-volume ingestion with no screen to show it on.
+     */
+    private function isDecisionTrackedSource(array $source): bool
+    {
+        return in_array($source['type'] ?? null, self::DECISION_TRACKED_SOURCE_TYPES, true)
+            && !empty($source['ref']);
+    }
+
+    /**
+     * CX-102 part 2 — the subject_key a decision-tracked source is recorded
+     * and vetoed under. Stable across repeat captures of the same source
+     * (the whole point: re-importing the same deed must not re-offer a
+     * property an agent already rejected for it).
+     */
+    private function subjectKeyFor(array $source): string
+    {
+        return $source['type'] . ':' . $source['ref'];
+    }
+
+    /**
+     * CX-102 part 2 — true when THIS capture has already had THIS candidate
+     * rejected by an agent. Only ever true for decision-tracked sources
+     * (see isDecisionTrackedSource) — every other source skips the lookup
+     * entirely rather than pay for a check nothing can ever have rejected.
+     */
+    private function isVetoedCandidate(int $agencyId, array $source, TrackedProperty $candidate): bool
+    {
+        if (!$this->isDecisionTrackedSource($source)) {
+            return false;
+        }
+
+        return app(PropertyMatchDecisionService::class)->isRejected(
+            $agencyId,
+            'deeds_capture',
+            $this->subjectKeyFor($source),
+            'tracked_property',
+            $candidate->id,
+        );
+    }
+
+    /**
+     * CX-102 part 2 — accept a resolved candidate: vetoes it if an agent has
+     * already rejected this exact (capture, property) pairing, otherwise
+     * records which strategy produced it (read back by matchOrCreate()
+     * immediately after resolveMatch() returns) and returns true. Every
+     * strategy's return site is gated on this rather than returning
+     * unconditionally, so a rejected candidate falls through to the NEXT
+     * strategy exactly as if this one had found nothing — never a dead end,
+     * per Johan's "staff keep working."
+     */
+    private function acceptCandidate(int $agencyId, array $source, TrackedProperty $candidate, string $strategy): bool
+    {
+        if ($this->isVetoedCandidate($agencyId, $source, $candidate)) {
+            Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch candidate VETOED (agent-rejected pairing)', [
+                'agency_id' => $agencyId, 'tracked_property_id' => $candidate->id, 'strategy' => $strategy,
+            ]);
+            return false;
+        }
+
+        $this->lastMatchStrategy = $strategy;
+
+        return true;
+    }
+
+    /**
+     * CX-102 part 2 — plain-language sentence for the strategy that produced
+     * a match, generated from the REAL values seen at match time (never
+     * reconstructed later from whatever the matched record looks like
+     * today — Johan, verbatim). Mirrors the resolution priority order in
+     * the class doc comment.
+     */
+    private function reasonFor(string $strategy, array $facts, TrackedProperty $tp): string
+    {
+        return match ($strategy) {
+            '0_address_history_exact' => 'A previous capture already confirmed this exact address for this property.',
+            '0_address_history_gps' => 'GPS is within about 5 metres of an address already confirmed for this property.',
+            '1_source_ref' => 'Same source reference as a previous capture of this property.',
+            '2_gps_cma', '2_gps_latlng' => 'GPS is within about 5 metres of this property\'s known location.',
+            '3_erf_suburb' => 'Same erf number (' . trim((string) ($facts['erf_number'] ?? '?')) . ') and suburb.',
+            '4_normalised_address' => 'Street number, street name and suburb all match exactly.',
+            '5_token_overlap' => 'Address is a close text match on this street and suburb — no other property on this street was a candidate.',
+            '5_token_overlap_gps_tiebreak' => 'Address is a close text match; more than one property on this street was possible, and GPS confirmed this one.',
+            '5_token_overlap_untiebroken' => 'Address is a close text match; more than one property on this street was possible and neither GPS nor any other detail could tell them apart — this one was picked automatically. Worth checking.',
+            default => 'Matched automatically.',
+        };
+    }
+
+    /**
+     * CX-102 part 2 — short human label for a tracked property, used in the
+     * candidates list an agent picks from when a match ties. Deliberately
+     * the same shape the Deeds Capture screen already renders for a row's
+     * headline address (street number/name, suburb).
+     */
+    private function candidateLabel(TrackedProperty $tp): string
+    {
+        $addr = trim(($tp->street_number ?? '') . ' ' . ($tp->street_name ?? ''));
+        return trim($addr . ($tp->suburb ? ', ' . $tp->suburb : '')) ?: ('Tracked property #' . $tp->id);
     }
 
     /**
@@ -553,7 +697,7 @@ final class TrackedPropertyMatchOrCreateService
      * Suburb-only ingestions (no street_name AND no GPS) are NOT matched —
      * too risky; we'd collapse independent properties in the same suburb.
      */
-    private function resolveByAddressHistory(int $agencyId, array $facts): ?TrackedProperty
+    private function resolveByAddressHistory(int $agencyId, array $facts, array $source): ?TrackedProperty
     {
         $streetName = TrackedPropertyAddress::normaliseStreet($facts['street_name'] ?? null);
         $streetNumber = isset($facts['street_number']) ? trim((string) $facts['street_number']) : '';
@@ -583,7 +727,9 @@ final class TrackedPropertyMatchOrCreateService
                     ->where('agency_id', $agencyId)
                     ->whereNull('deleted_at')
                     ->find((int) $hit->tracked_property_id);
-                if ($tp && ! $this->numbersConflict($facts, $tp)) return $tp;
+                if ($tp && ! $this->numbersConflict($facts, $tp) && $this->acceptCandidate($agencyId, $source, $tp, '0_address_history_exact')) {
+                    return $tp;
+                }
             }
         }
 
@@ -605,7 +751,9 @@ final class TrackedPropertyMatchOrCreateService
                     ->where('agency_id', $agencyId)
                     ->whereNull('deleted_at')
                     ->find((int) $hit->tracked_property_id);
-                if ($tp && ! $this->numbersConflict($facts, $tp)) return $tp;
+                if ($tp && ! $this->numbersConflict($facts, $tp) && $this->acceptCandidate($agencyId, $source, $tp, '0_address_history_gps')) {
+                    return $tp;
+                }
             }
         }
 

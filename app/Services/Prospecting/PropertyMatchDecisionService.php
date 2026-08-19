@@ -33,6 +33,9 @@ class PropertyMatchDecisionService
      * matched record looks like today (it may have changed since).
      *
      * @param  array<int, array{type: string, id: int, label: string}>|null  $candidates
+     * @param  array<string, mixed>|null  $incomingFacts  Snapshot of exactly what the
+     *         incoming capture said, so a later reject-with-no-alternative can create a
+     *         fresh record from what THIS capture actually said.
      */
     public function record(
         int $agencyId,
@@ -43,17 +46,19 @@ class PropertyMatchDecisionService
         string $strategy,
         string $reason,
         ?array $candidates = null,
+        ?array $incomingFacts = null,
     ): PropertyMatchDecision {
         return PropertyMatchDecision::create([
-            'agency_id'    => $agencyId,
-            'subject_type' => $subjectType,
-            'subject_key'  => $subjectKey,
-            'matched_type' => $matchedType,
-            'matched_id'   => $matchedId,
-            'strategy'     => $strategy,
-            'reason'       => $reason,
-            'candidates'   => $candidates,
-            'decided_at'   => Carbon::now(),
+            'agency_id'      => $agencyId,
+            'subject_type'   => $subjectType,
+            'subject_key'    => $subjectKey,
+            'matched_type'   => $matchedType,
+            'matched_id'     => $matchedId,
+            'strategy'       => $strategy,
+            'reason'         => $reason,
+            'candidates'     => $candidates,
+            'incoming_facts' => $incomingFacts,
+            'decided_at'     => Carbon::now(),
         ]);
     }
 
