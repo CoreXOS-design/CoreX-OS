@@ -277,18 +277,6 @@ final class EntryPointController extends Controller
         // of re-typing. Read-only; failure-isolated (a deed-link hiccup must never break capture).
         $deedLink = $this->safeDeedLink(fn () => app(\App\Services\Prospecting\DeedsCaptureLinkService::class)
             ->ownersForListing($agencyId, $listing));
-        $deeds = $this->safeAvailableDeeds($agencyId);
-        $linkDeedUrl = route('seller-outreach.entry.link-deed-prospecting', ['prospectingListingId' => $listing->id]);
-        $deedPollUrl = route('seller-outreach.entry.deed-poll-prospecting', ['prospectingListingId' => $listing->id]);
-        $sellerState = app(\App\Services\Prospecting\ComposeSellerService::class)->payload($agencyId, $listing);
-        $linkSellerUrl = route('seller-outreach.entry.link-seller-prospecting', ['prospectingListingId' => $listing->id]);
-        $unlinkSellerUrl = route('seller-outreach.entry.unlink-seller-prospecting', ['prospectingListingId' => $listing->id]);
-        $tvaIngestUrl = route('seller-outreach.entry.tva-ingest-prospecting', ['prospectingListingId' => $listing->id]);
-        $primarySellerUrl = route('seller-outreach.entry.primary-seller-prospecting', ['prospectingListingId' => $listing->id]);
-        $deadEndSellerUrl = route('seller-outreach.entry.dead-end-seller-prospecting', ['prospectingListingId' => $listing->id]);
-        $unlinkDeedUrl = route('seller-outreach.entry.unlink-deed-prospecting', ['prospectingListingId' => $listing->id]);
-        $removeNumberUrl = route('seller-outreach.entry.remove-number-prospecting', ['prospectingListingId' => $listing->id]);
-        $primaryNumberUrl = route('seller-outreach.entry.primary-number-prospecting', ['prospectingListingId' => $listing->id]);
 
         return view('seller-outreach.entry.prospecting-create-contact', [
             'listing'      => $listing,
@@ -299,50 +287,20 @@ final class EntryPointController extends Controller
             'deedLink'     => $deedLink,
             // Manual "Link a deed" fallback — the full deeds list + the endpoint that remembers
             // the agent's choice on this listing.
-            'deeds'        => $deeds,
-            'linkDeedUrl'  => $linkDeedUrl,
+            'deeds'        => $this->safeAvailableDeeds($agencyId),
+            'linkDeedUrl'  => route('seller-outreach.entry.link-deed-prospecting', ['prospectingListingId' => $listing->id]),
             // FIX 2 — poll endpoint so a deed/TVA scrape auto-surfaces while the screen is open.
-            'deedPollUrl'  => $deedPollUrl,
+            'deedPollUrl'  => route('seller-outreach.entry.deed-poll-prospecting', ['prospectingListingId' => $listing->id]),
             // Multi-seller (Part A) + TVA picker (Part B) — initial state + endpoints.
-            'sellerState'    => $sellerState,
-            'linkSellerUrl'  => $linkSellerUrl,
-            'unlinkSellerUrl' => $unlinkSellerUrl,
-            'tvaIngestUrl'   => $tvaIngestUrl,
-            'primarySellerUrl' => $primarySellerUrl,
-            'deadEndSellerUrl' => $deadEndSellerUrl,
-            'unlinkDeedUrl'    => $unlinkDeedUrl,
-            'removeNumberUrl'  => $removeNumberUrl,
-            'primaryNumberUrl' => $primaryNumberUrl,
-            // Alpine bootstrap config for the compose form (2026-08-19, P0 fix) — built HERE,
-            // controller-side, so the view never references a variable the controller didn't
-            // supply. The view still has its own defensive fallback (built the same way from
-            // the same variables above) in case a DIFFERENT entry point rendering this same
-            // template (fromProperty/fromTrackedProperty) hasn't been updated to pass this yet
-            // — see prospecting-create-contact.blade.php's @php block.
-            'composeConfig' => [
-                'contactKind'      => old('contact_kind', 'natural_person'),
-                'idKind'           => old('id_type', 'sa_id'),
-                'searchUrl'        => route('corex.properties.contacts.search-global'),
-                'deeds'            => $deeds,
-                'linkDeedUrl'      => $linkDeedUrl,
-                'deedOwners'       => $deedLink['owners'] ?? [],
-                'deedCandidates'   => $deedLink['candidates'] ?? [],
-                'deedPollUrl'      => $deedPollUrl,
-                'sellers'          => $sellerState['sellers'] ?? [],
-                'tva'              => $sellerState['tva'] ?? (object) [],
-                'propertyId'       => $sellerState['property_id'] ?? null,
-                'linkSellerUrl'    => $linkSellerUrl,
-                'unlinkSellerUrl'  => $unlinkSellerUrl,
-                'tvaIngestUrl'     => $tvaIngestUrl,
-                'primarySellerUrl' => $primarySellerUrl,
-                'deadEndSellerUrl' => $deadEndSellerUrl,
-                'unlinkDeedUrl'    => $unlinkDeedUrl,
-                'removeNumberUrl'  => $removeNumberUrl,
-                'primaryNumberUrl' => $primaryNumberUrl,
-                'linkedDeed'       => $sellerState['linked_deed'] ?? null,
-                'removed'          => $sellerState['removed'] ?? [],
-                'contactTyped'     => (trim((string) old('phone', '')) !== '' || trim((string) old('email', '')) !== ''),
-            ],
+            'sellerState'    => app(\App\Services\Prospecting\ComposeSellerService::class)->payload($agencyId, $listing),
+            'linkSellerUrl'  => route('seller-outreach.entry.link-seller-prospecting', ['prospectingListingId' => $listing->id]),
+            'unlinkSellerUrl' => route('seller-outreach.entry.unlink-seller-prospecting', ['prospectingListingId' => $listing->id]),
+            'tvaIngestUrl'   => route('seller-outreach.entry.tva-ingest-prospecting', ['prospectingListingId' => $listing->id]),
+            'primarySellerUrl' => route('seller-outreach.entry.primary-seller-prospecting', ['prospectingListingId' => $listing->id]),
+            'deadEndSellerUrl' => route('seller-outreach.entry.dead-end-seller-prospecting', ['prospectingListingId' => $listing->id]),
+            'unlinkDeedUrl'    => route('seller-outreach.entry.unlink-deed-prospecting', ['prospectingListingId' => $listing->id]),
+            'removeNumberUrl'  => route('seller-outreach.entry.remove-number-prospecting', ['prospectingListingId' => $listing->id]),
+            'primaryNumberUrl' => route('seller-outreach.entry.primary-number-prospecting', ['prospectingListingId' => $listing->id]),
         ]);
     }
 
