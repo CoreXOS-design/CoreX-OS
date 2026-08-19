@@ -422,16 +422,24 @@ final class DeedsCaptureController extends Controller
 
         $tp->save();
 
-        // §7 — ownership_history_raw (current-vs-past, joint shares, entity
-        // routing, fail-closed) vs the simple owners[] path (unchanged).
-        // ownership_parse_status/note is ALWAYS stamped by
-        // captureOwnershipHistory() when this branch runs — including on a
-        // parse failure, where it returns an empty owner list and the
-        // property has ALREADY landed above: ownership parsing failing never
-        // fails the capture, only leaves ownership recorded as unparsed with
-        // a reason (.ai/specs/deeds-capture.md §7.9).
+        // 2026-08-19 (Johan, ruling after the live trace): "the rule should
+        // be always bring it into corex... there is no authoritative
+        // source. Both are inputs; the agent is the authority." This
+        // REPLACES the old if/else (ownership_history_raw present ->
+        // ignore owners[] entirely) — that mutual exclusivity WAS the
+        // defect: a real capture on 25 Simon V D Stel Street sent both,
+        // owners[] arrived complete and correct, and it was thrown away
+        // because ownership_history_raw was ALSO present and then silently
+        // parsed to zero usable rows. Both sources are now independently
+        // ingested and persisted, always, never gated on the other's
+        // presence or outcome. Neither is ranked or merged in code — see
+        // reconcileOwners() for the never-discard/never-blind-overwrite
+        // comparison that governs how they land side by side.
         $ownershipParseStatus = null;
         $ownershipParseNote = null;
+        $ownerContactId = null;
+        $ownerContactIds = [];
+
         if ($hasOwnershipHistory) {
             $persistedOwners = $this->captureOwnershipHistory($tp, $ownershipHistoryRaw, $s, $agencyId, $user);
             $ownershipParseStatus = $tp->ownership_parse_status;
@@ -450,22 +458,21 @@ final class DeedsCaptureController extends Controller
             }
             $ownerContactId = $firstCurrent->contact_id ?? null;
             $ownerContactIds = collect($persistedOwners)->pluck('contact_id')->filter()->unique()->values()->all();
+        }
 
-            // 2026-08-19 (Johan, live-tested) — ownership_history_raw parsing
-            // can succeed (status='ok') while producing ZERO usable rows (a
-            // real, observed case — see the trace note on $owners above).
-            // owners[] already arrived correctly and was already resolved to
-            // real contacts above; it must never sit unused just because the
-            // richer pipeline came back empty. Same reconcile mechanism as
-            // the no-history path — never discards, never blind-overwrites.
-            if ($persistedOwners === [] && $resolvedOwners !== []) {
-                $this->reconcileOwners($tp, $resolvedOwners);
-                $ownerContactId = $ownerContactId ?? ($resolvedOwners[0]['contact_id'] ?? null);
-                $ownerContactIds = array_values(array_filter(array_column($resolvedOwners, 'contact_id')));
-            }
-        } else {
+        // ALWAYS also ingest owners[] — independent of whether
+        // ownership_history_raw was present or what it produced.
+        // reconcileOwners() is the same never-discard, never-blind-overwrite
+        // comparison used everywhere else on this screen: nothing on file
+        // yet -> links normally; matches what's already there -> no-op;
+        // disagrees -> both are kept, flagged for the agent to decide.
+        if ($resolvedOwners !== []) {
             $this->reconcileOwners($tp, $resolvedOwners);
-            $ownerContactIds = array_values(array_filter(array_column($resolvedOwners, 'contact_id')));
+            $ownerContactId = $ownerContactId ?? ($tp->fresh()->owner_contact_id ?? $resolvedOwners[0]['contact_id'] ?? null);
+            $ownerContactIds = array_values(array_unique(array_merge(
+                $ownerContactIds,
+                array_filter(array_column($resolvedOwners, 'contact_id'))
+            )));
         }
 
         // TEMP DIAGNOSTIC (2026-08-19, remove with the other two trace points)
