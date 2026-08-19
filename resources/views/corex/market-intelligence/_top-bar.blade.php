@@ -34,10 +34,19 @@
     {{-- Phase D1 — Work/Analyse mode toggle removed; the four-tab nav at the
          top of the page now handles tab switching. --}}
 
-    <div class="mi-topbar-right" style="display: flex; align-items: center; gap: 12px;">
+    <div class="mi-topbar-right" style="display: flex; align-items: center; gap: 18px;">
         {{-- Pitch lock: pitched listings are hidden from the pool by default;
              this reveals them (badged "claimed by X"). Available to every agent,
-             not just managers — it's about the agent's own pitched properties. --}}
+             not just managers — it's about the agent's own pitched properties.
+
+             Same proximity fix as partials/_work-filter-ticks.blade.php
+             (2026-08-19, Johan) — these use native <input type="checkbox">
+             inside a <label> (already a real browser-rendered box, already a
+             fully clickable label, unlike the custom div boxes elsewhere), so
+             the fix here is just the inter-item gap: 12px read too close to
+             gap-2's (8px) intra-item spacing. Bumped to 18px and a visible
+             divider added between the two checkboxes so grouping reads
+             unambiguously without relying on the gap difference alone. --}}
         <label class="inline-flex items-center gap-2 text-xs cursor-pointer"
                style="color: var(--text-secondary);"
                title="Show listings you (or a colleague) have already pitched — hidden from the working pool by default">
@@ -53,6 +62,7 @@
         </label>
 
         @if($isManager)
+        <span style="width:1px; height:16px; background:var(--border-hover); flex-shrink:0;" aria-hidden="true"></span>
         <label class="inline-flex items-center gap-2 text-xs cursor-pointer"
                style="color: var(--text-secondary);"
                title="Audit-only: include listings already promoted to agency stock">
