@@ -3000,6 +3000,14 @@ class MarketIntelligenceController extends Controller
 
         $newStatus = $request->status;
 
+        // Once the claim has been promoted to a Property, it is on the agency's
+        // books — a closing outcome (not_interested / lost) must never flip
+        // is_active=false and drop it back into the canvass pool. See
+        // ProspectingClaim::isPromoted().
+        if (in_array($newStatus, ProspectingClaim::CLOSING_STATUSES, true) && $claim->isPromoted()) {
+            return back()->with('error', 'This property has already been promoted onto your books — it can no longer be closed out or released.');
+        }
+
         // First-feedback detection — the activity-points credit (mic.claim_feedback)
         // fires ONCE, when feedback_at transitions null→now. Re-editing the status
         // later keeps the original feedback_at and does NOT re-award.
@@ -3046,6 +3054,12 @@ class MarketIntelligenceController extends Controller
             return back()->with('error', 'This claim was already released or updated elsewhere — refreshed to current state.');
         }
 
+        // Already promoted to a Property — on the books, never releasable. See
+        // ProspectingClaim::isPromoted().
+        if ($claim->isPromoted()) {
+            return back()->with('error', 'This property has already been promoted onto your books — it can no longer be released.');
+        }
+
         $claim->update([
             'is_active'   => false,
             'released_at' => now(),
@@ -3074,6 +3088,12 @@ class MarketIntelligenceController extends Controller
 
         if (!$isOwner && !$isManager) {
             abort(403, 'Only the claim owner or a prospecting manager can release this claim.');
+        }
+
+        // Already promoted to a Property — on the books, never releasable, even
+        // by a manager. See ProspectingClaim::isPromoted().
+        if ($claim->isPromoted()) {
+            return back()->with('error', 'This property has already been promoted onto the agency books — it can no longer be released.');
         }
 
         app(\App\Services\Prospecting\ProspectingClaimService::class)->releaseClaim(

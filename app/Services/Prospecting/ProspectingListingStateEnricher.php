@@ -250,6 +250,11 @@ final class ProspectingListingStateEnricher
                 'is_expiring' => $hoursLeft !== null && $hoursLeft < 1,
                 'needs_reminder' => $needsReminder,
                 'needs_bm_flag' => $needsBmFlag,
+                // Mirrors ProspectingClaim::isPromoted() — property_id is only backfilled
+                // once the listing has actually been promoted to a Property row. Drives the
+                // release/close-out guard: a promoted claim must never return to the pool.
+                'property_id' => $r->property_id !== null ? (int) $r->property_id : null,
+                'is_promoted' => $r->property_id !== null,
             ];
 
             foreach (array_keys($targets) as $listingKey) {
