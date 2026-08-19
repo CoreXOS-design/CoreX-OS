@@ -65,6 +65,22 @@ class MockElement {
     return this.parentNode.children[idx + 1] || null;
   }
 
+  // Real DOM: offsetParent is null when the element itself, or ANY
+  // ancestor, has display:none (accounts for the WHOLE ancestor chain in
+  // one property read — content-cmainfo.js's isVisible() relies on exactly
+  // this to detect cmainfo's hidden per-property-type template). Only
+  // nullness matters to that code, so this mock returns a truthy sentinel
+  // (the element itself) rather than emulating real offsetParent's actual
+  // "nearest positioned ancestor" value.
+  get offsetParent() {
+    let node = this;
+    while (node) {
+      if (node.style && node.style.display === 'none') return null;
+      node = node.parentNode;
+    }
+    return this;
+  }
+
   closest(tag) {
     const target = String(tag).toLowerCase();
     let node = this;
@@ -230,4 +246,68 @@ function buildCmaInfoDocument(propertyFields, saleFields) {
   return doc;
 }
 
-module.exports = { MockElement, el, row, setFieldValue, buildPanel, buildCmaInfoDocument, walk };
+/**
+ * v3.6.0 — reproduces cmainfo's REAL structure, confirmed live (Johan's
+ * offsetParent DOM dump, SEESKULP section 1 -> Erf 668 MARINE DRIVE):
+ * the Property Information panel holds TWO property-type sub-templates
+ * SIMULTANEOUSLY, one visible (display:block) and one hidden
+ * (display:none) — not one shared set of cells mutated in place.
+ *
+ * `hiddenFields` is deliberately appended to the DOM BEFORE
+ * `visibleFields` — the worst case for a naive first-DOM-match reader (the
+ * OLD, pre-v3.6.0 mechanism), and NOT assumed to match cmainfo's actual
+ * markup order (unknown) — proving the fix works regardless of DOM order
+ * is a stronger test than relying on a lucky order that happens not to
+ * trigger the bug. Returns both sub-template roots directly so a test can
+ * mutate one independently or flip which is visible.
+ */
+function buildDualTemplateDocument(hiddenFields, visibleFields, saleFields) {
+  const documentEl = el('html');
+  const head = el('head');
+  const body = el('body');
+  documentEl.appendChild(head);
+  documentEl.appendChild(body);
+
+  const propPanel = el('div', { class: 'property-info panel', display: 'block' });
+  const hiddenTemplate = el('div', { class: 'template-a', display: 'none' });
+  const hiddenTable = el('table');
+  hiddenFields.forEach(([label, value]) => hiddenTable.appendChild(row(label, value)));
+  hiddenTemplate.appendChild(hiddenTable);
+
+  const visibleTemplate = el('div', { class: 'template-b', display: 'block' });
+  const visibleTable = el('table');
+  visibleFields.forEach(([label, value]) => visibleTable.appendChild(row(label, value)));
+  visibleTemplate.appendChild(visibleTable);
+
+  propPanel.appendChild(hiddenTemplate);
+  propPanel.appendChild(visibleTemplate);
+
+  const propBtn = el('button', { class: 'accordion', text: 'Property Information' });
+  body.appendChild(propBtn);
+  body.appendChild(propPanel);
+
+  const salePanel = buildPanel(saleFields, 'sale-info panel');
+  const saleBtn = el('button', { class: 'accordion', text: 'Sale Information' });
+  body.appendChild(saleBtn);
+  body.appendChild(salePanel);
+
+  const doc = {
+    head,
+    body,
+    querySelectorAll: (sel) => documentEl.querySelectorAll(sel),
+    querySelector: (sel) => documentEl.querySelector(sel),
+    getElementById: (id) => {
+      let found = null;
+      walk(documentEl, (e) => { if (!found && e._attrs && e._attrs.id === id) found = e; });
+      return found;
+    },
+    createElement: (tag) => el(tag),
+    _propPanel: propPanel,
+    _salePanel: salePanel,
+    _hiddenTemplate: hiddenTemplate,
+    _visibleTemplate: visibleTemplate,
+  };
+  return doc;
+}
+
+module.exports = { MockElement, el, row, setFieldValue, buildPanel, buildCmaInfoDocument, buildDualTemplateDocument, walk };

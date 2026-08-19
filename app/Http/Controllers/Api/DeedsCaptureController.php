@@ -6,8 +6,12 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
+use App\Models\Prospecting\TrackedProperty;
+use App\Models\Prospecting\TrackedPropertyOwner;
 use App\Support\OwnerEntityClassifier;
 use App\Services\ContactDuplicateService;
+use App\Services\Prospecting\OwnerContactResolver;
+use App\Services\Prospecting\OwnershipHistoryParser;
 use App\Services\Prospecting\TrackedPropertyMatchOrCreateService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -115,6 +119,18 @@ final class DeedsCaptureController extends Controller
             'captures.*.owners.*.first_names'        => 'nullable|string|max:200',
             'captures.*.owners.*.id_number'          => 'nullable|string|max:20',
             'captures.*.owners.*.id_type'            => 'nullable|in:sa_id,company_reg',
+            // Multi-owner / ownership-history (.ai/specs/deeds-capture.md §7,
+            // 2026-08-19) — the three raw cmainfo cells, verbatim and unsplit,
+            // sent ONLY when the Owner cell has more than one entry. Optional;
+            // when present it is authoritative for ownership on this capture
+            // (owners[] above is ignored for ownership purposes — see
+            // ingestOne()). All parsing/grouping/classification happens
+            // server-side (OwnershipHistoryParser) — nothing here beyond
+            // shape validation.
+            'captures.*.ownership_history_raw'                     => 'nullable|array',
+            'captures.*.ownership_history_raw.owner_names'         => 'nullable|string|max:4000',
+            'captures.*.ownership_history_raw.owner_ids'           => 'nullable|string|max:2000',
+            'captures.*.ownership_history_raw.title_deeds'         => 'nullable|string|max:2000',
             'captures.*.sale'                       => 'nullable|array',
             'captures.*.sale.sale_price'            => 'nullable|numeric',
             'captures.*.sale.sale_date'             => 'nullable|date',
@@ -201,9 +217,18 @@ final class DeedsCaptureController extends Controller
     private function ingestOne(array $capture, int $agencyId, $user, $matcher, $dupes): array
     {
         $p      = $capture['property'];
-        $owners = $capture['owners'] ?? [];
         $s      = $capture['sale'] ?? [];
         $ref    = $capture['source_ref'];
+
+        // §7.2 — ownership_history_raw, when present, is AUTHORITATIVE for
+        // ownership on this capture; owners[] is ignored for ownership
+        // purposes (never processed both ways — that would double-create
+        // contacts/owner rows). Absent → the simple owners[] path below runs
+        // completely unchanged, byte-for-byte, same as before this capability
+        // existed.
+        $ownershipHistoryRaw = $capture['ownership_history_raw'] ?? null;
+        $hasOwnershipHistory = is_array($ownershipHistoryRaw) && array_filter($ownershipHistoryRaw, fn ($v) => filled($v)) !== [];
+        $owners = $hasOwnershipHistory ? [] : ($capture['owners'] ?? []);
 
         // Resolve/create a Contact per owner — deduped on the owner ID (the join
         // key), same as before, just looped for however many owners CMA listed.
@@ -322,10 +347,11 @@ final class DeedsCaptureController extends Controller
 
         // owner_contact_id is a relationship pointer, not a captured physical
         // fact — it deliberately stays OUTSIDE the facts/enrich()/audit
-        // mechanism above (multi-owner precedence is a separate, not-yet-built
-        // concern — .ai/specs/deeds-capture.md §7, out of scope here). Kept to
-        // its pre-existing behaviour: set whenever this capture resolved one.
-        if ($ownerContactId !== null) {
+        // mechanism above. Kept to its pre-existing behaviour: set whenever
+        // this capture resolved one. When ownership_history_raw ran instead
+        // (§7 below), this gets set to the first CURRENT owner's contact —
+        // deferred until after $tp->save() since that path needs $tp->id.
+        if (!$hasOwnershipHistory && $ownerContactId !== null) {
             $tp->owner_contact_id = $ownerContactId;
         }
 
@@ -352,16 +378,69 @@ final class DeedsCaptureController extends Controller
 
         $tp->save();
 
-        $this->syncOwners($tp, $resolvedOwners);
+        // §7 — ownership_history_raw (current-vs-past, joint shares, entity
+        // routing, fail-closed) vs the simple owners[] path (unchanged).
+        // ownership_parse_status/note is ALWAYS stamped by
+        // captureOwnershipHistory() when this branch runs — including on a
+        // parse failure, where it returns an empty owner list and the
+        // property has ALREADY landed above: ownership parsing failing never
+        // fails the capture, only leaves ownership recorded as unparsed with
+        // a reason (.ai/specs/deeds-capture.md §7.9).
+        $ownershipParseStatus = null;
+        $ownershipParseNote = null;
+        if ($hasOwnershipHistory) {
+            $persistedOwners = $this->captureOwnershipHistory($tp, $ownershipHistoryRaw, $s, $agencyId, $user);
+            $ownershipParseStatus = $tp->ownership_parse_status;
+            $ownershipParseNote = $tp->ownership_parse_note;
+
+            $firstCurrent = collect($persistedOwners)
+                ->first(fn (TrackedPropertyOwner $o) => $o->ownership_status === TrackedPropertyOwner::OWNERSHIP_CURRENT);
+            if ($firstCurrent) {
+                $tp->update(['owner_contact_id' => $firstCurrent->contact_id]);
+            }
+            $ownerContactId = $firstCurrent->contact_id ?? null;
+            $ownerContactIds = collect($persistedOwners)->pluck('contact_id')->filter()->unique()->values()->all();
+        } else {
+            $this->syncOwners($tp, $resolvedOwners);
+            $ownerContactIds = array_values(array_filter(array_column($resolvedOwners, 'contact_id')));
+        }
 
         return [
-            'source_ref'          => $ref,
-            'tracked_property_id' => $tp->id,
-            'owner_contact_id'    => $ownerContactId,
-            'owner_contact_ids'   => array_values(array_filter(array_column($resolvedOwners, 'contact_id'))),
-            'created'             => $created,
-            'blocked_companies'   => $blockedCompanies,
+            'source_ref'              => $ref,
+            'tracked_property_id'     => $tp->id,
+            'owner_contact_id'        => $ownerContactId,
+            'owner_contact_ids'       => $ownerContactIds,
+            'created'                 => $created,
+            'blocked_companies'       => $blockedCompanies,
+            'ownership_parse_status'  => $ownershipParseStatus, // null unless ownership_history_raw ran
+            'ownership_parse_note'    => $ownershipParseNote,
         ];
+    }
+
+    /**
+     * §7 — parse the raw ownership-history triple and persist it. Always
+     * stamps ownership_parse_status/note on the TrackedProperty, including on
+     * a parse failure (status='failed', empty owner list) — the property
+     * capture above has ALREADY happened by this point and is never rolled
+     * back or blocked by this method. Returns the persisted
+     * TrackedPropertyOwner rows (empty on failure).
+     *
+     * @return TrackedPropertyOwner[]
+     */
+    private function captureOwnershipHistory(TrackedProperty $tp, array $raw, array $sale, int $agencyId, $user): array
+    {
+        $result = app(OwnershipHistoryParser::class)->parse($raw, $sale['sale_date'] ?? null, $sale['registered_date'] ?? null);
+
+        $tp->update([
+            'ownership_parse_status' => $result->status,
+            'ownership_parse_note'   => $result->note,
+        ]);
+
+        if ($result->status === 'failed') {
+            return [];
+        }
+
+        return app(OwnerContactResolver::class)->persist($tp, $result->rows, $agencyId, $user);
     }
 
     /**
