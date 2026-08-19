@@ -817,6 +817,20 @@
                                 <template x-if="deed.sold_date"><span> · <span x-text="deed.sold_date"></span></span></template>
                             </div>
                             <div class="text-xs mt-0.5 font-medium" style="color: var(--brand-icon, #0ea5e9);" x-text="deed.owner_names"></div>
+                            {{-- CX-101 (2026-08-19, Johan, blocked) — a deed already linked to a
+                                 property USED to be hidden from this list entirely, leaving the
+                                 one deed that belonged here the one deed he couldn't pick, with no
+                                 explanation. Shown now, state stated plainly, still pickable. --}}
+                            <template x-if="deed.already_on_books_as">
+                                <div class="text-xs mt-1 px-2 py-1 rounded" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color: var(--text-primary);">
+                                    Already linked to a property on your books — <span x-text="deed.already_on_books_as"></span>. Pick it anyway to use this deed here too.
+                                </div>
+                            </template>
+                            <template x-if="!deed.has_owner">
+                                <div class="text-xs mt-1 px-2 py-1 rounded" style="background: var(--surface); border: 1px dashed var(--border); color: var(--text-muted);">
+                                    No owner captured on this deed yet — you can still link it; add the seller separately below.
+                                </div>
+                            </template>
                         </button>
                     </template>
                     <div x-show="filteredDeeds().length === 0" class="px-3 py-6 text-center text-sm" style="color: var(--text-muted);">

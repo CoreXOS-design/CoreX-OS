@@ -415,33 +415,64 @@ class DeedsCaptureLinkService
      */
     public function availableDeeds(int $agencyId, int $limit = 500): array
     {
-        // Shared scope with DeedsCaptureController::index() (the deeds-capture screen)
-        // — TrackedProperty::scopeStillEligibleDeedsCapture() (2026-08-19). Was
-        // previously its own, DIFFERENT "not yet promoted" signal (status='active')
-        // that never excluded a deed already CONSUMED by a pitched listing the same
-        // way the deeds screen does — Johan's ground truth: "the link a deed button
-        // shows more than whats on the deed screen... it should only show exactly
-        // what the deed screen shows." withoutGlobalScopes() strips BOTH AgencyScope
-        // and SoftDeletingScope — agency tenancy + soft-delete are re-applied inside
-        // the shared scope. whereExists(owners) is an ADDITIONAL narrowing specific
-        // to this picker (a deed with no owner has nothing to offer as a seller) —
-        // it only ever shrinks the set, never reintroduces anything the deeds screen
-        // wouldn't show.
+        // CX-101 (2026-08-19, Johan — real property, blocked): a deed that is
+        // already linked to a property on the books used to be hidden from
+        // this list entirely (scopeStillEligibleDeedsCapture()'s own
+        // whereNull('promoted_to_property_id')), leaving the ONE deed that
+        // actually belongs to the listing the one deed the agent could not
+        // pick, with nothing on screen explaining why. Deliberately NOT
+        // reusing stillEligibleDeedsCapture() here any more — this picker
+        // now shows a linked deed too, with its state stated plainly, and
+        // lets the agent pick it anyway. The two whereNotExists clauses
+        // (a deed already consumed by a DIFFERENT, already-pitched listing)
+        // are kept — that exclusion is a genuine conflict, not a silent one.
         $tps = TrackedProperty::withoutGlobalScopes()
-            ->stillEligibleDeedsCapture($agencyId)
-            ->whereExists(function ($q) {
-                $q->select(DB::raw(1))
-                    ->from('tracked_property_owners as tpo')
-                    ->whereColumn('tpo.tracked_property_id', 'tracked_properties.id');
+            ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->where(function ($q) {
+                $q->where('capture_kind', 'deeds_capture')
+                    ->orWhereNotNull('deeds_captured_at');
             })
+            ->whereNotExists(function ($q) {
+                $q->selectRaw('1')
+                    ->from('tracked_property_owners as tpo')
+                    ->join('contact_property as cp', fn ($j) => $j->on('cp.contact_id', '=', 'tpo.contact_id')->where('cp.role', 'seller'))
+                    ->join('prospecting_listings as pl', fn ($j) => $j->on('pl.matched_property_id', '=', 'cp.property_id')->whereNotNull('pl.pitched_at')->whereNull('pl.deleted_at'))
+                    ->whereColumn('tpo.tracked_property_id', 'tracked_properties.id')
+                    ->whereNotNull('tpo.contact_id');
+            })
+            ->whereNotExists(function ($q) {
+                $q->selectRaw('1')
+                    ->from('prospecting_listings as pl2')
+                    ->whereColumn('pl2.linked_deed_tracked_property_id', 'tracked_properties.id')
+                    ->whereNotNull('pl2.pitched_at')
+                    ->whereNull('pl2.deleted_at');
+            })
+            // CX-101 (2026-08-19, Johan, real property, blocked) — the deed he
+            // captured for THIS listing had no owner parsed from the scrape
+            // (25 Simon V D Stel Street / TP #748: erf, deed number, sale price
+            // all captured; zero rows in tracked_property_owners). The old
+            // whereExists() below hid it completely — the one deed for the
+            // property he was on was invisible, with nothing saying why. A
+            // deed with no owner still has an address/erf worth linking; the
+            // agent adds the seller manually afterward. State it, don't hide it.
             ->orderByRaw("CASE WHEN capture_kind = 'deeds_capture' THEN 0 ELSE 1 END")
             ->orderByDesc('updated_at')
             ->limit($limit)
             ->get(['id', 'erf_number', 'scheme_name', 'complex_name', 'street_number', 'street_name',
-                'suburb', 'town', 'last_known_sold_price', 'last_known_sold_date']);
+                'suburb', 'town', 'last_known_sold_price', 'last_known_sold_date', 'promoted_to_property_id']);
 
         if ($tps->isEmpty()) {
             return [];
+        }
+
+        $linkedPropertyNames = [];
+        $promotedIds = $tps->pluck('promoted_to_property_id')->filter()->unique()->all();
+        if (!empty($promotedIds)) {
+            $linkedPropertyNames = \App\Models\Property::withoutGlobalScopes()
+                ->whereIn('id', $promotedIds)
+                ->pluck('address', 'id')
+                ->all();
         }
 
         $ownerRows = DB::table('tracked_property_owners')
@@ -474,6 +505,12 @@ class DeedsCaptureLinkService
                 implode(' ', array_map(fn ($o) => (string) $o['id_number'], $owners)),
             ])));
 
+            // CX-101 — plain-English state, not a system word. Null when this
+            // deed isn't linked to anything yet (the normal, pickable case).
+            $alreadyOnBooksAs = $tp->promoted_to_property_id
+                ? ($linkedPropertyNames[(int) $tp->promoted_to_property_id] ?? 'a property on your books')
+                : null;
+
             $out[] = [
                 'tracked_property_id' => (int) $tp->id,
                 'address'             => $address,
@@ -485,6 +522,8 @@ class DeedsCaptureLinkService
                 'owner_names'         => $ownerNames,
                 'owners'              => $owners,
                 'search'              => $search,
+                'already_on_books_as' => $alreadyOnBooksAs,
+                'has_owner'           => !empty($owners),
             ];
         }
 

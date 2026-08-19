@@ -1397,10 +1397,13 @@ final class EntryPointController extends Controller
             ->first();
         abort_if($deedTp === null, 404, 'Deed not found in this agency.');
 
+        // CX-101 (2026-08-19, Johan, real property, blocked) — this used to hard-
+        // block picking a deed with no captured owner. His own case: the deed's
+        // address, erf, and deed number were captured fine; the owner just never
+        // parsed. The property/address link is still worth having — selectDeed()
+        // below already handles zero owners without erroring; the agent adds the
+        // seller manually via the Create-new form after linking.
         $svc = app(\App\Services\Prospecting\ComposeSellerService::class);
-        if (empty($svc->deedOwners((int) $deedTp->id))) {
-            return response()->json(['ok' => false, 'error' => 'That deed has no registered owner to use.'], 422);
-        }
 
         // R1 — selecting a deed REPLACES the current deed: it auto-links the deed's owners as sellers
         // (skipping ones the agent removed) AND pulls the property address from the deeds-office
