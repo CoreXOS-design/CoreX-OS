@@ -675,15 +675,43 @@ final class TrackedPropertyMatchOrCreateService
             // strings ('-' etc.) get written as if they were real data — a row
             // carrying that garbage today must not read as "already has a real
             // value" and must not show a correction as "replaced 'ABSA Bank' for
-            // '-'" on the Deeds Capture screen. Treating it as absent both lets
-            // ANY source clean it up (not just deeds_capture) and reports it
-            // honestly as a gain.
+            // '-'" on the Deeds Capture screen.
             $existing = is_string($rawExisting) ? $this->normaliseCapturedScalar($rawExisting) : $rawExisting;
-            // Empty existing → adopt the new value (covers most enrichments).
-            // This guard runs BEFORE any source-precedence check and is
-            // unconditional: absent is not a value, so there is nothing to
-            // "replace" here regardless of source.
-            if ($existing === null || $existing === '') {
+            $existingIsAbsent = ($existing === null || $existing === '');
+            // "Junk" = there IS something stored (raw), but it normalises to
+            // nothing — a placeholder written before this normalisation
+            // existed. Distinct from a column that has simply always been
+            // empty: junk is data already lost, not data being protected.
+            $existingIsJunk = $existingIsAbsent && $rawExisting !== null && $rawExisting !== '';
+
+            if ($newVal === null) {
+                // canonicalFactsForWrite() keeps a key with a null value when
+                // this capture ATTEMPTED the field and found nothing usable
+                // (a placeholder or blank) — distinct from never asking at
+                // all (which never reaches this loop). "Absent never
+                // overwrites" is the right guard for a genuine existing
+                // value, so it holds here unconditionally. But a STORED
+                // placeholder isn't real data the guard should protect — it's
+                // junk outliving every capture that also has nothing to
+                // offer, which is exactly how property_type stayed stuck at
+                // '-' on tracked_property 402 through this morning's
+                // recapture (2026-08-19, Johan). Only a SOURCE_ALWAYS_WINS
+                // source (deeds_capture) is trusted to clear it; every other
+                // source's behaviour is byte-for-byte unchanged from before
+                // this field could even reach here.
+                if ($alwaysWins && $existingIsJunk) {
+                    $diff[$key] = null;
+                    $fieldChanges[] = ['field' => $key, 'previous' => $rawExisting, 'new' => null, 'change_type' => 'cleared'];
+                }
+                continue;
+            }
+
+            // Empty (or junk) existing → adopt the new value (covers most
+            // enrichments, and cleans up junk as a side effect of a genuine
+            // fill — reported honestly as a gain, not "replaced '-' with
+            // X"). Unconditional: absent is not a value, so there is nothing
+            // to "replace" here regardless of source.
+            if ($existingIsAbsent) {
                 $diff[$key] = $newVal;
                 $fieldChanges[] = ['field' => $key, 'previous' => null, 'new' => $newVal, 'change_type' => 'filled'];
                 continue;
@@ -805,15 +833,24 @@ final class TrackedPropertyMatchOrCreateService
             'bond_holder', 'bond_amount', 'sale_type', 'deeds_registered_date',
         ];
 
+        // 2026-08-19 (Johan) — an attempted-but-placeholder field is kept as an
+        // EXPLICIT null here, not dropped. "Absent never overwrites" is the
+        // right guard for a genuine existing value, but it has a failure mode:
+        // a field already poisoned with a stored placeholder (from before this
+        // whole normalisation existed) could never be cleaned, because every
+        // later capture that also only has a placeholder for it looked
+        // identically absent — the key just vanished before enrich() ever saw
+        // it. Keeping the key (with a null value) lets enrich() tell "this
+        // capture tried and found nothing" apart from "this capture never
+        // asked" — only the former is eligible to clear existing junk. A
+        // non-deeds source (create() on a fresh row, or any other ingest path)
+        // treats this null exactly like an absent key: nothing is written.
         $out = [];
         foreach ($writable as $col) {
             if (!array_key_exists($col, $facts)) {
                 continue;
             }
-            $val = $this->normaliseCapturedScalar($facts[$col]);
-            if ($val !== null) {
-                $out[$col] = $val;
-            }
+            $out[$col] = $this->normaliseCapturedScalar($facts[$col]);
         }
 
         // Normalise street name on write so identical addresses written under different
