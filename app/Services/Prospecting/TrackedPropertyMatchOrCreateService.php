@@ -171,6 +171,106 @@ final class TrackedPropertyMatchOrCreateService
     }
 
     /**
+     * "Not the same property" (CX-102 part 2, Johan 2026-08-19). An agent has
+     * looked at a deeds-capture match and said it's wrong. This:
+     *
+     *   1. Records the rejection (permanent — the veto every future capture
+     *      of this same reference is checked against).
+     *   2. Flags the source_chain entry THIS capture wrote onto the rejected
+     *      property as disputed — so anyone opening that record sees its
+     *      erf/deed/price data may not actually be about it. Does NOT alter
+     *      the field values themselves (no data repair — Johan's rule).
+     *   3. Either enriches the agent's chosen replacement (when they picked
+     *      one from the alternatives shown) or creates a fresh
+     *      TrackedProperty from exactly what this capture originally said
+     *      (the incoming_facts snapshot taken at match time) — then
+     *      re-points this capture's external reference at whichever it is,
+     *      so the SAME capture re-imported tomorrow resolves correctly via
+     *      Strategy 1 without ever revisiting the ambiguous strategies.
+     *
+     * The agent's own work continues immediately either way — nothing here
+     * blocks or queues.
+     */
+    public function rejectMatch(
+        int $agencyId,
+        string $sourceType,
+        string $sourceRef,
+        int $rejectedTrackedPropertyId,
+        int $byUserId,
+        ?string $reason = null,
+        ?int $replacementTrackedPropertyId = null,
+    ): TrackedProperty {
+        return DB::transaction(function () use (
+            $agencyId, $sourceType, $sourceRef, $rejectedTrackedPropertyId, $byUserId, $reason, $replacementTrackedPropertyId
+        ) {
+            $decisionService = app(PropertyMatchDecisionService::class);
+            $subjectKey = $sourceType . ':' . $sourceRef;
+
+            $decision = $decisionService->current($agencyId, 'deeds_capture', $subjectKey);
+            if ($decision === null || (int) $decision->matched_id !== $rejectedTrackedPropertyId || $decision->isRejected()) {
+                throw new \DomainException(
+                    "No live match decision found for deeds_capture {$subjectKey} against tracked property #{$rejectedTrackedPropertyId} — nothing to reject (already rejected, or the match has since changed)."
+                );
+            }
+
+            $source = ['type' => $sourceType, 'ref' => $sourceRef];
+            $incomingFacts = $decision->incoming_facts ?? [];
+
+            $rejectedTp = TrackedProperty::queryWithoutAgencyScope()
+                ->where('agency_id', $agencyId)
+                ->findOrFail($rejectedTrackedPropertyId);
+            $this->markSourceChainEntryDisputed($rejectedTp, $source, $byUserId);
+
+            if ($replacementTrackedPropertyId !== null) {
+                $replacement = TrackedProperty::queryWithoutAgencyScope()
+                    ->where('agency_id', $agencyId)
+                    ->findOrFail($replacementTrackedPropertyId);
+                $resultTp = $this->enrich($replacement, $incomingFacts, $source, $byUserId);
+            } else {
+                $resultTp = $this->create($agencyId, $incomingFacts, $source, $byUserId);
+            }
+
+            $decisionService->reject(
+                $decision,
+                $byUserId,
+                $reason,
+                resolvedMatchedType: 'tracked_property',
+                resolvedMatchedId: $resultTp->id,
+            );
+
+            return $resultTp;
+        });
+    }
+
+    /**
+     * Marks the source_chain entry a specific capture wrote onto a
+     * TrackedProperty as disputed — never removes or alters the entry's own
+     * field_changes/fields_contributed, only adds a marker a display screen
+     * can check for. Matches on (type, ref) and takes the MOST RECENT
+     * matching entry (a capture can in principle recur; the latest is the
+     * one the rejection is actually about).
+     */
+    private function markSourceChainEntryDisputed(TrackedProperty $tp, array $source, int $byUserId): void
+    {
+        $chain = $tp->source_chain ?? [];
+        $matchIndex = null;
+        foreach ($chain as $i => $entry) {
+            if (($entry['type'] ?? null) === ($source['type'] ?? null) && ($entry['ref'] ?? null) === ($source['ref'] ?? null)) {
+                $matchIndex = $i; // keep scanning — last match wins
+            }
+        }
+        if ($matchIndex === null) {
+            return;
+        }
+
+        $chain[$matchIndex]['disputed'] = true;
+        $chain[$matchIndex]['disputed_at'] = now()->toIso8601String();
+        $chain[$matchIndex]['disputed_by_user_id'] = $byUserId;
+
+        $tp->update(['source_chain' => $chain]);
+    }
+
+    /**
      * Phase A.2.5 — read-only equivalent of matchOrCreate(). Returns an
      * existing TrackedProperty when one of the 5 strategies finds a match,
      * or null without creating anything. Used by the prospect-collision
