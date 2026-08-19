@@ -108,56 +108,6 @@
         </div>
     @endif
 
-    {{-- Feature 1 (2026-08-19) — explicit Refresh, owner list. NO timer, no
-         auto-linking: the agent presses Refresh after running TVA and it pulls in
-         whatever landed. Named component (ownersRefresh) defined in the <script>
-         block at the bottom of this file; this attribute passes only a small,
-         data-only config via Js::from() — no JS object literal, no comment, no
-         quote character anywhere near this attribute. --}}
-    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);"
-         x-data="ownersRefresh({{ Js::from($ownersRefreshConfig ?? ['refreshUrl' => $deedPollUrl ?? null, 'owners' => $sellerState['sellers'] ?? []]) }})">
-        <div class="flex items-center justify-between gap-3 flex-wrap mb-2">
-            <div class="text-[10px] uppercase tracking-wider font-semibold" style="color: var(--text-muted);">
-                Owners &amp; contact numbers
-            </div>
-            <button type="button" @click="refresh()" :disabled="refreshing"
-                    class="px-3 py-1.5 text-xs font-semibold rounded-md"
-                    style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border); cursor:pointer;">
-                <span x-show="!refreshing">&#8635; Refresh</span>
-                <span x-show="refreshing">Refreshing&hellip;</span>
-            </button>
-        </div>
-
-        {{-- ONE status line, always driven by applyOwners() in the ownersRefresh
-             component — covers the empty state too, so it is never duplicated
-             by a second "no owners" div underneath it. --}}
-        <div x-show="message" x-cloak class="text-xs mb-2" style="color: var(--text-primary); font-weight: 600;" x-text="message"></div>
-
-        <template x-for="owner in owners" :key="owner.contact_id">
-            <div class="py-2" style="border-top: 1px solid var(--border);">
-                <div class="text-sm font-semibold" style="color: var(--text-primary);">
-                    <span x-text="owner.display_name"></span>
-                    <span x-show="owner.is_entity" class="text-[10px] font-medium" style="color: var(--text-muted);">&mdash; entity</span>
-                </div>
-                <div x-show="!owner.phones.length && !owner.emails.length" x-cloak class="text-xs mt-1" style="color: var(--text-muted);">
-                    No contact numbers yet.
-                </div>
-                <div class="flex flex-wrap items-center gap-2 mt-1">
-                    <template x-for="p in owner.phones" :key="'p-' + p.value">
-                        <span class="inline-flex items-center gap-1">
-                            <a :href="'tel:' + p.value" class="text-xs" style="color: var(--brand-icon, #2563eb); text-decoration: none;" x-text="p.value"></a>
-                            <a :href="'https://wa.me/' + p.value.replace(/[^0-9]/g, '').replace(/^0/, '27')" target="_blank" rel="noopener"
-                               class="text-[10px] font-semibold px-1.5 py-0.5 rounded" style="background: #10b981; color: #fff; text-decoration: none;">WA</a>
-                        </span>
-                    </template>
-                    <template x-for="e in owner.emails" :key="'e-' + e.value">
-                        <a :href="'mailto:' + e.value" class="text-xs" style="color: var(--brand-icon, #2563eb); text-decoration: none;" x-text="e.value"></a>
-                    </template>
-                </div>
-            </div>
-        </template>
-    </div>
-
     {{-- Contact form — SEARCH & link an existing contact, OR capture a new one.
          Both modes post to the store route matching the source; the controller
          branches on contact_id. --}}
@@ -182,6 +132,7 @@
             'propertyId' => $sellerState['property_id'] ?? null,
             'linkSellerUrl' => $linkSellerUrl ?? null,
             'unlinkSellerUrl' => $unlinkSellerUrl ?? null,
+            'linkSellersBatchUrl' => $linkSellersBatchUrl ?? null,
             'tvaIngestUrl' => $tvaIngestUrl ?? null,
             'primarySellerUrl' => $primarySellerUrl ?? null,
             'deadEndSellerUrl' => $deadEndSellerUrl ?? null,
@@ -227,53 +178,137 @@
                     class="shrink-0 text-xs font-semibold" style="color: var(--ds-crimson); background:none; border:0; cursor:pointer;">✕ Unlink deed</button>
         </div>
 
-        {{-- ── MIC ↔ Deeds ↔ Contact loop (Part A + FIX 2) ──
-             The deed the agent scraped already landed the registered owner(s) in CoreX (name +
-             SA-ID). These panels are Alpine-REACTIVE (driven by `deed`, initialised from the server
-             render and refreshed by polling) so a scrape that lands while the screen is open
-             surfaces on its own — no full reload, form state + dead-end tick preserved.
-             "Use from deeds" prefills the Create-new fields; "View full deed" opens Deeds Capture. --}}
+        {{-- ── Owners & Contact Numbers (merged 2026-08-19, Johan) ──
+             Was two panels (a read-only "Owners & contact numbers" summary, and this "From the
+             deed you scraped" list) plus a third ("Sellers on this property", unchanged, below).
+             Johan: "not sure why we would want a third panel... essentially incorporating blue
+             into grey, and keeping green." These are the owners CMA/the deed gave us for this
+             property — always current data, so no past-owner handling belongs here (that's a
+             different, dormant feature — see .ai/specs/deeds-capture.md §7). One header (title +
+             Refresh + one status line), one row per owner carrying everything BOTH former panels
+             showed: link state, ID + Copy ID, the ticks, and their current numbers/emails. The
+             Refresh button re-pulls owners AND their numbers in one call — see refreshDeedMatch().
+             Alpine-REACTIVE (driven by `deed` + `sellers`) so a scrape landing while the screen is
+             open surfaces on its own; "View full deed" opens Deeds Capture. --}}
         <div x-show="deed.owners.length" x-cloak class="rounded-md p-4 mb-4"
              style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, var(--surface)); border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 40%, var(--border));">
-            <div class="flex items-center justify-between gap-3 flex-wrap mb-2">
+            <div class="flex items-center justify-between gap-3 flex-wrap mb-1">
                 <div class="flex items-center gap-2">
                     <span class="text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded"
-                          style="background: var(--brand-icon, #0ea5e9); color:#fff;">From the deed you scraped</span>
+                          style="background: var(--brand-icon, #0ea5e9); color:#fff;">Owners &amp; contact numbers</span>
                     <span class="text-xs" style="color: var(--text-muted);">Owner(s) already captured from the deeds record</span>
                 </div>
-                @if(auth()->user()->hasPermission('deeds_capture.access'))
-                    <a href="{{ route('corex.deeds-capture.index') }}" target="_blank" rel="noopener"
-                       class="text-xs font-semibold no-underline" style="color: var(--brand-icon, #0ea5e9);">View full deed →</a>
-                @endif
+                <div class="flex items-center gap-3">
+                    @if(auth()->user()->hasPermission('deeds_capture.access'))
+                        <a href="{{ route('corex.deeds-capture.index') }}" target="_blank" rel="noopener"
+                           class="text-xs font-semibold no-underline" style="color: var(--brand-icon, #0ea5e9);">View full deed →</a>
+                    @endif
+                    <button type="button" @click="refreshDeedMatch()" :disabled="deedRefreshing"
+                            class="px-3 py-1.5 text-xs font-semibold rounded-md"
+                            style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border); cursor:pointer;">
+                        <span x-show="!deedRefreshing">&#8635; Refresh</span>
+                        <span x-show="deedRefreshing">Refreshing&hellip;</span>
+                    </button>
+                </div>
             </div>
+            {{-- ONE status line for the whole panel — replaces the two separate messages
+                 (deedRefreshMessage and the old grey panel's own message) that used to sit in
+                 two different panels and could read as disagreeing with each other. --}}
+            <div class="text-xs mb-2" style="color: var(--text-primary); font-weight: 600;" x-text="deedRefreshMessage || ownersSummary()"></div>
             <div class="space-y-2">
-                <template x-for="owner in deed.owners" :key="(owner.contact_id || '') + '-' + (owner.id_number || owner.name)">
-                    <div class="flex items-center justify-between gap-3 rounded-md p-3"
-                         style="background: var(--surface); border: 1px solid var(--border);">
-                        <div class="min-w-0">
-                            <div class="text-sm font-semibold truncate" style="color: var(--text-primary);">
-                                <template x-if="owner.is_entity"><span class="text-[10px] uppercase tracking-wider font-bold mr-1 px-1.5 py-0.5 rounded align-middle" style="background: color-mix(in srgb, #6366f1 20%, transparent); color: var(--text-primary);">Company</span></template>
-                                <span x-text="owner.display_name || (((owner.first_name || '') + ' ' + (owner.last_name || '')).trim()) || owner.name || '(unnamed owner)'"></span>
-                                <template x-if="owner.dead_end"><span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-primary);">⚠ Dead end · <span x-text="owner.dead_end && owner.dead_end.label"></span></span></template>
+                <template x-for="owner in deed.owners" :key="ownerKey(owner)">
+                    <div class="rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
+                        <div class="flex items-center justify-between gap-3">
+                            <div class="flex items-start gap-3 min-w-0">
+                                {{-- Feature 2 (2026-08-19) — SELECTION tick, leading position: include
+                                     this owner in the ONE "Link ticked sellers" action below (replaces
+                                     the old per-owner "+ Link as seller" button). Ticked by default:
+                                     this owner comes from the deed already linked to THIS listing, the
+                                     same trust level deeds-capture's own promote gives its current
+                                     owners with no ticking at all.
+                                     Johan (2026-08-19, "ticks arent confusing, its confusing when they
+                                     are bunched together"): this tick and the "no TVA numbers" tick
+                                     further down the row are BOTH checkboxes, kept unambiguous purely
+                                     by distance and position — this one leads the row, the other sits
+                                     beside the name, separated by a wider gap than either has from its
+                                     own label. Visible 2px border + real accent colour, not a hairline. --}}
+                                <template x-if="isLinkableOwner(owner)">
+                                    <label class="flex items-center shrink-0" style="cursor:pointer; padding: 6px; margin: -6px 0 0 -6px;">
+                                        <input type="checkbox" :checked="isOwnerTicked(owner, true)" @change="toggleOwnerTick(owner, true)"
+                                               style="width:18px; height:18px; border:2px solid var(--text-secondary); border-radius:4px; accent-color: var(--brand-icon, #0ea5e9); cursor:pointer;">
+                                    </label>
+                                </template>
+                                <div class="min-w-0">
+                                    <div class="text-sm font-semibold flex items-center flex-wrap gap-x-4 gap-y-1" style="color: var(--text-primary);">
+                                        <span class="inline-flex items-center min-w-0">
+                                            <template x-if="owner.is_entity"><span class="text-[10px] uppercase tracking-wider font-bold mr-1 px-1.5 py-0.5 rounded align-middle" style="background: color-mix(in srgb, #6366f1 20%, transparent); color: var(--text-primary);">Company</span></template>
+                                            <span class="truncate" x-text="owner.display_name || (((owner.first_name || '') + ' ' + (owner.last_name || '')).trim()) || owner.name || '(unnamed owner)'"></span>
+                                        </span>
+                                        {{-- STATE tick, beside the name it describes (Johan, verbatim:
+                                             "just put the contact no tva tick next to their name"). Does
+                                             NOT gate the selection tick above — an owner can be both
+                                             selected and flagged uncontactable; the seller still links
+                                             either way (server-enforced too). Amber accent, distinct from
+                                             the selection tick's brand-blue, reinforcing the two mean
+                                             different things even before reading the label. --}}
+                                        <template x-if="canMarkNoTva(owner)">
+                                            <label class="inline-flex items-center gap-2 text-[11px] font-medium normal-case" style="cursor:pointer; color: var(--text-secondary); padding: 4px 8px 4px 4px; border-radius: 6px;">
+                                                <input type="checkbox" :checked="isOwnerNoTvaTicked(owner)" @change="toggleOwnerNoTva(owner)" :disabled="sellerBusy"
+                                                       style="width:16px; height:16px; border:2px solid var(--ds-amber, #f59e0b); border-radius:4px; accent-color: var(--ds-amber, #f59e0b); cursor:pointer;">
+                                                <span>No TVA numbers found</span>
+                                            </label>
+                                        </template>
+                                        <template x-if="owner.dead_end"><span class="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-primary);">⚠ Dead end · <span x-text="owner.dead_end && owner.dead_end.label"></span></span></template>
+                                    </div>
+                                    <div class="text-xs mt-0.5" style="color: var(--text-muted);">
+                                        <template x-if="owner.is_entity"><span><span x-show="owner.entity_reg_no">Reg: <span class="font-mono" x-text="owner.entity_reg_no"></span> @include('corex._partials.copy-id-btn', ['value' => 'owner.entity_reg_no', 'label' => 'Copy reg'])</span><span x-show="!owner.entity_reg_no" class="italic">Company / entity owner</span></span></template>
+                                        <template x-if="!owner.is_entity && owner.id_number"><span>ID: <span class="font-mono" x-text="owner.id_number"></span> @include('corex._partials.copy-id-btn', ['value' => 'owner.id_number', 'label' => 'Copy ID'])</span></template>
+                                        <template x-if="!owner.is_entity && !owner.id_number"><span class="italic">No ID on the deed record</span></template>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="text-xs mt-0.5" style="color: var(--text-muted);">
-                                <template x-if="owner.is_entity"><span><span x-show="owner.entity_reg_no">Reg: <span class="font-mono" x-text="owner.entity_reg_no"></span> @include('corex._partials.copy-id-btn', ['value' => 'owner.entity_reg_no', 'label' => 'Copy reg'])</span><span x-show="!owner.entity_reg_no" class="italic">Company / entity owner</span></span></template>
-                                <template x-if="!owner.is_entity && owner.id_number"><span>ID: <span class="font-mono" x-text="owner.id_number"></span> @include('corex._partials.copy-id-btn', ['value' => 'owner.id_number', 'label' => 'Copy ID'])</span></template>
-                                <template x-if="!owner.is_entity && !owner.id_number"><span class="italic">No ID on the deed record</span></template>
+                            <div class="shrink-0 flex flex-col gap-1">
+                                <template x-if="isSellerLinked(owner)">
+                                    <span class="px-3 py-1.5 text-xs font-semibold rounded-md text-center"
+                                          style="background: color-mix(in srgb, #10b981 18%, transparent); color: var(--text-primary);">✓ Seller linked</span>
+                                </template>
                             </div>
                         </div>
-                        <div class="shrink-0 flex flex-col gap-1">
-                            <template x-if="!isSellerLinked(owner)">
-                                <button type="button" @click="linkSeller(owner)" :disabled="sellerBusy"
-                                        class="px-3 py-1.5 text-xs font-semibold rounded-md border-0"
-                                        style="background: var(--brand-icon, #0ea5e9); color:#fff; cursor:pointer;"
-                                        x-text="owner.is_entity ? '+ Link company as seller' : '+ Link as seller'"></button>
-                            </template>
-                            <template x-if="isSellerLinked(owner)">
-                                <span class="px-3 py-1.5 text-xs font-semibold rounded-md text-center"
-                                      style="background: color-mix(in srgb, #10b981 18%, transparent); color: var(--text-primary);">✓ Seller linked</span>
-                            </template>
-                        </div>
+                        {{-- Current numbers/emails, folded in from the former grey panel (2026-08-19
+                             merge). Sourced via findLinkedSeller(owner) — empty until this owner is
+                             actually linked, since numbers live on the linked Contact record, not on
+                             the raw deed-owner row. Display only (tel:/wa.me/mailto: links) — removing
+                             a number stays a "Sellers on this property" action below (unchanged, per
+                             Johan: keep green as it is), so there is still only ONE place to remove a
+                             number, not two. --}}
+                        <template x-if="findLinkedSeller(owner) && (findLinkedSeller(owner).phones.length || findLinkedSeller(owner).emails.length)">
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <template x-for="p in (findLinkedSeller(owner) || {}).phones || []" :key="'p-' + p.value">
+                                    <span class="inline-flex items-center gap-1">
+                                        <a :href="'tel:' + p.value" class="text-xs" style="color: var(--brand-icon, #2563eb); text-decoration: none;" x-text="p.value"></a>
+                                        <a :href="waUrl(p.value)" target="_blank" rel="noopener"
+                                           class="text-[10px] font-semibold px-1.5 py-0.5 rounded" style="background: #10b981; color: #fff; text-decoration: none;">WA</a>
+                                    </span>
+                                </template>
+                                <template x-for="e in (findLinkedSeller(owner) || {}).emails || []" :key="'e-' + e.value">
+                                    <a :href="'mailto:' + e.value" class="text-xs" style="color: var(--brand-icon, #2563eb); text-decoration: none;" x-text="e.value"></a>
+                                </template>
+                            </div>
+                        </template>
+                        {{-- Numbers already scraped for this exact SA ID — tick which to carry along
+                             when this owner is linked. Unticked by default, matching the deeds-capture
+                             item_ids[] checkboxes exactly (same product, same shape). --}}
+                        <template x-if="isLinkableOwner(owner) && tvaFor(owner.id_number)">
+                            <div class="mt-2 ml-6 pt-2" style="border-top: 1px dashed var(--border);">
+                                <div class="text-[11px] mb-1" style="color: var(--text-muted);">Numbers already found for this owner — tick to capture with the link:</div>
+                                <template x-for="item in tvaFor(owner.id_number).items" :key="item.id">
+                                    <label class="flex items-center gap-2 py-0.5 text-xs" style="cursor:pointer; color: var(--text-primary);">
+                                        <input type="checkbox" :checked="isOwnerTvaTicked(owner.id_number, item.id)" @change="toggleOwnerTvaTick(owner.id_number, item.id)">
+                                        <span x-text="item.type + ': ' + item.value"></span>
+                                    </label>
+                                </template>
+                            </div>
+                        </template>
                     </div>
                 </template>
             </div>
@@ -298,37 +333,85 @@
                 <template x-for="cand in deed.candidates" :key="cand.tracked_property_id">
                     <div class="rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
                         <template x-if="cand.address"><div class="text-xs font-semibold mb-1" style="color: var(--text-secondary);">Deed: <span x-text="cand.address"></span></div></template>
-                        <template x-for="owner in cand.owners" :key="(owner.contact_id || '') + '-' + (owner.id_number || owner.name)">
-                            <div class="flex items-center justify-between gap-3 py-1">
-                                <div class="min-w-0">
-                                    <div class="text-sm font-semibold truncate" style="color: var(--text-primary);">
-                                        <template x-if="owner.is_entity"><span class="text-[10px] uppercase tracking-wider font-bold mr-1 px-1.5 py-0.5 rounded align-middle" style="background: color-mix(in srgb, #6366f1 20%, transparent); color: var(--text-primary);">Company</span></template>
-                                        <span x-text="owner.display_name || (((owner.first_name || '') + ' ' + (owner.last_name || '')).trim()) || owner.name || '(unnamed owner)'"></span>
-                                                <template x-if="owner.dead_end"><span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-primary);">⚠ Dead end · <span x-text="owner.dead_end && owner.dead_end.label"></span></span></template>
+                        <template x-for="owner in cand.owners" :key="ownerKey(owner)">
+                            <div class="py-1">
+                                <div class="flex items-center justify-between gap-3">
+                                    <div class="flex items-start gap-3 min-w-0">
+                                        {{-- SELECTION tick — unticked by default, this is an UNVERIFIED
+                                             candidate match ("verify this is the same property before
+                                             using" above), so ticking one is a deliberate act, never an
+                                             assumed default. Same visible-border/hit-area/spacing
+                                             treatment as the confirmed-deed block above. --}}
+                                        <template x-if="isLinkableOwner(owner)">
+                                            <label class="flex items-center shrink-0" style="cursor:pointer; padding: 6px; margin: -6px 0 0 -6px;">
+                                                <input type="checkbox" :checked="isOwnerTicked(owner, false)" @change="toggleOwnerTick(owner, false)"
+                                                       style="width:18px; height:18px; border:2px solid var(--text-secondary); border-radius:4px; accent-color: var(--brand-icon, #0ea5e9); cursor:pointer;">
+                                            </label>
+                                        </template>
+                                        <div class="min-w-0">
+                                            <div class="text-sm font-semibold flex items-center flex-wrap gap-x-4 gap-y-1" style="color: var(--text-primary);">
+                                                <span class="inline-flex items-center min-w-0">
+                                                    <template x-if="owner.is_entity"><span class="text-[10px] uppercase tracking-wider font-bold mr-1 px-1.5 py-0.5 rounded align-middle" style="background: color-mix(in srgb, #6366f1 20%, transparent); color: var(--text-primary);">Company</span></template>
+                                                    <span class="truncate" x-text="owner.display_name || (((owner.first_name || '') + ' ' + (owner.last_name || '')).trim()) || owner.name || '(unnamed owner)'"></span>
+                                                </span>
+                                                {{-- STATE tick, beside the name — same as the confirmed-deed
+                                                     block above: does not gate the selection tick, seller
+                                                     still links either way. --}}
+                                                <template x-if="canMarkNoTva(owner)">
+                                                    <label class="inline-flex items-center gap-2 text-[11px] font-medium normal-case" style="cursor:pointer; color: var(--text-secondary); padding: 4px 8px 4px 4px; border-radius: 6px;">
+                                                        <input type="checkbox" :checked="isOwnerNoTvaTicked(owner)" @change="toggleOwnerNoTva(owner)" :disabled="sellerBusy"
+                                                               style="width:16px; height:16px; border:2px solid var(--ds-amber, #f59e0b); border-radius:4px; accent-color: var(--ds-amber, #f59e0b); cursor:pointer;">
+                                                        <span>No TVA numbers found</span>
+                                                    </label>
+                                                </template>
+                                                <template x-if="owner.dead_end"><span class="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-primary);">⚠ Dead end · <span x-text="owner.dead_end && owner.dead_end.label"></span></span></template>
+                                            </div>
+                                            <div class="text-xs mt-0.5" style="color: var(--text-muted);">
+                                                <template x-if="owner.is_entity"><span><span x-show="owner.entity_reg_no">Reg: <span class="font-mono" x-text="owner.entity_reg_no"></span> @include('corex._partials.copy-id-btn', ['value' => 'owner.entity_reg_no', 'label' => 'Copy reg'])</span><span x-show="!owner.entity_reg_no" class="italic">Company / entity owner</span></span></template>
+                                                <template x-if="!owner.is_entity && owner.id_number"><span>ID: <span class="font-mono" x-text="owner.id_number"></span> @include('corex._partials.copy-id-btn', ['value' => 'owner.id_number', 'label' => 'Copy ID'])</span></template>
+                                                <template x-if="!owner.is_entity && !owner.id_number"><span class="italic">No ID on the deed record</span></template>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div class="text-xs mt-0.5" style="color: var(--text-muted);">
-                                        <template x-if="owner.is_entity"><span><span x-show="owner.entity_reg_no">Reg: <span class="font-mono" x-text="owner.entity_reg_no"></span> @include('corex._partials.copy-id-btn', ['value' => 'owner.entity_reg_no', 'label' => 'Copy reg'])</span><span x-show="!owner.entity_reg_no" class="italic">Company / entity owner</span></span></template>
-                                        <template x-if="!owner.is_entity && owner.id_number"><span>ID: <span class="font-mono" x-text="owner.id_number"></span> @include('corex._partials.copy-id-btn', ['value' => 'owner.id_number', 'label' => 'Copy ID'])</span></template>
-                                        <template x-if="!owner.is_entity && !owner.id_number"><span class="italic">No ID on the deed record</span></template>
+                                    <div class="shrink-0 flex flex-col gap-1">
+                                        <template x-if="isSellerLinked(owner)">
+                                            <span class="px-3 py-1.5 text-xs font-semibold rounded-md text-center"
+                                                  style="background: color-mix(in srgb, #10b981 18%, transparent); color: var(--text-primary);">✓ Seller linked</span>
+                                        </template>
                                     </div>
                                 </div>
-                                <div class="shrink-0 flex flex-col gap-1">
-                                    <template x-if="!isSellerLinked(owner)">
-                                        <button type="button" @click="linkSeller(owner)" :disabled="sellerBusy"
-                                                class="px-3 py-1.5 text-xs font-semibold rounded-md"
-                                                style="background: transparent; color: var(--text-primary); border:1px solid var(--ds-amber, #f59e0b); cursor:pointer;"
-                                                x-text="owner.is_entity ? '+ Link company as seller' : '+ Link as seller'"></button>
-                                    </template>
-                                    <template x-if="isSellerLinked(owner)">
-                                        <span class="px-3 py-1.5 text-xs font-semibold rounded-md text-center"
-                                              style="background: color-mix(in srgb, #10b981 18%, transparent); color: var(--text-primary);">✓ Seller linked</span>
-                                    </template>
-                                </div>
+                                <template x-if="isLinkableOwner(owner) && tvaFor(owner.id_number)">
+                                    <div class="mt-2 ml-6 pt-2" style="border-top: 1px dashed var(--border);">
+                                        <div class="text-[11px] mb-1" style="color: var(--text-muted);">Numbers already found for this owner — tick to capture with the link:</div>
+                                        <template x-for="item in tvaFor(owner.id_number).items" :key="item.id">
+                                            <label class="flex items-center gap-2 py-0.5 text-xs" style="cursor:pointer; color: var(--text-primary);">
+                                                <input type="checkbox" :checked="isOwnerTvaTicked(owner.id_number, item.id)" @change="toggleOwnerTvaTick(owner.id_number, item.id)">
+                                                <span x-text="item.type + ': ' + item.value"></span>
+                                            </label>
+                                        </template>
+                                    </div>
+                                </template>
                             </div>
                         </template>
                     </div>
                 </template>
             </div>
+        </div>
+
+        {{-- Feature 2 (2026-08-19) — ONE primary button: links the property, every ticked seller
+             above, and their ticked contact numbers, all in a single request/transaction. Mirrors
+             the deeds-capture one-click promote interaction (commit 3bc53b5b8, Johan-approved
+             2026-08-19: "works bloody well") — same shape, so it feels like the same product. --}}
+        <div x-show="hasLinkableOwners()" x-cloak class="rounded-md p-3 mb-4 flex items-center justify-between gap-3 flex-wrap"
+             style="background: var(--surface-2); border: 1px solid var(--border);">
+            <div class="text-xs" x-show="sellerBatchMessage" x-cloak x-text="sellerBatchMessage" style="color: var(--text-primary); font-weight: 600;"></div>
+            <div class="text-xs" x-show="!sellerBatchMessage" style="color: var(--text-muted);">Tick the owners above, then link them all in one click.</div>
+            <button type="button" @click="linkTickedSellers()" :disabled="sellerBusy || !anyOwnerTicked()"
+                    class="px-3 py-1.5 text-xs font-semibold rounded-md border-0 shrink-0"
+                    style="background: var(--brand-icon, #0ea5e9); color:#fff; cursor:pointer;">
+                <span x-show="!sellerBatchBusy">Link ticked sellers</span>
+                <span x-show="sellerBatchBusy">Linking&hellip;</span>
+            </button>
         </div>
 
         {{-- ── Sellers on this property (Part A multi-seller + Part B TVA picker) ──
@@ -391,10 +474,22 @@
                                             <button type="button" @click="removeNumber(s.contact_id,'email',e.value)" :disabled="sellerBusy" title="Remove email" style="background:none;border:0;cursor:pointer; color: var(--ds-crimson); font-weight:bold;">×</button>
                                         </span>
                                     </template>
-                                    <span x-show="!s.contactable && !s.dead_end" class="text-[11px] italic" style="color: var(--text-muted);">No number yet —</span>
-                                    {{-- Per-seller dead-end: a seller with nothing to reach can be acknowledged so continue isn't blocked. --}}
-                                    <button type="button" x-show="!s.contactable && !s.dead_end" @click="markSellerDeadEnd(s.contact_id, 'not_in_tva')" :disabled="sellerBusy"
-                                            class="text-[11px] font-semibold" style="color: var(--ds-amber, #f59e0b); background:none; border:0; cursor:pointer;">mark “No contact details”</button>
+                                    {{-- Johan (2026-08-19, correcting the first build of this): "the
+                                         tick cant be on the green contact screen... it should be on
+                                         the blue contact screen... because if theres no contact
+                                         details it would appear on the green screen." The SETTING
+                                         decision moved to the "No contact details on TVA" tick beside
+                                         each owner's name on the blue "From the deed you scraped"
+                                         panel (writes the same ContactDeadEndFlag via the same
+                                         markSellerDeadEnd() service call this panel already used) —
+                                         removed the "mark ‘No contact details’" button that used to
+                                         sit here so there is only ONE control that can SET the fact,
+                                         never two. This panel is left purely descriptive: "No number
+                                         yet" states what's true; the ⚠ Dead end badge above (already
+                                         existing, unchanged) shows it once flagged from blue. "clear
+                                         dead-end" below stays — undoing a flag is a correction, not a
+                                         second way of making the same original decision. --}}
+                                    <span x-show="!s.contactable && !s.dead_end" class="text-[11px] italic" style="color: var(--text-muted);">No number yet.</span>
                                     <button type="button" x-show="s.dead_end" @click="clearSellerDeadEnd(s.contact_id)" :disabled="sellerBusy"
                                             class="text-[11px] font-semibold" style="color: var(--brand-icon, #0ea5e9); background:none; border:0; cursor:pointer;">clear dead-end</button>
                                 </div>
@@ -618,14 +713,14 @@
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">Phone</label>
                     <input type="tel" name="phone" x-ref="phone" value="{{ old('phone') }}" maxlength="30" placeholder="082 123 4567"
-                           @input="contactTyped = hasTypedContact(); if (contactTyped) noContactDetails = false"
+                           @input="contactTyped = hasTypedContact()"
                            class="w-full px-3 py-2 text-sm rounded-md"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 </div>
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">Email</label>
                     <input type="email" name="email" x-ref="email" value="{{ old('email') }}" maxlength="255"
-                           @input="contactTyped = hasTypedContact(); if (contactTyped) noContactDetails = false"
+                           @input="contactTyped = hasTypedContact()"
                            class="w-full px-3 py-2 text-sm rounded-md"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 </div>
@@ -663,39 +758,16 @@
                 </div>
             </div>
 
-            {{-- Part B — deliberate dead-end override. Only meaningful when NO phone/email is
-                 entered (real details win: typing either clears + disables the tick). When on, the
-                 seller is still created from the deed (name + ID, deduped on ID) and flagged so no
-                 future agent re-chases a genuinely uncontactable owner. Natural person only — an
-                 entity is reached through its directors, not a dead-end tick. --}}
-            <div class="rounded-md p-3" x-show="contactKind === 'natural_person'"
-                 style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 8%, var(--surface-2)); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 40%, var(--border));">
-                <label class="flex items-start gap-2" style="cursor:pointer;">
-                    <input type="checkbox" name="no_contact_details" value="1" x-model="noContactDetails"
-                           :disabled="contactTyped"
-                           @change="if (contactTyped) noContactDetails = false"
-                           class="mt-0.5">
-                    <span class="text-xs" style="color: var(--text-primary);">
-                        <span class="font-semibold">No contact details available</span>
-                        — dead end (no TVA record / opted out / nothing to enter). The seller is still
-                        saved from the deed and flagged so nobody chases it again.
-                    </span>
-                </label>
-                <div x-show="noContactDetails" x-cloak class="mt-2" style="padding-left: 1.5rem;">
-                    <label class="block text-[11px] font-semibold mb-1" style="color: var(--text-secondary);">Reason</label>
-                    <select name="dead_end_reason" x-model="deadEndReason"
-                            class="w-full px-3 py-2 text-sm rounded-md"
-                            style="background: var(--surface); border:1px solid var(--border); color: var(--text-primary);">
-                        <option value="not_in_tva">Not in TVA</option>
-                        <option value="opted_out">Opted out</option>
-                        <option value="no_record_found">No record found</option>
-                    </select>
-                </div>
-            </div>
+            {{-- Property-level "No contact details available" tick REMOVED (2026-08-19, Johan,
+                 verbatim, real property with 4 owners/3 found in TVA): "I need the tick... to be per
+                 seller." A single tick on this manual-entry form couldn't express "3 of 4 owners have
+                 numbers, one doesn't" — replaced by the per-owner "No TVA numbers found" tick beside
+                 each name in the deed/candidate owner lists above, which links the seller regardless
+                 and writes the SAME ContactDeadEndFlag onto their contact record. Do not re-add a
+                 tick here — that would be the two-ways-of-saying-the-same-thing Johan asked removed. --}}
 
             <div class="text-xs" style="color: var(--text-muted);">
-                <span x-show="contactKind === 'natural_person' && !noContactDetails">Provide at least a phone or email — we'll check if this person already exists in your contacts.</span>
-                <span x-show="contactKind === 'natural_person' && noContactDetails" x-cloak>Dead-end mode: no phone/email needed. The owner's name + SA ID (from the deed) are required so the contact is ID-keyed and deduped.</span>
+                <span x-show="contactKind === 'natural_person'">Provide at least a phone or email — we'll check if this person already exists in your contacts.</span>
                 <span x-show="contactKind === 'entity'" x-cloak>We'll match the entity on its registration number (or name) so you land on the captured company, not a duplicate.</span>
             </div>
             </div>{{-- /create-new --}}
@@ -758,67 +830,6 @@
         </div>
     </form>
 </div>
-<script>
-function ownersRefresh(config) {
-    return {
-        refreshUrl: config.refreshUrl,
-        owners: config.owners,
-        refreshing: false,
-        message: null,
-        _seq: 0,
-        init() {
-            this.applyOwners(this.owners);
-            // Linking/unlinking a deed or seller (the OTHER, still-inline Alpine
-            // component on this page) is a deliberate agent action with a known
-            // result — this panel must reflect it immediately, not wait for
-            // another manual Refresh. Cross-component: a plain window event,
-            // dispatched once from applySellerState() (composeSeller's single
-            // funnel for every state-changing action — link, unlink, primary,
-            // dead-end, TVA save).
-            this._onOwnersUpdated = (e) => { this._seq++; this.applyOwners(e.detail.owners); };
-            window.addEventListener('owners-updated', this._onOwnersUpdated);
-        },
-        countNumbers(owners) {
-            return owners.reduce((sum, o) => sum + (o.phones ? o.phones.length : 0) + (o.emails ? o.emails.length : 0), 0);
-        },
-        applyOwners(owners) {
-            this.owners = owners || [];
-            const ownerCount = this.owners.length;
-            const numberCount = this.countNumbers(this.owners);
-            if (ownerCount === 0) {
-                this.message = 'No owners linked yet.';
-            } else if (numberCount === 0) {
-                this.message = ownerCount + ' owner' + (ownerCount === 1 ? '' : 's') + ' linked, no numbers yet.';
-            } else {
-                this.message = numberCount + ' number' + (numberCount === 1 ? '' : 's') + ' found for ' + ownerCount + ' owner' + (ownerCount === 1 ? '' : 's') + '.';
-            }
-        },
-        async refresh() {
-            if (!this.refreshUrl || this.refreshing) return;
-            this.refreshing = true;
-            // Sequence token — any response whose token is no longer the latest
-            // (a newer refresh(), OR an owners-updated event that arrived while
-            // this fetch was in flight) is discarded, never applied. This is
-            // the actual fix for the panel that populated then reverted: a
-            // stale in-flight response landing after a link/unlink completed
-            // must never overwrite the fresh state that action already applied.
-            const mySeq = ++this._seq;
-            try {
-                const res = await fetch(this.refreshUrl, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
-                if (mySeq !== this._seq) return;
-                if (!res.ok) { this.message = 'Refresh failed — try again.'; return; }
-                const d = await res.json();
-                if (mySeq !== this._seq) return;
-                this.applyOwners(d.sellers);
-            } catch (e) {
-                if (mySeq === this._seq) this.message = 'Refresh failed — try again.';
-            } finally {
-                if (mySeq === this._seq) this.refreshing = false;
-            }
-        },
-    };
-}
-</script>
 <script>
 function composeSeller(config) {
     return {
@@ -887,6 +898,11 @@ function composeSeller(config) {
             } catch (e) { /* transient — keep polling */ }
         },
         async refreshDeedMatch() {
+            // Merge (2026-08-19): ONE Refresh button now covers what used to be two separate
+            // refreshes (the deed/owner list, and the grey panel's own contact-numbers poll) —
+            // this is the same deedPollUrl response both used; applySellerState() (below) picks
+            // up the sellers/tva/property/linked-deed/removed side, this method keeps its own
+            // owners/candidates/deeds side. One fetch, one place both halves come from.
             if (!this.deedPollUrl || this.deedRefreshing) return;
             this.deedRefreshing = true;
             this.deedRefreshMessage = null;
@@ -897,13 +913,7 @@ function composeSeller(config) {
                 this.deed.owners = d.owners || [];
                 this.deed.candidates = d.candidates || [];
                 if (Array.isArray(d.deeds)) this.deeds = d.deeds;
-                if (this.deed.owners.length) {
-                    this.deedRefreshMessage = 'Linked a deed \u2014 ' + this.deed.owners.length + ' owner' + (this.deed.owners.length === 1 ? '' : 's') + ' found.';
-                } else if (this.deed.candidates.length) {
-                    this.deedRefreshMessage = this.deed.candidates.length + ' possible deed' + (this.deed.candidates.length === 1 ? '' : 's') + ' to review below.';
-                } else {
-                    this.deedRefreshMessage = 'No matching deed found.';
-                }
+                this.applySellerState(d);
             } catch (e) {
                 this.deedRefreshMessage = 'Refresh failed — try again.';
             } finally {
@@ -915,6 +925,7 @@ function composeSeller(config) {
         propertyId: config.propertyId,
         linkSellerUrl: config.linkSellerUrl,
         unlinkSellerUrl: config.unlinkSellerUrl,
+        linkSellersBatchUrl: config.linkSellersBatchUrl,
         tvaIngestUrl: config.tvaIngestUrl,
         primarySellerUrl: config.primarySellerUrl,
         deadEndSellerUrl: config.deadEndSellerUrl,
@@ -970,6 +981,166 @@ function composeSeller(config) {
                 || (owner.id_number && s.id_number === owner.id_number));
         },
         isRemoved(idNumber) { return !!idNumber && (this.removed || []).includes(idNumber); },
+        // Feature 2 (2026-08-19) — tick-and-one-click linking, mirroring the deeds-capture
+        // one-click promote pattern (commit 3bc53b5b8): tick several deed/candidate owners (and,
+        // per owner, which of their already-scraped TVA numbers to carry along), then ONE button
+        // links the property, every ticked seller and their numbers in a single request. Replaces
+        // clicking "+ Link as seller" once per owner. Same key shape the existing x-for uses, so a
+        // tick survives the reactive deed/candidate list being replaced wholesale by a poll.
+        ownerKey(owner) { return (owner.contact_id || '') + '-' + (owner.id_number || owner.name || owner.display_name || ''); },
+        isLinkableOwner(owner) { return !this.isSellerLinked(owner) && !!(owner.contact_id || owner.is_entity || owner.id_number); },
+        // The "No TVA numbers found" tick is usable on EVERY owner with an identifiable target,
+        // linked or not — the SELECTION tick above stays gated to not-yet-linked (isLinkableOwner),
+        // but this one must not be, or an owner already linked (e.g. via "Link a deed", which links
+        // ALL of a deed's current owners in one server-side action with no per-owner tick) would
+        // have no way to be flagged at all. Johan hit exactly this gap, blocked on Continue.
+        canMarkNoTva(owner) { return !!(owner.contact_id || owner.is_entity || owner.id_number); },
+        findLinkedSeller(owner) {
+            if (!owner) return null;
+            return this.sellers.find(s =>
+                (owner.contact_id && s.contact_id === owner.contact_id)
+                || (owner.id_number && s.id_number === owner.id_number)) || null;
+        },
+        sellerTicks: {},
+        // Default tick state (2026-08-19, per conductor ask — a deliberate call, not put to
+        // Johan): CONFIRMED deed owners (this listing's own linked deed) start TICKED — they are
+        // this property's actual registered owners, the same trust level deeds-capture's own
+        // promote already treats as auto-include with no ticking at all. UNVERIFIED candidate-deed
+        // owners start UNTICKED — the section's own copy already says "verify this is the same
+        // property before using," so ticking one must be a deliberate act, not an assumed default.
+        isOwnerTicked(owner, defaultTicked) {
+            const k = this.ownerKey(owner);
+            return k in this.sellerTicks ? this.sellerTicks[k] : defaultTicked;
+        },
+        toggleOwnerTick(owner, defaultTicked) {
+            const k = this.ownerKey(owner);
+            this.sellerTicks[k] = !this.isOwnerTicked(owner, defaultTicked);
+        },
+        // TVA number checkboxes default UNTICKED for every owner — exact mirror of deeds-capture's
+        // own item_ids[] checkboxes (no `checked` attribute there either), so ticking a phone/email
+        // number is always its own deliberate choice, independent of the owner-link decision.
+        tvaTicksForOwner: {},
+        isOwnerTvaTicked(idNumber, itemId) { return (this.tvaTicksForOwner[idNumber] || []).includes(itemId); },
+        toggleOwnerTvaTick(idNumber, itemId) {
+            if (!this.tvaTicksForOwner[idNumber]) this.tvaTicksForOwner[idNumber] = [];
+            const arr = this.tvaTicksForOwner[idNumber];
+            const i = arr.indexOf(itemId);
+            if (i >= 0) arr.splice(i, 1); else arr.push(itemId);
+        },
+        // Johan, verbatim (2026-08-19, real property, 4 owners, 3 found in TVA): "I need the tick...
+        // to be per seller... but we still link the seller to the property but update same on
+        // contact record." This is a STATE tick on the person, never a gate on the selection tick
+        // above — an owner can be selected AND flagged uncontactable at the same time; both submit
+        // together and the seller links regardless (enforced server-side too, see the controller).
+        //
+        // GATE OVERRIDE (2026-08-19, Johan, blocked mid-test): "Create & Continue" refuses to
+        // proceed while any linked seller is neither contactable nor flagged — this tick is HOW an
+        // agent satisfies that for a person TVA genuinely had nothing on. Two cases:
+        //  - Owner not yet linked: pure client-side intent, bundled into the next "Link ticked
+        //    sellers" submit (tickedOwnersPayload() below) — the controller writes the real
+        //    ContactDeadEndFlag in the SAME transaction as the link.
+        //  - Owner ALREADY linked (e.g. came in via "Link a deed", which links every current owner
+        //    server-side with no per-owner tick at all): there is no pending batch submit to bundle
+        //    into, so ticking here fires the SAME single-seller endpoint the green panel used to
+        //    (markSellerDeadEnd/clearSellerDeadEnd) immediately — same ContactDeadEndFlag row either
+        //    way, so "Create & Continue"'s sellersNeedingContact() (which re-reads that flag fresh
+        //    from the DB) sees the same fact regardless of which path set it.
+        ownerNoTvaTicks: {},
+        isOwnerNoTvaTicked(owner) {
+            const linked = this.findLinkedSeller(owner);
+            if (linked) return !!linked.dead_end;
+            return !!this.ownerNoTvaTicks[this.ownerKey(owner)];
+        },
+        async toggleOwnerNoTva(owner) {
+            const linked = this.findLinkedSeller(owner);
+            if (linked) {
+                if (linked.dead_end) { await this.clearSellerDeadEnd(linked.contact_id); }
+                else { await this.markSellerDeadEnd(linked.contact_id, 'not_in_tva'); }
+                return;
+            }
+            const k = this.ownerKey(owner);
+            this.ownerNoTvaTicks[k] = !this.ownerNoTvaTicks[k];
+        },
+        tickedOwnersPayload() {
+            const sellers = [];
+            const collect = (list, defaultTicked) => {
+                (list || []).forEach(o => {
+                    if (!this.isLinkableOwner(o) || !this.isOwnerTicked(o, defaultTicked)) return;
+                    const entry = o.contact_id ? { contact_id: o.contact_id }
+                        : o.is_entity ? { entity: true, entity_name: o.display_name || o.name, entity_reg_no: o.entity_reg_no || o.id_number || '' }
+                        : { first_name: o.first_name, last_name: o.last_name, id_number: o.id_number };
+                    if (o.id_number && (this.tvaTicksForOwner[o.id_number] || []).length) {
+                        entry.tva_item_ids = this.tvaTicksForOwner[o.id_number];
+                    }
+                    if (this.isOwnerNoTvaTicked(o)) {
+                        entry.no_tva_numbers = true;
+                    }
+                    sellers.push(entry);
+                });
+            };
+            collect(this.deed.owners, true);
+            (this.deed.candidates || []).forEach(cand => collect(cand.owners, false));
+            return sellers;
+        },
+        anyOwnerTicked() { return this.tickedOwnersPayload().length > 0; },
+        // Merge (2026-08-19) — the ONE status line for the merged "Owners & contact numbers"
+        // panel, replacing what used to be two separate messages (this panel's own
+        // deedRefreshMessage, and the standalone grey panel's message) that could read as
+        // disagreeing about the same four people. Counts against deed.owners — the CMA/deed's
+        // current owners, always current data, no past-owner handling needed here.
+        ownersSummary() {
+            const owners = this.deed.owners || [];
+            const total = owners.length;
+            if (total === 0) return 'No owners on this deed.';
+            let withNumbers = 0;
+            let marked = 0;
+            owners.forEach(o => {
+                const linked = this.findLinkedSeller(o);
+                if (linked) {
+                    if ((linked.phones || []).length || (linked.emails || []).length) withNumbers++;
+                    if (linked.dead_end) marked++;
+                } else if (this.isOwnerNoTvaTicked(o)) {
+                    marked++;
+                }
+            });
+            const parts = [total + ' owner' + (total === 1 ? '' : 's')];
+            if (withNumbers > 0) parts.push(withNumbers + ' with number' + (withNumbers === 1 ? '' : 's'));
+            if (marked > 0) parts.push(marked + ' marked no contact details');
+            return parts.join(' · ');
+        },
+        hasLinkableOwners() {
+            return (this.deed.owners || []).some(o => this.isLinkableOwner(o))
+                || (this.deed.candidates || []).some(c => (c.owners || []).some(o => this.isLinkableOwner(o)));
+        },
+        sellerBatchBusy: false,
+        sellerBatchMessage: null,
+        async linkTickedSellers() {
+            if (!this.linkSellersBatchUrl || this.sellerBusy) return;
+            const sellers = this.tickedOwnersPayload();
+            if (!sellers.length) return;
+            this.sellerBusy = true;
+            this.sellerBatchBusy = true;
+            this.sellerBatchMessage = null;
+            try {
+                const res = await fetch(this.linkSellersBatchUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify({ sellers }) });
+                if (res.ok) {
+                    const d = await res.json();
+                    this.sellerBatchMessage = d.batch_summary || null;
+                    this.applySellerState(d);
+                    this.sellerTicks = {};
+                    this.tvaTicksForOwner = {};
+                    this.ownerNoTvaTicks = {};
+                } else {
+                    const err = await res.json().catch(() => ({}));
+                    this.sellerBatchMessage = err.message || (err.errors && Object.values(err.errors).flat()[0]) || 'Could not link the ticked owners — nothing was linked.';
+                }
+            } catch (e) {
+                this.sellerBatchMessage = 'Could not link the ticked owners — a network error occurred. Please try again.';
+            } finally {
+                this.sellerBusy = false;
+                this.sellerBatchBusy = false;
+            }
+        },
         async unlinkDeed() {
             if (!this.unlinkDeedUrl || this.sellerBusy) return;
             if (!window.confirm('Unlink this deed? Its auto-linked sellers are removed and the address reverts. Manual sellers stay.')) return;
@@ -1063,8 +1234,6 @@ function composeSeller(config) {
                 if (res.ok) { this.applySellerState(await res.json()); this.refreshDeedMatch(); }
             } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
         },
-        noContactDetails: false,
-        deadEndReason: 'not_in_tva',
         contactTyped: config.contactTyped,
         hasTypedContact() {
             return !!((this.$refs.phone && this.$refs.phone.value.trim())
