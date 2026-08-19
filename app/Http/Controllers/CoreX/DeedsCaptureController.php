@@ -183,6 +183,20 @@ final class DeedsCaptureController extends Controller
                 : ['state' => 'not_promoted', 'property' => null, 'already' => false];
         }
 
+        // Owner-data build part 2 (Johan, 2026-08-19) — an open conflict
+        // (TrackedPropertyOwner::isOpenConflict()) is a scraped owner that
+        // disagreed with the owner already on file; never auto-resolved
+        // (reconcileOwners(), Api\DeedsCaptureController). Grouped by tp so
+        // the row can show the current owner and the conflicting one(s)
+        // side by side and let the agent decide.
+        $openConflictsByTp = [];
+        foreach ($captures as $tp) {
+            $conflicts = $tp->owners->filter(fn ($o) => $o->isOpenConflict())->values();
+            if ($conflicts->isNotEmpty()) {
+                $openConflictsByTp[$tp->id] = $conflicts;
+            }
+        }
+
         return view('corex.deeds-capture.index', [
             'captures'          => $captures,
             'tvaByProperty'     => $tvaByProperty,
@@ -190,6 +204,7 @@ final class DeedsCaptureController extends Controller
             'fieldChangesByTp'  => $fieldChangesByTp,
             'matchDecisionByTp' => $matchDecisionByTp,
             'stockStatusByTp'   => $stockStatusByTp,
+            'openConflictsByTp' => $openConflictsByTp,
         ]);
     }
 
@@ -230,6 +245,57 @@ final class DeedsCaptureController extends Controller
 
         return redirect()->route('corex.deeds-capture.index')
             ->with('success', 'Marked as not the same property. The deed now lives on its own record (tracked property #' . $result->id . ').');
+    }
+
+    /**
+     * §7.16 (Johan, 2026-08-19) — a scraped owner that conflicted with the
+     * owner already on file (TrackedPropertyOwner::isOpenConflict()) sits
+     * here until an agent decides which is right. NEVER automated — no
+     * "most recent wins", no auto-merge. Two outcomes:
+     *
+     *   use     — the scraped/conflicting owner was correct. It becomes the
+     *             record's owner (owner_contact_id + is_primary); the owner
+     *             it replaces is demoted (flagged, never deleted — its own
+     *             data is untouched, .ai/specs non-negotiable #1).
+     *   dismiss — the owner already on file was correct. The scraped owner's
+     *             row stays exactly as captured (never deleted), just marked
+     *             resolved so it stops presenting as an open conflict.
+     */
+    public function resolveOwnerConflict(Request $request, TrackedProperty $trackedProperty, \App\Models\Prospecting\TrackedPropertyOwner $trackedPropertyOwner)
+    {
+        $user = $request->user();
+        $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
+        abort_if($agencyId === null || (int) $trackedProperty->agency_id !== (int) $agencyId, 404);
+        abort_if((int) $trackedPropertyOwner->tracked_property_id !== (int) $trackedProperty->id, 404);
+
+        $data = $request->validate([
+            'decision' => 'required|in:use,dismiss',
+        ]);
+
+        if (!$trackedPropertyOwner->isOpenConflict()) {
+            return back()->with('info', 'That was already resolved.');
+        }
+
+        if ($data['decision'] === 'dismiss') {
+            $trackedPropertyOwner->conflict_resolved_at = now();
+            $trackedPropertyOwner->save();
+
+            return back()->with('success', 'Kept the current owner. The other name is still on file if you need it.');
+        }
+
+        \App\Models\Prospecting\TrackedPropertyOwner::where('tracked_property_id', $trackedProperty->id)
+            ->whereNull('conflict_flagged_at')
+            ->update(['is_primary' => false, 'conflict_flagged_at' => now()]);
+
+        $trackedPropertyOwner->conflict_flagged_at = null;
+        $trackedPropertyOwner->conflict_resolved_at = null;
+        $trackedPropertyOwner->is_primary = true;
+        $trackedPropertyOwner->save();
+
+        $trackedProperty->owner_contact_id = $trackedPropertyOwner->contact_id;
+        $trackedProperty->save();
+
+        return back()->with('success', 'Updated the owner to ' . trim((string) $trackedPropertyOwner->name) . '.');
     }
 
     /**

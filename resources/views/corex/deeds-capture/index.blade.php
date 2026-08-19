@@ -84,7 +84,13 @@
                     }
 
                     $owner = $tp->ownerContact;
-                    $owners = $tp->owners; // multi-owner (2026-08-12) — falls back to $owner below for pre-migration captures
+                    // Owner-data build part 2 (Johan, 2026-08-19) — an open conflict
+                    // (a scraped owner that disagreed with the one already on file,
+                    // App\Http\Controllers\Api\DeedsCaptureController::reconcileOwners())
+                    // is not yet a confirmed owner and must never render in the normal
+                    // Owner(s) list as if it were one; it gets its own comparison box below.
+                    $owners = $tp->owners->reject(fn ($o) => $o->isOpenConflict())->values(); // multi-owner (2026-08-12) — falls back to $owner below for pre-migration captures
+                    $openConflicts = $openConflictsByTp[$tp->id] ?? collect();
 
                     // 2026-08-19 (Johan, .ai/specs/deeds-capture.md §6 Part B) — what THIS
                     // capture actually did to this property, not just that it did something.
@@ -447,6 +453,71 @@
                                                 @if($pastRow->ownership_share_pct !== null) · {{ rtrim(rtrim(number_format((float) $pastRow->ownership_share_pct, 4), '0'), '.') }}%@endif
                                             </div>
                                         @endif
+                                    </div>
+                                @endforeach
+                            </div>
+                        @endif
+
+                        {{-- Owner disagreement (owner-data build part 2, Johan 2026-08-19) —
+                             "if the owner information varies, the agent needs to inspect and
+                             see which is broken... this needs to be an active choice." Never
+                             auto-merged (Api\DeedsCaptureController::reconcileOwners()); shown
+                             independently of the "No — different property" control above, since
+                             the property match can be right even when the owner disagrees. --}}
+                        @if($openConflicts->isNotEmpty())
+                            <div class="min-w-0 basis-full rounded-md p-3" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 35%, transparent);">
+                                @foreach($openConflicts as $conflict)
+                                    <div @if(!$loop->first) class="mt-3 pt-3" style="border-top:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent);" @endif>
+                                        <div class="text-sm font-semibold" style="color: var(--text-primary);">
+                                            The latest capture found a different owner. Which one is right?
+                                        </div>
+                                        <div class="mt-2 grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));">
+                                            <div>
+                                                <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">On your books</div>
+                                                @forelse($ownerRows as $currentRow)
+                                                    <div class="text-sm font-semibold" style="color: var(--text-primary);">
+                                                        {{ $currentRow->contact ? trim($currentRow->contact->first_name . ' ' . (string) $currentRow->contact->last_name) : ($currentRow->name ?? 'Unnamed owner') }}
+                                                    </div>
+                                                    <div class="text-xs" style="color: var(--text-muted);">
+                                                        {{ $currentRow->id_number ? ($ownerIdLabel($currentRow) . ': ' . $currentRow->id_number) : 'No owner ID' }}
+                                                    </div>
+                                                @empty
+                                                    <div class="text-sm" style="color: var(--text-muted);">No owner on file yet.</div>
+                                                @endforelse
+                                                <form method="POST" action="{{ route('corex.deeds-capture.owner-conflict.resolve', [$tp->id, $conflict->id]) }}" class="mt-1.5"
+                                                      onsubmit="return confirm('Keep the owner already on your books, and leave the other name on file unused?');">
+                                                    @csrf
+                                                    <input type="hidden" name="decision" value="dismiss">
+                                                    <button type="submit" class="text-xs font-semibold px-2.5 py-1 rounded"
+                                                            style="background: transparent; color: var(--text-primary); border: 1px solid var(--border);">
+                                                        Keep this owner
+                                                    </button>
+                                                </form>
+                                            </div>
+                                            <div>
+                                                <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">
+                                                    From the latest capture
+                                                    @if($conflict->created_at && $ownerRows->isNotEmpty() && $ownerRows->first()->created_at && $conflict->created_at->gt($ownerRows->first()->created_at))
+                                                        <span style="color: var(--ds-amber, #f59e0b);">· more recent</span>
+                                                    @endif
+                                                </div>
+                                                <div class="text-sm font-semibold" style="color: var(--text-primary);">
+                                                    {{ $conflict->contact ? trim($conflict->contact->first_name . ' ' . (string) $conflict->contact->last_name) : ($conflict->name ?? 'Unnamed owner') }}
+                                                </div>
+                                                <div class="text-xs" style="color: var(--text-muted);">
+                                                    {{ $conflict->id_number ? ($ownerIdLabel($conflict) . ': ' . $conflict->id_number) : 'No owner ID' }}
+                                                </div>
+                                                <form method="POST" action="{{ route('corex.deeds-capture.owner-conflict.resolve', [$tp->id, $conflict->id]) }}" class="mt-1.5"
+                                                      onsubmit="return confirm({{ Js::from('Update the owner to ' . trim((string) ($conflict->contact ? trim($conflict->contact->first_name . ' ' . (string) $conflict->contact->last_name) : $conflict->name)) . '?') }});">
+                                                    @csrf
+                                                    <input type="hidden" name="decision" value="use">
+                                                    <button type="submit" class="text-xs font-semibold px-2.5 py-1 rounded"
+                                                            style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color: color-mix(in srgb, var(--ds-amber, #f59e0b) 70%, black); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 45%, transparent);">
+                                                        Use this owner instead
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </div>
                                     </div>
                                 @endforeach
                             </div>

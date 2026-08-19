@@ -28,12 +28,14 @@ final class TrackedPropertyOwner extends Model
         'deed_reference',
         'ownership_status',
         'conflict_flagged_at',
+        'conflict_resolved_at',
     ];
 
     protected $casts = [
-        'is_primary'          => 'boolean',
-        'ownership_share_pct' => 'float',
-        'conflict_flagged_at' => 'datetime',
+        'is_primary'           => 'boolean',
+        'ownership_share_pct'  => 'float',
+        'conflict_flagged_at'  => 'datetime',
+        'conflict_resolved_at' => 'datetime',
     ];
 
     /** Owner-row roles on a deed capture. */
@@ -49,6 +51,12 @@ final class TrackedPropertyOwner extends Model
     public function isConflictCandidate(): bool
     {
         return $this->conflict_flagged_at !== null;
+    }
+
+    /** An open conflict is flagged but not yet resolved — still awaiting an agent's decision. */
+    public function isOpenConflict(): bool
+    {
+        return $this->conflict_flagged_at !== null && $this->conflict_resolved_at === null;
     }
 
     /**
