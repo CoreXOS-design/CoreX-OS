@@ -343,16 +343,6 @@ final class EntryPointController extends Controller
                 'removed'          => $sellerState['removed'] ?? [],
                 'contactTyped'     => (trim((string) old('phone', '')) !== '' || trim((string) old('email', '')) !== ''),
             ],
-            // Feature 1 (2026-08-19) — explicit "Refresh" control near the owner list.
-            // No timer, no auto-linking: the agent presses this after running TVA and it
-            // pulls in whatever landed. Reuses the same read-only poll endpoint (deedPollUrl)
-            // the rest of this screen already uses; only 'sellers' from its response is
-            // consumed here. Built controller-side, passed as one data-only config via
-            // Js::from() in the view — no JS object literal in any Blade attribute.
-            'ownersRefreshConfig' => [
-                'refreshUrl' => $deedPollUrl,
-                'owners'     => $sellerState['sellers'] ?? [],
-            ],
         ]);
     }
 
