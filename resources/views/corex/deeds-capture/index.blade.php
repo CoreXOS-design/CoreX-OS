@@ -129,100 +129,124 @@
                     $matchDecisionSourceRef = null;
                     if ($matchDecision) {
                         $matchDecisionSourceRef = substr($matchDecision->subject_key, strlen($matchDecision->subject_type) + 1);
+                    } else {
+                        // 2026-08-19 (Johan's screen read) — a row can be "already
+                        // tracked" with no PropertyMatchDecision on file at all: it
+                        // was matched before this feature existed (tracked property
+                        // #468 itself is exactly this case). The reject endpoint
+                        // still needs the source ref to act on — read it straight
+                        // off the TP's own source_chain rather than leave the
+                        // control dead on precisely the row this was built for.
+                        foreach (($tp->source_chain ?? []) as $entry) {
+                            if (($entry['type'] ?? null) === 'deeds_capture' && !empty($entry['ref'])) {
+                                $matchDecisionSourceRef = $entry['ref'];
+                            }
+                        }
                     }
 
                     // Johan (2026-08-19), after seeing the screen: "how does an
                     // agent know this is stock or not?" CX-101's own definition
                     // (Property::isOnMarket()/isStaleStock()), never a second one.
                     $stockStatus = $stockStatusByTp[$tp->id] ?? ['state' => 'not_promoted', 'property' => null];
+
+                    // Johan, verbatim, after looking at his own screen: "how does
+                    // an agent know this is stock or not, not rocket scientists...
+                    // never two chips that say opposite things, one status, one
+                    // sentence." ONE unified plain sentence per row, computed once
+                    // here — no chips, no ids, no "tracked"/"enriched"/"fields",
+                    // every word an agent would actually say.
+                    $isAlreadyTracked = $tp->capture_kind !== 'deeds_capture';
+                    if (!$isAlreadyTracked) {
+                        $rowStatusLine = "New to us — we don't have this property yet.";
+                        $rowWhyLine = null;
+                        $rowConfirmName = $headline !== '' ? $headline : 'this property';
+                    } elseif ($stockStatus['state'] === 'live') {
+                        $matchedAddress = $stockStatus['property']->address ?: 'a property already on your books';
+                        $rowStatusLine = 'We think this is the same as ' . $matchedAddress
+                            . ' — currently on the market with ' . ($stockStatus['property']->agent->name ?? 'one of your agents') . '.';
+                        $rowWhyLine = $matchDecision->reason ?? null;
+                        $rowConfirmName = $matchedAddress;
+                    } elseif ($stockStatus['state'] === 'stale') {
+                        $matchedAddress = $stockStatus['property']->address ?: 'a property already on your books';
+                        $lastWorked = $stockStatus['property']->last_activity_at ?? $stockStatus['property']->updated_at;
+                        $rowStatusLine = 'We think this is the same as ' . $matchedAddress
+                            . ' — not on the market, last worked ' . ($lastWorked ? \Illuminate\Support\Carbon::parse($lastWorked)->diffForHumans() : 'a while ago') . '.';
+                        $rowWhyLine = $matchDecision->reason ?? null;
+                        $rowConfirmName = $matchedAddress;
+                    } else {
+                        // already tracked, but no existing live property match found —
+                        // still a genuine match worth confirming (this is #468's own
+                        // case), just not yet real agency stock. The system is not
+                        // UNCERTAIN whether it matches here — it matched — the gap
+                        // (for rows from before this feature existed) is only that
+                        // the reason was never recorded, so say that plainly rather
+                        // than inventing doubt that was never there.
+                        $rowStatusLine = 'We think this matches a property already in our system — not yet added to your books.';
+                        $rowWhyLine = $matchDecision->reason ?? 'Not recorded — this was matched before we started keeping track of why.';
+                        $rowConfirmName = $headline !== '' ? $headline : 'this property';
+                    }
                 @endphp
                 <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
                     <div class="flex flex-wrap items-start justify-between gap-4">
                         {{-- Property --}}
                         <div class="min-w-0 flex-1">
                             <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">Property</div>
-                            <div class="font-semibold text-sm flex items-center gap-2 flex-wrap" style="color: var(--text-primary);">
-                                {{ $headline !== '' ? $headline : ('Tracked property #' . $tp->id) }}
-                                {{-- DEEDS BUG 1 fix (2026-08-19) — this row is showing on the
-                                     deeds_captured_at marker, not because it's classified as a
-                                     deeds capture (capture_kind='deeds_capture'). It's an EXISTING
-                                     record (a prospecting/P24 lead, or a scheme unit already
-                                     tracked) that a deeds capture just landed on — flag it rather
-                                     than let it look identical to a brand-new deeds capture. --}}
-                                @if($tp->capture_kind !== 'deeds_capture')
-                                    {{-- Johan (2026-08-19): "the badge must carry the property
-                                         it is talking about" — the badge itself IS the record
-                                         this deed matched/enriched (this same $tp), so name it
-                                         by id and make it openable rather than an anonymous
-                                         status word. new tab — an agent reviewing this list
-                                         must not lose their place to go check it. --}}
+                            <div class="font-semibold text-sm" style="color: var(--text-primary);">
+                                {{ $headline !== '' ? $headline : 'This property' }}
+                            </div>
+
+                            {{-- Johan, after reading his own screen: "at what stage are you
+                                 going to understand that we are working with agents, not
+                                 rocket scientists?" ONE sentence, agent language, never a
+                                 second contradicting chip. No ids anywhere — the "view" link
+                                 opens the record without ever printing its number. --}}
+                            <div class="text-sm mt-1.5" style="color: var(--text-primary);">
+                                {{ $rowStatusLine }}
+                                @if($isAlreadyTracked)
                                     <a href="{{ route('corex.tracked-properties.show', $tp->id) }}"
-                                       target="_blank" rel="noopener"
-                                       class="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded no-underline"
-                                       style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 18%, transparent); color: var(--ds-amber, #f59e0b); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 40%, transparent);"
-                                       title="This deed matched a property already tracked from another source (tracked property #{{ $tp->id }}) — the deed enriched it rather than creating a new record. Click to open it.">
-                                        Already tracked · #{{ $tp->id }} — open →
+                                       target="_blank" rel="noopener" class="font-semibold no-underline"
+                                       style="color: var(--brand-icon, #2563eb);"
+                                       title="Opens in a new tab — you won't lose your place in this list.">
+                                        View →
                                     </a>
                                 @endif
                             </div>
+                            @if($rowWhyLine)
+                                <div class="text-xs mt-0.5" style="color: var(--text-muted);">
+                                    Why: {{ $rowWhyLine }}
+                                </div>
+                            @endif
 
-                            {{-- Johan (2026-08-19): "SHOW ITS STOCK STATUS ... so the agent
-                                 knows what they are walking into before they press Promote."
-                                 CX-101's own live/stale rule (Property::isOnMarket()/
-                                 isStaleStock(), 074b4bfaf) — consumed, not re-derived.
-                                 Every row here has promoted_to_property_id NULL by
-                                 construction (this screen excludes anything already
-                                 promoted), so 'already' is effectively always false —
-                                 the wording below previews what PROMOTING would do,
-                                 using the exact same match rule promoteToStock() itself
-                                 runs (previewPropertyMatch()), not a guess. --}}
-                            <div class="text-xs mt-1.5 flex items-center gap-1.5 flex-wrap">
-                                @if($stockStatus['state'] === 'live')
-                                    <span class="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-green, #16a34a) 16%, transparent); color: var(--ds-green, #16a34a); border: 1px solid color-mix(in srgb, var(--ds-green, #16a34a) 40%, transparent);">Live stock</span>
-                                    <span style="color: var(--text-muted);">{{ $stockStatus['already'] ? 'already on your books and on-market —' : 'promoting will merge into your LIVE, on-market stock —' }}</span>
-                                    <a href="{{ route('corex.properties.show', $stockStatus['property']->id) }}" target="_blank" rel="noopener" class="font-semibold" style="color: var(--brand-icon, #2563eb);">open property #{{ $stockStatus['property']->id }} →</a>
-                                @elseif($stockStatus['state'] === 'stale')
-                                    <span class="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 16%, transparent); color: var(--ds-amber, #f59e0b); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 40%, transparent);">Stale stock — dormant</span>
-                                    <span style="color: var(--text-muted);">{{ $stockStatus['already'] ? 'on your books, but off-market or not worked in over a week —' : 'promoting will merge into DORMANT stock (off-market or untouched a week+) —' }}</span>
-                                    <a href="{{ route('corex.properties.show', $stockStatus['property']->id) }}" target="_blank" rel="noopener" class="font-semibold" style="color: var(--brand-icon, #2563eb);">open property #{{ $stockStatus['property']->id }} →</a>
-                                @elseif($stockStatus['state'] === 'unknown')
-                                    <span class="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded" style="background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);">Stock status unknown</span>
-                                    <span style="color: var(--text-muted);">was promoted to a property that no longer resolves — worth checking.</span>
-                                @else
-                                    <span class="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded" style="background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);">Not yet on your books</span>
-                                    <span style="color: var(--text-muted);">promoting will create a brand-new property record.</span>
-                                @endif
-                            </div>
-
-                            {{-- CX-102 part 2 (2026-08-19, Johan) — "the system must show its
-                                 working and let the agent overrule it." The reason is read
-                                 straight off the decision recorded at match time, never
-                                 recomputed here. --}}
-                            @if($matchDecision)
-                                <div class="rounded p-2 mt-2 text-xs" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-secondary);">
-                                    <div>
-                                        <strong style="color: var(--text-primary);">Matched because:</strong>
-                                        {{ $matchDecision->reason }}
-                                    </div>
-                                    <details class="mt-1.5">
-                                        <summary class="cursor-pointer font-semibold" style="color: var(--ds-amber, #f59e0b);">
-                                            Not the same property?
-                                        </summary>
+                            {{-- "Two clear controls" (Johan) — the primary confirm lives in the
+                                 Action column on the right (relabelled below to say what it
+                                 does); this is its pair: a real, always-visible button, not a
+                                 question hidden under a summary. Clicking it reveals the
+                                 optional candidate picker + reason before the actual submit,
+                                 same toggle pattern already used for "what this capture found"
+                                 further down this same file. --}}
+                            @if($isAlreadyTracked)
+                                <div class="mt-2" x-data="{ open: false }">
+                                    <button type="button" @click="open = !open"
+                                            class="text-xs font-semibold px-2.5 py-1 rounded"
+                                            style="background: transparent; color: var(--ds-crimson, #dc2626); border: 1px solid color-mix(in srgb, var(--ds-crimson, #dc2626) 40%, transparent);">
+                                        No — different property
+                                    </button>
+                                    <div x-show="open" x-cloak class="mt-2 space-y-2" style="max-width: 26rem;">
                                         <form method="POST"
                                               action="{{ route('corex.deeds-capture.reject-match', $tp->id) }}"
-                                              class="mt-2 space-y-2"
-                                              onsubmit="return confirm('Break this link? The deed will move to its own record (or the one you pick below) — nothing is deleted.');">
+                                              class="space-y-2"
+                                              onsubmit="return confirm('This will stop treating this deed as that property. It will get its own record instead — nothing is deleted.');">
                                             @csrf
-                                            <input type="hidden" name="source_type" value="{{ $matchDecision->subject_type }}">
+                                            <input type="hidden" name="source_type" value="deeds_capture">
                                             <input type="hidden" name="source_ref" value="{{ $matchDecisionSourceRef }}">
 
-                                            @if(!empty($matchDecision->candidates) && count($matchDecision->candidates) > 1)
+                                            @if($matchDecision && !empty($matchDecision->candidates) && count($matchDecision->candidates) > 1)
                                                 <div>
                                                     <label class="block text-[11px] font-semibold mb-1" style="color: var(--text-muted);">
-                                                        More than one property was possible — pick the right one, or leave as "none of these" to give the deed its own record:
+                                                        More than one property looked possible — pick the right one, or leave this as "none of these":
                                                     </label>
                                                     <select name="replacement_tracked_property_id" class="w-full rounded text-xs px-2 py-1.5" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                                        <option value="">None of these — this is a different, unlisted property</option>
+                                                        <option value="">None of these — give it its own record</option>
                                                         @foreach($matchDecision->candidates as $candidate)
                                                             @if((int) $candidate['id'] !== (int) $tp->id)
                                                                 <option value="{{ $candidate['id'] }}">{{ $candidate['label'] }}</option>
@@ -241,10 +265,10 @@
                                             <button type="submit"
                                                     class="text-xs font-semibold px-3 py-1.5 rounded"
                                                     style="background: color-mix(in srgb, var(--ds-crimson, #dc2626) 12%, transparent); color: var(--ds-crimson, #dc2626); border: 1px solid color-mix(in srgb, var(--ds-crimson, #dc2626) 35%, transparent);">
-                                                Not the same property
+                                                Confirm — different property
                                             </button>
                                         </form>
-                                    </details>
+                                    </div>
                                 </div>
                             @endif
 
@@ -437,11 +461,15 @@
                                  block's checkboxes below (via the HTML5 form="" attribute — those
                                  inputs are NOT inside this <form> tag in the DOM, they submit into
                                  it anyway), so one click carries both writes. --}}
+                            {{-- Johan, after reading his own screen: "every button says what it
+                                 will DO." Same action as always (promote()) — the label now
+                                 names what actually happens instead of "Promote to property +
+                                 contact", which meant nothing to an agent. --}}
                             <form id="promote-form-{{ $tp->id }}" method="POST" action="{{ route('corex.deeds-capture.promote', $tp->id) }}"
-                                  onsubmit="return confirm('Create a property from this deeds capture and link the owner? Any ticked contact numbers below will be added too.');">
+                                  onsubmit="return confirm({{ Js::from($isAlreadyTracked ? 'Update ' . $rowConfirmName . ' with these details and link the owner? Any ticked contact numbers below will be added too.' : 'Add this as a new property and link the owner? Any ticked contact numbers below will be added too.') }});">
                                 @csrf
                                 <button type="submit" class="text-xs font-semibold px-4 py-2 rounded-md text-white" style="background: var(--brand-button, #0ea5e9);">
-                                    Promote to property + contact
+                                    {{ $isAlreadyTracked ? ('Confirm and update ' . $rowConfirmName) : 'Add as a new property' }}
                                 </button>
                             </form>
                             {{-- Remove (2026-08-13) — soft delete, reversible; wrong details / duplicates. --}}
@@ -482,11 +510,19 @@
                             $filledCount = count($deedsChanges['filled']);
                             $replacedCount = count($deedsChanges['replaced']);
                             $clearedCount = count($deedsChanges['cleared'] ?? []);
-                            $summaryParts = array_filter([
-                                $filledCount > 0 ? ($filledCount . ' field' . ($filledCount === 1 ? '' : 's') . ' updated') : null,
-                                $replacedCount > 0 ? ($replacedCount . ' replaced') : null,
-                                $clearedCount > 0 ? ($clearedCount . ' cleared') : null,
+                            // Johan, after reading his own screen: kill "Enriched", kill
+                            // "field(s)", kill the "correction" chip — say it in one plain
+                            // sentence, in words an agent uses (a detail, not a field). This
+                            // already happened at capture time (deferring that write is a
+                            // separate, not-yet-built change) — so this is a report, not a
+                            // promise, and says so honestly rather than pretending it's still
+                            // pending confirmation.
+                            $whatChangedParts = array_filter([
+                                $filledCount > 0 ? ($filledCount . ' new detail' . ($filledCount === 1 ? '' : 's')) : null,
+                                $replacedCount > 0 ? ($replacedCount . ' that replaced something different' . ($replacedCount === 1 ? '' : 'ly')) : null,
+                                $clearedCount > 0 ? ($clearedCount . ' cleared' . ($clearedCount === 1 ? '' : ' out')) : null,
                             ]);
+                            $whatChangedSummary = 'We already added ' . implode(', ', $whatChangedParts) . ' on this record.';
                         @endphp
                         <div class="mt-3" x-data="{ open: false }">
                             <button type="button" @click="open = !open"
@@ -497,15 +533,8 @@
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487 18.549 2.8a2.121 2.121 0 1 1 3 3l-1.687 1.688m-3-3-9.193 9.193a3 3 0 0 0-.8 1.36l-.812 3.153a.75.75 0 0 0 .91.91l3.153-.812a3 3 0 0 0 1.36-.8l9.193-9.193m-3-3 3 3"/>
                                     </svg>
                                     <span class="text-sm font-semibold" style="color: var(--text-primary);">
-                                        Enriched — {{ implode(', ', $summaryParts) }}
+                                        {{ $whatChangedSummary }}
                                     </span>
-                                    @if($replacedCount > 0)
-                                        <span class="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded"
-                                              style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 18%, transparent); color: var(--ds-amber, #f59e0b); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 40%, transparent);"
-                                              title="This capture corrected a value that was already there — the old value is shown below.">
-                                            correction
-                                        </span>
-                                    @endif
                                 </span>
                                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 transition-transform flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color: var(--text-muted);" :class="open ? 'rotate-180' : ''">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/>
