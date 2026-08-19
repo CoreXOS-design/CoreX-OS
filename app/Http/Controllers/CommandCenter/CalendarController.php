@@ -2442,9 +2442,25 @@ class CalendarController extends Controller
         // re-excluded right back out here, and the SQL-level fix does
         // nothing end to end. One query (not per-row), only when scope
         // actually needs it.
+        //
+        // 2026-08-19 (cc6/Johan follow-up) — AT-267 identity fix. This whole
+        // method still compared against bare $user->id / $user->branch_id,
+        // never dataIdentityIds() / effectiveBranchId(), unlike
+        // scopeVisibleTo() (fixed earlier the same day). scopeVisibleTo()'s
+        // SQL widened the result set for an assistant (their agent's own
+        // events) and for a branch-switched multi-branch admin, but this
+        // in-memory re-filter then silently threw those rows straight back
+        // out — the SQL-level widening did nothing end to end. Pure
+        // widening: $identityIds is [$user->id] for any non-assistant and
+        // effectiveBranchId() equals $user->branch_id for anyone who has
+        // never used the branch switcher, so nobody who could see something
+        // before sees less now.
+        $identityIds = $user->dataIdentityIds();
+        $effectiveBranchId = $user->effectiveBranchId();
+
         $invitedEventIds = in_array($scope, ['own', 'branch'], true)
             ? DB::table('calendar_event_invitations')
-                ->where('invitee_user_id', $user->id)
+                ->whereIn('invitee_user_id', $identityIds)
                 ->whereIn('status', ['pending', 'accepted', 'tentative'])
                 ->pluck('event_id')
                 ->all()
@@ -2456,10 +2472,10 @@ class CalendarController extends Controller
             // No explicit category filter → suppress birthdays/anniversaries by default.
             ->when(empty($categoryFilter), fn ($c) => $c->whereNotIn('category', self::HIDDEN_BY_DEFAULT_CATEGORIES))
             ->when($scope === 'own', fn ($c) => $c->filter(
-                fn ($e) => (int) $e->user_id === (int) $user->id || in_array($e->id, $invitedEventIds, true)
+                fn ($e) => in_array((int) $e->user_id, $identityIds, true) || in_array($e->id, $invitedEventIds, true)
             )->values())
-            ->when($scope === 'branch' && $user->branch_id, fn ($c) => $c->filter(
-                fn ($e) => (int) $e->branch_id === (int) $user->branch_id || in_array($e->id, $invitedEventIds, true)
+            ->when($scope === 'branch' && $effectiveBranchId, fn ($c) => $c->filter(
+                fn ($e) => (int) $e->branch_id === $effectiveBranchId || in_array($e->id, $invitedEventIds, true)
             )->values());
 
         $visible = $this->visibilityResolver->filterVisible($filtered, $user);
@@ -2472,7 +2488,7 @@ class CalendarController extends Controller
         $eventIds = $result->pluck('id')->toArray();
         if (!empty($eventIds)) {
             $invitationStatuses = DB::table('calendar_event_invitations')
-                ->where('invitee_user_id', $user->id)
+                ->whereIn('invitee_user_id', $identityIds)
                 ->whereIn('event_id', $eventIds)
                 ->pluck('status', 'event_id');
             foreach ($result as $event) {
