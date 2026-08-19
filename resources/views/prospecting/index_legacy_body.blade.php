@@ -494,7 +494,10 @@
                                             ⚠ View pitch
                                         </a>
                                     @else
-                                        <a href="{{ route('seller-outreach.entry.from-prospecting', $listing->id) }}"
+                                        {{-- fresh=1 (2026-08-19) — see _slideover-header.blade.php's comment on
+                                             the same param: marks a genuine fresh entry so collision detection
+                                             runs once, not on every later reload. --}}
+                                        <a href="{{ route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $listing->id, 'fresh' => 1]) }}"
                                            class="inline-flex items-center gap-1 text-[0.625rem] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded no-underline"
                                            style="background: color-mix(in srgb, #00d4aa 18%, transparent); color: #00d4aa; border: 1px solid color-mix(in srgb, #00d4aa 35%, transparent);"
                                            title="Capture the seller's contact and compose a pitch about this property">

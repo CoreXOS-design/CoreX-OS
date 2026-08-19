@@ -191,13 +191,38 @@ final class EntryPointController extends Controller
             return redirect()->route('corex.properties.show', ['property' => (int) $listing->matched_property_id]);
         }
 
+        // Ejection-on-reload fix (2026-08-19, Johan — real incident: listing 2103,
+        // "38 Lagoon"). resolveCollisionForListing() below exists to protect the
+        // ONE moment an agent freshly opens this screen from MIC's "Pitch" button —
+        // it was NEVER meant to police every later reload of a screen the agent is
+        // already working. It re-derives the match fresh on every call, so if a
+        // matching property comes into existence WHILE the agent is mid-review (he
+        // captured 4 deed sellers + ran TVA, creating exactly such a property), a
+        // plain browser refresh silently redirected him to it — before the seller/
+        // TVA section of this same view ever rendered. Numbers existed; he just
+        // never reached the code that shows them.
+        //
+        // Fix: only run collision detection when this request is a FRESH entry from
+        // MIC's Pitch button, signalled by a `fresh=1` query param on that link
+        // (_slideover-header.blade.php, index_legacy_body.blade.php). A browser
+        // refresh repeats the exact same URL including its query string, so the
+        // signal is request-local and can't go stale across tabs the way a session
+        // flag could. On a genuine fresh entry that clears collision, this method
+        // redirects to the SAME route with the param stripped (line further down) —
+        // a classic Post/Redirect/Get landing on a clean URL — so any later refresh
+        // of that clean URL deterministically skips collision detection. The
+        // duplicate-prevention guard itself is UNCHANGED for the case it exists for.
+        $isFreshEntry = $request->query('fresh') === '1';
+
         // A.3.4 — prospect-collision detection. Before the temp-lock fires
         // (which would tie up the listing for the next 30 minutes), check
         // whether HFC already has a relationship to this address. The same
         // service drives the map's Portal Stock Prospect Now flow.
-        $collision = $this->resolveCollisionForListing($listing, $agencyId, (int) $request->user()->id);
-        if ($collision !== null) {
-            return $collision;
+        if ($isFreshEntry) {
+            $collision = $this->resolveCollisionForListing($listing, $agencyId, (int) $request->user()->id);
+            if ($collision !== null) {
+                return $collision;
+            }
         }
 
         // Temp lock: prevent two agents from pitching the same listing concurrently.
@@ -234,6 +259,16 @@ final class EntryPointController extends Controller
             return redirect()
                 ->route('market-intelligence.work')
                 ->with('error', "⏳ {$ownerName} has already claimed this listing. Coordinate with them before pitching.");
+        }
+
+        // PRG landing (2026-08-19) — a fresh entry that cleared collision detection
+        // above lands on the SAME route with `fresh` stripped, so a later browser
+        // refresh of the resulting URL deterministically skips it (see the note at
+        // the top of this method). Locks/claim just acquired above are durable and
+        // idempotent for this same agent, so re-running them on the follow-up
+        // request costs nothing.
+        if ($isFreshEntry) {
+            return redirect()->route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $prospectingListingId]);
         }
 
         // MIC ↔ Deeds ↔ Contact loop (Part A) — surface the deed the agent scraped. If a deeds
