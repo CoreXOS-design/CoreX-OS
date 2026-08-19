@@ -350,6 +350,11 @@ class AppServiceProvider extends ServiceProvider
         //     granted/registered deal is auto-declined on save (captured, never lost;
         //     audited). Chokepoint for EVERY creation path — DR2 capture, twin, API.
         Event::listen(\App\Events\Deal\DealCreated::class,       \App\Listeners\Deal\AutoDeclineNewDealOnCommittedProperty::class);
+        // (g) DealCommissionFinalised → auto-create the CommissionLedger entry the
+        //     cap/revenue-share Commission Engine has needed since it was built —
+        //     commission_engine_spec.md §13's unbuilt integration point
+        //     (.ai/atlas/deals-commission.md §8.1 "System C ... orphaned").
+        Event::listen(\App\Events\Deal\DealCommissionFinalised::class, \App\Listeners\Deal\GenerateCommissionLedgerEntries::class);
 
         // ─────────────────────────────────────────────────────────────────
         // MIC Phase A3 — log every activity-relevant domain event to

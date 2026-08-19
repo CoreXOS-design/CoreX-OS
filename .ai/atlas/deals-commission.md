@@ -1,6 +1,6 @@
 # Atlas — Deal Register / Commission
 
-> **Status: DONE** · Last verified: 2026-06-22
+> **Status: DONE** · Last verified: 2026-08-19
 > Pillar: **Deal** (× Property, Contact, Agent). Companion specs: `.ai/specs/deals.md` (stub),
 > `.ai/specs/deal-register-v2-spec.md`, `.ai/specs/commission_engine_spec.md`,
 > `.ai/specs/VS_CODE_Commission_Phase1.md`. **This doc separates BUILT from BACKLOG/V2 explicitly.**
@@ -13,11 +13,12 @@
 |--------|--------|------|
 | **A — Deal Register V1** | **BUILT, live, primary money path** | `Deal` + `Admin\DealController` settlement engine + `deal_money_lines` |
 | **B — Deals V2 pipeline** | **BUILT but parallel/new** | `DealV2` + configurable pipeline templates/steps (spec: runs "alongside V1", V1 untouched) |
-| **C — Commission / Revenue-Share / Cap engine** | **BUILT tables+service, ORPHANED → effectively backlog** | `CommissionLedger` + `CommissionCalculationService` — **never invoked from any live flow** |
+| **C — Commission / Revenue-Share / Cap engine** | **BUILT, WIRED 2026-08-19** | `CommissionLedger` + `CommissionCalculationService`, now auto-created via `GenerateCommissionLedgerEntries` on `DealCommissionFinalised` |
 
 A deal records a transaction (sale), its parties, sale price, commission split, and settlement (who gets
 paid what, net of PAYE/deductions). V1 is the live money path; V2 is a newer configurable pipeline; the
-cap/revenue-share engine exists but is not wired to deal completion.
+cap/revenue-share engine now generates its ledger from V1 deal completion (V2 completion is NOT yet wired —
+see §8).
 
 ---
 
@@ -118,13 +119,26 @@ PAYE fixed or `gross × paye%` `:716-720`; `net = gross − paye − deductions`
 co-agents = multiple rows per side.** The 5–7.5% rate is **not enforced** — `total_commission` is captured
 manually. Computed → `deal_money_lines` via `Services/DealMoneyLineRebuilder.php`.
 
-### (b) Cap / revenue-share engine — BUILT (tables+service) but ORPHANED → BACKLOG
+### (b) Cap / revenue-share engine — BUILT + WIRED (2026-08-19)
 `app/Services/CommissionCalculationService.php`: `calculateDealCommission()` `:20` (cap, mentor fee, risk
 fee, post-cap transaction fee, revenue-share pool), `distributeRevenueShare()` `:172`, 7-tier sponsor walk
-`getSponsorChain()` `:233`. **CRITICAL GAP:** grep confirms `calculateDealCommission` /
-`CommissionLedger::calculateSplit` / `CommissionLedger::create` are **called from nowhere** in the live
-app. No deal→ledger auto-creation despite `commission_engine_spec.md:517` ("Deal completion → auto-create
-CommissionLedger"). `CommissionController` only **reads** the ledger for dashboards (`:29-207`).
+`getSponsorChain()` `:233`. **Trigger:** `App\Listeners\Deal\GenerateCommissionLedgerEntries`, registered
+on `DealCommissionFinalised` (fires from `DealObserver` when V1 `commission_status` flips to a terminal
+Paid state) — closes `commission_engine_spec.md:517`'s "Deal completion → auto-create CommissionLedger"
+integration point, previously unbuilt (found via a live report: Retha Kelly / Demo Agency Test on
+production had zero CommissionLedger rows despite the dashboard existing). One ledger row per agent per
+deal, summed across that agent's listing+selling pivot rows (dual-mandate agents don't get two rows); the
+amount fed in is each agent's own allocation of their side's pool (`side pool × their
+deal_user.agent_split_percent`) — never the raw side pool or the deal total, which would double-count
+co-agents. Idempotent on re-fire (checked via existing `CommissionLedger` row for the same deal+agent).
+**Fixed alongside it:** `CommissionSetting::forAgency()` returned a NULL-hydrated model for a
+brand-new agency's first-ever call (`firstOrCreate` doesn't read DB column defaults back into the
+in-memory model), which NOT-NULL-violated `agent_cap_periods.cap_amount` — the very first agent processed
+on any agency's very first finalised deal would have silently failed. Now passes `NO_AGENCY_DEFAULTS` as
+the create-values.
+**Still open:** V2 (`deals_v2`) completion does not trigger this listener — only legacy V1 `Deal` does.
+`CommissionController` still only **reads** the ledger for dashboards (`:29-207`); no manual "add entry"
+UI exists (spec `:420` `store()` was never built either).
 
 ### (c) V2 inline — BUILT, used by V2 settlement
 `DealV2.php:157-192` (same inc→ex VAT/pool logic); `DealV2SettlementController` writes money lines.
@@ -168,10 +182,10 @@ before/after snapshot `:637-655`. SoftDeletes on Deal/DealSettlement/DealMoneyLi
 ## 8. KNOWN FRAGILITIES + V2 BACKLOG
 
 ### Live-state fragilities
-1. **System C commission engine is orphaned (biggest gap).** Tables + `CommissionCalculationService` +
-   "My Earnings" dashboards are BUILT, but the engine is **never invoked** — no deal triggers a ledger
-   entry, so cap-progress / revenue-share / earnings dashboards read empty unless populated manually
-   (`commission_engine_spec.md:517` integration point unbuilt).
+1. ~~System C commission engine is orphaned (biggest gap).~~ **FIXED 2026-08-19** — see §5(b).
+   V1 deal completion now auto-creates the ledger via `GenerateCommissionLedgerEntries`. **Remaining
+   gap:** DealsV2 (`deals_v2`) completion does not trigger it — an agency running only V2 deals still
+   sees empty cap-progress / revenue-share dashboards.
 2. **Three copies of the inc→ex-VAT pool math** (`Deal.php:206`, `DealV2.php:167`,
    `Finance/CommissionCalculator.php:31`) — drift risk. Two settlement engines (V1 `DealController` + V2
    `DealV2SettlementController`) both write `deal_money_lines`.
@@ -199,6 +213,7 @@ before/after snapshot `:637-655`. SoftDeletes on Deal/DealSettlement/DealMoneyLi
 - `app/Http/Controllers/Admin/DealController.php` — `:231` store, `:622-750` saveSettlement.
 - `app/Services/Finance/CommissionCalculator.php:11-98`; `app/Services/DealMoneyLineRebuilder.php`.
 - `app/Models/DealV2/DealV2.php:23-280`; `app/Services/DealV2/DealPipelineService.php:18-402`.
-- `app/Services/CommissionCalculationService.php:20-233` (orphaned); `app/Models/CommissionLedger.php:124-213`.
+- `app/Services/CommissionCalculationService.php:20-233`; `app/Models/CommissionLedger.php:124-213`;
+  `app/Listeners/Deal/GenerateCommissionLedgerEntries.php` (trigger, wired 2026-08-19); `app/Models/CommissionSetting.php:139-146` (`forAgency` hydration fix).
 - `app/Services/Payroll/PayrollCalculator.php:27-131`.
 - Specs: `.ai/specs/deal-register-v2-spec.md`, `.ai/specs/commission_engine_spec.md`, `.ai/specs/deals.md`.
