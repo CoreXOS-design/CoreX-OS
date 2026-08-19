@@ -159,6 +159,35 @@ All new HTTP API endpoints MUST live under `/api/v1/*` (or another versioned `/a
 - Always check for the other person's commits before merging to main.
 - Never push `database.sqlite` — this file must be in `.gitignore`.
 
+#### 8a. Exactly ONE `main`, exactly ONE `Staging`. Never create a second local branch with either name.
+
+_Added 2026-08-19 after an incident: a lane created a local branch literally named
+`staging` (lowercase) to merge same-day calendar/MIC/deeds-capture work into, believing
+it was working against the real Staging environment. That local branch was never pushed
+anywhere and turned out to be byte-identical to `origin/main` — so every commit merged
+into it went straight to **live production**, bypassing Staging (and Johan's QA1 →
+Staging → live gate) entirely. Meanwhile `origin/Staging` — the actual deployable branch
+`scripts/deploy.sh staging` pulls from — never received that work, and had separately
+accumulated 4,243 commits of its own unrelated to `main`'s. Reconciling the two required
+a manual, file-by-file conflict resolution across 810 changed files (33 real conflicts,
+including a genuine fatal error — `disclaimer()` declared twice with incompatible
+signatures — that git's own merge produced silently, without ever flagging it as a
+conflict). That is not a repeatable process; it is a one-time cleanup for a mistake this
+rule exists to prevent from recurring.
+
+**The rule:** the only branches named `main` or `Staging` that may ever exist are
+`origin/main` and `origin/Staging` on GitHub. No local branch — anywhere, in any
+worktree, on any lane — may be named `main`, `Staging`, `staging`, or any case variant
+of either. If you need to work against Staging, check out `origin/Staging` and stay on
+a branch that tracks it (or work on a feature branch and merge into `Staging` when
+ready) — never rename, clone, or re-create it under a different local name. Before
+merging anything into `Staging` or `main`, confirm with `git rev-parse --abbrev-ref
+HEAD` that you are actually on that branch, not a lookalike. If you are ever unsure
+whether a checkout is really tracking `origin/Staging`, run `git rev-parse HEAD` and
+compare it to `git rev-parse origin/Staging` before touching anything — a match means
+you are current; a mismatch means STOP and reconcile before merging, exactly as this
+incident required.
+
 ### 9. Cross-pillar reactivity uses domain events.
 For any feature that involves cross-pillar reactivity — where a state change in one part of CoreX should trigger updates, notifications, recomputations, or side effects in another part — the relevant build prompt MUST read `.ai/specs/corex-domain-events-spec.md` and use the event/listener pattern from the catalogue. Do NOT invent ad-hoc observer hooks, ad-hoc service calls, or ad-hoc query paths between pillars. Emit a named event when state changes; subscribe to existing events when reacting to state changes. The events catalogue is the API contract between pillars.
 
