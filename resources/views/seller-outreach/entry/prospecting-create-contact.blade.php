@@ -5,14 +5,20 @@
 @php($deedLink = ($deedLink ?? ['owners' => [], 'candidates' => [], 'tracked_property_id' => null]))
 @php($deedLink = $deedLink + ['owners' => [], 'candidates' => [], 'tracked_property_id' => null])
 <div class="w-full space-y-5">
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
-        <a href="{{ url()->previous() }}" class="inline-flex items-center gap-1 text-xs no-underline" style="color: rgba(255,255,255,0.7);">
-            ← Back
-        </a>
-        <h1 class="text-xl font-bold text-white leading-tight mt-1">Compose pitch about this property</h1>
-        <p class="text-sm text-white/60">
-            Capture the seller's contact info first. We'll dedupe against existing contacts before creating a new one.
-        </p>
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Compose pitch about this property</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
+                    Capture the seller's contact info first. We'll dedupe against existing contacts before creating a new one.
+                </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ url()->previous() }}" class="corex-btn-outline text-xs no-underline">
+                    ← Back
+                </a>
+            </div>
+        </div>
     </div>
 
     @if($errors->any())
@@ -95,6 +101,10 @@
     <form method="POST"
           x-data="{
               mode: 'create',
+              // Natural person vs Entity (company / CC / trust) for the manual capture. An agent must be
+              // able to capture an entity seller here, not be forced to a natural person. Reps are added
+              // on the entity record afterward (Johan 2026-08-14) — this modal only needs name + reg no.
+              contactKind: '{{ old('contact_kind', 'natural_person') }}',
               // #17 — for a natural person, SA ID vs foreign passport. SA validates the 13-digit ID;
               // a foreign national enters a passport + a directly-entered DOB (the passport doesn't
               // encode it). Same discriminator + rules as the main contact form.
@@ -396,8 +406,8 @@
                                 <template x-if="owner.dead_end"><span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-primary);">⚠ Dead end · <span x-text="owner.dead_end && owner.dead_end.label"></span></span></template>
                             </div>
                             <div class="text-xs mt-0.5" style="color: var(--text-muted);">
-                                <template x-if="owner.is_entity"><span><span x-show="owner.entity_reg_no">Reg: <span class="font-mono" x-text="owner.entity_reg_no"></span></span><span x-show="!owner.entity_reg_no" class="italic">Company / entity owner</span></span></template>
-                                <template x-if="!owner.is_entity && owner.id_number"><span>ID: <span class="font-mono" x-text="owner.id_number"></span></span></template>
+                                <template x-if="owner.is_entity"><span><span x-show="owner.entity_reg_no">Reg: <span class="font-mono" x-text="owner.entity_reg_no"></span> @include('corex._partials.copy-id-btn', ['value' => 'owner.entity_reg_no', 'label' => 'Copy reg'])</span><span x-show="!owner.entity_reg_no" class="italic">Company / entity owner</span></span></template>
+                                <template x-if="!owner.is_entity && owner.id_number"><span>ID: <span class="font-mono" x-text="owner.id_number"></span> @include('corex._partials.copy-id-btn', ['value' => 'owner.id_number', 'label' => 'Copy ID'])</span></template>
                                 <template x-if="!owner.is_entity && !owner.id_number"><span class="italic">No ID on the deed record</span></template>
                             </div>
                         </div>
@@ -446,8 +456,8 @@
                                                 <template x-if="owner.dead_end"><span class="text-[10px] uppercase tracking-wider font-semibold ml-1 px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-primary);">⚠ Dead end · <span x-text="owner.dead_end && owner.dead_end.label"></span></span></template>
                                     </div>
                                     <div class="text-xs mt-0.5" style="color: var(--text-muted);">
-                                        <template x-if="owner.is_entity"><span><span x-show="owner.entity_reg_no">Reg: <span class="font-mono" x-text="owner.entity_reg_no"></span></span><span x-show="!owner.entity_reg_no" class="italic">Company / entity owner</span></span></template>
-                                        <template x-if="!owner.is_entity && owner.id_number"><span>ID: <span class="font-mono" x-text="owner.id_number"></span></span></template>
+                                        <template x-if="owner.is_entity"><span><span x-show="owner.entity_reg_no">Reg: <span class="font-mono" x-text="owner.entity_reg_no"></span> @include('corex._partials.copy-id-btn', ['value' => 'owner.entity_reg_no', 'label' => 'Copy reg'])</span><span x-show="!owner.entity_reg_no" class="italic">Company / entity owner</span></span></template>
+                                        <template x-if="!owner.is_entity && owner.id_number"><span>ID: <span class="font-mono" x-text="owner.id_number"></span> @include('corex._partials.copy-id-btn', ['value' => 'owner.id_number', 'label' => 'Copy ID'])</span></template>
                                         <template x-if="!owner.is_entity && !owner.id_number"><span class="italic">No ID on the deed record</span></template>
                                     </div>
                                 </div>
@@ -498,11 +508,11 @@
                                     <template x-if="s.dead_end"><span class="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-primary);">⚠ Dead end · <span x-text="s.dead_end && s.dead_end.label"></span></span></template>
                                 </div>
                                 <div class="text-xs mt-0.5" style="color: var(--text-muted);">
-                                    <template x-if="!s.is_entity && s.id_number"><span>ID: <span class="font-mono" x-text="s.id_number"></span></span></template>
+                                    <template x-if="!s.is_entity && s.id_number"><span>ID: <span class="font-mono" x-text="s.id_number"></span> @include('corex._partials.copy-id-btn', ['value' => 's.id_number', 'label' => 'Copy ID'])</span></template>
                                     {{-- Entity seller: reg number + the representative directors (cc6's link) who are the contactable people. --}}
                                     <template x-if="s.is_entity">
                                         <span>
-                                            <span x-show="s.entity_reg_no">Reg: <span class="font-mono" x-text="s.entity_reg_no"></span><span x-show="s.representatives && s.representatives.length"> · </span></span>
+                                            <span x-show="s.entity_reg_no">Reg: <span class="font-mono" x-text="s.entity_reg_no"></span> @include('corex._partials.copy-id-btn', ['value' => 's.entity_reg_no', 'label' => 'Copy reg'])<span x-show="s.representatives && s.representatives.length"> · </span></span>
                                             <span x-show="s.representatives && s.representatives.length">Represented by <span x-text="(s.representatives || []).map(r => r.name).join(', ')"></span></span>
                                             <span x-show="!s.representatives || !s.representatives.length" class="italic">Directors link separately from the deed rows above</span>
                                         </span>
@@ -643,15 +653,15 @@
                             class="px-3 py-1.5 text-xs font-semibold border-0"
                             style="background: var(--surface-2); color: var(--text-secondary); cursor:pointer;"
                             :style="mode === 'search'
-                                ? 'background: var(--brand-default, #0b2a4a); color:#fff; cursor:pointer;'
+                                ? 'background: var(--brand-icon, #0ea5e9); color:#fff; cursor:pointer;'
                                 : 'background: var(--surface-2); color: var(--text-secondary); cursor:pointer;'">
                         Search existing
                     </button>
                     <button type="button" @click="mode = 'create'; selected = null"
                             class="px-3 py-1.5 text-xs font-semibold border-0"
-                            style="background: var(--brand-default, #0b2a4a); color:#fff; cursor:pointer;"
+                            style="background: var(--brand-icon, #0ea5e9); color:#fff; cursor:pointer;"
                             :style="mode === 'create'
-                                ? 'background: var(--brand-default, #0b2a4a); color:#fff; cursor:pointer;'
+                                ? 'background: var(--brand-icon, #0ea5e9); color:#fff; cursor:pointer;'
                                 : 'background: var(--surface-2); color: var(--text-secondary); cursor:pointer;'">
                         Create new
                     </button>
@@ -701,12 +711,26 @@
 
             {{-- ── Create new contact ── --}}
             <div x-show="mode === 'create'" class="space-y-3">
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+            {{-- Contact Is: Natural person OR Entity (company / CC / trust). An entity seller must be
+                 capturable here — not forced to a natural person. Selecting Entity swaps the name fields
+                 for the registered name + reg number; a hidden input carries contact_kind to the store. --}}
+            <input type="hidden" name="contact_kind" :value="contactKind">
+            <div>
+                <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">Contact is <span style="color: var(--ds-crimson);">*</span></label>
+                <div class="flex items-center gap-4 text-sm" style="color: var(--text-secondary);">
+                    <label class="inline-flex items-center gap-1.5 cursor-pointer"><input type="radio" name="contact_kind_toggle" value="natural_person" x-model="contactKind"> Natural person</label>
+                    <label class="inline-flex items-center gap-1.5 cursor-pointer"><input type="radio" name="contact_kind_toggle" value="entity" x-model="contactKind"> Entity <span style="color: var(--text-muted);">(company / CC / trust)</span></label>
+                </div>
+            </div>
+
+            {{-- Natural-person name fields --}}
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" x-show="contactKind === 'natural_person'">
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">
                         First name <span style="color: var(--ds-crimson);">*</span>
                     </label>
-                    <input type="text" name="first_name" x-ref="firstName" value="{{ old('first_name') }}" :required="mode === 'create' && sellers.length === 0" maxlength="100"
+                    <input type="text" name="first_name" x-ref="firstName" value="{{ old('first_name') }}" :required="mode === 'create' && sellers.length === 0 && contactKind === 'natural_person'" maxlength="100"
                            class="w-full px-3 py-2 text-sm rounded-md"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 </div>
@@ -715,6 +739,27 @@
                     <input type="text" name="last_name" x-ref="lastName" value="{{ old('last_name') }}" maxlength="100"
                            class="w-full px-3 py-2 text-sm rounded-md"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                </div>
+            </div>
+
+            {{-- Entity fields (company / CC / trust) — registered name + optional registration number. --}}
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" x-show="contactKind === 'entity'" x-cloak>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">
+                        Registered name <span style="color: var(--ds-crimson);">*</span>
+                    </label>
+                    <input type="text" name="entity_name" value="{{ old('entity_name') }}" :required="mode === 'create' && sellers.length === 0 && contactKind === 'entity'" maxlength="255"
+                           placeholder="e.g. Blue Horizon Trust"
+                           class="w-full px-3 py-2 text-sm rounded-md"
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">Registration number <span style="color: var(--text-muted); font-weight:400;">(optional)</span></label>
+                    <input type="text" name="entity_reg_no" value="{{ old('entity_reg_no') }}" maxlength="100"
+                           placeholder="e.g. 2019/123456/07"
+                           class="w-full px-3 py-2 text-sm rounded-md"
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                    <p class="text-[11px] mt-1" style="color: var(--text-muted);">Add the directors/representatives on the entity record afterward.</p>
                 </div>
             </div>
 
@@ -735,10 +780,11 @@
                 </div>
             </div>
 
-            {{-- #17 — SA ID vs foreign passport at create time. SA path validates the 13-digit ID; a
-                 foreign national enters a passport + a directly-entered Date of Birth (the passport
-                 doesn't encode it). Same discriminator + rules as the main contact form. --}}
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {{-- #17 — SA ID vs foreign passport at create time (natural person only; an entity is keyed on
+                 its registration number above). SA path validates the 13-digit ID; a foreign national
+                 enters a passport + a directly-entered Date of Birth (the passport doesn't encode it).
+                 Same discriminator + rules as the main contact form. Backward-compatible. --}}
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" x-show="contactKind === 'natural_person'">
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">ID Type</label>
                     <select name="id_type" x-model="idKind"
@@ -760,7 +806,7 @@
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">Date of Birth <span style="color: var(--text-muted); font-weight:400;" x-show="idKind !== 'passport'">(optional)</span><span class="text-red-500" x-show="idKind === 'passport'" x-cloak>*</span></label>
                     <input type="date" name="birthday" value="{{ old('birthday') }}"
-                           :required="idKind === 'passport'"
+                           :required="contactKind === 'natural_person' && idKind === 'passport'"
                            class="w-full px-3 py-2 text-sm rounded-md"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 </div>
@@ -769,8 +815,9 @@
             {{-- Part B — deliberate dead-end override. Only meaningful when NO phone/email is
                  entered (real details win: typing either clears + disables the tick). When on, the
                  seller is still created from the deed (name + ID, deduped on ID) and flagged so no
-                 future agent re-chases a genuinely uncontactable owner. --}}
-            <div class="rounded-md p-3"
+                 future agent re-chases a genuinely uncontactable owner. Natural person only — an
+                 entity is reached through its directors, not a dead-end tick. --}}
+            <div class="rounded-md p-3" x-show="contactKind === 'natural_person'"
                  style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 8%, var(--surface-2)); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 40%, var(--border));">
                 <label class="flex items-start gap-2" style="cursor:pointer;">
                     <input type="checkbox" name="no_contact_details" value="1" x-model="noContactDetails"
@@ -796,8 +843,9 @@
             </div>
 
             <div class="text-xs" style="color: var(--text-muted);">
-                <span x-show="!noContactDetails">Provide at least a phone or email — we'll check if this person already exists in your contacts.</span>
-                <span x-show="noContactDetails" x-cloak>Dead-end mode: no phone/email needed. The owner's name + SA ID (from the deed) are required so the contact is ID-keyed and deduped.</span>
+                <span x-show="contactKind === 'natural_person' && !noContactDetails">Provide at least a phone or email — we'll check if this person already exists in your contacts.</span>
+                <span x-show="contactKind === 'natural_person' && noContactDetails" x-cloak>Dead-end mode: no phone/email needed. The owner's name + SA ID (from the deed) are required so the contact is ID-keyed and deduped.</span>
+                <span x-show="contactKind === 'entity'" x-cloak>We'll match the entity on its registration number (or name) so you land on the captured company, not a duplicate.</span>
             </div>
             </div>{{-- /create-new --}}
         </div>
@@ -805,14 +853,13 @@
         <div class="flex items-center gap-2 flex-wrap mt-4">
             <button type="submit"
                     :disabled="mode === 'search' && !selected"
-                    class="px-6 py-2.5 text-sm font-semibold rounded-md border-0"
-                    style="background: var(--brand-button, #0ea5e9); color:#ffffff; cursor:pointer;"
+                    class="corex-btn-primary px-6 py-2.5 text-sm"
                     :style="(mode === 'search' && !selected)
-                        ? 'background: var(--surface-2); color: var(--text-muted); cursor:not-allowed;'
+                        ? 'background: var(--surface-2); color: var(--text-muted); box-shadow:none; cursor:not-allowed;'
                         : 'background: var(--brand-button, #0ea5e9); color:#ffffff; cursor:pointer;'">
                 <span x-text="(sellers.length && mode !== 'search') ? 'Create &amp; continue →' : (mode === 'search' ? 'Link &amp; continue →' : 'Create &amp; continue →')"></span>
             </button>
-            <a href="{{ url()->previous() }}" class="text-sm" style="color: var(--text-muted);">Cancel</a>
+            <a href="{{ url()->previous() }}" class="corex-btn-outline text-sm no-underline">Cancel</a>
         </div>
 
         {{-- Manual deed-picker modal — clean, searchable, scrollable list of the agency's deeds.
