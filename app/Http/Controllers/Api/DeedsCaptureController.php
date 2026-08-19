@@ -250,6 +250,17 @@ final class DeedsCaptureController extends Controller
         // (same street address, often the same GPS pin) collapsed into one
         // TrackedProperty. See TrackedPropertyMatchOrCreateService::
         // numbersConflict() for the other half of this fix.
+        // 2026-08-19 (Johan, .ai/specs/deeds-capture.md §6 Part A) — EVERY field
+        // this capture actually read now flows through ONE mechanism: this
+        // $facts array feeds matchOrCreate() → enrich(), which is the ONLY
+        // place precedence is decided and the ONLY place the audit trail
+        // (source_chain[].field_changes, read by the Deeds Capture screen) is
+        // built. Previously deeds_office/scheme_name/bond_holder/bond_amount/
+        // sale_type/deeds_registered_date bypassed enrich() entirely via a
+        // second, separate fill()+save() below with different (unconditional)
+        // overwrite semantics and no audit trail — that split is exactly what
+        // let GPS silently lose to a stale import while these fields silently
+        // won unconditionally. One mechanism, one rule, one audit trail now.
         $facts = array_filter([
             'street_number'         => $p['street_number'] ?? null,
             'street_name'           => $p['street_name'] ?? null,
@@ -266,8 +277,15 @@ final class DeedsCaptureController extends Controller
             'title_deed_number'     => $p['title_deed_number'] ?? null,
             'cadastral_extent'      => isset($p['section_extent_m2']) ? (string) $p['section_extent_m2'] : null,
             'property_type'         => $p['property_type'] ?? null,
+            'deeds_office'          => $p['deeds_office'] ?? null,
+            'scheme_name'           => $p['scheme_name'] ?? null,
+            'scheme_number'         => $p['scheme_number'] ?? null,
             'last_known_sold_price' => $s['sale_price'] ?? null,
             'last_known_sold_date'  => $s['sale_date'] ?? null,
+            'bond_holder'           => $s['bond_holder'] ?? null,
+            'bond_amount'           => $s['bond_amount'] ?? null,
+            'sale_type'             => $s['sale_type'] ?? null,
+            'deeds_registered_date' => $s['registered_date'] ?? null,
         ], static fn ($v) => $v !== null && $v !== '');
 
         $tp = $matcher->matchOrCreate(
@@ -279,24 +297,14 @@ final class DeedsCaptureController extends Controller
 
         $created = (bool) $tp->wasRecentlyCreated;
 
-        // Deeds-specific fields (never blank out an existing value with null).
-        $tp->fill(array_filter([
-            'deeds_office'          => $p['deeds_office'] ?? null,
-            'scheme_name'           => $p['scheme_name'] ?? null,
-            'scheme_number'         => $p['scheme_number'] ?? null,
-            'section_number'        => $p['section_number'] ?? null,
-            'title_deed_number'     => $p['title_deed_number'] ?? null,
-            'erf_number'            => $p['erf_number'] ?? null,
-            'cadastral_extent'      => isset($p['section_extent_m2']) ? (string) $p['section_extent_m2'] : null,
-            'property_type'         => $p['property_type'] ?? null,
-            'last_known_sold_price' => $s['sale_price'] ?? null,
-            'last_known_sold_date'  => $s['sale_date'] ?? null,
-            'bond_holder'           => $s['bond_holder'] ?? null,
-            'bond_amount'           => $s['bond_amount'] ?? null,
-            'sale_type'             => $s['sale_type'] ?? null,
-            'deeds_registered_date' => $s['registered_date'] ?? null,
-            'owner_contact_id'      => $ownerContactId,
-        ], static fn ($v) => $v !== null && $v !== ''));
+        // owner_contact_id is a relationship pointer, not a captured physical
+        // fact — it deliberately stays OUTSIDE the facts/enrich()/audit
+        // mechanism above (multi-owner precedence is a separate, not-yet-built
+        // concern — .ai/specs/deeds-capture.md §7, out of scope here). Kept to
+        // its pre-existing behaviour: set whenever this capture resolved one.
+        if ($ownerContactId !== null) {
+            $tp->owner_contact_id = $ownerContactId;
+        }
 
         // Tag as a deeds capture ONLY when the deeds capture created this TP (or a
         // prior deeds capture already tagged it). Enriching an existing prospecting

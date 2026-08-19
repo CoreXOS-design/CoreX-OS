@@ -119,10 +119,41 @@ final class DeedsCaptureController extends Controller
             }
         }
 
+        // 2026-08-19 (Johan, .ai/specs/deeds-capture.md §6 Part B) — "users
+        // will see enriched for a current property but wont know what
+        // happened to the data. so rather show it in deeds." Show what the
+        // MOST RECENT deeds capture did — not the most recent one that
+        // happened to change something. Reaching back past a no-op re-capture
+        // to an older capture's changes would show a "correction" for a value
+        // that has been stable since; if the latest capture changed nothing,
+        // the honest card shows nothing (unchanged fields are noise, per
+        // Johan — and so is a stale correction from a capture that isn't the
+        // one that just ran).
+        $fieldChangesByTp = [];
+        foreach ($captures as $tp) {
+            $chain = $tp->source_chain ?? [];
+            $latestDeedsEntry = null;
+            foreach ($chain as $entry) {
+                if (($entry['type'] ?? null) === 'deeds_capture') {
+                    $latestDeedsEntry = $entry; // append-only chain — last match is the most recent
+                }
+            }
+            if ($latestDeedsEntry === null || empty($latestDeedsEntry['field_changes'])) {
+                continue;
+            }
+            $changes = $latestDeedsEntry['field_changes'];
+            $fieldChangesByTp[$tp->id] = [
+                'date'     => $latestDeedsEntry['date'] ?? null,
+                'filled'   => array_values(array_filter($changes, fn ($c) => ($c['change_type'] ?? null) === 'filled')),
+                'replaced' => array_values(array_filter($changes, fn ($c) => ($c['change_type'] ?? null) === 'replaced')),
+            ];
+        }
+
         return view('corex.deeds-capture.index', [
-            'captures'       => $captures,
-            'tvaByProperty'  => $tvaByProperty,
-            'tvaStandalone'  => $tvaStandalone,
+            'captures'         => $captures,
+            'tvaByProperty'    => $tvaByProperty,
+            'tvaStandalone'    => $tvaStandalone,
+            'fieldChangesByTp' => $fieldChangesByTp,
         ]);
     }
 
