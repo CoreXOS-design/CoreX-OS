@@ -347,13 +347,14 @@ final class DeedsCaptureController extends Controller
 
         // owner_contact_id is a relationship pointer, not a captured physical
         // fact — it deliberately stays OUTSIDE the facts/enrich()/audit
-        // mechanism above. Kept to its pre-existing behaviour: set whenever
-        // this capture resolved one. When ownership_history_raw ran instead
-        // (§7 below), this gets set to the first CURRENT owner's contact —
-        // deferred until after $tp->save() since that path needs $tp->id.
-        if (!$hasOwnershipHistory && $ownerContactId !== null) {
-            $tp->owner_contact_id = $ownerContactId;
-        }
+        // mechanism above. When ownership_history_raw ran instead (§7 below),
+        // this gets set to the first CURRENT owner's contact, deferred until
+        // after $tp->save() since that path needs $tp->id. For the simple
+        // owners[] path, the write is decided by reconcileOwners() below
+        // (also post-save) — a match on an existing TrackedProperty must
+        // never have its owner_contact_id blindly overwritten by whichever
+        // capture happened to run last (Johan, 2026-08-19: "we cannot dump
+        // the owner if the system says its already in the system").
 
         // Tag as a deeds capture ONLY when the deeds capture created this TP (or a
         // prior deeds capture already tagged it). Enriching an existing prospecting
@@ -401,7 +402,7 @@ final class DeedsCaptureController extends Controller
             $ownerContactId = $firstCurrent->contact_id ?? null;
             $ownerContactIds = collect($persistedOwners)->pluck('contact_id')->filter()->unique()->values()->all();
         } else {
-            $this->syncOwners($tp, $resolvedOwners);
+            $this->reconcileOwners($tp, $resolvedOwners);
             $ownerContactIds = array_values(array_filter(array_column($resolvedOwners, 'contact_id')));
         }
 
@@ -441,6 +442,88 @@ final class DeedsCaptureController extends Controller
         }
 
         return app(OwnerContactResolver::class)->persist($tp, $result->rows, $agencyId, $user);
+    }
+
+    /**
+     * §7.16 (Johan, 2026-08-19) — a capture landing on a TrackedProperty that
+     * already has an owner on file must never silently discard, merge, or
+     * overwrite what's there. Three outcomes, decided by comparing the
+     * scraped owner(s) against what's already on record (by id_number where
+     * present on both sides, else by name):
+     *
+     *   (a) nothing on file yet          -> link the scraped owner(s) normally (a gain).
+     *   (b) same owner(s) already on file -> no-op; nothing to add, nothing to touch.
+     *   (c) a different owner scraped     -> NEVER overwrite owner_contact_id and
+     *                                        never auto-merge. The scraped owner is
+     *                                        still captured — never thrown away — as a
+     *                                        conflict-flagged TrackedPropertyOwner row
+     *                                        (conflict_flagged_at set) for the agent to
+     *                                        see and resolve on the Deeds Capture screen.
+     *                                        This is deliberately not automated: Johan —
+     *                                        "the agent needs to inspect and see which
+     *                                        which is broken."
+     */
+    private function reconcileOwners(\App\Models\Prospecting\TrackedProperty $tp, array $resolvedOwners): void
+    {
+        if ($resolvedOwners === []) {
+            return; // nothing scraped this time — never touch what's already on file
+        }
+
+        $onFile = \App\Models\Prospecting\TrackedPropertyOwner::where('tracked_property_id', $tp->id)
+            ->whereNull('conflict_flagged_at')
+            ->get(['id', 'name', 'id_number']);
+
+        if ($onFile->isEmpty()) {
+            $this->syncOwners($tp, $resolvedOwners);
+            if (empty($tp->owner_contact_id)) {
+                $tp->owner_contact_id = $resolvedOwners[0]['contact_id'] ?? null;
+                $tp->save();
+            }
+
+            return;
+        }
+
+        $matchesOnFile = static function (array $scraped) use ($onFile): bool {
+            return $onFile->contains(function ($existing) use ($scraped) {
+                if (!empty($scraped['id_number']) && !empty($existing->id_number)) {
+                    return $scraped['id_number'] === $existing->id_number;
+                }
+
+                return !empty($scraped['name']) && !empty($existing->name)
+                    && mb_strtolower(trim($scraped['name'])) === mb_strtolower(trim($existing->name));
+            });
+        };
+
+        foreach ($resolvedOwners as $i => $o) {
+            if ($matchesOnFile($o)) {
+                continue; // (b) same owner already on file — nothing to add, nothing to touch
+            }
+
+            // (c) differs from what's on file — capture it, flagged, never merged.
+            $alreadyFlagged = \App\Models\Prospecting\TrackedPropertyOwner::where('tracked_property_id', $tp->id)
+                ->whereNotNull('conflict_flagged_at')
+                ->where(function ($q) use ($o) {
+                    if (!empty($o['id_number'])) {
+                        $q->where('id_number', $o['id_number']);
+                    } else {
+                        $q->where('name', $o['name']);
+                    }
+                })
+                ->exists();
+            if ($alreadyFlagged) {
+                continue; // this exact conflict is already sitting there awaiting review
+            }
+
+            \App\Models\Prospecting\TrackedPropertyOwner::create([
+                'tracked_property_id' => $tp->id,
+                'contact_id'          => $o['contact_id'],
+                'name'                => $o['name'],
+                'id_number'           => $o['id_number'],
+                'id_type'             => $o['id_type'],
+                'is_primary'          => false,
+                'conflict_flagged_at' => now(),
+            ]);
+        }
     }
 
     /**
