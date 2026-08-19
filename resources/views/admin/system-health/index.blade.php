@@ -120,6 +120,45 @@
         </div>
     </div>
 
+    {{-- Row 2b — Queue Workers --}}
+    <div class="rounded-md p-5" style="background: var(--surface); border:1px solid var(--border);">
+        <div class="flex items-center justify-between mb-3">
+            <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Queue Workers</h2>
+            <span class="text-xs" style="color: var(--text-muted);">supervisor-managed corex-worker-* processes · no QA1/QA2 here — those run as systemd services, not supervisor</span>
+        </div>
+        <div x-show="d.corex?.queue_workers === null" class="text-sm" style="color: var(--ds-amber,#d97706);">
+            Could not read process status (sudo/wrapper unavailable).
+        </div>
+        <div x-show="d.corex?.queue_workers && d.corex.queue_workers.length === 0" class="text-sm" style="color: var(--text-muted);">—</div>
+
+        <div x-show="d.corex?.queue_workers && d.corex.queue_workers.length > 0" class="space-y-4">
+            <template x-for="env in ['live','staging']" :key="env">
+                <div x-show="(d.corex?.queue_workers || []).some(w => w.environment === env)">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded"
+                              :style="env === 'live'
+                                  ? 'background: color-mix(in srgb, var(--ds-crimson,#c41e3a) 15%, transparent); color: var(--ds-crimson,#c41e3a);'
+                                  : 'background: color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent); color: var(--brand-icon,#0ea5e9);'"
+                              x-text="env"></span>
+                        <span class="text-xs" style="color: var(--text-muted);" x-text="env === 'live' ? 'corexos.co.za — real agents, real data' : 'staging.corexos.co.za'"></span>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                        <template x-for="w in (d.corex?.queue_workers || []).filter(w => w.environment === env)" :key="w.process">
+                            <div class="flex items-center justify-between gap-2 px-3 py-2 rounded-md text-sm"
+                                 style="background: var(--surface-2); border:1px solid var(--border);">
+                                <span class="font-mono truncate" style="color: var(--text-primary);" x-text="w.process" :title="w.process"></span>
+                                <span class="inline-flex items-center gap-1.5 flex-shrink-0">
+                                    <span class="inline-block w-2 h-2 rounded-full" :style="`background:${w.down ? 'var(--ds-red,#dc2626)' : 'var(--ds-green,#16a34a)'};`"></span>
+                                    <span class="font-mono text-xs" :style="w.down ? 'color: var(--ds-red,#dc2626);' : 'color: var(--text-muted);'" x-text="w.state"></span>
+                                </span>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+
     {{-- Row 3 — CoreX vitals --}}
     <div class="rounded-md p-5" style="background: var(--surface); border:1px solid var(--border);">
         <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">CoreX Vitals</h2>

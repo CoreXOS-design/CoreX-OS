@@ -18,7 +18,7 @@ class DevSettingsController extends Controller
      * Sections of the Dev Settings hub. ?s=<key> drives the right pane, same
      * contract as the main settings hub (CoreX\SettingsController::index).
      */
-    private const SECTIONS = ['compliance', 'demo'];
+    private const SECTIONS = ['compliance', 'demo', 'queue_worker_emails'];
 
     public function index(Request $request)
     {
@@ -32,6 +32,7 @@ class DevSettingsController extends Controller
             'complianceChecksDisabled' => DevSetting::bool('compliance_checks_disabled'),
             'demoModeEnabled'          => DevSetting::bool('demo_mode_enabled'),
             'isProduction'             => app()->environment('production'),
+            'queueWorkerAlertEmails'   => DevSetting::queueWorkerAlertEmails(),
         ]);
     }
 
@@ -54,6 +55,12 @@ class DevSettingsController extends Controller
             'compliance_checks_disabled',
             $request->boolean('compliance_checks_disabled') ? '1' : '0'
         );
+
+        if (($error = $this->saveQueueWorkerAlertEmails($request)) !== null) {
+            return redirect()->route('admin.dev-settings.index', ['s' => 'queue_worker_emails'])
+                ->withErrors(['queue_alert_emails' => $error])
+                ->with('warning', 'Other settings were saved, but the queue worker email list was not — fix the error below.');
+        }
 
         // Demo mode is an auth bypass — flipping it (on OR off) requires the
         // gate password. If demo mode isn't changing, no password is needed.
@@ -99,5 +106,35 @@ class DevSettingsController extends Controller
 
         return redirect()->route('admin.dev-settings.demo-sidebar')
             ->with('success', 'Demo sidebar visibility updated.');
+    }
+
+    /**
+     * Recipients for the queue-worker-down alert (Server Health monitoring).
+     * Blank rows (the empty slot the UI always leaves for adding one more) are
+     * dropped before validation so an untouched form doesn't fail it.
+     *
+     * @return string|null An error message if any entered address is invalid, else null (saved).
+     */
+    private function saveQueueWorkerAlertEmails(Request $request): ?string
+    {
+        $emails = array_values(array_filter(
+            (array) $request->input('queue_alert_emails', []),
+            fn ($e) => trim((string) $e) !== ''
+        ));
+
+        $validator = validator(
+            ['queue_alert_emails' => $emails],
+            ['queue_alert_emails' => 'array', 'queue_alert_emails.*' => 'email:filter|max:255'],
+        );
+
+        if ($validator->fails()) {
+            return $validator->errors()->first();
+        }
+
+        $unique = array_values(array_unique(array_map('strtolower', $emails)));
+
+        DevSetting::set('queue_worker_alert_emails', json_encode($unique));
+
+        return null;
     }
 }

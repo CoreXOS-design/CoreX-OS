@@ -168,6 +168,30 @@ Schedule::command('corex:queue-healthcheck')
     ->onOneServer()
     ->name('queue-healthcheck');
 
+// Queue worker liveness alert — runs every minute so a FATAL/STOPPED
+// corex-worker-* process (e.g. one that lost its supervisor restart budget
+// during a MySQL blip, 2026-08-19) emails the configured Dev Settings
+// recipients within a minute instead of sitting undetected. See
+// .ai/specs/queue-worker-monitoring.md.
+//
+// production() ONLY — this checks supervisor status for the WHOLE shared host
+// (live AND staging worker groups both), not just this app's own environment.
+// Live and Staging are separate deployments of this same codebase, each with
+// their own `schedule:run` cron already running every minute (confirmed via
+// crontab -u root -l, 2026-08-19); without this guard both schedulers would
+// independently detect the same down process and — since each environment
+// has its own cache store, so the per-process alert throttle never crosses
+// environments — send duplicate alert emails for one real incident. The
+// Server Health panel and Dev Settings page stay fully usable on every
+// environment regardless; only the CRON-triggered check is single-sourced.
+if (app()->environment('production')) {
+    Schedule::command('corex:queue-worker-liveness-alert')
+        ->everyMinute()
+        ->withoutOverlapping()
+        ->onOneServer()
+        ->name('queue-worker-liveness-alert');
+}
+
 // Property24 ExDev activation polling — runs every 15 minutes
 Schedule::job(new \App\Jobs\SyncProperty24Activations())->everyFifteenMinutes()->withoutOverlapping();
 
