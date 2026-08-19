@@ -2417,13 +2417,32 @@ class CalendarController extends Controller
 
     private function applyFilters(Collection $events, $user, array $typeFilter, array $categoryFilter, string $scope): Collection
     {
+        // 2026-08-19 (Johan) — same invitation carve-out as CalendarEvent::
+        // scopeVisibleTo(). This collection-level re-filter runs AFTER that
+        // SQL scope already let invited events through — without this, an
+        // event fetched because the invitee was invited to it gets silently
+        // re-excluded right back out here, and the SQL-level fix does
+        // nothing end to end. One query (not per-row), only when scope
+        // actually needs it.
+        $invitedEventIds = in_array($scope, ['own', 'branch'], true)
+            ? DB::table('calendar_event_invitations')
+                ->where('invitee_user_id', $user->id)
+                ->whereIn('status', ['pending', 'accepted', 'tentative'])
+                ->pluck('event_id')
+                ->all()
+            : [];
+
         $filtered = $events
             ->when(!empty($typeFilter), fn ($c) => $c->whereIn('event_type', $typeFilter))
             ->when(!empty($categoryFilter), fn ($c) => $c->whereIn('category', $categoryFilter))
             // No explicit category filter → suppress birthdays/anniversaries by default.
             ->when(empty($categoryFilter), fn ($c) => $c->whereNotIn('category', self::HIDDEN_BY_DEFAULT_CATEGORIES))
-            ->when($scope === 'own', fn ($c) => $c->where('user_id', $user->id))
-            ->when($scope === 'branch' && $user->branch_id, fn ($c) => $c->where('branch_id', $user->branch_id));
+            ->when($scope === 'own', fn ($c) => $c->filter(
+                fn ($e) => (int) $e->user_id === (int) $user->id || in_array($e->id, $invitedEventIds, true)
+            )->values())
+            ->when($scope === 'branch' && $user->branch_id, fn ($c) => $c->filter(
+                fn ($e) => (int) $e->branch_id === (int) $user->branch_id || in_array($e->id, $invitedEventIds, true)
+            )->values());
 
         $visible = $this->visibilityResolver->filterVisible($filtered, $user);
         $result = collect($visible)->map(function ($event) {

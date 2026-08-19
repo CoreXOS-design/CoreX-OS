@@ -229,13 +229,32 @@ class CalendarEvent extends Model
      */
     public function scopeVisibleTo($query, User $user, ?string $scope)
     {
+        // 2026-08-19 (Johan) — an event this user is INVITED to (pending,
+        // accepted, or tentative — matching CalendarVisibilityResolver::
+        // canSee()'s invitation check exactly, so the two never disagree)
+        // must reach the view regardless of role scope: the invitee decides
+        // accept/reject, not their own visibility scope. 'none' is
+        // deliberately excluded — that scope means the role has no calendar
+        // access at all, and an invitation is not a backdoor into a module
+        // the role can't open. One indexed subquery
+        // (calendar_event_invitations_invitee_user_id_status_index) — this
+        // scope runs on every calendar load, so it's built once and reused
+        // across whichever branch below needs it, never per-row.
+        $invited = fn ($q) => $q->select('event_id')
+            ->from('calendar_event_invitations')
+            ->where('invitee_user_id', $user->id)
+            ->whereIn('status', ['pending', 'accepted', 'tentative']);
+
         return match ($scope) {
             'all'    => $query,
             'branch' => $user->effectiveBranchId()
-                ? $query->where('branch_id', $user->effectiveBranchId())
-                : $query->where('user_id', $user->id),
+                ? $query->where(fn ($q) => $q->where('branch_id', $user->effectiveBranchId())
+                                              ->orWhereIn('id', $invited))
+                : $query->where(fn ($q) => $q->where('user_id', $user->id)
+                                              ->orWhereIn('id', $invited)),
             'none'   => $query->whereRaw('1 = 0'),
-            default  => $query->where('user_id', $user->id), // 'own' or null
+            default  => $query->where(fn ($q) => $q->where('user_id', $user->id)
+                                                    ->orWhereIn('id', $invited)), // 'own' or null
         };
     }
 
