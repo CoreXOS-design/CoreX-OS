@@ -720,41 +720,12 @@
                                  (2) so active tiles (3) always paint on top; still above the z-1 drag layers. --}}
                             class="cal-layerable absolute text-left rounded overflow-hidden transition hover:opacity-90 {{ $isDone ? 'line-through opacity-70' : '' }}"
                             style="z-index: {{ $isDone ? 2 : 3 }}; {{ $chipStyle }} {{ $isDraggable ? 'cursor:grab;' : '' }} top: {{ $topPct }}%; height: calc({{ $heightPct }}% - 2px); min-height: 18px; left: calc(56px + (100% - 56px) * {{ $lane }} / {{ $lanes }}); width: calc((100% - 56px) / {{ $lanes }} - 3px);"
-                            title="{{ $tr }} {{ $evt->title }}{{ !empty($evt->organizer_name) ? ' — invited by ' . $evt->organizer_name : '' }}">
-                        @php $isInvited = !empty($evt->organizer_name) && !$evt->isPrivacyRedacted; @endphp
-                        {{-- Organiser marker (Johan, 2026-08-19) — two identically-styled,
-                             identically-coloured tiles side by side (own appointment vs an
-                             accepted/pending invitation) were indistinguishable until clicked.
-                             Icon + text, never colour alone, so it survives colourblindness and
-                             a printed calendar. organizer_name is only ever populated for events
-                             the viewer did not create (CalendarController::applyFilters()'s batch
-                             lookup) and cleared on a privacy-redacted tile.
-
-                             Screenshotted, not just markup-checked, against a real 30-min slot —
-                             tile height is duration-based with overflow:hidden, and a 30-min tile
-                             measures ~26px against ~35px of two-row content (the ORIGINAL
-                             time/title + category rows already didn't fully fit before this
-                             change). So the icon lives in row 1 too — the row already proven to
-                             render at any duration — as the guaranteed-visible signal; the full
-                             "Invited by {name}" text on row 2 is the enhancement for when there's
-                             room (default 60-min slots, week/month views), not the only carrier. --}}
-                        <div class="flex items-center gap-2 px-2 pt-1" style="min-width:0;">
+                            title="{{ $tr }} {{ $evt->title }}">
+                        <div class="flex items-center gap-2 px-2 pt-1">
                             <span class="text-[11px] opacity-80">{{ $tr }}</span>
-                            @if($isInvited)
-                                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; opacity:0.9;" title="You were invited to this — invited by {{ $evt->organizer_name }}">
-                                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-                                </svg>
-                            @endif
                             <span class="font-medium text-xs truncate">{{ $evt->title }}</span>
                         </div>
-                        <div class="flex items-center gap-1 px-2" style="min-width:0;">
-                            @if($isInvited)
-                                {{-- Icon already shown in row 1 (guaranteed-visible slot) — text only here, not the icon again. --}}
-                                <span class="text-[10px] truncate" style="opacity:0.9;">Invited by {{ $evt->organizer_name }}</span>
-                            @else
-                                <span class="text-[10px] opacity-70 truncate">{{ $evt->category }}</span>
-                            @endif
-                        </div>
+                        <div class="text-[10px] opacity-70 px-2">{{ $evt->category }}</div>
                     </button>
                 @endforeach
 
