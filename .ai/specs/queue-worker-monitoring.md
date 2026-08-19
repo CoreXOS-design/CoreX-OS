@@ -58,7 +58,17 @@ list. There is no QA1/QA2 in this data at all: those run as separate systemd ser
 
 `app/Console/Commands/QueueWorkerLivenessAlert.php` (`corex:queue-worker-liveness-alert`),
 scheduled `everyMinute()->withoutOverlapping()->onOneServer()` in `routes/console.php`,
-alongside the existing `queue-healthcheck` schedule entry.
+alongside the existing `queue-healthcheck` schedule entry — but guarded behind
+`if (app()->environment('production'))`. Live (`/corex`, APP_ENV=production) and Staging
+(`/corex-staging`, APP_ENV=staging) are separate deployments of this same codebase, each
+already running their own `schedule:run` via cron every minute (confirmed
+`crontab -u root -l`, 2026-08-19). This check reads supervisor status for the WHOLE shared
+host — both live and staging worker groups — so without the guard, once this code reaches
+both environments, both schedulers would independently detect the same down process and
+(each environment has its own cache store, so the per-process throttle never crosses
+environments) send duplicate alert emails for one real incident. The Server Health panel and
+Dev Settings page stay fully usable on every environment regardless — only the
+cron-triggered check is single-sourced, to Live.
 
 Doctrine (matches `PermissionLockdownAlarm`, AT-265): **the log is the guarantee, the email
 is best-effort.** `Log::critical` fires unconditionally for every down process, every run.
