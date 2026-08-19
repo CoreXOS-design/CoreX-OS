@@ -3,6 +3,7 @@
 namespace Tests\Feature\Importer;
 
 use App\Jobs\SendAgentInviteJob;
+use App\Mail\UserInviteMail;
 use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\P24ImportRow;
@@ -10,9 +11,8 @@ use App\Models\P24ImportRun;
 use App\Models\P24PortalEvent;
 use App\Models\Role;
 use App\Models\User;
-use App\Notifications\AgentInviteNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
@@ -100,12 +100,12 @@ class AgentInviteFromReviewTest extends TestCase
     public function test_pressing_send_a_second_time_sends_nothing_further(): void
     {
         $this->importedAgent('Thabo Ndlovu', 'thabo@obrien.co.za');
-        Notification::fake();
+        Mail::fake();
 
         // First press actually runs the job so invited_at is stamped for real,
         // rather than the test asserting against a state it invented itself.
         $this->actingAs($this->owner)->post(route('admin.importer.agency.invite-agents', $this->agency));
-        Notification::assertSentTo(User::where('email', 'thabo@obrien.co.za')->firstOrFail(), AgentInviteNotification::class);
+        Mail::assertSent(UserInviteMail::class, fn ($mail) => $mail->hasTo('thabo@obrien.co.za'));
 
         Queue::fake();
         $this->actingAs($this->owner)
@@ -215,15 +215,15 @@ class AgentInviteFromReviewTest extends TestCase
         Queue::assertNothingPushed();
     }
 
-    public function test_the_job_stamps_invited_at_only_after_the_notification_goes_out(): void
+    public function test_the_job_stamps_invited_at_only_after_the_mail_goes_out(): void
     {
-        Notification::fake();
+        Mail::fake();
         $agent = $this->importedAgent('Thabo Ndlovu', 'thabo@obrien.co.za');
         $this->assertNull($agent->invited_at);
 
         (new SendAgentInviteJob($agent->id))->handle();
 
-        Notification::assertSentTo($agent, AgentInviteNotification::class);
+        Mail::assertSent(UserInviteMail::class, fn ($mail) => $mail->hasTo($agent->email));
         $this->assertNotNull($agent->fresh()->invited_at);
     }
 

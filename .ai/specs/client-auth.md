@@ -40,7 +40,8 @@ The mobile app login screen splits into two paths:
 | Column | Type | Purpose |
 |---|---|---|
 | `id` | bigint pk | |
-| `email` | string, **globally unique** | Login identifier. Real or agent-fabricated under `@corexclient.co.za`. |
+| `email` | string, indexed (see `active_email` below for the real uniqueness rule) | Login identifier. Real or agent-fabricated under `@corexclient.co.za`. |
+| `active_email` | string, **generated column**, `IF(deleted_at IS NULL, email, NULL)`, **unique** | Added by migration `2026_08_22_000004` (bug fix — see "Account deletion" below). The real uniqueness boundary: at most one ACTIVE row may hold a given email; any number of soft-deleted rows may share one, so a deleted account's email is immediately reusable by a fresh signup. Never read/write this column directly — it exists purely so MySQL enforces the invariant every call site already assumes via Eloquent's SoftDeletes scope. Hidden from all JSON output. |
 | `password` | string, nullable, hashed | bcrypt; nullable until set |
 | `password_must_change` | boolean | True when an agent set a temp password — blocks all endpoints except `/password/set` + `/logout` + `/me` |
 | `password_set_at` | timestamp, nullable | |
@@ -80,7 +81,7 @@ Same intent as draft. Keyed by `email` (so OTPs can be issued before a ClientUse
 | `id` | bigint pk |
 | `contact_id` | FK contacts |
 | `agency_id` | FK agencies |
-| `event` | enum: `lookup`, `otp_sent`, `otp_verified`, `otp_failed`, `password_set`, `password_changed`, `password_login_success`, `password_login_failed`, `password_reset_by_agent`, `agency_selected`, `agency_locked`, `logout`, `screen_viewed` |
+| `event` | enum: `lookup`, `otp_sent`, `otp_verified`, `otp_failed`, `password_set`, `password_changed`, `password_login_success`, `password_login_failed`, `password_reset_by_agent`, `agency_selected`, `agency_locked`, `logout`, `screen_viewed`, `account_deleted` (self-service, one row per linked agency/contact — see "Account deletion") |
 | `meta` | json (e.g. screen name, agency_id chosen) |
 | `ip` | string |
 | `user_agent` | string |
@@ -110,13 +111,14 @@ Same intent as draft. Keyed by `email` (so OTPs can be issued before a ClientUse
 | POST | `/api/v1/client-auth/lookup` | `client-auth.lookup` | none | `{email}` → `{exists, requires_otp, requires_password, agencies:[{id,name,is_preferred,is_locked}]}` |
 | POST | `/api/v1/client-auth/otp/send` | `client-auth.otp.send` | none | `{email}` — sends OTP via mail; rate-limited 1/min, 5/hour per email+IP |
 | POST | `/api/v1/client-auth/otp/verify` | `client-auth.otp.verify` | none | `{email, code}` → activation token (short-lived, 15 min) for password set |
-| POST | `/api/v1/client-auth/password/set` | `client-auth.password.set` | activation token OR `auth:sanctum` (ability `client`) when `client_password_must_change` | `{password, password_confirmation}` |
+| POST | `/api/v1/client-auth/password/set` | `client-auth.password.set` | activation token OR `auth:sanctum` (ability `client`) when `client_password_must_change` | `{password, password_confirmation}`. Also auto-selects `current_agency_id` when the client has exactly one linked agency (mirrors `login()` — fixed 2026-08-13, see "Bug found & fixed" note below) |
 | POST | `/api/v1/client-auth/login` | `client-auth.login` | none | `{email, password, device_name, agency_id?}` → `{token, contact, agencies}` |
 | POST | `/api/v1/client-auth/agency/select` | `client-auth.agency.select` | `auth:sanctum` (`client`) | `{agency_id, lock?, favourite?}` |
 | POST | `/api/v1/client-auth/password/change` | `client-auth.password.change` | `auth:sanctum` (`client`) | `{current_password, password, password_confirmation}` |
 | POST | `/api/v1/client-auth/password/forgot` | `client-auth.password.forgot` | none | `{email}` — issues recovery OTP (real emails only) |
 | POST | `/api/v1/client-auth/logout` | `client-auth.logout` | `auth:sanctum` (`client`) | revokes current token |
-| GET  | `/api/v1/client/me` | `client.me` | `auth:sanctum` (`client`) | returns contact summary, current agency, lock state, and (optional) `agent` — the contact's assigned agent in the current agency (capturing/QR-signup agent via `created_by_user_id`); key omitted when none. Shape: `{id, first_name, last_name, full_name, title, phone, whatsapp, email, photo_url}` with empty channels dropped and phones in E.164 |
+| DELETE | `/api/v1/client-auth/account` | `client-auth.account.delete` | `auth:sanctum` (`client`) | Apple 5.1.1(v) account-deletion. `{password}` (required unless `password_must_change`). Revokes all tokens, unlinks every linked Contact across every agency, wipes the password, soft-deletes the `ClientUser`. Contact rows are NEVER touched — see "Account deletion" below. Reachable even while `password_must_change=true` (allow-listed in `EnsureClientAbility`) |
+| GET  | `/api/v1/client/me` | `client.me` | `auth:sanctum` (`client`) | returns contact summary, current agency, lock state, and (optional) `agent` — the contact's OPERATIONAL assigned agent in the current agency (`contacts.agent_id` — same field/value shown as "Agent" on the CoreX Contacts page, changed 2026-08-13, was wrongly reading the immutable capture-time `created_by_user_id`); key omitted when none. Shape: `{id, first_name, last_name, full_name, title, phone, whatsapp, email, photo_url}` with empty channels dropped and phones in E.164 |
 | GET  | `/api/v1/client/match-options` | `client.match-options` | `auth:sanctum` (`client`) | Listing types, property types, suburb suggestions for the agency |
 | GET  | `/api/v1/client/matches` | `client.matches` | `auth:sanctum` (`client`) | List the client's matches in current agency, each with `feedback_summary` counts |
 | POST | `/api/v1/client/matches` | `client.matches.create` | `auth:sanctum` (`client`) | Client creates a new match for themselves |
@@ -178,6 +180,53 @@ Rate limits: `lookup`/`login` — 10/min/IP. `otp/send` — 1/min, 5/hour per em
 
 [Web — agent] Contact detail → "Reset client password" → generates temp + must_change=true
 ```
+
+## Account deletion (added 2026-08-13)
+
+**Purpose:** Apple App Store Review Guideline 5.1.1(v) — an app that supports account
+creation must offer in-app account deletion, not just deactivation, and (when the
+deletion isn't fully self-contained in-app) a direct link to finish it. CoreX's
+deletion is fully self-contained in-app — no website hop needed.
+
+**What "delete my account" means here:** the client's `Contact` row is agency business
+data (FICA/POPIA/deal-history record) — it is never deleted by this endpoint, and the
+client cannot delete it themselves (non-negotiable #1 also means it could only ever be
+soft-deleted by staff, never by a self-service client action). What Apple's requirement
+maps to is the **login identity** — the `ClientUser` row and its ability to authenticate.
+Deleting that fully satisfies the guideline: after this call, the email can never sign
+back in, no data about the client is retrievable through the app, and a fresh signup
+with the same email starts completely clean (Flow A from scratch).
+
+**Endpoint:** `DELETE /api/v1/client-auth/account` (`client-auth.account.delete`),
+`auth:sanctum` + ability `client`. Body: `{ "password": "..." }` — required unless the
+account is currently in `password_must_change` state (mirrors `password/change`'s
+validation shape). Wrong password → 422, nothing is touched. Deliberately reachable even
+while `password_must_change=true` (allow-listed in `EnsureClientAbility`) — a client must
+always be able to delete, never gated behind an unrelated forced flow.
+
+**What it does, in order:**
+1. Loads every `Contact` linked to this `ClientUser` across every agency (the same
+   sanctioned cross-agency read as `agenciesFor()`/lookup).
+2. Logs one `account_deleted` row per linked agency/contact (or a single row with no
+   agency/contact if none are linked), then nulls `contacts.client_user_id` on each —
+   the Contact itself, its deal/document/FICA history, and its `client_access_logs`
+   trail are all preserved untouched.
+3. Revokes every Sanctum token for the `ClientUser` (all devices signed out immediately).
+4. Wipes the password, resets `password_must_change=true`, clears
+   `preferred_agency_id`/`locked_to_agency_id`/`current_agency_id`.
+5. Soft-deletes the `ClientUser` row (`deleted_at` — never a hard delete, non-negotiable
+   #1). Standard model scoping means every other endpoint (`lookup`, `login`, etc.) then
+   behaves exactly as if the email never signed up.
+
+**Origin-agency lock does not apply.** `ClientLoginController::ensureOriginAgency()`
+restricts *agent-initiated* actions (reset/force-logout/remove) on agency-managed
+logins to the owning agency. This endpoint is *client-initiated on their own account* —
+the origin lock is irrelevant here; a client can always delete their own login
+regardless of which agency created it.
+
+**Admin visibility:** the `account_deleted` rows land in `client_access_logs` exactly
+like every other event, so they surface in the (planned) "Client App Activity" admin
+page per agency once that page is built — see "Deliberately NOT yet built" note below.
 
 ## Web (admin / agent) UI
 
@@ -287,6 +336,28 @@ The agent may also paste a fully custom email if the client wants something spec
 - `.ai/MOBILE_APP.md` — document the new endpoints
 - Mobile-app prompt — to be written once endpoints are smoke-tested live
 
+### Known gap (found 2026-08-13, NOT fixed by the account-deletion prompt)
+This "Files (as built)" list has claimed since 2026-05-09 that
+`app/Http/Controllers/Admin/ClientAppActivityController.php`,
+`resources/views/admin/client-app-activity/index.blade.php`, the admin route, and the
+sidebar entry exist. **They do not** — verified absent from the repo while adding the
+account-deletion endpoint. `client_app.view_logs` permission exists but gates nothing.
+This is a pre-existing discrepancy, not introduced by this prompt — flagged here rather
+than silently building the missing admin page as unscoped extra work. Needs its own
+prompt: build the controller/view/route/sidebar entry per the "Admin → Client App
+Activity" section below, or strike the claim from this file if it's been deliberately
+deprioritised.
+
+## Files (account deletion — added 2026-08-13)
+
+### Modified
+- `app/Http/Controllers/Api/V1/ClientAuthController.php` — `deleteAccount()`
+- `app/Services/ClientAuthService.php` — `allContactsFor()` (sanctioned cross-agency read)
+- `app/Http/Middleware/EnsureClientAbility.php` — allow-listed `client-auth.account.delete` under `password_must_change`
+- `routes/api.php` — `DELETE /api/v1/client-auth/account`
+- `tests/Feature/ClientAuth/ClientAuthFlowTest.php` — 5 new tests
+- `.ai/specs/client-auth-MOBILE-PROMPT.md` — added the Settings-screen "Delete account" row
+
 ## Acceptance criteria
 
 1. Cross-agency lookup returns every agency a given email appears on; no other code path uses `withoutGlobalScope(AgencyScope)`.
@@ -303,6 +374,39 @@ The agent may also paste a fully custom email if the client wants something spec
 12. `php artisan view:clear && route:clear && cache:clear`, `php -l` clean on all changed PHP, `scripts/dev-check.ps1` passes with 0 new failures.
 13. New migrations roll back cleanly.
 14. Soft-delete preserved on all new tables; "Remove client access" does NOT hard-delete logs.
+15. `DELETE /api/v1/client-auth/account` never hard-deletes anything; the `ClientUser` row is soft-deleted, every linked `Contact` row and its history is untouched (only `client_user_id` is nulled), and every `client_access_logs`/`client_signin_attempts` row is preserved.
+16. After account deletion, `/lookup` and `/login` for that email behave exactly as a fresh, never-signed-up email (soft-deleted `ClientUser` is excluded from the default query scope).
+17. Account deletion is reachable even while `password_must_change=true` (allow-listed in `EnsureClientAbility`) — a client is never blocked from deleting their own account.
+18. After account deletion, a fresh signup (OTP flow) with the SAME email succeeds end to end (send OTP → verify OTP → `findOrCreateClientUser` creates a genuinely new, distinct `ClientUser` row) with no 500 and no false "invalid code" caused by the OTP being consumed on a failed prior attempt.
+
+### Bug found & fixed same day (2026-08-13) — stale unique index blocked re-signup after deletion
+`client_users.email` originally carried a plain global-unique index. Soft-deleting a `ClientUser`
+(account deletion) does not free that email at the DB level, so a real re-signup after deletion hit
+a 1062 duplicate-entry error inside `findOrCreateClientUser()` — AFTER `OtpService::verify()` had
+already marked the OTP as used (single-use, written one line earlier), so the user saw a server
+error on the correct code, then "Invalid or expired code" on retrying the SAME correct code (already
+consumed). Confirmed live in production within minutes of the endpoint shipping (real row:
+`a.roets12@gmail.com`, soft-deleted 2026-08-13 13:31:19). Root-cause fixed via migration
+`2026_08_22_000004_scope_client_users_email_unique_to_active_rows` — see `active_email` above.
+Verified in production (rolled-back transaction: a fresh insert with the same email as the trashed
+row now succeeds; two ACTIVE rows with the same email still correctly collide). No manual data
+cleanup was needed — the blocking row's `active_email` becomes NULL automatically once the
+migration lands, since its `deleted_at` was already set.
+
+### Bug found & fixed same day (2026-08-13) — Flow A never selected an agency
+`login()` has always auto-selected `current_agency_id` when a client has exactly one linked agency
+(locked > requested > only-one > null). `setPassword()` — the step that actually completes Flow A
+(fresh OTP activation) — never did the same thing, so a brand-new single-agency client landed
+signed-in with NO agency selected. `/client/me` gates `contact` resolution on `current_agency_id`
+being set, so this cascaded into `contact: null` → no `agent` key → the mobile app falling back to
+showing the client's email in place of a name → and every agency-scoped endpoint (`/client/matches`,
+seller-listings) 409ing "Select an agency first". The mobile app's Screen 3 does not call
+`/agency/select` for the single-agency case (see `client-auth-MOBILE-PROMPT.md`), so nothing on the
+client side would have recovered from this. Found live via the real re-signup from the migration
+bug above (`a.roets12@gmail.com`, `ClientUser` id 9) — confirmed and manually corrected that row's
+`current_agency_id` in production, then fixed the root cause: `setPassword()` now runs the same
+locked-then-single-agency auto-select logic as `login()`. Tests: `test_password_set_auto_selects_single_linked_agency`,
+`test_password_set_does_not_auto_select_when_multiple_agencies`.
 
 ## Cross-agency contact linking (added 2026-05-12)
 

@@ -49,6 +49,35 @@ final class AddressOnlyComposeTest extends TestCase
         $this->assertSame(0, Property::withoutGlobalScopes()->where('agency_id', $agencyId)->count());
     }
 
+    /**
+     * WA-OPEN FIX regression lock. The WhatsApp tab must be grabbed SYNCHRONOUSLY
+     * inside the click gesture — window.open('', 'corex_whatsapp_web') — BEFORE the
+     * awaited submit POST, then navigated (waTab.location = data.client_url) once the
+     * server returns the per-send URL, and ONLY then may the page advance to the
+     * sent/confirm screen. Calling window.open AFTER the await runs outside the
+     * browser's transient user-activation, so the popup is silently blocked and
+     * WhatsApp never launches while the page still jumps to the confirm modal — the
+     * exact live bug Maggie hit. assertSeeInOrder locks the ordering so it cannot
+     * silently regress. Mirrors the working AT-323 Core-Match "open first" pattern.
+     */
+    public function test_whatsapp_tab_is_opened_in_gesture_before_the_awaited_post(): void
+    {
+        [$agencyId, $userId] = $this->seedAgency();
+        $this->seedDefaultTemplate($agencyId);
+        $contact = $this->seedContactWithAddress($agencyId);
+
+        $resp = $this->actingAs(User::find($userId))
+            ->get(route('seller-outreach.composer.show', $contact));
+
+        $resp->assertOk();
+        $resp->assertSeeInOrder([
+            "waTab = window.open('', 'corex_whatsapp_web')", // 1. tab opened in the click gesture...
+            'await fetch(this.submitUrl',                    // 2. ...BEFORE the awaited POST
+            'waTab.location = data.client_url',              // 3. tab navigated after the POST returns
+            'window.location.href = this.sentUrlBase',       // 4. only then advance to the confirm screen
+        ], false);
+    }
+
     /** 5 — neither property NOR address: composer still DEAD-ENDS (blocked). */
     public function test_composer_dead_ends_when_contact_has_neither_property_nor_address(): void
     {

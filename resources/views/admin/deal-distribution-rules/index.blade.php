@@ -21,6 +21,26 @@
         </div>
     </div>
 
+    {{-- Feature 2 — agency-level ad-hoc distribution switch (default off). When on, agents get a
+         "Send documents to any email" affordance on each deal's Email Parties. --}}
+    <div class="rounded-md px-6 py-4" style="background: var(--surface, #fff); border: 1px solid var(--border, #e5e7eb);">
+        <form method="POST" action="{{ route('admin.settings.deal-distribution-rules.adhoc-toggle') }}" class="flex items-center justify-between gap-4">
+            @csrf
+            <div>
+                <div class="text-sm font-semibold" style="color: var(--text-primary);">Ad-hoc document distribution</div>
+                <div class="text-xs mt-1" style="color: var(--text-muted, #6b7280);">
+                    Allow agents to send documents to ANY email address from a deal's Email Parties (not just the linked
+                    seller / buyer / attorney parties). Off by default.
+                </div>
+            </div>
+            <label class="inline-flex items-center gap-2 cursor-pointer whitespace-nowrap">
+                <input type="hidden" name="adhoc_document_distribution_enabled" value="0">
+                <input type="checkbox" name="adhoc_document_distribution_enabled" value="1" {{ $adhocEnabled ? 'checked' : '' }} onchange="this.form.submit()">
+                <span class="text-sm" style="color: var(--text-primary);">{{ $adhocEnabled ? 'On' : 'Off' }}</span>
+            </label>
+        </form>
+    </div>
+
     @if(session('status'))
         <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
              style="background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent);

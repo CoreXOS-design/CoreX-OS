@@ -22,7 +22,7 @@ class DealDistributionRuleController extends Controller
     public const PARTY_ROLES = [
         'seller', 'co_seller', 'buyer', 'co_buyer',
         'conveyancer', 'transfer_attorney', 'bond_attorney', 'bond_originator', 'originator',
-        'electrician_coc', 'entomologist', 'service_provider', 'other',
+        'electrician_coc', 'entomologist', 'service_provider', 'external_agency', 'other',
     ];
 
     public function index()
@@ -44,12 +44,31 @@ class DealDistributionRuleController extends Controller
             ->orderBy('pipeline_template_id')->orderBy('position')
             ->get(['id', 'pipeline_template_id', 'name', 'position']);
 
+        // Feature 2 — the agency-level ad-hoc distribution switch (default off).
+        $adhocEnabled = (bool) optional(\App\Models\Agency::withoutGlobalScopes()->find($agencyId))->adhoc_document_distribution_enabled;
+
         return view('admin.deal-distribution-rules.index', [
             'rules'         => $rules,
             'documentTypes' => $documentTypes,
             'steps'         => $steps,
             'partyRoles'    => self::PARTY_ROLES,
+            'adhocEnabled'  => $adhocEnabled,
         ]);
+    }
+
+    /**
+     * Feature 2 — toggle the agency-level ad-hoc document-distribution switch (default off). When on,
+     * the "Send documents to any email" affordance appears on Email Parties; when off, it is hidden.
+     */
+    public function toggleAdhoc(Request $request)
+    {
+        abort_unless(auth()->user()?->hasPermission('deals_v2.manage_distribution_rules'), 403);
+        $agency = \App\Models\Agency::withoutGlobalScopes()->findOrFail($this->agencyId());
+        $agency->adhoc_document_distribution_enabled = $request->boolean('adhoc_document_distribution_enabled');
+        $agency->save();
+
+        return back()->with('success',
+            'Ad-hoc document distribution ' . ($agency->adhoc_document_distribution_enabled ? 'enabled' : 'disabled') . '.');
     }
 
     public function store(Request $request)

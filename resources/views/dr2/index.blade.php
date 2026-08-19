@@ -312,7 +312,11 @@
                                         <a href="{{ route('deals-dr2.log', $deal) }}" class="corex-btn-outline text-xs px-2 py-1">Log</a>
                                         {{-- AT-216 pipeline overlay (pure tracking) — attach/track this deal's pipeline --}}
                                         @permission('view_deals')
-                                        <a href="{{ route('deals-dr2.pipeline', $deal) }}" class="corex-btn-outline text-xs px-2 py-1">{{ $deal->deal_pipeline_template_id ? 'Pipeline' : 'Attach' }}</a>
+                                        {{-- Phase 4 — an existing pipeline opens on the agent's remembered view (timeline|list).
+                                             "Pipeline" shows once steps exist — from an attached template OR composed from the
+                                             Deal Structure tab (composable deals have no template_id, so key off the step count). --}}
+                                        @php $hasPipeline = ($deal->pipeline_steps_count ?? 0) > 0 || $deal->deal_pipeline_template_id; @endphp
+                                        <a href="{{ route($hasPipeline ? 'deals-dr2.pipeline.view' : 'deals-dr2.pipeline', $deal) }}" class="corex-btn-outline text-xs px-2 py-1">{{ $hasPipeline ? 'Pipeline' : 'Attach' }}</a>
                                         @endpermission
                                         @permission('deals.edit')
                                         <a href="{{ route('deals-dr2.edit', $deal) }}" class="corex-btn-outline text-xs px-2 py-1">Edit</a>

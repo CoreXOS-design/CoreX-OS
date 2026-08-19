@@ -155,6 +155,7 @@ class UserManagementController extends Controller
             'display_email' => ['nullable', 'email', 'max:255'],
             'phone'         => ['nullable', 'string', 'max:50'],
             'cell'          => ['required', 'string', 'max:50'],
+            'whatsapp_number' => ['nullable', 'string', 'max:50', 'regex:' . \App\Models\User::SA_MOBILE_REGEX],
             'fax'           => ['nullable', 'string', 'max:50'],
             'ffc_number'    => ['nullable', 'string', 'max:100'],
             'website'       => ['nullable', 'string', 'max:255'],
@@ -170,6 +171,7 @@ class UserManagementController extends Controller
             'sliding_tier3_cut_percent'   => ['nullable', 'numeric', 'min:0', 'max:100'],
             'can_capture_rentals'         => ['nullable', 'in:0,1'],
             'counts_for_branch_split'     => ['nullable', 'in:0,1'],
+            'show_in_performance_reports' => ['nullable', 'in:0,1'],
             'agent_photo'     => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
             'ffc_certificate' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120'],
             'test_agent'      => ['nullable', 'in:0,1'],
@@ -265,8 +267,10 @@ class UserManagementController extends Controller
             'sliding_tier3_cut_percent'   => $data['sliding_tier3_cut_percent'] ?? null,
             'can_capture_rentals'         => isset($data['can_capture_rentals']) && $data['can_capture_rentals'] == '1' ? 1 : 0,
             'counts_for_branch_split'     => isset($data['counts_for_branch_split']) && $data['counts_for_branch_split'] == '1' ? 1 : 0,
+            'show_in_performance_reports' => isset($data['show_in_performance_reports']) && $data['show_in_performance_reports'] == '1' ? 1 : 0,
             'phone'                       => $data['phone'] ?? null,
             'cell'                        => $data['cell'] ?? null,
+            'whatsapp_number'             => $data['whatsapp_number'] ?? null,
             'fax'                         => $data['fax'] ?? null,
             'ffc_number'                  => $data['ffc_number'] ?? null,
             'website'                     => $data['website'] ?? null,
@@ -349,6 +353,7 @@ class UserManagementController extends Controller
             'display_email' => ['nullable', 'email', 'max:255'],
             'phone'         => ['nullable', 'string', 'max:50'],
             'cell'          => ['required', 'string', 'max:50'],
+            'whatsapp_number' => ['nullable', 'string', 'max:50', 'regex:' . \App\Models\User::SA_MOBILE_REGEX],
             'fax'           => ['nullable', 'string', 'max:50'],
             'ffc_number'    => ['nullable', 'string', 'max:100'],
             'ffc_expiry_date' => ['nullable', 'date'],
@@ -367,6 +372,7 @@ class UserManagementController extends Controller
             'sliding_tier3_cut_percent'   => ['nullable', 'numeric', 'min:0', 'max:100'],
             'can_capture_rentals'         => ['nullable', 'in:0,1'],
             'counts_for_branch_split'     => ['nullable', 'in:0,1'],
+            'show_in_performance_reports' => ['nullable', 'in:0,1'],
             'agent_photo'     => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
             'ffc_certificate' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120'],
             'password'        => ['nullable', 'string', 'min:8'],
@@ -428,9 +434,11 @@ class UserManagementController extends Controller
         $user->sliding_tier3_cut_percent = $data['sliding_tier3_cut_percent'] ?? null;
         $user->can_capture_rentals       = isset($data['can_capture_rentals']) && $data['can_capture_rentals'] == '1' ? 1 : 0;
         $user->counts_for_branch_split   = isset($data['counts_for_branch_split']) && $data['counts_for_branch_split'] == '1' ? 1 : 0;
+        $user->show_in_performance_reports = isset($data['show_in_performance_reports']) && $data['show_in_performance_reports'] == '1' ? 1 : 0;
 
         $user->phone      = $data['phone'] ?? null;
         $user->cell        = $data['cell'] ?? null;
+        $user->whatsapp_number = $data['whatsapp_number'] ?? null;
         $user->fax         = $data['fax'] ?? null;
         $user->ffc_number  = $data['ffc_number'] ?? null;
         $user->ffc_expiry_date = $data['ffc_expiry_date'] ?? null;
@@ -696,12 +704,14 @@ class UserManagementController extends Controller
         $contact = $request->validate([
             'phone' => ['nullable','string','max:50'],
             'cell' => ['required','string','max:50'],
+            'whatsapp_number' => ['nullable','string','max:50','regex:' . \App\Models\User::SA_MOBILE_REGEX],
             'fax' => ['nullable','string','max:50'],
             'ffc_number' => ['nullable','string','max:100'],
             'website' => ['nullable','string','max:255'],
         ]);
         $user->phone = $contact['phone'] ?? null;
         $user->cell = $contact['cell'] ?? null;
+        $user->whatsapp_number = $contact['whatsapp_number'] ?? null;
         $user->fax = $contact['fax'] ?? null;
         $user->ffc_number = $contact['ffc_number'] ?? null;
         $user->website = $contact['website'] ?? null;

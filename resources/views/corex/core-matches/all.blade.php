@@ -4,28 +4,20 @@
 @php
     $totalMatches = $byAgent->sum(fn($row) => $row['matches']->count());
 @endphp
-{{-- The browser's native <details> disclosure triangle renders unstyled and
-     doubles up against our own chevron icon in WebKit (Chrome/Safari/Edge) —
-     list-style:none alone doesn't suppress it there, only ::-webkit-details-marker
-     does (same fix already applied to .analysis-accordion in corex.css). --}}
-<style>
-    details.core-match-accordion > summary { list-style: none; }
-    details.core-match-accordion > summary::-webkit-details-marker { display: none; }
-    details.core-match-accordion > summary::marker { content: ""; }
-</style>
 <div class="space-y-5">
 
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">All Core Matches</h1>
-                <p class="text-xs" style="color: var(--text-muted);">
+                <h1 class="text-xl font-bold text-white leading-tight">All Core Matches</h1>
+                <p class="text-sm text-white/60">
                     Every saved search across {{ $branchLimited ? 'your branch' : 'the agency' }} — oversight for managers and admins.
                 </p>
             </div>
-            <div class="flex flex-wrap items-center gap-2">
-                <a href="{{ route('corex.core-matches.index') }}" class="corex-btn-outline text-xs">
+            <div class="flex items-center gap-2 flex-wrap">
+                <a href="{{ route('corex.core-matches.index') }}" class="corex-btn-outline text-sm"
+                   style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
                     My Core Matches
                 </a>
@@ -41,7 +33,7 @@
                 <label class="text-xs font-medium" style="color:var(--text-secondary);">Filter by agent</label>
                 <select name="agent_id" onchange="this.form.submit()"
                         class="rounded-md px-3 py-2 text-sm"
-                        style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); min-width:220px;">
+                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); min-width:220px;">
                     <option value="all" @selected($agentId === null)>All agents</option>
                     @foreach($agents as $agent)
                     <option value="{{ $agent->id }}" @selected($agentId === (int) $agent->id)>{{ $agent->name }}</option>
@@ -103,114 +95,91 @@
                 </div>
             </div>
 
-            {{-- Contact sub-groups — a contact with more than one saved
-                 wishlist (AT-266) reads as one sub-group instead of scattering
-                 as repeated flat rows under the agent. --}}
+            {{-- Match rows --}}
             <div>
-                @foreach($row['contacts'] as $contactRow)
+                @foreach($matches as $match)
                 @php
-                    $contact        = $contactRow['contact'];
-                    $contactMatches = $contactRow['matches'];
+                    $contact = $match->contact;
+                    $counts  = $matchCounts[$match->id] ?? ['total' => 0, 'visible' => 0, 'hidden' => 0];
                 @endphp
-                <details class="core-match-accordion" style="{{ !$loop->last ? 'border-bottom:1px solid var(--border);' : '' }}">
+                <div class="flex items-center gap-4 px-5 py-3.5 flex-wrap"
+                     style="{{ !$loop->last ? 'border-bottom:1px solid var(--border);' : '' }}">
 
-                    {{-- Contact sub-header — closed by default; click to reveal
-                         this contact's saved searches. --}}
-                    <summary class="flex items-center justify-between gap-3 px-5 py-2.5 cursor-pointer select-none"
-                         style="list-style:none; background:color-mix(in srgb, var(--surface-2) 55%, transparent);">
-                        <div class="flex items-center gap-2 min-w-0">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
-                            <a href="{{ route('corex.contacts.show', $contact) }}?tab=matches"
-                               class="text-xs font-semibold no-underline"
-                               style="color:var(--text-primary);"
-                               onclick="event.stopPropagation()">
-                                {{ $contact->full_name }}
-                            </a>
-                        </div>
-                        <span class="text-[0.6875rem] font-semibold px-2 py-0.5 rounded-md whitespace-nowrap"
-                              style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);">
-                            {{ number_format($contactMatches->count()) }} {{ Str::plural('search', $contactMatches->count()) }}
-                        </span>
-                    </summary>
+                    {{-- Contact --}}
+                    <a href="{{ route('corex.contacts.show', $contact) }}?tab=matches"
+                       class="text-sm font-semibold no-underline flex-shrink-0 whitespace-nowrap"
+                       style="color:var(--text-primary); min-width:140px;">
+                        {{ $contact->full_name }}
+                    </a>
 
-                    {{-- Match rows for this contact --}}
-                    @foreach($contactMatches as $match)
-                    @php
-                        $counts = $matchCounts[$match->id] ?? ['total' => 0, 'visible' => 0, 'hidden' => 0];
-                    @endphp
-                    <div class="flex items-center gap-4 px-5 py-3.5 flex-wrap"
-                         style="{{ !$loop->last ? 'border-bottom:1px solid var(--border);' : '' }}">
+                    {{-- Type pill --}}
+                    <span class="text-xs font-semibold px-2.5 py-1 rounded-md flex-shrink-0 whitespace-nowrap"
+                          style="{{ $match->listing_type === 'rental'
+                              ? 'background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 25%, transparent);'
+                              : 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 22%, transparent);' }}">
+                        {{ $match->listingTypeLabel() }}
+                    </span>
 
-                        {{-- Type pill --}}
-                        <span class="text-xs font-semibold px-2.5 py-1 rounded-md flex-shrink-0 whitespace-nowrap"
-                              style="{{ $match->listing_type === 'rental'
-                                  ? 'background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 25%, transparent);'
-                                  : 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 22%, transparent);' }}">
-                            {{ $match->listingTypeLabel() }}
-                        </span>
-
-                        {{-- Criteria --}}
-                        <div class="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
-                            @if($match->price_min || $match->price_max)
-                            <span class="text-xs font-bold" style="color:var(--text-primary);">{{ $match->priceRangeLabel() }}</span>
-                            <span class="text-xs" style="color:var(--text-muted);">·</span>
-                            @endif
-                            @if($match->suburb)
-                            <span class="text-xs font-medium" style="color:var(--text-secondary);">📍 {{ $match->suburb }}</span>
-                            <span class="text-xs" style="color:var(--text-muted);">·</span>
-                            @endif
-                            @if($match->category)
-                            <span class="text-xs px-2 py-0.5 rounded-md font-medium" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">{{ $match->category }}</span>
-                            @endif
-                            @if($match->property_type)
-                            <span class="text-xs px-2 py-0.5 rounded-md font-medium" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">{{ $match->property_type }}</span>
-                            @endif
-                            @foreach([[$match->beds_min,'Beds'],[$match->baths_min,'Baths'],[$match->garages_min,'Gar']] as [$val,$lbl])
-                            @if($val !== null)
-                            <span class="text-xs px-2 py-0.5 rounded-md font-medium" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">{{ $val }}+ {{ $lbl }}</span>
-                            @endif
-                            @endforeach
-                        </div>
-
-                        {{-- Match counts: total / visible / hidden --}}
-                        <div class="flex items-center gap-1.5 flex-shrink-0">
-                            <span class="text-xs font-semibold px-2 py-0.5 rounded-md whitespace-nowrap"
-                                  style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);"
-                                  title="Total properties matching this search">
-                                {{ number_format($counts['total']) }} {{ Str::plural('match', $counts['total']) }}
-                            </span>
-                            <span class="text-xs font-semibold px-2 py-0.5 rounded-md whitespace-nowrap"
-                                  style="background:color-mix(in srgb, var(--ds-green, #16a34a) 12%, transparent); color:var(--ds-green, #16a34a); border:1px solid color-mix(in srgb, var(--ds-green, #16a34a) 25%, transparent);"
-                                  title="Visible to the client">
-                                {{ number_format($counts['visible']) }} visible
-                            </span>
-                            @if($counts['hidden'] > 0)
-                            <span class="text-xs font-semibold px-2 py-0.5 rounded-md whitespace-nowrap"
-                                  style="background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 25%, transparent);"
-                                  title="Hidden from this match">
-                                {{ number_format($counts['hidden']) }} hidden
-                            </span>
-                            @endif
-                        </div>
-
-                        {{-- Action --}}
-                        @if(auth()->user()->hasPermission('access_core_matches'))
-                        {{-- AT-240 — edit this wishlist/criteria; opens the existing edit flow. --}}
-                        <a href="{{ route('corex.contacts.matches.edit', [$contact, $match]) }}"
-                           class="corex-btn-outline text-xs flex-shrink-0 whitespace-nowrap inline-flex items-center gap-1.5"
-                           title="Edit this wishlist / match criteria">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" /></svg>
-                            Edit
-                        </a>
+                    {{-- Criteria --}}
+                    <div class="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
+                        @if($match->price_min || $match->price_max)
+                        <span class="text-xs font-bold" style="color:var(--text-primary);">{{ $match->priceRangeLabel() }}</span>
+                        <span class="text-xs" style="color:var(--text-muted);">·</span>
                         @endif
-                        <a href="{{ route('corex.contacts.matches.results', [$contact, $match]) }}"
-                           class="corex-btn-outline text-xs flex-shrink-0 whitespace-nowrap inline-flex items-center gap-1.5">
-                            View Matches
-                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
-                        </a>
+                        @if($match->suburb)
+                        <span class="text-xs font-medium" style="color:var(--text-secondary);">📍 {{ $match->suburb }}</span>
+                        <span class="text-xs" style="color:var(--text-muted);">·</span>
+                        @endif
+                        @if($match->category)
+                        <span class="text-xs px-2 py-0.5 rounded-md font-medium" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">{{ $match->category }}</span>
+                        @endif
+                        @if($match->property_type)
+                        <span class="text-xs px-2 py-0.5 rounded-md font-medium" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">{{ $match->property_type }}</span>
+                        @endif
+                        @foreach([[$match->beds_min,'Beds'],[$match->baths_min,'Baths'],[$match->garages_min,'Gar']] as [$val,$lbl])
+                        @if($val !== null)
+                        <span class="text-xs px-2 py-0.5 rounded-md font-medium" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">{{ $val }}+ {{ $lbl }}</span>
+                        @endif
+                        @endforeach
                     </div>
-                    @endforeach
-                </details>
+
+                    {{-- Match counts: total / visible / hidden --}}
+                    <div class="flex items-center gap-1.5 flex-shrink-0">
+                        <span class="text-xs font-semibold px-2 py-0.5 rounded-md whitespace-nowrap"
+                              style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);"
+                              title="Total properties matching this search">
+                            {{ number_format($counts['total']) }} {{ Str::plural('match', $counts['total']) }}
+                        </span>
+                        <span class="text-xs font-semibold px-2 py-0.5 rounded-md whitespace-nowrap"
+                              style="background:color-mix(in srgb, var(--ds-green, #16a34a) 12%, transparent); color:var(--ds-green, #16a34a); border:1px solid color-mix(in srgb, var(--ds-green, #16a34a) 25%, transparent);"
+                              title="Visible to the client">
+                            {{ number_format($counts['visible']) }} visible
+                        </span>
+                        @if($counts['hidden'] > 0)
+                        <span class="text-xs font-semibold px-2 py-0.5 rounded-md whitespace-nowrap"
+                              style="background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 25%, transparent);"
+                              title="Hidden from this match">
+                            {{ number_format($counts['hidden']) }} hidden
+                        </span>
+                        @endif
+                    </div>
+
+                    {{-- Action --}}
+                    @if(auth()->user()->hasPermission('access_core_matches'))
+                    {{-- AT-240 — edit this wishlist/criteria; opens the existing edit flow. --}}
+                    <a href="{{ route('corex.contacts.matches.edit', [$contact, $match]) }}"
+                       class="corex-btn-outline text-xs flex-shrink-0 whitespace-nowrap inline-flex items-center gap-1.5"
+                       title="Edit this wishlist / match criteria">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" /></svg>
+                        Edit
+                    </a>
+                    @endif
+                    <a href="{{ route('corex.contacts.matches.results', [$contact, $match]) }}"
+                       class="corex-btn-outline text-xs flex-shrink-0 whitespace-nowrap inline-flex items-center gap-1.5">
+                        View Matches
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+                    </a>
+                </div>
                 @endforeach
             </div>
 

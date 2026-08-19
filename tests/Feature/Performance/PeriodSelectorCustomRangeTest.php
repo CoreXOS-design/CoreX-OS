@@ -27,6 +27,21 @@ use Tests\TestCase;
  * malformed request, and the shared partial's markup is actually present on
  * all three pages) — the client-side Alpine behavior itself isn't something
  * a Laravel HTTP test can execute, only its rendered markup.
+ *
+ * 2026-08-14 follow-up: `required` alone let a partially-typed native date
+ * input silently block the Apply click (segmented <input type="date"> stays
+ * "" until every segment is complete) — no reload, no visible error, which
+ * read to the user as "Apply does nothing." The dates now live in Alpine
+ * state (x-model, seeded from the query string via Js::from — no longer a
+ * static value="..." attribute) so the Apply button is visibly :disabled
+ * and a hint shows until both dates are actually complete.
+ *
+ * 2026-08-14 follow-up #2: the enabled Apply button used var(--brand),
+ * which is never defined in corex.css — background fell through to the
+ * ambient surface colour while color:#fff stayed hardcoded, reading as
+ * invisible white-on-light-grey in light mode (only legible in dark mode
+ * by coincidence). Fixed to var(--brand-button, #0ea5e9), the same
+ * variable + fallback every other primary button in the app uses.
  */
 class PeriodSelectorCustomRangeTest extends TestCase
 {
@@ -62,8 +77,38 @@ class PeriodSelectorCustomRangeTest extends TestCase
 
         $response->assertOk();
         $response->assertDontSee('A custom period requires both a start and an end date');
-        $response->assertSee('value="2026-08-01"', false);
-        $response->assertSee('value="2026-08-13"', false);
+        // Dates are seeded into Alpine state (x-data start/end via Js::from),
+        // not a static value="..." attribute — see 2026-08-14 follow-up above.
+        $response->assertSee('2026-08-01', false);
+        $response->assertSee('2026-08-13', false);
+    }
+
+    public function test_company_report_apply_button_disabled_until_both_dates_present(): void
+    {
+        // HTTP-level proof the disabled/hint wiring is actually in the markup;
+        // the live disable/enable toggle itself is Alpine reactivity, verified
+        // separately via a headless-browser check, not something a Laravel
+        // HTTP test can execute.
+        $response = $this->actingAs($this->user)
+            ->get(route('performance.agency-report', ['period' => 'custom']));
+
+        $response->assertOk();
+        $response->assertSee(':disabled="!start || !end"', false);
+        $response->assertSee('Pick both a start and end date', false);
+    }
+
+    public function test_company_report_apply_button_uses_a_defined_brand_variable_with_contrast(): void
+    {
+        // var(--brand) does not exist anywhere in corex.css — it silently
+        // fell through to the ambient surface colour, making the enabled
+        // button's white text unreadable in light mode. Lock in the
+        // correctly-defined variable (with fallback) instead.
+        $response = $this->actingAs($this->user)
+            ->get(route('performance.agency-report', ['period' => 'custom']));
+
+        $response->assertOk();
+        $response->assertDontSee('var(--brand)', false);
+        $response->assertSee('var(--brand-button, #0ea5e9); color:#fff;', false);
     }
 
     public function test_company_report_custom_range_missing_dates_falls_back_cleanly(): void
@@ -101,8 +146,8 @@ class PeriodSelectorCustomRangeTest extends TestCase
             ]));
 
         $response->assertOk();
-        $response->assertSee('value="2026-08-01"', false);
-        $response->assertSee('value="2026-08-13"', false);
+        $response->assertSee('2026-08-01', false);
+        $response->assertSee('2026-08-13', false);
         // The form must post back to the branch drill-down route, not the
         // company report — branch.blade.php previously had no custom-date
         // support at all, so this also proves the shared partial actually
@@ -118,8 +163,8 @@ class PeriodSelectorCustomRangeTest extends TestCase
             ]));
 
         $response->assertOk();
-        $response->assertSee('value="2026-08-01"', false);
-        $response->assertSee('value="2026-08-13"', false);
+        $response->assertSee('2026-08-01', false);
+        $response->assertSee('2026-08-13', false);
         $response->assertSee('/agent/' . $this->agent->id, false);
     }
 }

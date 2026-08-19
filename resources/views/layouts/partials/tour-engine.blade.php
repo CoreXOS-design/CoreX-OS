@@ -175,7 +175,7 @@
     @endonce
 
     <div id="corex-tour-root"
-         x-data="coreXTour({ tour: {{ \Illuminate\Support\Js::from($__tour) }}, autoStart: {{ $__tourAutoStart ? 'true' : 'false' }}, csrf: '{{ csrf_token() }}' })"
+         x-data="coreXTour({ tour: {{ \Illuminate\Support\Js::from($__tour) }}, autoStart: {{ $__tourAutoStart ? 'true' : 'false' }}, csrf: '{{ csrf_token() }}', completedSteps: {{ \Illuminate\Support\Js::from($__tourProgress?->completed_steps ?? []) }} })"
          x-init="init()">
         {{-- Launcher button. Rendered hidden here at body level; init() relocates
              it into the page-header slot (#tour-launcher-slot) and reveals it.
@@ -198,9 +198,11 @@
             tour: cfg.tour,
             autoStart: cfg.autoStart,
             csrf: cfg.csrf,
+            completedSteps: cfg.completedSteps || [],   // AT-371 (#18) — stable step keys already seen
             _driver: null,
             _finished: false,
             _suppressWritten: false,
+            _builtKeys: [],
 
             init() {
                 // Relocate the launcher into the page-header slot if the host page
@@ -250,15 +252,26 @@
                 });
             },
 
+            // AT-371 (#18) — a step's STABLE key = its explicit `key` or its `element` selector.
+            // Content-stable across deploys (unlike an index), so a seen step never re-triggers.
+            _stepKey(s) { return (s && (s.key || s.element)) || null; },
+
+            // The steps to actually show right now: anchor present on the page AND not already
+            // seen (persisted per-step). A page/section update therefore resumes from the first
+            // un-seen step instead of restarting the whole tour.
+            _visibleSteps() {
+                const done = this.completedSteps || [];
+                return (this.tour.steps || [])
+                    .filter((s) => document.querySelector(s.element) && !done.includes(this._stepKey(s)));
+            },
+
             _buildSteps() {
                 // Skip any step whose anchor isn't on the page right now — a tour
-                // should never dead-end on a missing element.
-                return (this.tour.steps || [])
-                    .filter((s) => document.querySelector(s.element))
-                    .map((s) => ({
-                        element: s.element,
-                        popover: { title: s.title, description: s.body, popoverClass: 'corex-tour' },
-                    }));
+                // should never dead-end on a missing element — and any step already seen.
+                return this._visibleSteps().map((s) => ({
+                    element: s.element,
+                    popover: { title: s.title, description: s.body, popoverClass: 'corex-tour' },
+                }));
             },
 
             start() {
@@ -272,8 +285,15 @@
             },
 
             _drive() {
-                const steps = this._buildSteps();
-                if (!steps.length) { console.warn('[corex-tour] no visible anchors'); return; }
+                // Build from the SAME filtered set the keys come from, so a step's driver index
+                // maps 1:1 to its stable key for per-step recording.
+                const visible = this._visibleSteps();
+                const steps = visible.map((s) => ({
+                    element: s.element,
+                    popover: { title: s.title, description: s.body, popoverClass: 'corex-tour' },
+                }));
+                if (!steps.length) { console.warn('[corex-tour] no new visible steps'); return; }
+                this._builtKeys = visible.map((s) => this._stepKey(s));
 
                 this._finished = false;
                 const factory = window.driver.js.driver;
@@ -297,6 +317,12 @@
                     doneBtnText: 'Done',
                     steps,
                     onPopoverRender: (popover, opts) => self._decoratePopover(popover, opts),
+                    // AT-371 (#18) — record each step the moment it is shown, keyed by its stable
+                    // key, so partial progress persists and a seen step never re-triggers.
+                    onHighlighted: (element, step, opts) => {
+                        const idx = (opts && opts.state && typeof opts.state.activeIndex === 'number') ? opts.state.activeIndex : 0;
+                        self._recordStep(self._builtKeys[idx]);
+                    },
                     onNextClick: () => {
                         if (!self._driver.hasNextStep()) { self._finished = true; self._driver.destroy(); }
                         else self._driver.moveNext();
@@ -377,6 +403,28 @@
                             'Accept': 'application/json',
                             'X-CSRF-TOKEN': this.csrf,
                         },
+                    });
+                } catch (e) { /* progress write is best-effort */ }
+            },
+
+            // AT-371 (#18) — persist ONE seen step (by its stable key). Optimistic local update so a
+            // page/section update mid-tour doesn't re-show it; the POST is best-effort (the server is
+            // the source of truth on next load). Idempotent both sides.
+            _recordStep(key) {
+                if (!key || (this.completedSteps || []).includes(key)) return;
+                this.completedSteps.push(key);
+                const url = '/api/v1/tours/' + encodeURIComponent(this.tour.key) + '/step';
+                try {
+                    fetch(url, {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': this.csrf,
+                        },
+                        body: JSON.stringify({ step: key }),
                     });
                 } catch (e) { /* progress write is best-effort */ }
             },

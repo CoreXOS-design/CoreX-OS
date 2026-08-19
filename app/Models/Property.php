@@ -776,6 +776,41 @@ class Property extends Model
     }
 
     /**
+     * Property-link roles that are explicitly NOT a party to a document on this property.
+     *
+     * A 'lead' is written by the portal/website lead services (P24, Private Property, the
+     * public site) for someone who ENQUIRED about the listing. They are linked to the
+     * property, and they are very often typed globally as a "Buyer" — but they are not a
+     * party to anything and must never be offered as a signing recipient.
+     */
+    public const PIVOT_NON_SIGNING_ROLES = ['lead'];
+
+    /**
+     * The e-sign role a contact holds ON THIS PROPERTY, derived from its property-link role.
+     *
+     * The property-link role is the authority for who a contact is to THIS document
+     * (esign-ceremony-v3 §2.1). The pivot vocabulary is the human-picked canon
+     * (PropertyContactController::LINK_ROLES) plus the legacy variants the backfills settled
+     * on; it is deliberately wider than the four e-sign roles it maps onto, because
+     * seller/owner and landlord/lessor are the same party under two names.
+     *
+     * Returns null when the link role is absent, unrecognised, or not a signing role at all
+     * (a lead) — the caller decides between falling back and excluding.
+     */
+    public static function esignRoleForPivotRole(?string $pivotRole): ?string
+    {
+        return [
+            'seller'   => 'seller',
+            'owner'    => 'seller',
+            'buyer'    => 'buyer',
+            'landlord' => 'lessor',
+            'lessor'   => 'lessor',
+            'tenant'   => 'lessee',
+            'lessee'   => 'lessee',
+        ][strtolower(trim((string) $pivotRole))] ?? null;
+    }
+
+    /**
      * AT-262 fix — translate a property-link (`contact_property.role`) to the role it
      * must hold on a clone of the OTHER listing type.
      *
@@ -1184,6 +1219,83 @@ class Property extends Model
     public function normalizedStatus(): string
     {
         return strtolower(trim((string) $this->status));
+    }
+
+    // ── AT-307 — server-side status-vocabulary guard ────────────────────────────
+    // properties.status is a free-text VARCHAR; the UI already picks from the
+    // settings-defined list, but non-UI paths (mobile API, imports, jobs, crafted
+    // requests) could persist any string (the 2903 mobile-withdraw class). These
+    // helpers are the ONE vocabulary, DERIVED from Settings so they never drift.
+
+    /** Per-agency memo of allowedStatuses() within a process (imports save many). */
+    private static array $allowedStatusCache = [];
+
+    /**
+     * The states CoreX code itself writes — lifecycle jobs (ExpireMandates→expired),
+     * deal listeners (under_offer/sold), importers (sold), the P24 sync (Active/Sold/
+     * Rented), publish/archive/clone (active/archived/draft). Built from the model's
+     * OWN existing status vocabularies so it can never drift from them; the four
+     * on-market pickers (active/for_sale/to_let/under_offer) that live in no other
+     * const are added explicitly. Always valid, for every agency.
+     */
+    public static function systemStatuses(): array
+    {
+        return array_values(array_unique(array_map('strtolower', array_merge(
+            self::OFF_MARKET_STATUSES,
+            self::CONCLUDED_STATUSES,
+            self::INACTIVE_STATUSES,
+            ['active', 'for_sale', 'to_let', 'under_offer'],
+        ))));
+    }
+
+    /**
+     * The full write-side vocabulary for an agency: systemStatuses() ∪ the agency's
+     * ACTIVE settings-defined property_status items (PropertySettingItem
+     * group='property_status'), each normalised to its stored form the same way the
+     * edit form maps a picker name → status (lower, spaces→underscores). DERIVES
+     * from Settings — a status an agency activates is accepted automatically; one it
+     * de-activates falls back to systemStatuses() (so lifecycle states never break).
+     */
+    public static function allowedStatuses(?int $agencyId): array
+    {
+        $key = $agencyId ?: 0;
+        if (isset(self::$allowedStatusCache[$key])) {
+            return self::$allowedStatusCache[$key];
+        }
+
+        $governance = [];
+        if ($agencyId) {
+            $governance = PropertySettingItem::withoutGlobalScopes()
+                ->where('agency_id', $agencyId)
+                ->where('group', PropertySettingItem::GROUP_STATUS)
+                ->where('active', true)
+                ->whereNull('deleted_at')
+                ->pluck('name')
+                ->map(fn ($n) => strtolower(str_replace(' ', '_', trim((string) $n))))
+                ->filter()
+                ->all();
+        }
+
+        return self::$allowedStatusCache[$key] = array_values(array_unique(
+            array_merge(self::systemStatuses(), $governance)
+        ));
+    }
+
+    /** Case-insensitive membership test. Empty/null is not out-of-vocab (nullable / DB default). */
+    public static function isAllowedStatus(?string $status, ?int $agencyId): bool
+    {
+        $status = strtolower(trim((string) $status));
+        if ($status === '') {
+            return true;
+        }
+
+        return in_array($status, self::allowedStatuses($agencyId), true);
+    }
+
+    /** Test/maintenance hook — drop the per-agency vocabulary memo. */
+    public static function clearAllowedStatusCache(): void
+    {
+        self::$allowedStatusCache = [];
     }
 
     /** A concluded listing (sold / sold by 3rd party / transferred / rented / let out). */
@@ -1915,6 +2027,7 @@ class Property extends Model
 
         return [];
     }
+
 
     /**
      * The gallery tags DERIVED from the property's rooms — `spaces_json`

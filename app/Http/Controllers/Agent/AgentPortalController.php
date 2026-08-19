@@ -287,6 +287,35 @@ class AgentPortalController extends Controller
     }
 
     /**
+     * Save the agent's own saved-signature foundation: signature image, initial
+     * image, and/or signing PIN. Images are encrypted at rest, the PIN is hashed
+     * (separate from the login password). AgentSignatureService::save() also blocks
+     * this under impersonation — only the genuinely-logged-in agent may set these.
+     */
+    public function saveSignature(Request $request, \App\Services\AgentSignatureService $svc)
+    {
+        $validated = $request->validate([
+            'signature_image' => ['nullable', 'string', 'starts_with:data:image/', 'max:2000000'],
+            'initial_image'   => ['nullable', 'string', 'starts_with:data:image/', 'max:2000000'],
+            'pin'             => ['nullable', 'string', 'min:4', 'max:20', 'regex:/^[0-9]+$/'],
+            'pin_confirm'     => ['nullable', 'same:pin'],
+        ]);
+
+        if (empty($validated['signature_image']) && empty($validated['initial_image']) && empty($validated['pin'])) {
+            return back()->withErrors(['signature' => 'Nothing to save — set a signature, initial, or PIN.'])->withFragment('signature');
+        }
+
+        $svc->save(
+            $request->user(),
+            $validated['signature_image'] ?? null,
+            $validated['initial_image'] ?? null,
+            $validated['pin'] ?? null,
+        );
+
+        return redirect()->route('agent.portal')->withFragment('signature')->with('success', 'Your signing details were saved.');
+    }
+
+    /**
      * Admin Multi-Branch Manager — save which branches the admin manages and
      * which is their login default. Self-service, gated by the route's
      * branches.self_assign_managed middleware. Rebuilds the pivot atomically.

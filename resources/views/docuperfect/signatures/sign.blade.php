@@ -6,9 +6,257 @@
 @endphp
 
 @section('corex-content')
+{{-- Candidate return loop — when the senior sent this back, show the running notes thread
+     at the top of the junior's edit/re-sign screen so they see exactly what to fix (Johan 2026-08-04). --}}
+@php
+    $returnThread = $document->web_template_data['return_thread'] ?? [];
+    $isReturnedToCandidate = $template->status === \App\Models\Docuperfect\SignatureTemplate::STATUS_RETURNED_TO_CANDIDATE;
+    $isAmendmentReview     = $template->status === \App\Models\Docuperfect\SignatureTemplate::STATUS_AMENDMENT_REVIEW;
+    $isReEditState         = $isReturnedToCandidate || $isAmendmentReview;
+@endphp
+@if($isReEditState)
+    <div class="rounded-lg border border-amber-300 bg-amber-50 p-4 mb-5">
+        <div class="flex items-start gap-3">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+            </svg>
+            <div class="flex-1 min-w-0">
+                <h3 class="font-semibold text-amber-900 text-sm mb-2">
+                    {{ $isAmendmentReview ? 'A signing party flagged a change — amend the document, then continue' : 'Sent back by the authoriser — make your changes, then resubmit' }}
+                </h3>
+                <p class="text-xs text-amber-800 mb-2">Existing signatures stay in place. Amend the fields / clauses and initial each change — nobody re-signs the whole document.{{ $isReturnedToCandidate ? ' When done, resubmit to the authoriser.' : '' }}</p>
+                <ol class="space-y-2" @if(empty($returnThread)) style="display:none" @endif>
+                    @foreach($returnThread as $entry)
+                        @php $isBack = ($entry['direction'] ?? '') === 'sent_back'; @endphp
+                        <li class="text-sm flex flex-col rounded-md border {{ $isBack ? 'border-amber-200 bg-white' : 'border-sky-200 bg-sky-50' }} px-3 py-2">
+                            <span class="text-xs font-medium {{ $isBack ? 'text-amber-700' : 'text-sky-700' }}">
+                                {{ $isBack ? 'Sent back' : 'Resubmitted' }}
+                                @if(!empty($entry['round'])) &middot; round {{ $entry['round'] }} @endif
+                                @if(!empty($entry['actor_name'])) &middot; {{ $entry['actor_name'] }} @endif
+                                @if(!empty($entry['at'])) &middot; {{ \Illuminate\Support\Carbon::parse($entry['at'])->format('d M Y H:i') }} @endif
+                            </span>
+                            @if(!empty($entry['note']))
+                                <span class="text-slate-700 mt-1">{{ $entry['note'] }}</span>
+                            @endif
+                        </li>
+                    @endforeach
+                </ol>
+                {{-- WET-INK SELECTION edit (Johan 2026-08-05, correct UX): HIGHLIGHT the exact word / phrase
+                     / clause anywhere in the document, then amend it. No clause numbers — the selection is
+                     the target. Entry via the floating ✎ by the selection AND a sticky toolbar. --}}
+                <div x-data="selectionEditor({ url: @js(route('docuperfect.signatures.editSelection', $document)) })" class="mt-3 flex flex-wrap items-center gap-3">
+                    <span class="text-xs text-amber-800 inline-flex items-center gap-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4"><path d="M2.695 14.762l-1.262 3.155a.5.5 0 00.65.65l3.155-1.262a4 4 0 001.343-.885L17.5 5.501a2.121 2.121 0 00-3-3L3.58 13.419a4 4 0 00-.885 1.343z"/></svg>
+                        Highlight any word, phrase, or clause in the document below, then amend it.
+                    </span>
+                    @if($isReturnedToCandidate)
+                    {{-- WET-INK gate (UI half) — the composer must initial every change they made before they can
+                         resubmit; the server refuses otherwise. Recompute after the affordance wires (~800ms) and
+                         after any row change. The page reloads on each applied initial, so init-time is accurate. --}}
+                    <div x-data="{ remaining: 0, recount() { this.remaining = document.querySelectorAll('.cir-slot.cir-mine:not(.cir-filled)').length; }, init() { this.recount(); setTimeout(() => this.recount(), 1000); new MutationObserver(() => this.recount()).observe(document.body, { childList: true, subtree: true }); } }"
+                         class="flex flex-wrap items-center gap-2">
+                        <span x-show="remaining > 0" x-cloak class="text-xs font-medium text-amber-800">
+                            <span x-text="remaining"></span> of your amendment initial<span x-show="remaining !== 1">s</span> still outstanding — initial each change first.
+                        </span>
+                        <form method="POST" action="{{ route('docuperfect.signatures.resubmitToAuthoriser', $document) }}"
+                              onsubmit="return confirm('Resubmit this document to the authoriser for review? Your changes and initials will be sent back to them.');">
+                            @csrf
+                            <button type="submit" :disabled="remaining > 0"
+                                    class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg text-white transition-colors"
+                                    :class="remaining > 0 ? 'opacity-50 cursor-not-allowed' : ''"
+                                    :style="remaining > 0 ? 'background:#94a3b8;' : 'background:#0b2a4a;'">
+                                Resubmit to authoriser &rarr;
+                            </button>
+                        </form>
+                    </div>
+                    @endif
+
+                    {{-- All three fixed-position UI pieces are TELEPORTED to <body> so `position:fixed`
+                         resolves to the VIEWPORT, not the layout's transformed wrapper (which was making the
+                         modal float mid-page over the header). --}}
+                    {{-- Floating edit button — positioned by JS right at the current selection. --}}
+                    <template x-teleport="body">
+                        <button type="button" x-ref="floatBtn" @click="openFromSelection()"
+                                class="items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg text-white shadow-lg"
+                                style="display:none; position:fixed; z-index:9500; background:#b45309;">✎ Amend this</button>
+                    </template>
+
+                    {{-- STICKY toolbar — always reachable while the user scrolls the document. --}}
+                    <template x-teleport="body">
+                        <div class="sel-sticky-bar" role="toolbar">
+                            <span class="text-xs text-slate-300">Highlighted:</span>
+                            <span class="text-xs text-white font-medium truncate" style="max-width:340px;" x-text="selected ? ('“' + selected.slice(0,60) + (selected.length>60?'…':'') + '”') : 'nothing yet — drag to highlight text in the document'"></span>
+                            <button type="button" @click="openFromSelection()" :disabled="!selected"
+                                    class="ml-auto px-4 py-1.5 text-xs font-semibold rounded-lg text-white"
+                                    :style="selected ? 'background:#b45309' : 'background:#475569;opacity:.6;cursor:not-allowed'">✎ Amend highlighted text</button>
+                        </div>
+                    </template>
+
+                    {{-- Modal — a proper CENTERED overlay with backdrop, teleported to body, above the top nav. --}}
+                    <template x-teleport="body">
+                    <div x-show="open" x-cloak class="sel-modal-overlay" @keydown.escape.window="open=false" @click="open=false">
+                        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden" @click.stop>
+                            <div class="px-6 py-4 border-b border-slate-200" style="background:#0b2a4a;">
+                                <h3 class="text-white font-semibold text-lg">Amend the highlighted text</h3>
+                            </div>
+                            <div class="p-6 space-y-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-600 mb-1">Highlighted text — will be struck through</label>
+                                    <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm" style="text-decoration:line-through; color:#6b7280;" x-text="selected || 'Highlight text in the document first.'"></div>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-600 mb-1">How should this change appear?</label>
+                                    <div class="flex gap-2">
+                                        <button type="button" @click="mode='inline'"
+                                                class="flex-1 rounded-lg border px-3 py-2 text-left text-xs"
+                                                :class="mode==='inline' ? 'border-[#0b2a4a] bg-[#eef4fb] font-semibold text-[#0b2a4a]' : 'border-slate-200 text-slate-600'">
+                                            Reword inline
+                                            <span class="block font-normal text-[11px] text-slate-500">Small change — new wording sits right where the old text was.</span>
+                                        </button>
+                                        <button type="button" @click="mode='reference'"
+                                                class="flex-1 rounded-lg border px-3 py-2 text-left text-xs"
+                                                :class="mode==='reference' ? 'border-[#0b2a4a] bg-[#eef4fb] font-semibold text-[#0b2a4a]' : 'border-slate-200 text-slate-600'">
+                                            Move to Other Conditions
+                                            <span class="block font-normal text-[11px] text-slate-500">Big change — strike here, full replacement added as a numbered Other Condition.</span>
+                                        </button>
+                                        <button type="button" @click="mode='strike'"
+                                                class="flex-1 rounded-lg border px-3 py-2 text-left text-xs"
+                                                :class="mode==='strike' ? 'border-[#b91c1c] bg-[#fef2f2] font-semibold text-[#b91c1c]' : 'border-slate-200 text-slate-600'">
+                                            Strike out (remove)
+                                            <span class="block font-normal text-[11px] text-slate-500">No replacement — strike the text out, e.g. an unwanted alternative clause.</span>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div x-show="mode!=='strike'">
+                                    <label class="block text-xs font-medium text-slate-600 mb-1">Replacement text</label>
+                                    <textarea x-model="replacement" rows="4" class="w-full rounded-lg border-slate-300 text-sm px-3 py-2" placeholder="The new wording…"></textarea>
+                                </div>
+                                <p class="text-xs text-slate-500" x-show="mode==='inline'">The highlighted text stays visible, struck through, with your replacement inserted right there. A full-width initial row for every party is dropped in under that clause.</p>
+                                <p class="text-xs text-slate-500" x-show="mode==='reference'" x-cloak>The highlighted text stays visible, struck through, with a "See Other Conditions — clause N" cross-reference. The full replacement is added as a numbered Other Condition. A full-width initial row for every party is dropped in under that clause.</p>
+                                <p class="text-xs text-slate-500" x-show="mode==='strike'" x-cloak>The highlighted text is struck through and removed, with no replacement. A full-width initial row for every party is dropped in under that clause — everyone initials the removal.</p>
+                                <p x-show="err" x-text="err" class="text-xs text-red-600"></p>
+                                <div class="flex items-center justify-end gap-3 pt-2">
+                                    <button type="button" @click="open=false" class="px-4 py-2.5 text-sm text-slate-600 font-medium">Cancel</button>
+                                    <button type="button" @click="submit()" :disabled="busy" class="rounded-lg px-6 py-2.5 text-sm font-semibold text-white" style="background:#0b2a4a;">
+                                        <span x-show="!busy">Apply strike-out</span><span x-show="busy" x-cloak>Applying…</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    </template>
+                </div>
+                <script>
+                    function selectionEditor(cfg) {
+                        return {
+                            open: false, selected: '', prefix: '', suffix: '', replacement: '', mode: 'inline', busy: false, err: '', _cap: null,
+                            init() {
+                                const handler = () => setTimeout(() => this.onSelect(), 10);
+                                document.addEventListener('mouseup', handler);
+                                document.addEventListener('keyup', handler);
+                                document.addEventListener('selectionchange', handler);
+                            },
+                            inOwnUi(node) {
+                                const el = node && (node.nodeType === 1 ? node : node.parentElement);
+                                // Only reject selections inside our OWN wet-ink UI or an already-struck mark —
+                                // NOT the whole page (the signing screen is itself an Alpine [x-data] root).
+                                return !!(el && el.closest('[data-strikethrough-applied="1"], .change-margin, .wetink-initial-btn, .sel-sticky-bar, input, textarea'));
+                            },
+                            capture() {
+                                const sel = window.getSelection();
+                                if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
+                                const text = sel.toString().replace(/\s+/g, ' ').trim();
+                                if (!text) return null;
+                                if (this.inOwnUi(sel.anchorNode) || this.inOwnUi(sel.focusNode)) return null;
+                                const range = sel.getRangeAt(0);
+                                let prefix = '', suffix = '';
+                                try {
+                                    prefix = (range.startContainer.textContent || '').slice(Math.max(0, range.startOffset - 40), range.startOffset);
+                                    suffix = (range.endContainer.textContent || '').slice(range.endOffset, range.endOffset + 40);
+                                } catch (e) {}
+                                // Keep the live Range so a created amendment can be PAINTED in place (no reload,
+                                // which would wipe in-progress field initials/signatures — same bug class as the
+                                // amendment-initial fix, Johan 2026-08-06).
+                                return { text, prefix, suffix, rect: range.getBoundingClientRect(), range: range.cloneRange() };
+                            },
+                            onSelect() {
+                                const cap = this.capture();
+                                const btn = this.$refs.floatBtn;
+                                if (!cap) { this._cap = null; if (btn) btn.style.display = 'none'; return; }
+                                this._cap = cap;
+                                this.selected = cap.text; this.prefix = cap.prefix; this.suffix = cap.suffix;
+                                if (btn && cap.rect) {
+                                    btn.style.left = Math.max(8, cap.rect.left) + 'px';
+                                    btn.style.top = (cap.rect.bottom + 6) + 'px';
+                                    btn.style.display = 'inline-flex';
+                                }
+                            },
+                            openFromSelection() {
+                                const cap = this._cap || this.capture();
+                                if (cap) { this.selected = cap.text; this.prefix = cap.prefix; this.suffix = cap.suffix; }
+                                this.replacement = ''; this.mode = 'inline'; this.err = ''; this.open = true;
+                                const btn = this.$refs.floatBtn; if (btn) btn.style.display = 'none';
+                            },
+                            async submit() {
+                                this.err = '';
+                                if (!this.selected.trim()) { this.err = 'Highlight the text you want to change first.'; return; }
+                                if (this.mode !== 'strike' && !this.replacement.trim()) { this.err = 'Enter the replacement text.'; return; }
+                                this.busy = true;
+                                try {
+                                    const resp = await fetch(cfg.url, {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest',
+                                                   'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content || '{{ csrf_token() }}' },
+                                        body: JSON.stringify({ selected: this.selected, prefix: this.prefix, suffix: this.suffix, replacement: this.replacement.trim(), mode: this.mode }),
+                                    });
+                                    const data = await resp.json().catch(() => ({}));
+                                    if (resp.ok && data.ok) {
+                                        // Paint the new amendment IN PLACE — never re-fetch the page here.
+                                        // A reload re-fetches the server doc, which has no record of the field
+                                        // initials/signatures applied client-side via "apply to all" (held only
+                                        // in the DOM until final submit) → reloading WIPED them. The amendment is
+                                        // already persisted server-side (strikeSelection → writeAmend), so we hand
+                                        // the change to the main signing component to render the struck mark + the
+                                        // per-party initial row at the captured selection, preserving every applied
+                                        // initial/signature (Johan 2026-08-06).
+                                        document.dispatchEvent(new CustomEvent('corex-amendment-created', { detail: {
+                                            changeId: data.change_id, mode: this.mode,
+                                            replacement: this.replacement.trim(), ocRef: data.oc_ref || null,
+                                            selected: this.selected, range: this._cap ? this._cap.range : null,
+                                        } }));
+                                        this.open = false; this.busy = false; this.selected = ''; this.replacement = ''; this._cap = null;
+                                        const fb = this.$refs.floatBtn; if (fb) fb.style.display = 'none';
+                                    }
+                                    else { this.err = data.error || 'Could not apply the change.'; this.busy = false; }
+                                } catch (e) { this.err = 'Network error — please retry.'; this.busy = false; }
+                            },
+                        };
+                    }
+                </script>
+                <style>
+                    .sel-modal-overlay { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center;
+                        justify-content: center; padding: 1rem; background: rgba(0,0,0,.6); }
+                    .sel-sticky-bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; z-index: 9000;
+                        display: flex; align-items: center; gap: .6rem; width: min(720px, 94vw);
+                        background: #0b2a4a; color: #fff; padding: .55rem .9rem; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+                    .change-margin { float: right; clear: right; margin: .1rem 0 .35rem 1rem; padding: .2rem .55rem;
+                        border-left: 3px solid #d97706; background: #fffbeb; border-radius: 0 6px 6px 0; font-size: .62rem; color: #92400e; max-width: 40%; }
+                    .change-margin-label { display: block; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; opacity: .7; margin-bottom: 2px; }
+                    .cm-slot { display: block; padding: 2px 0; border-bottom: 1px dotted #f59e0b; color: #92400e; }
+                    .cm-slot:last-child { border-bottom: 0; }
+                    .cm-slot .cm-name { opacity: .85; }
+                    .cm-slot .cm-ink { font-weight: 700; font-family: 'Segoe Script','Comic Sans MS',cursive; }
+                    .cm-slot.cm-filled { color: #166534; border-bottom-color: #22c55e; }
+                    .cm-slot.cm-filled .cm-ink { color: #166534; }
+                </style>
+            </div>
+        </div>
+    </div>
+@endif
 {{-- Signature Pad library --}}
 <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
 @include('docuperfect.signatures.partials.a4-page-styles')
+@include('docuperfect.signatures.partials._change-initial-affordance', ['viewerPartyKey' => 'agent'])
 <style>
 @keyframes pulseHighlight {
     0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
@@ -125,9 +373,9 @@
         <x-slot name="right">
             <a href="{{ route('docuperfect.rental') }}" class="text-sm text-gray-500 hover:text-gray-700 mr-2">Dashboard</a>
             <button @click="handleComplete()"
-                    :disabled="completingForm || incompleteCount > 0"
+                    :disabled="completingForm || incompleteCount > 0 || conditionInitialsRemaining > 0"
                     class="px-4 py-2 text-sm font-semibold rounded-sm transition-colors"
-                    :class="incompleteCount === 0 && !completingForm
+                    :class="incompleteCount === 0 && conditionInitialsRemaining === 0 && !completingForm
                         ? 'bg-blue-600 text-white hover:bg-blue-700'
                         : 'bg-gray-100 text-gray-400 cursor-not-allowed'"
                     :title="incompleteCount > 0 ? 'Please complete all fields: ' + incompleteCount + ' remaining' : ''">
@@ -512,17 +760,26 @@
                     <button @click="scrollToNextIncomplete()" class="text-blue-600 hover:text-blue-800 underline font-medium">go to next</button>
                 </span>
             </template>
-            <template x-if="incompleteCount === 0">
+            {{-- AT-303 ISSUE-1 — other-condition initials are a DELIBERATE separate step:
+                 excluded from auto-fill + the field count, surfaced as their own required
+                 action so the agent can reach 100% (auto-fill the fields, then initial each). --}}
+            <template x-if="incompleteCount === 0 && conditionInitialsRemaining > 0">
+                <span class="font-medium" style="color:#92400e;">
+                    <span x-text="conditionInitialsRemaining"></span> added condition<span x-show="conditionInitialsRemaining !== 1">s</span> still need your initial —
+                    <button @click="initialNextCondition()" class="text-amber-700 hover:text-amber-900 underline font-semibold">initial next</button>
+                </span>
+            </template>
+            <template x-if="incompleteCount === 0 && conditionInitialsRemaining === 0">
                 <span class="font-medium" style="color:var(--brand-button, #0ea5e9);">All fields complete. Ready to send.</span>
             </template>
         </div>
         <button @click="handleComplete()"
-                :disabled="completingForm || incompleteCount > 0"
+                :disabled="completingForm || incompleteCount > 0 || conditionInitialsRemaining > 0"
                 class="rounded-md px-6 py-2.5 text-sm font-semibold transition-colors"
-                :class="incompleteCount === 0 && !completingForm
+                :class="incompleteCount === 0 && conditionInitialsRemaining === 0 && !completingForm
                     ? 'text-white hover:brightness-110'
                     : 'bg-slate-100 text-slate-400 cursor-not-allowed'"
-                :style="incompleteCount === 0 && !completingForm ? 'background:var(--brand-button, #0ea5e9);' : ''"
+                :style="incompleteCount === 0 && conditionInitialsRemaining === 0 && !completingForm ? 'background:var(--brand-button, #0ea5e9);' : ''"
                 :title="incompleteCount > 0 ? 'Please complete all fields (' + incompleteCount + ' remaining)' : ''">
             <span x-show="!completingForm">Complete Signing & Send</span>
             <span x-show="completingForm" x-cloak>Completing...</span>
@@ -547,7 +804,46 @@
     </div>
 
     {{-- Include signature capture modal --}}
-    @include('docuperfect.signatures.partials.signature-modal')
+    @include('docuperfect.signatures.partials.signature-modal', ['savedSignatureSupport' => true])
+
+    {{-- Saved-signature PIN unlock (agent-only) — enter the signing PIN ONCE per document, then place
+         the saved signature/initial with no PIN per marker. A switch-user/impersonated session can never
+         unlock (server guards it). Mirrors the external ceremony's unlock modal. --}}
+    <div x-show="savedPinOpen" x-cloak x-transition.opacity
+         class="fixed inset-0 z-[70] flex items-center justify-center"
+         style="background:rgba(0,0,0,0.6);"
+         @keydown.escape.window="savedPinOpen = false">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden" @click.stop>
+            <div class="px-6 py-4" style="background:#0b2a4a;">
+                <h3 class="text-white font-semibold text-base">Unlock your saved signature</h3>
+            </div>
+            <div class="p-6 space-y-3">
+                <p class="text-sm text-slate-600">Enter your <strong>signing PIN</strong> to place your saved signature on this document.</p>
+                <input type="password" x-model="savedPin" inputmode="numeric" autocomplete="off"
+                       placeholder="Signing PIN" @keydown.enter="submitSavedPin()"
+                       class="w-full rounded-lg border border-slate-300 text-sm px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <p x-show="savedPinError" x-cloak class="text-xs text-red-600" x-text="savedPinError"></p>
+                <div class="flex items-center justify-end gap-3 pt-1">
+                    <button @click="savedPinOpen = false" class="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 font-medium">Cancel</button>
+                    <button @click="submitSavedPin()" :disabled="savedPinLoading || !savedPin"
+                            class="rounded-lg px-5 py-2 text-sm font-semibold text-white"
+                            :class="(savedPinLoading || !savedPin) ? 'opacity-50 cursor-not-allowed' : ''"
+                            style="background:#0b2a4a;"
+                            x-text="savedPinLoading ? 'Unlocking…' : 'Unlock'"></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {{-- ESIGN AT-300 — add-condition + per-condition initial machinery, in parity
+         with the external /sign ceremony. Provides the delegated ".btn-add-initial"
+         click handler (POST /sign/{token}/conditions/{id}/initial), the "+ Add
+         condition" modal, and the corex-refresh-signing-count dispatch. Only for
+         web templates with an agent signing token (the interactive re-render is
+         served only then). --}}
+    @if(!empty($isWebTemplate) && !empty($agentSigningToken))
+        @include('docuperfect.signatures._partials.add-condition-modal', ['token' => $agentSigningToken, 'numberedClauses' => $numberedClauses ?? []])
+    @endif
 
     {{-- Text input modal --}}
     <div x-show="showTextModal" x-cloak x-transition.opacity
@@ -637,6 +933,20 @@ function signDocument() {
         applying: false,
         signaturePad: null,
 
+        // ── Saved-signature (agent-only; ports the external ceremony's PIN flow) ──
+        // The internal signing surface IS the agent, so isAgent is true here. Unlock once with the
+        // signing PIN, then place the saved signature/initial at every marker with no PIN per page.
+        isAgent: true,
+        savedSigConfigured: false,
+        savedSigImpersonating: false,
+        savedSigUnlocked: false,
+        savedSignatureImg: null,
+        savedInitialImg: null,
+        savedPinOpen: false,
+        savedPin: '',
+        savedPinError: '',
+        savedPinLoading: false,
+
         // Complete form state
         completingForm: false,
         completionDone: false,
@@ -663,7 +973,9 @@ function signDocument() {
         webInitialElements: [],    // [{el, partyRole, index, isMine, signed, sigData}]
         _pendingInitialApplyAll: false,
         _initialsApplyAllOffered: false,
-        incompleteCount: 0,        // Total unfilled required items (sigs + initials + ceremony fields)
+        incompleteCount: 0,        // Total unfilled required items (sigs + initials + ceremony fields) — EXCLUDES other-condition initials
+        conditionInitialsRemaining: 0,  // AT-303 ISSUE-1 — other-condition initials still to do (a separate deliberate step)
+        conditionInitialsTotal: 0,      // AT-303 ISSUE-1
 
         // Section-by-section signing state
         hasSections: {{ !empty($sections) ? 'true' : 'false' }},
@@ -686,6 +998,71 @@ function signDocument() {
         init() {
             // Check if agent already has at least one signed marker
             this.firstSignatureDone = this.markers.some(m => m.assigned_party === 'agent' && m.signed);
+
+            this.initSavedSig();   // agent-only saved-signature availability check
+
+
+
+            // ESIGN AT-300 — when a per-condition initial is filled or a new
+            // condition is added (delegated handlers in the add-condition-modal
+            // partial, outside this Alpine scope), refresh the submit gate so the
+            // "N remaining" count reflects the just-completed condition-initial.
+            document.addEventListener('corex-refresh-signing-count', () => {
+                if (this.isWebTemplate) this._updateIncompleteCount();
+            });
+
+            // ESIGN AT-300 — a condition-initial slot was clicked. Open the SAME
+            // draw/type initial modal every other initial uses (unified signing
+            // process). Claim the event so the shared partial does NOT one-click.
+            // applySignature() detects _isConditionInitial and applies the ink.
+            document.addEventListener('corex-open-condition-initial', (e) => {
+                e.preventDefault();
+                const d = e.detail || {};
+                if (!d.el || d.el.classList.contains('initial-filled')) return;
+                this.activeMarker = {
+                    type: 'initial',
+                    assigned_party: 'agent',
+                    label: 'Condition initial',
+                    page_number: '',
+                    _isConditionInitial: true,
+                    _conditionEl: d.el,
+                    _conditionId: d.conditionId,
+                    _conditionToken: d.token,
+                };
+                this.captureMode = 'draw';
+                // OTHER CONDITIONS block — this in-app surface is ALWAYS an AGENT signer
+                // (candidate / dispatching agent / authoriser), so PREFILL their initials,
+                // consistent with every other agent initial field on this view (matches the
+                // normal-initial seed at ~line 919 / 1546). The party-type-aware split lives
+                // on the recipient surface (external/sign.blade.php); here the signer is an
+                // agent by construction — Johan 2026-08-04 (#2). Input stays editable.
+                this.typedName = @json($userInitials ?? '');
+                this.showSignModal = true;
+                this.$nextTick(() => this.initCanvas());
+            });
+
+            // WET-INK per-change initial — clicking YOUR OWN slot in a change's initial row opens the SAME
+            // capture modal; applySignature detects _isChangeInitial and applies your REAL initial to that slot.
+            document.addEventListener('corex-open-change-initial', (e) => {
+                e.preventDefault();
+                const d = e.detail || {};
+                this.activeMarker = {
+                    type: 'initial', assigned_party: 'agent', label: 'Initial this change', page_number: '',
+                    _isChangeInitial: true, _changeId: d.changeId, _partyKey: d.partyKey,
+                };
+                this.captureMode = 'draw';
+                this.typedName = @json($userInitials ?? '');
+                this.showSignModal = true;
+                this.$nextTick(() => this.initCanvas());
+            });
+
+            // WET-INK amendment CREATED at signing time (selectionEditor) — paint the struck mark + the
+            // per-party initial row IN PLACE at the captured selection, so creating an amendment never
+            // reloads (which would wipe in-progress field initials/signatures). Same bug class as the
+            // amendment-initial fix. The amendment is already persisted server-side; this is the display.
+            document.addEventListener('corex-amendment-created', (e) => {
+                this._paintNewAmendment(e.detail || {});
+            });
 
             // For web templates: split into A4 pages, then make elements interactive
             // Uses $nextTick + setTimeout to ensure server-rendered HTML is fully in the DOM
@@ -1084,6 +1461,17 @@ function signDocument() {
                 });
             }
 
+            // ESIGN AT-300 — per-condition initial slots THIS agent must still
+            // complete. The renderer emits `.btn-add-initial.initial-active[data-condition-id]`
+            // only for the current party's un-filled slots (a filled one loses
+            // `.initial-active`). Every added OTHER CONDITIONS clause must be
+            // initialled by the agent before submit.
+            if (container) {
+                container.querySelectorAll('.btn-add-initial.initial-active[data-condition-id]').forEach(el => {
+                    items.push({ el, label: 'Condition initial', type: 'condition', party: 'agent' });
+                });
+            }
+
             // Sort by absolute document position (top-to-bottom)
             items.sort((a, b) => {
                 const aTop = a.el ? getDocumentTop(a.el) : 0;
@@ -1103,6 +1491,8 @@ function signDocument() {
         _updateIncompleteCount() {
             let total = 0;
             let incomplete = 0;
+            let condTotal = 0;      // AT-303 ISSUE-1 — other-condition initials, counted separately
+            let condRemaining = 0;
 
             // Always count agent's DB markers (works for both PDF and web templates)
             this.markers.forEach(m => {
@@ -1138,6 +1528,16 @@ function signDocument() {
                         total++;
                         if (!btn.textContent || !btn.textContent.trim()) incomplete++;
                     });
+                    // AT-303 ISSUE-1 — per-condition initials are a DELIBERATE,
+                    // separate step (Johan: initial each via the modal, NEVER
+                    // auto-filled). They are counted SEPARATELY (conditionInitials*),
+                    // NOT lumped into incompleteCount — otherwise auto-fill (which
+                    // never touches them) can never drive the count to 0 and the
+                    // agent is stuck. The submit gate requires BOTH counts at 0.
+                    container.querySelectorAll('.btn-add-initial[data-condition-id]').forEach(el => {
+                        condTotal++;
+                        if (!el.classList.contains('initial-filled')) condRemaining++;
+                    });
                 }
             }
 
@@ -1154,6 +1554,21 @@ function signDocument() {
 
             this.totalAgent = total;
             this.incompleteCount = incomplete;
+            this.conditionInitialsTotal = condTotal;         // AT-303 ISSUE-1
+            this.conditionInitialsRemaining = condRemaining; // AT-303 ISSUE-1
+        },
+
+        // AT-303 ISSUE-1 — jump to the next un-initialled added condition and open
+        // the SAME draw/type initial modal (via the delegated corex-open-condition-initial
+        // handler). Deliberate per-condition initialing — never auto-filled.
+        initialNextCondition() {
+            const container = this.$refs.webDocContent;
+            if (!container) return;
+            const el = container.querySelector('.btn-add-initial.initial-active[data-condition-id]');
+            if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                setTimeout(() => el.click(), 250);
+            }
         },
 
         /**
@@ -1553,7 +1968,185 @@ function signDocument() {
             return yyyy + '/' + mm + '/' + dd;
         },
 
+        // Paint a captured change-initial into its slot exactly as the server would render a filled slot —
+        // WITHOUT a reload (which would discard un-submitted client-side field initials). Mirrors the
+        // server render: add .cir-filled, drop the "Click to initial" affordance, write the initial image.
+        _paintChangeInitialSlot(changeId, partyKey, imageDataUrl) {
+            const root = (this.$refs && this.$refs.webDocContent) ? this.$refs.webDocContent : document;
+            const esc = (window.CSS && CSS.escape) ? CSS.escape : (s => String(s).replace(/["\\]/g, '\\$&'));
+            const slots = root.querySelectorAll('.cir-slot[data-change-id="' + esc(changeId) + '"][data-party-key="' + esc(partyKey) + '"]');
+            slots.forEach((slot) => {
+                slot.classList.add('cir-filled');
+                const ink = slot.querySelector('.cir-ink');
+                if (ink) {
+                    ink.removeAttribute('data-empty');
+                    ink.innerHTML = '<img src="' + imageDataUrl + '" style="max-height:20px;max-width:64px;object-fit:contain;vertical-align:middle;" alt="Initial">';
+                }
+            });
+        },
+
+        // Paint a newly-created amendment (strike/reword) IN PLACE at the captured selection — the struck
+        // <del> (+ optional reword <ins> / Other-Conditions xref) wrapped in the canonical change-mark
+        // markup, followed by the full-width per-party initial row — WITHOUT a reload. Every already-applied
+        // field initial/signature elsewhere in the DOM is untouched. The amendment is already persisted
+        // server-side (strikeSelection → writeAmend); on the next authoritative load the server's render is
+        // served. Fail-safe: on any error the amendment stays saved and simply isn't repainted (never reload,
+        // which is the very wipe we are removing).
+        _paintNewAmendment(detail) {
+            try {
+                const changeId = detail.changeId, range = detail.range;
+                if (!changeId || !range) return;
+                // Idempotent — never paint the same change twice (guards against a re-dispatched event / a
+                // re-inited listener): if this change's initial row is already in the document, do nothing.
+                const _root = (this.$refs && this.$refs.webDocContent) ? this.$refs.webDocContent : document;
+                const _esc = (window.CSS && CSS.escape) ? CSS.escape : (s => String(s).replace(/["\\]/g, '\\$&'));
+                if (_root.querySelector('.change-initial-row[data-change-id="' + _esc(changeId) + '"]')) return;
+                const wrap = document.createElement('span');
+                wrap.className = 'change-inline';
+                wrap.setAttribute('data-strikethrough-applied', '1');
+                wrap.setAttribute('data-change-id', changeId);
+                const del = document.createElement('del');
+                del.className = 'change-del';
+                del.setAttribute('data-change-id', changeId);
+                try { del.appendChild(range.extractContents()); }
+                catch (e) { del.textContent = detail.selected || ''; }
+                wrap.appendChild(del);
+                if (detail.mode === 'reference' && detail.ocRef) {
+                    wrap.appendChild(document.createTextNode(' '));
+                    const xref = document.createElement('span');
+                    xref.className = 'change-xref';
+                    xref.setAttribute('data-change-id', changeId);
+                    xref.setAttribute('data-oc-ref', String(detail.ocRef));
+                    xref.textContent = 'See Other Conditions — clause ' + detail.ocRef;
+                    wrap.appendChild(xref);
+                } else if (detail.mode !== 'strike' && (detail.replacement || '').length) {
+                    wrap.appendChild(document.createTextNode(' '));
+                    const ins = document.createElement('ins');
+                    ins.className = 'change-ins';
+                    ins.setAttribute('data-change-id', changeId);
+                    ins.textContent = detail.replacement;
+                    wrap.appendChild(ins);
+                }
+                try { range.insertNode(wrap); } catch (e) { return; }
+                const row = this._buildChangeInitialRow(changeId);
+                const block = this._closestDocBlock(wrap);
+                if (block && block.parentNode) block.parentNode.insertBefore(row, block.nextSibling);
+                else if (wrap.parentNode) wrap.parentNode.insertBefore(row, wrap.nextSibling);
+                if (window.__corexWireChangeInitials) window.__corexWireChangeInitials();
+                if (this._updateIncompleteCount) this._updateIncompleteCount();
+            } catch (e) { /* amendment is saved server-side; never reload (that is the wipe we removed) */ }
+        },
+
+        // Build the full-width per-party initial row for a change — mirrors the server's buildInitialRow
+        // (class family change-initial-row / cir-slot / cir-name / cir-ink). Party keys follow the same
+        // scheme as the server (role, then role_N for a duplicate role) so the viewer's own slot ('agent')
+        // is actionable immediately; the server's authoritative row (with signer names) replaces this on the
+        // next load.
+        _buildChangeInitialRow(changeId) {
+            const row = document.createElement('div');
+            row.className = 'change-initial-row';
+            row.setAttribute('data-change-id', changeId);
+            row.setAttribute('contenteditable', 'false');
+            const label = document.createElement('span');
+            label.className = 'cir-label';
+            label.textContent = 'Initial this change:';
+            row.appendChild(label);
+            const counts = {};
+            (this.signingParties || []).forEach((p) => {
+                const role = (p.role || 'party');
+                counts[role] = (counts[role] || 0) + 1;
+                const key = counts[role] > 1 ? role + '_' + counts[role] : role;
+                const name = p.label || role;
+                const slot = document.createElement('span');
+                slot.className = 'cir-slot';
+                slot.setAttribute('data-change-id', changeId);
+                slot.setAttribute('data-party-key', key);
+                slot.setAttribute('data-party-name', name);
+                const ns = document.createElement('span');
+                ns.className = 'cir-name';
+                ns.textContent = name;
+                slot.appendChild(ns);
+                const ink = document.createElement('span');
+                ink.className = 'cir-ink';
+                ink.setAttribute('data-empty', '1');
+                ink.textContent = '—';
+                slot.appendChild(ink);
+                row.appendChild(slot);
+            });
+            return row;
+        },
+
+        // Nearest block-level ancestor for placing the initial row after (mirrors server closestBlock).
+        _closestDocBlock(el) {
+            const b = el.closest && el.closest('.corex-clause, .corex-h1, .corex-h2, .corex-h3, p, li, td, blockquote');
+            return b || el.parentElement;
+        },
+
         // ── Apply signature ──
+        // ── Saved-signature methods (agent-only) — reuse the SAME route()-based endpoints as the
+        //    external ceremony fix (the /corex prefix is carried by route(); never hardcode /signature/…). ──
+        async initSavedSig() {
+            if (!this.isAgent) return;
+            try {
+                const res = await fetch('{{ route('signature.status') }}', { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+                if (!res.ok) return;
+                const d = await res.json();
+                this.savedSigConfigured = !!d.configured;
+                this.savedSigImpersonating = !!d.impersonating;
+            } catch (e) { /* leave disabled */ }
+        },
+
+        _sigContext() { return @json('esign:doc:' . $document->id); },
+        _csrf() { return document.querySelector('meta[name="csrf-token"]')?.content || ''; },
+
+        chooseSavedSignature() {
+            if (this.savedSigImpersonating || !this.savedSigConfigured) return;
+            if (!this.savedSigUnlocked) { this.savedPinError = ''; this.savedPin = ''; this.savedPinOpen = true; return; }
+            this.captureMode = 'saved';
+        },
+
+        async submitSavedPin() {
+            if (this.savedPinLoading || !this.savedPin) return;
+            this.savedPinLoading = true; this.savedPinError = '';
+            try {
+                const res = await fetch('{{ route('signature.unlock') }}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this._csrf(), 'Accept': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ pin: this.savedPin, context: this._sigContext() }),
+                });
+                const d = await res.json().catch(() => ({}));
+                if (res.ok && d.ok) {
+                    await this.loadSavedAssets();
+                    this.savedSigUnlocked = true;
+                    this.savedPinOpen = false;
+                    this.savedPin = '';
+                    this.captureMode = 'saved';
+                } else {
+                    this.savedPinError = d.error || 'Incorrect PIN.';
+                }
+            } catch (e) {
+                this.savedPinError = 'Network error — please try again.';
+            } finally {
+                this.savedPinLoading = false;
+            }
+        },
+
+        async loadSavedAssets() {
+            const q = '?context=' + encodeURIComponent(this._sigContext());
+            const [s, i] = await Promise.all([
+                fetch('{{ route('signature.asset', ['type' => 'signature']) }}' + q, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' }),
+                fetch('{{ route('signature.asset', ['type' => 'initial']) }}'   + q, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' }),
+            ]);
+            if (s.ok) { const d = await s.json(); this.savedSignatureImg = d.image || null; }
+            if (i.ok) { const d = await i.json(); this.savedInitialImg   = d.image || null; }
+        },
+
+        savedImageForActiveMarker() {
+            const isInitial = this.activeMarker && this.activeMarker.type === 'initial';
+            return isInitial ? this.savedInitialImg : this.savedSignatureImg;
+        },
+
         async applySignature() {
             if (!this.activeMarker) return;
             this.applying = true;
@@ -1561,7 +2154,13 @@ function signDocument() {
             let signatureData = null;
             let signatureType = 'drawn';
 
-            if (this.captureMode === 'draw') {
+            if (this.captureMode === 'saved') {
+                // Place the agent's unlocked saved signature/initial (an image — same downstream path
+                // as a drawn one). No PIN here; unlock already happened.
+                signatureData = this.savedImageForActiveMarker();
+                if (!signatureData) { this.applying = false; return; }
+                signatureType = 'drawn';
+            } else if (this.captureMode === 'draw') {
                 if (!this.signaturePad || this.signaturePad.isEmpty()) {
                     this.applying = false;
                     return;
@@ -1576,6 +2175,44 @@ function signDocument() {
                 const isInitial = this.activeMarker && this.activeMarker.type === 'initial';
                 signatureData = this.generateTypedSignature(this.typedName.trim(), isInitial);
                 signatureType = 'typed';
+            }
+
+            // ESIGN AT-300 — condition-initial capture. Unified with every other
+            // initial: the drawn/typed ink is applied to THIS condition and
+            // recorded (ConditionInitial row + adopted ink in signed_initials via
+            // the initialCondition endpoint). Same capture, same modal, same ink.
+            if (this.activeMarker._isConditionInitial) {
+                const ok = await window.__corexApplyConditionInitial(
+                    this.activeMarker._conditionEl,
+                    this.activeMarker._conditionToken,
+                    this.activeMarker._conditionId,
+                    signatureData,
+                );
+                this.showSignModal = false;
+                this.applying = false;
+                if (ok) this._updateIncompleteCount();
+                return;
+            }
+
+            // WET-INK per-change initial — apply the party's REAL captured initial to their row slot.
+            if (this.activeMarker._isChangeInitial) {
+                const cid = this.activeMarker._changeId;
+                const pk  = this.activeMarker._partyKey;
+                const ok = await window.__corexApplyChangeInitial(cid, pk, signatureData);
+                this.showSignModal = false;
+                this.applying = false;
+                if (ok) {
+                    // Paint the captured initial into the slot IN-PLACE — never re-fetch the page here.
+                    // Re-fetching the server document loses the field initials the agent applied client-side
+                    // via "apply to all" (those are held only in the DOM / webSig state until final submit) —
+                    // so a full page refresh WIPED every already-applied document initial, leaving only the
+                    // amendments. The change-initial is already persisted server-side by recordChangeInitial,
+                    // so painting the slot here reflects it while every other applied initial + signature
+                    // stays exactly as it is (Johan 2026-08-06).
+                    this._paintChangeInitialSlot(cid, pk, signatureData);
+                    this._updateIncompleteCount();
+                }
+                return;
             }
 
             // Web template initials: apply to the initial element directly

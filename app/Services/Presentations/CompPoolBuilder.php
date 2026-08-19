@@ -497,13 +497,27 @@ final class CompPoolBuilder
 
     // ── Classification helpers ─────────────────────────────────────────────
 
-    /** Title category (freehold/sectional/vacant/other) via the keystone classifier. */
+    /**
+     * Title category (freehold/sectional/vacant/other) via the keystone
+     * classifier.
+     *
+     * Code-gate hardening (Uvonique bug) — FLIPPED priority: a fresh
+     * classification from $propertyType now wins over the passed-in
+     * $titleType. $titleType is typically sourced from a caller's cached
+     * column (e.g. properties.title_type), which self-heals only on save
+     * and can silently go stale — that staleness is exactly how this Level-1
+     * gate mismatched an apartment against houses. Re-deriving is a cheap
+     * string match, never a query, so there's no cost to always doing it.
+     * $titleType is now only a fallback for candidates that carry a
+     * resolved category but no raw property_type text at all.
+     */
     private function category(TitleTypeClassifier $classifier, ?string $titleType, ?string $propertyType): ?string
     {
-        if ($titleType !== null && $titleType !== '') {
-            return $titleType;
+        $fresh = $classifier->fromPropertyType($propertyType);
+        if ($fresh !== null) {
+            return $fresh;
         }
-        return $classifier->fromPropertyType($propertyType);
+        return ($titleType !== null && $titleType !== '') ? $titleType : null;
     }
 
     /**

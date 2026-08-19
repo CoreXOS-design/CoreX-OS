@@ -63,6 +63,30 @@ class CalendarEventClassSetting extends Model
     public const NATURE_ACTIONABLE    = 'actionable';
     public const NATURE_INFORMATIONAL = 'informational';
 
+    /**
+     * Categories that are ACTIONABLE by nature — they require feedback / go
+     * red-overdue (viewings + listing presentations). Everything else is a
+     * marker/reminder and is informational.
+     */
+    public const ACTIONABLE_CATEGORIES = ['viewing', 'viewings', 'buyer_viewing', 'listing_presentation'];
+
+    /**
+     * Canonical category -> event nature. THE single source of truth for
+     * deriving actionable/informational when an event has no explicit nature
+     * (no per-event metadata override AND no class-config row) — i.e. legacy
+     * NULL events, resolved at render time without touching data.
+     *
+     * cc6's data backfill MUST mirror this mapping EXACTLY.
+     */
+    public static function natureForCategory(?string $category): string
+    {
+        $c = strtolower(trim((string) $category));
+
+        return in_array($c, self::ACTIONABLE_CATEGORIES, true)
+            ? self::NATURE_ACTIONABLE
+            : self::NATURE_INFORMATIONAL;
+    }
+
     protected $casts = [
         'is_active'             => 'boolean',
         'daily_digest_enabled'  => 'boolean',
@@ -108,15 +132,36 @@ class CalendarEventClassSetting extends Model
             return self::$resolveCache[$key];
         }
 
-        $query = self::withoutGlobalScopes()
-            ->where('event_class', $eventClass);
-
         if ($agencyId !== null) {
-            $agencyRow = (clone $query)->where('agency_id', $agencyId)->first();
+            $agencyRow = self::withoutGlobalScopes()
+                ->where('event_class', $eventClass)
+                ->where('agency_id', $agencyId)
+                ->first();
             if ($agencyRow) return self::$resolveCache[$key] = $agencyRow;
         }
 
-        return self::$resolveCache[$key] = $query->whereNull('agency_id')->first();
+        return self::$resolveCache[$key] = self::globalDefault($eventClass);
+    }
+
+    /**
+     * The canonical global (agency_id IS NULL) row for an event class.
+     *
+     * cecs_agency_class_unique(agency_id, event_class) can't stop two global
+     * rows sharing an event_class — MySQL never treats two NULLs as equal in
+     * a unique index (same landmine as roles_name_agency_unique, see
+     * .ai/audits/2026-08-12-duplicate-admin-role.md). If that ever happens
+     * again, ->oldest('id') keeps resolution deterministic (always the
+     * earliest-created row) instead of picking whichever row MySQL felt
+     * like returning — silent, unreproducible divergence between what an
+     * admin edits and what every read resolves.
+     */
+    public static function globalDefault(string $eventClass): ?self
+    {
+        return self::withoutGlobalScopes()
+            ->whereNull('agency_id')
+            ->where('event_class', $eventClass)
+            ->oldest('id')
+            ->first();
     }
 
     /** Drop the request-scoped resolver memo (called on write so workers stay fresh). */

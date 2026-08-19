@@ -408,7 +408,7 @@ class ContactController extends Controller
             ]);
         }
 
-        $contact->load(['type', 'parentTypes', 'createdBy', 'agent', 'secondAgent', 'contactNotes.user', 'testimonials.user', 'testimonials.agent', 'documents.uploader', 'documents.documentType', 'documents.properties', 'properties', 'matches.createdBy', 'tags', 'communications', 'phones', 'emails']);
+        $contact->load(['type', 'parentTypes', 'createdBy', 'agent', 'secondAgent', 'contactNotes.user', 'testimonials.user', 'testimonials.agent', 'documents.uploader', 'documents.documentType', 'documents.properties', 'properties', 'matches.createdBy', 'tags', 'communications', 'phones', 'emails', 'representatives', 'representedEntities', 'deadEndFlag']);
 
         // Agents in this contact's agency — for the "agent this testimonial is
         // about" selector on the Notes & Testimonials tab.
@@ -473,7 +473,13 @@ class ContactController extends Controller
                 ->whereIn('calendar_event_id', $buyerEventIds)->get()->groupBy('calendar_event_id');
             $agents = \App\Models\User::withoutGlobalScopes()
                 ->whereIn('id', $events->pluck('user_id')->unique()->filter())->pluck('name', 'id');
-            $outcomeLabels = \DB::table('agency_feedback_options')->where('category', 'outcome')->pluck('label', 'id');
+            // 2026-08-18 (Johan, AT-calendar-buttons §D) — unioned across BOTH
+            // vocabularies (outcome = buyer-facing, lp_outcome = seller-facing).
+            // agency_feedback_options.id is the primary key, globally unique across
+            // categories, so one id->label map safely resolves either vocabulary —
+            // fixes 2ee1159ad's actor_role split silently blanking this label
+            // whenever it wrote from the OTHER category than this hardcoded one.
+            $outcomeLabels = \DB::table('agency_feedback_options')->whereIn('category', ['outcome', 'lp_outcome'])->pluck('label', 'id');
 
             foreach ($propLinks as $pl) {
                 $ev = $events->get($pl->calendar_event_id);
@@ -486,8 +492,20 @@ class ContactController extends Controller
                     'address' => method_exists($pr, 'buildDisplayAddress') ? $pr->buildDisplayAddress() : ($pr->title ?? "Property #{$pr->id}"),
                     'event_date' => $ev->event_date,
                     'agent_name' => $agents->get($ev->user_id, 'Unknown'),
+                    // 2026-08-19 (Johan) — "same places feedback surfaces." A dismissed
+                    // appointment has no feedback row to show, but the reason it was
+                    // dismissed (buyer bought elsewhere, no-show, etc.) belongs here for
+                    // exactly the same reason feedback does — the next agent needs it.
+                    'dismissal_reason' => $ev->status === 'dismissed' ? $ev->dismissalReasonLabel() : null,
                     'feedback' => $fb ? [
-                        'outcome_label' => $outcomeLabels->get($fb->outcome_option_id),
+                        // per-property-mode captures (feedback_kind=listing_presentation)
+                        // never populate outcome_option_id — they store the outcome as a
+                        // label string in kind_specific_data.outcome instead. Fall back to
+                        // that so per-property feedback (now viewing's default too, §C)
+                        // still renders a label instead of going blank.
+                        'outcome_label' => $fb->outcome_option_id
+                            ? $outcomeLabels->get($fb->outcome_option_id)
+                            : (json_decode($fb->kind_specific_data ?? 'null', true)['outcome'] ?? null),
                         'seller_notes' => $fb->seller_visible_notes,
                         'internal_notes' => $fb->internal_notes,
                         'captured_at' => $fb->captured_at,
@@ -508,9 +526,14 @@ class ContactController extends Controller
         // to a property via ANY role is effectively a stakeholder in that
         // property's viewing feedback.
         $sellerViewings = collect();
-        $ownedPropertyIds = \DB::table('contact_property')
-            ->where('contact_id', $contact->id)
-            ->pluck('property_id');
+        // Referential guard (2026-08-14) — read the pivot THROUGH properties so soft-deleted /
+        // removed properties never surface a broken link (mirrors the belongsToMany relation used
+        // for the Properties list). Prevents an archived/merged property leaking into this raw read.
+        $ownedPropertyIds = \DB::table('contact_property as cp')
+            ->join('properties as p', 'p.id', '=', 'cp.property_id')
+            ->where('cp.contact_id', $contact->id)
+            ->whereNull('p.deleted_at')
+            ->pluck('cp.property_id');
 
         if ($ownedPropertyIds->isNotEmpty()) {
             $sellerEventIds = \DB::table('calendar_event_links')
@@ -534,7 +557,9 @@ class ContactController extends Controller
                 $sFeedback = $sFeedbackQuery->get()->groupBy('calendar_event_id');
                 $sAgents = \App\Models\User::withoutGlobalScopes()
                     ->whereIn('id', $sEvents->pluck('user_id')->unique()->filter())->pluck('name', 'id');
-                $sOutcomes = \DB::table('agency_feedback_options')->where('category', 'outcome')->pluck('label', 'id');
+                // 2026-08-18 (Johan, AT-calendar-buttons §D) — see the matching buyer-
+                // perspective comment above: unioned across both vocabularies.
+                $sOutcomes = \DB::table('agency_feedback_options')->whereIn('category', ['outcome', 'lp_outcome'])->pluck('label', 'id');
 
                 $sPropLinks = \DB::table('calendar_event_links')
                     ->whereIn('calendar_event_id', $sellerEventIds)
@@ -553,8 +578,15 @@ class ContactController extends Controller
                         'event_date' => $sEv->event_date,
                         'agent_name' => $sAgents->get($sEv->user_id, 'Unknown'),
                         'buyer_label' => 'Interested Buyer',
+                        // See the buyer-perspective block above — same reasoning.
+                        'dismissal_reason' => $sEv->status === 'dismissed' ? $sEv->dismissalReasonLabel() : null,
                         'feedback' => $sFb ? [
-                            'outcome_label' => $sOutcomes->get($sFb->outcome_option_id),
+                            // See the buyer-perspective block above — per-property
+                            // captures store the outcome as a label string in
+                            // kind_specific_data.outcome, not outcome_option_id.
+                            'outcome_label' => $sFb->outcome_option_id
+                                ? $sOutcomes->get($sFb->outcome_option_id)
+                                : (json_decode($sFb->kind_specific_data ?? 'null', true)['outcome'] ?? null),
                             'seller_notes' => $sFb->seller_visible_notes,
                             'captured_at' => $sFb->captured_at,
                         ] : null,
@@ -946,9 +978,21 @@ class ContactController extends Controller
 
     public function store(Request $request)
     {
+        // #17 — foreign nationals: id_type='passport' captures a free passport number + a
+        // directly-entered DOB (birthday) instead of a 13-digit SA ID. Absent/other id_type keeps
+        // the existing validated SA-ID path, so existing SA-ID captures are unaffected.
+        $isForeign = $request->input('id_type') === 'passport';
+
         $data = $request->validate([
-            'first_name'      => 'required|string|max:100',
-            'last_name'       => 'required|string|max:100',
+            // Entity-type foundation (.ai/specs/contact-entity-type.md) — the
+            // Contact Is radio. first_name/last_name are only required for a
+            // natural person; entity_name only for an entity. The form hides
+            // whichever set doesn't apply, so the absent side is never posted.
+            'contact_kind'    => 'nullable|in:' . Contact::TYPE_NATURAL_PERSON . ',' . Contact::TYPE_ENTITY,
+            'first_name'      => 'nullable|string|max:100|required_if:contact_kind,' . Contact::TYPE_NATURAL_PERSON,
+            'last_name'       => 'nullable|string|max:100|required_if:contact_kind,' . Contact::TYPE_NATURAL_PERSON,
+            'entity_name'     => 'nullable|string|max:255|required_if:contact_kind,' . Contact::TYPE_ENTITY,
+            'entity_reg_no'   => 'nullable|string|max:255',
             // AT-125 — single fields kept for back-compat (external posters); the
             // form posts the repeatable phones[]/emails[] arrays below.
             'phone'           => 'nullable|string|max:30',
@@ -974,12 +1018,22 @@ class ContactController extends Controller
             // Type/tag assignments arrive via the pop-up picker and are applied
             // after creation (applyTypeAssignments) — not a single column.
             'notes'           => 'nullable|string|max:1000',
-            // Optional SA ID number, captured with a POPIA audit trail.
-            'id_number'       => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
+            // Optional SA ID number, captured with a POPIA audit trail. Only
+            // meaningful for a natural person — the form doesn't post it for
+            // an entity, so this rule doesn't need a contact_kind condition.
+            // #17 — SA ID validated for SA persons; a foreign national's passport is a free
+            // string, and their DOB is captured directly (birthday) since it can't be derived.
+            'id_type'         => ['nullable', \Illuminate\Validation\Rule::in(['sa_id', 'passport'])],
+            'id_number'       => $isForeign
+                ? ['nullable', 'string', 'max:50']
+                : ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
+            'birthday'        => ['nullable', 'date', 'required_if:id_type,passport'],
             // Duplicate bypass fields
             'bypass_duplicate_check' => 'nullable|boolean',
             'override_reason'        => 'nullable|string|max:500',
         ]);
+
+        $data['contact_kind'] = $data['contact_kind'] ?? Contact::TYPE_NATURAL_PERSON;
 
         // AT-125 — a contact needs at least one identifier (phone OR email), but
         // not necessarily a phone (email-only is valid).
@@ -1013,7 +1067,9 @@ class ContactController extends Controller
                 array_column($phones, 'value'),
                 array_column($emails, 'value'),
                 $idNumber,
-                $agencyId
+                $agencyId,
+                null,
+                $data['entity_reg_no'] ?? null
             );
 
             if ($duplicates->isNotEmpty()) {
@@ -1200,8 +1256,13 @@ class ContactController extends Controller
         $idNumberChanged = $request->input('id_number') !== $contact->id_number;
 
         $data = $request->validate([
-            'first_name'      => 'required|string|max:100',
-            'last_name'       => 'required|string|max:100',
+            // Entity-type foundation (.ai/specs/contact-entity-type.md) — see
+            // store() for the same shape/reasoning.
+            'contact_kind'    => 'nullable|in:' . Contact::TYPE_NATURAL_PERSON . ',' . Contact::TYPE_ENTITY,
+            'first_name'      => 'nullable|string|max:100|required_if:contact_kind,' . Contact::TYPE_NATURAL_PERSON,
+            'last_name'       => 'nullable|string|max:100|required_if:contact_kind,' . Contact::TYPE_NATURAL_PERSON,
+            'entity_name'     => 'nullable|string|max:255|required_if:contact_kind,' . Contact::TYPE_ENTITY,
+            'entity_reg_no'   => 'nullable|string|max:255',
             // AT-125 — single fields kept for back-compat; the form posts arrays.
             'phone'           => 'nullable|string|max:30',
             'email'           => 'nullable|email|max:150',
@@ -1242,9 +1303,15 @@ class ContactController extends Controller
                     ->where('is_active', true),
             ],
             'birthday'        => 'nullable|date',
-            'id_number'       => $idNumberChanged
+            // #17 — id_type discriminates SA ID vs a foreign passport (mirrors the create() method's
+            // $isForeign pattern above). Checksum only runs when id_number actually changed AND it's
+            // an SA ID — combines Johan's 2026-08-19 fix (validate on genuine change, not every edit,
+            // so legacy contacts with a bad stored id_number can still save unrelated field edits)
+            // with #17's lenient passport handling (a foreign passport is a free string, never checksummed).
+            'id_type'         => ['nullable', \Illuminate\Validation\Rule::in(['sa_id', 'passport'])],
+            'id_number'       => ($idNumberChanged && $request->input('id_type') !== 'passport')
                 ? ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()]
-                : ['nullable', 'string', 'max:20'],
+                : ['nullable', 'string', 'max:50'],
             // Residential address — where the contact lives. Free text, set
             // ONLY here. Distinct from the structured property-address capture
             // (updatePropertyAddress), which never writes to this column.
@@ -1261,7 +1328,16 @@ class ContactController extends Controller
             'preapproval_amount'      => 'nullable|numeric|min:0',
             'preapproval_expires_at'  => 'nullable|date',
             'preapproval_institution' => 'nullable|string|max:100',
+            // Dead-end escape hatch — same ContactDeadEndFlag concept the MIC
+            // compose screen uses (ComposeSellerService::markSellerDeadEnd),
+            // surfaced here so a contact record can be saved with no phone/email.
+            'no_contact_details' => 'nullable|boolean',
         ]);
+
+        // Defensive: if the radio somehow didn't post (JS disabled/bypassed),
+        // keep the contact's existing kind rather than silently defaulting to
+        // natural_person, which could wrongly flip an existing entity contact.
+        $data['contact_kind'] = $data['contact_kind'] ?? $contact->contact_kind ?? Contact::TYPE_NATURAL_PERSON;
 
         // A co-agent without a primary is meaningless — collapse it.
         if (array_key_exists('agent_id', $data) && empty($data['agent_id'])) {
@@ -1287,7 +1363,10 @@ class ContactController extends Controller
         $hasIdentifierInput = $request->has('phones') || $request->has('emails')
             || $request->filled('phone') || $request->filled('email');
         [$phones, $emails] = $this->extractIdentifiers($request, $data);
-        if ($hasIdentifierInput && $phones === [] && $emails === []) {
+        // "No contact details available" — the same dead-end escape hatch the
+        // MIC compose screen uses — bypasses the compulsory-identifier check.
+        $noContactDetails = $request->boolean('no_contact_details');
+        if ($hasIdentifierInput && $phones === [] && $emails === [] && ! $noContactDetails) {
             throw \Illuminate\Validation\ValidationException::withMessages([
                 'phones' => 'A contact needs at least one phone number or email address.',
             ]);
@@ -1299,12 +1378,39 @@ class ContactController extends Controller
         // the whole save back cleanly — no half-written record. The picker's
         // type/tag selections are applied via the shared helper, which keeps the
         // multi-parent pivot, sub-tag pivot and primary-type mirror consistent.
-        \DB::transaction(function () use ($contact, $data, $request, $hasIdentifierInput, $phones, $emails) {
+        \DB::transaction(function () use ($contact, $data, $request, $hasIdentifierInput, $phones, $emails, $noContactDetails) {
             $contact->update($data);
             if ($hasIdentifierInput) {
                 app(\App\Services\Contacts\ContactIdentifierService::class)->syncIdentifiers($contact, $phones, $emails);
             }
             $this->applyTypeAssignments($contact, $request);
+
+            // Reconcile the dead-end flag against the identifiers this save
+            // actually leaves in place — real contact details always win, even
+            // if the tick is left checked. Same ContactDeadEndFlag row the MIC
+            // compose screen reads/writes (ComposeSellerService), written here
+            // directly so the 'source' correctly reflects this entry point —
+            // a contact flagged here reads correctly from the compose screen too.
+            $hasContactDetails = $hasIdentifierInput
+                ? ($phones !== [] || $emails !== [])
+                : ($contact->phones()->exists() || $contact->emails()->exists() || filled($contact->phone) || filled($contact->email));
+            if ($hasContactDetails) {
+                \App\Models\ContactDeadEndFlag::withoutGlobalScopes()
+                    ->where('agency_id', $contact->agency_id)
+                    ->where('contact_id', $contact->id)
+                    ->delete();
+            } elseif ($noContactDetails) {
+                \App\Models\ContactDeadEndFlag::updateOrCreate(
+                    ['contact_id' => $contact->id],
+                    [
+                        'agency_id'          => $contact->agency_id,
+                        'property_id'        => null,
+                        'reason'             => \App\Models\ContactDeadEndFlag::REASON_NO_RECORD,
+                        'source'             => 'contact_record',
+                        'created_by_user_id' => $request->user()->id,
+                    ],
+                );
+            }
         });
 
         // Redirect to show page if coming from there, otherwise index

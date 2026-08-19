@@ -69,6 +69,33 @@ final class ApplyToAllConsentGateTest extends TestCase
         $this->assertStringNotContainsString('isAgent: true', $response->getContent());
     }
 
+    /**
+     * The candidate-flow AUTHORISER co-signs in-app; their token's party_role
+     * is 'supervisor'. The authoriser IS an agent (PPA §35) and must get the
+     * SAME agent behaviour as the candidate — name prefill + apply-to-all +
+     * the one shared capture modal. isAgent MUST therefore be true for a
+     * supervisor token (Johan 2026-08-04, #5). Keyed on the token's own
+     * party_role, so the legal-bypass guard above is unaffected.
+     */
+    public function test_authoriser_supervisor_token_is_treated_as_agent(): void
+    {
+        [$sigTmpl] = $this->seedSession(sellerCount: 1);
+        $supervisor = SignatureRequest::create([
+            'signature_template_id' => $sigTmpl->id,
+            'party_role'   => 'supervisor',
+            'role_index'   => 1,
+            'signer_name'  => 'Authorising Principal',
+            'signer_email' => 'principal-' . Str::random(6) . '@x.test',
+            'token'        => Str::random(48),
+            'token_expires_at' => now()->addDays(30),
+            'status'       => 'pending',
+            'signing_order'=> 2,
+        ]);
+        $response = $this->get('/sign/' . $supervisor->token);
+        $response->assertOk();
+        $this->assertStringContainsString('isAgent: true', $response->getContent());
+    }
+
     // ── Helpers ──
 
     /**

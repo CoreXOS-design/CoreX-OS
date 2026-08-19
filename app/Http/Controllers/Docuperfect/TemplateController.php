@@ -408,6 +408,20 @@ class TemplateController extends Controller
         // Extract field summary from CDS for the right panel
         $fields = $this->extractFieldsFromCds($draft->cds_json);
 
+        // AT-177 — attach a DETERMINISTIC binding suggestion to each input field, in the
+        // same document order the builder assigns parserIndex. Johan's imports carry an
+        // explicit "{Party} - {Attribute}" token convention, so we can bind the identity
+        // token to its field group (single I/We clause), each attribute to its own column,
+        // and populate editable_by up front — the builder shows it bound out of the box and
+        // the vet confirms rather than repairs. Unresolvable tokens stay null → the builder
+        // falls back to its existing best-match logic.
+        $suggester = new \App\Services\Docuperfect\CdsBindingSuggester($user->effectiveAgencyId() ?: null);
+        $suggested = $suggester->suggest($draft->cds_json);
+        foreach ($fields as $i => &$f) {
+            $f['binding'] = $suggested['bindings'][$i] ?? null;
+        }
+        unset($f);
+
         // Load named fields grouped by source_type + contact_type
         $namedFields = NamedField::whereNull('deleted_at')
             ->orderBy('source_type')
@@ -595,8 +609,25 @@ class TemplateController extends Controller
         // Going forward every imported template carries the contract
         // from day one. Existing templates need the one-time backfill:
         //   php artisan docuperfect:normalize-templates
+        // ── PROJECT THE BINDINGS INTO THE MARKUP FIRST ─────────────────────────────
+        //
+        // The normalizer reads roles out of the HTML, but the CDS builder never puts them
+        // there: it writes `data-field-name="contact.full_names"` and keeps the actual
+        // binding (which contact type) in the mappings JSON, keyed by data-tag-id. So the
+        // normalizer saw no role-bearing fields, stamped nothing, and every CDS template in
+        // every database fell through to legacy clustering — contract coverage has been ZERO
+        // since the engine shipped. The engine was never broken; its input was never produced.
+        //
+        // Projection makes the binding visible to the engine that has to read it. It must run
+        // BEFORE normalize(), or there is still nothing for the normalizer to see.
+        $projector = app(\App\Services\Docuperfect\CdsBindingProjector::class);
+        $projected = $projector->project(
+            (string) ($draft->tagged_html ?? ''),
+            (array) ($draft->mappings ?? []),
+        );
+
         $normalizer = app(\App\Services\Docuperfect\RoleBlockNormalizer::class);
-        $normalisedTaggedHtml = $normalizer->normalize((string) ($draft->tagged_html ?? ''));
+        $normalisedTaggedHtml = $normalizer->normalize($projected);
         if ($normalisedTaggedHtml !== ($draft->tagged_html ?? '')) {
             $draft->tagged_html = $normalisedTaggedHtml;
             // Persist on the draft so re-opening the builder shows the
@@ -710,6 +741,24 @@ class TemplateController extends Controller
                     'filled_by' => $this->inferFilledBy($item['field_name'] ?? ''),
                 ];
             }
+
+            // AT-262 — a custom-named insertable marker (~~~~Seller - Full name~~~~)
+            // is a bindable field: surface it in the fields list so the Input counter
+            // and the sidebar show it. Built-in insertable blocks (OTHER_CONDITIONS
+            // etc.) are areas, not fields, and are deliberately skipped.
+            if (($item['type'] ?? '') === 'insertable_block_placeholder'
+                && ($item['purpose'] ?? '') === 'custom_named') {
+                $label = $item['custom_label'] ?? $item['raw_token'] ?? 'FIELD';
+                $fieldName = $item['block_id'] ?? '';
+                $fields[] = [
+                    'index' => $index++,
+                    'label' => $label,
+                    'field_name' => $fieldName,
+                    'field_type' => 'text',
+                    'source' => $this->inferSource($fieldName),
+                    'filled_by' => $this->inferFilledBy($fieldName),
+                ];
+            }
         }
 
         // Check label_value_group pairs
@@ -771,7 +820,12 @@ class TemplateController extends Controller
      * When $taggedHtml is null, falls back to rendering from CDS JSON via
      * CdsRendererService (original path, for backward compatibility).
      */
-    private function generateCdsBladeView(
+    /**
+     * Public so WebTemplateBladeEnsurer can regenerate a missing generated blade
+     * on-demand from stored template data (blank-preview regression fix). Behaviour
+     * unchanged — the save path still calls it exactly as before.
+     */
+    public function generateCdsBladeView(
         array $cds,
         array $fieldMappings,
         int $templateId,
@@ -927,8 +981,25 @@ BLADE;
             $displayParties = ['Lessor', 'Lessee', 'Agent'];
         }
 
+        // AT-304 OTP-3 — an OTP-style sig page detected by the parser carries a richer roster
+        // (witnesses per party, a co-signatory). Read the source signature_section roles: if it
+        // has witnesses, render witness columns; if it has a co-signatory, add that sign cell.
+        $sigRoles = [];
+        foreach (($cds['sections'] ?? []) as $sec) {
+            if (($sec['type'] ?? '') === 'signature_section') {
+                foreach (($sec['parties'] ?? []) as $p) {
+                    $sigRoles[] = strtolower((string) ($p['role'] ?? ''));
+                }
+            }
+        }
+        $showWitness = in_array('witness', $sigRoles, true);
+        if (in_array('co_signatory', $sigRoles, true) && ! in_array('Co-Signatory', $displayParties, true)) {
+            $displayParties[] = 'Co-Signatory';
+        }
+
         $partiesPhp = '["' . implode('", "', $displayParties) . '"]';
-        $blade .= '@include("docuperfect.web-templates.components.signature-block", ["parties" => ' . $partiesPhp . '])' . "\n\n";
+        $witnessPhp = $showWitness ? ', "show_witness" => true' : '';
+        $blade .= '@include("docuperfect.web-templates.components.signature-block", ["parties" => ' . $partiesPhp . $witnessPhp . '])' . "\n\n";
 
         $blade .= "</div>\n</div>\n\n";
         $blade .= "</body>\n</html>\n";
@@ -1131,8 +1202,32 @@ BLADE;
      * Map source_type + source_column + contact_type to a blade variable name.
      * Exact copy of WebTemplateDataService::deriveBladeName() to ensure
      * the blade file uses the same variable names the wizard resolves.
+     *
+     * AT-359b — the derived name is coerced to a valid PHP identifier here (the ONE exit),
+     * so every consumer (the blade emitter AND the view-data resolver) gets the SAME safe name
+     * and they stay in sync. Without this a composite source_column such as the property field
+     * 'address+suburb' leaks its '+' into the generated blade — {{ $property_address+suburb }} —
+     * where PHP reads the bare 'suburb' as an undefined constant and the whole template render
+     * throws, dropping the preview to the "formatted view could not be generated" fallback.
      */
     private function deriveBladeName(string $sourceType, string $sourceColumn, ?string $contactType): ?string
+    {
+        $name = $this->deriveBladeNameRaw($sourceType, $sourceColumn, $contactType);
+
+        if ($name === null || $name === '') {
+            return $name;
+        }
+
+        $name = preg_replace('/[^a-zA-Z0-9_]/', '_', $name);
+        if ($name !== '' && is_numeric($name[0])) {
+            $name = 'f_' . $name;
+        }
+
+        return $name;
+    }
+
+    /** Raw name derivation (pre-sanitisation). Callers must go through deriveBladeName(). */
+    private function deriveBladeNameRaw(string $sourceType, string $sourceColumn, ?string $contactType): ?string
     {
         if (empty($sourceColumn)) {
             return null;
@@ -1208,6 +1303,14 @@ BLADE;
 
         $template = Template::findOrFail($id);
 
+        // 2026-08-15 (Johan, HFC tenant-isolation fix) — no per-record check
+        // existed at all; any user with manage_templates could preview any
+        // agency's non-global template by id.
+        $agencyId = method_exists($user, 'effectiveAgencyId') ? $user->effectiveAgencyId() : $user->agency_id;
+        if (!$template->isVisibleToAgency($agencyId)) {
+            abort(404);
+        }
+
         if (!$template->blade_view) {
             abort(404, 'No blade view configured for this template.');
         }
@@ -1238,7 +1341,9 @@ BLADE;
         // Pass header_display so company-header component respects template setting
         $viewData['header_display'] = $template->header_display ?? 'first_page';
 
-        $html = view($template->blade_view, $viewData)->render();
+        // Blank-preview fix: regenerate the generated blade if its file is missing,
+        // and never blank on a render failure (stored-HTML fallback).
+        $html = app(\App\Services\Docuperfect\WebTemplateBladeEnsurer::class)->renderOrFallback($template, $viewData);
 
         return response($html)->header('Content-Type', 'text/html');
     }

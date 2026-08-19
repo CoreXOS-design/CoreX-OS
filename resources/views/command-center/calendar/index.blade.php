@@ -62,7 +62,7 @@
     // packing keeps overlapping events side by side instead of one hiding another.
     $layoutDayColumn = function ($events, int $gridStart, int $gridCount) {
         $gridMinutes = max(1, $gridCount * 60);
-        $items = collect($events)->filter()->map(function ($e) use ($gridStart, $gridMinutes) {
+        $toItem = function ($e) use ($gridStart, $gridMinutes) {
             $startMin = ($e->event_date->hour - $gridStart) * 60 + $e->event_date->minute;
             $endDt = ($e->end_date && $e->end_date->gt($e->event_date))
                 ? $e->end_date
@@ -74,11 +74,21 @@
             $s  = max(0, min($startMin, $gridMinutes));
             $en = max($s + 30, min($endMin, $gridMinutes)); // 30-min floor keeps short events clickable
             return ['e' => $e, 's' => $s, 'en' => $en, 'lane' => 0, 'lanes' => 1];
-        })->sortBy('s')->values()->all();
+        };
 
-        // Cluster-based lane packing: within each run of overlapping events,
-        // greedily assign the first free lane; the whole cluster shares the
-        // lane count so widths line up.
+        // AT-335 — completed/dismissed tiles never compete for a lane: they're
+        // excluded from the clustering input below and always render full-width
+        // (lane 0 of 1), so a done event overlapping an active one no longer gets
+        // squeezed to a fractional-width lane — visually indistinguishable from a
+        // live clash before this fix, just dimmed/struck through.
+        $isDone = fn ($e) => in_array($e->status, ['completed', 'dismissed'], true);
+        $filtered = collect($events)->filter();
+        $doneItems = $filtered->filter($isDone)->map($toItem)->values()->all();
+        $items = $filtered->reject($isDone)->map($toItem)->sortBy('s')->values()->all();
+
+        // Cluster-based lane packing: within each run of overlapping ACTIVE
+        // events, greedily assign the first free lane; the whole cluster shares
+        // the lane count so widths line up.
         $i = 0; $n = count($items);
         while ($i < $n) {
             $clusterEnd = $items[$i]['en'];
@@ -97,7 +107,7 @@
             for ($k = $i; $k < $j; $k++) { $items[$k]['lanes'] = $laneCount; }
             $i = $j;
         }
-        return $items;
+        return array_merge($items, $doneItems);
     };
 @endphp
 
@@ -1526,8 +1536,10 @@
                                             </template>
                                         </select>
                                     </div>
-                                    {{-- Mandate type --}}
-                                    <div>
+                                    {{-- Mandate type — seller-facing classes only (listing presentation /
+                                         property evaluation). No mandate concept for a buyer-facing
+                                         viewing, so this hides itself when the server sends no options. --}}
+                                    <div x-show="feedbackData.lp_mandate_types.length > 0">
                                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Mandate type</label>
                                         <select x-model="feedbackForm['prop:' + item.property_id].mandate_type"
                                                 class="w-full rounded-md px-3 py-2 text-sm"
@@ -1575,12 +1587,13 @@
                             </div>
                         </template>
                         <template x-if="feedbackData.items.length === 0">
-                            <p class="text-sm py-4 text-center" style="color: var(--text-muted);">No properties linked to this listing presentation.</p>
+                            <p class="text-sm py-4 text-center" style="color: var(--text-muted);">No properties linked to this event.</p>
                         </template>
                     </div>
                 </template>
 
-                {{-- Per-contact feedback (viewings — original UI) --}}
+                {{-- Per-contact feedback (listing presentation / property evaluation —
+                     the seller-facing classes; viewing now uses per_property above) --}}
                 <template x-for="contact in (feedbackData.feedback_mode === 'per_property' ? [] : feedbackData.contacts)" :key="contact.id">
                     <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
                         <h3 class="text-sm font-semibold mb-3" style="color: var(--text-primary);" x-text="contact.label"></h3>
@@ -2245,6 +2258,18 @@
             </div>
         </template>
 
+        {{-- Dismissal reason — 2026-08-19 (Johan): "an agent must be able to see
+             why that appointment died." Surfaced right where an agent looks
+             first, same treatment as the Contact page's dismissal_reason
+             field (ContactController::show()) — both read the same
+             CalendarEvent::dismissalReasonLabel(). --}}
+        <template x-if="panelData.status === 'dismissed' && panelData.dismissal_reason_label">
+            <div class="px-5 py-3" style="border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--text-muted) 6%, transparent);">
+                <div class="text-[10px] font-semibold uppercase tracking-wider mb-1" style="color: var(--text-muted);">Dismissed</div>
+                <div class="text-xs" style="color: var(--text-secondary);" x-text="panelData.dismissal_reason_label"></div>
+            </div>
+        </template>
+
         {{-- Activity timeline --}}
         <template x-if="panelData.audit_log && panelData.audit_log.length > 0">
             <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
@@ -2260,8 +2285,10 @@
             </div>
         </template>
 
-        {{-- Feedback CTA --}}
-        <template x-if="panelData.is_actionable && panelData.is_past && panelData.has_contacts">
+        {{-- Feedback CTA — 2026-08-18 (Johan): gated on completion_behaviour, not
+             is_actionable, so a freeform class (e.g. task, which is is_actionable=true
+             but freeform) never offers a feedback CTA it shouldn't have. --}}
+        <template x-if="panelData.completion_behaviour === 'require_feedback' && panelData.is_past && panelData.has_contacts">
             <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
                 <button type="button" @click="openFeedbackModal(panelData.id)"
                         class="text-xs font-medium transition-colors hover:underline" style="color: var(--brand-button); background: none; border: none; cursor: pointer;">
@@ -2272,8 +2299,30 @@
 
     </div>
 
-    {{-- Sticky footer action bar --}}
-    <div class="px-5 py-2.5 flex items-center gap-4 flex-shrink-0" style="border-top: 1px solid var(--border); background: var(--surface);">
+    {{-- Sticky footer action bar — 2026-08-18 (Johan) — the row can carry up to 7
+         controls (viewing + linked pack: Edit, Download Buyer Pack, Download Agent
+         Sheet, Regenerate, Capture Feedback, Dismiss, Delete). At the panel's
+         normal widths (resizable, and computed as ~27% of the content area —
+         narrows on smaller screens) that never fits on one line, so this uses
+         flex-wrap — the house pattern for crowded rows documented in
+         UI_DESIGN_SYSTEM.md §6.5/§6.6 and used by docuperfect/packs/index.blade.php's
+         card footer and the filter-bar in components/list-header.blade.php: a
+         control that doesn't fit starts a new line INSIDE the panel. There is no
+         edge to overflow past, at any width.
+         2026-08-18 (Johan, second pass) — an earlier version of this fix tucked
+         Download Buyer Pack / Download Agent Sheet / Regenerate behind a "⋮ More"
+         overflow menu. Reverted: Johan named Edit/Delete/Regenerate together as
+         all needed when a pack exists, and wants both pack downloads reachable
+         (not one canonical link standing in for both) — hiding any of them behind
+         a menu the agent has to discover is wrong here. Every control that
+         applies is a direct, always-visible sibling in this wrapping row; none
+         are grouped or collapsed. This also drops the old plain "Download viewing
+         pack" link (opened the pack's own page, not actually a download) as a
+         duplicate of the two real downloads below it.
+         Delete stays last, pushed right with ml-auto (same separation
+         docuperfect/packs/index.blade.php uses for its own Delete), so it is
+         never the easiest control to hit by accident. --}}
+    <div data-testid="event-panel-actionbar" class="px-5 py-2.5 flex flex-wrap items-center gap-2 flex-shrink-0" style="border-top: 1px solid var(--border); background: var(--surface);">
         <template x-if="panelData.is_editable">
             <button type="button" @click="editFromPanel()"
                     class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
@@ -2283,36 +2332,49 @@
             </button>
         </template>
 
-        {{-- AT-111 — Viewing pack ↔ appointment. Linked pack → Open + (when prepared)
-             download buttons, straight from the event. No pack yet → launch one from
-             this appointment (schedule-now-prep-later). --}}
-        <template x-if="panelData.linked_viewing_pack">
-            <span class="inline-flex items-center gap-4">
-                <a :href="panelData.linked_viewing_pack.url"
-                   class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
-                   style="color: var(--text-primary); text-decoration:none;">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"/></svg>
-                    Download viewing pack
-                </a>
-                <template x-if="panelData.linked_viewing_pack.property_count > 0">
-                    <span class="inline-flex items-center gap-4">
-                        <a :href="panelData.linked_viewing_pack.buyer_pack_url"
-                           class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
-                           style="color: var(--brand-button); text-decoration:none;">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
-                            Download Buyer Pack
-                        </a>
-                        <a :href="panelData.linked_viewing_pack.agent_sheet_url"
-                           class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
-                           style="color: var(--text-secondary); text-decoration:none;">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
-                            Download Agent Sheet
-                        </a>
-                    </span>
-                </template>
-            </span>
+        {{-- AT-111 — Viewing pack ↔ appointment. Exactly one of two states: no
+             pack linked -> "Create viewing pack" only; a pack IS linked ->
+             Download Buyer Pack + Download Agent Sheet (each its own real PDF,
+             both always reachable — not one link standing in for both) +
+             Regenerate (never "Create" alongside a linked pack). Gated to
+             supports_viewing_pack (viewing events only) — was ungated, so ANY
+             editable event (a meeting, a listing presentation, …) offered
+             "Create viewing pack". --}}
+        <template x-if="panelData.linked_viewing_pack && panelData.supports_viewing_pack && panelData.linked_viewing_pack.property_count > 0">
+            <a :href="panelData.linked_viewing_pack.buyer_pack_url"
+               class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+               style="color: var(--brand-button); text-decoration:none;">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+                Download Buyer Pack
+            </a>
         </template>
-        <template x-if="!panelData.linked_viewing_pack && panelData.is_editable">
+        <template x-if="panelData.linked_viewing_pack && panelData.supports_viewing_pack && panelData.linked_viewing_pack.property_count > 0">
+            <a :href="panelData.linked_viewing_pack.agent_sheet_url"
+               class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+               style="color: var(--text-secondary); text-decoration:none;">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+                Download Agent Sheet
+            </a>
+        </template>
+        {{-- 2026-08-18 (Johan) — rebuilds the linked pack from the event's CURRENT
+             property set (fixes the pack/event property-set drift the calendar-
+             buttons audit found, e.g. event #7047). Supersedes (soft-deletes) the
+             old direct-linked pack rather than mutating it in place — no hard
+             deletes, ever. Always offered whenever a pack is linked, regardless
+             of property_count (it's how a 0-property pack gets fixed). --}}
+        <template x-if="panelData.linked_viewing_pack && panelData.supports_viewing_pack">
+            <form :action="'/corex/command-center/calendar/' + panelData.id + '/viewing-pack/regenerate'" method="POST" class="inline">
+                @csrf
+                <button type="submit"
+                        class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                        style="color: var(--text-primary); background:none; border:none; cursor:pointer;"
+                        onclick="return confirm('Regenerate the viewing pack from this appointment\'s current properties? The existing pack will be archived, not deleted.');">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+                    Regenerate viewing pack
+                </button>
+            </form>
+        </template>
+        <template x-if="panelData.is_editable && panelData.supports_viewing_pack && !panelData.linked_viewing_pack">
             <form :action="panelData.viewing_pack_launch_url" method="POST" class="inline">
                 @csrf
                 <button type="submit"
@@ -2324,7 +2386,7 @@
             </form>
         </template>
 
-        <template x-if="panelData.is_actionable && panelData.completion_behaviour === 'require_feedback'">
+        <template x-if="panelData.completion_behaviour === 'require_feedback'">
             <button type="button" @click="openFeedbackModal(panelData.id)"
                     class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
                     style="color: #00d4aa; background: none; border: none; cursor: pointer;">
@@ -2340,8 +2402,18 @@
                 Complete with Reason
             </button>
         </template>
-        <template x-if="panelData.is_actionable && (!panelData.completion_behaviour || panelData.completion_behaviour === 'freeform')">
-            <form :action="'/corex/command-center/calendar/' + panelData.id + '/complete'" method="POST">
+        {{-- 2026-08-18 (Johan) — derived purely from completion_behaviour (no
+             hardcoded class-slug list): freeform -> Mark Complete, require_feedback
+             -> Capture Feedback above, require_reason -> Complete with Reason above.
+             meeting/other/private/task all read freeform from
+             calendar_event_class_settings, so this covers them without needing an
+             is_actionable OR — a newly configured freeform class gets this button
+             automatically, with zero code change. --}}
+        <template x-if="panelData.completion_behaviour === 'freeform'">
+            {{-- AT-335 — a recurring event needs a this/all scope decision first;
+                 intercept the native submit and hand off to the scope modal instead. --}}
+            <form :action="'/corex/command-center/calendar/' + panelData.id + '/complete'" method="POST"
+                  @submit="if (panelData.is_recurring) { $event.preventDefault(); openRecurScopeModal('complete'); }">
                 @csrf
                 <template x-if="panelData.metadata && panelData.metadata.deal_ref">
                     <div class="mb-2 px-2 py-1 rounded text-[10px] inline-flex items-center gap-1" style="background:rgba(245,158,11,0.1);color:#f59e0b;border:1px solid rgba(245,158,11,0.2);">
@@ -2365,10 +2437,13 @@
         </template>
         {{-- Delete — on EVERY editable panel (incl. private/informational events that
              have no Complete/Dismiss). Soft-delete, audited. Recurring events branch
-             into the this/future/all scope modal; one-offs get a simple confirm. --}}
+             into the this/future/all scope modal; one-offs get a simple confirm.
+             ml-auto pushes it to the far right, separated from every other control —
+             same separation docuperfect/packs/index.blade.php uses for its own
+             Delete — so it is never the easiest thing in the row to hit by accident. --}}
         <template x-if="panelData.is_editable">
             <button type="button" @click="deleteEvent()"
-                    class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                    class="ml-auto text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
                     style="color: #ef4444; background: none; border: none; cursor: pointer;">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/></svg>
                 <span x-text="panelData.is_recurring ? 'Delete…' : 'Delete'"></span>
@@ -2549,20 +2624,25 @@
     <div class="absolute inset-0 bg-black/50" @click="recurScopeModalOpen = false"></div>
     <div class="relative w-full max-w-sm rounded-md shadow-2xl p-5" style="background: var(--surface); border: 1px solid var(--border);">
         <h3 class="text-sm font-semibold mb-1" style="color: var(--text-primary);"
-            x-text="recurScopeMode === 'delete' ? 'Delete recurring event' : 'Edit recurring event'"></h3>
+            x-text="({delete:'Delete recurring event',complete:'Complete recurring event',dismiss:'Dismiss recurring event'})[recurScopeMode] || 'Edit recurring event'"></h3>
         <p class="text-xs mb-4" style="color: var(--text-muted);"
-           x-text="'This event repeats. Apply the ' + (recurScopeMode === 'delete' ? 'deletion' : 'change') + ' to:'"></p>
+           x-text="'This event repeats. Apply the ' + (({delete:'deletion',complete:'completion',dismiss:'dismissal'})[recurScopeMode] || 'change') + ' to:'"></p>
         <div class="space-y-2 mb-4">
             <label class="flex items-center gap-2 text-sm cursor-pointer px-3 py-2 rounded"
                    style="color: var(--text-primary); background: var(--surface-2); border: 1px solid var(--border);">
                 <input type="radio" name="recurScopeChoice" value="this" x-model="recurScopeChoice">
                 This event only
             </label>
-            <label class="flex items-center gap-2 text-sm cursor-pointer px-3 py-2 rounded"
-                   style="color: var(--text-primary); background: var(--surface-2); border: 1px solid var(--border);">
-                <input type="radio" name="recurScopeChoice" value="future" x-model="recurScopeChoice">
-                This and following events
-            </label>
+            {{-- "This and following" is deliberately NOT offered for complete/dismiss —
+                 pre-emptively marking occurrences that haven't happened yet as done isn't
+                 a real intent the way rescheduling/removing a future block is (Johan). --}}
+            <template x-if="recurScopeMode !== 'complete' && recurScopeMode !== 'dismiss'">
+                <label class="flex items-center gap-2 text-sm cursor-pointer px-3 py-2 rounded"
+                       style="color: var(--text-primary); background: var(--surface-2); border: 1px solid var(--border);">
+                    <input type="radio" name="recurScopeChoice" value="future" x-model="recurScopeChoice">
+                    This and following events
+                </label>
+            </template>
             <label class="flex items-center gap-2 text-sm cursor-pointer px-3 py-2 rounded"
                    style="color: var(--text-primary); background: var(--surface-2); border: 1px solid var(--border);">
                 <input type="radio" name="recurScopeChoice" value="all" x-model="recurScopeChoice">
@@ -2575,7 +2655,7 @@
             <button type="button" @click="confirmRecurScope()"
                     class="text-xs font-medium px-3 py-1.5 rounded text-white"
                     :style="recurScopeMode === 'delete' ? 'background:#ef4444;' : 'background: var(--brand-button);'"
-                    x-text="recurScopeMode === 'delete' ? 'Delete' : 'Save'"></button>
+                    x-text="({delete:'Delete',complete:'Complete',dismiss:'Dismiss'})[recurScopeMode] || 'Save'"></button>
         </div>
     </div>
 </div>
@@ -2916,10 +2996,14 @@ function calendarPage() {
                 recurFreq: '', recurInterval: 1, recurEndType: 'never', recurUntil: '', recurCount: 10, recurScope: '', occurrenceDate: '',
                 // AT-178 reminder keys. Defaults: popup ON, email OFF, 60 min (Johan).
                 sendReminder: true, reminderOffset: 60, reminderPopup: true, reminderEmail: false },
-        // Recurring edit/delete scope modal state.
+        // Recurring edit/delete/complete/dismiss scope modal state.
         recurScopeModalOpen: false,
-        recurScopeMode: 'edit',        // 'edit' | 'delete'
+        recurScopeMode: 'edit',        // 'edit' | 'delete' | 'complete' | 'dismiss'
         recurScopeChoice: 'this',
+        // AT-335 — a reason captured via the "…with Reason" flow, held here while the
+        // scope modal is open for a recurring event, then merged into the eventual
+        // complete/dismiss request body. Null for the plain (no-reason) paths.
+        pendingReasonPayload: null,
         editIsRecurring: false,        // the event being edited is a recurring series/occurrence
         editOccurrenceDate: '',        // the clicked occurrence's date (Y-m-d)
         // One-off (non-recurring) delete confirm.
@@ -2944,6 +3028,7 @@ function calendarPage() {
         contextMode: 'create',
         // AT-164 cockpit v2 — panel resident agenda + per-user panel collapse.
         agenda: @json($agenda ?? []),
+        _agendaPollTimer: null,
         // AT-164 Gate 6 — the active layer set, mirrored here so the panel agenda
         // (a calendar surface) can hide/show its items reactively when the Layers
         // control toggles. Kept in sync via the calendar:layers-changed event.
@@ -3432,6 +3517,14 @@ function calendarPage() {
             if (this.colorBy !== 'rag') {
                 this.$nextTick(() => this.recolourChips());
             }
+
+            // Live-refresh the resident agenda list — mirrors calendarDeck()'s Gate 7
+            // live-RAG loop (focus/visibility refetch + a light poll). Previously
+            // this.agenda was set once at page load with no refresh path at all.
+            window.addEventListener('focus', () => this.refreshAgenda());
+            document.addEventListener('visibilitychange', () => { if (!document.hidden) this.refreshAgenda(); });
+            const agendaPollSecs = Math.max(15, {{ (int) ($pollSeconds ?? 60) }});
+            this._agendaPollTimer = setInterval(() => { if (!document.hidden) this.refreshAgenda(); }, agendaPollSecs * 1000);
         },
         togglePanel() {
             this.rightPanelOpen = !this.rightPanelOpen;
@@ -3767,7 +3860,7 @@ function calendarPage() {
         },
 
         formatAuditAction(entry) {
-            const labels = { created: 'Event created', rescheduled: 'Rescheduled', cancelled: 'Cancelled', completed: 'Marked complete', feedback_captured: 'Feedback captured', feedback_task_created: 'Auto-task created' };
+            const labels = { created: 'Event created', rescheduled: 'Rescheduled', cancelled: 'Cancelled', completed: 'Marked complete', dismissed: 'Dismissed', feedback_captured: 'Feedback captured', feedback_task_created: 'Auto-task created' };
             const base = labels[entry.action] || entry.action;
             return entry.by ? `${base} by ${entry.by}` : base;
         },
@@ -4002,6 +4095,19 @@ function calendarPage() {
             ];
         },
         async submitReasonPicker() {
+            const reasonPayload = {
+                completion_reason_code: this.reasonPickerCode,
+                completion_reason: this.reasonPickerNotes || this.reasonPickerCode,
+            };
+            // AT-335 — a recurring event needs a this/all scope decision first. Stash
+            // the reason so confirmRecurScope() can merge it into the eventual request,
+            // then hand off to the scope modal instead of posting directly.
+            if (this.panelData && this.panelData.is_recurring) {
+                this.pendingReasonPayload = reasonPayload;
+                this.reasonPickerOpen = false;
+                this.openRecurScopeModal(this.reasonPickerAction); // 'complete' | 'dismiss'
+                return;
+            }
             this.reasonPickerSaving = true;
             const endpoint = this.reasonPickerAction === 'dismiss'
                 ? '/corex/command-center/calendar/' + this.reasonPickerEventId + '/dismiss'
@@ -4014,10 +4120,7 @@ function calendarPage() {
                     'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
                 },
                 credentials: 'same-origin',
-                body: JSON.stringify({
-                    completion_reason_code: this.reasonPickerCode,
-                    completion_reason: this.reasonPickerNotes || this.reasonPickerCode,
-                }),
+                body: JSON.stringify(reasonPayload),
             });
             this.reasonPickerSaving = false;
             if (r.ok) {
@@ -4086,6 +4189,11 @@ function calendarPage() {
         // AT-164 cockpit — mark the panel's event complete without opening the slide-over.
         completeFromContext() {
             if (!this.panelData || !this.panelData.id) return;
+            // AT-335 — a recurring event needs a this/all scope decision first.
+            if (this.panelData.is_recurring) {
+                this.openRecurScopeModal('complete');
+                return;
+            }
             const fd = new FormData();
             fd.append('_token', document.querySelector('meta[name="csrf-token"]').content);
             fetch('/corex/command-center/calendar/' + this.panelData.id + '/complete', {
@@ -4184,6 +4292,29 @@ function calendarPage() {
                 }).catch(err => console.warn('Recurring delete failed:', err));
                 return;
             }
+            // AT-335 — Complete/Dismiss: "this" completes/dismisses only the clicked
+            // occurrence (an exception child, series untouched); "all" applies to the
+            // whole series ("future" is not offered — see the modal template). Merges
+            // in a reason payload if the "…with Reason" flow stashed one.
+            if (this.recurScopeMode === 'complete' || this.recurScopeMode === 'dismiss') {
+                const parentId = this.panelData.recurrence_parent_id || this.panelData.id;
+                const occ = this.panelData.occurrence_date || '';
+                const body = Object.assign({ recur_scope: scope, occurrence_date: occ }, this.pendingReasonPayload || {});
+                fetch('/corex/command-center/calendar/' + parentId + '/' + this.recurScopeMode, {
+                    method: 'POST',
+                    headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': token },
+                    body: JSON.stringify(body),
+                    credentials: 'same-origin',
+                }).then(r => {
+                    if (r.ok) {
+                        this.pendingReasonPayload = null;
+                        this.recurScopeModalOpen = false;
+                        this.panelOpen = false;
+                        window.location.reload();
+                    }
+                }).catch(err => console.warn('Recurring ' + this.recurScopeMode + ' failed:', err));
+                return;
+            }
             // Edit: stamp the hidden fields and re-submit the form.
             this.form.recurScope = scope;
             this.form.occurrenceDate = this.editOccurrenceDate || '';
@@ -4234,12 +4365,32 @@ function calendarPage() {
                 if (r.ok || r.status === 302) {
                     // Refresh panel data
                     this.openEventPanel(this.panelData.id);
+                    // The resident agenda list (this.agenda) is a page-load snapshot with
+                    // no other live-update path — without this, an accepted invitation
+                    // never appears there until a full reload.
+                    this.refreshAgenda();
                     // If declined, close panel after brief delay
                     if (action === 'declined') {
                         setTimeout(() => { this.panelOpen = false; }, 800);
                     }
                 }
             } catch (e) { console.error('Invitation respond failed:', e); }
+        },
+
+        // Live-refresh the resident agenda list — mirrors calendarDeck()'s refresh()
+        // pattern (same fetch/credentials/silent-degrade shape). Called after a
+        // successful respondInvitation() and on the poll timer started in initPanel().
+        async refreshAgenda() {
+            try {
+                const r = await fetch('{{ route('command-center.calendar.agenda-panel') }}', {
+                    headers: { 'Accept': 'application/json' },
+                    credentials: 'same-origin',
+                });
+                if (r.ok) {
+                    const data = await r.json();
+                    if (Array.isArray(data.agenda)) this.agenda = data.agenda;
+                }
+            } catch (e) { /* silent — degrade, never break the page */ }
         },
 
         panelColourStyle(colour) {

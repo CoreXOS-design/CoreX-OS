@@ -3,6 +3,8 @@
 
 {{-- WS2 (AT-158 / DR2, D2) — reusable agency supplier directory settings. --}}
 @section('corex-content')
+{{-- AT-319 — code→label map for the active service types (badges fall back to the code if archived). --}}
+@php($typeLabels = $serviceTypes->pluck('label', 'code'))
 <div class="w-full space-y-5" x-data="{ showAdd: false }">
 
     {{-- Page header (branded — §2.4 Pattern A) --}}
@@ -88,6 +90,20 @@
                     Preferred for this specialty
                 </label>
             </div>
+            {{-- AT-319 — a supplier can handle MORE THAN ONE service type. Multi-select of the
+                 agency's configurable COC/service list (Settings → COC / Service Types). The
+                 work-order panel filters its supplier picker by these. --}}
+            <div class="md:col-span-3">
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Service types <span class="text-[11px]" style="color: var(--text-muted);">(the COCs / services this supplier handles — filters the work-order picker)</span></label>
+                @forelse($serviceTypes as $t)
+                    <label class="inline-flex items-center gap-1.5 text-sm mr-4 mb-1" style="color: var(--text-secondary);">
+                        <input type="checkbox" name="service_types[]" value="{{ $t->code }}" style="accent-color: var(--brand-button, #0ea5e9);">
+                        {{ $t->label }}
+                    </label>
+                @empty
+                    <div class="text-xs" style="color: var(--text-muted);">No service types configured yet — add them under Settings → COC / Service Types.</div>
+                @endforelse
+            </div>
             <div class="md:col-span-3 flex items-center gap-2">
                 <button type="submit" class="corex-btn-primary text-sm">Save to directory</button>
                 <button type="button" @click="showAdd = false" class="corex-btn-outline text-sm">Cancel</button>
@@ -115,6 +131,14 @@
                                 <span class="font-medium" style="color: var(--text-primary);">{{ $p->name }}</span>
                                 @if($p->is_preferred)<span class="ds-badge ds-badge-success ml-2">Preferred</span>@endif
                                 @if($p->company)<div class="text-[11px]" style="color: var(--text-muted);">{{ $p->company }}</div>@endif
+                                {{-- AT-319 — the supplier's service types (labels; falls back to the stored code if archived). --}}
+                                @if($p->serviceTypes->isNotEmpty())
+                                    <div class="mt-1 flex flex-wrap gap-1">
+                                        @foreach($p->serviceTypes as $st)
+                                            <span class="ds-badge ds-badge-default text-[10px]">{{ $typeLabels[$st->service_type] ?? $st->service_type }}</span>
+                                        @endforeach
+                                    </div>
+                                @endif
                             </td>
                             <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ ucwords(str_replace('_', ' ', $p->specialty)) }}</td>
                             <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">
@@ -143,6 +167,98 @@
                         @if($p->is_active)
                         <tr style="background: var(--surface-2);">
                             <td colspan="5" class="px-4 py-3">
+                                {{-- AT-364 — attorney capabilities (Transfer / Bond). A firm like BBB does BOTH,
+                                     so both may be ticked; the transfer-attorney and bond-attorney pickers each
+                                     surface the firms that carry the matching capability. Shown only for attorney
+                                     firms. Persist-on-toggle posts the FULL state of both toggles, so ticking one
+                                     can never wipe the other. Independent of the AT-319 service types below and of
+                                     the DR distribution math. --}}
+                                @php($isAttorney = in_array($p->specialty, ['transfer_attorney', 'bond_attorney'], true) || $p->is_transfer_attorney || $p->is_bond_attorney)
+                                @if($isAttorney)
+                                <div class="mb-4"
+                                     x-data="{
+                                        cap: { is_transfer_attorney: {{ $p->is_transfer_attorney ? 'true' : 'false' }}, is_bond_attorney: {{ $p->is_bond_attorney ? 'true' : 'false' }} },
+                                        saving:false, saved:false, err:false,
+                                        async persist(){
+                                            this.saving=true; this.saved=false; this.err=false;
+                                            try {
+                                                const r = await fetch('{{ route('deals-v2.suppliers.attorney-capabilities', $p) }}', {method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}'}, credentials:'same-origin', body: JSON.stringify(this.cap)});
+                                                const j = await r.json();
+                                                if(r.ok && j.ok){ this.saved=true; setTimeout(()=>{ this.saved=false; }, 1600); }
+                                                else { this.err=true; }
+                                            } catch(e){ this.err=true; }
+                                            this.saving=false;
+                                        }
+                                     }">
+                                    <div class="text-[11px] font-semibold uppercase tracking-wider mb-2 flex items-center gap-2" style="color: var(--text-muted);">
+                                        <span>Attorney role</span>
+                                        <span x-show="saving" x-cloak class="text-[10px] normal-case" style="color:#6b7280;">saving…</span>
+                                        <span x-show="saved" x-cloak x-transition class="text-[10px] normal-case" style="color:#059669;">✓ saved</span>
+                                        <span x-show="err" x-cloak class="text-[10px] normal-case" style="color:#b45309;">save failed — retry</span>
+                                    </div>
+                                    <div class="flex flex-wrap gap-x-4 gap-y-1 mb-1">
+                                        <label class="inline-flex items-center gap-1.5 text-xs" style="color: var(--text-secondary);">
+                                            <input type="checkbox" x-model="cap.is_transfer_attorney" @change="persist()" style="accent-color: var(--brand-button, #0ea5e9);">
+                                            Transfer attorney
+                                        </label>
+                                        <label class="inline-flex items-center gap-1.5 text-xs" style="color: var(--text-secondary);">
+                                            <input type="checkbox" x-model="cap.is_bond_attorney" @change="persist()" style="accent-color: var(--brand-button, #0ea5e9);">
+                                            Bond attorney
+                                        </label>
+                                    </div>
+                                    <div class="text-[11px]" style="color: var(--text-muted);">Tick both for a firm that handles bonds and transfers — it then appears in both attorney pickers.</div>
+                                </div>
+                                @endif
+                                {{-- AT-319 — edit this supplier's service types (the "edit" for types). Un-tick + Save
+                                     soft-deletes; archived-but-still-tagged types stay checked so a Save never
+                                     silently drops them (marked "archived"). --}}
+                                @php($ownCodes = $p->typeCodes())
+                                @php($archivedOwn = array_values(array_diff($ownCodes, $serviceTypes->pluck('code')->all())))
+                                @php($activeCodes = $serviceTypes->pluck('code')->all())
+                                @php($ownActive = array_values(array_intersect($ownCodes, $activeCodes)))
+                                {{-- 3b — persist-on-toggle: each tick auto-saves the supplier↔type pivot
+                                     immediately (tick adds, un-tick soft-deletes); no manual Save button;
+                                     survives refresh; per-supplier isolated. Archived-but-tagged codes are
+                                     read-only info, preserved server-side (never silently dropped). --}}
+                                <div class="mb-4"
+                                     x-data="{
+                                        codes: {{ \Illuminate\Support\Js::from($ownActive) }},
+                                        saving:false, saved:false, err:false,
+                                        async persist(){
+                                            this.saving=true; this.saved=false; this.err=false;
+                                            try {
+                                                const r = await fetch('{{ route('deals-v2.suppliers.types', $p) }}', {method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}'}, credentials:'same-origin', body: JSON.stringify({service_types: this.codes})});
+                                                const j = await r.json();
+                                                if(r.ok && j.ok){ this.saved=true; setTimeout(()=>{ this.saved=false; }, 1600); }
+                                                else { this.err=true; }
+                                            } catch(e){ this.err=true; }
+                                            this.saving=false;
+                                        }
+                                     }">
+                                    <div class="text-[11px] font-semibold uppercase tracking-wider mb-2 flex items-center gap-2" style="color: var(--text-muted);">
+                                        <span>Service types</span>
+                                        <span x-show="saving" x-cloak class="text-[10px] normal-case" style="color:#6b7280;">saving…</span>
+                                        <span x-show="saved" x-cloak x-transition class="text-[10px] normal-case" style="color:#059669;">✓ saved</span>
+                                        <span x-show="err" x-cloak class="text-[10px] normal-case" style="color:#b45309;">save failed — retry</span>
+                                    </div>
+                                    <div class="flex flex-wrap gap-x-4 gap-y-1 mb-2">
+                                        @forelse($serviceTypes as $t)
+                                            <label class="inline-flex items-center gap-1.5 text-xs" style="color: var(--text-secondary);">
+                                                <input type="checkbox" value="{{ $t->code }}" x-model="codes" @change="persist()"
+                                                       style="accent-color: var(--brand-button, #0ea5e9);">
+                                                {{ $t->label }}
+                                            </label>
+                                        @empty
+                                            <span class="text-xs" style="color: var(--text-muted);">No service types configured — add them under Settings → COC / Service Types.</span>
+                                        @endforelse
+                                        @foreach($archivedOwn as $code)
+                                            <label class="inline-flex items-center gap-1.5 text-xs" style="color: var(--text-muted);" title="Archived in Settings — stays tagged, never dropped.">
+                                                <input type="checkbox" checked disabled style="accent-color: var(--brand-button, #0ea5e9);">
+                                                {{ $code }} <span class="text-[10px]">(archived)</span>
+                                            </label>
+                                        @endforeach
+                                    </div>
+                                </div>
                                 <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">Contacts at {{ $p->name }}</div>
                                 @forelse($p->serviceContacts as $c)
                                     <div class="flex items-center justify-between py-1 text-xs" style="color: var(--text-secondary);">

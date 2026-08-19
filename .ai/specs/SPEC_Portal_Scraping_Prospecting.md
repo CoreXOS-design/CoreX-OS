@@ -354,3 +354,89 @@ Logic: After each scrape, compare portal_refs captured against existing records 
 - Extension must work offline-gracefully (show error if CoreX unreachable)
 - Search context always stored — agents can see what searches were run and when
 - Agency-scoped — agents only see their agency's captured data
+
+---
+
+## 10. NEW SOURCE — CMA Info Deeds Capture (2026-08-12, SCAFFOLD — not final)
+
+> Status: **DRAFT / SCAFFOLD.** Field extraction is wired to Johan's confirmed
+> field labels; accordion-expand + owner's-ID reveal are best-effort pending a
+> live-page tuning session with Johan; the POST payload contract is cc1's to
+> define. This section documents the scaffold as built — treat exact selectors
+> and payload keys as subject to change until both land.
+
+### Why a new source, not a P24/PP-style module
+
+`cmainfo.co.za/Mapping/PropSearch.aspx` is an ASP.NET WebForms **deeds**
+lookup tool (Property/Sale/Municipal Valuation/Servitudes/Accommodation/
+Renovations panels), not a listings portal. It has no JSON API — every field
+is read from rendered HTML `<table>` rows (~112 tables on the page), and the
+page never navigates on interaction (postback swaps DOM in place). This
+drives three structural differences from the P24/PP sources:
+
+- **Label-driven extraction, not hard selectors** — the label→value read
+  (`findValueByLabel()`) matches on normalized label TEXT and reads the
+  adjacent cell, rather than a fixed CSS selector. More robust against an
+  ASP.NET generator's markup shifting across sections/deploys.
+- **On-page button, not popup-driven** — P24/PP capture is triggered from
+  the extension's popup (`popup.js` → `chrome.runtime.sendMessage` →
+  `background.js`). CMA capture is a single-property action taken while
+  looking at ONE loaded property, so the button lives ON the page itself
+  (`content-cmainfo.js` injects it) and messages `background.js` directly.
+  `background.js` reads `apiUrl`/`apiToken` from `chrome.storage.local`
+  itself for this one flow, since there's no popup step to relay them.
+- **No pagination / no durable queue** — one property, one capture, one POST.
+  Mirrors `handlePullProperty()`'s shape, not the batched search-capture loop.
+
+### Fields (confirmed by Johan, 2026-08-12)
+
+**Property Information:** Deeds Office, Scheme no, Scheme name, Situated at,
+Section number, Flat number, Address, Suburb, Municipality, Province, GPS,
+Section extent, Type, Usage.
+
+**Sale Information:** Owner, Owner's ID, Sale Price, Sale Date, Registered
+Date, Title Deed, Bond Holder, Bond Amount, Sale Type.
+
+Municipal Valuation / Servitudes / Accommodation / Renovations are
+**deliberately out of scope for phase 1** (Johan's explicit call).
+
+### Open items — do not finalize without these
+
+1. **Exact accordion toggle + collapsed-state markup** — `ensureSectionExpanded()`
+   in `content-cmainfo.js` is a generic best-effort (tries common ASP.NET
+   accordion patterns: `aria-expanded`, `+`/`−` glyph, `collapsed`/`expanded`
+   class names). Needs Johan's live-page confirmation.
+2. **Exact "view owner's ID" reveal control** — `revealOwnerIdIfNeeded()` is
+   a generic best-effort (looks for a clickable element in the Owner's ID
+   row whose text matches `view|show|reveal`). Same caveat.
+3. **POST /api/deeds-capture payload contract** — cc1 owns this. The
+   extension currently sends a DRAFT shape (`buildDraftPayload()` in
+   `content-cmainfo.js`) wrapping `property_information` / `sale_information`
+   objects (keyed per the field list above) plus `is_sectional`,
+   `captured_url`, `captured_at`. The endpoint itself does not exist yet —
+   POSTs will fail until cc1 ships it. Do not build backend consumption
+   against this draft shape; wait for the confirmed contract.
+4. **Sectional-title multi-section capture** — one owner per section
+   (Johan's call). Scaffold captures whatever section is CURRENTLY loaded at
+   button-click time (`is_sectional` flags it, keyed on `section_number`) —
+   no multi-section aggregation in one payload. The agent re-clicks the
+   button per section, same mental model as any single-property capture.
+
+### Files (scaffold)
+
+- NEW `public/chrome-extension/portal-capture/content-cmainfo.js` — label-
+  driven extraction, accordion-expand, owner's-ID reveal, on-page button,
+  message handler (`getPageType`/`getDeedDetail` — mirrors the P24/PP
+  message shape for popup parity even though this flow doesn't need a
+  popup).
+- EDIT `public/chrome-extension/portal-capture/background.js` — new
+  `captureDeed` message handler + `handleCaptureDeed()` (auth/error handling
+  mirrors `handlePullProperty()`; endpoint + payload are DRAFT).
+- EDIT `public/chrome-extension/portal-capture/manifest.json` — added
+  `cmainfo.co.za` host permission + a scoped content script entry
+  (`https://www.cmainfo.co.za/Mapping/PropSearch.aspx*`); version bump
+  3.1.8 → 3.2.0 for the new source.
+- Not touched: `queue-idb.js` (no durable-queue need for a single-item
+  capture), `popup.html`/`popup.js` (no popup step in this flow),
+  `public/downloads/portal-capture-extension.zip` (the packaged download —
+  regenerating/shipping it is a separate, manual step once this lands).

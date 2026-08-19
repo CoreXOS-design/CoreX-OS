@@ -104,6 +104,12 @@ class ConditionsController extends Controller
             return $condition;
         });
 
+        // WET-INK: a condition added on a RETURNED / amendment doc flags cc1's change highlight.
+        $svc = app(\App\Services\Docuperfect\SignatureService::class);
+        if ($svc->isReEditState($signatureTemplate)) {
+            $svc->setAmendmentRender($signatureTemplate->document, true);
+        }
+
         return response()->json([
             'ok'        => true,
             'condition' => $condition,
@@ -190,6 +196,13 @@ class ConditionsController extends Controller
 
             return compact('condition', 'strikethrough', 'amendment');
         });
+
+        // WET-INK: a clause strike-out on a RETURNED / amendment doc flags cc1's change highlight
+        // (clause strikes also render as visible content via applyStrikethroughs regardless).
+        $svc = app(\App\Services\Docuperfect\SignatureService::class);
+        if ($svc->isReEditState($signatureTemplate)) {
+            $svc->setAmendmentRender($signatureTemplate->document, true);
+        }
 
         return response()->json([
             'ok'            => true,

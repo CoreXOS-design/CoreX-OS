@@ -100,14 +100,22 @@ class MarketIntelligenceController extends Controller
         // Action presets (pitch_now_high, pitch_now, log_outcomes, my_claims,
         // expiring) preview the SuggestedActionResolver rule of the same name.
         $actionPreset = $request->input('action_preset');
+        // Legacy ?claim_filter= URL param (Command Centre "view all" links —
+        // see CommandCentreService::prospectingClaims()). Only 'my_claims' asks
+        // for rows that DO carry an active claim; 'unclaimed' already agrees with
+        // the canvass pool's default exclusion below, so it needs no suspension.
+        $claimFilter = $request->input('claim_filter');
         // Action presets that target rows which often have matched_property_id set
         // (log/my-claims/expiring) need the default canvass-only filter suspended
-        // so those rows can surface even when they live in agency stock.
+        // so those rows can surface even when they live in agency stock. Same for
+        // claim_filter=my_claims: 300a247ba (2026-08-19) made the canvass pool
+        // exclude ANY active claim, not just pitched ones, which left this legacy
+        // param contradicting that exclusion and always returning zero rows.
         $presetSuspendsCanvassFilter = in_array(
             $actionPreset,
             ['log_outcomes', 'my_claims', 'expiring'],
             true,
-        );
+        ) || $claimFilter === 'my_claims';
 
         // F.1: default to canvassing pool only (exclude already-mandated stock).
         // Manager toggle ?include_in_stock=1 bypasses for audit purposes.
@@ -124,9 +132,39 @@ class MarketIntelligenceController extends Controller
         // claim-centric action presets (my_claims / expiring / log_outcomes),
         // which exist precisely to surface claimed rows.
         if (! $request->boolean('show_pitched') && ! $presetSuspendsCanvassFilter) {
-            $query->whereDoesntHave('activeClaim', function ($q) {
-                $q->whereNotNull('pitched_at');
-            });
+            // INSTANT LOCK (Johan 2026-08-13, MIC funnel phase 1) — the moment an agent clicks
+            // "Pitch now", a temp lock is written (EntryPointController::fromProspecting →
+            // ProspectingClaimService::createTempLock) BEFORE the composer opens. Hide any listing
+            // ANOTHER agent is actively pitching (unexpired, unreleased temp lock) from THIS agent's
+            // canvassing pool, so a second agent can't click it in parallel — instant, not after the
+            // pitch is saved. The pitching agent's OWN lock is NOT excluded (they still see their row).
+            // Auto-releases when the temp lock expires (agent abandoned) or is consumed by the pitch;
+            // the agency-configurable warn/release rules are phase 2.
+            $otherAgentLockedListingIds = DB::table('prospecting_pitch_locks')
+                ->where('agency_id', $agencyId)
+                ->whereNull('released_at')
+                ->where('expires_at', '>', now())
+                ->where('user_id', '!=', (int) $request->user()->id)
+                ->whereNotNull('prospecting_listing_id')
+                ->distinct()
+                ->pluck('prospecting_listing_id')
+                ->all();
+            if (! empty($otherAgentLockedListingIds)) {
+                $query->whereNotIn('id', $otherAgentLockedListingIds);
+            }
+
+            // 2026-08-19 (Johan, row-Claim ship) — was whereNotNull('pitched_at'),
+            // so a bare Claim (not yet pitched) never left the canvass pool: the
+            // row stayed visible to every agent, only its icon state changed for
+            // the claimant. Verified live against a real QA1 row before this
+            // change (listing 12689: claimed, still present in the default Work
+            // list afterwards). That contradicts the whole point of a Claim —
+            // "reserve it, take it away from other agents" — and reads as the
+            // Claim button silently not working. ANY active claim (pitched or
+            // not) now excludes the row; the pitch-specific property/address
+            // locks immediately below are unaffected — those solve a different,
+            // rotating-ref-safe problem and still key on pitched_at deliberately.
+            $query->whereDoesntHave('activeClaim');
 
             // Pitch Now #4 — PROPERTY-level pitch lock (rotating-ref safe). Portal
             // refs rotate, so the same property returns under a new ref whose OWN
@@ -245,6 +283,21 @@ class MarketIntelligenceController extends Controller
             $query->whereNotNull('address')
                   ->where('address', '<>', '')
                   ->where('address', '<>', 'Address not available');
+        }
+
+        // Source ticks (P24 / PP) — Work tab. Canonical column, directly on
+        // every row: prospecting_listings.portal_source, enum('p24','pp')
+        // NOT NULL. No join, no string-sniffing the portal-ref prefix. Both
+        // default ON so an untouched page applies no filter here at all —
+        // identical query to before this change. Both OFF is a legitimate
+        // state (whereIn with an empty array yields zero rows, no error).
+        $sourceP24On = $request->boolean('p24', true);
+        $sourcePpOn  = $request->boolean('pp', true);
+        if (! $sourceP24On || ! $sourcePpOn) {
+            $query->whereIn('portal_source', array_keys(array_filter([
+                'p24' => $sourceP24On,
+                'pp'  => $sourcePpOn,
+            ])));
         }
 
         // Stock match filter (legacy ?stock_filter= explicit override — still honoured
@@ -521,6 +574,11 @@ class MarketIntelligenceController extends Controller
                     'url'    => $l->portal_url,
                 ];
             })->values()->toArray();
+            // PITCHED-state (Johan 2026-08-14) — worklist row flags for cc5 to render the "Pitched"
+            // label + route the click to the property record. is_pitched = Create & continue
+            // committed (pitched_at set); property_id = the linked/created Property.
+            $primary->is_pitched  = ! empty($primary->pitched_at);
+            $primary->property_id = $primary->matched_property_id ? (int) $primary->matched_property_id : null;
             return $primary;
         })->values();
 
@@ -691,15 +749,51 @@ class MarketIntelligenceController extends Controller
         // it IS our stock, show the MATCHED PROPERTY's address: hydrate the row's
         // address from the property when the listing's own address is blank. Only
         // touches company-stock rows; prospecting rows keep their own address.
+        // EXISTENCE CHECK (Johan 2026-08-13, MIC funnel phase 1) — a listing that resolves to an
+        // existing agency property should surface "Already exists → open property (who's on it)"
+        // instead of Pitch Now. Batch-load the matched properties' owning agent here (one query) so
+        // the resolver can name who is already on it. Reuses $companyStockMap (OnMarketStockService's
+        // on-market-gated identity); the authoritative pre-work gate stays the reactive collision
+        // check (EntryPointController::resolveCollisionForListing → TrackedPropertyMatchOrCreateService
+        // ::findExistingMatch) that redirects a pitch-now click on an existing property to the property.
+        $companyStockAgentByListing = [];
         if (! empty($companyStockMap)) {
-            $companyPropAddresses = \App\Models\Property::withoutGlobalScopes()
+            $companyProps = \App\Models\Property::withoutGlobalScopes()
                 ->whereIn('id', array_values($companyStockMap))
-                ->pluck('address', 'id');
+                ->with('agent:id,name')
+                ->get(['id', 'agent_id', 'address']);
+            $companyPropAddresses = $companyProps->pluck('address', 'id');
+            $agentNameByProp = $companyProps->mapWithKeys(fn ($p) => [$p->id => optional($p->agent)->name]);
             foreach ($listings->items() as $__it) {
                 $__pid = $companyStockMap[$__it->id] ?? null;
                 if ($__pid && blank($__it->address) && filled($companyPropAddresses[$__pid] ?? null)) {
                     $__it->address = $companyPropAddresses[$__pid];
                 }
+                if ($__pid) {
+                    $companyStockAgentByListing[$__it->id] = $agentNameByProp[$__pid] ?? null;
+                }
+            }
+        }
+
+        // MIC property row comments (.ai/specs/mic-property-row-comments.md) —
+        // one batched count query for the whole visible page, mirroring the
+        // $companyStockMap precedent above. Zero N+1 regardless of row count.
+        $canViewComments = (bool) ($user?->hasPermission('mic.comments.view') ?? false);
+        $commentCounts = collect();
+        if ($canViewComments) {
+            $tpIdsForComments = collect($listings->items())
+                ->pluck('tracked_property_id')
+                ->filter()
+                ->unique()
+                ->values();
+            if ($tpIdsForComments->isNotEmpty()) {
+                $commentCounts = \App\Models\Prospecting\TrackedPropertyComment::query()
+                    ->whereIn('tracked_property_id', $tpIdsForComments)
+                    ->where('agency_id', $agencyId)
+                    ->whereNull('deleted_at')
+                    ->select('tracked_property_id', DB::raw('count(*) as cnt'))
+                    ->groupBy('tracked_property_id')
+                    ->pluck('cnt', 'tracked_property_id');
             }
         }
 
@@ -927,6 +1021,8 @@ class MarketIntelligenceController extends Controller
                 // matched_property_id column. Feeds SuggestedActionResolver's
                 // R5/R6/R7/R10 in-stock gate + property links.
                 'company_stock_property_id' => $companyStockMap[$listingItem->id] ?? null,
+                // EXISTENCE CHECK — who is already on the matched property (null = no agent assigned).
+                'company_stock_agent_name'  => $companyStockAgentByListing[$listingItem->id] ?? null,
             ];
             $tierSlice = [
                 'strong'    => $buyerTiers[$listingItem->id]['strong']    ?? 0,
@@ -1004,6 +1100,8 @@ class MarketIntelligenceController extends Controller
                 'isProspectingManager'           => $isProspectingManager,
                 'companyStockMap'                => $companyStockMap,
                 'agencyLogoUrl'                  => $agencyLogoUrl,
+                'commentCounts'                  => $commentCounts,
+                'canViewComments'                => $canViewComments,
                 'snapshotKpis'                   => $snapshotKpis,
                 'actionPresetCounts'             => $actionPresetCounts,
                 'actionPreset'                   => $actionPreset,
@@ -1023,7 +1121,8 @@ class MarketIntelligenceController extends Controller
                 'listings'      => view('corex.market-intelligence._listings', $fragmentData)->render(),
                 'statsStrip'    => view('corex.market-intelligence._stats-strip', $fragmentData)->render(),
                 'filterRail'    => view('corex.market-intelligence._filter-rail', $fragmentData)->render(),
-                'headerActions' => view('corex.market-intelligence.partials._header-actions', $fragmentData)->render(),
+                'headerActions' => view('corex.market-intelligence.partials._header-actions', $fragmentData + ['showTicks' => false])->render(),
+                'buyerLegend'   => view('corex.market-intelligence._buyer-match-legend', $fragmentData)->render(),
                 'url'           => $canonicalUrl,
             ]);
         }
@@ -1080,6 +1179,8 @@ class MarketIntelligenceController extends Controller
             'tiles', 'tilesGeneratedAt',
             // Company stock (exact portal_ref) — IN STOCK badge + company logo tile
             'companyStockMap', 'agencyLogoUrl',
+            // MIC property row comments — .ai/specs/mic-property-row-comments.md
+            'commentCounts', 'canViewComments',
             // Trust-strip (display-only) — already-computed synthetic-row breakdown,
             // just wired through so the list header can show its composition.
             'injectedStockCountBySuburb',
@@ -1185,7 +1286,19 @@ class MarketIntelligenceController extends Controller
         $base = TrackedProperty::query()
             ->withoutGlobalScopes()
             ->where('agency_id', $agencyId)
-            ->whereNull('deleted_at');
+            ->whereNull('deleted_at')
+            // Deeds captures live on their own "Deeds Capture" screen and must never
+            // mix into Opportunities (Johan's directive). Exclude them here.
+            ->where(function ($q) {
+                $q->whereNull('capture_kind')->orWhere('capture_kind', '<>', 'deeds_capture');
+            });
+
+        // MIC property row comments (.ai/specs/mic-property-row-comments.md) —
+        // fast-follow onto Opportunities. Same batched-count mechanism this
+        // method already uses for listing_count/strong_match_count (one
+        // query for the whole page — zero N+1); comments_count just rides
+        // along on the existing withCount() chain.
+        $canViewComments = (bool) ($user?->hasPermission('mic.comments.view') ?? false);
 
         $query = (clone $base)
             ->with(['primaryAddress', 'externalRefs'])
@@ -1194,7 +1307,8 @@ class MarketIntelligenceController extends Controller
                 'prospectingListings as strong_match_count' => function ($q) {
                     $q->whereHas('buyerMatches', fn ($qb) => $qb->where('score', '>=', 80));
                 },
-            ]);
+            ])
+            ->when($canViewComments, fn ($q) => $q->withCount('comments as comments_count'));
 
         // Filter chip — primary filter from §5.4.3.
         match ($filter) {
@@ -1297,6 +1411,7 @@ class MarketIntelligenceController extends Controller
             'activeSource'   => $sourceParam,
             'activeStatus'   => $statusParam,
             'activeSearch'   => $search,
+            'canViewComments' => $canViewComments,
         ]);
     }
 
@@ -1369,13 +1484,19 @@ class MarketIntelligenceController extends Controller
         $now = Carbon::now();
         $thisMonthStart = $now->copy()->startOfMonth()->toDateString();
 
-        $lastImport = P24ImportLog::orderByDesc('created_at')->first();
-        $emailsProcessed30d = P24ImportLog::where('created_at', '>=', $now->copy()->subDays(30))
+        // 2026-08-15 (Johan, HFC tenant-isolation fix) — $agencyId was
+        // computed above but never applied to a single query in this
+        // method; every agency saw HFC's entire P24 firehose (the only
+        // agency with imported data today). Every P24Listing/P24ImportLog
+        // query below is now scoped.
+        $lastImport = P24ImportLog::where('agency_id', $agencyId)->orderByDesc('created_at')->first();
+        $emailsProcessed30d = P24ImportLog::where('agency_id', $agencyId)
+            ->where('created_at', '>=', $now->copy()->subDays(30))
             ->where('status', 'success')
             ->count();
-        $activeListings = P24Listing::active()->count();
-        $newThisMonth = P24Listing::where('first_seen_date', '>=', $thisMonthStart)->count();
-        $avgAskingPrice = (float) P24Listing::active()->avg('asking_price');
+        $activeListings = P24Listing::where('agency_id', $agencyId)->active()->count();
+        $newThisMonth = P24Listing::where('agency_id', $agencyId)->where('first_seen_date', '>=', $thisMonthStart)->count();
+        $avgAskingPrice = (float) P24Listing::where('agency_id', $agencyId)->active()->avg('asking_price');
 
         $imapConfigured = !empty(config('services.p24_imap.host'))
             && !empty(config('services.p24_imap.username'))
@@ -1391,7 +1512,7 @@ class MarketIntelligenceController extends Controller
             'imap_status'         => $imapConfigured ? 'configured' : 'not configured',
         ];
 
-        $suburbStats = P24Listing::active()
+        $suburbStats = P24Listing::where('agency_id', $agencyId)->active()
             ->select(
                 'suburb',
                 DB::raw('COUNT(*) as listing_count'),
@@ -1405,7 +1526,8 @@ class MarketIntelligenceController extends Controller
             ->orderByDesc('listing_count')
             ->get();
 
-        $recentListings = P24Listing::orderByDesc('first_seen_date')
+        $recentListings = P24Listing::where('agency_id', $agencyId)
+            ->orderByDesc('first_seen_date')
             ->orderByDesc('created_at')
             ->limit(200)
             ->get(['id', 'p24_listing_number', 'p24_url', 'suburb', 'property_type', 'asking_price', 'bedrooms', 'bathrooms', 'listing_status', 'first_seen_date']);
@@ -1424,7 +1546,8 @@ class MarketIntelligenceController extends Controller
             ->limit(200)
             ->get();
 
-        $importLog = P24ImportLog::orderByDesc('created_at')
+        $importLog = P24ImportLog::where('agency_id', $agencyId)
+            ->orderByDesc('created_at')
             ->limit(50)
             ->get();
 
@@ -2894,6 +3017,25 @@ class MarketIntelligenceController extends Controller
             return back()->with('error', 'Agency context required. Select an agency first.');
         }
 
+        // MIC CRISIS #1 (2026-08-18) — server-side company-stock guard. The
+        // list excludes company stock by default (applyInStockFilter ->
+        // whereNotCompanyStock) and the row template hides the claim button
+        // for it ($isCompanyStock in _listing-row.blade.php) — but both are
+        // RENDERING guards only. A stale tab, a cached page, a listing that
+        // flips to on-market stock after the page loaded, or a future UI
+        // regression all have zero backstop without this: nothing before
+        // today re-checked company-stock status at the point a claim is
+        // actually written. Same canonical, EXACT-match (portal_ref OR
+        // normalized_address) identity every other "our stock" surface in
+        // this controller already uses (see $companyStockMap in work(),
+        // ~line 696) — never a second, divergent definition.
+        $companyStockPropertyId = app(\App\Services\Prospecting\OnMarketStockService::class)
+            ->stockMapForListings([$listing], $agencyId)[$listing->id] ?? null;
+
+        if ($companyStockPropertyId !== null) {
+            return back()->with('error', 'This is already your agency\'s own stock (property #' . $companyStockPropertyId . ') — nothing to claim.');
+        }
+
         // Stale-tab guard — re-derives CURRENT claim state server-side on every
         // submit rather than trusting whatever the (possibly stale) page showed
         // when it loaded, so a tab that never refreshed can't double-claim a
@@ -2941,6 +3083,19 @@ class MarketIntelligenceController extends Controller
 
         $newStatus = $request->status;
 
+        // Once the claim has been promoted to a Property, it is on the agency's
+        // books — a closing outcome (not_interested / lost) must never flip
+        // is_active=false and drop it back into the canvass pool. See
+        // ProspectingClaim::isPromoted().
+        if (in_array($newStatus, ProspectingClaim::CLOSING_STATUSES, true) && $claim->isPromoted()) {
+            return back()->with('error', 'This property has already been promoted onto your books — it can no longer be closed out or released.');
+        }
+
+        // First-feedback detection — the activity-points credit (mic.claim_feedback)
+        // fires ONCE, when feedback_at transitions null→now. Re-editing the status
+        // later keeps the original feedback_at and does NOT re-award.
+        $isFirstFeedback = $claim->feedback_at === null;
+
         $claim->update([
             'status'          => $newStatus,
             'notes'           => $request->notes,
@@ -2953,6 +3108,13 @@ class MarketIntelligenceController extends Controller
                 'is_active'   => false,
                 'released_at' => now(),
             ]);
+        }
+
+        // Auto-points (mic.claim_feedback) — score the agent for working the claim
+        // and logging feedback, on the first feedback only. Fire-and-forget: the
+        // listener wraps InstantPointService in try/catch so this never blocks the save.
+        if ($isFirstFeedback) {
+            event(new \App\Events\Prospecting\ClaimFeedbackRecorded($claim->fresh(), $newStatus, $request->notes));
         }
 
         return back()->with('success', 'Feedback saved');
@@ -2973,6 +3135,12 @@ class MarketIntelligenceController extends Controller
 
         if ($claim === null) {
             return back()->with('error', 'This claim was already released or updated elsewhere — refreshed to current state.');
+        }
+
+        // Already promoted to a Property — on the books, never releasable. See
+        // ProspectingClaim::isPromoted().
+        if ($claim->isPromoted()) {
+            return back()->with('error', 'This property has already been promoted onto your books — it can no longer be released.');
         }
 
         $claim->update([
@@ -3003,6 +3171,12 @@ class MarketIntelligenceController extends Controller
 
         if (!$isOwner && !$isManager) {
             abort(403, 'Only the claim owner or a prospecting manager can release this claim.');
+        }
+
+        // Already promoted to a Property — on the books, never releasable, even
+        // by a manager. See ProspectingClaim::isPromoted().
+        if ($claim->isPromoted()) {
+            return back()->with('error', 'This property has already been promoted onto the agency books — it can no longer be released.');
         }
 
         app(\App\Services\Prospecting\ProspectingClaimService::class)->releaseClaim(

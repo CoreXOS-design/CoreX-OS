@@ -14,18 +14,18 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * counts) work unchanged (they only ever have a NULL-agency row), while
  * tenant-scoped keys (the switchboard toggles) resolve per agency.
  *
- * (HFC tenant-isolation fix, ported from main Wave 1 / b5d4197b4) — `company_*`
- * keys (company_name/company_address/company_tel/company_ffc/company_logo_url)
+ * 2026-08-15 (Johan, HFC tenant-isolation fix) — `company_*` keys
+ * (company_name/company_address/company_tel/company_ffc/company_logo_url)
  * were WRONGLY documented and treated as "genuinely global" here: a single
- * NULL-agency row held Home Finders Coastal's own real business details, and
- * any agency without its own override silently inherited HFC's name/address/
- * phone/FFC number onto printed documents (CMA, commission calculator, deal
- * settlements). These are tenant-scoped, full stop — see AGENCY_ONLY_KEYS
- * below. They resolve to the agency's own row if one exists, and to the
- * caller's $default otherwise (every call site already passes the current
- * agency's own Agency-model fields as $default) — NEVER to the global row,
- * even though rows with agency_id=NULL still exist in the table for these
- * keys (harmless, orphaned, kept for audit history).
+ * NULL-agency row held Home Finders Coastal's own real business details,
+ * and any agency without its own override silently inherited HFC's name/
+ * address/phone/FFC number onto printed documents (CMA, commission
+ * calculator, deal settlements). These are tenant-scoped, full stop — see
+ * AGENCY_ONLY_KEYS below. They resolve to the agency's own row if one
+ * exists, and to the caller's $default otherwise (every call site already
+ * passes the current agency's own Agency-model fields as $default) — NEVER
+ * to the global row, even though rows with agency_id=NULL still exist in
+ * the table for these keys (harmless, orphaned, kept for audit history).
  *
  * Tenant-scoped writes MUST go through `set($key, $value, $agencyId)` (or pass an
  * explicit agency_id to `get()` in queue/console contexts that have no auth) —
@@ -42,9 +42,10 @@ class PerformanceSetting extends Model
     ];
 
     /**
-     * Keys that must NEVER fall back to the global (agency_id=NULL) row — see
-     * the class docblock note above. Matched by the 'company_' prefix so any
-     * future company_* addition is covered without another code change.
+     * Keys that must NEVER fall back to the global (agency_id=NULL) row —
+     * see the 2026-08-15 class docblock note. Matched by the 'company_'
+     * prefix so any future company_* addition is covered without another
+     * code change.
      */
     private static function isAgencyOnlyKey(string $key): bool
     {

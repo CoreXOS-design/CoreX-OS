@@ -150,11 +150,11 @@ class FicaController extends Controller
      */
     public function create()
     {
-        $contacts = Contact::orderBy('first_name')
-            ->orderBy('last_name')
-            ->get(['id', 'first_name', 'last_name', 'email', 'phone']);
-
-        return view('compliance.fica.create', compact('contacts'));
+        // Contacts are fetched on demand via searchContacts() (server-side type-ahead) — the
+        // picker no longer embeds the whole agency contact list. Agency 1 has ~9,000 contacts;
+        // rendering them all as Alpine x-show nodes made the page ~8MB and the search unusable
+        // ("returns nothing" — Retha, 2026-08-17).
+        return view('compliance.fica.create');
     }
 
     /**
@@ -164,12 +164,25 @@ class FicaController extends Controller
     {
         $validated = $request->validate([
             'contact_id' => 'required|exists:contacts,id',
+            // #11 — inline add-email: a contact with no email on file can be given one on the spot.
+            'email'      => 'nullable|email',
         ]);
 
         $contact = Contact::findOrFail($validated['contact_id']);
 
+        // #11 (compliance) — the contact must have an email to receive the secure verification link.
+        // If the selected contact has none, accept one supplied inline, PERSIST it to the contact
+        // (the ContactObserver mirror-syncs it into contact_emails as the primary identifier), then
+        // continue the send. No parallel record, no separate flow — the contact is simply enriched.
+        $inlineEmail = strtolower(trim((string) $request->input('email')));
+        if (! $contact->email && $inlineEmail !== '') {
+            $contact->email = $inlineEmail;
+            $contact->save();
+            $contact->refresh();
+        }
+
         if (! $contact->email) {
-            return back()->withErrors(['contact_id' => 'This contact does not have an email address.'])->withInput();
+            return back()->withErrors(['contact_id' => 'This contact has no email address. Add one below to send the FICA request.'])->withInput();
         }
 
         $agencyId = Auth::user()->effectiveAgencyId() ?? $contact->agency_id;
@@ -200,11 +213,37 @@ class FicaController extends Controller
      */
     public function createWetInk()
     {
-        $contacts = Contact::orderBy('first_name')
-            ->orderBy('last_name')
-            ->get(['id', 'first_name', 'last_name', 'email', 'phone', 'id_number']);
+        // Server-side type-ahead (searchContacts) instead of embedding all contacts — see create().
+        return view('compliance.fica.create-wet-ink');
+    }
 
-        return view('compliance.fica.create-wet-ink', compact('contacts'));
+    /**
+     * Type-ahead contact search for the FICA pickers (create + wet-ink).
+     * Scope-correct — `Contact::` honours the Agency/Branch/Contact global scopes — and capped
+     * at 25 so the page never ships thousands of nodes. Replaces the old embed-all-contacts
+     * client-side picker that became unusable at ~9,000 contacts.
+     */
+    public function searchContacts(Request $request)
+    {
+        $q = trim((string) $request->query('q', ''));
+        if (mb_strlen($q) < 2) {
+            return response()->json(['contacts' => []]);
+        }
+
+        $contacts = Contact::search($q)
+            ->orderBy('first_name')
+            ->orderBy('last_name')
+            ->limit(25)
+            ->get(['id', 'first_name', 'last_name', 'email', 'phone', 'id_number'])
+            ->map(fn ($c) => [
+                'id'        => $c->id,
+                'name'      => trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? '')),
+                'email'     => $c->email ?: 'No email',
+                'phone'     => $c->phone ?: 'No phone',
+                'id_number' => $c->id_number ?: 'Not set',
+            ]);
+
+        return response()->json(['contacts' => $contacts]);
     }
 
     /**

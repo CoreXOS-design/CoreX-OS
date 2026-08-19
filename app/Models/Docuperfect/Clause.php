@@ -9,11 +9,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
- * (HFC tenant-isolation, Wave 3, ported from main) — added BelongsToAgency.
+ * 2026-08-20 (HFC tenant-isolation, Wave 3) — added BelongsToAgency.
  * scopeVisibleTo()'s 'all' branch was fully unscoped (every agency's
  * clauses visible) and the table had no agency_id column at all. Fixed
  * "for free" by the global scope; scopeVisibleTo()'s own is_global/branch
- * check is unchanged and now just layers on top.
+ * check is unchanged and now just layers on top. See the Wave 3 migration
+ * docblock for why is_global no longer widens across agencies.
  */
 class Clause extends Model
 {

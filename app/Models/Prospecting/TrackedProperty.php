@@ -46,7 +46,7 @@ final class TrackedProperty extends Model
         'suburb', 'suburb_normalised', 'town', 'province', 'postal_code',
         'latitude', 'longitude', 'cma_gps_lat', 'cma_gps_lng',
         'geo_source', 'geo_confidence', 'geo_resolved_at',
-        'erf_number', 'title_deed_number', 'cadastral_extent',
+        'erf_number', 'title_deed_number', 'cadastral_extent', 'section_extent_m2',
         'municipal_valuation', 'municipal_valuation_year',
         'last_known_asking_price', 'last_known_sold_price', 'last_known_sold_date',
         'property_type', 'bedrooms', 'bathrooms', 'garages',
@@ -56,6 +56,9 @@ final class TrackedProperty extends Model
         'source_chain', 'first_seen_at', 'last_enriched_at', 'last_enrichment_source',
         'status', 'duplicate_of_tracked_property_id',
         'is_demo',
+        // CMA / deeds capture (phase 1)
+        'capture_kind', 'deeds_office', 'scheme_name', 'scheme_number', 'section_number',
+        'bond_holder', 'bond_amount', 'sale_type', 'deeds_registered_date',
     ];
 
     protected $casts = [
@@ -74,11 +77,14 @@ final class TrackedProperty extends Model
         'garages'                  => 'integer',
         'floor_size_m2'            => 'decimal:2',
         'erf_size_m2'              => 'decimal:2',
+        'section_extent_m2'        => 'decimal:2',
         'promoted_at'              => 'datetime',
         'promoted_by_user_id'      => 'integer',
         'source_chain'             => 'array',
         'first_seen_at'            => 'datetime',
         'last_enriched_at'         => 'datetime',
+        'bond_amount'              => 'decimal:2',
+        'deeds_registered_date'    => 'date',
     ];
 
     protected static function booted(): void
@@ -153,6 +159,16 @@ final class TrackedProperty extends Model
     }
 
     /**
+     * Agency-wide comments (newest first) — the MIC Work-tab row comment
+     * chip. Keyed to this TP so comments survive relisting and claim churn.
+     * Spec: .ai/specs/mic-property-row-comments.md
+     */
+    public function comments(): HasMany
+    {
+        return $this->hasMany(TrackedPropertyComment::class, 'tracked_property_id')->latest();
+    }
+
+    /**
      * Market data points anchored to this property (per-TP metric history).
      * The shared-pool default scope on MarketDataPoint is global — this
      * relation pre-filters to rows whose tracked_property_id matches.
@@ -180,6 +196,17 @@ final class TrackedProperty extends Model
     public function ownerContact(): BelongsTo
     {
         return $this->belongsTo(\App\Models\Contact::class, 'owner_contact_id');
+    }
+
+    /**
+     * CMA deeds-capture multi-owner support (2026-08-12) — a property can carry
+     * more than one registered owner (CMA joins them with " ; "). owner_contact_id
+     * stays pointed at the FIRST/primary owner for backward compatibility with
+     * every existing consumer of that column; this relation is the full list.
+     */
+    public function owners(): HasMany
+    {
+        return $this->hasMany(TrackedPropertyOwner::class, 'tracked_property_id');
     }
 
     public function isPromoted(): bool

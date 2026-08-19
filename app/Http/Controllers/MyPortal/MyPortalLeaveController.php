@@ -261,6 +261,30 @@ class MyPortalLeaveController extends Controller
             \Illuminate\Support\Facades\Log::warning('Leave calendar event removal failed', ['error' => $e->getMessage()]);
         }
 
+        // AT-259 — notify the same BM/admin approvers that a submitted application was cancelled
+        // (mirrors submit()). Event-based, DEFAULT OFF in the catalogue (opt-in).
+        try {
+            $dispatcher = app(\App\Services\CommandCenter\NotificationDispatcher::class);
+            $approvers = \App\Models\User::withoutGlobalScopes()
+                ->where('agency_id', $user->agency_id)
+                ->where('is_active', true)
+                ->get()
+                ->filter(fn ($u) => $u->hasPermission('approve_leave'));
+            $typeLabel = optional($application->leaveType)->label ?? 'leave';
+            foreach ($approvers as $approver) {
+                $dispatcher->fire($approver, 'leave.cancelled', $application, [
+                    'title'            => "Leave cancelled: {$application->application_number}",
+                    'body'             => "{$user->name} cancelled their {$typeLabel} application.",
+                    'subject_label'    => $application->application_number,
+                    'action_url'       => route('payroll.leave.applications.show', $application),
+                    'severity'         => 'info',
+                    'threshold_hit_at' => now()->startOfHour(),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Leave cancel notification failed', ['error' => $e->getMessage()]);
+        }
+
         return redirect()->route('my-portal.leave.index')
             ->with('success', "Application {$application->application_number} cancelled.");
     }

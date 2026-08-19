@@ -1,6 +1,27 @@
 @extends('layouts.corex')
 
 @section('corex-content')
+
+{{-- AT-262 — near-miss marker warning. A marker-like sequence in the imported doc
+     that did NOT parse (wrong tilde count, stray ~, empty) is listed here with WHY,
+     so the agent can fix the source doc instead of wondering why a field is missing. --}}
+@if(session('cds_near_misses'))
+    <div class="mx-4 mt-3 rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber) 35%, transparent); color: var(--text-primary);">
+        <p class="font-semibold mb-1" style="color: var(--ds-amber);">
+            {{ count(session('cds_near_misses')) }} marker-like {{ \Illuminate\Support\Str::plural('sequence', count(session('cds_near_misses'))) }} in your document {{ count(session('cds_near_misses')) === 1 ? 'was' : 'were' }} not recognised
+        </p>
+        <p class="mb-2" style="color: var(--text-muted);">These look like fields but did not parse. Fix them in Word and re-import:</p>
+        <ul class="space-y-1">
+            @foreach(session('cds_near_misses') as $miss)
+                <li class="flex items-start gap-2">
+                    <code class="font-mono px-1.5 py-0.5 rounded text-xs shrink-0" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">{{ $miss['raw'] }}</code>
+                    <span class="text-xs" style="color: var(--text-muted);">{{ $miss['reason'] }}</span>
+                </li>
+            @endforeach
+        </ul>
+    </div>
+@endif
+
 <div class="flex flex-col h-full overflow-hidden"
      x-data="cdsEditor()"
      x-init="init()">
@@ -513,6 +534,12 @@
                                                class="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mb-1.5 bg-white"
                                                :value="getMapping(tag.id).manualLabel"
                                                @input.debounce.300ms="setManualLabel(tag.id, $event.target.value)">
+                                    </template>
+
+                                    {{-- AT-177 (Johan) — binding chip shows party · attribute, not bare party --}}
+                                    <template x-if="bindingChip(tag.id)">
+                                        <span class="inline-flex items-center text-[10px] font-medium px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200"
+                                              x-text="bindingChip(tag.id)"></span>
                                     </template>
 
                                     {{-- Field group preview --}}
@@ -1340,13 +1367,19 @@ function cdsEditor() {
 
                     // %%%% marker â†’ SIG tag
                     if (markerType === 'signature') {
+                        // AT-177 D4 — read any server-suggested roster/variant (from the
+                        // "____ / Signature" acknowledgement detector) BEFORE the element is
+                        // replaced, so the sig tag pre-binds to Seller + Agent, sig_only.
+                        const sigParties = (el.dataset.sigParties || '')
+                            .split(',').map(s => s.trim()).filter(Boolean);
+                        const sigVariant = el.dataset.sigVariant || 'sig_full';
                         const tag = this._createTagData('signature');
                         const span = this._createTagElement(tag);
                         el.replaceWith(span);
                         this.tags.push(tag);
                         this.mappings[tag.id] = {
-                            parties: [],
-                            variant: 'sig_full',
+                            parties: sigParties,
+                            variant: sigVariant,
                         };
                         return;
                     }
@@ -1378,6 +1411,18 @@ function cdsEditor() {
                     el.textContent = tag.label;
                     this._attachTagClickHandler(el, tag.id);
                     this.tags.push(tag);
+
+                    // AT-177 — DETERMINISTIC server binding wins. Johan's imports carry an
+                    // explicit "{Party} - {Attribute}" token convention, resolved server-side
+                    // by CdsBindingSuggester: identity token → field group (single I/We
+                    // clause), each attribute → its own column, editable_by populated. Only
+                    // when the server could not confidently resolve the token do we fall
+                    // through to the legacy substring best-match below.
+                    const serverBinding = (this.cdsFields[tag.parserIndex] || {}).binding;
+                    if (serverBinding) {
+                        this.mappings[tag.id] = this._mappingFromServerBinding(serverBinding, confidence);
+                        return;
+                    }
 
                     // Auto-suggest from context identification data attributes
                     if (fieldName) {
@@ -1676,6 +1721,29 @@ function cdsEditor() {
             return this.mappings[tagId] || this._emptyInputMapping(null);
         },
 
+        // AT-177 (Johan) — the binding chip shows the bound ATTRIBUTE, not just the party:
+        // "Seller · Address", not a bare "Seller". Party from the typeKey, attribute from the
+        // selected named field's name (its trailing word). Empty until a real binding exists.
+        bindingChip(tagId) {
+            const m = this.getMapping(tagId);
+            if (!m || !m.typeKey || m.typeKey === 'sf:manual' || m.mappingType !== 'named_field') return '';
+
+            const partyMap = {
+                'sf:contact_seller': 'Seller', 'sf:contact_buyer': 'Buyer',
+                'sf:contact_lessor': 'Lessor', 'sf:contact_lessee': 'Lessee',
+                'sf:property': 'Property', 'sf:agent': 'Agent',
+            };
+            const party = partyMap[m.typeKey] || '';
+            if (!m.namedFieldId) return party;
+
+            const nf = (this.getFieldsForType(m.typeKey) || []).find(f => String(f.id) === String(m.namedFieldId));
+            if (!nf) return party;
+
+            // "Seller Address" / "contact.address" → the attribute word.
+            let attr = (nf.name || '').replace(new RegExp('^' + party + '\\s*', 'i'), '').trim() || nf.name || '';
+            return party ? (party + ' · ' + attr) : attr;
+        },
+
         _emptyInputMapping(confidence) {
             return {
                 mappingType: '',
@@ -1696,6 +1764,25 @@ function cdsEditor() {
 
         _makeMapping(mappingType, overrides) {
             return Object.assign(this._emptyInputMapping(null), { mappingType }, overrides);
+        },
+
+        // AT-177 — build a builder mapping from a deterministic server binding suggestion
+        // (CdsBindingSuggester). Shapes are aligned; we normalise nulls and preserve the
+        // populated editable_by / field-group / party so the field shows bound out of the box.
+        _mappingFromServerBinding(b, confidence) {
+            return this._makeMapping(b.mappingType || 'named_field', {
+                typeKey: b.typeKey || '',
+                namedFieldId: b.namedFieldId ?? null,
+                fieldGroupId: b.fieldGroupId ?? null,
+                label: b.label || '',
+                manualLabel: b.manualLabel || '',
+                party: b.party || 'auto',
+                partyLocked: !!b.partyLocked,
+                sourceType: b.sourceType || '',
+                sourceContactType: b.sourceContactType || '',
+                editable_by: Array.isArray(b.editable_by) ? b.editable_by.slice() : [],
+                confidence: b.confidence || confidence || 'high',
+            });
         },
 
         // ===== Type dropdown handler =====

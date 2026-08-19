@@ -33,6 +33,7 @@ class EnsureClientAbility
                 'client-auth.password.set',
                 'client-auth.password.change',
                 'client-auth.logout',
+                'client-auth.account.delete',
                 'client.me',
             ];
             if (!in_array($request->route()?->getName(), $allowed, true)) {

@@ -201,9 +201,28 @@ class ClientAuthController extends Controller
         }
         $tokenable->forceFill(['last_login_at' => now(), 'last_ip' => $request->ip()])->save();
 
+        // Mirror login()'s agency auto-selection: unlike /login, this endpoint is the
+        // ONLY step in Flow A (fresh OTP activation) that runs after the ClientUser
+        // exists, so if it doesn't set current_agency_id here, a single-agency client
+        // lands signed-in with NO agency selected — /client/me then returns contact:
+        // null (gated on current_agency_id), which cascades into no agent shown and
+        // every agency-scoped endpoint (matches, seller-listings) 409ing "Select an
+        // agency first" until the app happens to call /agency/select on its own.
+        // Bug found 2026-08-13: the mobile app's Screen 3 does not call
+        // /agency/select for the single-agency case (see MOBILE-PROMPT), so this was
+        // silently broken for every brand-new activation. Locked agency still wins.
+        $agencies = $this->service->agenciesFor($tokenable);
+        $agencyId = $tokenable->locked_to_agency_id;
+        if (!$agencyId && count($agencies) === 1) {
+            $agencyId = $agencies[0]['id'];
+        }
+        if ($agencyId && $tokenable->current_agency_id !== $agencyId) {
+            $tokenable->forceFill(['current_agency_id' => $agencyId])->save();
+        }
+
         return response()->json([
             'token'    => $sessionToken,
-            'agencies' => $this->service->agenciesFor($tokenable),
+            'agencies' => $agencies,
             'client'   => $this->summarise($tokenable),
         ]);
     }
@@ -377,6 +396,65 @@ class ClientAuthController extends Controller
             'sent'           => true,
             'expires_in_min' => (int) config('clientauth.otp.expires_minutes', 10),
         ]);
+    }
+
+    /**
+     * DELETE /api/v1/client-auth/account
+     *
+     * Apple 5.1.1(v) account-deletion requirement — a self-service, in-app,
+     * non-reversible-to-the-client path off the login. The client's Contact
+     * record(s) are NEVER deleted (they are agency business/compliance
+     * records — the pillar data). Only the LOGIN identity is removed: every
+     * linked Contact is unlinked, every Sanctum token is revoked, the
+     * password is wiped, and the ClientUser itself is soft-deleted (never a
+     * hard delete — non-negotiable #1). Once this runs, /lookup and /login
+     * behave exactly as if this email had never signed up — the client can
+     * always start over from Screen 1.
+     */
+    public function deleteAccount(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'password' => 'required_unless:must_change,1|string',
+        ]);
+
+        /** @var ClientUser $clientUser */
+        $clientUser = $request->user();
+
+        if ($clientUser->hasPassword() && !$clientUser->password_must_change) {
+            if (!Hash::check($data['password'] ?? '', $clientUser->password)) {
+                return response()->json(['message' => 'Password is incorrect.'], 422);
+            }
+        }
+
+        $contacts = $this->service->allContactsFor($clientUser);
+
+        if ($contacts->isEmpty()) {
+            $this->service->log($clientUser, $clientUser->current_agency_id, null, 'account_deleted', $request);
+        } else {
+            foreach ($contacts as $contact) {
+                $this->service->log($clientUser, $contact->agency_id, $contact->id, 'account_deleted', $request);
+                $contact->forceFill(['client_user_id' => null])->saveQuietly();
+            }
+        }
+
+        $clientUser->tokens()->delete();
+
+        $clientUser->forceFill([
+            'password'             => null,
+            'password_must_change' => true,
+            'preferred_agency_id'  => null,
+            'locked_to_agency_id'  => null,
+            'current_agency_id'    => null,
+        ])->save();
+
+        $clientUser->delete();
+
+        if ($request->hasSession()) {
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+        }
+
+        return response()->json(['ok' => true, 'message' => 'Your account has been deleted.']);
     }
 
     /**

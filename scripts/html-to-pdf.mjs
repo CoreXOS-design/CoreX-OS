@@ -82,6 +82,25 @@ try {
     // Emulate print media for @media print styles
     await page.emulateMediaType('print');
 
+    // E-sign measure-and-fit pagination hook. The signed-PDF pipeline injects a
+    // window.__corexRepaginate() that height-paginates the document into physical
+    // A4 pages by MEASURING the real rendered boxes. It MUST run here — AFTER the
+    // embedded fonts are ready and print media is emulated — so it measures with
+    // the exact fonts/metrics this PDF prints with (measuring earlier, at page
+    // load with fallback fonts, is what let boxes overflow one sheet and spill
+    // onto near-blank pages). Optional + guarded: any other PDF caller is a no-op.
+    await Promise.race([
+        page.evaluate(async () => {
+            try {
+                if (typeof window.__corexRepaginate === 'function') {
+                    if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch (e) {} }
+                    window.__corexRepaginate();
+                }
+            } catch (e) {}
+        }),
+        new Promise(r => setTimeout(r, 8000)),
+    ]);
+
     // Generate PDF matching browser Ctrl+P output
     await page.pdf({
         path: outputPath,

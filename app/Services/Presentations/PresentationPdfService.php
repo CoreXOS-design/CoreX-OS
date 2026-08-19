@@ -512,12 +512,16 @@ class PresentationPdfService
         }
 
         $logoBase64 = null;
-        // The presentation's own agency_id/agency relation (BelongsToAgency) is
-        // authoritative — never the creating agent's *current* agency, which may
-        // have changed since the presentation was created, and never a fallback
-        // to an arbitrary tenant (Agency::first()). If the presentation is
-        // somehow orphaned (no agency_id), skip branding gracefully.
-        $agency = $presentation->agency;
+        // Prefer the presentation's OWN agency_id (explicit withoutGlobalScopes()
+        // lookup — NOT the ->agency relation, which can be silently affected by
+        // whatever global-scope context is active on the calling request/queue
+        // worker rather than the presentation's own tenant), then the creating
+        // agent's agency — never Agency::first(), which silently picked agency 1
+        // (HFC) whenever $agent or $agent->agency was missing, stamping another
+        // tenant's PDF with HFC's real name/logo. If truly orphaned (no agency_id
+        // AND no resolvable agent agency), branding is skipped gracefully.
+        $agency = ($presentation->agency_id ? \App\Models\Agency::withoutGlobalScopes()->find($presentation->agency_id) : null)
+            ?? $agent?->agency;
         if (!$agency) {
             \Illuminate\Support\Facades\Log::warning('PresentationPdfService: presentation has no resolvable agency; skipping agency branding.', [
                 'presentation_id' => $presentation->id,
@@ -1476,6 +1480,9 @@ a:hover { text-decoration: underline; }
       // PAGE 1 — COVER
       // ══════════════════════════════════════════════════════════════════════ ?>
 <div class="cover">
+    <?php // 2026-08-15 (Johan, HFC tenant-isolation fix) — $agency is
+          // already resolved above (line ~515); was never read for
+          // branding text, only for the logo file. ?>
     <?php if ($logoBase64): ?>
     <div class="cover-brand"><img src="<?= $logoBase64 ?>" alt="<?= $esc($agencyName) ?>" style="max-height:120px;width:auto;"></div>
     <?php else: ?>

@@ -130,6 +130,51 @@ final class OccupiesTimeConflictTest extends TestCase
         $this->assertFalse($res['has_conflict']);
     }
 
+    /**
+     * AT-335 — a completed event never shows as clashing, even though it fully
+     * overlaps a live appointment and is itself an occupies_time=true category.
+     * ConflictDetectionService::checkUserConflicts() already excludes
+     * status IN ('completed','dismissed') — this test proves it, closing the gap
+     * where every fixture above used status='pending' and never exercised the
+     * exclusion.
+     */
+    public function test_completed_event_is_excluded_from_conflicts(): void
+    {
+        [$agencyId, $user] = $this->seedAgencyUser();
+        $this->classSetting('viewing', occupiesTime: true, actorRole: 'buyer_action');
+
+        $start = now()->addDay()->setTime(9, 0);
+        $end   = $start->copy()->addHours(2);
+        $this->makeEvent($agencyId, $user->id, 'Live viewing', 'viewing', $start, $end);
+        $this->makeEvent($agencyId, $user->id, 'Done viewing', 'viewing', $start, $end, 'completed');
+
+        $conflicts = app(ConflictDetectionService::class)
+            ->checkUserConflicts($user->id, $start->toDateTimeString(), $end->toDateTimeString());
+        $titles = array_column($conflicts, 'title');
+
+        $this->assertContains('Live viewing', $titles);
+        $this->assertNotContains('Done viewing', $titles, 'a completed event must never show as clashing');
+    }
+
+    /** AT-335 — a dismissed event is likewise excluded (same status exclusion, other value). */
+    public function test_dismissed_event_is_excluded_from_conflicts(): void
+    {
+        [$agencyId, $user] = $this->seedAgencyUser();
+        $this->classSetting('viewing', occupiesTime: true, actorRole: 'buyer_action');
+
+        $start = now()->addDay()->setTime(9, 0);
+        $end   = $start->copy()->addHours(2);
+        $this->makeEvent($agencyId, $user->id, 'Live viewing', 'viewing', $start, $end);
+        $this->makeEvent($agencyId, $user->id, 'Dismissed viewing', 'viewing', $start, $end, 'dismissed');
+
+        $conflicts = app(ConflictDetectionService::class)
+            ->checkUserConflicts($user->id, $start->toDateTimeString(), $end->toDateTimeString());
+        $titles = array_column($conflicts, 'title');
+
+        $this->assertContains('Live viewing', $titles);
+        $this->assertNotContains('Dismissed viewing', $titles);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private function seedAgencyUser(): array
@@ -169,13 +214,13 @@ final class OccupiesTimeConflictTest extends TestCase
         ]);
     }
 
-    private function makeEvent(int $agencyId, int $userId, string $title, string $category, $start, $end): int
+    private function makeEvent(int $agencyId, int $userId, string $title, string $category, $start, $end, string $status = 'pending'): int
     {
         return (int) DB::table('calendar_events')->insertGetId([
             'user_id'    => $userId, 'created_by_id' => $userId,
             'event_type' => 'manual', 'category' => $category, 'title' => $title,
             'event_date' => $start, 'end_date' => $end,
-            'all_day'    => false, 'priority' => 'normal', 'status' => 'pending',
+            'all_day'    => false, 'priority' => 'normal', 'status' => $status,
             'source_type'=> 'manual', 'agency_id' => $agencyId, 'branch_id' => $agencyId,
             'created_at' => now(), 'updated_at' => now(),
         ]);

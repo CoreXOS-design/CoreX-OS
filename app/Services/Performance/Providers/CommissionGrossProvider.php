@@ -12,6 +12,11 @@ use Illuminate\Support\Facades\DB;
  * (agent_gross_ex_vat, per agent per deal). Aligned to the deal's deal_date so a
  * deal's commission lands in the same period as the deal itself (deals_created).
  * Returns a float (Rands ex-VAT). No import concern — money lines are deal-derived.
+ *
+ * 2026-08 (company-share refinement) — also returns each agent's own
+ * company_gross_ex_vat sum via forUsersWithCompanyShare(), so the report can
+ * show Gross / Agent share / Company share per agent without re-deriving the
+ * split (deal_money_lines already carries both sides of every money line).
  */
 class CommissionGrossProvider implements MetricProvider
 {
@@ -21,7 +26,21 @@ class CommissionGrossProvider implements MetricProvider
 
     public function forUsers(array $userIds, Period $period): array
     {
-        $out = array_fill_keys($userIds, 0.0);
+        $rows = $this->forUsersWithCompanyShare($userIds, $period);
+        $out = [];
+        foreach ($rows as $uid => $r) {
+            $out[$uid] = $r['agent'];
+        }
+        return $out;
+    }
+
+    /**
+     * @return array<int, array{agent: float, company: float}> per-user agent_gross_ex_vat
+     *   and company_gross_ex_vat sums, both COALESCE(SUM(...),0).
+     */
+    public function forUsersWithCompanyShare(array $userIds, Period $period): array
+    {
+        $out = array_fill_keys($userIds, ['agent' => 0.0, 'company' => 0.0]);
         if (empty($userIds)) {
             return $out;
         }
@@ -34,11 +53,15 @@ class CommissionGrossProvider implements MetricProvider
             ->whereNotNull('d.deal_date')
             ->whereBetween('d.deal_date', [$period->start->toDateString(), $period->end->toDateString()])
             ->groupBy('ml.user_id')
-            ->select('ml.user_id as uid', DB::raw('COALESCE(SUM(ml.agent_gross_ex_vat),0) as v'))
-            ->pluck('v', 'uid');
+            ->select(
+                'ml.user_id as uid',
+                DB::raw('COALESCE(SUM(ml.agent_gross_ex_vat),0) as agent_v'),
+                DB::raw('COALESCE(SUM(ml.company_gross_ex_vat),0) as company_v'),
+            )
+            ->get();
 
-        foreach ($rows as $uid => $v) {
-            $out[(int) $uid] = (float) $v;
+        foreach ($rows as $r) {
+            $out[(int) $r->uid] = ['agent' => (float) $r->agent_v, 'company' => (float) $r->company_v];
         }
 
         return $out;

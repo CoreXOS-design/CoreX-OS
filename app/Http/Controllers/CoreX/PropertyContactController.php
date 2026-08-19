@@ -149,6 +149,19 @@ class PropertyContactController extends Controller
         $this->authorizeProperty($property);
 
         $this->normalizeRole($request);
+
+        // Entity (company / CC / trust) capture — the agent toggled "Contact Is → Entity" in the
+        // create-and-link panel. A company has no first/last name or SA ID and is reached through its
+        // directors, so it skips the natural-person name/phone gate below. Handled separately so the
+        // entity option exists here (an entity owner must be capturable from the property record).
+        if ($request->input('contact_kind') === Contact::TYPE_ENTITY) {
+            return $this->createAndLinkEntity($request, $property);
+        }
+
+        // #17 — SA ID vs foreign passport. A foreign national's passport is a free string (max 50)
+        // and their DOB is captured directly (birthday), since a passport can't encode it. Absent/other
+        // id_type keeps the validated SA-ID path, so existing SA-ID captures are unaffected.
+        $isForeign = $request->input('id_type') === 'passport';
         $data = $request->validate([
             'first_name'      => 'required|string|max:100',
             'last_name'       => 'required|string|max:100',
@@ -156,8 +169,12 @@ class PropertyContactController extends Controller
             'email'           => 'nullable|email|max:150',
             'contact_type_id' => 'nullable|exists:contact_types,id',
             'role'            => ['required', 'string', Rule::in(self::LINK_ROLES)],
-            // A.2.5 — optional ID number with SA-format validation.
-            'id_number'       => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
+            // A.2.5 / #17 — optional ID: SA ID validated for SA persons, passport is a free string.
+            'id_type'         => ['nullable', Rule::in(['sa_id', 'passport'])],
+            'id_number'       => $isForeign
+                ? ['nullable', 'string', 'max:50']
+                : ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
+            'birthday'        => ['nullable', 'date', 'required_if:id_type,passport'],
             'bypass_duplicate_check' => 'nullable|boolean',
         ]);
 
@@ -257,6 +274,64 @@ class PropertyContactController extends Controller
         }
 
         return back()->with('success', 'Contact created and linked.')->with('tab', 'contacts');
+    }
+
+    /**
+     * Create-and-link an ENTITY (company / CC / trust) from the property's contacts tab.
+     *
+     * A company has no first/last name or SA ID and is reached through its directors, so — unlike the
+     * natural-person path — there is no name/phone gate and no phone/email/name duplicate check.
+     * Dedupe is on the registration number via the canonical
+     * ComposeSellerService::resolveOrCreateEntitySellerContact() (the same resolver the MIC pitch flow
+     * uses), so the agent lands on the captured entity rather than a clone. Reps/directors are added on
+     * the entity record afterward (Johan 2026-08-14) — not in this modal.
+     */
+    private function createAndLinkEntity(Request $request, Property $property)
+    {
+        $data = $request->validate([
+            'entity_name'   => 'required|string|max:255',
+            'entity_reg_no' => 'nullable|string|max:100',
+            'role'          => ['required', 'string', Rule::in(self::LINK_ROLES)],
+        ]);
+        $role = $data['role'];
+
+        $user     = auth()->user();
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);   // AT-253 Rule 17
+
+        $contact = app(\App\Services\Prospecting\ComposeSellerService::class)
+            ->resolveOrCreateEntitySellerContact(
+                $agencyId,
+                $user->branch_id,
+                (int) $user->id,
+                $data['entity_name'],
+                $data['entity_reg_no'] ?? null,
+            );
+
+        $wasLinked = $property->contacts()->where('contacts.id', $contact->id)->exists();
+        $property->contacts()->syncWithoutDetaching([$contact->id => ['role' => $role]]);
+        if (in_array($role, ['owner', 'seller', 'landlord', 'lessor'])) {
+            \App\Models\PropertySellerLink::ensureExists($property->id, $contact->id);
+        }
+        if (!$wasLinked) {
+            // Domain event — new contact↔property link.
+            // Spec: .ai/specs/corex-domain-events-spec.md
+            event(new \App\Events\Contact\ContactLinkedToProperty(
+                contact: $contact,
+                property: $property,
+                role: (string) ($role ?? 'unknown'),
+                actorUserId: auth()->id(),
+            ));
+        }
+
+        if ($request->expectsJson() || $request->wantsJson()) {
+            return response()->json([
+                'ok'      => true,
+                'count'   => $property->contacts()->count(),
+                'contact' => $this->contactPayload($property, $contact->fresh('type'), $role),
+            ]);
+        }
+
+        return back()->with('success', 'Entity created and linked.')->with('tab', 'contacts');
     }
 
     /** Unlink a contact from the property. */

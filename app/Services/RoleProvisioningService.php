@@ -33,11 +33,18 @@ class RoleProvisioningService
         $now = now();
 
         // Template (global) non-owner roles + their grants.
+        // uniqueStrict('name') / unique('role','permission_key'): the global template
+        // rows are meant to be singletons per name, but nothing in the schema enforces
+        // that for agency_id IS NULL (MySQL never treats two NULLs as equal in a unique
+        // index — see .ai/audits/2026-08-12-duplicate-admin-role.md). If the templates
+        // ever get duplicated again, dedupe here so provisioning still only ever attempts
+        // ONE insert per (role) / (role, permission_key) instead of crashing on the 1062.
         $templateRoles = DB::table('roles')
             ->whereNull('agency_id')
             ->where('is_owner', false)
             ->whereNull('deleted_at')
-            ->get();
+            ->get()
+            ->unique('name');
 
         if ($templateRoles->isEmpty()) {
             return; // nothing to clone (fresh/test DB) — resolution falls back to templates
@@ -49,7 +56,8 @@ class RoleProvisioningService
             ->whereNull('agency_id')
             ->whereIn('role', $templateRoleNames)
             ->whereNull('deleted_at')
-            ->get();
+            ->get()
+            ->unique(fn ($g) => $g->role . '|' . $g->permission_key);
 
         // ── 1. Clone roles the agency does not yet own ──
         $existingRoleNames = DB::table('roles')
@@ -78,7 +86,10 @@ class RoleProvisioningService
                 $row['oversight_scope'] = $tpl->oversight_scope ?? null;
             }
 
-            DB::table('roles')->insert($row);
+            // insertOrIgnore, not insert: defence-in-depth alongside the dedupe above —
+            // a duplicate template or a concurrent provisioning call can still collide on
+            // roles_name_agency_unique; skip it rather than 1062-abort the whole request.
+            DB::table('roles')->insertOrIgnore($row);
         }
 
         // ── 2. Clone grants the agency does not yet have ──
@@ -106,7 +117,7 @@ class RoleProvisioningService
         }
 
         foreach (array_chunk($rows, 500) as $chunk) {
-            DB::table('role_permissions')->insert($chunk);
+            DB::table('role_permissions')->insertOrIgnore($chunk);
         }
     }
 }

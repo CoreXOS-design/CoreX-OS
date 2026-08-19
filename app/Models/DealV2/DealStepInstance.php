@@ -31,6 +31,7 @@ class DealStepInstance extends Model
         'name',
         'description',
         'position',
+        'display_priority', // AT-334 — agency-configured display sort order (nullable = fall back to position)
         'is_locked',
         'is_milestone',
         'is_custom',
@@ -64,6 +65,18 @@ class DealStepInstance extends Model
         'approved_at',
         'approval_notes',
         'notes',
+        // AT-334 composable-condition model
+        'condition_key',
+        'is_grant_marker',
+        'actual_date',
+        'waived_reason',
+        'addendum_ref',
+        // Pipeline Dashboard Phase 1 — the planned START of the step's time-span (due_date is the
+        // planned END). Duration = due_date − planned_start_date (derived). planned_start_manual
+        // mirrors due_date_manual: true once an agent sets/drag-moves the start so re-projection
+        // never clobbers it.
+        'planned_start_date',
+        'planned_start_manual',
     ];
 
     protected $casts = [
@@ -76,13 +89,43 @@ class DealStepInstance extends Model
         'notify_admin' => 'boolean',
         'requires_bm_approval' => 'boolean',
         'due_date_manual' => 'boolean',
+        'display_priority' => 'integer',
         'completion_config' => 'array',
         'completion_data' => 'array',
         'due_date' => 'date',
         'activated_at' => 'datetime',
         'completed_at' => 'datetime',
         'approved_at' => 'datetime',
+        // AT-334
+        'is_grant_marker' => 'boolean',
+        'actual_date' => 'date',
+        // Pipeline Dashboard Phase 1
+        'planned_start_date' => 'date',
+        'planned_start_manual' => 'boolean',
     ];
+
+    // ── Pipeline Dashboard Phase 1 — derived time-span helpers ──
+
+    /**
+     * The planned END of the step's time-span. `due_date` IS the planned end (Johan decision 2);
+     * this accessor names it for timeline code so a later decoupling stays a one-line change.
+     */
+    public function getPlannedEndDateAttribute()
+    {
+        return $this->due_date;
+    }
+
+    /**
+     * Duration of the step in whole days = planned_end − planned_start. Null when either bound is
+     * missing. 0 for a milestone / zero-offset step (start == end → a diamond, not a bar).
+     */
+    public function getDurationDaysAttribute(): ?int
+    {
+        if (! $this->planned_start_date || ! $this->due_date) {
+            return null;
+        }
+        return (int) $this->planned_start_date->startOfDay()->diffInDays($this->due_date->startOfDay(), false);
+    }
 
     // ── Relationships ──
 

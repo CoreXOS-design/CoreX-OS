@@ -6,6 +6,7 @@ use App\Models\CoreXPermission;
 use App\Models\Role;
 use App\Models\RolePermission;
 use App\Services\PermissionService;
+use App\Services\Permissions\RoleDefaultsResolver;
 use Illuminate\Console\Command;
 
 class SyncPermissions extends Command
@@ -179,20 +180,12 @@ class SyncPermissions extends Command
 
     /**
      * Resolve the full default permission-key set for a role_defaults entry.
+     * Delegates to the shared resolver so seed/merge and the drift reconciler
+     * (corex:reconcile-role-grants) can never disagree on a role's intended set.
      */
     protected function keysForDef($def, array $allKeys): array
     {
-        if ($def === '*') {
-            return $allKeys;
-        }
-        if (is_array($def) && isset($def['exclude'])) {
-            return array_values(array_filter($allKeys, fn ($k) => !in_array($k, $def['exclude'], true)));
-        }
-        if (is_array($def) && isset($def['include'])) {
-            return $def['include'];
-        }
-
-        return [];
+        return RoleDefaultsResolver::keysForDef($def, $allKeys);
     }
 
     /**

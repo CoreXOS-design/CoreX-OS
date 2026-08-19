@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers\Tools;
 
+use App\Events\Docuperfect\SupportingBatchFiled;
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\DealV2\DealV2;
+use App\Models\Docuperfect\SignedDocumentVersion;
 use App\Models\DocumentType;
 use App\Models\FicaSubmission;
 use App\Models\Property;
@@ -125,12 +127,35 @@ class PdfSplitterController extends Controller
             return response()->json(['contacts' => []], 404);
         }
 
-        $contacts = $prop->contacts()->withoutGlobalScope(ContactScope::class)->get()->map(function ($c) {
+        $linked = $prop->contacts()->withoutGlobalScope(ContactScope::class)->get();
+
+        // Sole-contact fallback — mirrors Property::sellerOwnerContact()'s own
+        // "falls back to the sole linked contact when there is exactly one"
+        // rule. Without this, a property with ONE linked contact whose pivot
+        // role is blank/unrecognised renders NO Seller/Owner candidate on the
+        // splitter review screen at all (roleCandidates() does an exact role
+        // match with no fallback) — the agent sees "No seller/owner linked"
+        // even though the contact genuinely is the property's only party.
+        // Only fires when unambiguous: exactly one linked contact AND no
+        // existing seller-side match — a property with 2+ contacts and no
+        // role tag stays untouched, same as sellerOwnerContact()'s own
+        // "ambiguous → null, no wrong guess" behaviour.
+        $sellerSide = ['seller', 'owner', 'landlord', 'lessor'];
+        $hasSellerSideMatch = $linked->contains(function ($c) use ($sellerSide) {
+            return in_array(strtolower(trim((string) ($c->pivot->role ?? ''))), $sellerSide, true);
+        });
+        $soleFallbackId = (! $hasSellerSideMatch && $linked->count() === 1) ? $linked->first()->id : null;
+
+        $contacts = $linked->map(function ($c) use ($soleFallbackId) {
             $name = trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? ''));
+            $role = strtolower(trim((string) ($c->pivot->role ?? '')));
+            if ($role === '' && $c->id === $soleFallbackId) {
+                $role = 'seller';
+            }
             return [
                 'id'          => $c->id,
                 'name'        => $name !== '' ? $name : '(no name)',
-                'role'        => strtolower(trim((string) ($c->pivot->role ?? ''))),
+                'role'        => $role,
                 'fica_status' => $c->ficaStatus(), // complete|expiring|incomplete
             ];
         })->values();
@@ -241,6 +266,133 @@ class PdfSplitterController extends Controller
         session([
             'splitter_batch'   => $manifestIds,
             'splitter_skipped' => $skipped,
+        ]);
+
+        return redirect()->route('tools.pdf_splitter.review');
+    }
+
+    /**
+     * ADDITIVE — batch intake BY REFERENCE, parallel to run()'s direct-upload
+     * path. Accepts a set of already-stored SignedDocumentVersion rows
+     * (kind=supporting, e-sign recipient uploads) by id, copies each into the
+     * splitter's own storage, and OCR/classifies them via the SAME
+     * buildManifestForFile() run() uses — so review()/confirm()/link() need
+     * no changes to handle a batch that arrived this way. Does not touch or
+     * alter run()'s own request/validation/session shape in any way.
+     *
+     * Correlation for the completion signal (see link()) travels in a new,
+     * separate session key — 'splitter_context' — so a normal run() upload
+     * (which never sets it) behaves exactly as before.
+     *
+     * Every version must genuinely belong to the stated signature_request_id
+     * and be kind=supporting — a version id alone is not sufficient to pull a
+     * file in, closing an IDOR where a caller fishes for an unrelated upload
+     * by guessing ids.
+     */
+    public function intakeSupporting(Request $request)
+    {
+        $validated = $request->validate([
+            'signature_request_id' => 'required|integer|min:1',
+            'version_ids'          => 'required|array|min:1',
+            'version_ids.*'        => 'integer|min:1',
+            'property_id'          => 'nullable|integer|min:1',
+        ]);
+
+        $signatureRequestId = (int) $validated['signature_request_id'];
+
+        $versions = SignedDocumentVersion::query()
+            ->supporting()
+            ->where('signature_request_id', $signatureRequestId)
+            ->whereIn('id', $validated['version_ids'])
+            ->get();
+
+        if ($versions->isEmpty()) {
+            return redirect()->route('tools.pdf_splitter.index')->withErrors([
+                'pdf' => 'None of the requested supporting documents could be found for this signing request.',
+            ]);
+        }
+
+        $batchTs    = now()->format('Ymd_His');
+        $userId     = (int) (auth()->id() ?? 0);
+        $batchToken = Str::lower(Str::random(6));
+
+        $manifestIds = [];
+        $skipped     = [];
+        $usedVersionIds = [];
+
+        foreach ($versions as $version) {
+            if (! $version->file_path || ! Storage::disk('local')->exists($version->file_path)) {
+                $skipped[] = 'Supporting document #' . $version->id . ' (file missing)';
+                continue;
+            }
+
+            // Same naming shape run() uses (base + user + batch token), but keyed
+            // off the version id — there's no user-supplied original filename on
+            // a SignedDocumentVersion to fall back to.
+            $base = 'supporting_' . $version->id . '_u' . $userId . '_' . $batchToken;
+            $fileName = $base . '__' . $batchTs . '.pdf';
+            $origRel  = 'private/splitter/originals/' . $fileName;
+
+            Storage::disk('local')->copy($version->file_path, $origRel);
+            $origAbs = Storage::disk('local')->path($origRel);
+
+            if (! file_exists($origAbs) || filesize($origAbs) === 0) {
+                $skipped[] = 'Supporting document #' . $version->id . ' (empty file)';
+                continue;
+            }
+
+            try {
+                $manifestId = $this->buildManifestForFile([
+                    'base'          => $base,
+                    'ts'            => $batchTs,
+                    'origRel'       => $origRel,
+                    'original_name' => 'Supporting document #' . $version->id . '.pdf',
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning('PDF Splitter: intake-supporting OCR pipeline threw, skipping', [
+                    'version_id' => $version->id,
+                    'error' => $e->getMessage(),
+                ]);
+                $manifestId = null;
+            }
+
+            if ($manifestId === null) {
+                $skipped[] = 'Supporting document #' . $version->id;
+                continue;
+            }
+
+            $manifestIds[] = $manifestId;
+            $usedVersionIds[] = $version->id;
+        }
+
+        if (empty($manifestIds)) {
+            return redirect()->route('tools.pdf_splitter.index')->withErrors([
+                'pdf' => 'None of the requested supporting document(s) could be split: ' . implode(', ', $skipped ?: ['(unknown)']),
+            ]);
+        }
+
+        // Property prefill — explicit ?property_id wins; otherwise best-effort
+        // fall back to the parent Document's own property_id (the real, current
+        // e-sign data model links docuperfect_documents.property_id straight to
+        // the sales-stock `properties` table id — verified against live data,
+        // NOT via Document::property(), which targets a different model/table
+        // and cannot be trusted here). Either way this is only ever a DEFAULT:
+        // review() still requires the property to resolve via the normal
+        // visibleTo() scope, and the agent can always search/clear/repick.
+        $propertyId = isset($validated['property_id']) ? (int) $validated['property_id'] : null;
+        if ($propertyId === null) {
+            $propertyId = $versions->first()?->document?->property_id;
+            $propertyId = $propertyId ? (int) $propertyId : null;
+        }
+
+        session([
+            'splitter_batch'   => $manifestIds,
+            'splitter_skipped' => $skipped,
+            'splitter_context' => [
+                'signature_request_id' => $signatureRequestId,
+                'version_ids'          => $usedVersionIds,
+                'property_id'          => $propertyId,
+            ],
         ]);
 
         return redirect()->route('tools.pdf_splitter.review');
@@ -543,8 +695,30 @@ class PdfSplitterController extends Controller
         // any manifest is missing, rather than silently filing a subset.
         $missingCount = count($missingIds);
 
+        // ADDITIVE — property prefill. Only present when this batch arrived via
+        // intakeSupporting()'s 'splitter_context' session key; a normal run()
+        // upload never sets it, so $prefillProperty is null and the property
+        // picker behaves exactly as before (client-side search only). Shaped
+        // identically to searchProperties()'s own JSON (Property::toSearchResult())
+        // so the SAME Alpine 'property' state — and every consumer of it — sees
+        // one consistent object regardless of how it was picked.
+        $prefillProperty = null;
+        $splitterContext = session('splitter_context');
+        if (is_array($splitterContext) && !empty($splitterContext['property_id'])) {
+            $prop = Property::query()->visibleTo(auth()->user())->find($splitterContext['property_id']);
+            if ($prop) {
+                $seller = $prop->sellerOwnerContact();
+                $prefillProperty = $prop->toSearchResult([
+                    'ref'         => $prop->property_number,
+                    'seller'      => $seller ? trim(($seller->first_name ?? '') . ' ' . ($seller->last_name ?? '')) : null,
+                    'seller_fica' => $seller ? $seller->ficaStatus() : null,
+                ]);
+            }
+        }
+
         return view('tools.pdf_splitter_review', compact(
-            'manifests', 'canFica', 'canLinkDeal', 'routing', 'roleSets', 'roleLabels', 'skipped', 'missingCount'
+            'manifests', 'canFica', 'canLinkDeal', 'routing', 'roleSets', 'roleLabels', 'skipped', 'missingCount',
+            'prefillProperty'
         ));
     }
 
@@ -932,6 +1106,28 @@ class PdfSplitterController extends Controller
             $redirect->with('splitter_fica_note', $ficaNote);
         }
 
+        // ADDITIVE — completion correlation. Only fires for a batch that arrived
+        // via intakeSupporting() (session carries 'splitter_context'); a normal
+        // run() upload never sets that key, so this is a pure no-op for the
+        // existing flow. Fires even when $filed totals are 0 (e.g. every page's
+        // Save-To settings route nowhere) — the recipient-docs side gets to
+        // decide what "batch processed but nothing filed" means for its own
+        // filed_at bookkeeping, not the splitter.
+        $splitterContext = session('splitter_context');
+        if (is_array($splitterContext) && !empty($splitterContext['signature_request_id'])) {
+            SupportingBatchFiled::dispatch(
+                (int) $splitterContext['signature_request_id'],
+                array_map('intval', $splitterContext['version_ids'] ?? []),
+                array_map('intval', $filed['document_ids']),
+                $property->id,
+                auth()->id(),
+                $agencyId,
+            );
+            // One-shot correlation — never leak into whatever batch the agent
+            // starts next (run() doesn't know this key exists and never clears it).
+            session()->forget('splitter_context');
+        }
+
         return $redirect;
     }
 
@@ -1051,7 +1247,9 @@ class PdfSplitterController extends Controller
             throw new \RuntimeException('extractPageSet called with no pages.');
         }
 
-        $proc = new Process([self::qpdfPath(), $origAbsNorm, '--pages', $origAbsNorm, $spec, '--', $outAbsNorm]);
+        // See qpdfPageCount() — same warnings-vs-errors tolerance is needed on
+        // the extract path so a warned-but-readable original can still split.
+        $proc = new Process([self::qpdfPath(), '--warning-exit-0', $origAbsNorm, '--pages', $origAbsNorm, $spec, '--', $outAbsNorm]);
         $proc->setTimeout(120);
         $proc->run();
 
@@ -1094,20 +1292,29 @@ class PdfSplitterController extends Controller
 
         $slugs   = collect($groups)->pluck('label')->filter()->unique()->values();
         $typeMap = DocumentType::query()->whereIn('slug', $slugs)->pluck('id', 'slug')->toArray();
+        $typeLabelMap = DocumentType::query()->whereIn('slug', $slugs)->pluck('label', 'slug')->toArray();
+        $typeGroupingMap = DocumentType::query()->whereIn('slug', $slugs)->pluck('grouping', 'slug')->toArray();
 
-        $result = ['property' => 0, 'contact' => 0, 'fallback' => 0, 'unfiled' => 0];
+        // Property filing convention (Johan 2026-08-18): a pack filed AGAINST a
+        // property names each split "{address} · {doc type} · {YYYY-MM-DD}" so
+        // filings are self-describing and two documents of the same type on one
+        // property (e.g. two mandates) never overwrite — the date differentiates,
+        // and a same-property/type/same-day repeat gets a "(2)" suffix. The
+        // Download-ZIP path (no property) keeps the agent's entered base name.
+        $addressLabel = $this->readablePropertyAddress($property);
+        $fileDate     = now()->toDateString();
+        $usedNames    = [];
+
+        // 'document_ids' is additive — collected purely so link() can correlate
+        // this batch's created Documents back to a caller (e.g. the intake-by-
+        // reference hook's completion event). Nothing else reads it; existing
+        // 'property'/'contact'/'fallback'/'unfiled' counters are untouched.
+        $result = ['property' => 0, 'contact' => 0, 'fallback' => 0, 'unfiled' => 0, 'document_ids' => []];
         foreach ($groups as $g) {
             $abs = $g['file'] ?? null;
             if (! $abs || ! is_file($abs)) continue;
 
             $labelSlug = $g['label'];
-            $filename  = basename($abs);
-            $relPath   = $dir . '/' . Str::random(8) . '_' . $filename;
-
-            $stream = @fopen($abs, 'rb');
-            if (! $stream) continue;
-            $publicDisk->put($relPath, $stream);
-            if (is_resource($stream)) { @fclose($stream); }
 
             $dest = $labelSlug
                 ? $destinations->destinationForSlug($agencyId, $labelSlug)
@@ -1116,12 +1323,61 @@ class PdfSplitterController extends Controller
             // Resolve the EXPLICIT per-page ticked contacts to [id => party_role].
             // Only contacts actually attached to THIS property are honoured; the
             // pivot role is the party truth (decision B). Anything else is dropped.
+            // Moved ahead of naming (was after $dest below) so the CONTACT-type
+            // naming branch immediately below can see who's ticked.
             $contacts = [];
             foreach ($g['contact_ids'] ?? [] as $cid) {
                 $contact = $attached->get($cid);
                 if (! $contact) continue;
                 $contacts[(int) $cid] = strtolower(trim((string) ($contact->pivot->role ?? ''))) ?: 'seller';
             }
+
+            // Self-describing name from property/contact + doc type + date,
+            // deduped so a repeat (same subject, same type, same day) never
+            // overwrites.
+            //
+            // CONTACT-type doc types (document_types.grouping === 'contact':
+            // fica, ids, por, bank_statement, tax_clearance, company_
+            // registration, trust_deed) are named by the person, not the
+            // property — a contact who holds >1 property shouldn't get contact
+            // docs named by whichever property they were uploaded against.
+            // Everything else (mandate, levy statement, rates & taxes, ... —
+            // 'shared'/'property' grouping) keeps the existing address-based
+            // naming above UNCHANGED, even when an agency also routes a copy
+            // to the contact's file — that routing choice doesn't make it a
+            // person-document. Falls back to address naming when there's
+            // genuinely no ticked contact to name it after.
+            $docLabel = $typeLabelMap[$labelSlug] ?? Str::headline((string) $labelSlug);
+
+            $primaryContact = null;
+            if (! empty($contacts)) {
+                $primaryContact = $attached->get(array_key_first($contacts));
+            }
+            $isContactType = ($typeGroupingMap[$labelSlug] ?? null) === 'contact';
+
+            if ($isContactType && $primaryContact) {
+                $subjectLabel = trim((string) $primaryContact->full_name) ?: ('Contact #' . $primaryContact->id);
+                $nameAlreadyFiled = fn (string $name) => $this->contactDocNameExists($primaryContact->id, $name);
+            } else {
+                $subjectLabel = $addressLabel;
+                $nameAlreadyFiled = fn (string $name) => $this->propertyDocNameExists($property->id, $name);
+            }
+
+            $baseName = $subjectLabel . ' · ' . $docLabel . ' · ' . $fileDate;
+            $n = 1;
+            $filename = $baseName . '.pdf';
+            while (in_array($filename, $usedNames, true) || $nameAlreadyFiled($filename)) {
+                $n++;
+                $filename = $baseName . ' (' . $n . ').pdf';
+            }
+            $usedNames[] = $filename;
+            $fsBase  = Str::slug($baseName) . ($n > 1 ? '-' . $n : '');
+            $relPath = $dir . '/' . Str::random(8) . '_' . ($fsBase !== '' ? $fsBase : 'document') . '.pdf';
+
+            $stream = @fopen($abs, 'rb');
+            if (! $stream) continue;
+            $publicDisk->put($relPath, $stream);
+            if (is_resource($stream)) { @fclose($stream); }
 
             // ONE canonical create + attach + deal-step auto-complete.
             $filed = $docSpine->fileClassifiedDocument(
@@ -1151,9 +1407,53 @@ class PdfSplitterController extends Controller
             $result['contact']  += $filed['contact'];
             $result['fallback'] += $filed['fallback'];
             $result['unfiled']  += $filed['unfiled'];
+            if (! empty($filed['document'])) {
+                $result['document_ids'][] = $filed['document']->id;
+            }
         }
 
         return $result;
+    }
+
+    /**
+     * Readable property address for the filing convention — street + suburb
+     * (title-cased), falling back to "Property #id" when the address is blank.
+     */
+    private function readablePropertyAddress(Property $property): string
+    {
+        $street = trim((string) ($property->address ?? ''));
+        $suburb = trim((string) ($property->suburb ?? ''));
+        $suburb = $suburb !== '' ? Str::title(Str::lower($suburb)) : '';
+        $label  = trim(implode(', ', array_filter([$street, $suburb])));
+
+        return $label !== '' ? $label : ('Property #' . $property->id);
+    }
+
+    /**
+     * True when a Document with this display name is already filed to the
+     * property — used to append a "(2)" suffix so a same-property/type/same-day
+     * split never overwrites an existing filing.
+     */
+    private function propertyDocNameExists(int $propertyId, string $name): bool
+    {
+        return \App\Models\Document::query()
+            ->where('original_name', $name)
+            ->whereHas('properties', fn ($q) => $q->where('properties.id', $propertyId))
+            ->exists();
+    }
+
+    /**
+     * True when a Document with this display name is already filed to the
+     * contact — used to append a "(2)" suffix so a same-contact/type/same-day
+     * split never overwrites an existing filing. Contact-naming counterpart
+     * to propertyDocNameExists() above.
+     */
+    private function contactDocNameExists(int $contactId, string $name): bool
+    {
+        return \App\Models\Document::query()
+            ->where('original_name', $name)
+            ->whereHas('contacts', fn ($q) => $q->where('contacts.id', $contactId))
+            ->exists();
     }
 
     /**
@@ -1258,7 +1558,14 @@ class PdfSplitterController extends Controller
 
     private function qpdfPageCount(string $pdfAbsNorm): array
     {
-        $proc = new Process([self::qpdfPath(), '--show-npages', $pdfAbsNorm]);
+        // --warning-exit-0: some real-world exports (e.g. viewing-pack PDFs)
+        // trip qpdf's "reported number of objects is not one plus the highest
+        // object number" xref-table quirk — qpdf still reads the file fine and
+        // reports a correct page count, it just exits 3 ("success with
+        // warnings") instead of 0. Without this flag Process::isSuccessful()
+        // treats that as a hard failure and the file gets skipped as if
+        // corrupt. Genuine corruption still exits 2 and is unaffected.
+        $proc = new Process([self::qpdfPath(), '--warning-exit-0', '--show-npages', $pdfAbsNorm]);
         $proc->setTimeout(120);
         $proc->run();
 
@@ -1277,7 +1584,9 @@ class PdfSplitterController extends Controller
     private function qpdfExtractRange(string $pdfAbsNorm, int $from, int $to, string $outAbsNorm): void
     {
         $range = $from === $to ? (string)$from : ($from . '-' . $to);
-        $proc  = new Process([self::qpdfPath(), $pdfAbsNorm, '--pages', $pdfAbsNorm, $range, '--', $outAbsNorm]);
+        // See qpdfPageCount() — same warnings-vs-errors tolerance is needed on
+        // the extract path so a warned-but-readable original can still split.
+        $proc  = new Process([self::qpdfPath(), '--warning-exit-0', $pdfAbsNorm, '--pages', $pdfAbsNorm, $range, '--', $outAbsNorm]);
         $proc->setTimeout(120);
         $proc->run();
 

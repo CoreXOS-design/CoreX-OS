@@ -20,9 +20,9 @@ use Tests\TestCase;
  * AT-268 follow-up (production login outage): the gate originally fired on the bare
  * email_verified_at IS NULL predicate, which also caught established accounts created outside the
  * invite flow (CoreX never enforced MustVerifyEmail) — the two super_admin owner accounts carried a
- * NULL marker with real passwords and were locked out of live. The gate now additionally requires the
- * account to still hold the public 'INVITE_PENDING' constant, so it can only ever fire on the exact
- * hole it closes. These tests pin the corrected behaviour on both sides.
+ * NULL marker with real passwords and were locked out. The gate now additionally requires the account
+ * to still hold the public 'INVITE_PENDING' constant, so it can only ever fire on the exact hole it
+ * closes. These tests pin the corrected behaviour on both sides.
  */
 final class PendingInviteLoginTest extends TestCase
 {

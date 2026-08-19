@@ -83,6 +83,14 @@ class User extends Authenticatable
      */
     private bool $resolvingBranchOverride = false;
 
+    /**
+     * SA mobile-number validation regex (raw form input, before normalisation).
+     * Accepts 0-leading national (0821234567), +27/27 international (+27821234567,
+     * 27821234567), and common separators (spaces, dashes, dots, brackets).
+     * Shared by the user-facing WhatsApp-number fields.
+     */
+    public const SA_MOBILE_REGEX = '/^(\+?27|0)[\s.\-()]*(?:\d[\s.\-()]*){9}$/';
+
     protected $fillable = [
         'name',
         'email',
@@ -110,6 +118,7 @@ class User extends Authenticatable
         'branch_id',
         'agency_id',
         'is_active',
+        'show_in_performance_reports',
         // AT — was write-only via mass assignment (User::create(['invited_at' =>
         // ...])) without being fillable, so it silently never persisted. Only a
         // cast existed before this. No functional gating currently reads it back
@@ -147,6 +156,7 @@ class User extends Authenticatable
         // Contact fields (email signatures, profile, presentations)
         'phone',
         'cell',
+        'whatsapp_number',
         'fax',
         'ffc_number',
         'ffc_expiry_date',
@@ -244,6 +254,7 @@ class User extends Authenticatable
         'pp_exclusivity_explainer_seen_at' => 'datetime',
         'password' => 'hashed',
         'is_active' => 'boolean',
+        'show_in_performance_reports' => 'boolean',
         'is_assistant' => 'boolean',
         'fica_required' => 'boolean',
         'show_on_website' => 'boolean',
@@ -285,6 +296,17 @@ class User extends Authenticatable
     public function setCellAttribute($value): void
     {
         $this->attributes['cell'] = SaPhoneNumber::normalize($value === null ? null : (string) $value);
+    }
+
+    /**
+     * Distinct WhatsApp number (often the same as cell, but stored separately).
+     * Normalised to the same leading-zero national format as cell/phone so the
+     * WhatsApp deep-link formatter (App\Support\WhatsAppNumberFormatter) can turn
+     * it into a wa.me target consistently.
+     */
+    public function setWhatsappNumberAttribute($value): void
+    {
+        $this->attributes['whatsapp_number'] = SaPhoneNumber::normalize($value === null ? null : (string) $value);
     }
 
     public function setFaxAttribute($value): void

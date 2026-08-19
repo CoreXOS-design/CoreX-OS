@@ -250,3 +250,36 @@ All four opening decisions are **RULED**. WS0 builds to these; WS1/WS2 code agai
 ---
 
 *This spec is the foundation. It is deliberately uncompromising about the one thing that matters: the signed artifact is the compiled, linted, versioned artifact — nothing else can be signed. Everything else is workstream detail.*
+
+---
+
+## Appendix — Generated web-template blade is self-healing (blank-preview regression, 2026-07)
+
+A `render_type=web` (CDS) template renders via a **generated** blade file
+`resources/views/docuperfect/web-templates/cds/template-<id>.blade.php`, written on save by
+`TemplateController::generateCdsBladeView()`. This file is an **untracked generated artifact**
+— it is not committed, and can go missing on QA1/staging via env cleanup, a redeploy, or the
+nightly live→QA sync. When it was missing, the e-sign wizard Step-1 preview rendered
+`view($template->blade_view)` → `InvalidArgumentException: View not found` → **blank pane**
+(hit on QA1 for template 67 "EXCLUSIVE AUTHORITY TO SELL - monday morning test"; the template's
+stored data — `editor_state.tagged_html`, `field_mappings`, `cds_json` — was intact).
+
+**Rule (prevent-or-absorb, BUILD_STANDARD §3): a web-template preview may NEVER blank on a
+missing generated artifact.** The render path goes through
+`App\Services\Docuperfect\WebTemplateBladeEnsurer`:
+
+1. **`ensure()`** — if the generated blade file is not on disk (`is_file`, deliberately NOT
+   `View::exists()` which can cache a stale path), **regenerate it on-demand** from the
+   template's stored data, reusing the exact save-path generator
+   (`TemplateController::generateCdsBladeView()`), then render.
+2. **`renderOrFallback()`** — if regeneration OR render still throws, return a **best-effort
+   body from stored data** (`editor_state.tagged_html`, else `cds_json` via `CdsRendererService`)
+   behind a clear "re-save to rebuild" notice — **never a silent blank**, and a genuine failure
+   surfaces a message, not an empty pane.
+
+Wired into the preview render sites: `ESignWizardController::templatePages()` (single + pack) and
+`TemplateController::webPreview()`. `cds_json` is a stale importer-time fossil (§ above), so the
+regeneration/fallback prefers `editor_state.tagged_html` (the builder's saved DOM), exactly as the
+save-path generator does. NOTE: the same generated-artifact dependency exists on non-preview render
+sites (signing prep) — those are de-facto healed once preview has run (the file is rebuilt on disk),
+and are candidates for the same `ensure()` call in a follow-up.

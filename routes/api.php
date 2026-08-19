@@ -146,6 +146,7 @@ Route::prefix('v1/client-auth')->group(function () {
         Route::post('/password/change', [ClientAuthController::class, 'changePassword'])->name('client-auth.password.change');
         Route::post('/agency/select',   [ClientAuthController::class, 'selectAgency'])->name('client-auth.agency.select');
         Route::post('/logout',          [ClientAuthController::class, 'logout'])->name('client-auth.logout');
+        Route::delete('/account',       [ClientAuthController::class, 'deleteAccount'])->name('client-auth.account.delete');
     });
 });
 
@@ -277,6 +278,12 @@ Route::middleware('auth:sanctum')->group(function () {
     // ─────────────────────────────────────────────────────────────
     Route::prefix('v1')->group(function () {
 
+        // AT-366 — interactive agency Performance & ROI report backend (read-only, agency-scoped).
+        Route::get('/performance/deal-breakdown', [\App\Http\Controllers\Api\V1\PerformanceDrilldownController::class, 'dealBreakdown'])
+            ->middleware('permission:view_performance')->name('v1.performance.deal-breakdown');
+        Route::get('/performance/drilldown', [\App\Http\Controllers\Api\V1\PerformanceDrilldownController::class, 'drilldown'])
+            ->middleware('permission:view_performance')->name('v1.performance.drilldown');
+
         // Session-authed "who am I" — fired automatically on every page
         // via resources/js/corex-api.js (see Non-Negotiable #7).
         Route::get('/logged-user', function (Request $request) {
@@ -351,6 +358,16 @@ Route::middleware('auth:sanctum')->group(function () {
         // its own; an assistant may never bring a property onto the books by any path.
         Route::post('/prospecting/import',      [ProspectingApiController::class, 'import'])->middleware('deny_assistant_property_write')->name('v1.prospecting.import');
         Route::get('/prospecting/check-search', [ProspectingApiController::class, 'checkSearch'])->name('v1.prospecting.check-search');
+
+        // ── CMA / deeds capture (phase 1) — mirrors the portal-capture ingest. ──
+        Route::post('/deeds-capture', [\App\Http\Controllers\Api\DeedsCaptureController::class, 'store'])->name('v1.deeds-capture');
+
+        // ── TVA (The Virtual Agent) contact capture — mirrors deeds-capture. ──
+        Route::post('/tva-contact-capture', [\App\Http\Controllers\Api\TvaContactCaptureController::class, 'store'])->name('v1.tva-contact-capture');
+
+        // ── TVA company DIRECTORSHIP capture — directors → natural-person
+        //    contacts linked to the company entity contact (representatives). ──
+        Route::post('/tva-company-directors', [\App\Http\Controllers\Api\TvaCompanyDirectorsController::class, 'store'])->name('v1.tva-company-directors');
 
         // ── Properties — portal pull ───────────────────────────────
         // AT-267 — pulls a listing off a portal INTO a property. Same rule, same reason: no

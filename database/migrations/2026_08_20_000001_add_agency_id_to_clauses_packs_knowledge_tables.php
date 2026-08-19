@@ -6,15 +6,17 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * HFC tenant-isolation audit, Wave 3 (ported to QA2 from main) — Clause
- * Library, Packs, and Knowledge Base were never brought into the
- * BelongsToAgency pattern at all: none of docuperfect_clauses /
- * docuperfect_packs / knowledge_documents ever got an agency_id column, and
- * Clause::scopeVisibleTo() / Pack::scopeVisibleTo() both had
- * `if ($scope === 'all') return $query;` — completely unfiltered for any
- * role with full data-scope. KnowledgeController had no agency concept
- * whatsoever, so Ellie's RAG search (KnowledgeSearchService) surfaced any
- * agency's knowledge-base content to any other agency.
+ * HFC tenant-isolation audit, Wave 3 — Clause Library, Packs, and Knowledge
+ * Base were never brought into the BelongsToAgency pattern at all: none of
+ * docuperfect_clauses / docuperfect_packs / knowledge_documents ever got an
+ * agency_id column, and Clause::scopeVisibleTo() / Pack::scopeVisibleTo()
+ * both had `if ($scope === 'all') return $query;` — completely unfiltered
+ * for any role with full data-scope. KnowledgeController had no agency
+ * concept whatsoever. Live confirmed: 23/23 clauses and 3/33 packs flagged
+ * is_global=1 (all HFC-owned, none actually generic/shared content — same
+ * pre-multi-tenancy semantic drift already found and fixed on
+ * docuperfect_templates.is_global), and 100% of Knowledge Base content
+ * (10 categories / 40 documents) visible to every agency unconditionally.
  *
  * Fix: add agency_id (BelongsToAgency) to all three content tables, exactly
  * like docuperfect_documents/templates/signature_templates in Wave 2. Once
@@ -35,7 +37,7 @@ use Illuminate\Support\Facades\Schema;
  *
  * Backfill: each table's own owner/uploader FK -> users.agency_id. Any
  * remaining orphan (creator user deleted) is assigned to the first agency,
- * matching the Wave 2 precedent.
+ * matching the 2026-04-14 / Wave 2 precedent.
  */
 return new class extends Migration
 {
@@ -95,10 +97,10 @@ return new class extends Migration
         }
 
         // Final safety net: assign any remaining orphans to the first
-        // agency — same rationale as Wave 2 (a NULL row is invisible to
-        // everyone under AgencyScope's strict-orphan rule, which for real
-        // historical data is worse than attributing it to the original
-        // tenant).
+        // agency — same rationale as 2026_04_14_100000 and Wave 2 (a NULL
+        // row is invisible to everyone under AgencyScope's strict-orphan
+        // rule, which for real historical data is worse than attributing
+        // it to the original tenant).
         $firstAgencyId = DB::table('agencies')->orderBy('id')->value('id');
         if ($firstAgencyId) {
             foreach (array_keys(self::TABLES) as $table) {

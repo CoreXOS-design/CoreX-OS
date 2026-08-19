@@ -8,7 +8,15 @@
 > **This is documentation only.** No code, no migrations, no data writes are made by the
 > atlas. It is a living, version-controlled backend reference that grows one feature at a time.
 >
-> Last updated: 2026-06-22 · Maintainer: Johan / CC
+> Last updated: 2026-07-14 · Maintainer: Johan / CC
+>
+> **2026-07-14 atlas sync (AT-255).** Refreshed to today's landed truth (QA1): region rebuilt to the
+> signed per-town model (market-intelligence · AT-246); permissions fail-**closed** + connection guard
+> replaces the header light (platform · AT-265/AT-263, Andre's design); DR2 pipeline due-date re-anchoring
+> (deals-commission · AT-216); OTP slug consolidation + splitter canonical filing (esign · AT-254) and pack-link one-OTP (AT-264); FICA two-station +
+> referral (compliance); notification gateway slices (communications-capture · AT-235); change-type + address
+> one-truth/reconciler (properties). Fragility register carries the resolved eras (two-source address,
+> double-listener, fail-open) + two new region-data items. See FRAGILITY_REGISTER.md → "RESOLVED — 2026-07-14".
 
 ---
 
@@ -46,6 +54,11 @@ PDF suite, image converter) / TV Display / Training-Help, and the Agency Public 
 
 Enumerated from `routes/web.php`, the controllers under `app/Http/Controllers/`, and the sidebar
 nav (`resources/views/layouts/corex-sidebar.blade.php`). Grouped by pillar/area.
+
+### Cross-cutting maps
+| Doc | Status | Notes |
+|-----|--------|-------|
+| **The Pillars & Capture Impact Map** | [PILLARS_AND_CAPTURE_IMPACT.md](PILLARS_AND_CAPTURE_IMPACT.md) | **DONE (facts-only)** | Property/Contact identity law vs current reality; capture paths (MIC address-unlock ×2, deeds, P24 ×4 stores); 4 collision points; **open decisions for Johan** |
 
 ### Property & Market Intelligence
 | Feature | Doc | Status | Notes |
@@ -132,6 +145,8 @@ nav (`resources/views/layouts/corex-sidebar.blade.php`). Grouped by pillar/area.
 - **The atlas now covers every major operational pillar and the cross-cutting platform foundations.**
   The four pillars (Property, Contact, Deal, Agent), both halves of the MIC/matching loop, the document/
   comms/calendar/HR layer, syndication, and the tenancy/event/audit spine are all documented.
+- **Cross-cutting maps: 1** — [PILLARS_AND_CAPTURE_IMPACT.md](PILLARS_AND_CAPTURE_IMPACT.md) (2026-08-13):
+  Property/Contact identity law vs current reality, all capture paths, 4 collision points, open decisions.
 
 ### Remaining minor TODO surfaces (thin — covered indirectly or low-traffic)
 These are small surfaces, mostly sub-features of DONE docs or low-complexity tools; documented here as

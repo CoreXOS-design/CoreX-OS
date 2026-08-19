@@ -135,11 +135,19 @@ The user picks one. Persist the last-used path so on next launch the app opens t
 
 ### Settings screen (gear icon)
 
-Three rows:
+Four rows:
 
 1. **Change password** → POST `/api/v1/client-auth/password/change` with `{ "current_password":"...", "password":"...", "password_confirmation":"..." }`.
 2. **Switch agency** → re-show Screen 5.
 3. **Sign out** → POST `/api/v1/client-auth/logout` then clear token from secure storage and pop to login screen.
+4. **Delete account** (Apple 5.1.1(v) requirement) — a distinctly-styled destructive row, separated from the others (e.g. red text, its own section at the bottom). Tapping it:
+   - Shows a native confirm dialog: "Delete your account? You will be signed out of every device and will need to sign up again to use the app. This cannot be undone." with **Cancel** / **Delete** (destructive style).
+   - On confirm, if the client has a password set (`has_password: true` from `/me` or the last login/set-password response) and is NOT in a forced-password-change state, show one more screen: a single password field — "Confirm your password to delete your account" — because the server requires it.
+   - Call `DELETE /api/v1/client-auth/account` with header `Authorization: Bearer <token>` and body `{ "password": "..." }` (omit `password` entirely — do not send an empty string — when the client is currently in the forced-password-change state; the server does not require it there).
+   - Response `200 { "ok": true, "message": "..." }` → clear the token from secure storage immediately (the token is already server-side revoked) and pop all the way back to **Screen 1** with a one-time toast: "Your account has been deleted."
+   - Response `422 { "message": "Password is incorrect." }` → show the message inline on the password-confirm screen, let them retry or cancel. Nothing was deleted.
+   - This endpoint is reachable even mid forced-password-change (423 elsewhere), so the "Delete account" row must stay visible/enabled on the Screen 3 (must-change) path too — a client must never be trapped into changing a password they no longer want just to be able to leave.
+   - **This does NOT delete the client's data at the agency** — their Contact record (deal history, FICA, documents) stays with the agency as a normal business record; only their sign-in to the app is removed. Do not word the confirm dialog as "delete my data," only as deleting the account/access.
 
 ### Auth header + token rules
 

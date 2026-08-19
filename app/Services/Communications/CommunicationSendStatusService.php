@@ -7,6 +7,7 @@ use App\Events\Communication\CommunicationResent;
 use App\Events\Communication\CommunicationSendStatusReverted;
 use App\Models\Communications\Communication;
 use App\Models\Contact;
+use App\Models\SellerOutreach\SellerOutreachSend;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -76,6 +77,21 @@ class CommunicationSendStatusService
             ])->save();
 
             $contact->recomputeLastContacted();
+
+            // AT-81 (delivery-anchored fix) — this confirmation is the first moment a
+            // WhatsApp outreach pitch was ACTUALLY delivered, so it is where the
+            // no-response clock legitimately starts (the sender no longer starts it at
+            // click-to-chat compose). Gated to OUTREACH pitches only — a linked
+            // SellerOutreachSend — so a normal captured chat being marked sent never
+            // arms the marketing opt-out clock. Idempotent (markOutreachPending no-ops
+            // if the contact is opted in/out or already pending).
+            $isOutreachPitch = SellerOutreachSend::withoutGlobalScopes()
+                ->where('communication_id', $communication->id)
+                ->whereNull('deleted_at')
+                ->exists();
+            if ($isOutreachPitch) {
+                $contact->markOutreachPending();
+            }
         });
 
         event(new CommunicationSendStatusReverted(

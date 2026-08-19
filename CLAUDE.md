@@ -1,3 +1,23 @@
+# ⛔ NON-NEGOTIABLE OPERATING RULES — READ FIRST, EVERY COMMAND, NO EXCEPTIONS
+
+These override everything else. Violating scope is worse than doing nothing. When in doubt: STOP and report.
+
+1. SCOPE LOCK. Work ONLY on the exact task in the current instruction. Do not touch, edit, refactor, rename, reformat, "improve," clean up, or fix ANY file, feature, module, or behaviour outside that exact task — not even if it looks broken, related, or trivial, and not even if you are "already in the file."
+
+2. NO AUTO-FIX / REPORT-ONLY OUTSIDE SCOPE. If you find a bug, regression, or issue anywhere outside your exact task, STOP and REPORT it to the conductor with exact file:line + root cause. Do NOT change it. Nothing outside the assigned task is changed without Johan's strict, specific, explicit instruction.
+
+3. SPEC-EXACT, NO IMPROVISING. Build strictly to the instruction and the named .ai/specs/ spec. Add NOTHING that was not explicitly asked for — no extra features, fields, pages, UI, or behaviour. If the instruction and the spec conflict, or anything is ambiguous, STOP and ask the conductor. Never guess. Never interpret. Never assume.
+
+4. STAY IN YOUR LANE. Work only in your assigned module. Never wander into another part of CoreX for any reason.
+
+5. QA1 ONLY — JOHAN GATES EVERYTHING. All work lands on QA1 and STAYS there. NEVER promote to Staging or live. Flow: QA1 -> Johan tests on QA1 -> Johan's explicit go -> Staging -> live. No live work of any kind (code OR data) without Johan's specific explicit order for that exact action.
+
+6. NO SILENT EXTRAS. No speculative changes, no "while I was here," no drive-by refactors, no dependency bumps, no formatting sweeps, no touching unrelated files.
+
+7. REPORT EXACTLY. When done, report exactly what changed (files + why) and how you proved it, and confirm nothing outside the task was touched.
+
+This applies to the conductor too.
+
 # CoreX OS — Claude Instructions
 > **Root entry point. Read this first. Every session. No exceptions.**
 > Last updated: 2026-05-28
@@ -199,6 +219,25 @@ This replaces all separate "sync prompts" — there is no scenario where work be
 **Prerequisite (one-time, per developer machine):** `mysqldump` and `mysql` must be on the system `PATH` so Laravel's `MySqlSchemaState` can dump/load. On laragon installs the binaries live at `C:\laragon\bin\mysql\mysql-<version>\bin`. Add that folder to the user `PATH` via System Properties → Environment Variables (or `setx PATH "%PATH%;C:\laragon\bin\mysql\mysql-8.4.3-winx64\bin"`). If `mysql` isn't on PATH, `php artisan test` will fail with `'mysql' is not recognized as an internal or external command` — fix PATH; do not delete the snapshot.
 
 **When to re-run `schema:dump`:** every time you add a new migration. New migrations DO run on top of the snapshot, so tests stay correct, but every replay costs seconds; keeping the snapshot current keeps the bootstrap fast. Run `php artisan schema:dump` whenever the `database/migrations/` folder gains a file, then `git add database/schema/mysql-schema.sql` and include in the same commit as the migration.
+
+**After EVERY `schema:dump`: strip the `DEFINER` clauses.** `schema:dump` bakes an explicit
+``DEFINER=`user`@`host` `` into each dumped `CREATE TRIGGER`, naming whichever concrete user
+dumped it — even though the migrations never specify one. The snapshot then loads only for
+that exact DB user and fails for everyone else with `ERROR 1227 ... SUPER or SET_ANY_DEFINER`,
+because the schema-load path pipes the literal SQL through a plain `mysql` client. Dumped as
+root it looks fine on the machine that made it and breaks every restricted app DB user and
+every other developer's test bootstrap. This is not hypothetical: it shipped to `main` in
+`52d921862` and only surfaced when the demo host first bootstrapped its DB from it.
+
+```powershell
+(Get-Content database/schema/mysql-schema.sql) `
+  -replace '/\*!50017 DEFINER=`[^`]+`@`[^`]+`\*/ ', '' `
+  | Set-Content database/schema/mysql-schema.sql -Encoding utf8
+```
+
+Stripped, the trigger adopts `CURRENT_USER` — exactly what a normal `migrate` run produces, so
+both bootstrap paths converge. `scripts/dev-check.ps1` §10 fails the build if any clause
+returns, so this cannot silently regress again.
 
 The snapshot is committed to the repo — it travels with the migrations it represents. Production migrations are unaffected: Laravel only uses the snapshot when no migrations have run yet (i.e. fresh test DB / `migrate:fresh`).
 

@@ -192,6 +192,7 @@ class Agency extends Model
         // Settings (unlike the flood-fill pixel thresholds above).
         'ad_bg_removal_api_enabled',
         'assistant_fica_required_default',
+        'adhoc_document_distribution_enabled', // Feature 2 — ad-hoc "Send docs to any email" on/off (default off)
         'show_prospected_badge',
         'properties_sort_mode',
         'properties_status_priority',
@@ -361,6 +362,7 @@ class Agency extends Model
         // Per-agency maintenance mode (AT-93).
         'maintenance_mode' => 'boolean',
         'deal_v2_bm_approval_enabled' => 'boolean', // AT-158 WS-R3
+        'adhoc_document_distribution_enabled' => 'boolean', // Feature 2 — ad-hoc distribution on/off
         'maintenance_started_at' => 'datetime',
         'ss_show_complex_section' => 'boolean',
         'privacy_policy_published_at' => 'datetime',

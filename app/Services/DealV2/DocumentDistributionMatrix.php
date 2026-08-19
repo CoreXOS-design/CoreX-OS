@@ -32,6 +32,7 @@ class DocumentDistributionMatrix
         'bond_originator'   => 'Bond Originator',
         'bond_attorney'     => 'Bond Attorney',
         'conveyancer'       => 'Conveyancer',
+        'external_agency'   => 'External Agency',
     ];
 
     /**

@@ -296,7 +296,21 @@ class MatchingService
 
         $listingType  = $overrides['listing_type']  ?? $match->listing_type; // sale vs rental is a hard filter — never mix the two
         $category     = $overrides['category']      ?? $match->category;
-        $propertyType = $overrides['property_type'] ?? $match->property_type;
+        // 2026-08-19 (Falan, live bug) — this used to read the legacy singular
+        // property_type column, which the controller only ever populates with
+        // the FIRST of the buyer's selected types (property_type <-> property_types
+        // reconciliation, ContactMatchController::update()). A buyer with
+        // House+Townhouse+Vacant Land ticked got a candidate query pre-filtered
+        // to House alone — the townhouses and land were excluded before score()
+        // ever ran, never a scoring/family-gate problem (those already correctly
+        // read the full array via propertyTypeList(), see below). An explicit
+        // override still wins and still behaves as a single value — that's a
+        // deliberate ad-hoc single-type filter on the public/mobile match views
+        // (SharedMatchController, MobileCoreMatchController), not the buyer's
+        // persisted multi-select, and must not be widened.
+        $propertyTypes = array_key_exists('property_type', $overrides)
+            ? array_filter([$overrides['property_type']])
+            : $match->propertyTypeList();
         $priceMin     = $overrides['price_min']     ?? $match->price_min;
         $priceMax     = $overrides['price_max']     ?? $match->price_max;
         $bedsMin      = $overrides['beds_min']      ?? $match->beds_min;
@@ -311,6 +325,14 @@ class MatchingService
         $strLoose = function (Builder $q, string $col, string $val) {
             $q->where(function (Builder $q2) use ($col, $val) {
                 $q2->whereNull($col)->orWhere($col, $val);
+            });
+        };
+        // Multi-value counterpart — property_type is a multi-select on the buyer's
+        // side (propertyTypeList()); the candidate query must match ANY of the
+        // wanted types, not force the whole set down to one value.
+        $strLooseIn = function (Builder $q, string $col, array $vals) {
+            $q->where(function (Builder $q2) use ($col, $vals) {
+                $q2->whereNull($col)->orWhereIn($col, $vals);
             });
         };
         // listing_type uses STRICT equality — sale vs rental are different markets and
@@ -332,8 +354,8 @@ class MatchingService
             }
         }
         // category / property_type stay loose — half-filled listings still appear.
-        if ($category)     $strLoose($query, 'category', $category);
-        if ($propertyType) $strLoose($query, 'property_type', $propertyType);
+        if ($category)          $strLoose($query, 'category', $category);
+        if (!empty($propertyTypes)) $strLooseIn($query, 'property_type', $propertyTypes);
 
         // Numeric criteria: allow NULL on the property side too.
         $numLoose = function (Builder $q, string $col, string $op, int $val) {
@@ -628,8 +650,23 @@ class MatchingService
         if ($match->category && $property->category) {
             $components[] = [5, $property->category === $match->category ? 1.0 : 0.0];
         }
-        if ($match->property_type && $property->property_type) {
-            $components[] = [5, $property->property_type === $match->property_type ? 1.0 : 0.0];
+        // 2026-08-19 (Falan, live bug, second face of the same class) — this used
+        // the legacy singular property_type for an EXACT-equality scoring
+        // component. Even after propertiesForMatch()'s SQL correctly fetched
+        // Townhouse/Vacant-Land candidates for a House+Townhouse+Vacant-Land
+        // wishlist, THIS component still scored them 0/5 (property_type
+        // "Townhouse" !== match's legacy singular "House"), which — on a
+        // wishlist with few/no other criteria set — was enough to sink them
+        // below MIN_SCORE_TO_DISPLAY and drop them from the results. Reads the
+        // full propertyTypeList() and normalises case/whitespace on both sides
+        // (never assume the picker's label and however it landed in the DB
+        // agree on casing byte-for-byte) instead of a bare singular ===.
+        $wantedTypes = $match->propertyTypeList();
+        if (!empty($wantedTypes) && $property->property_type) {
+            $norm = fn ($s) => strtolower(trim((string) $s));
+            $propertyTypeNorm = $norm($property->property_type);
+            $wantedTypesNorm  = array_map($norm, $wantedTypes);
+            $components[] = [5, in_array($propertyTypeNorm, $wantedTypesNorm, true) ? 1.0 : 0.0];
         }
         // Floor/erf size — cosmetic (see guardrail note above): already hard-
         // gated when violated (above), so a present component here has
@@ -654,26 +691,30 @@ class MatchingService
 
         if (empty($components) || !$hasSubstantialSignal) {
             // AT-71 — belt-and-braces against the empty-wishlist inflation bug.
-            // 2026-08-11 fix: was `$match->isCountable() ? 100 : 0`, but
-            // isCountable() only requires ONE criteria group present anywhere
-            // on the wishlist — a wishlist with ONLY a property_type selected
-            // (already gated above, separately, and not itself a $components
-            // entry) and nothing else satisfied it, so a near-blank wishlist
-            // scored a flat 100. Via canonicalBestAcross()'s best-across-all-
-            // wishlists selection, that blank wishlist could then outrank a
-            // buyer's real, fully-specified one and surface a wrong-suburb
-            // property at 100% (confirmed: Caroline King's Southbroom+budget
-            // wishlists correctly scored low against a Ramsgate listing, but
-            // a separate blank wishlist of hers — no suburb, no price, no
-            // beds — won the "best" comparison at 100 every time). Extended
-            // 2026-08-11 (same day, follow-up): the guard now also fires when
-            // $components is non-empty but every entry is COSMETIC (no
-            // substantial signal) — the same inflation, just via a satisfied
-            // cosmetic component (e.g. a garbage erf_size_max) instead of zero
-            // components. No real signal now means either (a) it specified
-            // ONLY must-have features, which were already verified above → a
-            // genuine full match → 100; or (b) it specified nothing
-            // substantial at all → no real signal → 0, never inflated.
+            // Was `$match->isCountable() ? 100 : 0`; isCountable() only requires
+            // ONE criteria group present anywhere on the wishlist — a wishlist
+            // with ONLY a property_type selected (already gated above,
+            // separately, and not itself a $components entry) and nothing else
+            // satisfied it, so a near-blank wishlist scored a flat 100. Via
+            // canonicalBestAcross()'s best-across-all-wishlists selection, that
+            // blank wishlist could then outrank a buyer's real, fully-specified
+            // one and surface a wrong-suburb property at 100%.
+            //
+            // 2026-08-12 (Johan's ruling) — reverted the same-day
+            // "$hasSubstantialSignal" extension that also forced a
+            // COSMETIC-only wishlist (e.g. only erf_size_max/floor_size/
+            // category/property_type present) to this same 0/100 fallback,
+            // ignoring whatever it actually contained. Per Johan: "a wishlist
+            // means exactly what it says — no filter matches all, criteria
+            // filters by criteria, no cleverness." A cosmetic-only wishlist now
+            // scores naturally off its own components below instead of being
+            // silently overridden. The Caroline King incident that motivated
+            // the extension was a DATA problem (a garbage 2,000,000 m²
+            // erf_size_max typo on one wishlist) and was fixed as data, not
+            // as an engine rule — that fix stands on its own and needed no
+            // engine-level override. $components empty still means the
+            // wishlist stated nothing at all (or only must-haves, verified
+            // above): a genuine full match → 100, or truly nothing → 0.
             return !empty($mustHaves) ? 100 : 0;
         }
 
@@ -868,6 +909,22 @@ class MatchingService
             }
         }
 
+        // 'garage' bridge (2026-08-18, live incident — contact 17097/match 349
+        // returned ZERO Core Matches for an otherwise-plain sale wishlist).
+        // 'garage' is a normal FEATURE_OPTIONS checkbox agents pick as a
+        // must-have, but garage COUNT is tracked on the dedicated `garages`
+        // numeric column (garages_min already scores this separately below),
+        // never duplicated as a "Garage" text tag inside features_json. Every
+        // property with real structured features_json data (so the must-have
+        // gate above doesn't skip as "unknown") but no redundant "Garage" tag
+        // therefore hard-failed a 'garage' must-have unconditionally — not a
+        // reconcile-merge regression, confirmed identical on pre-merge live
+        // (712f937b2). Same bridge pattern as poolTokens() below: a property
+        // fact the property row already carries becomes a positive token.
+        if ((int) ($property->garages ?? 0) > 0) {
+            $out[] = 'garage';
+        }
+
         return array_values(array_unique(array_merge($out, $property->poolTokens())));
     }
 
@@ -916,6 +973,14 @@ class MatchingService
             'solar_panel'       => 'solar',
             'solar_geyser'      => 'solar',
             'garages'           => 'garage',
+            // 2026-08-18 live incident (contact 17097/match 349, Falan) — a
+            // property tagged "Single Garage"/"Double Garage" canonicalized to
+            // single_garage/double_garage, never plain 'garage', so it failed
+            // a garage must-have despite the tag explicitly saying so. Two of
+            // the 4 properties this incident affects had exactly this tag.
+            'single_garage'     => 'garage',
+            'double_garage'     => 'garage',
+            'triple_garage'     => 'garage',
             'granny_flat'       => 'flatlet',
             'cottage'           => 'flatlet',
         ];

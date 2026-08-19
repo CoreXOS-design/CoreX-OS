@@ -410,6 +410,7 @@ return [
 
         // ── Prospecting ──
         ['key' => 'access_prospecting',          'label' => 'Access Prospecting',          'section' => 'prospecting',      'type' => 'access',  'module' => 'prospecting',      'sort_order' => 1],
+        ['key' => 'deeds_capture.access',        'label' => 'Access Deeds Capture',        'section' => 'prospecting',      'type' => 'access',  'module' => 'prospecting',      'sort_order' => 2],
 
         // ── Market Intelligence Centre (Phase A2) ── per spec §12.2/§12.3
         ['key' => 'mic.edit_address',            'label' => 'Edit / Add Property Address',         'section' => 'prospecting',      'type' => 'action',  'module' => 'mic',              'sort_order' => 50],
@@ -424,6 +425,9 @@ return [
         // same mechanism as outreach_queue.view / calendar.view. Before this, the
         // canvassing pool was agency-wide with no restriction for every role.
         ['key' => 'market_intelligence.view',    'label' => 'View Canvassing Pool',        'section' => 'prospecting',      'type' => 'action',  'module' => 'market_intelligence', 'sort_order' => 57],
+        // ── MIC property row comments — .ai/specs/mic-property-row-comments.md ──
+        ['key' => 'mic.comments.view',           'label' => 'View Property Comments',              'section' => 'prospecting',      'type' => 'access',  'module' => 'mic',              'sort_order' => 58],
+        ['key' => 'mic.comments.add',            'label' => 'Add Property Comments',               'section' => 'prospecting',      'type' => 'action',  'module' => 'mic',              'sort_order' => 59],
 
         // ── Evaluation (Property/Suburb/Town Reports) ──
         ['key' => 'access_evaluation',           'label' => 'Access Evaluation Reports',   'section' => 'evaluation',       'type' => 'access',  'module' => 'evaluation',       'sort_order' => 1],
@@ -470,6 +474,10 @@ return [
         // WS8 — the pipeline overview / dashboard-board surface. Branch_manager +
         // admin only (managers monitor the whole book; agents keep the register).
         ['key' => 'deals_v2.view_overview',      'label' => 'View Pipeline Overview',      'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 19],
+
+        // ── Deal Comms Suspense (AT-231) — inbound attorney-email review queue ──
+        ['key' => 'deal_comms_suspense.view',    'label' => 'View Comms Suspense (attorney email filing queue)', 'section' => 'deals-v2', 'type' => 'access', 'module' => 'deal_comms_suspense', 'sort_order' => 20],
+        ['key' => 'deal_comms_suspense.resolve', 'label' => 'Resolve Comms Suspense (confirm / reassign / reject)', 'section' => 'deals-v2', 'type' => 'action', 'module' => 'deal_comms_suspense', 'sort_order' => 21],
 
         // ── Agencies ── REMOVED 2026-05-07: System Owner only (see agency-admin-rule.md).
         // Routes now gated by `owner_only` middleware. No permission keys needed.
@@ -689,7 +697,7 @@ return [
                 // MIC (Phase A2) — admin gets every MIC permission
                 'mic.edit_address', 'mic.merge_duplicates', 'mic.upload_reports',
                 'mic.view_team', 'mic.regenerate_brief', 'mic.view_ai_costs',
-                'mic.restore_reports',
+                'mic.restore_reports', 'mic.comments.view', 'mic.comments.add',
                 // Agency Public API — admins manage their agency's website keys
                 'agency_api.view', 'agency_api.manage',
                 // Testimonials — admins curate which testimonials go on the website
@@ -789,6 +797,7 @@ return [
                 'deals_v2.manage_pipeline', 'deals_v2.override_dates', 'deals_v2.manage_suppliers',
                 'deals_v2.distribute_documents', 'deals_v2.manage_distribution_rules',
                 'deals_v2.view_overview',
+                'deal_comms_suspense.view', 'deal_comms_suspense.resolve', // AT-231 P2b
                 // Branches — can switch between branches of their own agency
                 // (testing / training), but does NOT bypass BranchScope by default.
                 'branches.switch',
@@ -815,6 +824,8 @@ return [
                 // AT-380 — .view scope (branch_manager→branch, agent→own via
                 // scope_defaults). Admin/owner get these via '*'/all-minus-exclude.
                 'market_intelligence.view', 'outreach_canvassing.view',
+                // MIC property row comments — agency-wide visibility per Johan's spec.
+                'mic.comments.view', 'mic.comments.add',
             ],
         ],
 
@@ -881,6 +892,7 @@ return [
                 // 'deals_v2.capture_own' via Role Manager to let agents capture the
                 // deals they are on (own-membership enforced server-side).
                 'deals_v2.view', 'deals_v2.edit',
+                'deal_comms_suspense.view', 'deal_comms_suspense.resolve', // AT-231 P2b
                 'access_rmcp',
                 'access_policy',
                 'view_own_screening',
@@ -905,6 +917,10 @@ return [
                 // AT-380 — .view scope (branch_manager→branch, agent→own via
                 // scope_defaults). Admin/owner get these via '*'/all-minus-exclude.
                 'market_intelligence.view', 'outreach_canvassing.view',
+                // MIC property row comments — every agent who can see MIC can
+                // see and add comments (Johan's explicit ask — cross-agent
+                // visibility on a specific property).
+                'mic.comments.view', 'mic.comments.add',
             ],
         ],
 

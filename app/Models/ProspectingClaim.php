@@ -22,7 +22,9 @@ class ProspectingClaim extends Model
         'feedback_at',
         'last_updated_at',
         'released_at',
+        'release_reason',
         'flagged_at',
+        'warned_at',
         'is_active',
     ];
 
@@ -33,8 +35,37 @@ class ProspectingClaim extends Model
         'last_updated_at' => 'datetime',
         'released_at'     => 'datetime',
         'flagged_at'      => 'datetime',
+        'warned_at'       => 'datetime',
         'is_active'       => 'boolean',
     ];
+
+    /**
+     * MIC funnel phase 2 — days this claim has sat unworked. The staleness clock is
+     * last_updated_at (bumped every time the claim is worked via recordActionOnClaim),
+     * falling back to claimed_at for a never-touched claim.
+     */
+    public function staleAgeDays(): int
+    {
+        $since = $this->last_updated_at ?? $this->claimed_at ?? $this->created_at;
+        return $since ? (int) $since->diffInDays(now()) : 0;
+    }
+
+    /** Warn-worthy: active, unworked ≥ warn_days, and not already warned since last worked. */
+    public function needsStaleWarning(int $warnDays): bool
+    {
+        return $this->is_active
+            && $this->released_at === null
+            && $this->warned_at === null
+            && $this->staleAgeDays() >= $warnDays;
+    }
+
+    /** Stale for BM/admin move-or-keep review: active, unworked ≥ release_days. */
+    public function isStaleForReview(int $releaseDays): bool
+    {
+        return $this->is_active
+            && $this->released_at === null
+            && $this->staleAgeDays() >= $releaseDays;
+    }
 
     /**
      * Canonical claim-status vocabulary — the SINGLE SOURCE OF TRUTH.
@@ -155,6 +186,38 @@ class ProspectingClaim extends Model
     public function isPitched(): bool
     {
         return $this->pitched_at !== null;
+    }
+
+    /**
+     * True once this claim's listing has actually been promoted to a Property.
+     *
+     * NOT reliable off $this->property_id alone (2026-08-19 incident): that column is
+     * only backfilled by ProspectingClaimService::consumeLockAsPermanentClaim(), which
+     * runs on the Pitch-Now promotion path. A property can also reach "promoted" via
+     * DeedsCaptureController::promote() -> TrackedPropertyMatchOrCreateService::promoteToStock(),
+     * which never touches prospecting_claims.property_id at all — leaving an already-
+     * promoted claim's property_id NULL. Confirmed on QA1: 94 active claims have
+     * property_id NULL while their listing's tracked property is already promoted.
+     *
+     * tracked_properties.promoted_to_property_id is the one column BOTH promotion
+     * paths write (TrackedPropertyMatchOrCreateService is the single Match-or-Create
+     * entry point for all property ingress — CLAUDE.md non-negotiable #10), so it is
+     * the authoritative source here. property_id is checked first only as a fast path
+     * (avoids the join when already known true) — never trusted as the sole negative.
+     *
+     * A promoted claim is on the agency's books and must never be released or closed
+     * back into the canvass pool — see release(), releaseAsManager() and feedback()
+     * in MarketIntelligenceController.
+     */
+    public function isPromoted(): bool
+    {
+        if ($this->property_id !== null) {
+            return true;
+        }
+
+        $trackedProperty = $this->listing?->trackedProperty;
+
+        return $trackedProperty !== null && $trackedProperty->isPromoted();
     }
 
     public function needsReminder(): bool

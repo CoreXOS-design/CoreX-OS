@@ -64,6 +64,28 @@ final class TrackedPropertyMatchOrCreateService
     ];
 
     /**
+     * Source types for which EVERY field they actually captured wins over an
+     * existing value — not just NEWER_WINS_FIELDS. Johan's decision,
+     * 2026-08-19 (.ai/specs/deeds-capture.md §6, Part A): a value read
+     * directly off the deeds panel is higher-confidence than an older
+     * import, so it corrects stale data across the board, not field by
+     * field. Still gated by the SAME absent-never-overwrites guard as every
+     * other source below — a field the capture did not read is simply not
+     * in $sanitised, so it never reaches this comparison at all.
+     */
+    private const SOURCE_ALWAYS_WINS = [
+        'deeds_capture',
+    ];
+
+    /**
+     * Placeholder strings a scraped source can send in place of a real
+     * absent value. None of these may ever be written to a TrackedProperty
+     * column — "absent" must mean absent, never a literal dash. Compared
+     * case-insensitively after trimming.
+     */
+    private const ABSENT_PLACEHOLDERS = ['-', 'n/a', 'na', '—', '–'];
+
+    /**
      * Match or create a TrackedProperty. Always returns a TrackedProperty.
      *
      * @param int $agencyId
@@ -144,7 +166,22 @@ final class TrackedPropertyMatchOrCreateService
             return $historyHit;
         }
 
-        // Strategy 1: Source-ref exact match (the strongest signal — a portal told us this is the same listing)
+        // Strategy 1: Source-ref exact match (the strongest signal — a portal told us this is the same listing).
+        // numbersConflict() guard added 2026-08-13 (Frankenstein-record fix):
+        // this used to be the ONLY strategy with no conflict veto at all, on
+        // the theory that an exact ref match can't be wrong. In practice a
+        // ref can get linked to the wrong TrackedProperty exactly once (a
+        // mis-timed panel read sending a stale/duplicated erf, or two
+        // captures colliding on the same generated ref) — and because
+        // writeExternalRef() is unconditional, that single bad link then gets
+        // silently re-confirmed and compounded by every future capture of
+        // that ref forever, since nothing downstream ever re-checks it. If
+        // the incoming facts now structurally conflict with the linked TP
+        // (different erf/unit/section, both populated), treat the stale link
+        // as suspect rather than gospel: fall through to strategies 2-5 (or
+        // create-new) instead of returning it. writeExternalRef() then
+        // re-points the ref at whatever correctly resolves this time,
+        // self-healing the link for every capture after this one.
         if (!empty($source['type']) && !empty($source['ref'])) {
             $ref = TrackedPropertyExternalRef::queryWithoutAgencyScope()
                 ->where('agency_id', $agencyId)
@@ -157,11 +194,16 @@ final class TrackedPropertyMatchOrCreateService
                     ->where('agency_id', $agencyId)
                     ->whereNull('deleted_at')
                     ->find($ref->tracked_property_id);
-                if ($tp) {
+                if ($tp && ! $this->numbersConflict($facts, $tp)) {
                     Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch matched via strategy=1_source_ref', [
                         'agency_id' => $agencyId, 'tracked_property_id' => $tp->id,
                     ]);
                     return $tp;
+                }
+                if ($tp) {
+                    Log::warning('TrackedPropertyMatchOrCreateService::resolveMatch strategy=1_source_ref REJECTED stale link — numbers conflict', [
+                        'agency_id' => $agencyId, 'tracked_property_id' => $tp->id, 'source_ref' => (string) $source['ref'],
+                    ]);
                 }
             }
         }
@@ -199,6 +241,18 @@ final class TrackedPropertyMatchOrCreateService
         }
 
         // Strategy 3: Erf number + suburb (works even when address is unknown).
+        // numbersConflict() guard added 2026-08-13 (sectional-title "SS" fix):
+        // erf+suburb uniquely identifies a FREEHOLD stand, but every unit in a
+        // sectional scheme sits on the SAME underlying erf — that's how SA
+        // sectional title is structured, not a data-quality issue. This
+        // strategy had no conflict check at all, so two different units in
+        // the same scheme/erf (e.g. ASTOVE section 30 vs a different section)
+        // collapsed into one TrackedProperty purely on erf+suburb equality,
+        // even though numbersConflict() already knows how to veto on a
+        // differing section_number when both sides carry one. Same shape as
+        // the strategy=1 fix — a missing section number on either side still
+        // never blocks a match, so plain freehold-vs-freehold matching on erf
+        // is untouched.
         if (!empty($facts['erf_number']) && !empty($facts['suburb'])) {
             $erfMatch = TrackedProperty::queryWithoutAgencyScope()
                 ->where('agency_id', $agencyId)
@@ -206,7 +260,7 @@ final class TrackedPropertyMatchOrCreateService
                 ->where('erf_number', trim((string) $facts['erf_number']))
                 ->where('suburb_normalised', TrackedProperty::normaliseSuburb($facts['suburb']))
                 ->first();
-            if ($erfMatch) {
+            if ($erfMatch && ! $this->numbersConflict($facts, $erfMatch)) {
                 Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch matched via strategy=3_erf_suburb', [
                     'agency_id' => $agencyId, 'tracked_property_id' => $erfMatch->id,
                 ]);
@@ -302,6 +356,28 @@ final class TrackedPropertyMatchOrCreateService
             return true;
         }
 
+        // (3) Section number — the OTHER sectional-title discriminator
+        // (2026-08-13). Two units in the same scheme/building share a street
+        // address and — since one GPS pin usually represents the whole
+        // building, not each unit — often the same GPS coordinates too.
+        // "unit_number" above is populated from CMA's "Flat/Unit no" field,
+        // which is routinely blank; "Section number" is the field that
+        // actually distinguishes units in a scheme (per the PILLAR: a
+        // sectional-title property's identity is scheme + address + SECTION
+        // NUMBER, not address alone). Without this, two genuinely different
+        // sectional units collapsed into one TrackedProperty via GPS
+        // proximity / normalised-address / token-overlap, none of which knew
+        // section number existed. Same "both sides populated + differ" veto
+        // shape as street/unit number above — a missing section number on
+        // either side (freehold, or a capture that hasn't loaded it yet)
+        // never blocks a match, so freehold (erf-based) matching is
+        // untouched.
+        $factSection = $this->numberKey($facts['section_number'] ?? null);
+        $candSection = $this->numberKey($candidate->section_number);
+        if ($factSection !== null && $candSection !== null && $factSection !== $candSection) {
+            return true;
+        }
+
         // (4) Numbers embedded in the NAME strings ("Aqua Breeze 3" vs
         // "Aqua Breeze 5", "Forest Walk 4") — the structured fields are empty for
         // these, and the tokeniser would otherwise match them on the shared word
@@ -311,6 +387,27 @@ final class TrackedPropertyMatchOrCreateService
         $factNameNums = $this->nameNumbers($facts['street_name'] ?? null, $facts['complex_name'] ?? null);
         $candNameNums = $this->nameNumbers($candidate->street_name, $candidate->complex_name);
         if ($factNameNums !== [] && $candNameNums !== [] && array_intersect($factNameNums, $candNameNums) === []) {
+            return true;
+        }
+
+        // (5) Erf number — the cadastral identity of the property itself
+        // (2026-08-13, Frankenstein-record fix). Structurally stable (an erf
+        // only changes on subdivision/consolidation, which genuinely is a
+        // different property going forward) — unlike title_deed_number, which
+        // legitimately changes on every resale, so deed number is NOT used as
+        // a veto here (that would wrongly split records for the same property
+        // across a resale). Two captures with different, both-populated erf
+        // numbers are legally different properties — no address/GPS/token
+        // similarity overrides that. This closes the gap where a scheme's
+        // shared street address (or a stale/mis-extracted erf from a
+        // mis-timed panel read) let unrelated properties collapse into one
+        // TrackedProperty via the looser strategies, and — critically — via
+        // strategy=1 (source-ref exact), which previously had NO conflict
+        // check at all. Same "both sides populated + differ" veto shape as
+        // above; a missing erf on either side never blocks a match.
+        $factErf = $this->numberKey($facts['erf_number'] ?? null);
+        $candErf = $this->numberKey($candidate->erf_number);
+        if ($factErf !== null && $candErf !== null && $factErf !== $candErf) {
             return true;
         }
 
@@ -554,23 +651,79 @@ final class TrackedPropertyMatchOrCreateService
         array $source,
         ?int $actorUserId,
     ): TrackedProperty {
-        $sanitised = $this->canonicalFactsForWrite($newFacts);
+        $sanitised  = $this->canonicalFactsForWrite($newFacts);
+        $sourceType = (string) ($source['type'] ?? 'unknown');
+        $alwaysWins = in_array($sourceType, self::SOURCE_ALWAYS_WINS, true);
 
         // Walk the sanitised facts only (all scalars). Build a diff against the
         // current TP values using fillable-column comparisons. Skips array-cast
         // columns by construction — canonicalFactsForWrite is scalar-only.
+        //
+        // fieldChanges records EVERY write this enrichment makes — field,
+        // previous value, new value, and whether it was a gain (existing was
+        // empty) or a correction (existing had a value and got replaced).
+        // Deliberately built from the SAME loop that decides the write, not
+        // reconstructed afterwards, so the audit trail can never drift from
+        // what was actually persisted. .ai/specs/deeds-capture.md §6 Part A/B.
         $diff = [];
+        $fieldChanges = [];
         foreach ($sanitised as $key => $newVal) {
-            $existing = $tp->{$key} ?? null;
-            // Empty existing → adopt the new value (covers most enrichments).
-            if ($existing === null || $existing === '') {
-                $diff[$key] = $newVal;
+            $rawExisting = $tp->{$key} ?? null;
+            // Normalise the STORED value the same way an incoming capture is
+            // normalised, before deciding filled-vs-replaced. A prior bug (fixed
+            // 2026-08-19 alongside this precedence rule) let literal placeholder
+            // strings ('-' etc.) get written as if they were real data — a row
+            // carrying that garbage today must not read as "already has a real
+            // value" and must not show a correction as "replaced 'ABSA Bank' for
+            // '-'" on the Deeds Capture screen.
+            $existing = is_string($rawExisting) ? $this->normaliseCapturedScalar($rawExisting) : $rawExisting;
+            $existingIsAbsent = ($existing === null || $existing === '');
+            // "Junk" = there IS something stored (raw), but it normalises to
+            // nothing — a placeholder written before this normalisation
+            // existed. Distinct from a column that has simply always been
+            // empty: junk is data already lost, not data being protected.
+            $existingIsJunk = $existingIsAbsent && $rawExisting !== null && $rawExisting !== '';
+
+            if ($newVal === null) {
+                // canonicalFactsForWrite() keeps a key with a null value when
+                // this capture ATTEMPTED the field and found nothing usable
+                // (a placeholder or blank) — distinct from never asking at
+                // all (which never reaches this loop). "Absent never
+                // overwrites" is the right guard for a genuine existing
+                // value, so it holds here unconditionally. But a STORED
+                // placeholder isn't real data the guard should protect — it's
+                // junk outliving every capture that also has nothing to
+                // offer, which is exactly how property_type stayed stuck at
+                // '-' on tracked_property 402 through this morning's
+                // recapture (2026-08-19, Johan). Only a SOURCE_ALWAYS_WINS
+                // source (deeds_capture) is trusted to clear it; every other
+                // source's behaviour is byte-for-byte unchanged from before
+                // this field could even reach here.
+                if ($alwaysWins && $existingIsJunk) {
+                    $diff[$key] = null;
+                    $fieldChanges[] = ['field' => $key, 'previous' => $rawExisting, 'new' => null, 'change_type' => 'cleared'];
+                }
                 continue;
             }
-            // For newer-wins fields, write whenever the value differs.
-            if (in_array($key, self::NEWER_WINS_FIELDS, true)
-                && (string) $existing !== (string) $newVal) {
+
+            // Empty (or junk) existing → adopt the new value (covers most
+            // enrichments, and cleans up junk as a side effect of a genuine
+            // fill — reported honestly as a gain, not "replaced '-' with
+            // X"). Unconditional: absent is not a value, so there is nothing
+            // to "replace" here regardless of source.
+            if ($existingIsAbsent) {
                 $diff[$key] = $newVal;
+                $fieldChanges[] = ['field' => $key, 'previous' => null, 'new' => $newVal, 'change_type' => 'filled'];
+                continue;
+            }
+            // A populated existing value: only overwrite it when this source is
+            // allowed to win — either a source-agnostic NEWER_WINS field, or
+            // (Johan, 2026-08-19) a SOURCE_ALWAYS_WINS source like deeds_capture,
+            // which wins on every field it actually captured, not just this list.
+            $sourceWinsHere = $alwaysWins || in_array($key, self::NEWER_WINS_FIELDS, true);
+            if ($sourceWinsHere && !$this->sameCapturedValue($existing, $newVal)) {
+                $diff[$key] = $newVal;
+                $fieldChanges[] = ['field' => $key, 'previous' => $existing, 'new' => $newVal, 'change_type' => 'replaced'];
                 continue;
             }
             // Otherwise the existing value stands (first source wins for stable identifiers).
@@ -578,11 +731,18 @@ final class TrackedPropertyMatchOrCreateService
 
         // Bookkeeping: always set on enrich.
         $diff['last_enriched_at']       = now();
-        $diff['last_enrichment_source'] = $source['type'] ?? 'unknown';
+        $diff['last_enrichment_source'] = $sourceType;
 
-        // Append-only source_chain.
+        // Append-only source_chain. field_changes rides on THIS entry only
+        // (omitted when empty, so old entries and no-op re-captures don't
+        // grow the column for nothing) — it's what the capture visible on
+        // /corex/deeds-capture actually did, not a running total.
+        $entry = $this->buildSourceChainEntry($source, $newFacts);
+        if ($fieldChanges !== []) {
+            $entry['field_changes'] = $fieldChanges;
+        }
         $chain   = $tp->source_chain ?? [];
-        $chain[] = $this->buildSourceChainEntry($source, $newFacts);
+        $chain[] = $entry;
         $diff['source_chain'] = $chain;
 
         $tp->update($diff);
@@ -596,7 +756,7 @@ final class TrackedPropertyMatchOrCreateService
         event(new TrackedPropertyEnriched(
             trackedPropertyId: (int) $tp->id,
             agencyId: (int) $tp->agency_id,
-            sourceType: (string) ($source['type'] ?? 'unknown'),
+            sourceType: $sourceType,
             fieldsAdded: $fieldsAdded,
             actorUserId: $actorUserId,
         ));
@@ -659,13 +819,38 @@ final class TrackedPropertyMatchOrCreateService
             'last_known_asking_price', 'last_known_sold_price', 'last_known_sold_date',
             'property_type', 'bedrooms', 'bathrooms', 'garages',
             'floor_size_m2', 'erf_size_m2',
+            // Sectional title unit extent (.ai/specs/deeds-capture.md §6 extent
+            // contract, 2026-08-19) — its OWN column, deliberately separate from
+            // both erf_size_m2 (freehold Extent) and cadastral_extent (freehold
+            // Cadastral extent). Never substituted for either.
+            'section_extent_m2',
+            // Deeds-specific columns (.ai/specs/deeds-capture.md) — added here
+            // so they flow through the SAME enrich() diff + precedence + audit
+            // mechanism as every other fact, instead of a second, separate
+            // unconditional-overwrite write in DeedsCaptureController. Harmless
+            // to every other source: none of them ever populate these keys.
+            'deeds_office', 'scheme_name', 'scheme_number', 'section_number',
+            'bond_holder', 'bond_amount', 'sale_type', 'deeds_registered_date',
         ];
 
+        // 2026-08-19 (Johan) — an attempted-but-placeholder field is kept as an
+        // EXPLICIT null here, not dropped. "Absent never overwrites" is the
+        // right guard for a genuine existing value, but it has a failure mode:
+        // a field already poisoned with a stored placeholder (from before this
+        // whole normalisation existed) could never be cleaned, because every
+        // later capture that also only has a placeholder for it looked
+        // identically absent — the key just vanished before enrich() ever saw
+        // it. Keeping the key (with a null value) lets enrich() tell "this
+        // capture tried and found nothing" apart from "this capture never
+        // asked" — only the former is eligible to clear existing junk. A
+        // non-deeds source (create() on a fresh row, or any other ingest path)
+        // treats this null exactly like an absent key: nothing is written.
         $out = [];
         foreach ($writable as $col) {
-            if (array_key_exists($col, $facts) && $facts[$col] !== null && $facts[$col] !== '') {
-                $out[$col] = $facts[$col];
+            if (!array_key_exists($col, $facts)) {
+                continue;
             }
+            $out[$col] = $this->normaliseCapturedScalar($facts[$col]);
         }
 
         // Normalise street name on write so identical addresses written under different
@@ -675,6 +860,51 @@ final class TrackedPropertyMatchOrCreateService
         }
 
         return $out;
+    }
+
+    /**
+     * A captured value is "absent" (return null, drop from the write) when it
+     * is null, empty/whitespace-only, or one of ABSENT_PLACEHOLDERS ('-',
+     * 'N/A', em/en dash, …) — the placeholder a scraped source sends in place
+     * of a real value. The extension is fixing this at the source too, but
+     * the server must not trust that: a dash arriving here by any other path
+     * (a future source, a payload built another way) must never be accepted
+     * as data. .ai/specs/deeds-capture.md §6 Part A.
+     */
+    private function normaliseCapturedScalar($val)
+    {
+        if ($val === null) {
+            return null;
+        }
+        if (!is_string($val)) {
+            return $val; // numeric/bool — nothing to placeholder-check
+        }
+        $trimmed = trim($val);
+        if ($trimmed === '') {
+            return null;
+        }
+        if (in_array(mb_strtolower($trimmed), self::ABSENT_PLACEHOLDERS, true)) {
+            return null;
+        }
+        return $trimmed;
+    }
+
+    /**
+     * True when an existing value and a freshly captured value are the same
+     * value, not just the same string. A decimal(…,7) GPS column round-trips
+     * -30.830085 as "-30.8300850" — a plain string compare (the previous
+     * behaviour) sees that as a change on EVERY re-capture of the identical
+     * coordinate, which would make the Deeds Capture screen report a
+     * "correction" on a capture that corrected nothing. Numeric-looking
+     * values on both sides compare numerically; anything else falls back to
+     * a string compare (unchanged behaviour for text fields).
+     */
+    private function sameCapturedValue($existing, $newVal): bool
+    {
+        if (is_numeric($existing) && is_numeric($newVal)) {
+            return abs((float) $existing - (float) $newVal) < 0.0000001;
+        }
+        return (string) $existing === (string) $newVal;
     }
 
     /**
@@ -702,15 +932,132 @@ final class TrackedPropertyMatchOrCreateService
     }
 
     /**
+     * Property-pillar refresh fields (2026-08-14) — the ONLY columns
+     * promoteToStock() will ever write onto an EXISTING (matched) Property.
+     * Everything else — agent_id, branch_id, status, status_label,
+     * mandate_type, price, title, listing_type, published_at, and any
+     * deal/outreach-linked data — is the owning agent's relationship state
+     * and is NEVER touched on refresh, regardless of whether it came from
+     * the TrackedProperty's own facts or a caller's $propertyFields. Only
+     * physical/factual columns: the property doesn't care who owns the
+     * relationship with it.
+     */
+    private const REFRESHABLE_PROPERTY_FIELDS = [
+        'street_number', 'street_name', 'suburb', 'town', 'province',
+        'latitude', 'longitude', 'cma_gps_lat', 'cma_gps_lng',
+        'erf_number', 'title_deed_number',
+        'municipal_valuation', 'municipal_valuation_year',
+        'property_type', 'beds', 'baths', 'garages',
+        'complex_name', 'unit_number', 'erf_size_m2',
+        // size_m2 (2026-08-19, .ai/specs/deeds-capture.md §6 extent contract)
+        // — the property record's own sectional/unit-size field ("Floor size"
+        // in the UI). Fed from tracked_properties.section_extent_m2 ONLY —
+        // never from erf_size_m2/cadastral_extent, and never the other
+        // direction. See promoteToStock() below for why this pairing exists.
+        'size_m2',
+    ];
+
+    /**
+     * Property-pillar match (2026-08-14) — the SAME physical-identity
+     * philosophy as resolveMatch() above, applied to `properties` instead of
+     * `tracked_properties`, so promoteToStock() links to ONE canonical
+     * Property per physical unit instead of creating a duplicate every time
+     * a distinct TrackedProperty (a fresh re-capture, a differently-matched
+     * suspense record, an earlier-session TP that pre-dates a matcher fix,
+     * etc.) gets promoted for the same real-world property.
+     *
+     * Sectional and freehold use DIFFERENT primary keys — same reasoning as
+     * numbersConflict()'s erf veto: every unit in a scheme shares one erf,
+     * so erf+suburb is only a safe key for FREEHOLD. Sectional keys on
+     * complex_name + unit_number: `properties.unit_number` is ALREADY the
+     * established convention for "CMA section number" on a deeds-sourced
+     * property (see DeedsCaptureController::promote()'s
+     * `'unit_number' => $trackedProperty->section_number`) — reused here
+     * rather than adding a new column, so there is ONE identity column for
+     * this, not two competing ones.
+     *
+     * Normalised address is the fallback for either title type, gated by
+     * propertyIdentityConflicts() so two different sectional units that both
+     * lack scheme/section data don't silently collapse onto the same
+     * Property via address alone (the exact bug class fixed in
+     * numbersConflict() for tracked_properties).
+     */
+    private function resolvePropertyMatch(TrackedProperty $tp): ?Property
+    {
+        $isSectional = filled($tp->scheme_number)
+            || (filled($tp->section_number) && preg_match('/\d/', (string) $tp->section_number));
+
+        if ($isSectional) {
+            $complexName = trim((string) ($tp->complex_name ?: $tp->scheme_name));
+            $section = trim((string) $tp->section_number);
+            if ($complexName !== '' && $section !== '') {
+                $match = Property::queryWithoutAgencyScope()
+                    ->where('agency_id', $tp->agency_id)
+                    ->whereNull('deleted_at')
+                    ->whereRaw('LOWER(complex_name) = ?', [mb_strtolower($complexName)])
+                    ->where('unit_number', $section)
+                    ->first();
+                if ($match) {
+                    return $match;
+                }
+            }
+        } elseif (filled($tp->erf_number) && filled($tp->suburb)) {
+            $match = Property::queryWithoutAgencyScope()
+                ->where('agency_id', $tp->agency_id)
+                ->whereNull('deleted_at')
+                ->where('erf_number', trim((string) $tp->erf_number))
+                ->where('suburb_normalised', TrackedPropertyAddress::normaliseSuburb($tp->suburb))
+                ->first();
+            if ($match) {
+                return $match;
+            }
+        }
+
+        // Fallback: normalised address + suburb, for either title type.
+        if (filled($tp->street_number) && filled($tp->street_name) && filled($tp->suburb)) {
+            $candidate = Property::queryWithoutAgencyScope()
+                ->where('agency_id', $tp->agency_id)
+                ->whereNull('deleted_at')
+                ->where('street_number', trim((string) $tp->street_number))
+                ->where('street_name_normalised', TrackedPropertyAddress::normaliseStreet($tp->street_name))
+                ->where('suburb_normalised', TrackedPropertyAddress::normaliseSuburb($tp->suburb))
+                ->first();
+            if ($candidate && ! $this->propertyIdentityConflicts($tp, $candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Lightweight sibling of numbersConflict() for resolvePropertyMatch()'s
+     * address-fallback branch. Same veto shape: only fires when BOTH sides
+     * carry a value AND they differ — a missing unit number on either side
+     * never blocks the match.
+     */
+    private function propertyIdentityConflicts(TrackedProperty $tp, Property $candidate): bool
+    {
+        $tpUnit = $this->numberKey($tp->section_number ?: $tp->unit_number);
+        $candUnit = $this->numberKey($candidate->unit_number);
+
+        return $tpUnit !== null && $candUnit !== null && $tpUnit !== $candUnit;
+    }
+
+    /**
      * Promote a Tracked Property to Agency Stock.
      *
-     * Creates a Property row, links the TP to it via promoted_to_property_id,
-     * and preserves the entire source_chain for audit.
+     * Resolves to ONE canonical Property via resolvePropertyMatch() — refreshes
+     * the physical facts (REFRESHABLE_PROPERTY_FIELDS only) if a matching
+     * Property already exists, creates one if not. Links the TP to it via
+     * promoted_to_property_id and preserves the entire source_chain for audit
+     * either way.
      *
      * Defence-of-NOT-NULL: properties.agent_id and properties.branch_id are NOT NULL
      * on the schema with no defaults. The promoting user supplies both — agent_id
      * defaults to the promoting user, branch_id to their branch. Caller may override
-     * either via $propertyFields.
+     * either via $propertyFields (CREATE path only — see REFRESHABLE_PROPERTY_FIELDS
+     * doc above for why $propertyFields is filtered down on the refresh path).
      */
     public function promoteToStock(
         int $trackedPropertyId,
@@ -732,12 +1079,15 @@ final class TrackedPropertyMatchOrCreateService
                 );
             }
 
-            $property = Property::create(array_merge(
-                [
-                    'agency_id'                => $tp->agency_id,
-                    'agent_id'                 => $promotingUserId,
-                    'branch_id'                => $defaultBranchId,
-                    'address'                  => $tp->displayAddress(),
+            $existingProperty = $this->resolvePropertyMatch($tp);
+
+            if ($existingProperty) {
+                // REFRESH — never blank an existing value with null/empty,
+                // and never write outside REFRESHABLE_PROPERTY_FIELDS. TP
+                // facts take precedence over $propertyFields (TP is the
+                // freshest capture); either source is filtered to the same
+                // whitelist before being applied.
+                $tpFacts = array_filter([
                     'street_number'            => $tp->street_number,
                     'street_name'              => $tp->street_name,
                     'suburb'                   => $tp->suburb,
@@ -751,19 +1101,99 @@ final class TrackedPropertyMatchOrCreateService
                     'title_deed_number'        => $tp->title_deed_number,
                     'municipal_valuation'      => $tp->municipal_valuation,
                     'municipal_valuation_year' => $tp->municipal_valuation_year,
-                    'property_type'            => $tp->property_type ?? 'house',
-                    'beds'                     => $tp->bedrooms ?? 0,
-                    'baths'                    => $tp->bathrooms ?? 0,
-                    'garages'                  => $tp->garages ?? 0,
-                    'price'                    => $tp->last_known_asking_price ?? 0,
-                    'title'                    => $tp->displayAddress(),
-                    'status'                   => 'draft',
-                    'listing_type'             => 'sale',
-                    // external_id auto-generated by Property's creating hook (char(36) UUID).
-                    // The TP↔Property linkage is preserved by tracked_properties.promoted_to_property_id.
-                ],
-                $propertyFields
-            ));
+                    'property_type'            => $tp->property_type,
+                    'beds'                     => $tp->bedrooms,
+                    'baths'                    => $tp->bathrooms,
+                    'garages'                  => $tp->garages,
+                    'complex_name'             => $tp->complex_name ?: $tp->scheme_name,
+                    // section_number takes priority (the deeds/sectional
+                    // convention this whole match key relies on) but falls
+                    // back to unit_number so a plain unit/flat number from a
+                    // non-deeds capture isn't silently dropped — that value
+                    // is exactly what propertyIdentityConflicts() needs
+                    // populated on the CANDIDATE side to veto a false match.
+                    'unit_number'              => $tp->section_number ?: $tp->unit_number,
+                    // Extent contract (2026-08-19, .ai/specs/deeds-capture.md
+                    // §6 Part A) — two DIFFERENT TP columns to two DIFFERENT
+                    // Property columns, never crossed. This used to read
+                    // $tp->cadastral_extent into erf_size_m2, which is exactly
+                    // how a sectional unit's Section extent (which cadastral_
+                    // extent was ALSO overloaded to carry, pre-fix) ended up in
+                    // an erf-size column on properties 6166/6186 — a freehold
+                    // erf and a sectional floor area are not interchangeable.
+                    'erf_size_m2'              => $tp->erf_size_m2,
+                    'size_m2'                  => $tp->section_extent_m2,
+                ], static fn ($v) => $v !== null && $v !== '');
+
+                $callerFacts = array_filter(
+                    array_intersect_key($propertyFields, array_flip(self::REFRESHABLE_PROPERTY_FIELDS)),
+                    static fn ($v) => $v !== null && $v !== ''
+                );
+
+                $refreshable = array_intersect_key(
+                    array_merge($tpFacts, $callerFacts),
+                    array_flip(self::REFRESHABLE_PROPERTY_FIELDS)
+                );
+
+                if ($refreshable !== []) {
+                    $existingProperty->update($refreshable);
+                }
+
+                $property = $existingProperty;
+            } else {
+                $property = Property::create(array_merge(
+                    [
+                        'agency_id'                => $tp->agency_id,
+                        'agent_id'                 => $promotingUserId,
+                        'branch_id'                => $defaultBranchId,
+                        'address'                  => $tp->displayAddress(),
+                        'street_number'            => $tp->street_number,
+                        'street_name'              => $tp->street_name,
+                        'suburb'                   => $tp->suburb,
+                        'town'                     => $tp->town,
+                        'province'                 => $tp->province,
+                        'latitude'                 => $tp->latitude,
+                        'longitude'                => $tp->longitude,
+                        'cma_gps_lat'              => $tp->cma_gps_lat,
+                        'cma_gps_lng'              => $tp->cma_gps_lng,
+                        'erf_number'               => $tp->erf_number,
+                        'title_deed_number'        => $tp->title_deed_number,
+                        'municipal_valuation'      => $tp->municipal_valuation,
+                        'municipal_valuation_year' => $tp->municipal_valuation_year,
+                        'property_type'            => $tp->property_type ?? 'house',
+                        'beds'                     => $tp->bedrooms ?? 0,
+                        'baths'                    => $tp->bathrooms ?? 0,
+                        'garages'                  => $tp->garages ?? 0,
+                        'price'                    => $tp->last_known_asking_price ?? 0,
+                        'title'                    => $tp->displayAddress(),
+                        'status'                   => 'draft',
+                        'listing_type'             => 'sale',
+                        // complex_name/unit_number (2026-08-14) — carry the
+                        // scheme/section identity onto the new Property so a
+                        // LATER promote() of a different unit in the same
+                        // scheme can resolvePropertyMatch() against it,
+                        // instead of every unit only ever creating fresh.
+                        // section_number takes priority but falls back to
+                        // unit_number — same reasoning as the refresh path
+                        // above (propertyIdentityConflicts() needs whichever
+                        // one the capture actually carries).
+                        'complex_name'             => $tp->complex_name ?: $tp->scheme_name,
+                        'unit_number'              => $tp->section_number ?: $tp->unit_number,
+                        // Extent contract (2026-08-19, .ai/specs/deeds-capture.md
+                        // §6 Part A) — same pairing as the REFRESH branch above:
+                        // erf_size_m2 (freehold erf) and size_m2 (sectional unit
+                        // "Floor size") are fed from two DIFFERENT TP columns and
+                        // never crossed. Neither was carried through on CREATE at
+                        // all before this fix — a brand-new promotion silently
+                        // lost the extent entirely.
+                        'erf_size_m2'              => $tp->erf_size_m2,
+                        'size_m2'                  => $tp->section_extent_m2,
+                        // external_id auto-generated by Property's creating hook (char(36) UUID).
+                        // The TP↔Property linkage is preserved by tracked_properties.promoted_to_property_id.
+                    ],
+                    $propertyFields
+                ));
+            }
 
             $tp->update([
                 'promoted_to_property_id' => $property->id,

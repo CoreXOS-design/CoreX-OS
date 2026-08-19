@@ -52,6 +52,44 @@ class Property24SyndicationService
      * subsequent ingress paths (e.g. P24 lead pull) can resolve back to this
      * stock Property via TrackedPropertyMatchOrCreateService. Best-effort —
      * any failure here must not break syndication.
+     *
+     * MIC CRISIS ITEM 3 (2026-08-19, Johan — reopened regression, "already in
+     * stock" + opens the wrong property): this method used to write
+     * `promoted_to_property_id` onto WHATEVER TrackedProperty matchOrCreate()
+     * returned — including one it merely MATCHED via a loose strategy
+     * (address-history / normalised-address / token-overlap), not one it
+     * created from THIS property's own facts. $facts here is deliberately
+     * thin (raw `address` string, no street_number/street_name split, no
+     * erf_number at all — cheap on purpose, this is a best-effort audit
+     * write, not a full capture), so the matcher's loose strategies are the
+     * ones most likely to fire. Confirmed live on qa1 (properties #1370,
+     * #3548, #6096): this call runs on EVERY P24 sync (property #1370 alone
+     * shows 11 separate writeP24ExternalRef entries in one TrackedProperty's
+     * source_chain over two weeks), and because the candidate pool of
+     * TrackedProperty rows keeps growing, a LATER sync of the SAME already-
+     * promoted property matched a DIFFERENT, genuinely unrelated
+     * TrackedProperty than an EARLIER sync did — and this method blindly
+     * stamped promoted_to_property_id on it too, without setting promoted_at/
+     * promoted_by_user_id/status the way the real claim/promote flow
+     * (TrackedPropertyMatchOrCreateService::promoteToStock()) does. That
+     * poisoned TrackedProperty then reads as "already in agency stock" the
+     * next time an agent tries to claim/promote it from MIC
+     * (TrackedPropertyController::promote()'s isPromoted() check is just
+     * `promoted_to_property_id !== null`) — and redirects to THIS property,
+     * not the one the agent actually meant to claim. All three confirmed-live
+     * poisoned rows have promoted_to_property_id set but promoted_at NULL —
+     * the tell that they were never promoted through the real flow.
+     *
+     * Fix: only bind promoted_to_property_id when matchOrCreate() genuinely
+     * CREATED a fresh TrackedProperty in THIS call (wasRecentlyCreated) — a
+     * freshly-created row was seeded directly from $facts, i.e. from THIS
+     * property's own address/suburb/GPS, so linking it back is safe by
+     * construction. When matchOrCreate() instead MATCHED an existing row,
+     * that row's identity was only established by a best-effort strategy and
+     * may belong to a different physical unit — leave promoted_to_property_id
+     * alone; writeExternalRef() (called unconditionally inside
+     * matchOrCreate() itself) still records the P24 ref either way, which is
+     * this method's actual stated purpose.
      */
     private function writeP24ExternalRef(Property $property, string $listingNumber): void
     {
@@ -75,8 +113,12 @@ class Property24SyndicationService
                 actorUserId: null,
             );
 
-            // Bind the tracked property to this stock property if not already.
-            if (empty($tracked->promoted_to_property_id)) {
+            // Bind the tracked property to this stock property ONLY when it was
+            // freshly created for THIS call (seeded from this property's own
+            // facts) — never an EXISTING row merely matched by a loose
+            // strategy, which can be a genuinely different physical unit. See
+            // the MIC CRISIS ITEM 3 comment above.
+            if ($tracked->wasRecentlyCreated && empty($tracked->promoted_to_property_id)) {
                 $tracked->promoted_to_property_id = $property->id;
                 $tracked->save();
             }
