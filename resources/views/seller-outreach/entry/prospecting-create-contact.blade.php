@@ -128,301 +128,51 @@
     {{-- Contact form — SEARCH & link an existing contact, OR capture a new one.
          Both modes post to the store route matching the source; the controller
          branches on contact_id. --}}
+    @php
+        // Defensive view-boundary default (2026-08-19) — the controller now builds and
+        // passes $composeConfig explicitly (EntryPointController::fromProspecting()). This
+        // is a FALLBACK only, so a different entry point rendering this same template
+        // (fromProperty / fromTrackedProperty) — or any future regression that forgets to
+        // pass it — degrades to a working page built from whatever view variables ARE
+        // present, never an undefined-variable error screen on Johan's critical path.
+        $composeConfig ??= [
+            'contactKind' => old('contact_kind', 'natural_person'),
+            'idKind' => old('id_type', 'sa_id'),
+            'searchUrl' => route('corex.properties.contacts.search-global'),
+            'deeds' => $deeds ?? [],
+            'linkDeedUrl' => $linkDeedUrl ?? null,
+            'deedOwners' => $deedLink['owners'] ?? [],
+            'deedCandidates' => $deedLink['candidates'] ?? [],
+            'deedPollUrl' => $deedPollUrl ?? null,
+            'sellers' => $sellerState['sellers'] ?? [],
+            'tva' => $sellerState['tva'] ?? (object) [],
+            'propertyId' => $sellerState['property_id'] ?? null,
+            'linkSellerUrl' => $linkSellerUrl ?? null,
+            'unlinkSellerUrl' => $unlinkSellerUrl ?? null,
+            'tvaIngestUrl' => $tvaIngestUrl ?? null,
+            'primarySellerUrl' => $primarySellerUrl ?? null,
+            'deadEndSellerUrl' => $deadEndSellerUrl ?? null,
+            'unlinkDeedUrl' => $unlinkDeedUrl ?? null,
+            'removeNumberUrl' => $removeNumberUrl ?? null,
+            'primaryNumberUrl' => $primaryNumberUrl ?? null,
+            'linkedDeed' => $sellerState['linked_deed'] ?? null,
+            'removed' => $sellerState['removed'] ?? [],
+            'contactTyped' => (trim((string) old('phone', '')) !== '' || trim((string) old('email', '')) !== ''),
+        ];
+    @endphp
+    {{-- P0 fix (2026-08-19) — the entire Alpine state object used to live inline in this
+         x-data attribute. Quoting Johan verbatim in a JS comment inside it put a literal "
+         character in a double-quoted HTML attribute, which the BROWSER's HTML parser (not
+         Blade) terminated the attribute on — everything after rendered as visible body text.
+         A byte-length check on the compiled Blade output can never catch this: the string is
+         intact in the PHP/HTML output: the truncation happens only when a browser parses it.
+         Fix, per ruling: the object literal is now defined ONCE in a real <script> block
+         (bottom of this file) as composeSeller(config); this attribute passes only a small,
+         comment-free config object via Js::from(), which is safe in both JS-string and
+         HTML-attribute context. No JavaScript object literal may live inside a Blade
+         attribute again — this is the third screen this has taken down. --}}
     <form method="POST"
-          x-data="{
-              mode: 'create',
-              // Natural person vs Entity (company / CC / trust) for the manual capture. An agent must be
-              // able to capture an entity seller here, not be forced to a natural person. Reps are added
-              // on the entity record afterward (Johan 2026-08-14) — this modal only needs name + reg no.
-              contactKind: '{{ old('contact_kind', 'natural_person') }}',
-              // #17 — for a natural person, SA ID vs foreign passport. SA validates the 13-digit ID;
-              // a foreign national enters a passport + a directly-entered DOB (the passport doesn't
-              // encode it). Same discriminator + rules as the main contact form.
-              idKind: '{{ old('id_type', 'sa_id') }}',
-              q: '',
-              results: [],
-              loading: false,
-              selected: null,
-              searchUrl: '{{ route('corex.properties.contacts.search-global') }}',
-              label(c) { return ((c.first_name || '') + ' ' + (c.last_name || '')).trim() || '(no name)'; },
-              async search() {
-                  const term = this.q.trim();
-                  if (term.length < 2) { this.results = []; this.loading = false; return; }
-                  this.loading = true;
-                  try {
-                      const res = await fetch(this.searchUrl + '?q=' + encodeURIComponent(term), {
-                          headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-                      });
-                      this.results = res.ok ? await res.json() : [];
-                  } catch (e) { this.results = []; }
-                  this.loading = false;
-              },
-              choose(c) { this.selected = c; this.results = []; this.q = ''; },
-              // MIC ↔ Deeds ↔ Contact loop (Part A) — prefill the create-new fields from a
-              // scraped deed owner (name + SA ID) so the agent uses what CoreX already ingested.
-              useDeedOwner(o) {
-                  this.mode = 'create';
-                  this.selected = null;
-                  this.$nextTick(() => {
-                      if (this.$refs.firstName) this.$refs.firstName.value = o.first_name || '';
-                      if (this.$refs.lastName)  this.$refs.lastName.value  = o.last_name || '';
-                      if (this.$refs.idNumber)  this.$refs.idNumber.value  = o.id_number || '';
-                      if (this.$refs.firstName) this.$refs.firstName.focus();
-                  });
-              },
-              // ── Manual 'Link a deed' modal ──
-              showDeedModal: false,
-              deedSearch: '',
-              deeds: @js($deeds ?? []),
-              linkDeedUrl: @js($linkDeedUrl ?? null),
-              // FIX 2 — live deed state (reactive), initialised from the server render and refreshed
-              // by polling so a scrape auto-surfaces without a full reload (form state preserved).
-              deed: { owners: @js($deedLink['owners'] ?? []), candidates: @js($deedLink['candidates'] ?? []) },
-              deedPollUrl: @js($deedPollUrl ?? null),
-              _deedTimer: null,
-              deedRefreshing: false,
-              deedRefreshMessage: null,
-              // Numbers vs deed-matching (2026-08-19, Johan): "why dont we just put a
-              // refresh button next to link a deed - click refresh to auto link..."
-              // — automatic linking can never be confident (agent-typed vs deed
-              // address genuinely differ), so silently re-picking a deed match on a
-              // background timer is exactly the "system guessing on his behalf" he
-              // doesn't want. Numbers for an ALREADY-linked seller carry no such
-              // risk (TVA matches by exact SA ID, not fuzzy address), so THOSE stay
-              // automatic. The timer below therefore only ever touches
-              // sellers/tva/property_id/linked_deed/removed — never deed.owners or
-              // deed.candidates. Those two update ONLY from refreshDeedMatch(),
-              // which only ever runs on an explicit button click.
-              startDeedPoll() {
-                  if (!this.deedPollUrl) return;
-                  this._deedTimer = setInterval(() => this.pollNumbers(), 5000);
-                  // The agent LEAVES this tab to run TVA, so the import lands while this tab is
-                  // backgrounded — where the browser freezes or throttles the interval to about
-                  // once a minute. Without an immediate catch-up on return, the numbers sit stale
-                  // until the next slow tick (Johan 2026-08-14 live blocker, same shape as the
-                  // deed case). Fire a poll the instant the tab is shown / regains focus.
-                  this._onDeedVisible = () => { if (!document.hidden) this.pollNumbers(); };
-                  document.addEventListener('visibilitychange', this._onDeedVisible);
-                  window.addEventListener('focus', this._onDeedVisible);
-                  // And poll once now, closing the gap between the server render and the first tick.
-                  this.pollNumbers();
-              },
-              async pollNumbers() {
-                  if (document.hidden) return;   // don't poll a backgrounded tab
-                  try {
-                      const res = await fetch(this.deedPollUrl, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
-                      if (!res.ok) return;
-                      const d = await res.json();
-                      // Multi-seller (Part A) + TVA (Part B) + reversibility (R1/R2) live state —
-                      // safe to auto-apply: numbers for a seller already linked by exact ID match.
-                      if (d.sellers) this.sellers = d.sellers;
-                      if (d.tva) this.tva = d.tva;
-                      if (d.property_id) this.propertyId = d.property_id;
-                      if ('linked_deed' in d) this.linkedDeed = d.linked_deed;
-                      if ('removed' in d) this.removed = d.removed || [];
-                  } catch (e) { /* transient — keep polling */ }
-              },
-              // Explicit-only (2026-08-19) — the ONLY thing that ever changes deed.owners /
-              // deed.candidates / the modal's deed list after the initial page render. Bound to
-              // the "Refresh" button beside Link a deed; never called from a timer. Always
-              // states what it found — Johan: "silence reads as broken."
-              async refreshDeedMatch() {
-                  if (!this.deedPollUrl || this.deedRefreshing) return;
-                  this.deedRefreshing = true;
-                  this.deedRefreshMessage = null;
-                  try {
-                      const res = await fetch(this.deedPollUrl, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
-                      if (!res.ok) { this.deedRefreshMessage = 'Refresh failed — try again.'; return; }
-                      const d = await res.json();
-                      this.deed.owners = d.owners || [];
-                      this.deed.candidates = d.candidates || [];
-                      if (Array.isArray(d.deeds)) this.deeds = d.deeds;
-                      if (this.deed.owners.length) {
-                          this.deedRefreshMessage = 'Linked a deed — ' + this.deed.owners.length + ' owner' + (this.deed.owners.length === 1 ? '' : 's') + ' found.';
-                      } else if (this.deed.candidates.length) {
-                          this.deedRefreshMessage = this.deed.candidates.length + ' possible deed' + (this.deed.candidates.length === 1 ? '' : 's') + ' to review below.';
-                      } else {
-                          this.deedRefreshMessage = 'No matching deed found.';
-                      }
-                  } catch (e) {
-                      this.deedRefreshMessage = 'Refresh failed — try again.';
-                  } finally {
-                      this.deedRefreshing = false;
-                  }
-              },
-              // ── Multi-seller link (Part A) + TVA number picker (Part B) ──
-              sellers: @js($sellerState['sellers'] ?? []),
-              tva: @js($sellerState['tva'] ?? (object)[]),
-              propertyId: @js($sellerState['property_id'] ?? null),
-              linkSellerUrl: @js($linkSellerUrl ?? null),
-              unlinkSellerUrl: @js($unlinkSellerUrl ?? null),
-              tvaIngestUrl: @js($tvaIngestUrl ?? null),
-              primarySellerUrl: @js($primarySellerUrl ?? null),
-              deadEndSellerUrl: @js($deadEndSellerUrl ?? null),
-              unlinkDeedUrl: @js($unlinkDeedUrl ?? null),
-              removeNumberUrl: @js($removeNumberUrl ?? null),
-              primaryNumberUrl: @js($primaryNumberUrl ?? null),
-              linkedDeed: @js($sellerState['linked_deed'] ?? null),
-              removed: @js($sellerState['removed'] ?? []),
-              tvaPicks: {},
-              sellerBusy: false,
-              // When sellers are already linked, the manual seller-contact form is collapsed and
-              // NOT a required gate — continue runs off the linked sellers.
-              showManualForm: false,
-              async setPrimary(contactId) {
-                  if (!this.primarySellerUrl || this.sellerBusy) return;
-                  // Optimistic single-primary — one click flips it instantly (others unset locally),
-                  // then the server confirms. Fixes the click-repeatedly flakiness.
-                  this.sellers = this.sellers.map(s => ({ ...s, is_primary: s.contact_id === contactId }));
-                  this.sellerBusy = true;
-                  try {
-                      const res = await fetch(this.primarySellerUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify({ contact_id: contactId }) });
-                      if (res.ok) this.applySellerState(await res.json());
-                  } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
-              },
-              async markSellerDeadEnd(contactId, reason) {
-                  if (!this.deadEndSellerUrl || this.sellerBusy) return;
-                  this.sellerBusy = true;
-                  try {
-                      const res = await fetch(this.deadEndSellerUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify({ contact_id: contactId, reason: reason || 'not_in_tva' }) });
-                      if (res.ok) this.applySellerState(await res.json());
-                  } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
-              },
-              async clearSellerDeadEnd(contactId) {
-                  if (!this.deadEndSellerUrl || this.sellerBusy) return;
-                  this.sellerBusy = true;
-                  try {
-                      const res = await fetch(this.deadEndSellerUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify({ contact_id: contactId, clear: true }) });
-                      if (res.ok) this.applySellerState(await res.json());
-                  } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
-              },
-              _postHeaders() {
-                  return { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest',
-                           'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content || '' };
-              },
-              applySellerState(d) {
-                  this.sellers = d.sellers || [];
-                  this.tva = d.tva || {};
-                  if (d.property_id) this.propertyId = d.property_id;
-                  if ('linked_deed' in d) this.linkedDeed = d.linked_deed;
-                  if ('removed' in d) this.removed = d.removed || [];
-              },
-              isSellerLinked(owner) {
-                  if (!owner) return false;
-                  // Match on the resolved contact FIRST (an entity has no SA ID), then on SA ID.
-                  return this.sellers.some(s =>
-                      (owner.contact_id && s.contact_id === owner.contact_id)
-                      || (owner.id_number && s.id_number === owner.id_number));
-              },
-              isRemoved(idNumber) { return !!idNumber && (this.removed || []).includes(idNumber); },
-              async unlinkDeed() {
-                  if (!this.unlinkDeedUrl || this.sellerBusy) return;
-                  if (!window.confirm('Unlink this deed? Its auto-linked sellers are removed and the address reverts. Manual sellers stay.')) return;
-                  this.sellerBusy = true;
-                  try {
-                      const res = await fetch(this.unlinkDeedUrl, { method: 'POST', headers: this._postHeaders(), body: '{}' });
-                      if (res.ok) { this.applySellerState(await res.json()); this.refreshDeedMatch(); }
-                  } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
-              },
-              async removeNumber(contactId, type, value) {
-                  if (!this.removeNumberUrl || this.sellerBusy) return;
-                  this.sellerBusy = true;
-                  try {
-                      const res = await fetch(this.removeNumberUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify({ contact_id: contactId, type, value }) });
-                      if (res.ok) this.applySellerState(await res.json());
-                  } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
-              },
-              async setPrimaryNumber(contactId, type, value) {
-                  if (!this.primaryNumberUrl || this.sellerBusy) return;
-                  this.sellerBusy = true;
-                  try {
-                      const res = await fetch(this.primaryNumberUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify({ contact_id: contactId, type, value }) });
-                      if (res.ok) this.applySellerState(await res.json());
-                  } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
-              },
-              waUrl(v) { return 'https://wa.me/' + (v || '').replace(/[^0-9]/g, '').replace(/^0/, '27'); },
-              async linkSeller(owner) {
-                  if (!this.linkSellerUrl || this.sellerBusy) return;
-                  // Prefer the contact already resolved off the deed (a director OR the company entity):
-                  // links the exact contact, no SA ID required. An entity with no contact yet keys on its
-                  // registration number, never a 13-digit SA ID; a natural person keys on their SA ID.
-                  let body;
-                  if (owner.contact_id) {
-                      body = { contact_id: owner.contact_id };
-                  } else if (owner.is_entity) {
-                      body = { entity: true, entity_name: owner.display_name || owner.name, entity_reg_no: owner.entity_reg_no || owner.id_number || '' };
-                  } else if (owner.id_number) {
-                      body = { first_name: owner.first_name, last_name: owner.last_name, id_number: owner.id_number };
-                  } else {
-                      window.alert('This owner has no SA ID or registration number on the deed — cannot link as a distinct seller.');
-                      return;
-                  }
-                  this.sellerBusy = true;
-                  try {
-                      const res = await fetch(this.linkSellerUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify(body) });
-                      if (res.ok) { this.applySellerState(await res.json()); }
-                      else {
-                          // NEVER a silent no-op — surface the server's reason (Johan 2026-08-14).
-                          const err = await res.json().catch(() => ({}));
-                          const msg = err.message || (err.errors && Object.values(err.errors).flat()[0]) || 'Could not link this owner as a seller.';
-                          window.alert(msg);
-                      }
-                  } catch (e) {
-                      window.alert('Could not link this owner — a network error occurred. Please try again.');
-                  } finally { this.sellerBusy = false; }
-              },
-              async unlinkSeller(contactId) {
-                  if (!this.unlinkSellerUrl || this.sellerBusy) return;
-                  this.sellerBusy = true;
-                  try {
-                      const res = await fetch(this.unlinkSellerUrl, { method: 'POST', headers: this._postHeaders(),
-                          body: JSON.stringify({ contact_id: contactId }) });
-                      if (res.ok) this.applySellerState(await res.json());
-                  } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
-              },
-              tvaFor(idNumber) { return (idNumber && this.tva[idNumber]) ? this.tva[idNumber] : null; },
-              toggleTvaPick(contactId, itemId) {
-                  if (!this.tvaPicks[contactId]) this.tvaPicks[contactId] = [];
-                  const arr = this.tvaPicks[contactId];
-                  const i = arr.indexOf(itemId);
-                  if (i >= 0) arr.splice(i, 1); else arr.push(itemId);
-              },
-              isTvaPicked(contactId, itemId) { return (this.tvaPicks[contactId] || []).includes(itemId); },
-              async saveTvaNumbers(contactId) {
-                  const ids = this.tvaPicks[contactId] || [];
-                  if (!ids.length || !this.tvaIngestUrl || this.sellerBusy) return;
-                  this.sellerBusy = true;
-                  try {
-                      const res = await fetch(this.tvaIngestUrl, { method: 'POST', headers: this._postHeaders(),
-                          body: JSON.stringify({ contact_id: contactId, item_ids: ids }) });
-                      if (res.ok) { this.applySellerState(await res.json()); this.tvaPicks[contactId] = []; }
-                  } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
-              },
-              filteredDeeds() {
-                  const q = this.deedSearch.trim().toLowerCase();
-                  if (!q) return this.deeds;
-                  return this.deeds.filter(d => (d.search || '').includes(q));
-              },
-              async pickDeed(deed) {
-                  this.showDeedModal = false;
-                  if (!this.linkDeedUrl || !deed.tracked_property_id || this.sellerBusy) return;
-                  // R1 — selecting a deed REPLACES the deed: the Sellers panel + address follow it
-                  // (applySellerState) and the deed panels refresh (refreshDeedMatch — explicit, this IS the click).
-                  this.sellerBusy = true;
-                  try {
-                      const res = await fetch(this.linkDeedUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify({ tracked_property_id: deed.tracked_property_id }) });
-                      if (res.ok) { this.applySellerState(await res.json()); this.refreshDeedMatch(); }
-                  } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
-              },
-              // ── Part B: 'No contact details available' dead-end override ──
-              noContactDetails: false,
-              deadEndReason: 'not_in_tva',
-              contactTyped: {{ (trim((string) old('phone','')) !== '' || trim((string) old('email','')) !== '') ? 'true' : 'false' }},
-              hasTypedContact() {
-                  return !!((this.$refs.phone && this.$refs.phone.value.trim())
-                      || (this.$refs.email && this.$refs.email.value.trim()));
-              },
-          }"
+          x-data="composeSeller({{ Js::from($composeConfig) }})"
           x-init="startDeedPoll()"
           action="{{ !empty($trackedProperty)
               ? route('seller-outreach.entry.store-from-tracked-property', $trackedProperty->id)
@@ -987,4 +737,257 @@
         </div>
     </form>
 </div>
+<script>
+function composeSeller(config) {
+    return {
+        mode: 'create',
+        contactKind: config.contactKind,
+        idKind: config.idKind,
+        q: '',
+        results: [],
+        loading: false,
+        selected: null,
+        searchUrl: config.searchUrl,
+        label(c) { return ((c.first_name || '') + ' ' + (c.last_name || '')).trim() || '(no name)'; },
+        async search() {
+            const term = this.q.trim();
+            if (term.length < 2) { this.results = []; this.loading = false; return; }
+            this.loading = true;
+            try {
+                const res = await fetch(this.searchUrl + '?q=' + encodeURIComponent(term), {
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                });
+                this.results = res.ok ? await res.json() : [];
+            } catch (e) { this.results = []; }
+            this.loading = false;
+        },
+        choose(c) { this.selected = c; this.results = []; this.q = ''; },
+        useDeedOwner(o) {
+            this.mode = 'create';
+            this.selected = null;
+            this.$nextTick(() => {
+                if (this.$refs.firstName) this.$refs.firstName.value = o.first_name || '';
+                if (this.$refs.lastName)  this.$refs.lastName.value  = o.last_name || '';
+                if (this.$refs.idNumber)  this.$refs.idNumber.value  = o.id_number || '';
+                if (this.$refs.firstName) this.$refs.firstName.focus();
+            });
+        },
+        showDeedModal: false,
+        deedSearch: '',
+        deeds: config.deeds,
+        linkDeedUrl: config.linkDeedUrl,
+        deed: { owners: config.deedOwners, candidates: config.deedCandidates },
+        deedPollUrl: config.deedPollUrl,
+        _deedTimer: null,
+        deedRefreshing: false,
+        deedRefreshMessage: null,
+        // Automatic timer: numbers only (exact-ID TVA match, no wrong-match risk).
+        // Deed matching (fuzzy address) updates ONLY from refreshDeedMatch(), on click.
+        startDeedPoll() {
+            if (!this.deedPollUrl) return;
+            this._deedTimer = setInterval(() => this.pollNumbers(), 5000);
+            this._onDeedVisible = () => { if (!document.hidden) this.pollNumbers(); };
+            document.addEventListener('visibilitychange', this._onDeedVisible);
+            window.addEventListener('focus', this._onDeedVisible);
+            this.pollNumbers();
+        },
+        async pollNumbers() {
+            if (document.hidden) return;
+            try {
+                const res = await fetch(this.deedPollUrl, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
+                if (!res.ok) return;
+                const d = await res.json();
+                if (d.sellers) this.sellers = d.sellers;
+                if (d.tva) this.tva = d.tva;
+                if (d.property_id) this.propertyId = d.property_id;
+                if ('linked_deed' in d) this.linkedDeed = d.linked_deed;
+                if ('removed' in d) this.removed = d.removed || [];
+            } catch (e) { /* transient — keep polling */ }
+        },
+        async refreshDeedMatch() {
+            if (!this.deedPollUrl || this.deedRefreshing) return;
+            this.deedRefreshing = true;
+            this.deedRefreshMessage = null;
+            try {
+                const res = await fetch(this.deedPollUrl, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
+                if (!res.ok) { this.deedRefreshMessage = 'Refresh failed — try again.'; return; }
+                const d = await res.json();
+                this.deed.owners = d.owners || [];
+                this.deed.candidates = d.candidates || [];
+                if (Array.isArray(d.deeds)) this.deeds = d.deeds;
+                if (this.deed.owners.length) {
+                    this.deedRefreshMessage = 'Linked a deed \u2014 ' + this.deed.owners.length + ' owner' + (this.deed.owners.length === 1 ? '' : 's') + ' found.';
+                } else if (this.deed.candidates.length) {
+                    this.deedRefreshMessage = this.deed.candidates.length + ' possible deed' + (this.deed.candidates.length === 1 ? '' : 's') + ' to review below.';
+                } else {
+                    this.deedRefreshMessage = 'No matching deed found.';
+                }
+            } catch (e) {
+                this.deedRefreshMessage = 'Refresh failed — try again.';
+            } finally {
+                this.deedRefreshing = false;
+            }
+        },
+        sellers: config.sellers,
+        tva: config.tva,
+        propertyId: config.propertyId,
+        linkSellerUrl: config.linkSellerUrl,
+        unlinkSellerUrl: config.unlinkSellerUrl,
+        tvaIngestUrl: config.tvaIngestUrl,
+        primarySellerUrl: config.primarySellerUrl,
+        deadEndSellerUrl: config.deadEndSellerUrl,
+        unlinkDeedUrl: config.unlinkDeedUrl,
+        removeNumberUrl: config.removeNumberUrl,
+        primaryNumberUrl: config.primaryNumberUrl,
+        linkedDeed: config.linkedDeed,
+        removed: config.removed,
+        tvaPicks: {},
+        sellerBusy: false,
+        showManualForm: false,
+        async setPrimary(contactId) {
+            if (!this.primarySellerUrl || this.sellerBusy) return;
+            this.sellers = this.sellers.map(s => ({ ...s, is_primary: s.contact_id === contactId }));
+            this.sellerBusy = true;
+            try {
+                const res = await fetch(this.primarySellerUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify({ contact_id: contactId }) });
+                if (res.ok) this.applySellerState(await res.json());
+            } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
+        },
+        async markSellerDeadEnd(contactId, reason) {
+            if (!this.deadEndSellerUrl || this.sellerBusy) return;
+            this.sellerBusy = true;
+            try {
+                const res = await fetch(this.deadEndSellerUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify({ contact_id: contactId, reason: reason || 'not_in_tva' }) });
+                if (res.ok) this.applySellerState(await res.json());
+            } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
+        },
+        async clearSellerDeadEnd(contactId) {
+            if (!this.deadEndSellerUrl || this.sellerBusy) return;
+            this.sellerBusy = true;
+            try {
+                const res = await fetch(this.deadEndSellerUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify({ contact_id: contactId, clear: true }) });
+                if (res.ok) this.applySellerState(await res.json());
+            } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
+        },
+        _postHeaders() {
+            return { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest',
+                     'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content || '' };
+        },
+        applySellerState(d) {
+            this.sellers = d.sellers || [];
+            this.tva = d.tva || {};
+            if (d.property_id) this.propertyId = d.property_id;
+            if ('linked_deed' in d) this.linkedDeed = d.linked_deed;
+            if ('removed' in d) this.removed = d.removed || [];
+        },
+        isSellerLinked(owner) {
+            if (!owner) return false;
+            return this.sellers.some(s =>
+                (owner.contact_id && s.contact_id === owner.contact_id)
+                || (owner.id_number && s.id_number === owner.id_number));
+        },
+        isRemoved(idNumber) { return !!idNumber && (this.removed || []).includes(idNumber); },
+        async unlinkDeed() {
+            if (!this.unlinkDeedUrl || this.sellerBusy) return;
+            if (!window.confirm('Unlink this deed? Its auto-linked sellers are removed and the address reverts. Manual sellers stay.')) return;
+            this.sellerBusy = true;
+            try {
+                const res = await fetch(this.unlinkDeedUrl, { method: 'POST', headers: this._postHeaders(), body: '{}' });
+                if (res.ok) { this.applySellerState(await res.json()); this.refreshDeedMatch(); }
+            } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
+        },
+        async removeNumber(contactId, type, value) {
+            if (!this.removeNumberUrl || this.sellerBusy) return;
+            this.sellerBusy = true;
+            try {
+                const res = await fetch(this.removeNumberUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify({ contact_id: contactId, type, value }) });
+                if (res.ok) this.applySellerState(await res.json());
+            } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
+        },
+        async setPrimaryNumber(contactId, type, value) {
+            if (!this.primaryNumberUrl || this.sellerBusy) return;
+            this.sellerBusy = true;
+            try {
+                const res = await fetch(this.primaryNumberUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify({ contact_id: contactId, type, value }) });
+                if (res.ok) this.applySellerState(await res.json());
+            } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
+        },
+        waUrl(v) { return 'https://wa.me/' + (v || '').replace(/[^0-9]/g, '').replace(/^0/, '27'); },
+        async linkSeller(owner) {
+            if (!this.linkSellerUrl || this.sellerBusy) return;
+            let body;
+            if (owner.contact_id) {
+                body = { contact_id: owner.contact_id };
+            } else if (owner.is_entity) {
+                body = { entity: true, entity_name: owner.display_name || owner.name, entity_reg_no: owner.entity_reg_no || owner.id_number || '' };
+            } else if (owner.id_number) {
+                body = { first_name: owner.first_name, last_name: owner.last_name, id_number: owner.id_number };
+            } else {
+                window.alert('This owner has no SA ID or registration number on the deed \u2014 cannot link as a distinct seller.');
+                return;
+            }
+            this.sellerBusy = true;
+            try {
+                const res = await fetch(this.linkSellerUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify(body) });
+                if (res.ok) { this.applySellerState(await res.json()); }
+                else {
+                    const err = await res.json().catch(() => ({}));
+                    const msg = err.message || (err.errors && Object.values(err.errors).flat()[0]) || 'Could not link this owner as a seller.';
+                    window.alert(msg);
+                }
+            } catch (e) {
+                window.alert('Could not link this owner \u2014 a network error occurred. Please try again.');
+            } finally { this.sellerBusy = false; }
+        },
+        async unlinkSeller(contactId) {
+            if (!this.unlinkSellerUrl || this.sellerBusy) return;
+            this.sellerBusy = true;
+            try {
+                const res = await fetch(this.unlinkSellerUrl, { method: 'POST', headers: this._postHeaders(),
+                    body: JSON.stringify({ contact_id: contactId }) });
+                if (res.ok) this.applySellerState(await res.json());
+            } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
+        },
+        tvaFor(idNumber) { return (idNumber && this.tva[idNumber]) ? this.tva[idNumber] : null; },
+        toggleTvaPick(contactId, itemId) {
+            if (!this.tvaPicks[contactId]) this.tvaPicks[contactId] = [];
+            const arr = this.tvaPicks[contactId];
+            const i = arr.indexOf(itemId);
+            if (i >= 0) arr.splice(i, 1); else arr.push(itemId);
+        },
+        isTvaPicked(contactId, itemId) { return (this.tvaPicks[contactId] || []).includes(itemId); },
+        async saveTvaNumbers(contactId) {
+            const ids = this.tvaPicks[contactId] || [];
+            if (!ids.length || !this.tvaIngestUrl || this.sellerBusy) return;
+            this.sellerBusy = true;
+            try {
+                const res = await fetch(this.tvaIngestUrl, { method: 'POST', headers: this._postHeaders(),
+                    body: JSON.stringify({ contact_id: contactId, item_ids: ids }) });
+                if (res.ok) { this.applySellerState(await res.json()); this.tvaPicks[contactId] = []; }
+            } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
+        },
+        filteredDeeds() {
+            const q = this.deedSearch.trim().toLowerCase();
+            if (!q) return this.deeds;
+            return this.deeds.filter(d => (d.search || '').includes(q));
+        },
+        async pickDeed(deed) {
+            this.showDeedModal = false;
+            if (!this.linkDeedUrl || !deed.tracked_property_id || this.sellerBusy) return;
+            this.sellerBusy = true;
+            try {
+                const res = await fetch(this.linkDeedUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify({ tracked_property_id: deed.tracked_property_id }) });
+                if (res.ok) { this.applySellerState(await res.json()); this.refreshDeedMatch(); }
+            } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
+        },
+        noContactDetails: false,
+        deadEndReason: 'not_in_tva',
+        contactTyped: config.contactTyped,
+        hasTypedContact() {
+            return !!((this.$refs.phone && this.$refs.phone.value.trim())
+                || (this.$refs.email && this.$refs.email.value.trim()));
+        },
+    };
+}
+</script>
 @endsection
