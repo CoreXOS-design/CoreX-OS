@@ -63,14 +63,28 @@ class SupervisorWorkerStatusService
             }
 
             $out[] = [
-                'group'   => $group,
-                'process' => $process,
-                'state'   => $state,
-                'down'    => in_array($state, self::DOWN_STATES, true),
-                'detail'  => trim($detail),
+                'group'       => $group,
+                'process'     => $process,
+                'state'       => $state,
+                'down'        => in_array($state, self::DOWN_STATES, true),
+                'detail'      => trim($detail),
+                'environment' => $this->environment($group),
             ];
         }
 
         return $out;
+    }
+
+    /**
+     * `corex-worker-staging*` groups target /corex-staging (see the supervisor
+     * conf); every other corex-worker-* group — including the confusingly-named
+     * corex-worker-p24import/p24images, which have no "-live-" in their group
+     * name despite running `directory=/corex` — targets live. There is no QA1/
+     * QA2 in this list at all: those run as separate systemd services, not
+     * supervisor, so supervisorctl can never see them.
+     */
+    private function environment(string $group): string
+    {
+        return str_starts_with($group, 'corex-worker-staging') ? 'staging' : 'live';
     }
 }

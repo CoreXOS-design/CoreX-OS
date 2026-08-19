@@ -34,8 +34,16 @@ No migration. Reuses the existing `dev_settings` key/value table (`app/Models/De
 
 `app/Services/System/SupervisorWorkerStatusService.php` shells out to
 `sudo -n /usr/local/bin/corex-supervisor-status.sh` (→ `supervisorctl status`) and parses
-each `corex-worker-*` process into `{group, process, state, down, detail}`. `down` is true
-for state `FATAL|STOPPED|BACKOFF|EXITED|UNKNOWN`.
+each `corex-worker-*` process into `{group, process, state, down, detail, environment}`.
+`down` is true for state `FATAL|STOPPED|BACKOFF|EXITED|UNKNOWN`.
+
+`environment` is `'staging'` for any group starting `corex-worker-staging`, else `'live'`.
+This matters because two groups — `corex-worker-p24import` and `corex-worker-p24images` —
+have no `-live-` in their name (unlike every other live lane) despite running
+`directory=/corex` in the supervisor conf, i.e. they ARE live. Left unlabeled, that reads as
+ambiguous/QA-like at a glance — Johan flagged this after the first version shipped a flat
+list. There is no QA1/QA2 in this data at all: those run as separate systemd services
+(`corex-qa1-queue.service`, `corex-qa2-queue.service`), invisible to `supervisorctl`.
 
 **Host-level permission grant (already applied to the shared host, not QA2-scoped):**
 - `/usr/local/bin/corex-supervisor-status.sh` — root-owned, mode 0755, one line:
@@ -68,8 +76,12 @@ Lists each down process, its state, and a link to Server Health.
 - **Server Health** (`/admin/system-health`, existing page, `view_server_health` permission) —
   new "Queue Workers" panel, added to the existing 10s-poll JSON payload
   (`ServerHealthService::corex()` gained a `queue_workers` key; no new route — stays under
-  the existing `GET /api/v1/system-health` endpoint per Non-Negotiable #7). Green/red dot per
-  process.
+  the existing `GET /api/v1/system-health` endpoint per Non-Negotiable #7). Grouped into two
+  sections with an explicit LIVE / STAGING badge and a one-line description under each
+  ("corexos.co.za — real agents, real data" / "staging.corexos.co.za") — not a flat process
+  list, so it's never ambiguous which environment a down worker belongs to. Green/red dot per
+  process. The alert email's table and subject line (`[CoreX][LIVE+STAGING] N down`) carry
+  the same environment labelling.
 - **Dev Settings** (`/admin/dev-settings`, existing page, `owner_only` middleware) — new
   "Queue worker emails" section (rail group "Alerts"). Add/remove email rows (Alpine.js),
   submitted as `queue_alert_emails[]` in the hub's single shared form (same "one form writes

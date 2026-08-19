@@ -4,10 +4,10 @@
 Checked at {{ $checkedAt }}. The following supervisor-managed queue worker process{{ count($downWorkers) === 1 ? ' is' : 'es are' }} not running:
 
 @component('mail::table')
-| Worker | State | Detail |
-| :----- | :---- | :----- |
+| Environment | Worker | State | Detail |
+| :---------- | :----- | :---- | :----- |
 @foreach($downWorkers as $w)
-| {{ $w['process'] }} | {{ $w['state'] }} | {{ $w['detail'] ?: '—' }} |
+| {{ strtoupper($w['environment'] ?? 'live') }} | {{ $w['process'] }} | {{ $w['state'] }} | {{ $w['detail'] ?: '—' }} |
 @endforeach
 @endcomponent
 

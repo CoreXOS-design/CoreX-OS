@@ -22,10 +22,13 @@ class QueueWorkerDownMail extends Mailable
     public function envelope(): Envelope
     {
         $count = count($this->downWorkers);
+        $envs = array_unique(array_map(fn (array $w) => strtoupper($w['environment'] ?? 'live'), $this->downWorkers));
+        sort($envs);
 
         return new Envelope(
             subject: sprintf(
-                '[CoreX] %d queue worker%s down on %s',
+                '[CoreX][%s] %d queue worker%s down on %s',
+                implode('+', $envs),
                 $count,
                 $count === 1 ? '' : 's',
                 $this->host,

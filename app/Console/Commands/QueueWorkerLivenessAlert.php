@@ -47,12 +47,19 @@ class QueueWorkerLivenessAlert extends Command
         }
 
         foreach ($down as $w) {
+            $env = strtoupper($w['environment'] ?? 'live');
             Log::critical(
-                "Queue worker DOWN: {$w['process']} is {$w['state']} ({$w['detail']}).",
-                ['group' => $w['group'], 'process' => $w['process'], 'state' => $w['state']],
+                "Queue worker DOWN [{$env}]: {$w['process']} is {$w['state']} ({$w['detail']}).",
+                ['group' => $w['group'], 'process' => $w['process'], 'state' => $w['state'], 'environment' => $w['environment'] ?? 'live'],
             );
         }
-        $this->error(count($down) . ' queue worker(s) down: ' . implode(', ', array_column($down, 'process')));
+        $byEnv = [];
+        foreach ($down as $w) {
+            $byEnv[$w['environment'] ?? 'live'][] = $w['process'];
+        }
+        foreach ($byEnv as $env => $processes) {
+            $this->error(strtoupper($env) . ': ' . count($processes) . ' down — ' . implode(', ', $processes));
+        }
 
         $this->notify($down);
 
