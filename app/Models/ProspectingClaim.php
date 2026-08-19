@@ -78,14 +78,22 @@ class ProspectingClaim extends Model
      * vocabulary — interested / pitched / scheduled — diverged from this set and would
      * 422 against the feedback() validator; it has been mapped onto these constants.)
      */
-    public const STATUS_CLAIMED        = 'claimed';         // initial — set at claim time only
-    public const STATUS_CONTACTED      = 'contacted';       // agent reached / attempted the owner
-    public const STATUS_MEETING_SET    = 'meeting_set';     // appointment booked
-    public const STATUS_LISTING        = 'listing';         // owner agreed — securing the mandate
-    public const STATUS_NOT_INTERESTED = 'not_interested';  // owner declined — closes the claim
-    public const STATUS_LOST           = 'lost';            // dead end (wrong contact / already listed) — closes the claim
+    public const STATUS_CLAIMED           = 'claimed';            // initial — set at claim time only
+    public const STATUS_CONTACTED         = 'contacted';          // agent reached / attempted the owner
+    public const STATUS_MEETING_SET       = 'meeting_set';        // appointment booked
+    public const STATUS_LISTING           = 'listing';            // owner agreed — securing the mandate
+    public const STATUS_NOT_INTERESTED    = 'not_interested';     // owner declined — closes the claim
+    public const STATUS_LOST              = 'lost';               // dead end (wrong contact / already listed) — closes the claim
+    // CX-101 (2026-08-19) — set ONLY by MarketIntelligenceController::claim()'s
+    // own-stock guard, never via the feedback endpoint. Deliberately NOT one of
+    // the CLOSING_STATUSES: "not_interested"/"lost" release the listing back to
+    // the pool for the next agent to repeat the same dead end (Johan: "mark it
+    // that its stock so it can be removed from mic, not just released"). This
+    // status plus prospecting_listings.matched_property_id together mean
+    // resolved and gone for good — see release()/feedback() guards below.
+    public const STATUS_RESOLVED_OWN_STOCK = 'resolved_own_stock';
 
-    /** All valid statuses (initial + feedback outcomes). */
+    /** All valid statuses (initial + feedback outcomes + own-stock resolution). */
     public const STATUSES = [
         self::STATUS_CLAIMED,
         self::STATUS_CONTACTED,
@@ -93,6 +101,7 @@ class ProspectingClaim extends Model
         self::STATUS_LISTING,
         self::STATUS_NOT_INTERESTED,
         self::STATUS_LOST,
+        self::STATUS_RESOLVED_OWN_STOCK,
     ];
 
     /** Statuses an agent may set via the feedback endpoint (excludes the initial 'claimed'). */
@@ -104,7 +113,7 @@ class ProspectingClaim extends Model
         self::STATUS_LOST,
     ];
 
-    /** Outcomes that auto-release (deactivate) the claim. */
+    /** Outcomes that auto-release (deactivate) the claim BACK TO THE POOL. */
     public const CLOSING_STATUSES = [
         self::STATUS_NOT_INTERESTED,
         self::STATUS_LOST,
@@ -112,12 +121,13 @@ class ProspectingClaim extends Model
 
     /** Plain-English labels for visible chips/badges (STANDARDS F.8). */
     public const STATUS_LABELS = [
-        self::STATUS_CLAIMED        => 'Claimed',
-        self::STATUS_CONTACTED      => 'Contacted',
-        self::STATUS_MEETING_SET    => 'Meeting set',
-        self::STATUS_LISTING        => 'Listing secured',
-        self::STATUS_NOT_INTERESTED => 'Not interested',
-        self::STATUS_LOST           => 'Lost',
+        self::STATUS_CLAIMED            => 'Claimed',
+        self::STATUS_CONTACTED          => 'Contacted',
+        self::STATUS_MEETING_SET        => 'Meeting set',
+        self::STATUS_LISTING            => 'Listing secured',
+        self::STATUS_NOT_INTERESTED     => 'Not interested',
+        self::STATUS_LOST               => 'Lost',
+        self::STATUS_RESOLVED_OWN_STOCK => 'Resolved — already ours',
     ];
 
     /**

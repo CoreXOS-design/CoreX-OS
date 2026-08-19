@@ -71,6 +71,56 @@ class Property extends Model
     }
 
     /**
+     * Most recent of the four portal submit/activate timestamps we hold — the
+     * "last advertised" signal for isStaleStock() below. Null when the property
+     * has never been synced to either portal (e.g. hand-captured stock).
+     */
+    public function lastAdvertisedAt(): ?\Carbon\Carbon
+    {
+        return collect([
+            $this->p24_last_submitted_at,
+            $this->pp_last_submitted_at,
+            $this->p24_activated_at,
+            $this->pp_activated_at,
+        ])->filter()->max();
+    }
+
+    /**
+     * CX-101 — Johan's stale-stock rule, verbatim (2026-08-19): "if a property
+     * is not active and being advertised, or has not been advertised in the
+     * last month, and has not been worked with for a week then it can be
+     * treated as available to prospect." Both halves must hold — a property
+     * worked on this week is NEVER stale, even if off-market.
+     *
+     * "Not active and being advertised" is answered by isOnMarket() alone —
+     * status is the authoritative "currently on the market" signal, not the
+     * portal submit/activate timestamps (lastAdvertisedAt() above). Verified
+     * against QA1's real data before shipping: p24/pp_last_submitted_at and
+     * _activated_at are ONE-TIME "when did this first go live" stamps, not a
+     * recurring "still live" refresh — a healthy listing that has sat
+     * unchanged for months has an old timestamp but is NOT stale. Gating on
+     * "last advertised > 30 days" independently of status flipped 190 of 200
+     * genuinely on-market QA1 properties to stale — the opposite of the
+     * established baseline (138 live properties should keep blocking). Status
+     * is kept as the sole "currently marketed" test to avoid that regression;
+     * lastAdvertisedAt() is kept as informational context for messaging, not
+     * as a gate.
+     *
+     * This is the ONE definition of "actively on our books right now." Every
+     * surface that answers the "already in stock" question (claim guard,
+     * promote path, compose screen, MIC list badge) calls this — none may
+     * re-derive it. See .ai/specs/2026-08-19-stale-stock-and-mic-resolution.md §3.1.
+     */
+    public function isStaleStock(): bool
+    {
+        $notCurrentlyMarketed = ! $this->isOnMarket();
+
+        $notWorkedRecently = \App\Support\HumanDiff::daysBetween($this->last_activity_at ?? $this->updated_at) > 7;
+
+        return $notCurrentlyMarketed && $notWorkedRecently;
+    }
+
+    /**
      * The one value of p24_syndication_status / pp_syndication_status that means
      * "the portal no longer carries this listing". Every other value — including
      * the terminal-but-still-listed 'sold' / 'rented' — means the listing may

@@ -2940,15 +2940,69 @@ class MarketIntelligenceController extends Controller
         // flips to on-market stock after the page loaded, or a future UI
         // regression all have zero backstop without this: nothing before
         // today re-checked company-stock status at the point a claim is
-        // actually written. Same canonical, EXACT-match (portal_ref OR
-        // normalized_address) identity every other "our stock" surface in
-        // this controller already uses (see $companyStockMap in work(),
-        // ~line 696) — never a second, divergent definition.
-        $companyStockPropertyId = app(\App\Services\Prospecting\OnMarketStockService::class)
-            ->stockMapForListings([$listing], $agencyId)[$listing->id] ?? null;
+        // actually written.
+        //
+        // CX-101 (2026-08-19) — resolveForClaim() replaces the old
+        // stockMapForListings() call here: that method is LIVE-stock-only by
+        // design (it must never suppress a genuinely stale record — Johan's
+        // stale-stock rule), so it silently missed every match on a dormant
+        // property, blocking nothing when it should have linked-and-resolved.
+        // resolveForClaim() sees BOTH live and stale matches, and this guard
+        // now acts differently on each: STALE never blocks — link the listing
+        // to the existing property and close the loop so the next agent never
+        // repeats this; LIVE still blocks, now naming who holds it.
+        $match = app(\App\Services\Prospecting\OnMarketStockService::class)
+            ->resolveForClaim($listing, $agencyId);
 
-        if ($companyStockPropertyId !== null) {
-            return back()->with('error', 'This is already your agency\'s own stock (property #' . $companyStockPropertyId . ') — nothing to claim.');
+        if ($match !== null) {
+            $property = $match['property'];
+
+            // EITHER WAY the MIC entry leaves the list and stays off — recorded
+            // as resolved, never released back to the pool for the next agent
+            // to hit the same dead end (Johan, verbatim). matched_property_id
+            // is the field every pool-exclusion query already checks
+            // (MarketIntelligenceController ~line 2056/2257); reusing it here
+            // rather than inventing a second exclusion mechanism.
+            $listing->update(['matched_property_id' => $property->id]);
+
+            $resolvedFields = [
+                'agency_id'       => $agencyId,
+                'user_id'         => $user->id,
+                'property_id'     => $property->id,
+                'status'          => ProspectingClaim::STATUS_RESOLVED_OWN_STOCK,
+                'is_active'       => false,
+                'last_updated_at' => now(),
+                'released_at'     => now(),
+                'release_reason'  => 'already_own_stock',
+            ];
+            $activeClaim = ProspectingClaim::where('prospecting_listing_id', $listing->id)->active()->first();
+            if ($activeClaim) {
+                $activeClaim->update($resolvedFields);
+            } else {
+                ProspectingClaim::create($resolvedFields + [
+                    'prospecting_listing_id' => $listing->id,
+                    'claimed_at'             => now(),
+                ]);
+            }
+
+            // The toast component renders flash text via x-text (textContent,
+            // never innerHTML) — a link embedded in the string would show as
+            // literal "<a href...>" text, not a clickable one. Redirecting
+            // straight to the property page makes it explicit and openable
+            // without fighting that: the agent lands ON the named property,
+            // not on a toast they have to go find it from.
+            if ($match['stale']) {
+                // Not active/advertised in over a month or off-market entirely, and
+                // nobody has worked it in a week — Johan's stale-stock rule. Do NOT
+                // block: continue the agent straight onto the existing property.
+                return redirect()->route('corex.properties.show', $property->id)
+                    ->with('success', 'Already on your books (dormant — no recent activity) — linked. Continue here instead of prospecting it again.');
+            }
+
+            $holderName = $property->agent?->name ?? 'the assigned agent';
+
+            return redirect()->route('corex.properties.show', $property->id)
+                ->with('error', 'This is already your agency\'s own stock, held by ' . $holderName . ' — speak to them. Nothing to claim in MIC.');
         }
 
         // Stale-tab guard — re-derives CURRENT claim state server-side on every
