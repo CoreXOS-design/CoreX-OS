@@ -230,6 +230,21 @@ final class TrackedPropertyMatchOrCreateService
                 $resultTp = $this->create($agencyId, $incomingFacts, $source, $byUserId);
             }
 
+            // Deeds-specific bookkeeping (2026-08-19 fix) — matchOrCreate() itself
+            // knows nothing about capture_kind/deeds_captured_at; DeedsCaptureController::store()
+            // stamps both AFTER calling matchOrCreate(), so calling create()/enrich()
+            // directly here (bypassing that controller) skipped them. Without this,
+            // a rejected capture with no replacement created a TrackedProperty
+            // TrackedProperty::scopeStillEligibleDeedsCapture() would never surface —
+            // the agent's "carry on and promote it as a new property" path would
+            // silently dead-end on an invisible row. Mirrors the controller exactly:
+            // capture_kind only on a genuine create, deeds_captured_at always.
+            if ($replacementTrackedPropertyId === null && empty($resultTp->capture_kind)) {
+                $resultTp->capture_kind = 'deeds_capture';
+            }
+            $resultTp->deeds_captured_at = now();
+            $resultTp->save();
+
             $decisionService->reject(
                 $decision,
                 $byUserId,
