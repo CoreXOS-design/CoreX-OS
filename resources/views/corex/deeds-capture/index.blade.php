@@ -164,10 +164,29 @@
                              fall back to the single ownerContact (pre-migration captures).
                              Entity model (2026-08-14): a company is the sole OWNER; its DIRECTORS
                              are captured on the same deed (role='director') so agents can work them,
-                             but shown as a distinct "Directors" group — never as owners. --}}
+                             but shown as a distinct "Directors" group — never as owners.
+                             Current-vs-past (2026-08-19, .ai/specs/deeds-capture.md §7) — an
+                             ownership-history capture can carry an earlier transfer's owner
+                             alongside the current one (e.g. a 1993 seller). Split BEFORE render so
+                             "Owner(s)" only ever shows who owns it NOW; a past owner renders in its
+                             own "Previous owner(s)" group below, same visual treatment as
+                             Directors — never mixed into the same list an agent would read as
+                             "who to phone". A row with no ownership_status at all (the simple,
+                             non-history capture path — the vast majority of captures) is treated
+                             as current, same as it always has been. --}}
                         @php
                             $directorRows = $owners->filter(fn ($o) => $o->role === 'director')->values();
-                            $ownerRows    = $owners->reject(fn ($o) => $o->role === 'director')->values();
+                            $nonDirectorRows = $owners->reject(fn ($o) => $o->role === 'director')->values();
+                            $pastOwnerRows = $nonDirectorRows->filter(fn ($o) => $o->ownership_status === \App\Models\Prospecting\TrackedPropertyOwner::OWNERSHIP_PAST)->values();
+                            $ownerRows = $nonDirectorRows->reject(fn ($o) => $o->ownership_status === \App\Models\Prospecting\TrackedPropertyOwner::OWNERSHIP_PAST)->values();
+                            $ownerIdLabel = function ($row) {
+                                return match ($row->id_type) {
+                                    'company_reg' => 'Company reg',
+                                    'trust_reg'   => 'Trust reg',
+                                    default       => 'ID',
+                                };
+                            };
+                            $isEntityOwner = fn ($row) => $row->contact && $row->contact->contact_kind === \App\Models\Contact::TYPE_ENTITY;
                         @endphp
                         <div class="min-w-0" style="min-width: 14rem;">
                             <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">
@@ -178,10 +197,13 @@
                                     <div @if(!$loop->first) class="mt-2 pt-2" style="border-top:1px solid var(--border);" @endif>
                                         <div class="font-semibold text-sm" style="color: var(--text-primary);">
                                             {{ $ownerRow->contact ? trim($ownerRow->contact->first_name . ' ' . (string) $ownerRow->contact->last_name) : ($ownerRow->name ?? 'Unnamed owner') }}
+                                            @if($isEntityOwner($ownerRow))
+                                                <span class="text-[10px] font-medium" style="color: var(--text-muted);">— entity</span>
+                                            @endif
                                         </div>
                                         <div class="text-xs mt-0.5 flex items-center gap-2" style="color: var(--text-muted);">
                                             @if($ownerRow->id_number)
-                                                <span>{{ $ownerRow->id_type === 'company_reg' ? 'Company reg' : 'ID' }}: {{ $ownerRow->id_number }}</span>
+                                                <span>{{ $ownerIdLabel($ownerRow) }}: {{ $ownerRow->id_number }}</span>
                                                 {{-- Copy ID (2026-08-12) — TVA flow: paste this into TVA's person lookup. --}}
                                                 <button type="button" x-data="{ copied: false }"
                                                         @click="navigator.clipboard.writeText({{ Js::from($ownerRow->id_number) }}); copied = true; setTimeout(() => copied = false, 1500)"
@@ -192,6 +214,12 @@
                                                 <span style="color: var(--ds-amber, #f59e0b);">No owner ID</span>
                                             @endif
                                         </div>
+                                        @if($ownerRow->deed_reference || $ownerRow->ownership_share_pct !== null)
+                                            <div class="text-[11px] mt-0.5" style="color: var(--text-muted);">
+                                                @if($ownerRow->deed_reference)Deed {{ $ownerRow->deed_reference }}@endif
+                                                @if($ownerRow->ownership_share_pct !== null) · {{ rtrim(rtrim(number_format((float) $ownerRow->ownership_share_pct, 4), '0'), '.') }}%@endif
+                                            </div>
+                                        @endif
                                     </div>
                                 @endforeach
                             @elseif($owner)
@@ -251,10 +279,59 @@
                             </div>
                         @endif
 
+                        {{-- Previous owner(s) (2026-08-19, .ai/specs/deeds-capture.md §7) — an
+                             earlier transfer's owner (e.g. a 1993 seller), captured as a contact
+                             but never linked to the property as its owner on promote (§7.11).
+                             Same visual treatment as Directors above (own group, own heading
+                             colour, "— entity" suffix reused) so an agent reads it the same way:
+                             a distinct group of people who are NOT who to phone about the sale. --}}
+                        @if($pastOwnerRows->isNotEmpty())
+                            <div class="min-w-0" style="min-width: 14rem;">
+                                <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">
+                                    Previous owner{{ $pastOwnerRows->count() > 1 ? 's' : '' }} <span style="color: var(--text-muted);">· earlier deed, not the current owner</span>
+                                </div>
+                                @foreach($pastOwnerRows as $pastRow)
+                                    <div @if(!$loop->first) class="mt-2 pt-2" style="border-top:1px solid var(--border);" @endif>
+                                        <div class="font-semibold text-sm" style="color: var(--text-secondary);">
+                                            {{ $pastRow->contact ? trim($pastRow->contact->first_name . ' ' . (string) $pastRow->contact->last_name) : ($pastRow->name ?? 'Unnamed') }}
+                                            @if($isEntityOwner($pastRow))
+                                                <span class="text-[10px] font-medium" style="color: var(--text-muted);">— entity</span>
+                                            @endif
+                                        </div>
+                                        <div class="text-xs mt-0.5 flex items-center gap-2" style="color: var(--text-muted);">
+                                            @if($pastRow->id_number)
+                                                <span>{{ $ownerIdLabel($pastRow) }}: {{ $pastRow->id_number }}</span>
+                                                <button type="button" x-data="{ copied: false }"
+                                                        @click="navigator.clipboard.writeText({{ Js::from($pastRow->id_number) }}); copied = true; setTimeout(() => copied = false, 1500)"
+                                                        class="text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                                                        style="border:1px solid var(--border); color: var(--brand-icon, #2563eb);"
+                                                        x-text="copied ? 'Copied!' : 'Copy ID'"></button>
+                                            @else
+                                                <span>No ID</span>
+                                            @endif
+                                        </div>
+                                        @if($pastRow->deed_reference || $pastRow->ownership_share_pct !== null)
+                                            <div class="text-[11px] mt-0.5" style="color: var(--text-muted);">
+                                                @if($pastRow->deed_reference)Deed {{ $pastRow->deed_reference }}@endif
+                                                @if($pastRow->ownership_share_pct !== null) · {{ rtrim(rtrim(number_format((float) $pastRow->ownership_share_pct, 4), '0'), '.') }}%@endif
+                                            </div>
+                                        @endif
+                                    </div>
+                                @endforeach
+                            </div>
+                        @endif
+
                         {{-- Action --}}
                         <div class="flex-shrink-0 flex flex-col items-end gap-2">
-                            <form method="POST" action="{{ route('corex.deeds-capture.promote', $tp->id) }}"
-                                  onsubmit="return confirm('Create a property from this deeds capture and link the owner?');">
+                            {{-- One-button promote+ingest (2026-08-19, Johan, verbatim from last
+                                 night): tick the numbers you want, click THIS button once — no
+                                 separate Ingest step in the ordering, no panel collapsing out from
+                                 under the user. The id here is the target of every nested TVA
+                                 block's checkboxes below (via the HTML5 form="" attribute — those
+                                 inputs are NOT inside this <form> tag in the DOM, they submit into
+                                 it anyway), so one click carries both writes. --}}
+                            <form id="promote-form-{{ $tp->id }}" method="POST" action="{{ route('corex.deeds-capture.promote', $tp->id) }}"
+                                  onsubmit="return confirm('Create a property from this deeds capture and link the owner? Any ticked contact numbers below will be added too.');">
                                 @csrf
                                 <button type="submit" class="text-xs font-semibold px-4 py-2 rounded-md text-white" style="background: var(--brand-button, #0ea5e9);">
                                     Promote to property + contact
@@ -272,19 +349,36 @@
                         </div>
                     </div>
 
+                    {{-- Ownership parse status (2026-08-19, .ai/specs/deeds-capture.md §7.9) — a
+                         parse failure NEVER blocks the property capture above; this is where the
+                         reason lives. 'ok' (the default, and every non-history capture) renders
+                         nothing. Reuses the same amber color-mix treatment already used twice on
+                         this card (the "Already tracked" and "correction" badges above) rather
+                         than inventing a new warning style. --}}
+                    @if($tp->ownership_parse_status && $tp->ownership_parse_status !== 'ok')
+                        <div class="text-xs mt-3 px-3 py-2 rounded-md" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 35%, transparent); color: var(--text-secondary);">
+                            <span style="color: var(--ds-amber, #f59e0b); font-weight:600;">
+                                {{ $tp->ownership_parse_status === 'failed' ? 'Ownership not captured —' : 'Ownership needs a look —' }}
+                            </span>
+                            {{ $tp->ownership_parse_note }}
+                        </div>
+                    @endif
+
                     {{-- What this capture changed (2026-08-19, Johan — .ai/specs/deeds-capture.md
                          §6 Part B). Copied from the existing expandable pattern in
                          corex/properties/intelligence/_cross-source-timeline.blade.php — same
                          x-data="{ open: false }" toggle-button shape, no new UI convention.
                          Renders only when THIS capture actually filled or replaced something;
                          unchanged fields are never listed. --}}
-                    @if($deedsChanges && (count($deedsChanges['filled']) || count($deedsChanges['replaced'])))
+                    @if($deedsChanges && (count($deedsChanges['filled']) || count($deedsChanges['replaced']) || count($deedsChanges['cleared'] ?? [])))
                         @php
                             $filledCount = count($deedsChanges['filled']);
                             $replacedCount = count($deedsChanges['replaced']);
+                            $clearedCount = count($deedsChanges['cleared'] ?? []);
                             $summaryParts = array_filter([
                                 $filledCount > 0 ? ($filledCount . ' field' . ($filledCount === 1 ? '' : 's') . ' updated') : null,
                                 $replacedCount > 0 ? ($replacedCount . ' replaced') : null,
+                                $clearedCount > 0 ? ($clearedCount . ' cleared') : null,
                             ]);
                         @endphp
                         <div class="mt-3" x-data="{ open: false }">
@@ -357,14 +451,41 @@
                                         </div>
                                     </div>
                                 @endforeach
+                                {{-- 'cleared' (2026-08-19, cc3) — a stored placeholder (e.g.
+                                     property_type stuck at "-") got wiped back to blank because
+                                     this capture also only had a placeholder to offer. Neutral
+                                     styling (not the amber "correction" treatment) — this isn't a
+                                     real value being overwritten, it's junk being removed. --}}
+                                @foreach($deedsChanges['cleared'] ?? [] as $change)
+                                    <div class="flex items-start gap-3 p-2.5 rounded-md"
+                                         style="background: var(--surface); border: 1px solid var(--border);">
+                                        <div class="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0"
+                                             style="background: var(--surface-2);">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" style="color: var(--text-muted);">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/>
+                                            </svg>
+                                        </div>
+                                        <div class="flex-1 min-w-0">
+                                            <div class="text-xs font-semibold" style="color: var(--text-primary);">{{ $deedsFieldLabels[$change['field']] ?? $change['field'] }}</div>
+                                            <div class="text-[11px] mt-0.5" style="color: var(--text-secondary);">
+                                                <span style="color: var(--text-muted); text-decoration: line-through;">{{ $deedsFormatValue($change['field'], $change['previous']) }}</span>
+                                                <span style="color: var(--text-muted);"> → cleared (was a placeholder, not a real value)</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                @endforeach
                             </div>
                         </div>
                     @endif
 
                     {{-- TVA (The Virtual Agent) captured contacts (2026-08-12) — display UNDER the
-                         CMA details for this same property, per spec. --}}
+                         CMA details for this same property, per spec. NESTED here (a suspense
+                         record exists to promote), so formId is passed: the block renders its
+                         checkboxes wired to the property's promote form above via form="", with
+                         NO submit button of its own — ticking here and clicking Promote is one
+                         action (2026-08-19, Johan). --}}
                     @foreach(($tvaByProperty[$tp->id] ?? []) as $tvaCapture)
-                        @include('corex.deeds-capture._tva-capture', ['capture' => $tvaCapture])
+                        @include('corex.deeds-capture._tva-capture', ['capture' => $tvaCapture, 'formId' => 'promote-form-' . $tp->id])
                     @endforeach
                 </div>
             @endforeach
@@ -383,7 +504,10 @@
         <div class="space-y-3 mt-3">
             @foreach($tvaStandalone as $tvaCapture)
                 <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-                    @include('corex.deeds-capture._tva-capture', ['capture' => $tvaCapture])
+                    {{-- Standalone (no suspense record to promote, or it's already promoted) —
+                         genuinely no Promote button to merge with, so this keeps its own
+                         independent Ingest form exactly as before (formId omitted). --}}
+                    @include('corex.deeds-capture._tva-capture', ['capture' => $tvaCapture, 'formId' => null])
                 </div>
             @endforeach
         </div>

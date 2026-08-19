@@ -146,6 +146,13 @@ final class DeedsCaptureController extends Controller
                 'date'     => $latestDeedsEntry['date'] ?? null,
                 'filled'   => array_values(array_filter($changes, fn ($c) => ($c['change_type'] ?? null) === 'filled')),
                 'replaced' => array_values(array_filter($changes, fn ($c) => ($c['change_type'] ?? null) === 'replaced')),
+                // 'cleared' (2026-08-19, cc3 — TrackedPropertyMatchOrCreateService::
+                // enrich()'s 4th outcome): a stored placeholder (e.g. property_type
+                // stuck at the literal "-") got wiped back to null because THIS
+                // capture also only had a placeholder to offer. A real, visible
+                // change to the record — must not be invisible just because
+                // "filled"/"replaced" don't fit it.
+                'cleared'  => array_values(array_filter($changes, fn ($c) => ($c['change_type'] ?? null) === 'cleared')),
             ];
         }
 
@@ -179,19 +186,63 @@ final class DeedsCaptureController extends Controller
             'contact_id' => 'nullable|integer', // required when target=existing
         ]);
 
+        $result = $this->applyTvaItems($tvaContactCapture, $data['item_ids'], $data['target'], $data['contact_id'] ?? null, $user, $agencyId, $identifiers);
+        if ($result === null) {
+            return back()->with('info', 'Nothing to ingest — those items were already processed.');
+        }
+        [$contact, $itemsCount] = [$result['contact'], $result['count']];
+
+        return redirect()->route('corex.deeds-capture.index')
+            ->with('success', 'Ingested ' . $itemsCount . ' contact value' . ($itemsCount > 1 ? 's' : '') . ' into ' . trim($contact->first_name . ' ' . $contact->last_name) . '.')
+            // 2026-08-17 — ingestTva() never got the success_link treatment
+            // promote() got on 2026-08-14 (see that method's comment): the
+            // flash named the contact but gave the agent nothing to click,
+            // so after a successful ingest the browser just sat on the same
+            // list screen with no visible change — read by Johan as "the
+            // contact details did not load." The contact IS created/updated
+            // correctly (verified: exact ticked numbers land on it, nothing
+            // else) — this was purely a missing link, not a data bug.
+            ->with('success_link', route('corex.contacts.show', $contact->id))
+            ->with('success_link_label', 'Open contact →');
+    }
+
+    /**
+     * Shared by ingestTva() (standalone — the genuinely different
+     * enrich-without-promote case, e.g. a TVA scrape for an owner whose
+     * property was already promoted) and promote() (the merged one-button
+     * case, 2026-08-19 Johan). Applies a TVA capture's ticked item ids onto a
+     * target Contact — creates the phone/email rows, discards the
+     * still-pending REST of this SAME capture (Johan's one-shot-per-capture
+     * rule: "the balance of the numbers can be dumped"), reconciles
+     * identifiers. Throws (abort_if 422) when no target contact resolves —
+     * inside promote()'s DB::transaction() that rolls back the WHOLE promote,
+     * which is the point (a half-succeeded promote is worse than a failed
+     * one).
+     *
+     * @return array{contact: Contact, count: int}|null null = nothing left to ingest (already processed)
+     */
+    private function applyTvaItems(
+        TvaContactCapture $tvaContactCapture,
+        array $itemIds,
+        string $target,
+        ?int $contactId,
+        $user,
+        int $agencyId,
+        ContactIdentifierService $identifiers
+    ): ?array {
         $items = $tvaContactCapture->items()
-            ->whereIn('id', $data['item_ids'])
+            ->whereIn('id', $itemIds)
             ->whereNull('ingested_at')
             ->get();
         if ($items->isEmpty()) {
-            return back()->with('info', 'Nothing to ingest — those items were already processed.');
+            return null;
         }
 
-        $contact = match ($data['target']) {
+        $contact = match ($target) {
             'matched' => Contact::withoutGlobalScopes()->find($tvaContactCapture->matched_contact_id),
             'existing' => Contact::withoutGlobalScopes()
                 ->where('agency_id', $agencyId)
-                ->find($data['contact_id'] ?? null),
+                ->find($contactId),
             'new' => Contact::create([
                 'agency_id'             => $agencyId,
                 'branch_id'             => $user->branch_id,
@@ -244,7 +295,7 @@ final class DeedsCaptureController extends Controller
 
         // Johan: "the balance of the numbers can be dumped — if it's not
         // active we don't need them." Ticking a subset and submitting is a
-        // one-shot decision on the WHOLE capture, not a partial one — anything
+        // one-shot decision on THIS capture, not a partial one — anything
         // left un-ticked at this point is discarded, not left pending for a
         // future ingest. Discarded == ingested_at set / ingested_contact_id
         // left null, so it drops off index()'s whereNull('ingested_at')
@@ -252,22 +303,11 @@ final class DeedsCaptureController extends Controller
         // delete (non-negotiable #1) — the row (and its value) stays in the
         // table, just marked resolved-without-a-contact.
         $tvaContactCapture->items()
-            ->whereNotIn('id', $data['item_ids'])
+            ->whereNotIn('id', $itemIds)
             ->whereNull('ingested_at')
             ->update(['ingested_at' => now()]);
 
-        return redirect()->route('corex.deeds-capture.index')
-            ->with('success', 'Ingested ' . $items->count() . ' contact value' . ($items->count() > 1 ? 's' : '') . ' into ' . trim($contact->first_name . ' ' . $contact->last_name) . '.')
-            // 2026-08-17 — ingestTva() never got the success_link treatment
-            // promote() got on 2026-08-14 (see that method's comment): the
-            // flash named the contact but gave the agent nothing to click,
-            // so after a successful ingest the browser just sat on the same
-            // list screen with no visible change — read by Johan as "the
-            // contact details did not load." The contact IS created/updated
-            // correctly (verified: exact ticked numbers land on it, nothing
-            // else) — this was purely a missing link, not a data bug.
-            ->with('success_link', route('corex.contacts.show', $contact->id))
-            ->with('success_link_label', 'Open contact →');
+        return ['contact' => $contact, 'count' => $items->count()];
     }
 
     public function promote(Request $request, TrackedProperty $trackedProperty, TrackedPropertyMatchOrCreateService $matcher)
@@ -423,65 +463,132 @@ final class DeedsCaptureController extends Controller
         $overrides['property_type']       = $propertyType;
         $overrides['p24_suburb_mismatch'] = $p24City === null;
 
-        // No "asking price" concept on a deeds capture — Johan (2026-08-18):
-        // "we cannot prefill the price - remove that... if anything, save it
-        // on the logs or notes but not as the price." Was:
-        // 'price' => $trackedProperty->last_known_sold_price, which silently
-        // prefilled the SELLING price with a stale HISTORICAL sale price
-        // (property 6100: R420,000 from 2008-08-28). Falls through to
-        // promoteToStock()'s own 0-default; the sale price is logged as a
-        // PropertyNote below instead.
-        $property = $matcher->promoteToStock($trackedProperty->id, (int) $user->id, $overrides);
+        // One-button promote+ingest (2026-08-19, Johan, verbatim from last night):
+        // "the user should now tick the contact details they want, and clicking
+        // the promote to property + contact should be clicked, not click ingest
+        // at the bottom... users will instantly get confused if they click
+        // promote and it did not capture contact details, and same if they
+        // click ingest and the numbers dissapear they immediately will call it
+        // broken." Ticked TVA numbers, if any, are keyed by TVA capture id under
+        // `tva` — the index.blade.php card's nested TVA blocks submit into THIS
+        // same form via the HTML5 form="" attribute rather than their own
+        // separate <form>, so one click carries both. Ticking nothing is a
+        // legitimate, unwarned path — property + owner only, no numbers.
+        $tvaInput = $request->validate([
+            'tva'                 => 'nullable|array',
+            'tva.*.item_ids'      => 'nullable|array',
+            'tva.*.item_ids.*'    => 'integer',
+            'tva.*.target'        => 'nullable|in:matched,existing,new',
+            'tva.*.contact_id'    => 'nullable|integer',
+        ])['tva'] ?? [];
 
-        if ($trackedProperty->last_known_sold_price) {
-            PropertyNote::create([
-                'agency_id'   => $agencyId,
-                'property_id' => $property->id,
-                'user_id'     => $user->id,
-                'content'     => 'Last sale price (deeds history): R'
-                    . number_format((float) $trackedProperty->last_known_sold_price, 0, '.', ',')
-                    . ($trackedProperty->last_known_sold_date
-                        ? ' on ' . Carbon::parse($trackedProperty->last_known_sold_date)->format('Y-m-d')
-                        : '')
-                    . '. Not the current asking price.',
-            ]);
-        }
+        // Both writes in ONE transaction — both succeed or neither does. A
+        // promote that half-works (property created, ticked numbers silently
+        // failed) is worse than one that fails outright and can be retried.
+        // promoteToStock()'s own DB::transaction() composes cleanly nested
+        // inside this one (MySQL savepoints via Laravel's transaction nesting).
+        $identifiers = app(ContactIdentifierService::class);
+        [$property, $ownerContactIds, $tvaContactsTouched] = DB::transaction(function () use (
+            $trackedProperty, $matcher, $overrides, $agencyId, $user, $tvaInput, $identifiers
+        ) {
+            // No "asking price" concept on a deeds capture — Johan (2026-08-18):
+            // "we cannot prefill the price - remove that... if anything, save it
+            // on the logs or notes but not as the price." Was:
+            // 'price' => $trackedProperty->last_known_sold_price, which silently
+            // prefilled the SELLING price with a stale HISTORICAL sale price
+            // (property 6100: R420,000 from 2008-08-28). Falls through to
+            // promoteToStock()'s own 0-default; the sale price is logged as a
+            // PropertyNote below instead.
+            $property = $matcher->promoteToStock($trackedProperty->id, (int) $user->id, $overrides);
 
-        // Link EVERY captured owner as the property's OWNER (contact_property
-        // role='owner') — multi-owner support (2026-08-12), was only linking
-        // the primary owner before. Contacts already exist from the CAPTURE
-        // step (Api\DeedsCaptureController::ingestOne resolves/creates them);
-        // sequencing per Johan — contact(s) first (already done at capture
-        // time), property second (just created above), link last.
-        //
-        // CONTACT-SIDE SEAM (2026-08-14): this stays natural-person-only —
-        // Api\DeedsCaptureController::isCompanyLikeOwner() already blocks a
-        // company/CC/trust owner from ever reaching tracked_property_owners
-        // (interim rule; proper company/entity handling is cc3's separate
-        // contact-foundation investigation). The role='owner' link below is
-        // deliberately just "whichever Contact IDs got resolved at capture
-        // time" — entity-aware resolution (a company as its own legal-entity
-        // record, a different role than 'owner' for a trustee, etc.) is
-        // expected to slot in at the CAPTURE step once cc3's foundation
-        // lands, not here; this loop doesn't need to change to accommodate
-        // it, it just needs $ownerContactIds to start including entity
-        // contacts once capture-time resolution produces them.
-        $ownerContactIds = $trackedProperty->owners()->pluck('contact_id')->filter()->unique();
-        if ($ownerContactIds->isEmpty() && $trackedProperty->owner_contact_id) {
-            $ownerContactIds = collect([$trackedProperty->owner_contact_id]);
-        }
-        foreach ($ownerContactIds as $contactId) {
-            DB::table('contact_property')->updateOrInsert(
-                ['contact_id' => $contactId, 'property_id' => $property->id],
-                ['role' => 'owner', 'updated_at' => now(), 'created_at' => now()],
-            );
+            if ($trackedProperty->last_known_sold_price) {
+                PropertyNote::create([
+                    'agency_id'   => $agencyId,
+                    'property_id' => $property->id,
+                    'user_id'     => $user->id,
+                    'content'     => 'Last sale price (deeds history): R'
+                        . number_format((float) $trackedProperty->last_known_sold_price, 0, '.', ',')
+                        . ($trackedProperty->last_known_sold_date
+                            ? ' on ' . Carbon::parse($trackedProperty->last_known_sold_date)->format('Y-m-d')
+                            : '')
+                        . '. Not the current asking price.',
+                ]);
+            }
+
+            // Link CURRENT owners as the property's OWNER (contact_property
+            // role='owner') — multi-owner support (2026-08-12), extended
+            // 2026-08-19 for ownership-history captures (.ai/specs/deeds-capture.md
+            // §7.11). Contacts already exist from the CAPTURE step
+            // (Api\DeedsCaptureController::ingestOne / captureOwnershipHistory
+            // resolve/create them, entity-aware — trust/company registration
+            // numbers route to entity_reg_no, never id_number); sequencing per
+            // Johan — contact(s) first (already done at capture time), property
+            // second (just created above), link last.
+            //
+            // PAST owners (a prior transfer's seller) are structurally EXCLUDED by
+            // this filter, not by a display-layer check somewhere else — a row
+            // with ownership_status='past' (or null, an unclassified §7.9 case-4
+            // row) never reaches $ownerContactIds, so there is no code path here
+            // that could ever link one as this property's owner. Rows from the
+            // simple (non-history) capture path all default to
+            // ownership_status='current' at the DB level, so this filter is a
+            // no-op for every capture that predates §7 — the single-owner path is
+            // unchanged.
+            $ownerContactIds = $trackedProperty->owners()
+                ->where('ownership_status', \App\Models\Prospecting\TrackedPropertyOwner::OWNERSHIP_CURRENT)
+                ->pluck('contact_id')->filter()->unique();
+            if ($ownerContactIds->isEmpty() && $trackedProperty->owner_contact_id) {
+                $ownerContactIds = collect([$trackedProperty->owner_contact_id]);
+            }
+            foreach ($ownerContactIds as $contactId) {
+                DB::table('contact_property')->updateOrInsert(
+                    ['contact_id' => $contactId, 'property_id' => $property->id],
+                    ['role' => 'owner', 'updated_at' => now(), 'created_at' => now()],
+                );
+            }
+
+            // Ticked TVA numbers land on the contact in this SAME transaction.
+            // A capture id never present in $tvaInput at all (the agent never
+            // touched that block) is left completely untouched — only captures
+            // the agent actually ticked into get the "balance can be dumped"
+            // one-shot treatment (applyTvaItems()'s discard-the-rest).
+            $tvaContactsTouched = [];
+            foreach ($tvaInput as $captureId => $captureData) {
+                $itemIds = array_filter($captureData['item_ids'] ?? []);
+                if ($itemIds === []) {
+                    continue; // this block was rendered but nothing was ticked in it
+                }
+                $capture = TvaContactCapture::where('id', $captureId)->where('agency_id', $agencyId)->first();
+                if (!$capture) {
+                    continue; // stale/foreign id — never trust the client's capture id blindly
+                }
+                $result = $this->applyTvaItems(
+                    $capture,
+                    $itemIds,
+                    $captureData['target'] ?? 'new',
+                    $captureData['contact_id'] ?? null,
+                    $user,
+                    $agencyId,
+                    $identifiers
+                );
+                if ($result) {
+                    $tvaContactsTouched[] = $result;
+                }
+            }
+
+            return [$property, $ownerContactIds, $tvaContactsTouched];
+        });
+
+        // One outcome, one message — Johan: a user must never wonder "did it
+        // also grab the numbers?" after a single click.
+        $numbersCount = array_sum(array_column($tvaContactsTouched, 'count'));
+        $summary = 'Promoted to a property and linked the owner' . ($ownerContactIds->count() > 1 ? 's' : '') . '.';
+        if ($numbersCount > 0) {
+            $summary .= ' Ingested ' . $numbersCount . ' contact value' . ($numbersCount > 1 ? 's' : '') . '.';
         }
 
         return redirect()->route('corex.deeds-capture.index')
-            ->with(
-                'success',
-                'Promoted to a property and linked the owner' . ($ownerContactIds->count() > 1 ? 's' : '') . '.'
-            )
+            ->with('success', $summary)
             // 2026-08-14 — the flash used to SAY "Open the property to continue"
             // with no actual link, dead-ending the user. success_link is a
             // separate, optional session key (see index.blade.php) so the
