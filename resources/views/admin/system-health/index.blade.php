@@ -120,6 +120,30 @@
         </div>
     </div>
 
+    {{-- Row 2b — Queue Workers --}}
+    <div class="rounded-md p-5" style="background: var(--surface); border:1px solid var(--border);">
+        <div class="flex items-center justify-between mb-3">
+            <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Queue Workers</h2>
+            <span class="text-xs" style="color: var(--text-muted);">supervisor-managed corex-worker-* processes</span>
+        </div>
+        <div x-show="d.corex?.queue_workers === null" class="text-sm" style="color: var(--ds-amber,#d97706);">
+            Could not read process status (sudo/wrapper unavailable).
+        </div>
+        <div x-show="d.corex?.queue_workers && d.corex.queue_workers.length === 0" class="text-sm" style="color: var(--text-muted);">—</div>
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2" x-show="d.corex?.queue_workers && d.corex.queue_workers.length > 0">
+            <template x-for="w in (d.corex?.queue_workers || [])" :key="w.process">
+                <div class="flex items-center justify-between gap-2 px-3 py-2 rounded-md text-sm"
+                     style="background: var(--surface-2); border:1px solid var(--border);">
+                    <span class="font-mono truncate" style="color: var(--text-primary);" x-text="w.process" :title="w.process"></span>
+                    <span class="inline-flex items-center gap-1.5 flex-shrink-0">
+                        <span class="inline-block w-2 h-2 rounded-full" :style="`background:${w.down ? 'var(--ds-red,#dc2626)' : 'var(--ds-green,#16a34a)'};`"></span>
+                        <span class="font-mono text-xs" :style="w.down ? 'color: var(--ds-red,#dc2626);' : 'color: var(--text-muted);'" x-text="w.state"></span>
+                    </span>
+                </div>
+            </template>
+        </div>
+    </div>
+
     {{-- Row 3 — CoreX vitals --}}
     <div class="rounded-md p-5" style="background: var(--surface); border:1px solid var(--border);">
         <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">CoreX Vitals</h2>

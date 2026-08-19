@@ -58,6 +58,12 @@
                     ['key'=>'demo-sidebar', 'label'=>'Demo Sidebar', 'type'=>'link', 'href'=>route('admin.dev-settings.demo-sidebar'), 'keywords'=>'navigation curation hide items sub-pages demo agency'],
                 ],
             ],
+            [
+                'label' => 'Alerts',
+                'items' => [
+                    ['key'=>'queue_worker_emails', 'label'=>'Queue worker emails', 'type'=>'section', 'keywords'=>'supervisor worker down fatal stopped queue health alert email server health notification'],
+                ],
+            ],
         ];
     @endphp
 
@@ -112,7 +118,13 @@
         {{-- Right pane --}}
         <div class="flex-1 min-w-0" style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
             <form method="POST" action="{{ route('admin.dev-settings.update') }}"
-                  x-data="{ demoInit: {{ $demoModeEnabled ? 'true' : 'false' }}, demoNow: {{ $demoModeEnabled ? 'true' : 'false' }} }">
+                  x-data="{
+                      demoInit: {{ $demoModeEnabled ? 'true' : 'false' }},
+                      demoNow: {{ $demoModeEnabled ? 'true' : 'false' }},
+                      queueEmails: {{ Js::from(array_values($queueWorkerAlertEmails)) }},
+                      addQueueEmail() { this.queueEmails.push(''); },
+                      removeQueueEmail(i) { this.queueEmails.splice(i, 1); },
+                  }">
                 @csrf
                 @method('PUT')
 
@@ -233,6 +245,50 @@
                             </div>
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" class="w-4 h-4 flex-shrink-0" style="color:var(--border-hover);"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
                         </a>
+                    </div>
+
+                    <div class="flex justify-end pt-4" style="border-top: 1px solid var(--border);">
+                        <button type="submit" class="corex-btn-primary">Save Settings</button>
+                    </div>
+                </div>
+
+                {{-- ============================================================
+                     QUEUE WORKER EMAILS
+                     ============================================================ --}}
+                <div x-show="activeSection === 'queue_worker_emails'" x-cloak class="p-6 space-y-6">
+                    <div>
+                        <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Queue Worker Emails</h3>
+                        <p class="text-sm mb-4" style="color: var(--text-secondary);">
+                            Server Health checks every supervisor-managed queue worker (live, staging, and the P24 import lanes)
+                            every minute. The moment any one of them goes down (FATAL, STOPPED, BACKOFF, or EXITED), every email
+                            below is notified — see <a href="{{ route('admin.system-health.index') }}" class="underline">Server Health</a>.
+                        </p>
+
+                        @error('queue_alert_emails')
+                            <p class="text-xs mb-3" style="color: var(--ds-crimson, #c41e3a);">{{ $message }}</p>
+                        @enderror
+
+                        <div class="space-y-2" style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:1rem;">
+                            <template x-for="(email, i) in queueEmails" :key="i">
+                                <div class="flex items-center gap-2">
+                                    <input type="email"
+                                           :name="'queue_alert_emails[' + i + ']'"
+                                           x-model="queueEmails[i]"
+                                           placeholder="name@homefinderscoastal.co.za"
+                                           class="flex-1 rounded-md px-3 py-2 text-sm"
+                                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                    <button type="button" @click="removeQueueEmail(i)"
+                                            class="p-2 rounded-md flex-shrink-0" style="color: var(--text-muted);" title="Remove">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+                                    </button>
+                                </div>
+                            </template>
+                            <div x-show="queueEmails.length === 0" class="text-sm" style="color: var(--text-muted);">No alert emails configured yet.</div>
+                            <button type="button" @click="addQueueEmail()"
+                                    class="text-sm font-semibold mt-2" style="color: var(--brand-icon, #0ea5e9);">
+                                + Add email
+                            </button>
+                        </div>
                     </div>
 
                     <div class="flex justify-end pt-4" style="border-top: 1px solid var(--border);">

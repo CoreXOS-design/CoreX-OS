@@ -168,6 +168,17 @@ Schedule::command('corex:queue-healthcheck')
     ->onOneServer()
     ->name('queue-healthcheck');
 
+// Queue worker liveness alert — runs every minute so a FATAL/STOPPED
+// corex-worker-* process (e.g. one that lost its supervisor restart budget
+// during a MySQL blip, 2026-08-19) emails the configured Dev Settings
+// recipients within a minute instead of sitting undetected. See
+// .ai/specs/queue-worker-monitoring.md.
+Schedule::command('corex:queue-worker-liveness-alert')
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->name('queue-worker-liveness-alert');
+
 // Property24 ExDev activation polling — runs every 15 minutes
 Schedule::job(new \App\Jobs\SyncProperty24Activations())->everyFifteenMinutes()->withoutOverlapping();
 
