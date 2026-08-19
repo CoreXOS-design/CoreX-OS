@@ -2087,32 +2087,46 @@
                 </p>
             </template>
 
+            {{-- CX-103 follow-up (Johan, 2026-08-19) — "similar to seller size
+                 ... image Shawn having 11 buyers ... he will take forever with
+                 massive buyers boxes". One line per buyer, name + phone on
+                 the SAME line (not stacked), row height in the seller-chip
+                 region, light divider instead of a heavy card border per row.
+                 Whole row stays the click/tap target (just visually smaller);
+                 the tick square keeps a real 1.5px border in both states —
+                 small is fine, invisible is what Johan already flagged twice
+                 today on other screens. hover:brightness-95 gives a clear
+                 hover cue without fighting the ticked/unticked :style
+                 binding (it darkens whatever background is already there,
+                 correct in both light and dark since it's a filter, not a
+                 hardcoded color). --}}
             <template x-if="buyerCandidates.length > 0">
                 <div class="mb-3">
                     <label class="block text-xs font-medium mb-1.5" style="color: var(--text-secondary);">
                         Buyers linked to this property — tick who the appointment is with
                     </label>
-                    <div class="space-y-2">
-                        <template x-for="candidate in buyerCandidates" :key="candidate.type + ':' + candidate.id">
-                            <label class="flex items-center gap-3 rounded-md px-3 py-2.5 cursor-pointer transition"
-                                   :style="candidate.ticked
-                                        ? 'background: color-mix(in srgb, var(--brand-icon, #00d4aa) 12%, var(--surface-2)); border: 1px solid var(--brand-icon, #00d4aa);'
-                                        : 'background: var(--surface-2); border: 1px solid var(--border);'">
+                    <div class="rounded-md overflow-hidden" style="border: 1px solid var(--border);">
+                        <template x-for="(candidate, idx) in buyerCandidates" :key="candidate.type + ':' + candidate.id">
+                            <label class="flex items-center gap-2 px-2 py-1 cursor-pointer transition hover:brightness-95"
+                                   :style="(candidate.ticked
+                                        ? 'background: color-mix(in srgb, var(--brand-icon, #00d4aa) 14%, var(--surface-2));'
+                                        : 'background: var(--surface-2);')
+                                        + (idx > 0 ? ' border-top: 1px solid var(--border);' : '')">
                                 <input type="checkbox" :checked="candidate.ticked"
                                        @change="toggleBuyerCandidate(candidate)" class="sr-only">
-                                <span class="flex-none w-5 h-5 rounded flex items-center justify-center"
+                                <span class="flex-none w-3.5 h-3.5 rounded-sm flex items-center justify-center"
                                       :style="candidate.ticked
-                                            ? 'background: var(--brand-icon, #00d4aa); border: 2px solid var(--brand-icon, #00d4aa);'
-                                            : 'background: var(--surface); border: 2px solid var(--text-muted);'">
-                                    <svg x-show="candidate.ticked" x-cloak viewBox="0 0 24 24" class="w-3.5 h-3.5" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                            ? 'background: var(--brand-icon, #00d4aa); border: 1.5px solid var(--brand-icon, #00d4aa);'
+                                            : 'background: var(--surface); border: 1.5px solid var(--text-secondary);'">
+                                    <svg x-show="candidate.ticked" x-cloak viewBox="0 0 24 24" class="w-2.5 h-2.5" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
                                         <path d="M5 13l4 4L19 7"></path>
                                     </svg>
                                 </span>
-                                <span class="flex-1 min-w-0">
-                                    <span class="block text-sm font-medium truncate"
+                                <span class="flex-1 min-w-0 flex items-baseline gap-1.5 truncate">
+                                    <span class="text-xs font-medium truncate"
                                           style="color: var(--text-primary);"
                                           x-text="(((candidate.first_name || '') + ' ' + (candidate.last_name || '')).trim()) || candidate.name || ('Contact #' + candidate.id)"></span>
-                                    <span class="block text-xs truncate" style="color: var(--text-muted);"
+                                    <span class="text-[11px] truncate" style="color: var(--text-muted);"
                                           x-text="candidate.phone || candidate.email || ''"></span>
                                 </span>
                             </label>
