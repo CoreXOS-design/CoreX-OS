@@ -100,18 +100,6 @@
     ['province',        'Province'],
     ['gps',             'GPS'],
     ['section_extent',  'Section extent'],
-    // v3.6.1 (2026-08-19, Johan's explicit priority) — freehold-only, the ERF
-    // SIZE (spec §6.4: "Freehold Extent = the ERF SIZE. Carries through to
-    // the property record's erf-size field."). This is the measurement
-    // buildDeedsCapturePayload() actually sends via section_extent_m2 for a
-    // freehold capture now — see its own mapping note.
-    ['erf_extent_raw',  'Extent'],
-    // v3.5.0 — freehold-only (spec §6.1/§6.4: "Cadastral extent" is a DIFFERENT
-    // measurement from sectional "Section extent" AND from "Extent" (erf
-    // size) above, and must never share storage with either — extracted for
-    // a possible future dedicated field only; not sent today, see
-    // buildDeedsCapturePayload()'s mapping note).
-    ['cadastral_extent_raw', 'Cadastral extent'],
     ['type',            'Type'],
     ['usage',           'Usage'],
   ];
@@ -142,48 +130,6 @@
   // not visible. If the section hasn't rendered AT ALL yet (true lazy
   // postback), ensureSectionExpanded() must run first — see below.
 
-  // v3.6.0 (2026-08-19) — ROOT CAUSE FOUND (Johan, live DOM dump on
-  // SEESKULP section 1 -> Erf 668 MARINE DRIVE): cmainfo does NOT render one
-  // shared set of cells that get mutated in place per property. It keeps
-  // MULTIPLE property-type templates in the DOM SIMULTANEOUSLY (at least a
-  // sectional one and a freehold one — "assume more than two templates
-  // exist", per a third, empty, permanently-hidden GPS cell also observed)
-  // and toggles which one is visible. The HIDDEN template keeps whatever it
-  // last held — the LAST time a property OF ITS TYPE was viewed — forever,
-  // with no further mutation, ever. This is not a timing problem and never
-  // was: "18 Lilliecrona Drive" arriving on a "39 Bairn Street" capture, and
-  // the false "not a recognisable property" refusal on a plainly-loaded Erf
-  // 668, are the SAME bug — a label match against a stale, permanently
-  // hidden copy of the row, not a mutation the code needed to wait for.
-  //
-  // Every prior mitigation in this file's history (DOM_SETTLE_MS, the
-  // mutation observer, the v3.4.5 LPI-transition freshness gate, the v3.5.0
-  // per-field freshness-proof mechanism) was solving a DIFFERENT, wrong
-  // model of the bug — "the right cell hasn't been written yet" — when the
-  // actual shape was "there are two cells and we're reading the wrong one,
-  // and no amount of waiting ever fixes that." See the "RETIRED" note
-  // further down for exactly what that made obsolete.
-  //
-  // The fix: ONE canonical lookup, visible-scoped by default. offsetParent
-  // is null when an element (or ANY ancestor) has display:none — checking
-  // it in one property read accounts for the WHOLE ancestor chain in one
-  // step, unlike a single getComputedStyle() call on the element alone,
-  // which would miss a HIDDEN ANCESTOR CONTAINER (exactly cmainfo's
-  // per-type template toggle: the whole sectional/freehold sub-container is
-  // display:none, not each cell inside it individually).
-  //
-  // requireVisible defaults to true and MUST stay true for every caller that
-  // extracts data that gets sent. The one narrow, deliberate exception is
-  // isPropertyLoaded() (requireVisible:false) — it only asks "is ANY
-  // property loaded at all, so the Capture button should show", a coarse
-  // presence check that doesn't care which template answered, and which
-  // must still work while the accordion section itself is collapsed (a
-  // DIFFERENT, legitimate display:none — see ensureSectionExpanded()) and
-  // its own content hasn't been read for real yet.
-  function isVisible(el) {
-    return !!(el && el.offsetParent !== null);
-  }
-
   function normalizeLabel(s) {
     return (s || '')
       .replace(/ /g, ' ')      // &nbsp;
@@ -203,16 +149,11 @@
    *      "label row, then value row" stacked variant some ASP.NET
    *      accordion generators use).
    *
-   * cmainfo can render the SAME label more than once (the multi-template
-   * toggle — see the v3.6.0 note above isVisible()) — every candidate this
-   * function would otherwise accept is additionally required to be VISIBLE
-   * (requireVisible, default true) before it's returned. An invisible
-   * candidate is skipped, not returned — the search keeps going, including
-   * all the way to a LATER label cell elsewhere in the DOM (the visible
-   * template's own copy of this same label). This is the ONE canonical
-   * label lookup in this file for text values; findValueElementByLabel
-   * below is its element-returning twin. No caller queries the document
-   * directly for a label.
+   * Returns the FIRST matching label found on the page. If a page can show
+   * more than one row with the same label (hasn't been seen yet, but the
+   * pattern below composes fine if it turns out to be needed — see
+   * findAllValuesByLabel for the multi-match variant used by section
+   * detection).
    */
   // Guard for findValueByLabel's row-3 fallback (below) — the full set of
   // label strings we search for, built lazily so it can reference the label
@@ -228,8 +169,7 @@
     return _knownLabelsCache;
   }
 
-  function findValueByLabel(label, scopeRoot, opts) {
-    const requireVisible = !opts || opts.requireVisible !== false;
+  function findValueByLabel(label, scopeRoot) {
     const root = scopeRoot || document;
     const target = normalizeLabel(label);
     const knownLabels = knownLabelTexts();
@@ -238,25 +178,38 @@
     for (const cell of cells) {
       if (normalizeLabel(cell.textContent) !== target) continue;
 
+      // 1 & 2. Walk forward across sibling cells in the same row, skip
+      // blanks AND skip any cell whose text is itself one of our known
+      // field labels — a real value coinciding with another field's exact
+      // label text is effectively impossible on a deeds page, so this is a
+      // safe guard, not a false-reject risk.
       let sib = cell.nextElementSibling;
       while (sib) {
-        const t = (sib.textContent || '').replace(/\u00a0/g, ' ').trim();
-        if (t && !knownLabels.has(normalizeLabel(t)) && (!requireVisible || isVisible(sib))) return t;
+        const t = (sib.textContent || '').replace(/ /g, ' ').trim();
+        if (t && !knownLabels.has(normalizeLabel(t))) return t;
         sib = sib.nextElementSibling;
       }
 
+      // 3. Stacked label/value row fallback — ONLY meaningful when the
+      // label's own row had no usable sibling cell. CONFIRMED LIVE
+      // (2026-08-12, Johan's ASTOVE + 60 Avenue Svea captures): when a
+      // property's value cells are genuinely blank, this fallback used to
+      // walk into the NEXT label/value row and return THAT ROW'S LABEL TEXT
+      // as if it were this field's value — cascading through the whole
+      // label list ("scheme_name" -> "Situated at", "suburb" -> "Municipality",
+      // "province" -> "GPS", etc, each one shifted exactly one field down),
+      // which then promoted into a garbage "Municipality" placeholder
+      // property. Same guard as above: if the candidate is itself a known
+      // label, the true value is genuinely blank — return null, not a guess.
       const row = cell.closest('tr');
       const nextRow = row ? row.nextElementSibling : null;
       if (nextRow) {
         const firstCell = nextRow.querySelector('td, th');
         if (firstCell) {
           const t = (firstCell.textContent || '').trim();
-          if (t && !knownLabels.has(normalizeLabel(t)) && (!requireVisible || isVisible(firstCell))) return t;
+          if (t && !knownLabels.has(normalizeLabel(t))) return t;
         }
       }
-      // No visible candidate on THIS label cell — keep scanning the outer
-      // loop for another label cell matching the same target elsewhere in
-      // the DOM (the visible template's own copy).
     }
     return null;
   }
@@ -268,8 +221,7 @@
    * findValueByLabel's three fallback steps exactly so the two never
    * disagree about which cell holds "the value".
    */
-  function findValueElementByLabel(label, scopeRoot, opts) {
-    const requireVisible = !opts || opts.requireVisible !== false;
+  function findValueElementByLabel(label, scopeRoot) {
     const root = scopeRoot || document;
     const target = normalizeLabel(label);
     const knownLabels = knownLabelTexts();
@@ -280,8 +232,8 @@
 
       let sib = cell.nextElementSibling;
       while (sib) {
-        const t = (sib.textContent || '').replace(/\u00a0/g, ' ').trim();
-        if (t && !knownLabels.has(normalizeLabel(t)) && (!requireVisible || isVisible(sib))) return sib;
+        const t = (sib.textContent || '').replace(/ /g, ' ').trim();
+        if (t && !knownLabels.has(normalizeLabel(t))) return sib;
         sib = sib.nextElementSibling;
       }
 
@@ -291,37 +243,35 @@
         const firstCell = nextRow.querySelector('td, th');
         if (firstCell) {
           const t = (firstCell.textContent || '').trim();
-          if (t && !knownLabels.has(normalizeLabel(t)) && (!requireVisible || isVisible(firstCell))) return firstCell;
+          if (t && !knownLabels.has(normalizeLabel(t))) return firstCell;
         }
       }
     }
     return null;
   }
 
-  
-
-  // v3.6.1 (2026-08-19, live repro — Johan): cmainfo renders an EMPTY field
-  // as a literal placeholder character/word ("-", "N/A") rather than a truly
-  // blank cell — confirmed on Erf 668's "Type" ("-"), and the same "-"
-  // placeholder was already sitting in real captured Bond Holder data on
-  // QA1. findValueByLabel() has no way to tell "genuinely says dash" from
-  // "empty" apart, so every extracted value is normalised HERE, at the one
-  // shared point every field passes through — a placeholder is not data; a
-  // literal "-" stored on a property record defeats any future is-null
-  // check and looks like real data to an agent, which is worse than an
-  // honest blank.
-  function normalizeBlankish(v) {
-    if (v == null) return null;
-    const trimmed = String(v).trim();
-    if (trimmed === '' || trimmed === '-' || /^n\/a$/i.test(trimmed)) return null;
-    return v;
+  /** All (label, value) row matches — used where a page can repeat a label (e.g. per section). */
+  function findAllValuesByLabel(label) {
+    const target = normalizeLabel(label);
+    const cells = document.querySelectorAll('td, th');
+    const values = [];
+    for (const cell of cells) {
+      if (normalizeLabel(cell.textContent) !== target) continue;
+      let sib = cell.nextElementSibling;
+      while (sib) {
+        const t = (sib.textContent || '').replace(/ /g, ' ').trim();
+        if (t) { values.push(t); break; }
+        sib = sib.nextElementSibling;
+      }
+    }
+    return values;
   }
 
   function extractByLabelMap(labelPairs, scopeRoot) {
     const out = {};
     labelPairs.forEach(([key, label]) => {
       try {
-        out[key] = normalizeBlankish(findValueByLabel(label, scopeRoot));
+        out[key] = findValueByLabel(label, scopeRoot);
       } catch (e) {
         out[key] = null;
       }
@@ -578,42 +528,20 @@
   // the unmasking IN PLACE (the cell's text value changes; the icon itself
   // may not). There's also an unrelated i.fas.fa-info-circle tooltip icon
   // elsewhere in the panel — must not be confused with the reveal control.
-  /**
-   * v3.6.2 (2026-08-19, spec .ai/specs/deeds-capture.md §7.2 — "fix/confirm
-   * revealOwnerIdIfNeeded() unmasks every owner-ID position, not just the
-   * first"): SEESKULP section 4's Owner's ID cell holds TEN semicolon-joined
-   * entries in one cell. Whether cmainfo exposes one reveal icon per cell or
-   * one per position is unconfirmed live, so this returns EVERY visible
-   * fa-eye icon found for the row/panel, not just the first — clicking all
-   * of them is a safe superset regardless of which markup shape is real (a
-   * single-icon-per-cell page just gets one real click plus harmless no-op
-   * attempts on nothing else found).
-   */
-  function findOwnerIdRevealControls() {
+  function findOwnerIdRevealControl() {
     const target = normalizeLabel("Owner's ID");
     const panel = document.querySelector('div.sale-info.panel') || document;
     const cells = panel.querySelectorAll('td, th');
-    const found = [];
     for (const cell of cells) {
       if (normalizeLabel(cell.textContent) !== target) continue;
       const row = cell.closest('tr');
-      if (!row) continue;
-      // v3.6.0 — cmainfo can render this row's label more than once (the
-      // multi-template toggle); only a VISIBLE icon belongs to the property
-      // actually on screen.
-      row.querySelectorAll('i.fa.fa-eye').forEach((icon) => {
-        if (isVisible(icon)) found.push(icon);
-      });
+      const icon = row && row.querySelector('i.fa.fa-eye');
+      if (icon) return icon;
     }
-    if (found.length) return found;
     // Fallback: the row-scoped lookup above can miss if the label cell's
-    // exact text ever shifts — search every fa-eye icon in the panel
-    // directly (i.fa.fa-eye, never i.fas.fa-info-circle).
-    const icons = panel.querySelectorAll('i.fa.fa-eye');
-    for (const icon of icons) {
-      if (isVisible(icon)) found.push(icon);
-    }
-    return found;
+    // exact text ever shifts — the icon itself (i.fa.fa-eye, never
+    // i.fas.fa-info-circle) is unambiguous within the sale-info panel.
+    return panel.querySelector('i.fa.fa-eye');
   }
 
   /**
@@ -663,24 +591,13 @@
    * this once per Sale Information read, so a re-mask would only bite if
    * the agent presses Capture twice on the same loaded section without an
    * intervening reload — untested; flag if seen.
-   *
-   * v3.6.2 — clicks EVERY reveal control found (see
-   * findOwnerIdRevealControls()' docblock), not just one, then polls the
-   * WHOLE cell for zero asterisks as before. Per spec §7.2: this is a
-   * best-effort attempt, not a hard requirement — a non-maskable entry
-   * ("IT 1203/91", a trust registration number sitting in the same list as
-   * SA IDs) will never lose its own non-asterisk shape and is not a failure;
-   * an entry that's still masked when the timeout elapses is sent as-is,
-   * masked, verbatim, in the new raw path (buildDeedsCapturePayload()) — the
-   * server fails closed on ownership in that case, per spec, not this file.
    */
   function revealOwnerIdIfNeeded(timeoutMs = 1500) {
     return new Promise((resolve) => {
-      const controls = findOwnerIdRevealControls();
-      if (!controls.length) { resolve(false); return; }
-      let dispatchedAny = false;
-      controls.forEach((control) => { if (dispatchRealClick(control)) dispatchedAny = true; });
-      if (!dispatchedAny) { resolve(false); return; }
+      const control = findOwnerIdRevealControl();
+      if (!control) { resolve(false); return; }
+      const dispatched = dispatchRealClick(control);
+      if (!dispatched) { resolve(false); return; }
 
       const salePanel = findSectionPanel(findSectionHeader('Sale Information'));
       const cell = findValueElementByLabel("Owner's ID", salePanel || undefined);
@@ -705,8 +622,8 @@
   // injected button appears/updates without a page reload as the agent
   // clicks through search results.
   function isPropertyLoaded() {
-    const address = findValueByLabel('Address', null, { requireVisible: false });
-    const situatedAt = findValueByLabel('Situated at', null, { requireVisible: false });
+    const address = findValueByLabel('Address');
+    const situatedAt = findValueByLabel('Situated at');
     return !!(address || situatedAt);
   }
 
@@ -762,16 +679,7 @@
   // job (extractDeed() below), kept strictly separate from this poll.
   const IDENTITY_STABILITY_POLL_MS = 120;
   const IDENTITY_STABILITY_TIMEOUT_MS = 2000;
-  // v3.5.0 — widened to cover BOTH property types' own identity rows
-  // (spec §6.1: a sectional panel has no LPI Code/Erf no at all; a freehold
-  // panel has no Scheme no/Section number at all). Watching all four (plus
-  // Address) means whichever pair is actually rendered still drives this
-  // stability poll — for a freehold panel, Scheme no/Section number just read
-  // blank throughout, which is harmless (a constant blank component never
-  // blocks stability). This poll only decides WHEN it's safe to take the
-  // "official" read; it is NOT what decides whether that read is trustworthy
-  // — that is extractDeed()'s type-coherence + freshness-gate below.
-  const IDENTITY_SIGNAL_LABELS = ['LPI Code', 'Erf no', 'Scheme no', 'Section number', 'Address'];
+  const IDENTITY_SIGNAL_LABELS = ['LPI Code', 'Address', 'Erf no'];
 
   function identitySignatureOf(panelEl) {
     return IDENTITY_SIGNAL_LABELS.map((label) => findValueByLabel(label, panelEl) || '').join('␟');
@@ -818,152 +726,254 @@
    * separate button click, same mental model as re-running the button.
    */
   // ══════════════════════════════════════════════════════════
-  // ── TYPE-AWARE IDENTITY: freehold vs sectional ───────────────
+  // ── TRUE CLEAN SLATE (v3.4.2, 2026-08-18) ──────────────────
   // ══════════════════════════════════════════════════════════
-  // History (v3.3.9 through v3.5.0): this file went through several
-  // increasingly elaborate mechanisms — a whole-panel DOM-settle wait, a
-  // byte-identical-to-previous-capture comparison, an LPI-Code transition
-  // gate, then a type-aware composite anchor with a per-field freshness-
-  // proof poll and cross-restart persistence in chrome.storage.local — all
-  // aimed at the same symptom: a captured field (Address, or the sectional-
-  // only fields on a freehold panel) sometimes held a DIFFERENT property's
-  // value than the one visibly on screen.
+  // Johan: capturing a SECTIONAL (complex) property, then a FREEHOLD, still
+  // showed the freehold with the PREVIOUS complex's scheme/section — after
+  // BOTH v3.3.9 (settle-timing) and v3.4.0 (byte-identical-to-prior
+  // heuristic, below this block until 2026-08-18). Root cause (confirmed):
+  // cmainfo's Property Information panel does NOT re-render the
+  // sectional-only fields (Scheme name/no, Section number, Flat/Unit no,
+  // Section extent, Situated at) when the CURRENT property is a freehold —
+  // no new markup means no postback ever touches that row, so whatever
+  // sectional property was viewed BEFORE it sits frozen in the live DOM
+  // indefinitely, for the rest of the page session, no matter how long the
+  // extension waits or how quiet the DOM has been.
   //
-  // v3.6.0 (2026-08-19) — ROOT CAUSE FOUND, and it was never a timing
-  // problem. Johan dumped the live DOM on SEESKULP section 1 (sectional) ->
-  // Erf 668 MARINE DRIVE (freehold) with an offsetParent visibility check:
-  // cmainfo keeps BOTH property-type templates in the DOM AT ALL TIMES and
-  // toggles which one is visible. The hidden one keeps whatever it last
-  // held — indefinitely, with no further mutation ever — while the visible
-  // one is the actually-loaded property. Every field-read in this file now
-  // routes through findValueByLabel()/findValueElementByLabel() (see the
-  // v3.6.0 note above isVisible(), near the top of the file), which skips
-  // an invisible candidate and keeps searching for the visible template's
-  // own copy of that label. That is the fix, and it is a READ-TIME fix, not
-  // a wait-and-prove-freshness fix — there is no more residue to gate
-  // against, because a hidden template's cells are never returned at all.
+  // v3.4.0's fix compared the CURRENT capture's sectional fields against the
+  // PREVIOUS capture's (byte-identical + a freehold-native field changed).
+  // Insufficient by its own admission: the FIRST capture in a page session
+  // has no previous capture to diff against, so leftover DOM content from
+  // before the extension was even opened wasn't caught, and it only fired
+  // when EVERY sectional field was byte-identical to last time — one field
+  // differing defeated the whole check. Both are symptoms of the same flaw:
+  // comparing against MEMORY of a previous capture can never be airtight,
+  // because the bug is that the DOM lies about the CURRENT property, not
+  // that it changed from the previous one.
   //
-  // What that made obsolete, and what still earns its place:
-  //   REMOVED — the v3.5.0 per-field freshness-proof mechanism
-  //   (FRESHNESS_GATED_FIELDS/waitForFieldsProof/earlyFreshnessBaseline) and
-  //   the chrome.storage.local anchor persistence (loadLastAnchor/
-  //   saveLastAnchor/sameIdentityAsLast) it was built to gate against a
-  //   PRIOR capture's anchor. Both existed solely to answer "has Address
-  //   genuinely changed since the property switched" — a question that no
-  //   longer needs asking, because Address is now read from the visible
-  //   template only, every time, unconditionally correct the instant
-  //   cmainfo finishes its own postback. Type detection is consequently now
-  //   a pure, STATELESS function of the current visible DOM — no capture
-  //   history needed, so first-capture-of-a-session and the 100th capture
-  //   are handled by the exact same code path (see detectPropertyType()
-  //   below) — which is also what fixes the false refusal Johan hit on Erf
-  //   668: the OLD stateful design had a "no prior anchor" escape hatch
-  //   that a stateless design has no need for, but this NEW stateless
-  //   design was never at risk of THAT particular failure to begin with —
-  //   it was failing because it was reading the WRONG (hidden) template's
-  //   blank/wrong-type cells, which visible-scoping now prevents outright.
-  //   KEPT — ensureSectionExpanded()/domIsSettled()/the mutation observer
-  //   (above) and waitForPanelIdentityStable() (below, in
-  //   extractPropertyInformation()) still earn their place: they answer a
-  //   DIFFERENT, still-real question — has the VISIBLE template's OWN
-  //   postback actually finished writing its cells yet — which visible-
-  //   scoping doesn't touch at all. A WebForms postback can still land a
-  //   visible template's fields in a burst; reading mid-burst is still a
-  //   real risk this settle-timing machinery still guards against.
-  //   KEPT, but now demoted to defense-in-depth — applyTypeCoherence()'s
-  //   drop of any foreign-type field. Visible-scoped reads mean a hidden
-  //   template's fields should never reach `property` at all any more, so
-  //   this should now almost never actually fire. Keeping it costs nothing
-  //   (a no-op in the normal case) and guards the one thing tonight's
-  //   evidence explicitly flagged as still uncertain: a THIRD, empty,
-  //   permanently-hidden GPS cell was observed alongside the two known
-  //   templates ("assume more than two templates exist") — if a future
-  //   capture ever DOES trip this warning, that is a strong, specific
-  //   signal of a not-yet-understood third template, worth investigating
-  //   immediately rather than something to have silently deleted here.
+  // v3.4.2 fix — two parts, per Johan's explicit instruction that every
+  // capture must start truly fresh with NO memory of the previous scrape's
+  // EXTRACTED VALUES:
+  //   1. All module-level memory of a previous capture's PROPERTY DATA is
+  //      removed — nothing from a prior capture's scheme/address/etc can
+  //      influence this one, full stop. The old byte-identical-to-prior
+  //      heuristic and its NATSPAT title-deed-mismatch self-heal
+  //      (propertySignature/signaturesMatchAddress/lastCaptureSignature/
+  //      lastCapturedProperty/clearFrozenSectionalFields, all formerly here)
+  //      are REMOVED along with it — both depended on remembering the
+  //      previous capture's VALUES, and the byte-identical heuristic is the
+  //      one just proven insufficient (see nullSectionalFieldsIfFreehold()
+  //      below for what replaces it).
+  //   2. Sectional-vs-freehold is decided from the CURRENT property's OWN
+  //      signal — never from a comparison — and a freehold NEVER
+  //      legitimately has a scheme/section (that is definitionally what
+  //      sectional title means), so the sectional fields are forced empty
+  //      UNCONDITIONALLY whenever the current read says freehold. See
+  //      currentPropertyLooksFreehold() / nullSectionalFieldsIfFreehold()
+  //      below. This is the airtight rule the byte-identical heuristic
+  //      lacked: it doesn't matter what the DOM residue says or what the
+  //      previous capture was — a freehold's scheme/section is ALWAYS null.
+  //
+  // v3.4.3 CORRECTION (2026-08-19): "no memory of the previous scrape" was
+  // over-applied to `lastCaptureCompletedAt` too (a TIMESTAMP, never an
+  // extracted value — see domIsSettled()'s comment for the regression that
+  // caused and the reasoning for restoring it). The clean-slate rule is
+  // specifically about not remembering a previous capture's PROPERTY DATA;
+  // remembering WHEN the last extraction finished is a live-DOM timing
+  // signal, the same category as lastMutationAt, and was never part of the
+  // address-bleed bug.
+  //
+  // v3.4.4 (2026-08-19): the Type/Erf-no freehold guess above shipped as the
+  // PRIMARY mechanism. Johan's real in-page SS<->FH loop still bled history
+  // afterwards — the guess was never airtight (its own docblock flagged the
+  // residual gap), and "Type/Erf-no says freehold" is a proxy, not proof.
+  //
+  // v3.4.5 (2026-08-19) — ARCHITECTURAL REBUILD, per Johan's explicit
+  // direction. currentPropertyLooksFreehold()/nullSectionalFieldsIfFreehold()
+  // below are DEMOTED from primary mechanism to a narrow fallback (see
+  // extractDeed()) — the PRIMARY mechanism is now the LPI Code transition
+  // gate: cmainfo's own unique per-property identifier (present on BOTH
+  // sectional and freehold properties) tells us definitively when the
+  // CURRENTLY loaded property is NOT the one we last captured, and — per
+  // Johan's explicit rule — the sectional fields are EMPTY BY DEFAULT for
+  // that new property until a fresh DOM mutation is actually observed
+  // touching them, not "trusted because Type/Erf-no looks a certain way".
+  // This directly fixes the confirmed root cause (scheme/section rows simply
+  // never get new markup for a freehold — see TRUE CLEAN SLATE above) without
+  // ever having to guess from a proxy signal: we don't ASSUME the frozen row
+  // is stale because Type looks like freehold, we PROVE it's stale (or not)
+  // by watching for a genuine update.
   const SECTIONAL_ONLY_FIELDS = ['scheme_name', 'scheme_no', 'section_number', 'flat_number', 'section_extent', 'situated_at'];
-  const FREEHOLD_ONLY_FIELDS = ['lpi_code', 'erf_no', 'erf_extent_raw', 'cadastral_extent_raw'];
-
-  function hasFreeholdAnchor(property) {
-    return !!(property.lpi_code || property.erf_no);
-  }
-
-  function hasSectionalAnchor(property) {
-    return !!(property.scheme_no && property.section_number);
-  }
 
   /**
-   * Returns 'freehold' | 'sectional' | null — a PURE function of the
-   * CURRENT visible read, no capture history involved (see the v3.6.0 note
-   * above). null covers two distinct page states, both genuinely
-   * unreadable: neither anchor visible (Johan's rule — refuse rather than
-   * guess), or BOTH visible at once (see detectPropertyType()'s own
-   * reasoning below for why this is now expected to be vanishingly rare
-   * rather than the norm it was before visible-scoping).
+   * FALLBACK ONLY (see extractDeed()'s LPI-transition gate for the primary
+   * mechanism) — used SOLELY when there is no previously-locked LPI Code to
+   * compare against, i.e. the very first capture since this content script
+   * loaded. In that one case there is no "transition" to detect a mutation
+   * against — cmainfo may have already been navigated through several
+   * properties before the agent ever pressed Capture, so whatever is
+   * currently in the DOM could be fresh OR residual from before this script
+   * ever started watching, and there is no LPI history to tell them apart.
+   * Falls back to the pre-3.4.5 Type/Erf-no proxy signal for this one edge
+   * case only — same residual gap as before (a freehold with neither a
+   * recognised Type string nor an Erf no on the panel would slip past it),
+   * now scoped to a single, rare, explicitly-flagged case instead of being
+   * the mechanism for every capture.
    */
-  function detectPropertyType(property) {
-    const fh = hasFreeholdAnchor(property);
-    const ss = hasSectionalAnchor(property);
-    if (fh && !ss) return 'freehold';
-    if (ss && !fh) return 'sectional';
-    if (!fh && !ss) return null;
-
-    // Both visible at once — genuinely contradictory (not the "hidden
-    // template still holds old data" case any more; that case now reads as
-    // exactly one anchor, correctly, because the hidden template's fields
-    // are never returned by a visible-scoped read at all). Try cmainfo's
-    // own "Type" text as a last-resort tiebreak; if that doesn't disambiguate
-    // either, this is the genuinely unreadable case and fails closed same as
-    // "neither".
-    const typeText = normalizeLabel(property.type || '');
-    if (typeText.indexOf('sectional') !== -1) return 'sectional';
-    if (typeText.indexOf('freehold') !== -1 || typeText.indexOf('full title') !== -1 || typeText.indexOf('full-title') !== -1) return 'freehold';
-    return null;
-  }
-
-  /**
-   * Defense-in-depth (see the v3.6.0 removal note above) — a real cmainfo
-   * panel's VISIBLE template renders exactly one type's field set, so
-   * whichever type the anchor identifies, any value present for the OTHER
-   * type's fields should not exist post-visible-scoping. If one somehow
-   * does (the not-yet-understood third-template case), drop it and log
-   * loudly rather than silently sending it.
-   */
-  function applyTypeCoherence(property, type) {
-    const foreignFields = type === 'freehold' ? SECTIONAL_ONLY_FIELDS : FREEHOLD_ONLY_FIELDS;
-    const dropped = [];
-    foreignFields.forEach((key) => {
-      if (property[key]) { dropped.push(key); property[key] = null; }
-    });
-    if (dropped.length) {
-      console.warn('[CoreX] deeds-capture: panel identified as ' + type + ' (via its own VISIBLE anchor) but a visible-scoped read still carried a value for: ' + dropped.join(', ') + ' — dropped, not sent. This should be rare post-visible-scoping; if seen, it likely means a THIRD template exists that is not yet accounted for — investigate.');
+  function currentPropertyLooksFreehold(property) {
+    const type = normalizeLabel(property.type || '');
+    if (type) {
+      if (type.indexOf('sectional') !== -1) return false;
+      if (type.indexOf('freehold') !== -1 || type.indexOf('full title') !== -1 || type.indexOf('full-title') !== -1 || type === 'erf') {
+        return true;
+      }
     }
-    return property;
+    if (property.erf_no) return true;
+    return false;
   }
+
+  /** FALLBACK ONLY — see currentPropertyLooksFreehold()'s docblock above. */
+  function nullSectionalFieldsIfFreehold(property) {
+    if (!currentPropertyLooksFreehold(property)) return property;
+    const cleared = Object.assign({}, property);
+    SECTIONAL_ONLY_FIELDS.forEach((key) => { cleared[key] = null; });
+    console.warn('[CoreX] deeds-capture: first capture this session, no LPI history to gate against — falling back to the Type/Erf no signal, which says freehold. Scheme/section/unit/extent/situated-at forced empty.');
+    return cleared;
+  }
+
+  /** Re-reads ONLY the sectional-only fields, fresh, from the current panel. */
+  function readSectionalFieldsFresh(panelEl) {
+    const out = {};
+    SECTIONAL_ONLY_FIELDS.forEach((key) => {
+      const pair = PROPERTY_INFORMATION_LABELS.find((entry) => entry[0] === key);
+      out[key] = pair ? findValueByLabel(pair[1], panelEl) : null;
+    });
+    return out;
+  }
+
+  function sectionalSignatureOf(fields) {
+    return SECTIONAL_ONLY_FIELDS.map((key) => fields[key] || '').join('␟');
+  }
+
+  /**
+   * The primary v3.4.5 mechanism (see the ARCHITECTURAL REBUILD comment
+   * above). Polls the sectional-only fields against a BASELINE signature
+   * (taken the moment we detected the LPI had changed) until it genuinely
+   * differs — proof a real mutation landed on the Scheme/Section rows for
+   * THIS property — or the timeout elapses, meaning no such proof arrived
+   * and the fields are treated as empty. A property whose scheme/section
+   * legitimately never changes from its own frozen-at-load state (a true
+   * freehold, where cmainfo never touches that row again) will correctly
+   * time out here every time — that IS the desired outcome, not a false
+   * negative: Johan's rule is "empty until proven fresh", and a row that is
+   * NEVER proven fresh stays empty for the property's entire capture.
+   */
+  const SECTIONAL_FRESHNESS_TIMEOUT_MS = 2000;
+  const SECTIONAL_FRESHNESS_POLL_MS = 150;
+  function waitForSectionalMutationSinceBaseline(panelEl, baselineSignature) {
+    return new Promise((resolve) => {
+      const start = Date.now();
+      (function poll() {
+        const current = sectionalSignatureOf(readSectionalFieldsFresh(panelEl));
+        if (current !== baselineSignature) { resolve(true); return; }
+        if (Date.now() - start >= SECTIONAL_FRESHNESS_TIMEOUT_MS) { resolve(false); return; }
+        setTimeout(poll, SECTIONAL_FRESHNESS_POLL_MS);
+      })();
+    });
+  }
+
+  // Watermark of the LPI Code we were locked onto as of the end of the last
+  // COMPLETED capture — an IDENTITY marker, not extracted PROPERTY DATA (same
+  // category as lastCaptureCompletedAt/lastMutationAt above: a TIMING/IDENTITY
+  // signal the TRUE CLEAN SLATE rule was never about, per its own v3.4.3
+  // correction). Used ONLY to detect "has the loaded property actually
+  // changed since we last captured" — never compared field-by-field, never
+  // fed back into a captured value.
+  let lastLockedLpiCode = null;
 
   async function extractDeed() {
+    // v3.4.2 — TRUE clean slate: this function keeps NO module-level memory
+    // of a previous capture's PROPERTY DATA any more (see the TRUE CLEAN
+    // SLATE block above) — every extraction reads the DOM fresh, top to
+    // bottom, with no scheme/address/etc carried over from whatever the
+    // previous capture saw. (lastLockedLpiCode is identity/timing memory,
+    // not property data — see its own comment just above.)
+
+    const panel = findSectionPanel(findSectionHeader('Property Information'));
+
+    // v3.4.5 — captured BEFORE ensureSectionExpanded's settle-wait even
+    // starts: whatever the sectional fields show RIGHT NOW, this instant,
+    // before we've waited for anything. This is the presumed-possibly-frozen
+    // baseline. Taking it here — not after the panel has already settled —
+    // matters: ensureSectionExpanded()/domIsSettled() share ONE page-wide
+    // "quiet since the last mutation" clock, and a genuine Scheme-row update
+    // landing WHILE that wait is still running resets the SAME clock a
+    // sectional mutation would. A baseline taken AFTER settling would
+    // already include that update — comparing the post-settle read against
+    // ITSELF always says "unchanged", wrongly nulling data that had already
+    // arrived fresh. Reading the panel this early is safe even if the
+    // accordion is collapsed — findSectionPanel() returns the DOM node
+    // regardless of its CSS display state, same as findValueByLabel().
+    const earlySectionalBaseline = panel ? sectionalSignatureOf(readSectionalFieldsFresh(panel)) : '';
+
     await ensureSectionExpanded('Property Information');
     let property = await extractPropertyInformation();
 
-    // HARD FAIL-CLOSED — see detectPropertyType()'s docblock: applies ONLY
-    // when no anchor is visible at all, or both are.
-    const type = detectPropertyType(property);
-    if (!type) {
-      throw new Error('cmainfo panel is not showing a recognisable property — no LPI Code/Erf no (freehold) and no Scheme no + Section number (sectional) were visible, or both were. Capture refused rather than guessed.');
-    }
+    // v3.4.5 — the LPI-transition gate (Johan's explicit rule): sectional
+    // fields are EMPTY BY DEFAULT for a property we haven't positively
+    // confirmed is the SAME one we captured last, until a fresh mutation
+    // proves otherwise. "Positively confirmed same" requires BOTH captures
+    // to have read a non-blank LPI Code AND those codes to match exactly —
+    // anything else (LPI blank this time, no prior LPI known, or a genuine
+    // change) is treated as "not confirmed same" and gated.
+    const newLpi = property.lpi_code || null;
+    const sameIdentityAsLast = !!newLpi && !!lastLockedLpiCode && newLpi === lastLockedLpiCode;
 
-    // Defense-in-depth only — see applyTypeCoherence()'s docblock. Visible-
-    // scoped reads should already make this a no-op in the normal case.
-    property = applyTypeCoherence(property, type);
+    if (!sameIdentityAsLast) {
+      if (lastLockedLpiCode === null) {
+        // No prior LPI in this session to detect a transition against — see
+        // currentPropertyLooksFreehold()'s docblock for why this ONE case
+        // still needs the pre-3.4.5 fallback.
+        property = nullSectionalFieldsIfFreehold(property);
+      } else {
+        const currentSignature = sectionalSignatureOf(property);
+        if (currentSignature !== earlySectionalBaseline) {
+          // Already proven: the sectional fields read differently now than
+          // they did before we started waiting at all — a real mutation
+          // landed for THIS property sometime during the settle-wait.
+          // `property` already carries this fresh read — nothing to do.
+        } else {
+          // No evidence yet that anything has changed since before we
+          // started — give it a bounded window to prove itself via a
+          // FURTHER mutation before giving up and nulling.
+          const proved = await waitForSectionalMutationSinceBaseline(panel, currentSignature);
+          if (proved) {
+            Object.assign(property, readSectionalFieldsFresh(panel));
+          } else {
+            SECTIONAL_ONLY_FIELDS.forEach((key) => { property[key] = null; });
+            console.warn('[CoreX] deeds-capture: LPI changed (' + lastLockedLpiCode + ' -> ' + (newLpi || '(blank)') + ') but no fresh mutation observed on the Scheme/Section rows — treating scheme/section/unit/extent/situated-at as EMPTY rather than trusting possibly-frozen residue.');
+          }
+        }
+      }
+    }
+    // else: same LPI as last capture (re-capturing the same property) —
+    // sectional fields are trusted as read, no gating needed.
 
     await ensureSectionExpanded('Sale Information');
     const sale = await extractSaleInformation();
+
+    // Lock onto this capture's identity for the NEXT one to compare against.
+    // A blank LPI this capture clears the watermark rather than keeping the
+    // old one — we cannot positively confirm "same property" without a real
+    // LPI to compare, so the NEXT capture must also go through the gate.
+    lastLockedLpiCode = newLpi;
 
     // v3.3.9, restored v3.4.3 — stamped on EVERY capture so domIsSettled()
     // can require genuine evidence (a real DOM mutation) that THIS
     // property's postback actually ran before the NEXT capture trusts a
     // "quiet" panel — see domIsSettled()'s v3.4.2 REGRESSION comment. A
-    // timestamp, never a captured field value.
+    // timestamp, never a captured field value — does not reintroduce the
+    // address-bleed memory that was removed.
     lastCaptureCompletedAt = Date.now();
 
     return {
@@ -981,53 +991,19 @@
   // strings CMA renders. These are best-effort — flagged where the exact
   // CMA format needs Johan's live-page confirmation.
 
-  // v3.6.3 (2026-08-20, live repro \u2014 Erf 668 and EVERY other recent QA1
-  // capture: cadastral_extent stored "9" for a 9,480 m\u00b2 stand, "1" for a
-  // 1,xxx m\u00b2 one, etc \u2014 confirmed truncated on every capture over 999
-  // whatever-unit, hiding in plain sight below that threshold).
-  //
-  // ROOT CAUSE, fix the class not the instance: cmainfo formats BOTH money
-  // ("R 1 575 000") and area ("9 480 m\u00b2") with a SPACE as the thousands
-  // separator \u2014 plain, NBSP (U+00A0), or thin space (U+2009); JS's `\\s`
-  // already matches all three (Unicode \\s includes \\u2000-\\u200a, which
-  // covers thin space, and \\u00a0 explicitly). There were previously TWO
-  // separate implementations: parseCurrency (blanket-strip everything
-  // non-numeric \u2014 already correct for money, confirmed live: Bond Amount
-  // already displayed right) and parseNumeric (only collapsed a space
-  // specifically BETWEEN two digits \u2014 narrower, and the one that was
-  // still shipping the truncation bug). Two parsers for the structurally
-  // IDENTICAL problem is exactly the class of duplication that lets one path
-  // get fixed and the other not. Unified into ONE canonical parser;
-  // parseCurrency/parseNumeric are now both thin aliases so every existing
-  // call site (money AND area) provably runs the SAME, single, tested
-  // implementation \u2014 there is no second copy left to drift.
-  //
-  // FAIL LOUD, NOT SILENT (Johan's explicit rule): a value with real content
-  // that doesn't reduce to a clean finite number returns null AND logs a
-  // warning \u2014 never a truncated prefix passed off as the real number. A
-  // genuinely blank/dash/N-A field (already normalised to null at
-  // extraction \u2014 see normalizeBlankish()) is NOT a parse failure and does
-  // not warn; only "there was something here and we couldn't make sense of
-  // it" warns.
-  function parseNumericValue(v, fieldLabel) {
+  function parseCurrency(v) {
     if (v == null) return null;
-    const raw = String(v).trim();
-    if (!raw) return null;
-    const stripped = raw.replace(/[^\d.,-]/g, '').replace(/,/g, '');
-    const n = stripped ? parseFloat(stripped) : NaN;
-    if (!Number.isFinite(n)) {
-      console.warn('[CoreX] deeds-capture: could not parse "' + raw + '"' + (fieldLabel ? ' (' + fieldLabel + ')' : '') + ' as a number \u2014 sending null rather than a guessed/truncated value.');
-      return null;
-    }
-    return n;
+    const digits = String(v).replace(/[^\d.,-]/g, '').replace(/,/g, '');
+    const n = parseFloat(digits);
+    return Number.isFinite(n) ? n : null;
   }
 
-  function parseCurrency(v, fieldLabel) {
-    return parseNumericValue(v, fieldLabel);
-  }
-
-  function parseNumeric(v, fieldLabel) {
-    return parseNumericValue(v, fieldLabel);
+  function parseNumeric(v) {
+    if (v == null) return null;
+    const m = String(v).match(/[\d,.]+/);
+    if (!m) return null;
+    const n = parseFloat(m[0].replace(/,/g, ''));
+    return Number.isFinite(n) ? n : null;
   }
 
   // TODO(johan): assumes SA display convention DD/MM/YYYY — confirm against
@@ -1045,62 +1021,18 @@
               // validator reject it loudly rather than silently drop it
   }
 
-  // v3.5.0 (2026-08-18, root-cause audit .ai/audits/2026-08-18-cmainfo-scraper-
-  // root-cause.md, Defect 2) — CONFIRMED LIVE: cmainfo renders "GPS" as
-  // "<lng>°<E|W>   <lat>°<S|N>" — longitude FIRST, latitude SECOND, hemisphere
-  // as a trailing direction letter, NEVER a leading sign (e.g.
-  // "30.391273°E   30.842466°S" = longitude +30.391273, latitude -30.842466).
-  // The old parser assigned by POSITION (nums[0]->lat, nums[1]->lng) and never
-  // read the direction letter at all — for the E-then-S order above that put
-  // the longitude's magnitude in `lat` (failed the SA sanity range, nulled)
-  // and the latitude's magnitude in `lng`, UNSIGNED (passed the range check,
-  // stored positive) — exactly the corrupted latitude:NULL/longitude:+lat-
-  // magnitude state found on every captured row.
-  //
-  // Fixed by parsing each "<number><°?><letter>" pair and assigning by the
-  // LETTER, never by position: E/W -> longitude (positive/negative), N/S ->
-  // latitude (positive/negative). Johan's explicit rule (spec §6.6): FAIL
-  // CLOSED — if the letters are absent, ambiguous (more than one of the same
-  // axis), or the assigned values fail the SA sanity range, send BOTH
-  // coordinates as null. Never fall back to positional guessing — a wrong
-  // coordinate silently mis-matches two different properties (GPS-proximity
-  // match strategy), which is worse than a missing one.
+  // TODO(johan): confirm CMA's actual "GPS" field format live — this assumes
+  // "lat, lng" decimal degrees and sanity-bounds to South Africa so a
+  // misparse fails closed (null) instead of sending a wrong coordinate.
   function parseGps(v) {
     if (!v) return { lat: null, lng: null };
-    const matches = String(v).match(/-?\d+(?:\.\d+)?\s*°?\s*[NSEW]/gi);
-    if (!matches) return { lat: null, lng: null };
-
-    let lat = null;
-    let lng = null;
-    let latSeen = 0;
-    let lngSeen = 0;
-
-    for (const token of matches) {
-      const parsed = token.match(/(-?\d+(?:\.\d+)?)\s*°?\s*([NSEW])/i);
-      if (!parsed) return { lat: null, lng: null }; // shouldn't happen given the outer match, but fail closed rather than assume
-      const magnitude = Math.abs(parseFloat(parsed[1]));
-      const dir = parsed[2].toUpperCase();
-      if (dir === 'N' || dir === 'S') {
-        latSeen++;
-        lat = dir === 'S' ? -magnitude : magnitude;
-      } else {
-        lngSeen++;
-        lng = dir === 'W' ? -magnitude : magnitude;
-      }
-    }
-
-    // Exactly one latitude letter and one longitude letter — anything else
-    // (missing an axis, or the same axis's letter appearing twice) means we
-    // can't be sure which value is which. Fail closed rather than guess.
-    if (latSeen !== 1 || lngSeen !== 1) return { lat: null, lng: null };
-
-    // SA sanity range as a guard AFTER assignment, never as the thing that
-    // decides which value is which (that was the old bug).
+    const nums = String(v).match(/-?\d+\.\d+/g);
+    if (!nums || nums.length < 2) return { lat: null, lng: null };
+    const lat = parseFloat(nums[0]);
+    const lng = parseFloat(nums[1]);
     const validLat = lat >= -35 && lat <= -22;
     const validLng = lng >= 16 && lng <= 33;
-    if (!validLat || !validLng) return { lat: null, lng: null };
-
-    return { lat: lat, lng: lng };
+    return { lat: validLat ? lat : null, lng: validLng ? lng : null };
   }
 
   // owner.id_type is "sa_id" | "company_reg" | null per cc1's contract — CMA
@@ -1203,16 +1135,7 @@
   // reordering entirely, keeping the raw string verbatim (case included).
   // Matched case-insensitively; "&" (joint/multiple owners written as one
   // cell, e.g. "SMIT & WESSELS") is included per Johan's explicit list.
-  //
-  // v3.6.0 (2026-08-19, live repro: Erf 668 MARINE DRIVE — Owner "HIBISCUS
-  // COAST MUNICIPALITY", no Owner's ID at all). MUNICIPALITY was missing
-  // from this list, so a local-government owner (which has no surname/
-  // first-name split any more than a company does) was run through the
-  // person-name reorder and would have mangled to surname="Hibiscus",
-  // first_names="Coast Municipality". Added on the same evidence-driven
-  // basis as the other keywords — a real, observed owner shape, not a
-  // speculative addition.
-  const ENTITY_NAME_PATTERN = /\b(TRUST|TRUSTEE|TRUSTEES|CC|PTY|LTD|LIMITED|BK|INC|INCORPORATED|NPC|NPO|SOC|MUNICIPALITY)\b|&/i;
+  const ENTITY_NAME_PATTERN = /\b(TRUST|TRUSTEE|TRUSTEES|CC|PTY|LTD|LIMITED|BK|INC|INCORPORATED|NPC|NPO|SOC)\b|&/i;
 
   function looksLikeEntityName(raw) {
     return ENTITY_NAME_PATTERN.test(String(raw || ''));
@@ -1398,45 +1321,15 @@
    *   5. A timestamp — LAST resort; NOT idempotent (each capture creates a
    *      new tracked_property). Flagged loudly so it's never silently relied on.
    */
-  /**
-   * v3.6.1 (2026-08-19, live repro — Johan) — CONFIRMED BUG: the scheme+
-   * section candidate below used to read `p.scheme_number`, a key that does
-   * not exist on the extracted property object at all (PROPERTY_INFORMATION_
-   * LABELS names the field `scheme_no` — see near the top of this file).
-   * `p.scheme_number && p.section_number` was therefore always
-   * `undefined && ...` — always falsy — so it NEVER fired, and every
-   * sectional capture silently fell through to Title Deed. On a property
-   * whose deed is a long shared-title list (SEESKULP section 4: ten
-   * semicolon-joined deed/share entries), that candidate blew past the
-   * server's 200-char source_ref limit and the capture failed outright.
-   *
-   * Rebuilt to be TYPE-DRIVEN and match anchorKeyOf()'s own logic exactly —
-   * a source_ref must be short, stable and unique per property, and the
-   * ONLY fields that are ever any of those three are the type's own anchor:
-   * freehold -> LPI Code (falls back to Erf no if LPI is blank); sectional
-   * -> Scheme no + Section number, which IS the unique identity of one
-   * sectional unit and is always short. Title Deed is NEVER a candidate any
-   * more, for EITHER type — a shared/subdivided-title freehold could in
-   * principle hit the same problem, and the fix is the same fix either way:
-   * don't key an idempotency ref off a field cmainfo can render as an
-   * unbounded list. This also means a sectional whose deed field happens to
-   * be a single, short value builds its ref the exact same way as one with
-   * a ten-entry list — never sometimes-deed, sometimes-scheme.
-   */
-  function buildSourceRef(deed, type) {
+  function buildSourceRef(deed) {
     const p = deed.property_information;
-    let candidate = null;
-    if (type === 'freehold') {
-      candidate = p.lpi_code || p.erf_no || null;
-    } else if (type === 'sectional') {
-      candidate = (p.scheme_no && p.section_number) ? (p.scheme_no + '-' + p.section_number) : null;
-    }
-    // Last-resort fallback ONLY when the type's own anchor is somehow still
-    // missing here (should not happen post-detectPropertyType, which already
-    // required one of these to be present) — address, never Title Deed.
-    if (!candidate) {
-      candidate = p.address || p.situated_at || null;
-    }
+    const s = deed.sale_information;
+    let candidate = p.lpi_code
+      || s.title_deed
+      || (p.scheme_number && p.section_number ? (p.scheme_number + '-' + p.section_number) : null)
+      || p.address
+      || p.situated_at
+      || null;
     let stable = true;
     if (!candidate) {
       candidate = 'unref-' + Date.now();
@@ -1484,37 +1377,14 @@
   //     the scheme name IS the complex name). Flagged for Johan to confirm,
   //     not a guess I'm otherwise unsure of.
   //   - erf_number: CONFIRMED LIVE (2026-08-13) — extracted from the
-  //     "Erf no" label (full-title properties only; blank on sectional — and
-  //     now, since v3.5.0, structurally GUARANTEED null on a sectional
-  //     capture by applyTypeCoherence() in extractDeed(), regardless of what
-  //     the raw DOM read happened to contain). "Situated at" (the SCHEME's
-  //     erf + township, e.g. "658 UVONGO") is NEVER used for erf_number —
-  //     spec §6.2: it is not the unit's own erf, and storing it as one
-  //     collapses every unit in a scheme onto each other via the erf+suburb
-  //     match strategy.
+  //     "Erf no" label (full-title properties only; blank on sectional).
   //   - street_number/street_name: split from "Address" via
   //     splitStreetAddress() (see above) — was always null before.
-  //   - erf_extent_m2 / cadastral_extent_m2 / section_extent_m2 (2026-08-20,
-  //     Johan's own contract, cc3 implementing the matching server side in
-  //     parallel — spec §6.4): THREE separate, independent, optional payload
-  //     fields, one per measurement, replacing the single shared
-  //     section_extent_m2 slot this file used through v3.6.3. Each is fed
-  //     from exactly ONE label ("Extent" / "Cadastral extent" / "Section
-  //     extent") and nothing else — no ternary, no type check needed here at
-  //     all any more: applyTypeCoherence() in extractDeed() has ALREADY
-  //     nulled erf_extent_raw/cadastral_extent_raw for a sectional capture
-  //     and section_extent for a freehold one, so "send only what's actually
-  //     visible" falls out for free from parsing each raw field as-is.
-  //     section_extent_m2 keeps its NAME (backward compatible — cc3's server
-  //     accepts both old and new builds) but is now territorially narrowed:
-  //     it carries ONLY the sectional Section extent, never the freehold
-  //     Extent that pre-v3.6.4 builds used to route through it.
   function buildDeedsCapturePayload(deed) {
     const p = deed.property_information;
     const s = deed.sale_information;
     const gps = parseGps(p.gps);
-    const type = detectPropertyType(p);
-    const { ref: sourceRef, stable: sourceRefStable } = buildSourceRef(deed, type);
+    const { ref: sourceRef, stable: sourceRefStable } = buildSourceRef(deed);
 
     // Diagnostic only — logged, never sent (cc1's contract has no field for
     // this; smuggling an undocumented key into the payload isn't "matching
@@ -1524,73 +1394,43 @@
     }
 
     const street = splitStreetAddress(p.address);
-    const erfExtentM2 = parseNumeric(p.erf_extent_raw, 'Extent');
-    const cadastralExtentM2 = parseNumeric(p.cadastral_extent_raw, 'Cadastral extent');
-    const sectionExtentM2 = parseNumeric(p.section_extent, 'Section extent');
-
-    const capture = {
-      source_ref: sourceRef,
-      property: {
-        deeds_office:      p.deeds_office,
-        scheme_name:       p.scheme_name,
-        scheme_number:     p.scheme_no,
-        section_number:    p.section_number,
-        erf_number:        p.erf_no || null,
-        address:           p.address || p.situated_at || null,
-        street_number:     street.number,
-        street_name:       street.name,
-        unit_number:       p.flat_number,
-        complex_name:      p.scheme_name, // see mapping note above
-        suburb:            p.suburb,
-        municipality:      p.municipality,
-        province:          p.province,
-        latitude:          gps.lat,
-        longitude:         gps.lng,
-        section_extent_m2:    sectionExtentM2,  // existing field, kept for backward compat — now sectional-only (see mapping note)
-        erf_extent_m2:        erfExtentM2,       // NEW — freehold Extent (erf size)
-        cadastral_extent_m2:  cadastralExtentM2, // NEW — freehold Cadastral extent (its own separate value)
-        property_type:     p.type,
-        title_deed_number: s.title_deed, // routed from Sale Information — see mapping note above
-      },
-      owners: buildOwnersArray(deed), // multi-owner (2026-08-12) — see buildOwnersArray() — UNCHANGED, kept exactly as-is per spec §7.2 ("today's existing simple owners[] path exactly as it is")
-      sale: {
-        sale_price:       parseCurrency(s.sale_price, 'Sale Price'),
-        sale_date:        parseSaDate(s.sale_date),
-        registered_date:  parseSaDate(s.registered_date),
-        bond_holder:      s.bond_holder,
-        bond_amount:      parseCurrency(s.bond_amount, 'Bond Amount'),
-        sale_type:        s.sale_type,
-      },
-    };
-
-    // v3.6.2 — spec .ai/specs/deeds-capture.md §7.2/§7.3 (cc4, approved).
-    // The extension does NOT parse ownership — no splitting, no share math,
-    // no picking an entry, no grouping. When cmainfo's Owner cell has more
-    // than one ";"-separated entry, the three raw cell strings (Owner,
-    // Owner's ID, Title Deed) are sent VERBATIM, unsplit, un-stripped,
-    // exactly as extractByLabelMap() read them (only the shared, universal
-    // outer-whitespace-trim/NBSP-collapse every field already gets — never
-    // per-entry share-token stripping or splitting; that stays 100%
-    // server-side, in the new OwnershipHistoryParser service). Masked IDs
-    // are sent AS-IS, masked, if revealOwnerIdIfNeeded() couldn't fully
-    // unmask the cell in time (e.g. SEESKULP section 4's ten entries, one of
-    // which — "IT 1203/91", a trust registration number — never unmasks at
-    // all, correctly) — the server fails closed on ownership for that
-    // capture, not this file. ADDITIVE and OPTIONAL: omitted entirely when
-    // the Owner cell has only one entry, so an older extension build (no
-    // such key) or a page with simple single ownership are both unaffected
-    // — owners[] above is unchanged and still authoritative in that case.
-    if (typeof s.owner === 'string' && s.owner.indexOf(';') !== -1) {
-      capture.ownership_history_raw = {
-        owner_names: s.owner,
-        owner_ids:   s.owner_id_number,
-        title_deeds: s.title_deed,
-      };
-    }
 
     return {
       source: 'cmainfo',
-      captures: [capture],
+      captures: [
+        {
+          source_ref: sourceRef,
+          property: {
+            deeds_office:      p.deeds_office,
+            scheme_name:       p.scheme_name,
+            scheme_number:     p.scheme_no,
+            section_number:    p.section_number,
+            erf_number:        p.erf_no || null,
+            address:           p.address || p.situated_at || null,
+            street_number:     street.number,
+            street_name:       street.name,
+            unit_number:       p.flat_number,
+            complex_name:      p.scheme_name, // see mapping note above
+            suburb:            p.suburb,
+            municipality:      p.municipality,
+            province:          p.province,
+            latitude:          gps.lat,
+            longitude:         gps.lng,
+            section_extent_m2: parseNumeric(p.section_extent),
+            property_type:     p.type,
+            title_deed_number: s.title_deed, // routed from Sale Information — see mapping note above
+          },
+          owners: buildOwnersArray(deed), // multi-owner (2026-08-12) — see buildOwnersArray()
+          sale: {
+            sale_price:       parseCurrency(s.sale_price),
+            sale_date:        parseSaDate(s.sale_date),
+            registered_date:  parseSaDate(s.registered_date),
+            bond_holder:      s.bond_holder,
+            bond_amount:      parseCurrency(s.bond_amount),
+            sale_type:        s.sale_type,
+          },
+        },
+      ],
     };
   }
 
