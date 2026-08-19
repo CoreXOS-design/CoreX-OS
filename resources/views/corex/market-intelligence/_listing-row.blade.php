@@ -19,6 +19,13 @@
       * The CTA is the suggested-action chip — the legacy state-aware Pitch /
         Pitch (stock) / View pitch ladder is gone (F.3 fix 5.1)
 
+    Right-hand grid column is 260px (2026-08-21, was 200px) — Claim shares
+    its line with the icon group AND matches Pitch Now's ~160px min-width
+    (_suggested-action-chip.blade.php); 200px could no longer fit both
+    without crowding them together, which Johan has explicitly said not to
+    do. The middle (1fr) column absorbs the 60px difference; it already
+    truncates long addresses/agency names with ellipsis.
+
     Spec: build-f-market-intelligence-redesign-spec.md §8.4.
 --}}
 
@@ -106,7 +113,7 @@
     @keydown.enter.prevent="$dispatch('open-slideover', { listingId: {{ $listing->id }}, trigger: $el })"
     @keydown.space.prevent="$dispatch('open-slideover', { listingId: {{ $listing->id }}, trigger: $el })"
     @endunless
-    style="display: grid; grid-template-columns: 44px 1fr 200px; gap: 12px; align-items: center;
+    style="display: grid; grid-template-columns: 44px 1fr 260px; gap: 12px; align-items: center;
            padding: 10px 14px; min-height: 70px; background: var(--surface); border-bottom: 1px solid var(--border);
            cursor: {{ $isPropertyStock ? 'default' : 'pointer' }}; transition: background 120ms;"
     onmouseover="this.style.background='var(--surface-2)'"
@@ -352,19 +359,24 @@
         </div>
         @else
 
-        {{-- Icon group: comment, state icon, buyers. Johan 2026-08-19: "move
-             the comments icon to join the other 2 icons, and move the icon
-             group left, underneath the price" — align-self:flex-start pulls
-             this row to the LEFT of the column (its parent is
-             align-items:flex-end), while Pitch Now / Claim below stay right-
-             aligned — visually separates "housekeeping" icons from the two
-             action buttons instead of them all bunching hard-right together.
-             No bookmark/claim icon here any more: that action now has its
-             own proper button below (was a bare 13px icon easy to miss and
-             easy to hit by mistake next to Pitch Now — same complaint as this
-             morning's filter ticks). Every icon here keeps its exact existing
-             behaviour, including the comment count badge. --}}
-        <div style="display: flex; align-items: center; gap: 4px; align-self: flex-start;">
+        @include('corex.market-intelligence._suggested-action-chip', ['suggested' => $suggested, 'listing' => $listing])
+
+        {{-- Icon group + Claim share ONE line (Johan 2026-08-21 — the icon
+             row previously sat alone with nothing but 1-2 small glyphs on
+             it, wasted vertical space across 1,769 rows). align-self:stretch
+             makes this row take the full 200px column width (its parent is
+             align-items:flex-end, which would otherwise shrink-wrap it);
+             justify-content:space-between then pushes the icon group flush
+             left and Claim flush right — real, non-fixed space between them
+             by construction, so they read as two separate controls, not one
+             cluster, no matter how many icons are showing (Johan has flagged
+             bunched controls twice today). Claim only ever renders when
+             $isUnclaimed, and every icon that can show alongside it then
+             (comment, buyers) requires !$isUnclaimed to be false for eye/
+             phone/whatsapp — so at most 2 small icons ever share this line
+             with Claim, never crowding the fixed 200px column. --}}
+        <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; align-self: stretch;">
+        <div style="display: flex; align-items: center; gap: 4px;">
             @php
                 $showEye      = $claimedByOther;             // colleague's claim → view detail (F.4 wires)
                 $showPhone    = !$isUnclaimed && !$showEye;  // claimed-by-me, pitched, or pitched-recent
@@ -464,18 +476,18 @@
             @endif
         </div>
 
-        @include('corex.market-intelligence._suggested-action-chip', ['suggested' => $suggested, 'listing' => $listing])
-
         {{-- Claim button (Johan 2026-08-19: "pitch now means NOW, claim means
              I want it but I can't work on it right now") — a real, comfortably
-             sized button directly below Pitch Now, clearly a different colour/
-             shape/weight so the two can't be hit by mistake (outline blue vs
-             Pitch Now's solid green chip). SAME action the property detail
-             panel's Claim already uses — same route, same controller method,
-             same form — a second, more visible entry point onto it, not a
-             parallel implementation. Gated on $isUnclaimed, the exact same
-             condition the "unclaimed" chip above uses, so this button and that
-             label can never disagree about whether claiming makes sense here
+             sized button on the same line as the icon group, flush right
+             (justify-content:space-between on the wrapper above), clearly a
+             different colour/shape/weight so it can't be hit by mistake next
+             to the icons beside it (outline blue vs Pitch Now's solid green
+             chip above). SAME action the property detail panel's Claim
+             already uses — same route, same controller method, same form —
+             a second, more visible entry point onto it, not a parallel
+             implementation. Gated on $isUnclaimed, the exact same condition
+             the "unclaimed" chip above uses, so this button and that label
+             can never disagree about whether claiming makes sense here
              (already claimed, already promoted-via-tracked-property-with-a-
              claim, mid-pitch-lock, prospected/worked history, or company stock
              all correctly hide it, same as they already hide "unclaimed"). --}}
@@ -483,12 +495,20 @@
         <form method="POST" action="{{ route('market-intelligence.claim', $listing->id) }}"
               data-tour="mic-claim"
               onclick="event.stopPropagation();"
-              style="margin: 0;">
+              style="margin: 0; flex-shrink: 0;">
             @csrf
+            {{-- Sizing MUST match _suggested-action-chip.blade.php's $baseChipStyle
+                 exactly (padding, radius, min-width, box-sizing) — Johan
+                 2026-08-21: "make the buttons the same size... it just looks
+                 such a lot better when things square up." min-width fits
+                 "PITCH NOW · HIGH" (the widest label an ordinary agent sees),
+                 so Claim grows to match rather than Pitch Now shrinking; same
+                 geometry, different weight (solid green vs this outline blue)
+                 keeps them square without making them look identical. --}}
             <button type="submit"
                     aria-label="Claim this listing — reserve it for yourself without pitching yet"
                     title="Claim — reserve this listing for yourself. It leaves the canvass list and moves to My Claims; releases automatically if you don't pitch it."
-                    style="display:inline-flex; align-items:center; gap:5px; padding:6px 12px; font-size:0.6875rem; font-weight:600; border-radius:6px; background:var(--surface); border:1.5px solid var(--brand-icon,#0ea5e9); color:var(--brand-icon,#0ea5e9); cursor:pointer; white-space:nowrap;">
+                    style="display:inline-flex; align-items:center; justify-content:center; gap:5px; padding:6px 12px; font-size:0.6875rem; font-weight:600; border-radius:5px; background:var(--surface); border:1.5px solid var(--brand-icon,#0ea5e9); color:var(--brand-icon,#0ea5e9); cursor:pointer; white-space:nowrap; min-width:160px; box-sizing:border-box;">
                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>
                 </svg>
@@ -496,6 +516,7 @@
             </button>
         </form>
         @endif
+        </div>
 
         @endif {{-- /isCompanyStock --}}
     </div>
