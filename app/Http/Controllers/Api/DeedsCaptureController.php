@@ -228,6 +228,19 @@ final class DeedsCaptureController extends Controller
         // existed.
         $ownershipHistoryRaw = $capture['ownership_history_raw'] ?? null;
         $hasOwnershipHistory = is_array($ownershipHistoryRaw) && array_filter($ownershipHistoryRaw, fn ($v) => filled($v)) !== [];
+
+        // TEMP DIAGNOSTIC (2026-08-19, remove once the owner-discard question
+        // is answered) — Johan: owner still not landing on a matched property
+        // after a clean delete + rescrape. This proves, per capture, exactly
+        // what arrived over the wire before anything in this method touches
+        // it, so "the payload had no owner" and "we discarded it" are no
+        // longer indistinguishable from the outside.
+        Log::info('Deeds capture owner payload received', [
+            'source_ref'               => $capture['source_ref'] ?? null,
+            'owners_count'              => is_array($capture['owners'] ?? null) ? count($capture['owners']) : 0,
+            'owners_raw'                => $capture['owners'] ?? null,
+            'has_ownership_history_raw' => $hasOwnershipHistory,
+        ]);
         $owners = $hasOwnershipHistory ? [] : ($capture['owners'] ?? []);
 
         // Resolve/create a Contact per owner — deduped on the owner ID (the join
