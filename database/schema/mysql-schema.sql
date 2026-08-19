@@ -2039,6 +2039,8 @@ CREATE TABLE `calendar_events` (
   `priority` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'normal' COMMENT 'low, normal, high, critical',
   `send_reminder` tinyint(1) NOT NULL DEFAULT '1',
   `status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending' COMMENT 'pending, completed, overdue, dismissed',
+  `dismissal_reason_code` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `dismissal_reason_notes` text COLLATE utf8mb4_unicode_ci,
   `completion_reason_code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `completion_reason` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `resolution` varchar(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'completed, extended, did_not_happen',
@@ -4185,6 +4187,7 @@ CREATE TABLE `deal_contacts` (
   `deal_id` bigint unsigned NOT NULL,
   `contact_id` bigint unsigned NOT NULL,
   `role` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `representative_email_mode` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -12413,6 +12416,7 @@ CREATE TABLE `tracked_properties` (
   `erf_number` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `title_deed_number` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `cadastral_extent` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `section_extent_m2` decimal(10,2) DEFAULT NULL COMMENT 'Sectional title unit registered extent (cmainfo "Section extent") — NEVER the same value as cadastral_extent or erf_size_m2. .ai/specs/deeds-capture.md §6.',
   `municipal_valuation` decimal(15,2) DEFAULT NULL,
   `municipal_valuation_year` smallint unsigned DEFAULT NULL,
   `last_known_asking_price` decimal(15,2) DEFAULT NULL,
@@ -12440,6 +12444,8 @@ CREATE TABLE `tracked_properties` (
   `is_demo` tinyint(1) NOT NULL DEFAULT '0',
   `capture_kind` varchar(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `deeds_captured_at` timestamp NULL DEFAULT NULL,
+  `ownership_parse_status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'ok',
+  `ownership_parse_note` text COLLATE utf8mb4_unicode_ci,
   `deeds_office` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `scheme_name` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `scheme_number` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -12508,6 +12514,29 @@ CREATE TABLE `tracked_property_addresses` (
   CONSTRAINT `tracked_property_addresses_verified_by_user_id_foreign` FOREIGN KEY (`verified_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Per-TP address history; one is_primary=true per tracked_property cached onto tracked_properties via observer (Phase A3).';
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `tracked_property_comments`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `tracked_property_comments` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `tracked_property_id` bigint unsigned NOT NULL,
+  `user_id` bigint unsigned NOT NULL,
+  `body` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `edited_at` timestamp NULL DEFAULT NULL COMMENT 'Set when the author edits their comment; null if never edited.',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `tracked_property_comments_tracked_property_id_foreign` (`tracked_property_id`),
+  KEY `tracked_property_comments_user_id_foreign` (`user_id`),
+  KEY `idx_tpc_agency_tp_deleted` (`agency_id`,`tracked_property_id`,`deleted_at`),
+  KEY `idx_tpc_agency_user` (`agency_id`,`user_id`),
+  CONSTRAINT `tracked_property_comments_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `tracked_property_comments_tracked_property_id_foreign` FOREIGN KEY (`tracked_property_id`) REFERENCES `tracked_properties` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `tracked_property_comments_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Agency-wide comments on a tracked property, surfaced via the MIC Work-tab row comment chip.';
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `tracked_property_external_refs`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -12540,6 +12569,9 @@ CREATE TABLE `tracked_property_owners` (
   `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `id_number` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `id_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ownership_share_pct` decimal(7,4) DEFAULT NULL,
+  `deed_reference` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ownership_status` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT 'current',
   `is_primary` tinyint(1) NOT NULL DEFAULT '0',
   `role` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'owner',
   `created_at` timestamp NULL DEFAULT NULL,
@@ -13066,6 +13098,7 @@ CREATE TABLE `user_tour_progress` (
   `user_id` bigint unsigned NOT NULL,
   `tour_key` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `completed_at` timestamp NULL DEFAULT NULL,
+  `completed_steps` json DEFAULT NULL,
   `dismissed_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -14625,3 +14658,11 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1089,'2026_08_21_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1090,'2026_08_21_000160_add_pitched_at_to_prospecting_listings',256);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1091,'2026_08_25_000000_add_role_to_tracked_property_owners',257);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1092,'2026_08_26_000000_add_deeds_captured_at_to_tracked_properties',258);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1093,'2026_08_18_130000_correct_feedback_mode_to_per_property_for_appointment_classes',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1094,'2026_08_18_120000_create_tracked_property_comments_table',260);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1096,'2026_08_26_130100_add_ownership_parse_status_to_tracked_properties',261);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1097,'2026_08_26_130000_add_ownership_history_fields_to_tracked_property_owners',262);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1098,'2026_08_19_090000_add_dismissal_reason_to_calendar_events',263);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1099,'2026_08_26_000002_add_representative_email_mode_to_deal_contacts',263);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1101,'2026_08_26_120000_add_completed_steps_to_user_tour_progress',264);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1102,'2026_08_19_100000_add_section_extent_m2_to_tracked_properties',265);
