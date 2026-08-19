@@ -58,6 +58,15 @@
 {{-- F.8 — one-time dismissable intro banner. localStorage-gated. --}}
 @include('corex.market-intelligence._intro-banner')
 
+{{-- Buyer-tier legend + filter ticks (Johan 2026-08-19) — sits here, in the
+     empty band between the banner and the list, in normal flow. NOT inside
+     the scrolling list column (was overlaying the first property row when
+     it lived there) and NOT sticky. AJAX swap target like the other four
+     fragments below. --}}
+<div id="mic-slot-buyer-legend">
+@include('corex.market-intelligence._buyer-match-legend')
+</div>
+
 <div class="mi-split" data-tour="mic-list" style="display: grid; grid-template-columns: 200px 1fr; align-items: start;">
     {{-- display:contents keeps the rail as grid column 1 while giving the swap a
          stable target — a tick refresh replaces its contents in place. --}}
@@ -77,19 +86,38 @@
 {{-- ─────────────────────────────────────────────────────────────────────────
      Tick refresh (cc6) — AJAX partial swap, no full-page reload.
 
-     The filter ticks (a.mic-tick, rendered by _header-actions) are plain
-     <a href> toggle links. This handler intercepts them ON THE WORK TAB, flips
-     the clicked glyph optimistically for instant feedback, then fetches the same
-     URL with _fragments=1 and swaps ONLY the four fragments the controller
-     returns (listings, stats-strip, filter-rail, header-actions). The page never
-     reloads; scroll position and the rest of the DOM are preserved.
+     The filter ticks (a.mic-tick, rendered by _header-actions /
+     _work-filter-ticks) are plain <a href> toggle links. This handler
+     intercepts them ON THE WORK TAB, flips the clicked glyph optimistically
+     for instant feedback, then fetches the same URL with _fragments=1 and
+     swaps the five fragments the controller returns (listings, stats-strip,
+     filter-rail, header-actions, buyer-legend). The page never reloads;
+     scroll position and the rest of the DOM are preserved.
 
-     Event delegation on document = survives the header-actions swap. Any failure
-     falls back to a normal full navigation, so ticks still work with JS blocked.
-     Facet / sort / pagination links are intentionally NOT hijacked (out of scope).
+     Event delegation on document = survives the header-actions swap.
+     Facet / sort / pagination links are intentionally NOT hijacked (out of
+     scope).
+
+     TIMEOUT (Johan, AT-incident 2026-08-19): fetch() has no default timeout
+     — if the server accepts the connection but never answers (a dead/hung
+     backend, not a 4xx/5xx), the promise never settles and this control was
+     found stuck on "P24 updating…" for hours during a real outage, with no
+     error and no way to tell a hung app from a slow one. An AbortController
+     now bounds every tick request to TICK_TIMEOUT_MS; on abort OR any other
+     failure the tick reverts to its pre-click state and shows a plain
+     "no response — tap to retry" (never blames the user, always names the
+     server) that clears itself after a few seconds. Deliberately NO
+     full-page-navigation fallback any more — during a real outage that just
+     trades this hang for a worse, harder-to-diagnose one (the whole tab
+     hanging instead of one control).
 ────────────────────────────────────────────────────────────────────────── --}}
 <script>
 (function () {
+    var TICK_TIMEOUT_MS = 8000;
+    var TICK_SPIN_DEFAULT_TEXT = 'updating…';
+    var TICK_SPIN_FAIL_TEXT = 'no response — tap to retry';
+    var TICK_SPIN_FAIL_CLEAR_MS = 4000;
+
     var BOX_ON  = { background: '#fff', borderColor: '#fff', color: 'var(--brand-default,#0b2a4a)' };
     var BOX_OFF = { background: 'transparent', borderColor: 'rgba(255,255,255,0.5)', color: 'transparent' };
 
@@ -111,6 +139,10 @@
     // state and the last swap won. Now, while a refresh is in flight, every tick
     // is disabled + greyed so it can't be clicked; the successful swap re-renders
     // fresh (enabled) ticks the instant it completes, and inFlight is cleared.
+    // A click that slips through anyway (e.g. a synthetic/keyboard event that
+    // ignores pointer-events:none) is IGNORED, not queued or cancelled-and-
+    // replaced — simplest and safest: no risk of two in-flight requests racing
+    // to swap the same DOM.
     var inFlight = false;
 
     function lockTicks(clicked) {
@@ -143,25 +175,55 @@
 
         var href  = a.getAttribute('href');
         var wasOn = a.getAttribute('data-active') === '1';
+        var box   = a.querySelector('.mic-tick-box');
+        var spin  = a.querySelector('.mic-tick-spin');
 
         // Optimistic: flip this tick's glyph + show "updating…", then lock ALL
         // ticks (disable + grey the others) until the refresh completes.
-        setGlyph(a.querySelector('.mic-tick-box'), !wasOn);
-        var spin = a.querySelector('.mic-tick-spin');
-        if (spin) spin.style.display = 'inline';
+        setGlyph(box, !wasOn);
+        if (spin) { spin.textContent = TICK_SPIN_DEFAULT_TEXT; spin.style.display = 'inline'; }
         lockTicks(a);
+
+        function resetAfterFailure() {
+            inFlight = false;
+            unlockTicks();
+            // We don't know whether the server ever saw the toggle — assume it
+            // didn't and put the glyph back exactly where it was before the click.
+            setGlyph(box, wasOn);
+            if (spin) {
+                spin.textContent = TICK_SPIN_FAIL_TEXT;
+                spin.style.display = 'inline';
+                setTimeout(function () {
+                    spin.textContent = TICK_SPIN_DEFAULT_TEXT;
+                    spin.style.display = 'none';
+                }, TICK_SPIN_FAIL_CLEAR_MS);
+            }
+        }
+
+        var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+        var timedOut = false;
+        var timeoutId = controller ? setTimeout(function () {
+            timedOut = true;
+            controller.abort();
+        }, TICK_TIMEOUT_MS) : null;
 
         var url = href + (href.indexOf('?') === -1 ? '?' : '&') + '_fragments=1';
         fetch(url, {
             headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
-            credentials: 'same-origin'
+            credentials: 'same-origin',
+            signal: controller ? controller.signal : undefined
         })
-        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function (r) {
+            if (timeoutId) clearTimeout(timeoutId);
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        })
         .then(function (d) {
             swap('mic-slot-listings',       d.listings);
             swap('mic-slot-stats',          d.statsStrip);
             swap('mic-slot-filter-rail',    d.filterRail);
             swap('mic-slot-header-actions', d.headerActions);
+            swap('mic-slot-buyer-legend',   d.buyerLegend);
             // Fresh header-actions come back enabled; if it wasn't returned for any
             // reason, re-enable the in-place ticks so they never stay stuck greyed.
             if (!d.headerActions) unlockTicks();
@@ -171,9 +233,11 @@
             inFlight = false;
         })
         .catch(function () {
-            // Any failure → normal full navigation so a tick is never a dead click.
-            inFlight = false;
-            window.location.href = href;
+            if (timeoutId) clearTimeout(timeoutId);
+            // Deliberately no full-page-navigation fallback — see header comment.
+            // timedOut just distinguishes the two only for anyone reading logs;
+            // the user-facing reset is identical either way (fail loud and fast).
+            resetAfterFailure();
         });
     });
 
