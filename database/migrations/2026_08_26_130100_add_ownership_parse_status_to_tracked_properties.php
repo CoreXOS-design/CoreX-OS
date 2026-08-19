@@ -18,7 +18,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('tracked_properties', function (Blueprint $table) {
-            $table->string('ownership_parse_status', 20)->default('ok')->after('deeds_captured_at'); // 'ok' | 'warning' | 'failed'
+            $table->string('ownership_parse_status', 20)->default('ok'); // 'ok' | 'warning' | 'failed'
             $table->text('ownership_parse_note')->nullable()->after('ownership_parse_status');
         });
     }
