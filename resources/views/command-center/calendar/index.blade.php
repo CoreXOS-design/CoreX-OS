@@ -2065,6 +2065,47 @@
                     </span>
                 </template>
             </div>
+
+            {{-- CX-103 (Johan, 2026-08-19) — buyers linked to the selected
+                 property/properties, offered as an UNTICKED pick list. Ticking
+                 a box is the ONLY way a buyer becomes an attendee — nothing
+                 here is auto-added. This is what replaced the auto-fill that
+                 put eleven buyers on one viewing; Shawn had been manually
+                 un-ticking them (by deleting chips) every single time. --}}
+            <template x-if="buyerCandidates.length > 0">
+                <div class="mb-3">
+                    <label class="block text-xs font-medium mb-1.5" style="color: var(--text-secondary);">
+                        Buyers linked to this property — tick who the appointment is with
+                    </label>
+                    <div class="space-y-2">
+                        <template x-for="candidate in buyerCandidates" :key="candidate.type + ':' + candidate.id">
+                            <label class="flex items-center gap-3 rounded-md px-3 py-2.5 cursor-pointer transition"
+                                   :style="candidate.ticked
+                                        ? 'background: color-mix(in srgb, var(--brand-icon, #00d4aa) 12%, var(--surface-2)); border: 1px solid var(--brand-icon, #00d4aa);'
+                                        : 'background: var(--surface-2); border: 1px solid var(--border);'">
+                                <input type="checkbox" :checked="candidate.ticked"
+                                       @change="toggleBuyerCandidate(candidate)" class="sr-only">
+                                <span class="flex-none w-5 h-5 rounded flex items-center justify-center"
+                                      :style="candidate.ticked
+                                            ? 'background: var(--brand-icon, #00d4aa); border: 2px solid var(--brand-icon, #00d4aa);'
+                                            : 'background: var(--surface); border: 2px solid var(--text-muted);'">
+                                    <svg x-show="candidate.ticked" x-cloak viewBox="0 0 24 24" class="w-3.5 h-3.5" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M5 13l4 4L19 7"></path>
+                                    </svg>
+                                </span>
+                                <span class="flex-1 min-w-0">
+                                    <span class="block text-sm font-medium truncate"
+                                          style="color: var(--text-primary);"
+                                          x-text="(((candidate.first_name || '') + ' ' + (candidate.last_name || '')).trim()) || candidate.name || ('Contact #' + candidate.id)"></span>
+                                    <span class="block text-xs truncate" style="color: var(--text-muted);"
+                                          x-text="candidate.phone || candidate.email || ''"></span>
+                                </span>
+                            </label>
+                        </template>
+                    </div>
+                </div>
+            </template>
+
             <div class="relative">
                 <input type="text" x-model="query" @input.debounce.250ms="search()"
                        placeholder="Search contacts or agents…"
@@ -3756,8 +3797,8 @@ function calendarPage() {
 
                 // Property (multi-select: load all linked properties into chosen[])
                 const propPicker = form.querySelector('[x-data*="propertySearch"]');
-                if (propPicker) {
-                    const propData = Alpine.$data(propPicker);
+                const propData = propPicker ? Alpine.$data(propPicker) : null;
+                if (propData) {
                     if (d.linked_properties && d.linked_properties.length > 0) {
                         propData.chosen = d.linked_properties.map(p => ({ id: p.id, address: p.address }));
                     } else if (d.linked_property) {
@@ -3769,6 +3810,18 @@ function calendarPage() {
                 const attPicker = form.querySelector('[x-ref="attendeePicker"]');
                 if (attPicker && d.attendees && d.attendees.length) {
                     Alpine.$data(attPicker).chosen = d.attendees;
+                }
+
+                // CX-103 — rebuild the buyer tick list for the properties
+                // already on this appointment, so editing a damaged event
+                // (Chanri Gardens and its siblings) shows every buyer linked
+                // to the property with the CURRENT attendees ticked and
+                // everyone else unticked — not a blank slate the agent has to
+                // rebuild from scratch. Must run AFTER chosen[] is set above:
+                // setBuyerCandidates() reads it to decide each box's initial
+                // tick state.
+                if (propData && propData.chosen.length > 0) {
+                    propData.chosen.forEach(p => propData.autoPopulateOwners(p.id));
                 }
             });
         },
@@ -4273,6 +4326,25 @@ function calendarPage() {
                 this.openRecurScopeModal('edit');
                 return;
             }
+            // CX-103 (Johan, 2026-08-19) — a buyer-driven class (viewing) with
+            // NO buyer ticked must not save silently. Some appointments
+            // legitimately have no buyer (a fallen-through viewing, a
+            // walk-in never confirmed) — so this confirms rather than blocks,
+            // but it never sails through unnoticed the way the auto-fill did.
+            try {
+                const mapEl = document.getElementById('classConfigMap');
+                const map = JSON.parse(mapEl?.textContent || '{}');
+                const cfg = map[this.form.category] || {};
+                if (cfg.autofill_buyers) {
+                    const attPicker = e.target.querySelector('[x-ref="attendeePicker"]');
+                    const chosen = attPicker ? (Alpine.$data(attPicker).chosen || []) : [];
+                    const hasBuyer = chosen.some(c => c.role === 'buyer_contact');
+                    if (!hasBuyer && !confirm('No buyer is ticked for this viewing. Save anyway?')) {
+                        e.preventDefault();
+                        return;
+                    }
+                }
+            } catch (err) { /* config lookup failure never blocks a save */ }
             this.submitting = true;
             sessionStorage.removeItem('corex.calendar.createEventState');
             this.clearStalePickerState();
@@ -4473,6 +4545,11 @@ function propertySearch() {
                 pickerData.chosen = (pickerData.chosen || []).filter(c => {
                     return Number(c.source_property_id) !== Number(p.id);
                 });
+                // CX-103 — a deselected property's buyer candidates (ticked or
+                // not) no longer belong to this appointment either.
+                pickerData.buyerCandidates = (pickerData.buyerCandidates || []).filter(c => {
+                    return Number(c.source_property_id) !== Number(p.id);
+                });
             }
         },
         get selected() { return this.chosen.length > 0 ? this.chosen[0] : null; },
@@ -4507,9 +4584,18 @@ function propertySearch() {
                     ...o,
                     source_property_id: Number(propertyId),
                 }));
+                // CX-103 — split before it ever reaches Attendees. Sellers and
+                // the neutral attendee bucket still auto-fill exactly as
+                // before (Johan did not ask to change that); buyers become
+                // pick-list candidates instead of auto-added attendees — the
+                // fix for eleven buyers landing on one viewing.
+                const buyers = stamped.filter(o => o.role === 'buyer_contact');
+                const nonBuyers = stamped.filter(o => o.role !== 'buyer_contact');
                 const picker = form?.querySelector('[x-ref="attendeePicker"]');
                 if (picker) {
-                    Alpine.$data(picker).setOwners(stamped);
+                    const pickerData = Alpine.$data(picker);
+                    pickerData.setOwners(nonBuyers);
+                    pickerData.setBuyerCandidates(buyers);
                 }
             } catch (e) { console.warn('Auto-populate owners failed:', e); }
         },
@@ -4519,6 +4605,14 @@ function propertySearch() {
 function contactSearch() {
     return {
         query: '', results: [], chosen: [],
+        // CX-103 (Johan, 2026-08-19) — buyers linked to a selected property are
+        // NEVER auto-added to Attendees any more (that was the bug: Shawn had
+        // to manually remove up to eleven wrongly-added buyers on every single
+        // viewing, and never reported it). They now land here instead, as a
+        // tick list the agent must actively choose from. Every box starts
+        // UNTICKED — that is the entire point of the change; a pre-ticked list
+        // gets rubber-stamped exactly like the auto-fill did.
+        buyerCandidates: [],
         async search() {
             if (this.query.length < 2) { this.results = []; return; }
             const r = await fetch('/corex/command-center/calendar/search/attendees?q=' + encodeURIComponent(this.query), {
@@ -4585,6 +4679,34 @@ function contactSearch() {
                     this.chosen.push(o);
                 }
             });
+        },
+        // CX-103 — the buyers linked to a selected property, offered as an
+        // UNTICKED pick list (never auto-added — see buyerCandidates above).
+        // A candidate already present in chosen[] (editing an existing
+        // appointment, or re-selecting a property already contributing an
+        // attendee) starts pre-ticked, matching Johan's requirement that
+        // editing a damaged event shows the truth, not a blank slate.
+        // Merges across properties on a multi-property event; a buyer linked
+        // to more than one selected property appears once.
+        setBuyerCandidates(owners) {
+            owners.forEach(o => {
+                if (!o.type) o.type = 'contact';
+                const key = o.type + ':' + o.id;
+                if (this.buyerCandidates.some(c => c.type + ':' + c.id === key)) return;
+                const alreadyChosen = this.chosen.some(c => c.type + ':' + c.id === key);
+                this.buyerCandidates.push({ ...o, role: 'buyer_contact', ticked: alreadyChosen });
+            });
+        },
+        toggleBuyerCandidate(candidate) {
+            candidate.ticked = !candidate.ticked;
+            const key = candidate.type + ':' + candidate.id;
+            if (candidate.ticked) {
+                if (!this.chosen.some(c => c.type + ':' + c.id === key)) {
+                    this.chosen.push({ ...candidate });
+                }
+            } else {
+                this.chosen = this.chosen.filter(c => c.type + ':' + c.id !== key);
+            }
         },
     };
 }
