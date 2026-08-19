@@ -240,6 +240,7 @@ final class DeedsCaptureController extends Controller
             'owners_count'              => is_array($capture['owners'] ?? null) ? count($capture['owners']) : 0,
             'owners_raw'                => $capture['owners'] ?? null,
             'has_ownership_history_raw' => $hasOwnershipHistory,
+            'ownership_history_raw'     => $ownershipHistoryRaw,
         ]);
         $owners = $hasOwnershipHistory ? [] : ($capture['owners'] ?? []);
 
