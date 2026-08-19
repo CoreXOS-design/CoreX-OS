@@ -2815,13 +2815,6 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                 [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'unlinkSellerFromProspecting'])
                 ->where('prospectingListingId', '\d+')
                 ->name('unlink-seller-prospecting');
-            // Feature 2 (2026-08-19) — tick-and-one-click linking, mirroring the deeds-capture
-            // one-click promote pattern. Links every ticked deed/candidate owner as a seller and
-            // carries their ticked TVA numbers, all in one request/transaction.
-            Route::post('/prospecting/{prospectingListingId}/outreach/sellers/link-batch',
-                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'linkSellersBatchForProspecting'])
-                ->where('prospectingListingId', '\d+')
-                ->name('link-sellers-batch-prospecting');
             Route::post('/prospecting/{prospectingListingId}/outreach/tva/ingest',
                 [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'ingestTvaForProspecting'])
                 ->where('prospectingListingId', '\d+')
