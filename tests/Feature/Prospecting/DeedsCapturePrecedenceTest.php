@@ -149,6 +149,58 @@ final class DeedsCapturePrecedenceTest extends TestCase
         );
     }
 
+    /**
+     * The exact gap Johan found live (2026-08-19 morning): a field already
+     * poisoned with a stored placeholder can never be cleaned by a capture
+     * that ALSO only has a placeholder to offer for it — "absent never
+     * overwrites" made the junk permanent, because the incoming placeholder
+     * normalised to nothing and the key silently vanished before enrich()
+     * ever compared it against what was stored. The pre-existing
+     * "placeholder-both-sides" test above only covered existing-junk +
+     * incoming-REAL (a fill) — never existing-junk + incoming-ALSO-absent,
+     * which is the case that actually got through to production.
+     */
+    public function test_stored_placeholder_is_cleared_when_incoming_is_also_absent(): void
+    {
+        $ref = 'ERF-' . Str::random(8);
+        $this->ingest($ref, ['street_name' => 'Bairn Street', 'suburb' => 'Uvongo Beach'])->assertOk();
+        $tp = TrackedProperty::withoutGlobalScopes()->where('agency_id', $this->agencyId)->latest('id')->firstOrFail();
+
+        // Simulate the real corruption found live on tracked_property 402/11570.
+        $tp->forceFill(['property_type' => '-'])->save();
+
+        // A capture that ALSO only has a placeholder for this field.
+        $this->ingest($ref, ['property_type' => '-'])->assertOk();
+        $tp->refresh();
+
+        $this->assertNull($tp->property_type, 'a stored placeholder must be cleared, not preserved forever');
+        $entry = end($tp->source_chain);
+        $changed = collect($entry['field_changes'])->keyBy('field');
+        $this->assertSame('cleared', $changed['property_type']['change_type']);
+        $this->assertSame('-', $changed['property_type']['previous'], 'the audit trail shows what junk was removed');
+    }
+
+    public function test_absent_never_overwrites_still_holds_for_a_genuine_existing_value(): void
+    {
+        $ref = 'ERF-' . Str::random(8);
+        $this->ingest($ref, [
+            'street_name' => 'Bairn Street', 'suburb' => 'Uvongo Beach',
+            'deeds_office' => 'Pietermaritzburg',
+        ])->assertOk();
+        $tp = TrackedProperty::withoutGlobalScopes()->where('agency_id', $this->agencyId)->latest('id')->firstOrFail();
+
+        // The clearing fix must NEVER touch a genuine existing value — only
+        // stored junk. This is the guard that protects real data; it must
+        // hold exactly as before.
+        $this->ingest($ref, ['deeds_office' => '-'])->assertOk();
+        $tp->refresh();
+
+        $this->assertSame('Pietermaritzburg', $tp->deeds_office);
+        $entry = end($tp->source_chain);
+        $changed = collect($entry['field_changes'] ?? [])->keyBy('field');
+        $this->assertArrayNotHasKey('deeds_office', $changed, 'a genuine value must not even appear in the audit trail when nothing happened to it');
+    }
+
     public function test_idempotent_recapture_of_an_unchanged_value_produces_no_audit_noise(): void
     {
         $ref = 'ERF-' . Str::random(8);
