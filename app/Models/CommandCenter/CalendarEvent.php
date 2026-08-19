@@ -232,15 +232,22 @@ class CalendarEvent extends Model
         // AT-267 — an assistant's 'own' is their Assigned Agent's; everyone else: [$user->id].
         $identityIds = $user->dataIdentityIds();
 
-        // An event the user has ACCEPTED (or tentatively accepted) an invitation to
-        // is visible to them too — it renders on the invitee's calendar alongside
-        // their own events (including a same-time duplicate shown side by side).
-        // ADDITIVE: only ever widens the invitee's view; never hides or alters their
-        // own events. (Was missing entirely — the feed only queried user_id, so an
-        // accepted invite never appeared on the invitee's calendar.)
+        // 2026-08-19 (Johan) — an event this user is INVITED to (pending, accepted,
+        // or tentative — matching CalendarVisibilityResolver::canSee()'s invitation
+        // check exactly, so the two never disagree) must reach the view regardless
+        // of role scope: the invitee decides accept/reject, not their own visibility
+        // scope. Keyed off $identityIds (not bare $user->id) so this stays consistent
+        // with AT-267: an assistant's widened 'own' scope carries their assigned
+        // agent's invitations too, same as every other branch below. 'none' is
+        // deliberately excluded — that scope means the role has no calendar access
+        // at all, and an invitation is not a backdoor into a module the role can't
+        // open. One indexed subquery
+        // (calendar_event_invitations_invitee_user_id_status_index) — this scope
+        // runs on every calendar load, so it's built once and reused across
+        // whichever branch below needs it, never per-row.
         $invitedEventIds = \App\Models\CommandCenter\CalendarEventInvitation::query()
             ->whereIn('invitee_user_id', $identityIds)
-            ->whereIn('status', ['accepted', 'tentative'])
+            ->whereIn('status', ['pending', 'accepted', 'tentative'])
             ->select('event_id');
 
         return match ($scope) {
