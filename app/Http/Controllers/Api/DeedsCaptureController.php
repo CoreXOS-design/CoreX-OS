@@ -95,7 +95,13 @@ final class DeedsCaptureController extends Controller
             'captures.*.property.province'          => 'nullable|string|max:100',
             'captures.*.property.latitude'          => 'nullable|numeric',
             'captures.*.property.longitude'         => 'nullable|numeric',
-            'captures.*.property.section_extent_m2' => 'nullable|numeric',
+            // Extent contract (.ai/specs/deeds-capture.md §6 Part A, 2026-08-19)
+            // — three independent, optional values. section_extent_m2 already
+            // existed (kept, name unchanged, for backward compatibility with an
+            // older extension build); erf_extent_m2/cadastral_extent_m2 are new.
+            'captures.*.property.section_extent_m2'    => 'nullable|numeric',
+            'captures.*.property.erf_extent_m2'        => 'nullable|numeric',
+            'captures.*.property.cadastral_extent_m2'  => 'nullable|numeric',
             'captures.*.property.property_type'     => 'nullable|string|max:100',
             'captures.*.property.title_deed_number' => 'nullable|string|max:100',
             // Multi-owner (2026-08-12) — CMA lists more than one registered owner on
@@ -261,6 +267,21 @@ final class DeedsCaptureController extends Controller
         // overwrite semantics and no audit trail — that split is exactly what
         // let GPS silently lose to a stale import while these fields silently
         // won unconditionally. One mechanism, one rule, one audit trail now.
+        //
+        // Extent contract (Johan, 2026-08-19) — THREE distinct values, three
+        // distinct homes, never substituted for one another. A freehold panel
+        // has Extent + Cadastral extent and no Section extent; a sectional
+        // panel has Section extent and no Extent/Cadastral extent. All three
+        // optional and independent — absent is absent, no fallback:
+        //   erf_extent_m2        (freehold "Extent")           -> erf_size_m2
+        //   cadastral_extent_m2  (freehold "Cadastral extent") -> cadastral_extent
+        //   section_extent_m2    (sectional "Section extent")  -> section_extent_m2
+        // section_extent_m2 keeps its payload NAME for backward compatibility
+        // with an extension build that predates this contract — but that value
+        // now correctly lands in ITS OWN column instead of overloading
+        // cadastral_extent (the root cause of a sectional unit's floor area
+        // landing in a promoted Property's erf-size column — see
+        // TrackedPropertyMatchOrCreateService::promoteToStock()).
         $facts = array_filter([
             'street_number'         => $p['street_number'] ?? null,
             'street_name'           => $p['street_name'] ?? null,
@@ -275,7 +296,9 @@ final class DeedsCaptureController extends Controller
             'longitude'             => $p['longitude'] ?? null,
             'erf_number'            => $p['erf_number'] ?? null,
             'title_deed_number'     => $p['title_deed_number'] ?? null,
-            'cadastral_extent'      => isset($p['section_extent_m2']) ? (string) $p['section_extent_m2'] : null,
+            'erf_size_m2'           => isset($p['erf_extent_m2']) ? (string) $p['erf_extent_m2'] : null,
+            'cadastral_extent'      => isset($p['cadastral_extent_m2']) ? (string) $p['cadastral_extent_m2'] : null,
+            'section_extent_m2'     => isset($p['section_extent_m2']) ? (string) $p['section_extent_m2'] : null,
             'property_type'         => $p['property_type'] ?? null,
             'deeds_office'          => $p['deeds_office'] ?? null,
             'scheme_name'           => $p['scheme_name'] ?? null,
