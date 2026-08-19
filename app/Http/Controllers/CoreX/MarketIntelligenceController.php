@@ -91,14 +91,22 @@ class MarketIntelligenceController extends Controller
         // Action presets (pitch_now_high, pitch_now, log_outcomes, my_claims,
         // expiring) preview the SuggestedActionResolver rule of the same name.
         $actionPreset = $request->input('action_preset');
+        // Legacy ?claim_filter= URL param (Command Centre "view all" links —
+        // see CommandCentreService::prospectingClaims()). Only 'my_claims' asks
+        // for rows that DO carry an active claim; 'unclaimed' already agrees with
+        // the canvass pool's default exclusion below, so it needs no suspension.
+        $claimFilter = $request->input('claim_filter');
         // Action presets that target rows which often have matched_property_id set
         // (log/my-claims/expiring) need the default canvass-only filter suspended
-        // so those rows can surface even when they live in agency stock.
+        // so those rows can surface even when they live in agency stock. Same for
+        // claim_filter=my_claims: 300a247ba (2026-08-19) made the canvass pool
+        // exclude ANY active claim, not just pitched ones, which left this legacy
+        // param contradicting that exclusion and always returning zero rows.
         $presetSuspendsCanvassFilter = in_array(
             $actionPreset,
             ['log_outcomes', 'my_claims', 'expiring'],
             true,
-        );
+        ) || $claimFilter === 'my_claims';
 
         // F.1: default to canvassing pool only (exclude already-mandated stock).
         // Manager toggle ?include_in_stock=1 bypasses for audit purposes.
