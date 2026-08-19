@@ -61,6 +61,38 @@
         </div>
     @endif
 
+    {{-- CX-102 part 2 (2026-08-19, Johan) — "do not silently leave wrong data
+         looking authoritative." A capture that enriched this record was later
+         rejected as not actually being this property — the fields it wrote
+         are NOT rolled back (no data repair without Johan's say-so), so this
+         banner is the only thing standing between an agent and treating that
+         data as trustworthy. Read straight off source_chain — never guessed.
+         (This is the live tracked-property detail page — market-intelligence.
+         opportunities.show — not the dead corex.tracked-properties.show
+         controller method behind the redirect of the same-named route.) --}}
+    @php
+        $disputedEntries = collect($tp->source_chain ?? [])->filter(fn ($entry) => ($entry['disputed'] ?? false) === true)->values();
+    @endphp
+    @if($disputedEntries->isNotEmpty())
+        <div style="margin-bottom: 10px; padding: 10px 14px; font-size: 0.8125rem;
+                    background: color-mix(in srgb, var(--ds-crimson, #dc2626) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-crimson, #dc2626) 35%, transparent);
+                    border-radius: 4px; color: var(--text-primary);">
+            <strong style="color: var(--ds-crimson, #dc2626);">Some data on this record is disputed.</strong>
+            A capture that added information here was later marked "not the same property" —
+            the fields it wrote (below) were NOT removed automatically and may not actually belong to this record.
+            <ul style="margin: 6px 0 0 16px; font-size: 0.75rem; color: var(--text-secondary);">
+                @foreach($disputedEntries as $entry)
+                    <li>
+                        {{ $entry['type'] ?? 'capture' }} ({{ $entry['ref'] ?? '—' }}),
+                        disputed {{ isset($entry['disputed_at']) ? \Illuminate\Support\Carbon::parse($entry['disputed_at'])->format('j M Y, H:i') : '' }}
+                        — fields contributed: {{ implode(', ', $entry['fields_contributed'] ?? []) }}
+                    </li>
+                @endforeach
+            </ul>
+        </div>
+    @endif
+
     {{-- Action bar --}}
     <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px;">
         @permission('mic.edit_address')

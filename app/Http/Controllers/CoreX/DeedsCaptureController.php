@@ -153,12 +153,43 @@ final class DeedsCaptureController extends Controller
             }
         }
 
+        // Johan (2026-08-19), after seeing the screen himself: "how does an
+        // agent know this is stock or not? Its essentially the same as mic."
+        //
+        // Every row on THIS screen has promoted_to_property_id NULL by
+        // construction (scopeStillEligibleDeedsCapture excludes anything
+        // already promoted — once promoted, a TP drops off this list
+        // entirely). So "is this already promoted" is never the useful
+        // question here — checked anyway, for correctness, but the real
+        // parallel to CX-101's MIC question is: "IF this gets promoted,
+        // does it merge into EXISTING stock, and is that stock live or
+        // stale?" — previewPropertyMatch() runs the exact same erf+suburb /
+        // scheme+section / normalised-address rules promoteToStock() itself
+        // uses, read-only, so the preview can never disagree with what
+        // actually happens when the agent presses Promote.
+        $matcher = app(\App\Services\Prospecting\TrackedPropertyMatchOrCreateService::class);
+        $stockStatusByTp = [];
+        foreach ($captures as $tp) {
+            if ($tp->promoted_to_property_id) {
+                $property = \App\Models\Property::withoutGlobalScopes()->find($tp->promoted_to_property_id);
+                $stockStatusByTp[$tp->id] = $property
+                    ? ['state' => $property->isStaleStock() ? 'stale' : 'live', 'property' => $property, 'already' => true]
+                    : ['state' => 'unknown', 'property' => null, 'already' => true];
+                continue;
+            }
+            $preview = $matcher->previewPropertyMatch($tp);
+            $stockStatusByTp[$tp->id] = $preview
+                ? ['state' => $preview->isStaleStock() ? 'stale' : 'live', 'property' => $preview, 'already' => false]
+                : ['state' => 'not_promoted', 'property' => null, 'already' => false];
+        }
+
         return view('corex.deeds-capture.index', [
             'captures'          => $captures,
             'tvaByProperty'     => $tvaByProperty,
             'tvaStandalone'     => $tvaStandalone,
             'fieldChangesByTp'  => $fieldChangesByTp,
             'matchDecisionByTp' => $matchDecisionByTp,
+            'stockStatusByTp'   => $stockStatusByTp,
         ]);
     }
 

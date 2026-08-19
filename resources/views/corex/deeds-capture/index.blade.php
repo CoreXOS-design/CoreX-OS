@@ -130,6 +130,11 @@
                     if ($matchDecision) {
                         $matchDecisionSourceRef = substr($matchDecision->subject_key, strlen($matchDecision->subject_type) + 1);
                     }
+
+                    // Johan (2026-08-19), after seeing the screen: "how does an
+                    // agent know this is stock or not?" CX-101's own definition
+                    // (Property::isOnMarket()/isStaleStock()), never a second one.
+                    $stockStatus = $stockStatusByTp[$tp->id] ?? ['state' => 'not_promoted', 'property' => null];
                 @endphp
                 <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
                     <div class="flex flex-wrap items-start justify-between gap-4">
@@ -145,11 +150,47 @@
                                      tracked) that a deeds capture just landed on — flag it rather
                                      than let it look identical to a brand-new deeds capture. --}}
                                 @if($tp->capture_kind !== 'deeds_capture')
-                                    <span class="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded"
-                                          style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 18%, transparent); color: var(--ds-amber, #f59e0b); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 40%, transparent);"
-                                          title="This deed matched a property already tracked from another source — the deed enriched it rather than creating a new record.">
-                                        Already tracked · deed linked
-                                    </span>
+                                    {{-- Johan (2026-08-19): "the badge must carry the property
+                                         it is talking about" — the badge itself IS the record
+                                         this deed matched/enriched (this same $tp), so name it
+                                         by id and make it openable rather than an anonymous
+                                         status word. new tab — an agent reviewing this list
+                                         must not lose their place to go check it. --}}
+                                    <a href="{{ route('corex.tracked-properties.show', $tp->id) }}"
+                                       target="_blank" rel="noopener"
+                                       class="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded no-underline"
+                                       style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 18%, transparent); color: var(--ds-amber, #f59e0b); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 40%, transparent);"
+                                       title="This deed matched a property already tracked from another source (tracked property #{{ $tp->id }}) — the deed enriched it rather than creating a new record. Click to open it.">
+                                        Already tracked · #{{ $tp->id }} — open →
+                                    </a>
+                                @endif
+                            </div>
+
+                            {{-- Johan (2026-08-19): "SHOW ITS STOCK STATUS ... so the agent
+                                 knows what they are walking into before they press Promote."
+                                 CX-101's own live/stale rule (Property::isOnMarket()/
+                                 isStaleStock(), 074b4bfaf) — consumed, not re-derived.
+                                 Every row here has promoted_to_property_id NULL by
+                                 construction (this screen excludes anything already
+                                 promoted), so 'already' is effectively always false —
+                                 the wording below previews what PROMOTING would do,
+                                 using the exact same match rule promoteToStock() itself
+                                 runs (previewPropertyMatch()), not a guess. --}}
+                            <div class="text-xs mt-1.5 flex items-center gap-1.5 flex-wrap">
+                                @if($stockStatus['state'] === 'live')
+                                    <span class="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-green, #16a34a) 16%, transparent); color: var(--ds-green, #16a34a); border: 1px solid color-mix(in srgb, var(--ds-green, #16a34a) 40%, transparent);">Live stock</span>
+                                    <span style="color: var(--text-muted);">{{ $stockStatus['already'] ? 'already on your books and on-market —' : 'promoting will merge into your LIVE, on-market stock —' }}</span>
+                                    <a href="{{ route('corex.properties.show', $stockStatus['property']->id) }}" target="_blank" rel="noopener" class="font-semibold" style="color: var(--brand-icon, #2563eb);">open property #{{ $stockStatus['property']->id }} →</a>
+                                @elseif($stockStatus['state'] === 'stale')
+                                    <span class="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 16%, transparent); color: var(--ds-amber, #f59e0b); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 40%, transparent);">Stale stock — dormant</span>
+                                    <span style="color: var(--text-muted);">{{ $stockStatus['already'] ? 'on your books, but off-market or not worked in over a week —' : 'promoting will merge into DORMANT stock (off-market or untouched a week+) —' }}</span>
+                                    <a href="{{ route('corex.properties.show', $stockStatus['property']->id) }}" target="_blank" rel="noopener" class="font-semibold" style="color: var(--brand-icon, #2563eb);">open property #{{ $stockStatus['property']->id }} →</a>
+                                @elseif($stockStatus['state'] === 'unknown')
+                                    <span class="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded" style="background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);">Stock status unknown</span>
+                                    <span style="color: var(--text-muted);">was promoted to a property that no longer resolves — worth checking.</span>
+                                @else
+                                    <span class="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded" style="background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);">Not yet on your books</span>
+                                    <span style="color: var(--text-muted);">promoting will create a brand-new property record.</span>
                                 @endif
                             </div>
 

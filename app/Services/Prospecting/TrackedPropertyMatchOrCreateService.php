@@ -307,6 +307,25 @@ final class TrackedPropertyMatchOrCreateService
     }
 
     /**
+     * CX-102 part 2 (2026-08-19, Johan) — read-only preview of what
+     * promoteToStock() would resolve THIS TrackedProperty to right now: an
+     * EXISTING Property it would merge into (same erf+suburb / scheme+
+     * section / normalised-address rules resolvePropertyMatch() uses at
+     * promote time), or null if promoting would create a brand-new one.
+     * Side-effect-free (SELECT only, no writes, no events) — safe to call
+     * on every row of a review screen, not just at the moment of promotion.
+     *
+     * This is the deeds-capture equivalent of CX-101's "is this really
+     * already our stock" question for MIC — before an agent presses
+     * Promote, they can see whether it lands on existing (live or stale)
+     * stock or creates something new.
+     */
+    public function previewPropertyMatch(TrackedProperty $tp): ?Property
+    {
+        return $this->resolvePropertyMatch($tp);
+    }
+
+    /**
      * 5-strategy resolution. First match wins. Returns null on no match.
      *
      * All queries bypass the global AgencyScope and filter by the explicit
