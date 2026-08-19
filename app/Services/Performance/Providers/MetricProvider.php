@@ -18,6 +18,15 @@ interface MetricProvider
     public function label(): string;
 
     /**
+     * 2026-08-19 (Johan, period-comparison) — every metric declares its own
+     * polarity so a comparison view's colour/arrow follows what the metric
+     * MEANS, never the raw sign of the delta. One of 'higher_is_better',
+     * 'lower_is_better', 'neutral'. All 13 company providers are
+     * activity/production counts — always 'higher_is_better'.
+     */
+    public function direction(): string;
+
+    /**
      * @param  int[]  $userIds
      * @return array<int, int|float>  uid => value (every requested uid present, 0 if none)
      */

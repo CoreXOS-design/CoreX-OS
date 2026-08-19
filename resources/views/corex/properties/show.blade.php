@@ -95,6 +95,45 @@
         </div>
     @endif
 
+    {{-- CX-102 part 2 (2026-08-19, Johan) — "the system must show its working
+         and let the agent overrule it." Only ever present for one request: an
+         agent tried to claim a MIC listing, MarketIntelligenceController::
+         claim() decided it's this property, and flashed the listing id that
+         got them here. The reason is read straight off the decision recorded
+         at match time — never recomputed here. --}}
+    @if($micClaimDecision ?? null)
+        <div class="mt-3 rounded-md border px-4 py-3 text-sm"
+             style="background:color-mix(in srgb, var(--ds-amber, #d97706) 10%, transparent); border-color:color-mix(in srgb, var(--ds-amber, #d97706) 35%, transparent); color:var(--text-primary);">
+            <div>
+                <strong style="color:var(--ds-amber, #d97706);">Why this listing matched this property:</strong>
+                {{ $micClaimDecision->reason }}
+            </div>
+            <details class="mt-1.5">
+                <summary class="cursor-pointer font-semibold text-xs" style="color:var(--ds-amber, #d97706);">
+                    Not the same property?
+                </summary>
+                <form method="POST"
+                      action="{{ route('market-intelligence.reject-claim-match') }}"
+                      class="mt-2 flex flex-wrap items-end gap-2"
+                      onsubmit="return confirm('Break this link? The listing goes straight back into your prospecting list — nothing is deleted.');">
+                    @csrf
+                    <input type="hidden" name="listing_id" value="{{ $micClaimListingId }}">
+                    <input type="hidden" name="property_id" value="{{ $property->id }}">
+                    <div class="flex-1" style="min-width: 12rem;">
+                        <label class="block text-[11px] font-semibold mb-1" style="color: var(--text-muted);">Why (optional):</label>
+                        <input type="text" name="reason" maxlength="500" placeholder="e.g. different building, wrong suburb"
+                               class="w-full rounded text-xs px-2 py-1.5" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    </div>
+                    <button type="submit"
+                            class="text-xs font-semibold px-3 py-1.5 rounded"
+                            style="background: color-mix(in srgb, #dc2626 12%, transparent); color: #dc2626; border: 1px solid color-mix(in srgb, #dc2626 35%, transparent);">
+                        Not the same property
+                    </button>
+                </form>
+            </details>
+        </div>
+    @endif
+
     {{-- Readiness bar removed --}}
 
     {{-- Two-column layout on large screens --}}

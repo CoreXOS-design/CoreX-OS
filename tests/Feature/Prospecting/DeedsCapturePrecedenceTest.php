@@ -107,7 +107,8 @@ final class DeedsCapturePrecedenceTest extends TestCase
         $this->assertEqualsWithDelta(30.398908, (float) $tp->longitude, 0.0000001);
         $this->assertSame('Pietermaritzburg', $tp->deeds_office, 'a field this capture did not read must NEVER be wiped');
 
-        $entry = end($tp->source_chain);
+        $chain = $tp->source_chain;
+        $entry = end($chain);
         $this->assertSame('deeds_capture', $entry['type']);
         $changed = collect($entry['field_changes'])->keyBy('field');
         $this->assertSame('replaced', $changed['latitude']['change_type']);
@@ -140,7 +141,8 @@ final class DeedsCapturePrecedenceTest extends TestCase
         $resp2->assertOk();
         $tp->refresh();
         $this->assertSame('ABSA Bank', $tp->bond_holder);
-        $entry = end($tp->source_chain);
+        $chain = $tp->source_chain;
+        $entry = end($chain);
         $changed = collect($entry['field_changes'])->keyBy('field');
         $this->assertSame(
             'filled',
@@ -174,7 +176,8 @@ final class DeedsCapturePrecedenceTest extends TestCase
         $tp->refresh();
 
         $this->assertNull($tp->property_type, 'a stored placeholder must be cleared, not preserved forever');
-        $entry = end($tp->source_chain);
+        $chain = $tp->source_chain;
+        $entry = end($chain);
         $changed = collect($entry['field_changes'])->keyBy('field');
         $this->assertSame('cleared', $changed['property_type']['change_type']);
         $this->assertSame('-', $changed['property_type']['previous'], 'the audit trail shows what junk was removed');
@@ -196,7 +199,8 @@ final class DeedsCapturePrecedenceTest extends TestCase
         $tp->refresh();
 
         $this->assertSame('Pietermaritzburg', $tp->deeds_office);
-        $entry = end($tp->source_chain);
+        $chain = $tp->source_chain;
+        $entry = end($chain);
         $changed = collect($entry['field_changes'] ?? [])->keyBy('field');
         $this->assertArrayNotHasKey('deeds_office', $changed, 'a genuine value must not even appear in the audit trail when nothing happened to it');
     }
@@ -213,7 +217,8 @@ final class DeedsCapturePrecedenceTest extends TestCase
         $this->ingest($ref, ['latitude' => -30.830085, 'longitude' => 30.398908])->assertOk();
         $tp->refresh();
 
-        $entry = end($tp->source_chain);
+        $chain = $tp->source_chain;
+        $entry = end($chain);
         $this->assertArrayNotHasKey(
             'field_changes',
             $entry,

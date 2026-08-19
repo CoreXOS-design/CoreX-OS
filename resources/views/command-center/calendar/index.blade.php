@@ -720,12 +720,41 @@
                                  (2) so active tiles (3) always paint on top; still above the z-1 drag layers. --}}
                             class="cal-layerable absolute text-left rounded overflow-hidden transition hover:opacity-90 {{ $isDone ? 'line-through opacity-70' : '' }}"
                             style="z-index: {{ $isDone ? 2 : 3 }}; {{ $chipStyle }} {{ $isDraggable ? 'cursor:grab;' : '' }} top: {{ $topPct }}%; height: calc({{ $heightPct }}% - 2px); min-height: 18px; left: calc(56px + (100% - 56px) * {{ $lane }} / {{ $lanes }}); width: calc((100% - 56px) / {{ $lanes }} - 3px);"
-                            title="{{ $tr }} {{ $evt->title }}">
-                        <div class="flex items-center gap-2 px-2 pt-1">
+                            title="{{ $tr }} {{ $evt->title }}{{ !empty($evt->organizer_name) ? ' — invited by ' . $evt->organizer_name : '' }}">
+                        @php $isInvited = !empty($evt->organizer_name) && !$evt->isPrivacyRedacted; @endphp
+                        {{-- Organiser marker (Johan, 2026-08-19) — two identically-styled,
+                             identically-coloured tiles side by side (own appointment vs an
+                             accepted/pending invitation) were indistinguishable until clicked.
+                             Icon + text, never colour alone, so it survives colourblindness and
+                             a printed calendar. organizer_name is only ever populated for events
+                             the viewer did not create (CalendarController::applyFilters()'s batch
+                             lookup) and cleared on a privacy-redacted tile.
+
+                             Screenshotted, not just markup-checked, against a real 30-min slot —
+                             tile height is duration-based with overflow:hidden, and a 30-min tile
+                             measures ~26px against ~35px of two-row content (the ORIGINAL
+                             time/title + category rows already didn't fully fit before this
+                             change). So the icon lives in row 1 too — the row already proven to
+                             render at any duration — as the guaranteed-visible signal; the full
+                             "Invited by {name}" text on row 2 is the enhancement for when there's
+                             room (default 60-min slots, week/month views), not the only carrier. --}}
+                        <div class="flex items-center gap-2 px-2 pt-1" style="min-width:0;">
                             <span class="text-[11px] opacity-80">{{ $tr }}</span>
+                            @if($isInvited)
+                                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; opacity:0.9;" title="You were invited to this — invited by {{ $evt->organizer_name }}">
+                                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                                </svg>
+                            @endif
                             <span class="font-medium text-xs truncate">{{ $evt->title }}</span>
                         </div>
-                        <div class="text-[10px] opacity-70 px-2">{{ $evt->category }}</div>
+                        <div class="flex items-center gap-1 px-2" style="min-width:0;">
+                            @if($isInvited)
+                                {{-- Icon already shown in row 1 (guaranteed-visible slot) — text only here, not the icon again. --}}
+                                <span class="text-[10px] truncate" style="opacity:0.9;">Invited by {{ $evt->organizer_name }}</span>
+                            @else
+                                <span class="text-[10px] opacity-70 truncate">{{ $evt->category }}</span>
+                            @endif
+                        </div>
                     </button>
                 @endforeach
 
@@ -2036,6 +2065,76 @@
                     </span>
                 </template>
             </div>
+
+            {{-- CX-103 (Johan, 2026-08-19) — buyers linked to the selected
+                 property/properties, offered as an UNTICKED pick list. Ticking
+                 a box is the ONLY way a buyer becomes an attendee — nothing
+                 here is auto-added. This is what replaced the auto-fill that
+                 put eleven buyers on one viewing; Shawn had been manually
+                 un-ticking them (by deleting chips) every single time. --}}
+            {{-- CX-103 follow-up (Johan hit this live 2026-08-19 — the property
+                 he tested against genuinely had zero buyers linked to it at
+                 that moment; contact_property rows for it are timestamped
+                 minutes AFTER his test, so this was never silent JS failure,
+                 but the section showing nothing at all for a genuine zero was
+                 indistinguishable from broken and needed fixing regardless.
+                 buyerCandidatesLoaded flips true the first time a fetch for
+                 the CURRENT property selection completes, empty or not, so
+                 "checked, found none" is never confused with "never ran". --}}
+            <template x-if="buyerCandidatesLoaded && buyerCandidates.length === 0">
+                <p class="text-xs mb-3 px-3 py-2 rounded-md" style="color: var(--text-muted); background: var(--surface-2); border: 1px solid var(--border);">
+                    No buyers are currently linked to this property.
+                </p>
+            </template>
+
+            {{-- CX-103 follow-up (Johan, 2026-08-19) — "similar to seller size
+                 ... image Shawn having 11 buyers ... he will take forever with
+                 massive buyers boxes". One line per buyer, name + phone on
+                 the SAME line (not stacked), row height in the seller-chip
+                 region, light divider instead of a heavy card border per row.
+                 Whole row stays the click/tap target (just visually smaller);
+                 the tick square keeps a real 1.5px border in both states —
+                 small is fine, invisible is what Johan already flagged twice
+                 today on other screens. hover:brightness-95 gives a clear
+                 hover cue without fighting the ticked/unticked :style
+                 binding (it darkens whatever background is already there,
+                 correct in both light and dark since it's a filter, not a
+                 hardcoded color). --}}
+            <template x-if="buyerCandidates.length > 0">
+                <div class="mb-3">
+                    <label class="block text-xs font-medium mb-1.5" style="color: var(--text-secondary);">
+                        Buyers linked to this property — tick who the appointment is with
+                    </label>
+                    <div class="rounded-md overflow-hidden" style="border: 1px solid var(--border);">
+                        <template x-for="(candidate, idx) in buyerCandidates" :key="candidate.type + ':' + candidate.id">
+                            <label class="flex items-center gap-2 px-2 py-1 cursor-pointer transition hover:brightness-95"
+                                   :style="(candidate.ticked
+                                        ? 'background: color-mix(in srgb, var(--brand-icon, #00d4aa) 14%, var(--surface-2));'
+                                        : 'background: var(--surface-2);')
+                                        + (idx > 0 ? ' border-top: 1px solid var(--border);' : '')">
+                                <input type="checkbox" :checked="candidate.ticked"
+                                       @change="toggleBuyerCandidate(candidate)" class="sr-only">
+                                <span class="flex-none w-3.5 h-3.5 rounded-sm flex items-center justify-center"
+                                      :style="candidate.ticked
+                                            ? 'background: var(--brand-icon, #00d4aa); border: 1.5px solid var(--brand-icon, #00d4aa);'
+                                            : 'background: var(--surface); border: 1.5px solid var(--text-secondary);'">
+                                    <svg x-show="candidate.ticked" x-cloak viewBox="0 0 24 24" class="w-2.5 h-2.5" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M5 13l4 4L19 7"></path>
+                                    </svg>
+                                </span>
+                                <span class="flex-1 min-w-0 flex items-baseline gap-1.5 truncate">
+                                    <span class="text-xs font-medium truncate"
+                                          style="color: var(--text-primary);"
+                                          x-text="(((candidate.first_name || '') + ' ' + (candidate.last_name || '')).trim()) || candidate.name || ('Contact #' + candidate.id)"></span>
+                                    <span class="text-[11px] truncate" style="color: var(--text-muted);"
+                                          x-text="candidate.phone || candidate.email || ''"></span>
+                                </span>
+                            </label>
+                        </template>
+                    </div>
+                </div>
+            </template>
+
             <div class="relative">
                 <input type="text" x-model="query" @input.debounce.250ms="search()"
                        placeholder="Search contacts or agents…"
@@ -3736,8 +3835,8 @@ function calendarPage() {
 
                 // Property (multi-select: load all linked properties into chosen[])
                 const propPicker = form.querySelector('[x-data*="propertySearch"]');
-                if (propPicker) {
-                    const propData = Alpine.$data(propPicker);
+                const propData = propPicker ? Alpine.$data(propPicker) : null;
+                if (propData) {
                     if (d.linked_properties && d.linked_properties.length > 0) {
                         propData.chosen = d.linked_properties.map(p => ({ id: p.id, address: p.address }));
                     } else if (d.linked_property) {
@@ -3749,6 +3848,18 @@ function calendarPage() {
                 const attPicker = form.querySelector('[x-ref="attendeePicker"]');
                 if (attPicker && d.attendees && d.attendees.length) {
                     Alpine.$data(attPicker).chosen = d.attendees;
+                }
+
+                // CX-103 — rebuild the buyer tick list for the properties
+                // already on this appointment, so editing a damaged event
+                // (Chanri Gardens and its siblings) shows every buyer linked
+                // to the property with the CURRENT attendees ticked and
+                // everyone else unticked — not a blank slate the agent has to
+                // rebuild from scratch. Must run AFTER chosen[] is set above:
+                // setBuyerCandidates() reads it to decide each box's initial
+                // tick state.
+                if (propData && propData.chosen.length > 0) {
+                    propData.chosen.forEach(p => propData.autoPopulateOwners(p.id));
                 }
             });
         },
@@ -4253,6 +4364,25 @@ function calendarPage() {
                 this.openRecurScopeModal('edit');
                 return;
             }
+            // CX-103 (Johan, 2026-08-19) — a buyer-driven class (viewing) with
+            // NO buyer ticked must not save silently. Some appointments
+            // legitimately have no buyer (a fallen-through viewing, a
+            // walk-in never confirmed) — so this confirms rather than blocks,
+            // but it never sails through unnoticed the way the auto-fill did.
+            try {
+                const mapEl = document.getElementById('classConfigMap');
+                const map = JSON.parse(mapEl?.textContent || '{}');
+                const cfg = map[this.form.category] || {};
+                if (cfg.autofill_buyers) {
+                    const attPicker = e.target.querySelector('[x-ref="attendeePicker"]');
+                    const chosen = attPicker ? (Alpine.$data(attPicker).chosen || []) : [];
+                    const hasBuyer = chosen.some(c => c.role === 'buyer_contact');
+                    if (!hasBuyer && !confirm('No buyer is ticked for this viewing. Save anyway?')) {
+                        e.preventDefault();
+                        return;
+                    }
+                }
+            } catch (err) { /* config lookup failure never blocks a save */ }
             this.submitting = true;
             sessionStorage.removeItem('corex.calendar.createEventState');
             this.clearStalePickerState();
@@ -4473,6 +4603,18 @@ function propertySearch() {
                 pickerData.chosen = (pickerData.chosen || []).filter(c => {
                     return Number(c.source_property_id) !== Number(p.id);
                 });
+                // CX-103 — a deselected property's buyer candidates (ticked or
+                // not) no longer belong to this appointment either.
+                pickerData.buyerCandidates = (pickerData.buyerCandidates || []).filter(c => {
+                    return Number(c.source_property_id) !== Number(p.id);
+                });
+                // No property selected at all any more — "checked, found
+                // none" no longer applies; go back to showing nothing rather
+                // than a stale "no buyers linked" message with no property
+                // in view to have checked.
+                if (this.chosen.length === 0) {
+                    pickerData.buyerCandidatesLoaded = false;
+                }
             }
         },
         get selected() { return this.chosen.length > 0 ? this.chosen[0] : null; },
@@ -4507,9 +4649,18 @@ function propertySearch() {
                     ...o,
                     source_property_id: Number(propertyId),
                 }));
+                // CX-103 — split before it ever reaches Attendees. Sellers and
+                // the neutral attendee bucket still auto-fill exactly as
+                // before (Johan did not ask to change that); buyers become
+                // pick-list candidates instead of auto-added attendees — the
+                // fix for eleven buyers landing on one viewing.
+                const buyers = stamped.filter(o => o.role === 'buyer_contact');
+                const nonBuyers = stamped.filter(o => o.role !== 'buyer_contact');
                 const picker = form?.querySelector('[x-ref="attendeePicker"]');
                 if (picker) {
-                    Alpine.$data(picker).setOwners(stamped);
+                    const pickerData = Alpine.$data(picker);
+                    pickerData.setOwners(nonBuyers);
+                    pickerData.setBuyerCandidates(buyers);
                 }
             } catch (e) { console.warn('Auto-populate owners failed:', e); }
         },
@@ -4519,6 +4670,18 @@ function propertySearch() {
 function contactSearch() {
     return {
         query: '', results: [], chosen: [],
+        // CX-103 (Johan, 2026-08-19) — buyers linked to a selected property are
+        // NEVER auto-added to Attendees any more (that was the bug: Shawn had
+        // to manually remove up to eleven wrongly-added buyers on every single
+        // viewing, and never reported it). They now land here instead, as a
+        // tick list the agent must actively choose from. Every box starts
+        // UNTICKED — that is the entire point of the change; a pre-ticked list
+        // gets rubber-stamped exactly like the auto-fill did.
+        buyerCandidates: [],
+        // Flips true once a buyer-candidate fetch for the current property
+        // selection has completed, empty result or not — lets the template
+        // tell "checked, found none" apart from "hasn't run yet".
+        buyerCandidatesLoaded: false,
         async search() {
             if (this.query.length < 2) { this.results = []; return; }
             const r = await fetch('/corex/command-center/calendar/search/attendees?q=' + encodeURIComponent(this.query), {
@@ -4585,6 +4748,35 @@ function contactSearch() {
                     this.chosen.push(o);
                 }
             });
+        },
+        // CX-103 — the buyers linked to a selected property, offered as an
+        // UNTICKED pick list (never auto-added — see buyerCandidates above).
+        // A candidate already present in chosen[] (editing an existing
+        // appointment, or re-selecting a property already contributing an
+        // attendee) starts pre-ticked, matching Johan's requirement that
+        // editing a damaged event shows the truth, not a blank slate.
+        // Merges across properties on a multi-property event; a buyer linked
+        // to more than one selected property appears once.
+        setBuyerCandidates(owners) {
+            this.buyerCandidatesLoaded = true;
+            owners.forEach(o => {
+                if (!o.type) o.type = 'contact';
+                const key = o.type + ':' + o.id;
+                if (this.buyerCandidates.some(c => c.type + ':' + c.id === key)) return;
+                const alreadyChosen = this.chosen.some(c => c.type + ':' + c.id === key);
+                this.buyerCandidates.push({ ...o, role: 'buyer_contact', ticked: alreadyChosen });
+            });
+        },
+        toggleBuyerCandidate(candidate) {
+            candidate.ticked = !candidate.ticked;
+            const key = candidate.type + ':' + candidate.id;
+            if (candidate.ticked) {
+                if (!this.chosen.some(c => c.type + ':' + c.id === key)) {
+                    this.chosen.push({ ...candidate });
+                }
+            } else {
+                this.chosen = this.chosen.filter(c => c.type + ':' + c.id !== key);
+            }
         },
     };
 }

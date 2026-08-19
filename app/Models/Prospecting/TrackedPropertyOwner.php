@@ -27,16 +27,37 @@ final class TrackedPropertyOwner extends Model
         'ownership_share_pct',
         'deed_reference',
         'ownership_status',
+        'conflict_flagged_at',
+        'conflict_resolved_at',
     ];
 
     protected $casts = [
-        'is_primary'          => 'boolean',
-        'ownership_share_pct' => 'float',
+        'is_primary'           => 'boolean',
+        'ownership_share_pct'  => 'float',
+        'conflict_flagged_at'  => 'datetime',
+        'conflict_resolved_at' => 'datetime',
     ];
 
     /** Owner-row roles on a deed capture. */
     public const ROLE_OWNER = 'owner';
     public const ROLE_DIRECTOR = 'director';
+
+    /**
+     * True when this row is a scraped owner that DIFFERED from what was
+     * already on file for the property — never auto-merged into
+     * owner_contact_id, held here for an agent to compare and decide
+     * (.ai/specs/deeds-capture.md §7.16, Johan 2026-08-19).
+     */
+    public function isConflictCandidate(): bool
+    {
+        return $this->conflict_flagged_at !== null;
+    }
+
+    /** An open conflict is flagged but not yet resolved — still awaiting an agent's decision. */
+    public function isOpenConflict(): bool
+    {
+        return $this->conflict_flagged_at !== null && $this->conflict_resolved_at === null;
+    }
 
     /**
      * Multi-owner / ownership-history capture (.ai/specs/deeds-capture.md §7).

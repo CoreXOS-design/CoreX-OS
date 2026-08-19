@@ -31,33 +31,14 @@ final class DeedsCaptureController extends Controller
         $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
         abort_if($agencyId === null, 403, 'No agency context.');
 
+        // Shared with DeedsCaptureLinkService::availableDeeds() ("Link a deed" on the
+        // outreach compose screen) via TrackedProperty::scopeStillEligibleDeedsCapture()
+        // — the two must never drift apart on what counts as "still eligible" again
+        // (2026-08-19, Johan). See that scope's docblock for the drift it fixed.
         $captures = TrackedProperty::query()
             ->withoutGlobalScopes()
             ->with(['ownerContact', 'owners.contact'])
-            ->where('agency_id', $agencyId)
-            ->whereNull('deleted_at')
-            ->where('capture_kind', 'deeds_capture')
-            ->whereNull('promoted_to_property_id')   // un-promoted only
-            // PITCHED-state (Johan 2026-08-14) — this is a SUSPENSE screen, not a deed-import host.
-            // Drop deeds already CONSUMED by a worked (PITCHED) item, via EITHER signal:
-            //  (a) the deed's owner(s) are now seller(s) on a pitched property (the fundamental
-            //      "these people were worked" signal — covers per-owner "+ Link as seller"), or
-            //  (b) the deed was explicitly linked to a pitched listing (linked_deed).
-            ->whereNotExists(function ($q) {
-                $q->select(DB::raw(1))
-                    ->from('tracked_property_owners as tpo')
-                    ->join('contact_property as cp', fn ($j) => $j->on('cp.contact_id', '=', 'tpo.contact_id')->where('cp.role', 'seller'))
-                    ->join('prospecting_listings as pl', fn ($j) => $j->on('pl.matched_property_id', '=', 'cp.property_id')->whereNotNull('pl.pitched_at')->whereNull('pl.deleted_at'))
-                    ->whereColumn('tpo.tracked_property_id', 'tracked_properties.id')
-                    ->whereNotNull('tpo.contact_id');
-            })
-            ->whereNotExists(function ($q) {
-                $q->select(DB::raw(1))
-                    ->from('prospecting_listings as pl2')
-                    ->whereColumn('pl2.linked_deed_tracked_property_id', 'tracked_properties.id')
-                    ->whereNotNull('pl2.pitched_at')
-                    ->whereNull('pl2.deleted_at');
-            })
+            ->stillEligibleDeedsCapture($agencyId)
             ->orderByDesc('last_enriched_at')
             ->paginate(30)
             ->withQueryString();
@@ -144,12 +125,177 @@ final class DeedsCaptureController extends Controller
             ];
         }
 
+        // CX-102 part 2 (2026-08-19, Johan) — "the system must show its
+        // working and let the agent overrule it." For every "Already
+        // tracked · deed linked" row, the recorded reason for that link
+        // (never reconstructed — read straight off the decision written at
+        // match time) plus the deed's own source ref, so the view can offer
+        // "Not the same property" against the exact capture that caused it.
+        $decisionService = app(\App\Services\Prospecting\PropertyMatchDecisionService::class);
+        $matchDecisionByTp = [];
+        foreach ($captures as $tp) {
+            if ($tp->capture_kind === 'deeds_capture') {
+                continue; // this capture created its OWN tracked property — nothing to question
+            }
+            $chain = $tp->source_chain ?? [];
+            $latestDeedsRef = null;
+            foreach ($chain as $entry) {
+                if (($entry['type'] ?? null) === 'deeds_capture' && !empty($entry['ref'])) {
+                    $latestDeedsRef = $entry['ref']; // append-only — last one is the most recent
+                }
+            }
+            if ($latestDeedsRef === null) {
+                continue;
+            }
+            $decision = $decisionService->current($agencyId, 'deeds_capture', 'deeds_capture:' . $latestDeedsRef);
+            if ($decision !== null && !$decision->isRejected()) {
+                $matchDecisionByTp[$tp->id] = $decision;
+            }
+        }
+
+        // Johan (2026-08-19), after seeing the screen himself: "how does an
+        // agent know this is stock or not? Its essentially the same as mic."
+        //
+        // Every row on THIS screen has promoted_to_property_id NULL by
+        // construction (scopeStillEligibleDeedsCapture excludes anything
+        // already promoted — once promoted, a TP drops off this list
+        // entirely). So "is this already promoted" is never the useful
+        // question here — checked anyway, for correctness, but the real
+        // parallel to CX-101's MIC question is: "IF this gets promoted,
+        // does it merge into EXISTING stock, and is that stock live or
+        // stale?" — previewPropertyMatch() runs the exact same erf+suburb /
+        // scheme+section / normalised-address rules promoteToStock() itself
+        // uses, read-only, so the preview can never disagree with what
+        // actually happens when the agent presses Promote.
+        $matcher = app(\App\Services\Prospecting\TrackedPropertyMatchOrCreateService::class);
+        $stockStatusByTp = [];
+        foreach ($captures as $tp) {
+            if ($tp->promoted_to_property_id) {
+                $property = \App\Models\Property::withoutGlobalScopes()->find($tp->promoted_to_property_id);
+                $stockStatusByTp[$tp->id] = $property
+                    ? ['state' => $property->isStaleStock() ? 'stale' : 'live', 'property' => $property, 'already' => true]
+                    : ['state' => 'unknown', 'property' => null, 'already' => true];
+                continue;
+            }
+            $preview = $matcher->previewPropertyMatch($tp);
+            $stockStatusByTp[$tp->id] = $preview
+                ? ['state' => $preview->isStaleStock() ? 'stale' : 'live', 'property' => $preview, 'already' => false]
+                : ['state' => 'not_promoted', 'property' => null, 'already' => false];
+        }
+
+        // Owner-data build part 2 (Johan, 2026-08-19) — an open conflict
+        // (TrackedPropertyOwner::isOpenConflict()) is a scraped owner that
+        // disagreed with the owner already on file; never auto-resolved
+        // (reconcileOwners(), Api\DeedsCaptureController). Grouped by tp so
+        // the row can show the current owner and the conflicting one(s)
+        // side by side and let the agent decide.
+        $openConflictsByTp = [];
+        foreach ($captures as $tp) {
+            $conflicts = $tp->owners->filter(fn ($o) => $o->isOpenConflict())->values();
+            if ($conflicts->isNotEmpty()) {
+                $openConflictsByTp[$tp->id] = $conflicts;
+            }
+        }
+
         return view('corex.deeds-capture.index', [
-            'captures'         => $captures,
-            'tvaByProperty'    => $tvaByProperty,
-            'tvaStandalone'    => $tvaStandalone,
-            'fieldChangesByTp' => $fieldChangesByTp,
+            'captures'          => $captures,
+            'tvaByProperty'     => $tvaByProperty,
+            'tvaStandalone'     => $tvaStandalone,
+            'fieldChangesByTp'  => $fieldChangesByTp,
+            'matchDecisionByTp' => $matchDecisionByTp,
+            'stockStatusByTp'   => $stockStatusByTp,
+            'openConflictsByTp' => $openConflictsByTp,
         ]);
+    }
+
+    /**
+     * "Not the same property" (CX-102 part 2, 2026-08-19, Johan). An agent
+     * looking at an "Already tracked · deed linked" row says the deed does
+     * not belong to that property. Breaks the link; the deed's own facts
+     * either land on the alternative the agent picked, or become a fresh
+     * tracked property of their own — either way the agent's work continues
+     * with no dead end. See TrackedPropertyMatchOrCreateService::rejectMatch().
+     */
+    public function rejectMatch(Request $request, TrackedProperty $trackedProperty, TrackedPropertyMatchOrCreateService $matcher)
+    {
+        $user = $request->user();
+        $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
+        abort_if($agencyId === null || (int) $trackedProperty->agency_id !== (int) $agencyId, 404);
+
+        $data = $request->validate([
+            'source_type'                   => 'required|string|max:50',
+            'source_ref'                    => 'required|string|max:200',
+            'reason'                        => 'nullable|string|max:500',
+            'replacement_tracked_property_id' => 'nullable|integer',
+        ]);
+
+        try {
+            $result = $matcher->rejectMatch(
+                agencyId: $agencyId,
+                sourceType: $data['source_type'],
+                sourceRef: $data['source_ref'],
+                rejectedTrackedPropertyId: (int) $trackedProperty->id,
+                byUserId: (int) $user->id,
+                reason: $data['reason'] ?? null,
+                replacementTrackedPropertyId: isset($data['replacement_tracked_property_id']) ? (int) $data['replacement_tracked_property_id'] : null,
+            );
+        } catch (\DomainException $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        return redirect()->route('corex.deeds-capture.index')
+            ->with('success', 'Marked as not the same property. The deed now lives on its own record (tracked property #' . $result->id . ').');
+    }
+
+    /**
+     * §7.16 (Johan, 2026-08-19) — a scraped owner that conflicted with the
+     * owner already on file (TrackedPropertyOwner::isOpenConflict()) sits
+     * here until an agent decides which is right. NEVER automated — no
+     * "most recent wins", no auto-merge. Two outcomes:
+     *
+     *   use     — the scraped/conflicting owner was correct. It becomes the
+     *             record's owner (owner_contact_id + is_primary); the owner
+     *             it replaces is demoted (flagged, never deleted — its own
+     *             data is untouched, .ai/specs non-negotiable #1).
+     *   dismiss — the owner already on file was correct. The scraped owner's
+     *             row stays exactly as captured (never deleted), just marked
+     *             resolved so it stops presenting as an open conflict.
+     */
+    public function resolveOwnerConflict(Request $request, TrackedProperty $trackedProperty, \App\Models\Prospecting\TrackedPropertyOwner $trackedPropertyOwner)
+    {
+        $user = $request->user();
+        $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
+        abort_if($agencyId === null || (int) $trackedProperty->agency_id !== (int) $agencyId, 404);
+        abort_if((int) $trackedPropertyOwner->tracked_property_id !== (int) $trackedProperty->id, 404);
+
+        $data = $request->validate([
+            'decision' => 'required|in:use,dismiss',
+        ]);
+
+        if (!$trackedPropertyOwner->isOpenConflict()) {
+            return back()->with('info', 'That was already resolved.');
+        }
+
+        if ($data['decision'] === 'dismiss') {
+            $trackedPropertyOwner->conflict_resolved_at = now();
+            $trackedPropertyOwner->save();
+
+            return back()->with('success', 'Kept the current owner. The other name is still on file if you need it.');
+        }
+
+        \App\Models\Prospecting\TrackedPropertyOwner::where('tracked_property_id', $trackedProperty->id)
+            ->whereNull('conflict_flagged_at')
+            ->update(['is_primary' => false, 'conflict_flagged_at' => now()]);
+
+        $trackedPropertyOwner->conflict_flagged_at = null;
+        $trackedPropertyOwner->conflict_resolved_at = null;
+        $trackedPropertyOwner->is_primary = true;
+        $trackedPropertyOwner->save();
+
+        $trackedProperty->owner_contact_id = $trackedPropertyOwner->contact_id;
+        $trackedProperty->save();
+
+        return back()->with('success', 'Updated the owner to ' . trim((string) $trackedPropertyOwner->name) . '.');
     }
 
     /**
@@ -592,20 +738,44 @@ final class DeedsCaptureController extends Controller
      * deleted_at, which the index() query's whereNull('deleted_at') then
      * excludes. Reversible by an admin (TrackedProperty::withTrashed()
      * ->find($id)->restore()); no in-app restore UI yet, not asked for.
+     *
+     * 2026-08-19 (Johan — found live-testing, blocked): this used to
+     * abort_if($trackedProperty->capture_kind !== 'deeds_capture', 404) —
+     * a genuine 404 for every "already tracked" row (capture_kind NULL,
+     * matched onto an existing MIC/prospecting lead), which is EXACTLY the
+     * category now on screen for every matched capture. Deleting the whole
+     * TrackedProperty for that category would be its own bug in the other
+     * direction — it has a life outside deeds capture (MIC/prospecting),
+     * so a hard soft-delete would wipe out a live lead just because the
+     * agent wanted this DEED off the list. Two real cases, two real
+     * behaviours, both matching the button's own promise ("no longer show
+     * here, but nothing is permanently deleted"):
+     *   - capture_kind === 'deeds_capture' (this TP exists only because of
+     *     this capture) -> soft-delete the TP, unchanged from before.
+     *   - anything else (matched onto an existing record) -> the record
+     *     stays; only deeds_captured_at is cleared, which is exactly what
+     *     scopeStillEligibleDeedsCapture() checks — the row drops off this
+     *     screen, the property/lead itself is untouched, and a fresh
+     *     capture (which unconditionally re-stamps deeds_captured_at, see
+     *     ingestOne()) makes it reappear as a capture to act on again.
      */
     public function dismissProperty(Request $request, TrackedProperty $trackedProperty)
     {
         $user = $request->user();
         $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
         abort_if((int) $trackedProperty->agency_id !== (int) $agencyId, 404);
-        abort_if($trackedProperty->capture_kind !== 'deeds_capture', 404);
 
         if ($trackedProperty->promoted_to_property_id) {
             return redirect()->route('corex.deeds-capture.index')
                 ->with('info', 'This capture was already promoted — nothing to remove.');
         }
 
-        $trackedProperty->delete();
+        if ($trackedProperty->capture_kind === 'deeds_capture') {
+            $trackedProperty->delete();
+        } else {
+            $trackedProperty->deeds_captured_at = null;
+            $trackedProperty->save();
+        }
 
         return redirect()->route('corex.deeds-capture.index')->with('success', 'Removed from the list.');
     }

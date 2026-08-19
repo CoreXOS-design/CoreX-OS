@@ -18,6 +18,52 @@
 (function () {
   'use strict';
 
+  // Robust price read — mirrors p24PriceFrom in content-p24-detail.js (added
+  // 2026-08-10/11 after a mass price-corruption incident). The old approach
+  // here (`priceEl.textContent.replace(/[^\d]/g, '')`) stripped EVERY
+  // non-digit character from the whole matched element's text and trusted
+  // whatever digits were left as one number. PP's cards are hashed React
+  // classes (see the file header) matched with a loose `[class*="price"]`
+  // selector, so `priceEl` can be a wider container than intended, and any
+  // stray digit sitting near the price in that same text (a feature badge, a
+  // footnote marker — CSS `gap` spacing is visual only and adds no actual
+  // whitespace to textContent) gets silently glued onto the price with no
+  // bounds check. LIVE evidence: "1 Owen Ellis Drive" (PP-T5486987 /
+  // PP-T5363108) stored 19900005 — a stray "5" glued onto the true 1990000
+  // (confirmed by 2 independent P24 listings at the same address; PP's own
+  // detail page shows the clean "R 1 990 000").
+  //
+  // Fix: only accept a run of digits that decomposes into valid SA Rand
+  // grouping (a 1-3 digit leading chunk, then every following
+  // space/comma-separated chunk EXACTLY 3 digits — "1 990 000", never
+  // "1 990 0005") when separators are present, or a plausible plain digit
+  // run when none are — and stop at the first chunk that breaks the
+  // grouping instead of absorbing it. Not a perfect defence against a digit
+  // glued on with ZERO separating character (no separator = nothing to
+  // detect the boundary on), but it removes the naive full-string
+  // concatenation this bug depends on and matches every SA price the
+  // portals actually display.
+  const PP_PRICE_PLAUSIBLE = (v) => Number.isFinite(v) && v >= 100000 && v <= 500000000;
+  function ppPriceFrom(text) {
+    if (!text) return null;
+    const candidates = [];
+    const re = /R\s*([\d\s,]+)/g;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      const chunks = m[1].trim().split(/[\s,]+/).filter(Boolean);
+      if (chunks.length === 0 || chunks[0].length > 3) continue;
+      let digits = chunks[0];
+      for (let i = 1; i < chunks.length; i++) {
+        if (chunks[i].length !== 3) break; // stop at the first non-group-of-3 chunk
+        digits += chunks[i];
+      }
+      if (digits.length < 4 || digits.length > 9) continue;
+      const v = parseInt(digits, 10);
+      if (PP_PRICE_PLAUSIBLE(v)) candidates.push(v);
+    }
+    return candidates.length > 0 ? Math.max(...candidates) : null;
+  }
+
   // ── Province / region keywords that are NOT address segments ──
   const AREA_KEYWORDS = [
     'south-africa', 'kwazulu-natal', 'kzn-south-coast',
@@ -187,17 +233,19 @@
       // Extract price from card text
       let price = null;
       try {
-        // Try featured-listing price element first
-        const priceEl = card.querySelector('.featured-listing__price, [class*="price"], [class*="Price"]');
-        if (priceEl) {
-          const cleaned = priceEl.textContent.replace(/[^\d]/g, '');
-          if (cleaned && cleaned.length >= 4) price = parseInt(cleaned, 10);
+        // Try the precise featured-listing class FIRST, as its own scoped
+        // query — a combined `querySelector('a, b')` list is NOT priority
+        // order, it returns whichever of the alternatives appears first in
+        // DOCUMENT order, so a broad `[class*="price"]` match on a wider
+        // ancestor could win over the precise one even when both exist.
+        const preciseEl = card.querySelector('.featured-listing__price');
+        price = ppPriceFrom(preciseEl ? preciseEl.textContent : null);
+        if (!price) {
+          const looseEl = card.querySelector('[class*="price"], [class*="Price"]');
+          price = ppPriceFrom(looseEl ? looseEl.textContent : null);
         }
         if (!price) {
-          const priceMatch = card.textContent.match(/R\s*([\d\s]+)/);
-          if (priceMatch) {
-            price = parseInt(priceMatch[1].replace(/\s/g, ''), 10);
-          }
+          price = ppPriceFrom(card.textContent);
         }
       } catch (e) { /* ignore */ }
 

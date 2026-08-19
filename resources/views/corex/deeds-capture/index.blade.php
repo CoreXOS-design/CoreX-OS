@@ -84,7 +84,13 @@
                     }
 
                     $owner = $tp->ownerContact;
-                    $owners = $tp->owners; // multi-owner (2026-08-12) — falls back to $owner below for pre-migration captures
+                    // Owner-data build part 2 (Johan, 2026-08-19) — an open conflict
+                    // (a scraped owner that disagreed with the one already on file,
+                    // App\Http\Controllers\Api\DeedsCaptureController::reconcileOwners())
+                    // is not yet a confirmed owner and must never render in the normal
+                    // Owner(s) list as if it were one; it gets its own comparison box below.
+                    $owners = $tp->owners->reject(fn ($o) => $o->isOpenConflict())->values(); // multi-owner (2026-08-12) — falls back to $owner below for pre-migration captures
+                    $openConflicts = $openConflictsByTp[$tp->id] ?? collect();
 
                     // 2026-08-19 (Johan, .ai/specs/deeds-capture.md §6 Part B) — what THIS
                     // capture actually did to this property, not just that it did something.
@@ -119,13 +125,165 @@
                         return (string) $val;
                     };
                     $deedsChanges = $fieldChangesByTp[$tp->id] ?? null;
+
+                    // CX-102 part 2 — the recorded match decision for this row, and
+                    // the (source_type, source_ref) pair the reject endpoint needs.
+                    // subject_key is "deeds_capture:{source_ref}" and source_ref can
+                    // itself contain a colon (e.g. "cmainfo:n0et..."), so split on
+                    // the FIRST colon only.
+                    $matchDecision = $matchDecisionByTp[$tp->id] ?? null;
+                    $matchDecisionSourceRef = null;
+                    if ($matchDecision) {
+                        $matchDecisionSourceRef = substr($matchDecision->subject_key, strlen($matchDecision->subject_type) + 1);
+                    } else {
+                        // 2026-08-19 (Johan's screen read) — a row can be "already
+                        // tracked" with no PropertyMatchDecision on file at all: it
+                        // was matched before this feature existed (tracked property
+                        // #468 itself is exactly this case). The reject endpoint
+                        // still needs the source ref to act on — read it straight
+                        // off the TP's own source_chain rather than leave the
+                        // control dead on precisely the row this was built for.
+                        foreach (($tp->source_chain ?? []) as $entry) {
+                            if (($entry['type'] ?? null) === 'deeds_capture' && !empty($entry['ref'])) {
+                                $matchDecisionSourceRef = $entry['ref'];
+                            }
+                        }
+                    }
+
+                    // Johan (2026-08-19), after seeing the screen: "how does an
+                    // agent know this is stock or not?" CX-101's own definition
+                    // (Property::isOnMarket()/isStaleStock()), never a second one.
+                    $stockStatus = $stockStatusByTp[$tp->id] ?? ['state' => 'not_promoted', 'property' => null];
+
+                    // Johan, verbatim, after looking at his own screen: "how does
+                    // an agent know this is stock or not, not rocket scientists...
+                    // never two chips that say opposite things, one status, one
+                    // sentence." ONE unified plain sentence per row, computed once
+                    // here — no chips, no ids, no "tracked"/"enriched"/"fields",
+                    // every word an agent would actually say.
+                    // Confirm button (Johan, 2026-08-19): street + number only — the
+                    // full "STREET, SUBURB, TOWN, PROVINCE" string is right for
+                    // identifying WHICH property in the sentence above, but repeated
+                    // on a button it's just noise the agent has to read past.
+                    $shortStreetAddress = fn ($p) => trim((string) ($p->street_number ?? '') . ' ' . (string) ($p->street_name ?? '')) ?: null;
+
+                    $isAlreadyTracked = $tp->capture_kind !== 'deeds_capture';
+                    if (!$isAlreadyTracked) {
+                        $rowStatusLine = "New to us — we don't have this property yet.";
+                        $rowWhyLine = null;
+                        $rowConfirmName = $shortStreetAddress($tp) ?: ($headline !== '' ? $headline : 'this property');
+                    } elseif ($stockStatus['state'] === 'live') {
+                        $matchedAddress = $stockStatus['property']->address ?: 'a property already on your books';
+                        $rowStatusLine = 'We think this is the same as ' . $matchedAddress
+                            . ' — currently on the market with ' . ($stockStatus['property']->agent->name ?? 'one of your agents') . '.';
+                        $rowWhyLine = $matchDecision->reason ?? null;
+                        $rowConfirmName = $shortStreetAddress($stockStatus['property']) ?: $matchedAddress;
+                    } elseif ($stockStatus['state'] === 'stale') {
+                        $matchedAddress = $stockStatus['property']->address ?: 'a property already on your books';
+                        $lastWorked = $stockStatus['property']->last_activity_at ?? $stockStatus['property']->updated_at;
+                        $rowStatusLine = 'We think this is the same as ' . $matchedAddress
+                            . ' — not on the market, last worked ' . ($lastWorked ? \Illuminate\Support\Carbon::parse($lastWorked)->diffForHumans() : 'a while ago') . '.';
+                        $rowWhyLine = $matchDecision->reason ?? null;
+                        $rowConfirmName = $shortStreetAddress($stockStatus['property']) ?: $matchedAddress;
+                    } else {
+                        // already tracked, but no existing live property match found —
+                        // still a genuine match worth confirming (this is #468's own
+                        // case), just not yet real agency stock. The system is not
+                        // UNCERTAIN whether it matches here — it matched — the gap
+                        // (for rows from before this feature existed) is only that
+                        // the reason was never recorded, so say that plainly rather
+                        // than inventing doubt that was never there.
+                        $rowStatusLine = 'We already have this property on file, but it is not on your books.';
+                        $rowWhyLine = $matchDecision->reason ?? 'Not recorded for older captures.';
+                        $rowConfirmName = $shortStreetAddress($tp) ?: ($headline !== '' ? $headline : 'this property');
+                    }
                 @endphp
                 <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
                     <div class="flex flex-wrap items-start justify-between gap-4">
                         {{-- Property --}}
                         <div class="min-w-0 flex-1">
                             <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">Property</div>
-                            <div class="font-semibold text-sm" style="color: var(--text-primary);">{{ $headline !== '' ? $headline : ('Tracked property #' . $tp->id) }}</div>
+                            <div class="font-semibold text-sm" style="color: var(--text-primary);">
+                                {{ $headline !== '' ? $headline : 'This property' }}
+                            </div>
+
+                            {{-- Johan, after reading his own screen: "at what stage are you
+                                 going to understand that we are working with agents, not
+                                 rocket scientists?" ONE sentence, agent language, never a
+                                 second contradicting chip. No ids anywhere — the "view" link
+                                 opens the record without ever printing its number. --}}
+                            <div class="text-sm mt-1.5" style="color: var(--text-primary);">
+                                {{ $rowStatusLine }}
+                                @if($isAlreadyTracked)
+                                    <a href="{{ route('corex.tracked-properties.show', $tp->id) }}"
+                                       target="_blank" rel="noopener" class="font-semibold no-underline"
+                                       style="color: var(--brand-icon, #2563eb);"
+                                       title="Opens in a new tab — you won't lose your place in this list.">
+                                        View →
+                                    </a>
+                                @endif
+                            </div>
+                            @if($rowWhyLine)
+                                <div class="text-xs mt-0.5" style="color: var(--text-muted);">
+                                    Why: {{ $rowWhyLine }}
+                                </div>
+                            @endif
+
+                            {{-- "Two clear controls" (Johan) — the primary confirm lives in the
+                                 Action column on the right (relabelled below to say what it
+                                 does); this is its pair: a real, always-visible button, not a
+                                 question hidden under a summary. Clicking it reveals the
+                                 optional candidate picker + reason before the actual submit,
+                                 same toggle pattern already used for "what this capture found"
+                                 further down this same file. --}}
+                            @if($isAlreadyTracked)
+                                <div class="mt-2" x-data="{ open: false }">
+                                    <button type="button" @click="open = !open"
+                                            class="text-xs font-semibold px-2.5 py-1 rounded"
+                                            style="background: transparent; color: var(--ds-crimson, #dc2626); border: 1px solid color-mix(in srgb, var(--ds-crimson, #dc2626) 40%, transparent);">
+                                        No — different property
+                                    </button>
+                                    <div x-show="open" x-cloak class="mt-2 space-y-2" style="max-width: 26rem;">
+                                        <form method="POST"
+                                              action="{{ route('corex.deeds-capture.reject-match', $tp->id) }}"
+                                              class="space-y-2"
+                                              onsubmit="return confirm('This will stop treating this deed as that property. It will get its own record instead — nothing is deleted.');">
+                                            @csrf
+                                            <input type="hidden" name="source_type" value="deeds_capture">
+                                            <input type="hidden" name="source_ref" value="{{ $matchDecisionSourceRef }}">
+
+                                            @if($matchDecision && !empty($matchDecision->candidates) && count($matchDecision->candidates) > 1)
+                                                <div>
+                                                    <label class="block text-[11px] font-semibold mb-1" style="color: var(--text-muted);">
+                                                        More than one property looked possible — pick the right one, or leave this as "none of these":
+                                                    </label>
+                                                    <select name="replacement_tracked_property_id" class="w-full rounded text-xs px-2 py-1.5" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                                        <option value="">None of these — give it its own record</option>
+                                                        @foreach($matchDecision->candidates as $candidate)
+                                                            @if((int) $candidate['id'] !== (int) $tp->id)
+                                                                <option value="{{ $candidate['id'] }}">{{ $candidate['label'] }}</option>
+                                                            @endif
+                                                        @endforeach
+                                                    </select>
+                                                </div>
+                                            @endif
+
+                                            <div>
+                                                <label class="block text-[11px] font-semibold mb-1" style="color: var(--text-muted);">Why (optional):</label>
+                                                <input type="text" name="reason" maxlength="500" placeholder="e.g. different street number, wrong building"
+                                                       class="w-full rounded text-xs px-2 py-1.5" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                            </div>
+
+                                            <button type="submit"
+                                                    class="text-xs font-semibold px-3 py-1.5 rounded"
+                                                    style="background: color-mix(in srgb, var(--ds-crimson, #dc2626) 12%, transparent); color: var(--ds-crimson, #dc2626); border: 1px solid color-mix(in srgb, var(--ds-crimson, #dc2626) 35%, transparent);">
+                                                Confirm — different property
+                                            </button>
+                                        </form>
+                                    </div>
+                                </div>
+                            @endif
+
                             @if($secondaryAddr !== '')
                                 <div class="text-xs mt-1" style="color: var(--text-muted);">{{ $secondaryAddr }}</div>
                             @endif
@@ -306,6 +464,71 @@
                             </div>
                         @endif
 
+                        {{-- Owner disagreement (owner-data build part 2, Johan 2026-08-19) —
+                             "if the owner information varies, the agent needs to inspect and
+                             see which is broken... this needs to be an active choice." Never
+                             auto-merged (Api\DeedsCaptureController::reconcileOwners()); shown
+                             independently of the "No — different property" control above, since
+                             the property match can be right even when the owner disagrees. --}}
+                        @if($openConflicts->isNotEmpty())
+                            <div class="min-w-0 basis-full rounded-md p-3" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 35%, transparent);">
+                                @foreach($openConflicts as $conflict)
+                                    <div @if(!$loop->first) class="mt-3 pt-3" style="border-top:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent);" @endif>
+                                        <div class="text-sm font-semibold" style="color: var(--text-primary);">
+                                            The latest capture found a different owner. Which one is right?
+                                        </div>
+                                        <div class="mt-2 grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));">
+                                            <div>
+                                                <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">On your books</div>
+                                                @forelse($ownerRows as $currentRow)
+                                                    <div class="text-sm font-semibold" style="color: var(--text-primary);">
+                                                        {{ $currentRow->contact ? trim($currentRow->contact->first_name . ' ' . (string) $currentRow->contact->last_name) : ($currentRow->name ?? 'Unnamed owner') }}
+                                                    </div>
+                                                    <div class="text-xs" style="color: var(--text-muted);">
+                                                        {{ $currentRow->id_number ? ($ownerIdLabel($currentRow) . ': ' . $currentRow->id_number) : 'No owner ID' }}
+                                                    </div>
+                                                @empty
+                                                    <div class="text-sm" style="color: var(--text-muted);">No owner on file yet.</div>
+                                                @endforelse
+                                                <form method="POST" action="{{ route('corex.deeds-capture.owner-conflict.resolve', [$tp->id, $conflict->id]) }}" class="mt-1.5"
+                                                      onsubmit="return confirm('Keep the owner already on your books, and leave the other name on file unused?');">
+                                                    @csrf
+                                                    <input type="hidden" name="decision" value="dismiss">
+                                                    <button type="submit" class="text-xs font-semibold px-2.5 py-1 rounded"
+                                                            style="background: transparent; color: var(--text-primary); border: 1px solid var(--border);">
+                                                        Keep this owner
+                                                    </button>
+                                                </form>
+                                            </div>
+                                            <div>
+                                                <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">
+                                                    From the latest capture
+                                                    @if($conflict->created_at && $ownerRows->isNotEmpty() && $ownerRows->first()->created_at && $conflict->created_at->gt($ownerRows->first()->created_at))
+                                                        <span style="color: var(--ds-amber, #f59e0b);">· more recent</span>
+                                                    @endif
+                                                </div>
+                                                <div class="text-sm font-semibold" style="color: var(--text-primary);">
+                                                    {{ $conflict->contact ? trim($conflict->contact->first_name . ' ' . (string) $conflict->contact->last_name) : ($conflict->name ?? 'Unnamed owner') }}
+                                                </div>
+                                                <div class="text-xs" style="color: var(--text-muted);">
+                                                    {{ $conflict->id_number ? ($ownerIdLabel($conflict) . ': ' . $conflict->id_number) : 'No owner ID' }}
+                                                </div>
+                                                <form method="POST" action="{{ route('corex.deeds-capture.owner-conflict.resolve', [$tp->id, $conflict->id]) }}" class="mt-1.5"
+                                                      onsubmit="return confirm({{ Js::from('Update the owner to ' . trim((string) ($conflict->contact ? trim($conflict->contact->first_name . ' ' . (string) $conflict->contact->last_name) : $conflict->name)) . '?') }});">
+                                                    @csrf
+                                                    <input type="hidden" name="decision" value="use">
+                                                    <button type="submit" class="text-xs font-semibold px-2.5 py-1 rounded"
+                                                            style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color: color-mix(in srgb, var(--ds-amber, #f59e0b) 70%, black); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 45%, transparent);">
+                                                        Use this owner instead
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
+                        @endif
+
                         {{-- Action --}}
                         <div class="flex-shrink-0 flex flex-col items-end gap-2">
                             {{-- One-button promote+ingest (2026-08-19, Johan, verbatim from last
@@ -315,11 +538,15 @@
                                  block's checkboxes below (via the HTML5 form="" attribute — those
                                  inputs are NOT inside this <form> tag in the DOM, they submit into
                                  it anyway), so one click carries both writes. --}}
+                            {{-- Johan, after reading his own screen: "every button says what it
+                                 will DO." Same action as always (promote()) — the label now
+                                 names what actually happens instead of "Promote to property +
+                                 contact", which meant nothing to an agent. --}}
                             <form id="promote-form-{{ $tp->id }}" method="POST" action="{{ route('corex.deeds-capture.promote', $tp->id) }}"
-                                  onsubmit="return confirm('Create a property from this deeds capture and link the owner? Any ticked contact numbers below will be added too.');">
+                                  onsubmit="return confirm({{ Js::from($isAlreadyTracked ? 'Update ' . $rowConfirmName . ' with these details and link the owner? Any ticked contact numbers below will be added too.' : 'Add this as a new property and link the owner? Any ticked contact numbers below will be added too.') }});">
                                 @csrf
                                 <button type="submit" class="text-xs font-semibold px-4 py-2 rounded-md text-white" style="background: var(--brand-button, #0ea5e9);">
-                                    Promote to property + contact
+                                    {{ $isAlreadyTracked ? ('Confirm and update ' . $rowConfirmName) : 'Add as a new property' }}
                                 </button>
                             </form>
                             {{-- Remove (2026-08-13) — soft delete, reversible; wrong details / duplicates. --}}
@@ -360,11 +587,24 @@
                             $filledCount = count($deedsChanges['filled']);
                             $replacedCount = count($deedsChanges['replaced']);
                             $clearedCount = count($deedsChanges['cleared'] ?? []);
-                            $summaryParts = array_filter([
-                                $filledCount > 0 ? ($filledCount . ' field' . ($filledCount === 1 ? '' : 's') . ' updated') : null,
-                                $replacedCount > 0 ? ($replacedCount . ' replaced') : null,
-                                $clearedCount > 0 ? ($clearedCount . ' cleared') : null,
-                            ]);
+                            // Johan, after reading his own screen: kill "Enriched", kill
+                            // "field(s)", kill the "correction" chip — say it in one plain
+                            // sentence, in words an agent uses (a detail, not a field). This
+                            // already happened at capture time (deferring that write is a
+                            // separate, not-yet-built change) — so this is a report, not a
+                            // promise, and says so honestly rather than pretending it's still
+                            // pending confirmation.
+                            $whatChangedParts = array_values(array_filter([
+                                $filledCount > 0 ? ('updated ' . $filledCount . ' detail' . ($filledCount === 1 ? '' : 's')) : null,
+                                $replacedCount > 0 ? ('replaced ' . $replacedCount . ' that ' . ($replacedCount === 1 ? 'was' : 'were') . ' different') : null,
+                                $clearedCount > 0 ? ('cleared ' . $clearedCount . ' that no longer applied') : null,
+                            ]));
+                            // "We already updated 10 details on that property, and replaced 4
+                            // that were different." (Johan, 2026-08-19) — "on that property"
+                            // anchors the first clause; further clauses just continue the sentence.
+                            $whatChangedSummary = 'We already ' . $whatChangedParts[0] . ' on that property'
+                                . (count($whatChangedParts) > 1 ? ', and ' . implode(', and ', array_slice($whatChangedParts, 1)) : '')
+                                . '.';
                         @endphp
                         <div class="mt-3" x-data="{ open: false }">
                             <button type="button" @click="open = !open"
@@ -375,15 +615,8 @@
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487 18.549 2.8a2.121 2.121 0 1 1 3 3l-1.687 1.688m-3-3-9.193 9.193a3 3 0 0 0-.8 1.36l-.812 3.153a.75.75 0 0 0 .91.91l3.153-.812a3 3 0 0 0 1.36-.8l9.193-9.193m-3-3 3 3"/>
                                     </svg>
                                     <span class="text-sm font-semibold" style="color: var(--text-primary);">
-                                        Enriched — {{ implode(', ', $summaryParts) }}
+                                        {{ $whatChangedSummary }}
                                     </span>
-                                    @if($replacedCount > 0)
-                                        <span class="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded"
-                                              style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 18%, transparent); color: var(--ds-amber, #f59e0b); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 40%, transparent);"
-                                              title="This capture corrected a value that was already there — the old value is shown below.">
-                                            correction
-                                        </span>
-                                    @endif
                                 </span>
                                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 transition-transform flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color: var(--text-muted);" :class="open ? 'rotate-180' : ''">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/>

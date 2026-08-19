@@ -191,13 +191,38 @@ final class EntryPointController extends Controller
             return redirect()->route('corex.properties.show', ['property' => (int) $listing->matched_property_id]);
         }
 
+        // Ejection-on-reload fix (2026-08-19, Johan — real incident: listing 2103,
+        // "38 Lagoon"). resolveCollisionForListing() below exists to protect the
+        // ONE moment an agent freshly opens this screen from MIC's "Pitch" button —
+        // it was NEVER meant to police every later reload of a screen the agent is
+        // already working. It re-derives the match fresh on every call, so if a
+        // matching property comes into existence WHILE the agent is mid-review (he
+        // captured 4 deed sellers + ran TVA, creating exactly such a property), a
+        // plain browser refresh silently redirected him to it — before the seller/
+        // TVA section of this same view ever rendered. Numbers existed; he just
+        // never reached the code that shows them.
+        //
+        // Fix: only run collision detection when this request is a FRESH entry from
+        // MIC's Pitch button, signalled by a `fresh=1` query param on that link
+        // (_slideover-header.blade.php, index_legacy_body.blade.php). A browser
+        // refresh repeats the exact same URL including its query string, so the
+        // signal is request-local and can't go stale across tabs the way a session
+        // flag could. On a genuine fresh entry that clears collision, this method
+        // redirects to the SAME route with the param stripped (line further down) —
+        // a classic Post/Redirect/Get landing on a clean URL — so any later refresh
+        // of that clean URL deterministically skips collision detection. The
+        // duplicate-prevention guard itself is UNCHANGED for the case it exists for.
+        $isFreshEntry = $request->query('fresh') === '1';
+
         // A.3.4 — prospect-collision detection. Before the temp-lock fires
         // (which would tie up the listing for the next 30 minutes), check
         // whether HFC already has a relationship to this address. The same
         // service drives the map's Portal Stock Prospect Now flow.
-        $collision = $this->resolveCollisionForListing($listing, $agencyId, (int) $request->user()->id);
-        if ($collision !== null) {
-            return $collision;
+        if ($isFreshEntry) {
+            $collision = $this->resolveCollisionForListing($listing, $agencyId, (int) $request->user()->id);
+            if ($collision !== null) {
+                return $collision;
+            }
         }
 
         // Temp lock: prevent two agents from pitching the same listing concurrently.
@@ -236,12 +261,37 @@ final class EntryPointController extends Controller
                 ->with('error', "⏳ {$ownerName} has already claimed this listing. Coordinate with them before pitching.");
         }
 
+        // PRG landing (2026-08-19) — a fresh entry that cleared collision detection
+        // above lands on the SAME route with `fresh` stripped, so a later browser
+        // refresh of the resulting URL deterministically skips it (see the note at
+        // the top of this method). Locks/claim just acquired above are durable and
+        // idempotent for this same agent, so re-running them on the follow-up
+        // request costs nothing.
+        if ($isFreshEntry) {
+            return redirect()->route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $prospectingListingId]);
+        }
+
         // MIC ↔ Deeds ↔ Contact loop (Part A) — surface the deed the agent scraped. If a deeds
         // capture exists for this property, its registered owner(s) (name + SA-ID) are already in
         // CoreX as contacts; resolve them so the capture screen can offer "Use from deeds" instead
         // of re-typing. Read-only; failure-isolated (a deed-link hiccup must never break capture).
         $deedLink = $this->safeDeedLink(fn () => app(\App\Services\Prospecting\DeedsCaptureLinkService::class)
             ->ownersForListing($agencyId, $listing));
+        $deeds = $this->safeAvailableDeeds($agencyId);
+        $linkDeedUrl = route('seller-outreach.entry.link-deed-prospecting', ['prospectingListingId' => $listing->id]);
+        $deedPollUrl = route('seller-outreach.entry.deed-poll-prospecting', ['prospectingListingId' => $listing->id]);
+        $sellerState = app(\App\Services\Prospecting\ComposeSellerService::class)->payload($agencyId, $listing);
+        $linkSellerUrl = route('seller-outreach.entry.link-seller-prospecting', ['prospectingListingId' => $listing->id]);
+        $unlinkSellerUrl = route('seller-outreach.entry.unlink-seller-prospecting', ['prospectingListingId' => $listing->id]);
+        // Feature 2 (2026-08-19) — tick-and-one-click linking (mirrors the deeds-capture one-click
+        // promote pattern). Replaces per-owner "+ Link as seller" clicks with tick-several + one submit.
+        $linkSellersBatchUrl = route('seller-outreach.entry.link-sellers-batch-prospecting', ['prospectingListingId' => $listing->id]);
+        $tvaIngestUrl = route('seller-outreach.entry.tva-ingest-prospecting', ['prospectingListingId' => $listing->id]);
+        $primarySellerUrl = route('seller-outreach.entry.primary-seller-prospecting', ['prospectingListingId' => $listing->id]);
+        $deadEndSellerUrl = route('seller-outreach.entry.dead-end-seller-prospecting', ['prospectingListingId' => $listing->id]);
+        $unlinkDeedUrl = route('seller-outreach.entry.unlink-deed-prospecting', ['prospectingListingId' => $listing->id]);
+        $removeNumberUrl = route('seller-outreach.entry.remove-number-prospecting', ['prospectingListingId' => $listing->id]);
+        $primaryNumberUrl = route('seller-outreach.entry.primary-number-prospecting', ['prospectingListingId' => $listing->id]);
 
         return view('seller-outreach.entry.prospecting-create-contact', [
             'listing'      => $listing,
@@ -252,20 +302,52 @@ final class EntryPointController extends Controller
             'deedLink'     => $deedLink,
             // Manual "Link a deed" fallback — the full deeds list + the endpoint that remembers
             // the agent's choice on this listing.
-            'deeds'        => $this->safeAvailableDeeds($agencyId),
-            'linkDeedUrl'  => route('seller-outreach.entry.link-deed-prospecting', ['prospectingListingId' => $listing->id]),
+            'deeds'        => $deeds,
+            'linkDeedUrl'  => $linkDeedUrl,
             // FIX 2 — poll endpoint so a deed/TVA scrape auto-surfaces while the screen is open.
-            'deedPollUrl'  => route('seller-outreach.entry.deed-poll-prospecting', ['prospectingListingId' => $listing->id]),
+            'deedPollUrl'  => $deedPollUrl,
             // Multi-seller (Part A) + TVA picker (Part B) — initial state + endpoints.
-            'sellerState'    => app(\App\Services\Prospecting\ComposeSellerService::class)->payload($agencyId, $listing),
-            'linkSellerUrl'  => route('seller-outreach.entry.link-seller-prospecting', ['prospectingListingId' => $listing->id]),
-            'unlinkSellerUrl' => route('seller-outreach.entry.unlink-seller-prospecting', ['prospectingListingId' => $listing->id]),
-            'tvaIngestUrl'   => route('seller-outreach.entry.tva-ingest-prospecting', ['prospectingListingId' => $listing->id]),
-            'primarySellerUrl' => route('seller-outreach.entry.primary-seller-prospecting', ['prospectingListingId' => $listing->id]),
-            'deadEndSellerUrl' => route('seller-outreach.entry.dead-end-seller-prospecting', ['prospectingListingId' => $listing->id]),
-            'unlinkDeedUrl'    => route('seller-outreach.entry.unlink-deed-prospecting', ['prospectingListingId' => $listing->id]),
-            'removeNumberUrl'  => route('seller-outreach.entry.remove-number-prospecting', ['prospectingListingId' => $listing->id]),
-            'primaryNumberUrl' => route('seller-outreach.entry.primary-number-prospecting', ['prospectingListingId' => $listing->id]),
+            'sellerState'    => $sellerState,
+            'linkSellerUrl'  => $linkSellerUrl,
+            'unlinkSellerUrl' => $unlinkSellerUrl,
+            'linkSellersBatchUrl' => $linkSellersBatchUrl,
+            'tvaIngestUrl'   => $tvaIngestUrl,
+            'primarySellerUrl' => $primarySellerUrl,
+            'deadEndSellerUrl' => $deadEndSellerUrl,
+            'unlinkDeedUrl'    => $unlinkDeedUrl,
+            'removeNumberUrl'  => $removeNumberUrl,
+            'primaryNumberUrl' => $primaryNumberUrl,
+            // Alpine bootstrap config for the compose form (2026-08-19, P0 fix) — built HERE,
+            // controller-side, so the view never references a variable the controller didn't
+            // supply. The view still has its own defensive fallback (built the same way from
+            // the same variables above) in case a DIFFERENT entry point rendering this same
+            // template (fromProperty/fromTrackedProperty) hasn't been updated to pass this yet
+            // — see prospecting-create-contact.blade.php's @php block.
+            'composeConfig' => [
+                'contactKind'      => old('contact_kind', 'natural_person'),
+                'idKind'           => old('id_type', 'sa_id'),
+                'searchUrl'        => route('corex.properties.contacts.search-global'),
+                'deeds'            => $deeds,
+                'linkDeedUrl'      => $linkDeedUrl,
+                'deedOwners'       => $deedLink['owners'] ?? [],
+                'deedCandidates'   => $deedLink['candidates'] ?? [],
+                'deedPollUrl'      => $deedPollUrl,
+                'sellers'          => $sellerState['sellers'] ?? [],
+                'tva'              => $sellerState['tva'] ?? (object) [],
+                'propertyId'       => $sellerState['property_id'] ?? null,
+                'linkSellerUrl'    => $linkSellerUrl,
+                'unlinkSellerUrl'  => $unlinkSellerUrl,
+                'linkSellersBatchUrl' => $linkSellersBatchUrl,
+                'tvaIngestUrl'     => $tvaIngestUrl,
+                'primarySellerUrl' => $primarySellerUrl,
+                'deadEndSellerUrl' => $deadEndSellerUrl,
+                'unlinkDeedUrl'    => $unlinkDeedUrl,
+                'removeNumberUrl'  => $removeNumberUrl,
+                'primaryNumberUrl' => $primaryNumberUrl,
+                'linkedDeed'       => $sellerState['linked_deed'] ?? null,
+                'removed'          => $sellerState['removed'] ?? [],
+                'contactTyped'     => (trim((string) old('phone', '')) !== '' || trim((string) old('email', '')) !== ''),
+            ],
         ]);
     }
 
@@ -575,13 +657,18 @@ final class EntryPointController extends Controller
         $svc->ensurePrimaryDefault((int) $property->id);
 
         // WORKING-SET GATE (redesign) — replaces the single-form phone/email gate. Every linked
-        // seller must be reachable (a ticked TVA / typed number or email) OR acknowledged "No
-        // contact details". Data already ticked is NEVER retyped.
+        // seller must be reachable (a ticked TVA / typed number or email) OR acknowledged "No TVA
+        // numbers found" (ContactDeadEndFlag — same fact the blue-panel tick and the batch-link
+        // endpoint write; sellersNeedingContact() re-derives this fresh from the DB every call, so
+        // a seller flagged via EITHER path always satisfies this gate). Data already ticked is
+        // NEVER retyped. Johan (2026-08-19, real property, blocked): the message must name exactly
+        // who is still blocking and what to do about them — a generic "contact numbers required"
+        // left him stuck with no way to know which of four owners needed attention.
         $needing = $svc->sellersNeedingContact($agencyId, (int) $property->id);
         if (! empty($needing)) {
             return redirect()
                 ->route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $listing->id])
-                ->with('error', 'Still need a number (tick a TVA number) or “No contact details” for: ' . implode(', ', $needing) . '.');
+                ->with('error', 'Still need a number, or a "No TVA numbers found" tick, for: ' . implode(', ', $needing) . '.');
         }
 
         $sellers = $svc->linkedSellers($agencyId, (int) $property->id);
@@ -1313,10 +1400,13 @@ final class EntryPointController extends Controller
             ->first();
         abort_if($deedTp === null, 404, 'Deed not found in this agency.');
 
+        // CX-101 (2026-08-19, Johan, real property, blocked) — this used to hard-
+        // block picking a deed with no captured owner. His own case: the deed's
+        // address, erf, and deed number were captured fine; the owner just never
+        // parsed. The property/address link is still worth having — selectDeed()
+        // below already handles zero owners without erroring; the agent adds the
+        // seller manually via the Create-new form after linking.
         $svc = app(\App\Services\Prospecting\ComposeSellerService::class);
-        if (empty($svc->deedOwners((int) $deedTp->id))) {
-            return response()->json(['ok' => false, 'error' => 'That deed has no registered owner to use.'], 422);
-        }
 
         // R1 — selecting a deed REPLACES the current deed: it auto-links the deed's owners as sellers
         // (skipping ones the agent removed) AND pulls the property address from the deeds-office
@@ -1514,6 +1604,128 @@ final class EntryPointController extends Controller
         }
 
         return response()->json($svc->payload($agencyId, $listing));
+    }
+
+    /**
+     * Feature 2 (2026-08-19) — tick-and-one-click linking, mirroring the deeds-capture one-click
+     * promote pattern (commit 3bc53b5b8, Johan-approved): the agent ticks which deed/candidate
+     * owners to link as sellers (and, per ticked owner, which of their already-scraped TVA numbers
+     * to carry along), and ONE button links the property, every ticked seller, and their numbers
+     * in a single request. Replaces clicking "+ Link as seller" once per owner.
+     *
+     * ALL-OR-NOTHING: one DB::transaction — if any ticked owner fails to resolve to a contact
+     * (bad/missing SA ID, missing entity name), the whole batch rolls back and nothing links, same
+     * as a half-succeeded deeds-capture promote being worse than a failed one that can be retried.
+     */
+    public function linkSellersBatchForProspecting(Request $request, int $prospectingListingId)
+    {
+        $agencyId = $this->resolveAgencyId($request);
+        $listing = DB::table('prospecting_listings')
+            ->where('id', $prospectingListingId)->where('agency_id', $agencyId)->whereNull('deleted_at')->first();
+        abort_if(! $listing, 404);
+
+        $data = $request->validate([
+            'sellers'                    => 'required|array|min:1',
+            'sellers.*.contact_id'       => 'nullable|integer',
+            'sellers.*.entity'           => 'nullable|boolean',
+            'sellers.*.entity_name'      => 'nullable|string|max:255',
+            'sellers.*.entity_reg_no'    => 'nullable|string|max:100',
+            'sellers.*.first_name'       => 'nullable|string|max:100',
+            'sellers.*.last_name'        => 'nullable|string|max:100',
+            'sellers.*.id_number'        => 'nullable|string|max:20',
+            'sellers.*.tva_item_ids'     => 'nullable|array',
+            'sellers.*.tva_item_ids.*'   => 'integer',
+            // Johan, verbatim (2026-08-19, real property, 4 owners, 3 found in TVA): "I need the
+            // tick... to be per seller... but we still link the seller to the property but update
+            // same on contact record." This flag NEVER gates the link above — it only additionally
+            // marks the contact via the SAME ContactDeadEndFlag mechanism markSellerDeadEnd() already
+            // writes for an already-linked seller (ComposeSellerService.php:158), which the contact
+            // show page already surfaces via _dead-end-warning.blade.php — no new representation.
+            'sellers.*.no_tva_numbers'   => 'nullable|boolean',
+        ]);
+
+        $svc = app(\App\Services\Prospecting\ComposeSellerService::class);
+        $user = $request->user();
+
+        [$linkedCount, $numbersCount, $deadEndCount] = DB::transaction(function () use ($data, $svc, $agencyId, $user, $listing) {
+            $propertyId = $this->ensurePropertyForListing($agencyId, $listing, $user);
+            $linked = 0;
+            $numbers = 0;
+            $deadEnds = 0;
+            foreach ($data['sellers'] as $sellerInput) {
+                $contact = $this->resolveBatchOwnerContact($sellerInput, $svc, $agencyId, $user);
+                $svc->linkSellerToProperty((int) $contact->id, $propertyId, 'manual');
+                $svc->clearRemoval((int) $listing->id, $contact->id_number ? (string) $contact->id_number : null);
+                $linked++;
+
+                $itemIds = array_values(array_filter($sellerInput['tva_item_ids'] ?? []));
+                if ($itemIds !== []) {
+                    $numbers += $svc->ingestPickedNumbers($agencyId, $contact, array_map('intval', $itemIds));
+                }
+
+                // Marking uncontactable is NOT an alternative to linking — the seller above is
+                // ALREADY linked by this point regardless of this tick (Johan: "we still link the
+                // seller to the property"). This only additionally flags the contact record.
+                if (! empty($sellerInput['no_tva_numbers'])) {
+                    $svc->markSellerDeadEnd($agencyId, (int) $contact->id, $propertyId, \App\Models\ContactDeadEndFlag::REASON_NOT_IN_TVA, (int) $user->id);
+                    $deadEnds++;
+                }
+            }
+
+            return [$linked, $numbers, $deadEnds];
+        });
+
+        $listing = DB::table('prospecting_listings')->where('id', $prospectingListingId)->first();
+        $payload = $svc->payload($agencyId, $listing);
+        $summary = 'Linked ' . $linkedCount . ' seller' . ($linkedCount === 1 ? '' : 's') . '.';
+        if ($numbersCount > 0) {
+            $summary .= ' Captured ' . $numbersCount . ' contact value' . ($numbersCount === 1 ? '' : 's') . '.';
+        }
+        if ($deadEndCount > 0) {
+            $summary .= ' Flagged ' . $deadEndCount . ' as no TVA numbers found.';
+        }
+        $payload['batch_summary'] = $summary;
+
+        return response()->json($payload);
+    }
+
+    /**
+     * Same three-way identity resolution linkSellerToProspecting() uses (contact_id / entity /
+     * natural person + SA ID) — written separately here rather than extracted out of that method,
+     * since that endpoint is live and untouched by this feature; duplicating ~15 lines is lower
+     * risk than refactoring a working endpoint outside this task's scope. abort_if() throws inside
+     * the caller's DB::transaction(), which is what makes an unresolvable owner roll back the
+     * whole batch instead of silently skipping it.
+     */
+    private function resolveBatchOwnerContact(array $input, \App\Services\Prospecting\ComposeSellerService $svc, int $agencyId, $user): Contact
+    {
+        if (! empty($input['contact_id'])) {
+            $contact = Contact::withoutGlobalScope(\App\Models\Scopes\ContactScope::class)
+                ->where('agency_id', $agencyId)->find((int) $input['contact_id']);
+            abort_if($contact === null, 404, 'Contact not found in this agency.');
+
+            return $contact;
+        }
+        if (! empty($input['entity'])) {
+            abort_if(empty($input['entity_name']), 422, 'An entity owner is missing a name.');
+
+            return $svc->resolveOrCreateEntitySellerContact(
+                $agencyId, $user->branch_id, (int) $user->id,
+                (string) $input['entity_name'], $input['entity_reg_no'] ?? null,
+            );
+        }
+        if (! empty($input['id_number'])) {
+            abort_if(empty($input['first_name']), 422, 'An owner is missing a first name.');
+            $idNumber = preg_replace('/\s+/', '', (string) $input['id_number']);
+            $idValidator = validator(['id_number' => $idNumber], ['id_number' => ['required', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()]]);
+            abort_if($idValidator->fails(), 422, 'An owner has an invalid SA ID number.');
+
+            return $svc->resolveOrCreateSellerContact(
+                $agencyId, $user->branch_id, (int) $user->id,
+                (string) $input['first_name'], (string) ($input['last_name'] ?? ''), $idNumber,
+            );
+        }
+        abort(422, 'One of the ticked owners has no SA ID or registration number on the deed — cannot link as a distinct seller.');
     }
 
     /**

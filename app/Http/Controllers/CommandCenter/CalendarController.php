@@ -1140,7 +1140,13 @@ class CalendarController extends Controller
                     'date'  => $calendarEvent->event_date->format('D, j M Y H:i'),
                 ],
                 'feedback_mode' => 'per_property',
-                'feedback_kind' => 'listing_presentation',
+                // CX-103 (Johan, 2026-08-19) — per_property grouping now also
+                // covers viewing (multi-stop trips), not just listing
+                // presentations. This was hardcoded to 'listing_presentation'
+                // for both, which is what made the buyer-pipeline feedback
+                // modal treat every viewing's feedback as a listing-
+                // presentation dead-end. Reflect the real class instead.
+                'feedback_kind' => $calendarEvent->category === 'viewing' ? 'viewing' : 'listing_presentation',
                 'items' => $properties->map(fn ($p) => [
                     'property_id'    => $p->id,
                     'label'          => method_exists($p, 'buildDisplayAddress') ? $p->buildDisplayAddress() : ($p->title ?? "Property #{$p->id}"),
@@ -1277,6 +1283,7 @@ class CalendarController extends Controller
                 abort_unless(Property::find($row['property_id']), 422, 'One or more properties could not be found.');
             }
         }
+
 
         // 2026-08-18 (Johan, AT-calendar-buttons §C) — per-property feedback
         // (viewing / property_evaluation / listing_presentation, now all
@@ -2587,6 +2594,27 @@ class CalendarController extends Controller
                 ->pluck('status', 'event_id');
             foreach ($result as $event) {
                 $event->user_invitation_status = $invitationStatuses[$event->id] ?? null;
+            }
+
+            // 2026-08-19 (Johan) — organiser name for the grid-tile marker: two
+            // identically-styled tiles side by side (own appointment vs an invitation
+            // that now correctly reaches this list) were indistinguishable until
+            // clicked. Batched — one query for every organiser on the page, not
+            // per-row — and only for events the viewer was actually invited to
+            // (organizer_name left unset for the viewer's own events, which is also
+            // how the blade decides whether to render the marker at all).
+            $organizerIds = $result
+                ->filter(fn ($e) => isset($invitationStatuses[$e->id]))
+                ->pluck('user_id')->filter()->unique()->values()->all();
+            if (!empty($organizerIds)) {
+                $organizerNames = \App\Models\User::withoutGlobalScopes()
+                    ->whereIn('id', $organizerIds)
+                    ->pluck('name', 'id');
+                foreach ($result as $event) {
+                    if (isset($invitationStatuses[$event->id])) {
+                        $event->organizer_name = $organizerNames[$event->user_id] ?? null;
+                    }
+                }
             }
         }
 

@@ -158,6 +158,7 @@ class PropertyContactController extends Controller
             return $this->createAndLinkEntity($request, $property);
         }
 
+
         // #17 — SA ID vs foreign passport. A foreign national's passport is a free string (max 50)
         // and their DOB is captured directly (birthday), since a passport can't encode it. Absent/other
         // id_type keeps the validated SA-ID path, so existing SA-ID captures are unaffected.

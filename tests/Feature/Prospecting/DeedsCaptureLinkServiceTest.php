@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Prospecting;
 
+use App\Models\Branch;
 use App\Models\Contact;
 use App\Models\Prospecting\TrackedProperty;
 use App\Services\Prospecting\DeedsCaptureLinkService;
@@ -28,6 +29,8 @@ final class DeedsCaptureLinkServiceTest extends TestCase
 
     private int $agencyId;
 
+    private int $branchId;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -35,6 +38,7 @@ final class DeedsCaptureLinkServiceTest extends TestCase
             'name' => 'Deeds ' . Str::random(5), 'slug' => 'deeds-' . Str::random(6),
             'created_at' => now(), 'updated_at' => now(),
         ]);
+        $this->branchId = Branch::create(['agency_id' => $this->agencyId, 'name' => 'Main Branch'])->id;
     }
 
     private function service(): DeedsCaptureLinkService
@@ -58,6 +62,7 @@ final class DeedsCaptureLinkServiceTest extends TestCase
     {
         return Contact::create([
             'agency_id'  => $this->agencyId,
+            'branch_id'  => $this->branchId,
             'first_name' => $first,
             'last_name'  => $last,
             'phone'      => '',

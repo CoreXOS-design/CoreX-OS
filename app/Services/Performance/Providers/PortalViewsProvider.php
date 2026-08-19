@@ -18,6 +18,8 @@ class PortalViewsProvider implements MetricProvider
 
     public function label(): string { return 'Portal views'; }
 
+    public function direction(): string { return 'higher_is_better'; }
+
     public function forUsers(array $userIds, Period $period): array
     {
         $out = array_fill_keys($userIds, 0);

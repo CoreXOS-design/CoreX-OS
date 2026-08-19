@@ -3036,6 +3036,103 @@ class MarketIntelligenceController extends Controller
             return back()->with('error', 'This is already your agency\'s own stock (property #' . $companyStockPropertyId . ') — nothing to claim.');
         }
 
+        // MIC CRISIS #1 (2026-08-18) — server-side company-stock guard. The
+        // list excludes company stock by default (applyInStockFilter ->
+        // whereNotCompanyStock) and the row template hides the claim button
+        // for it ($isCompanyStock in _listing-row.blade.php) — but both are
+        // RENDERING guards only. A stale tab, a cached page, a listing that
+        // flips to on-market stock after the page loaded, or a future UI
+        // regression all have zero backstop without this: nothing before
+        // today re-checked company-stock status at the point a claim is
+        // actually written.
+        //
+        // CX-101 (2026-08-19) — resolveForClaim() replaces the old
+        // stockMapForListings() call here: that method is LIVE-stock-only by
+        // design (it must never suppress a genuinely stale record — Johan's
+        // stale-stock rule), so it silently missed every match on a dormant
+        // property, blocking nothing when it should have linked-and-resolved.
+        // resolveForClaim() sees BOTH live and stale matches, and this guard
+        // now acts differently on each: STALE never blocks — link the listing
+        // to the existing property and close the loop so the next agent never
+        // repeats this; LIVE still blocks, now naming who holds it.
+        $match = app(\App\Services\Prospecting\OnMarketStockService::class)
+            ->resolveForClaim($listing, $agencyId);
+
+        if ($match !== null) {
+            $property = $match['property'];
+
+            // CX-102 part 2 (2026-08-19, Johan) — "the system must show its
+            // working and let the agent overrule it." Record WHY this
+            // listing was matched to this property, at the moment of the
+            // match — read back on the property page the agent lands on
+            // next, alongside a "Not the same property" control. Shared
+            // mechanism with the deeds-capture matcher.
+            $matchReason = match ($match['strategy'] ?? null) {
+                'portal_ref'         => 'Same portal reference (' . ($listing->portal_ref ?? '?') . ') as one of your agency\'s own listings.',
+                'normalized_address' => 'Address is a close text match to one of your agency\'s own listings.',
+                'promoted_link'      => 'This listing was already promoted onto your agency\'s books.',
+                default              => 'Matched automatically.',
+            };
+            app(\App\Services\Prospecting\PropertyMatchDecisionService::class)->record(
+                agencyId: $agencyId,
+                subjectType: 'mic_claim',
+                subjectKey: 'listing:' . $listing->id,
+                matchedType: 'property',
+                matchedId: $property->id,
+                strategy: (string) ($match['strategy'] ?? 'unknown'),
+                reason: $matchReason,
+            );
+
+            // EITHER WAY the MIC entry leaves the list and stays off — recorded
+            // as resolved, never released back to the pool for the next agent
+            // to hit the same dead end (Johan, verbatim). matched_property_id
+            // is the field every pool-exclusion query already checks
+            // (MarketIntelligenceController ~line 2056/2257); reusing it here
+            // rather than inventing a second exclusion mechanism.
+            $listing->update(['matched_property_id' => $property->id]);
+
+            $resolvedFields = [
+                'agency_id'       => $agencyId,
+                'user_id'         => $user->id,
+                'property_id'     => $property->id,
+                'status'          => ProspectingClaim::STATUS_RESOLVED_OWN_STOCK,
+                'is_active'       => false,
+                'last_updated_at' => now(),
+                'released_at'     => now(),
+                'release_reason'  => 'already_own_stock',
+            ];
+            $activeClaim = ProspectingClaim::where('prospecting_listing_id', $listing->id)->active()->first();
+            if ($activeClaim) {
+                $activeClaim->update($resolvedFields);
+            } else {
+                ProspectingClaim::create($resolvedFields + [
+                    'prospecting_listing_id' => $listing->id,
+                    'claimed_at'             => now(),
+                ]);
+            }
+
+            // The toast component renders flash text via x-text (textContent,
+            // never innerHTML) — a link embedded in the string would show as
+            // literal "<a href...>" text, not a clickable one. Redirecting
+            // straight to the property page makes it explicit and openable
+            // without fighting that: the agent lands ON the named property,
+            // not on a toast they have to go find it from.
+            if ($match['stale']) {
+                // Not active/advertised in over a month or off-market entirely, and
+                // nobody has worked it in a week — Johan's stale-stock rule. Do NOT
+                // block: continue the agent straight onto the existing property.
+                return redirect()->route('corex.properties.show', $property->id)
+                    ->with('success', 'Already on your books (dormant — no recent activity) — linked. Continue here instead of prospecting it again.')
+                    ->with('mic_claim_listing_id', $listing->id);
+            }
+
+            $holderName = $property->agent?->name ?? 'the assigned agent';
+
+            return redirect()->route('corex.properties.show', $property->id)
+                ->with('error', 'This is already your agency\'s own stock, held by ' . $holderName . ' — speak to them. Nothing to claim in MIC.')
+                ->with('mic_claim_listing_id', $listing->id);
+        }
+
         // Stale-tab guard — re-derives CURRENT claim state server-side on every
         // submit rather than trusting whatever the (possibly stale) page showed
         // when it loaded, so a tab that never refreshed can't double-claim a
@@ -3068,6 +3165,49 @@ class MarketIntelligenceController extends Controller
         return back()->with('success', 'Listing claimed');
     }
 
+    /**
+     * "Not the same property" (CX-102 part 2, 2026-08-19, Johan) — an agent
+     * on the property page they were redirected to from claim() says CoreX
+     * matched the wrong stock. Breaks the link so the listing goes straight
+     * back into the claimable MIC pool — unblocked, no queue, no waiting.
+     * The rejection itself is permanent (PropertyMatchDecisionService), so
+     * the next claim attempt on this SAME listing will never silently offer
+     * this SAME property again — resolveForClaim() falls through to its
+     * next check, or finds nothing and lets the claim proceed normally.
+     */
+    public function rejectClaimMatch(Request $request)
+    {
+        $user = auth()->user();
+        $agencyId = $user->agency_id ?? $user->effectiveAgencyId() ?? 1;
+
+        $data = $request->validate([
+            'listing_id'  => 'required|integer',
+            'property_id' => 'required|integer',
+            'reason'      => 'nullable|string|max:500',
+        ]);
+
+        $decisions = app(\App\Services\Prospecting\PropertyMatchDecisionService::class);
+        $subjectKey = 'listing:' . $data['listing_id'];
+        $decision = $decisions->current($agencyId, 'mic_claim', $subjectKey);
+
+        if ($decision === null || (int) $decision->matched_id !== (int) $data['property_id'] || $decision->isRejected()) {
+            return back()->with('error', 'Nothing to reject — that match has already changed or been actioned.');
+        }
+
+        $decisions->reject($decision, (int) $user->id, $data['reason'] ?? null);
+
+        // Undo exactly what claim()'s block/link did — nothing else. The
+        // listing goes back to being an ordinary, unclaimed MIC prospect;
+        // the closed claim record stays as history, same as any other
+        // release.
+        ProspectingListing::where('id', $data['listing_id'])
+            ->where('agency_id', $agencyId)
+            ->update(['matched_property_id' => null]);
+
+        return redirect()->route('market-intelligence.work')
+            ->with('success', 'Marked as not the same property — it is back in your prospecting list.');
+    }
+
     public function feedback(Request $request, ProspectingListing $listing)
     {
         $user = auth()->user();
@@ -3095,6 +3235,7 @@ class MarketIntelligenceController extends Controller
         // fires ONCE, when feedback_at transitions null→now. Re-editing the status
         // later keeps the original feedback_at and does NOT re-award.
         $isFirstFeedback = $claim->feedback_at === null;
+
 
         $claim->update([
             'status'          => $newStatus,

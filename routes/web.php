@@ -2815,6 +2815,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                 [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'unlinkSellerFromProspecting'])
                 ->where('prospectingListingId', '\d+')
                 ->name('unlink-seller-prospecting');
+            // Feature 2 (2026-08-19) — tick-and-one-click linking, mirroring the deeds-capture
+            // one-click promote pattern. Links every ticked deed/candidate owner as a seller and
+            // carries their ticked TVA numbers, all in one request/transaction.
+            Route::post('/prospecting/{prospectingListingId}/outreach/sellers/link-batch',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'linkSellersBatchForProspecting'])
+                ->where('prospectingListingId', '\d+')
+                ->name('link-sellers-batch-prospecting');
             Route::post('/prospecting/{prospectingListingId}/outreach/tva/ingest',
                 [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'ingestTvaForProspecting'])
                 ->where('prospectingListingId', '\d+')
@@ -4604,6 +4611,16 @@ Route::middleware(['auth', 'permission:deeds_capture.access'])
         // Remove (soft delete, reversible) — wrong details / duplicates (2026-08-13).
         Route::post('/{trackedProperty}/dismiss', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'dismissProperty'])
             ->whereNumber('trackedProperty')->name('dismiss');
+        // "Not the same property" (CX-102 part 2, 2026-08-19) — an agent says a
+        // deed was matched to the wrong tracked property. Breaks the link,
+        // never touches either record's data. See TrackedPropertyMatchOrCreateService::rejectMatch().
+        Route::post('/{trackedProperty}/reject-match', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'rejectMatch'])
+            ->whereNumber('trackedProperty')->name('reject-match');
+        // Owner conflict (CX-102 owner-data build, part 2, 2026-08-19) — an
+        // agent decides which owner is correct when a capture disagreed with
+        // what was already on file. See DeedsCaptureController::resolveOwnerConflict().
+        Route::post('/{trackedProperty}/owner-conflict/{trackedPropertyOwner}/resolve', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'resolveOwnerConflict'])
+            ->whereNumber('trackedProperty')->whereNumber('trackedPropertyOwner')->name('owner-conflict.resolve');
         Route::post('/tva/{tvaContactCapture}/dismiss', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'dismissTva'])
             ->whereNumber('tvaContactCapture')->name('tva.dismiss');
     });
@@ -4740,6 +4757,11 @@ Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting
         Route::post('/{listing}/claim',    [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'claim'])->name('claim');
         Route::post('/{listing}/feedback', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'feedback'])->name('feedback');
         Route::post('/{listing}/release',  [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'release'])->name('release');
+        // "Not the same property" (CX-102 part 2, 2026-08-19) — an agent on the
+        // property page they landed on from claim() says the match is wrong.
+        // Not listing-scoped in the URL (posts listing_id + property_id) since
+        // it's submitted from the property page, not a MIC row.
+        Route::post('/reject-claim-match', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'rejectClaimMatch'])->name('reject-claim-match');
         Route::get('/{listing}',           [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'show'])->name('show');
     });
 

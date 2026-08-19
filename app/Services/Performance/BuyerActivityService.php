@@ -30,14 +30,20 @@ class BuyerActivityService
 {
     private const APPOINTMENT_CATEGORIES = ['viewing', 'listing_presentation', 'property_evaluation', 'meeting'];
 
-    /** @return array{key:string,label:string,currency:bool}[] */
+    /**
+     * 2026-08-19 (Johan, period-comparison) — 'direction' is the trap Johan named
+     * explicitly: 'lost' and 'lost_value' rising is BAD, so they're 'lower_is_better'
+     * — everything else here is activity volume, 'higher_is_better'.
+     *
+     * @return array{key:string,label:string,currency:bool,direction:string}[]
+     */
     public const METRICS = [
-        ['key' => 'buyers',         'label' => 'Buyers held',           'currency' => false],
-        ['key' => 'appointments',   'label' => 'Appointments (buyers)', 'currency' => false],
-        ['key' => 'comms_email',    'label' => 'Emails (buyers)',       'currency' => false],
-        ['key' => 'comms_whatsapp', 'label' => 'WhatsApps (buyers)',    'currency' => false],
-        ['key' => 'lost',           'label' => 'Buyers lost',           'currency' => false],
-        ['key' => 'lost_value',     'label' => 'Lost value (R)',        'currency' => true],
+        ['key' => 'buyers',         'label' => 'Buyers held',           'currency' => false, 'direction' => 'higher_is_better'],
+        ['key' => 'appointments',   'label' => 'Appointments (buyers)', 'currency' => false, 'direction' => 'higher_is_better'],
+        ['key' => 'comms_email',    'label' => 'Emails (buyers)',       'currency' => false, 'direction' => 'higher_is_better'],
+        ['key' => 'comms_whatsapp', 'label' => 'WhatsApps (buyers)',    'currency' => false, 'direction' => 'higher_is_better'],
+        ['key' => 'lost',           'label' => 'Buyers lost',           'currency' => false, 'direction' => 'lower_is_better'],
+        ['key' => 'lost_value',     'label' => 'Lost value (R)',        'currency' => true,  'direction' => 'lower_is_better'],
     ];
 
     public function __construct(

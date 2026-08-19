@@ -228,11 +228,25 @@ final class DeedsCaptureController extends Controller
         // existed.
         $ownershipHistoryRaw = $capture['ownership_history_raw'] ?? null;
         $hasOwnershipHistory = is_array($ownershipHistoryRaw) && array_filter($ownershipHistoryRaw, fn ($v) => filled($v)) !== [];
-        $owners = $hasOwnershipHistory ? [] : ($capture['owners'] ?? []);
+        // 2026-08-19 (Johan, live-tested, real capture) — this used to be
+        // $hasOwnershipHistory ? [] : ($capture['owners'] ?? []), which threw
+        // owners[] away completely whenever ownership_history_raw was ALSO
+        // present, even if that second, separate pipeline
+        // (OwnershipHistoryParser -> OwnerContactResolver) went on to produce
+        // nothing usable — proven live: a real capture on 25 Simon V D Stel
+        // Street arrived with owners[] fully populated (2 owners, full
+        // unmasked 13-digit IDs) and ownership_history_raw ALSO present;
+        // ownership_history_raw parsed to status='ok' but zero persisted
+        // rows, and the good owners[] data that had already arrived was
+        // discarded rather than used. Always resolve owners[] now — used
+        // directly below when there's no ownership history, and as a
+        // fallback when ownership_history_raw parsed to nothing usable.
+        $owners = $capture['owners'] ?? [];
 
-        // Resolve/create a Contact per owner — deduped on the owner ID (the join
-        // key), same as before, just looped for however many owners CMA listed.
-        // Phone left empty on every owner (phase-2 Virtual Agent fills it).
+        // Resolve/create a Contact per owner — deduped on the owner ID (the
+        // join key), same as before, just looped for however many owners
+        // CMA listed. Phone left empty on every owner (phase-2 Virtual Agent
+        // fills it).
         $resolvedOwners = [];
         $blockedCompanies = [];
         foreach ($owners as $o) {
@@ -347,13 +361,14 @@ final class DeedsCaptureController extends Controller
 
         // owner_contact_id is a relationship pointer, not a captured physical
         // fact — it deliberately stays OUTSIDE the facts/enrich()/audit
-        // mechanism above. Kept to its pre-existing behaviour: set whenever
-        // this capture resolved one. When ownership_history_raw ran instead
-        // (§7 below), this gets set to the first CURRENT owner's contact —
-        // deferred until after $tp->save() since that path needs $tp->id.
-        if (!$hasOwnershipHistory && $ownerContactId !== null) {
-            $tp->owner_contact_id = $ownerContactId;
-        }
+        // mechanism above. When ownership_history_raw ran instead (§7 below),
+        // this gets set to the first CURRENT owner's contact, deferred until
+        // after $tp->save() since that path needs $tp->id. For the simple
+        // owners[] path, the write is decided by reconcileOwners() below
+        // (also post-save) — a match on an existing TrackedProperty must
+        // never have its owner_contact_id blindly overwritten by whichever
+        // capture happened to run last (Johan, 2026-08-19: "we cannot dump
+        // the owner if the system says its already in the system").
 
         // Tag as a deeds capture ONLY when the deeds capture created this TP (or a
         // prior deeds capture already tagged it). Enriching an existing prospecting
@@ -362,18 +377,40 @@ final class DeedsCaptureController extends Controller
             $tp->capture_kind = 'deeds_capture';
         }
 
+        // DEEDS BUG 1 fix (2026-08-19) — the deeds-capture EVENT marker, stamped
+        // on EVERY deeds capture (created OR existing), independent of the
+        // capture_kind pipeline classification above. Without this, a capture
+        // landing on a property already classified as a prospecting/P24 lead (or
+        // already deeds-captured previously) enriched the TrackedProperty but the
+        // capture_kind guard above never fired — the capture "vanished": the
+        // extension reported success, but nothing appeared on the Deeds Capture
+        // screen. DeedsCaptureController::index() (CoreX, the screen's own
+        // controller) surfaces on deeds_captured_at IS NOT NULL so a re-capture of
+        // an existing lead now shows there too, flagged as existing/linked,
+        // WITHOUT changing capture_kind and therefore without pulling the lead out
+        // of its MIC Opportunities pipeline.
+        $tp->deeds_captured_at = now();
+
         $tp->save();
 
-        // §7 — ownership_history_raw (current-vs-past, joint shares, entity
-        // routing, fail-closed) vs the simple owners[] path (unchanged).
-        // ownership_parse_status/note is ALWAYS stamped by
-        // captureOwnershipHistory() when this branch runs — including on a
-        // parse failure, where it returns an empty owner list and the
-        // property has ALREADY landed above: ownership parsing failing never
-        // fails the capture, only leaves ownership recorded as unparsed with
-        // a reason (.ai/specs/deeds-capture.md §7.9).
+        // 2026-08-19 (Johan, ruling after the live trace): "the rule should
+        // be always bring it into corex... there is no authoritative
+        // source. Both are inputs; the agent is the authority." This
+        // REPLACES the old if/else (ownership_history_raw present ->
+        // ignore owners[] entirely) — that mutual exclusivity WAS the
+        // defect: a real capture on 25 Simon V D Stel Street sent both,
+        // owners[] arrived complete and correct, and it was thrown away
+        // because ownership_history_raw was ALSO present and then silently
+        // parsed to zero usable rows. Both sources are now independently
+        // ingested and persisted, always, never gated on the other's
+        // presence or outcome. Neither is ranked or merged in code — see
+        // reconcileOwners() for the never-discard/never-blind-overwrite
+        // comparison that governs how they land side by side.
         $ownershipParseStatus = null;
         $ownershipParseNote = null;
+        $ownerContactId = null;
+        $ownerContactIds = [];
+
         if ($hasOwnershipHistory) {
             $persistedOwners = $this->captureOwnershipHistory($tp, $ownershipHistoryRaw, $s, $agencyId, $user);
             $ownershipParseStatus = $tp->ownership_parse_status;
@@ -381,15 +418,59 @@ final class DeedsCaptureController extends Controller
 
             $firstCurrent = collect($persistedOwners)
                 ->first(fn (TrackedPropertyOwner $o) => $o->ownership_status === TrackedPropertyOwner::OWNERSHIP_CURRENT);
-            if ($firstCurrent) {
+            // Same discard bug, same fix, as reconcileOwners() below — a match
+            // onto a TP that already has a DIFFERENT owner on file must never
+            // have owner_contact_id blindly overwritten. The parsed owner is
+            // still persisted above (captureOwnershipHistory() -> persist()),
+            // never thrown away — just not auto-promoted to the pointer field
+            // when it disagrees with what's already there.
+            if ($firstCurrent && ($tp->owner_contact_id === null || (int) $tp->owner_contact_id === (int) $firstCurrent->contact_id)) {
                 $tp->update(['owner_contact_id' => $firstCurrent->contact_id]);
             }
             $ownerContactId = $firstCurrent->contact_id ?? null;
             $ownerContactIds = collect($persistedOwners)->pluck('contact_id')->filter()->unique()->values()->all();
-        } else {
-            $this->syncOwners($tp, $resolvedOwners);
-            $ownerContactIds = array_values(array_filter(array_column($resolvedOwners, 'contact_id')));
+
+            // 2026-08-19 (Johan): "do not let it keep saying 'ok' when it
+            // returned nothing." Observed once on a real capture: status
+            // 'ok', zero persisted owner rows — a parse can't honestly claim
+            // success while producing nothing to show. Correct the stored
+            // status/note in that exact case rather than let it stand;
+            // owners[] (below) still lands the real data either way.
+            if ($persistedOwners === [] && $ownershipParseStatus !== 'failed') {
+                $ownershipParseStatus = 'empty';
+                $ownershipParseNote = 'Parsed without error but produced no owner rows to keep — falling back to the simple owner list.';
+                $tp->update([
+                    'ownership_parse_status' => $ownershipParseStatus,
+                    'ownership_parse_note'   => $ownershipParseNote,
+                ]);
+            }
         }
+
+        // ALWAYS also ingest owners[] — independent of whether
+        // ownership_history_raw was present or what it produced.
+        // reconcileOwners() is the same never-discard, never-blind-overwrite
+        // comparison used everywhere else on this screen: nothing on file
+        // yet -> links normally; matches what's already there -> no-op;
+        // disagrees -> both are kept, flagged for the agent to decide.
+        if ($resolvedOwners !== []) {
+            $this->reconcileOwners($tp, $resolvedOwners);
+            $ownerContactId = $ownerContactId ?? ($tp->fresh()->owner_contact_id ?? $resolvedOwners[0]['contact_id'] ?? null);
+            $ownerContactIds = array_values(array_unique(array_merge(
+                $ownerContactIds,
+                array_filter(array_column($resolvedOwners, 'contact_id'))
+            )));
+        }
+
+        // Trace point kept (2026-08-19, Johan/cc3 review): IDs and counts
+        // only — no names, no ID numbers, no raw payload. Confirms the fix
+        // above actually lands an owner where the old code silently
+        // dropped one.
+        Log::info('Deeds capture owner outcome', [
+            'source_ref'            => $ref,
+            'tracked_property_id'   => $tp->id,
+            'final_owner_contact_id' => $tp->fresh()->owner_contact_id,
+            'owner_rows_on_file'    => \App\Models\Prospecting\TrackedPropertyOwner::where('tracked_property_id', $tp->id)->count(),
+        ]);
 
         return [
             'source_ref'              => $ref,
@@ -427,6 +508,88 @@ final class DeedsCaptureController extends Controller
         }
 
         return app(OwnerContactResolver::class)->persist($tp, $result->rows, $agencyId, $user);
+    }
+
+    /**
+     * §7.16 (Johan, 2026-08-19) — a capture landing on a TrackedProperty that
+     * already has an owner on file must never silently discard, merge, or
+     * overwrite what's there. Three outcomes, decided by comparing the
+     * scraped owner(s) against what's already on record (by id_number where
+     * present on both sides, else by name):
+     *
+     *   (a) nothing on file yet          -> link the scraped owner(s) normally (a gain).
+     *   (b) same owner(s) already on file -> no-op; nothing to add, nothing to touch.
+     *   (c) a different owner scraped     -> NEVER overwrite owner_contact_id and
+     *                                        never auto-merge. The scraped owner is
+     *                                        still captured — never thrown away — as a
+     *                                        conflict-flagged TrackedPropertyOwner row
+     *                                        (conflict_flagged_at set) for the agent to
+     *                                        see and resolve on the Deeds Capture screen.
+     *                                        This is deliberately not automated: Johan —
+     *                                        "the agent needs to inspect and see which
+     *                                        which is broken."
+     */
+    private function reconcileOwners(\App\Models\Prospecting\TrackedProperty $tp, array $resolvedOwners): void
+    {
+        if ($resolvedOwners === []) {
+            return; // nothing scraped this time — never touch what's already on file
+        }
+
+        $onFile = \App\Models\Prospecting\TrackedPropertyOwner::where('tracked_property_id', $tp->id)
+            ->whereNull('conflict_flagged_at')
+            ->get(['id', 'name', 'id_number']);
+
+        if ($onFile->isEmpty()) {
+            $this->syncOwners($tp, $resolvedOwners);
+            if (empty($tp->owner_contact_id)) {
+                $tp->owner_contact_id = $resolvedOwners[0]['contact_id'] ?? null;
+                $tp->save();
+            }
+
+            return;
+        }
+
+        $matchesOnFile = static function (array $scraped) use ($onFile): bool {
+            return $onFile->contains(function ($existing) use ($scraped) {
+                if (!empty($scraped['id_number']) && !empty($existing->id_number)) {
+                    return $scraped['id_number'] === $existing->id_number;
+                }
+
+                return !empty($scraped['name']) && !empty($existing->name)
+                    && mb_strtolower(trim($scraped['name'])) === mb_strtolower(trim($existing->name));
+            });
+        };
+
+        foreach ($resolvedOwners as $i => $o) {
+            if ($matchesOnFile($o)) {
+                continue; // (b) same owner already on file — nothing to add, nothing to touch
+            }
+
+            // (c) differs from what's on file — capture it, flagged, never merged.
+            $alreadyFlagged = \App\Models\Prospecting\TrackedPropertyOwner::where('tracked_property_id', $tp->id)
+                ->whereNotNull('conflict_flagged_at')
+                ->where(function ($q) use ($o) {
+                    if (!empty($o['id_number'])) {
+                        $q->where('id_number', $o['id_number']);
+                    } else {
+                        $q->where('name', $o['name']);
+                    }
+                })
+                ->exists();
+            if ($alreadyFlagged) {
+                continue; // this exact conflict is already sitting there awaiting review
+            }
+
+            \App\Models\Prospecting\TrackedPropertyOwner::create([
+                'tracked_property_id' => $tp->id,
+                'contact_id'          => $o['contact_id'],
+                'name'                => $o['name'],
+                'id_number'           => $o['id_number'],
+                'id_type'             => $o['id_type'],
+                'is_primary'          => false,
+                'conflict_flagged_at' => now(),
+            ]);
+        }
     }
 
     /**

@@ -59,6 +59,9 @@ final class TrackedProperty extends Model
         // CMA / deeds capture (phase 1)
         'capture_kind', 'deeds_office', 'scheme_name', 'scheme_number', 'section_number',
         'bond_holder', 'bond_amount', 'sale_type', 'deeds_registered_date',
+        // DEEDS BUG 1 fix — the deeds-capture EVENT marker, stamped on every
+        // deeds capture (created or existing), independent of capture_kind.
+        'deeds_captured_at',
     ];
 
     protected $casts = [
@@ -85,6 +88,7 @@ final class TrackedProperty extends Model
         'last_enriched_at'         => 'datetime',
         'bond_amount'              => 'decimal:2',
         'deeds_registered_date'    => 'date',
+        'deeds_captured_at'        => 'datetime',
     ];
 
     protected static function booted(): void
@@ -212,6 +216,50 @@ final class TrackedProperty extends Model
     public function isPromoted(): bool
     {
         return $this->promoted_to_property_id !== null;
+    }
+
+    /**
+     * "Still a live, un-promoted deeds capture" — the SINGLE definition of what
+     * belongs on the Deeds Capture screen (DeedsCaptureController::index()) and,
+     * as of 2026-08-19, what the outreach compose screen's "Link a deed" picker
+     * offers (DeedsCaptureLinkService::availableDeeds()). Extracted here so the
+     * two can never drift apart again — Johan's ground truth (2026-08-19):
+     * "the link a deed button shows more than whats on the deed screen... it
+     * should only show exactly what the deed screen shows." Before this, the
+     * two used DIFFERENT signals for "not yet promoted" — the deeds screen
+     * checked `promoted_to_property_id` directly; the compose picker checked
+     * `status = 'active'`, a separate column, and it also never excluded a
+     * deed already CONSUMED by a pitched listing (the same PITCHED-state
+     * exclusion the deeds screen has always applied). Callers may still layer
+     * their own ADDITIONAL narrowing on top (e.g. "must have an owner") — this
+     * scope only encodes the "still eligible at all" question both screens
+     * must answer identically.
+     */
+    public function scopeStillEligibleDeedsCapture($query, int $agencyId)
+    {
+        return $query
+            ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->where(function ($q) {
+                $q->where('capture_kind', 'deeds_capture')
+                    ->orWhereNotNull('deeds_captured_at');
+            })
+            ->whereNull('promoted_to_property_id')
+            ->whereNotExists(function ($q) {
+                $q->selectRaw('1')
+                    ->from('tracked_property_owners as tpo')
+                    ->join('contact_property as cp', fn ($j) => $j->on('cp.contact_id', '=', 'tpo.contact_id')->where('cp.role', 'seller'))
+                    ->join('prospecting_listings as pl', fn ($j) => $j->on('pl.matched_property_id', '=', 'cp.property_id')->whereNotNull('pl.pitched_at')->whereNull('pl.deleted_at'))
+                    ->whereColumn('tpo.tracked_property_id', 'tracked_properties.id')
+                    ->whereNotNull('tpo.contact_id');
+            })
+            ->whereNotExists(function ($q) {
+                $q->selectRaw('1')
+                    ->from('prospecting_listings as pl2')
+                    ->whereColumn('pl2.linked_deed_tracked_property_id', 'tracked_properties.id')
+                    ->whereNotNull('pl2.pitched_at')
+                    ->whereNull('pl2.deleted_at');
+            });
     }
 
     public function displayAddress(): string

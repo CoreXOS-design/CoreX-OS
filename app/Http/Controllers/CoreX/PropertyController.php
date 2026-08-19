@@ -573,10 +573,27 @@ class PropertyController extends Controller
         // "Sold by 3rd Party" capture action while one is already standing.
         $thirdPartySale = $property->openThirdPartySale();
 
+        // CX-102 part 2 (2026-08-19, Johan) — "the system must show its
+        // working and let the agent overrule it." An agent who just landed
+        // here because MarketIntelligenceController::claim() decided this
+        // property IS a MIC listing they tried to claim gets the reason and
+        // a "Not the same property" control. Session-flashed (one redirect
+        // only — matches how 'success'/'error' already flash on this exact
+        // arrival), never a permanent panel on the property page.
+        $micClaimDecision = null;
+        $micClaimListingId = session('mic_claim_listing_id');
+        if ($micClaimListingId !== null && $property->exists) {
+            $micClaimDecision = app(\App\Services\Prospecting\PropertyMatchDecisionService::class)
+                ->current((int) $property->agency_id, 'mic_claim', 'listing:' . $micClaimListingId);
+            if ($micClaimDecision && ($micClaimDecision->isRejected() || (int) $micClaimDecision->matched_id !== (int) $property->id)) {
+                $micClaimDecision = null; // stale/superseded — nothing current to show
+            }
+        }
+
         return view('corex.properties.show', compact(
             'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches', 'ppMissingFields', 'p24MissingFields', 'hfcMissingFields',
             'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline', 'fullAuditLog', 'includeSystem', 'readinessReport', 'complianceChecklist', 'propertyComplianceComplaints',
-            'aiImageSuggestions', 'propertyComms', 'canEdit', 'thirdPartySale'
+            'aiImageSuggestions', 'propertyComms', 'canEdit', 'thirdPartySale', 'micClaimDecision', 'micClaimListingId'
         ));
     }
 

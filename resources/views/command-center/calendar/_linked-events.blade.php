@@ -68,6 +68,7 @@
                 'id'             => $ev->id,
                 'title'          => $ev->title,
                 'event_date'     => $ev->event_date,
+                'category'       => $ev->category,
                 'type_label'     => $ev->category ?: ucfirst((string) $ev->event_type),
                 'status'         => $ev->status,
                 'agent_name'     => $agentNames->get($ev->user_id, 'Unassigned'),
@@ -81,10 +82,30 @@
         });
     }
 
+    // CX-103 (Johan, 2026-08-19) — the PAST list must only ever show genuinely
+    // buyer-facing appointments. Before this fix it showed every linked event
+    // regardless of class, so a listing presentation or property evaluation the
+    // contact happened to be a pivot-row attendee on read back as a "Viewing"
+    // the buyer never had. Buyer-facing = actor_role 'buyer_action' on
+    // calendar_event_class_settings — today that is exactly the 'viewing'
+    // class; a future buyer-driven class picks this up automatically, no code
+    // change needed here. Agency-specific override row wins over the global
+    // template when both exist.
+    $buyerFacingClasses = \App\Models\CommandCenter\CalendarEventClassSetting::withoutGlobalScopes()
+        ->where(fn ($q) => $q->where('agency_id', $contact->agency_id)->orWhereNull('agency_id'))
+        ->where('actor_role', 'buyer_action')
+        ->orderByRaw('agency_id IS NULL')
+        ->get(['event_class'])
+        ->pluck('event_class')
+        ->unique()
+        ->values();
+
     $now = now();
     $upcoming = $linkedEvents->filter(fn ($e) => \Carbon\Carbon::parse($e['event_date'])->gte($now))
         ->sortBy('event_date')->values();
-    $past = $linkedEvents->filter(fn ($e) => \Carbon\Carbon::parse($e['event_date'])->lt($now))
+    $past = $linkedEvents
+        ->filter(fn ($e) => \Carbon\Carbon::parse($e['event_date'])->lt($now)
+            && $buyerFacingClasses->contains($e['category']))
         ->sortByDesc('event_date')->values();
 @endphp
 
