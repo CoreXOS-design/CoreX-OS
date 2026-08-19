@@ -136,9 +136,18 @@ class MarketIntelligenceController extends Controller
                 $query->whereNotIn('id', $otherAgentLockedListingIds);
             }
 
-            $query->whereDoesntHave('activeClaim', function ($q) {
-                $q->whereNotNull('pitched_at');
-            });
+            // 2026-08-19 (Johan, row-Claim ship) — was whereNotNull('pitched_at'),
+            // so a bare Claim (not yet pitched) never left the canvass pool: the
+            // row stayed visible to every agent, only its icon state changed for
+            // the claimant. Verified live against a real QA1 row before this
+            // change (listing 12689: claimed, still present in the default Work
+            // list afterwards). That contradicts the whole point of a Claim —
+            // "reserve it, take it away from other agents" — and reads as the
+            // Claim button silently not working. ANY active claim (pitched or
+            // not) now excludes the row; the pitch-specific property/address
+            // locks immediately below are unaffected — those solve a different,
+            // rotating-ref-safe problem and still key on pitched_at deliberately.
+            $query->whereDoesntHave('activeClaim');
 
             // Pitch Now #4 — PROPERTY-level pitch lock (rotating-ref safe). Portal
             // refs rotate, so the same property returns under a new ref whose OWN
