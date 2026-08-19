@@ -64,6 +64,28 @@ final class TrackedPropertyMatchOrCreateService
     ];
 
     /**
+     * Source types for which EVERY field they actually captured wins over an
+     * existing value — not just NEWER_WINS_FIELDS. Johan's decision,
+     * 2026-08-19 (.ai/specs/deeds-capture.md §6, Part A): a value read
+     * directly off the deeds panel is higher-confidence than an older
+     * import, so it corrects stale data across the board, not field by
+     * field. Still gated by the SAME absent-never-overwrites guard as every
+     * other source below — a field the capture did not read is simply not
+     * in $sanitised, so it never reaches this comparison at all.
+     */
+    private const SOURCE_ALWAYS_WINS = [
+        'deeds_capture',
+    ];
+
+    /**
+     * Placeholder strings a scraped source can send in place of a real
+     * absent value. None of these may ever be written to a TrackedProperty
+     * column — "absent" must mean absent, never a literal dash. Compared
+     * case-insensitively after trimming.
+     */
+    private const ABSENT_PLACEHOLDERS = ['-', 'n/a', 'na', '—', '–'];
+
+    /**
      * Match or create a TrackedProperty. Always returns a TrackedProperty.
      *
      * @param int $agencyId
@@ -629,23 +651,51 @@ final class TrackedPropertyMatchOrCreateService
         array $source,
         ?int $actorUserId,
     ): TrackedProperty {
-        $sanitised = $this->canonicalFactsForWrite($newFacts);
+        $sanitised  = $this->canonicalFactsForWrite($newFacts);
+        $sourceType = (string) ($source['type'] ?? 'unknown');
+        $alwaysWins = in_array($sourceType, self::SOURCE_ALWAYS_WINS, true);
 
         // Walk the sanitised facts only (all scalars). Build a diff against the
         // current TP values using fillable-column comparisons. Skips array-cast
         // columns by construction — canonicalFactsForWrite is scalar-only.
+        //
+        // fieldChanges records EVERY write this enrichment makes — field,
+        // previous value, new value, and whether it was a gain (existing was
+        // empty) or a correction (existing had a value and got replaced).
+        // Deliberately built from the SAME loop that decides the write, not
+        // reconstructed afterwards, so the audit trail can never drift from
+        // what was actually persisted. .ai/specs/deeds-capture.md §6 Part A/B.
         $diff = [];
+        $fieldChanges = [];
         foreach ($sanitised as $key => $newVal) {
-            $existing = $tp->{$key} ?? null;
+            $rawExisting = $tp->{$key} ?? null;
+            // Normalise the STORED value the same way an incoming capture is
+            // normalised, before deciding filled-vs-replaced. A prior bug (fixed
+            // 2026-08-19 alongside this precedence rule) let literal placeholder
+            // strings ('-' etc.) get written as if they were real data — a row
+            // carrying that garbage today must not read as "already has a real
+            // value" and must not show a correction as "replaced 'ABSA Bank' for
+            // '-'" on the Deeds Capture screen. Treating it as absent both lets
+            // ANY source clean it up (not just deeds_capture) and reports it
+            // honestly as a gain.
+            $existing = is_string($rawExisting) ? $this->normaliseCapturedScalar($rawExisting) : $rawExisting;
             // Empty existing → adopt the new value (covers most enrichments).
+            // This guard runs BEFORE any source-precedence check and is
+            // unconditional: absent is not a value, so there is nothing to
+            // "replace" here regardless of source.
             if ($existing === null || $existing === '') {
                 $diff[$key] = $newVal;
+                $fieldChanges[] = ['field' => $key, 'previous' => null, 'new' => $newVal, 'change_type' => 'filled'];
                 continue;
             }
-            // For newer-wins fields, write whenever the value differs.
-            if (in_array($key, self::NEWER_WINS_FIELDS, true)
-                && (string) $existing !== (string) $newVal) {
+            // A populated existing value: only overwrite it when this source is
+            // allowed to win — either a source-agnostic NEWER_WINS field, or
+            // (Johan, 2026-08-19) a SOURCE_ALWAYS_WINS source like deeds_capture,
+            // which wins on every field it actually captured, not just this list.
+            $sourceWinsHere = $alwaysWins || in_array($key, self::NEWER_WINS_FIELDS, true);
+            if ($sourceWinsHere && !$this->sameCapturedValue($existing, $newVal)) {
                 $diff[$key] = $newVal;
+                $fieldChanges[] = ['field' => $key, 'previous' => $existing, 'new' => $newVal, 'change_type' => 'replaced'];
                 continue;
             }
             // Otherwise the existing value stands (first source wins for stable identifiers).
@@ -653,11 +703,18 @@ final class TrackedPropertyMatchOrCreateService
 
         // Bookkeeping: always set on enrich.
         $diff['last_enriched_at']       = now();
-        $diff['last_enrichment_source'] = $source['type'] ?? 'unknown';
+        $diff['last_enrichment_source'] = $sourceType;
 
-        // Append-only source_chain.
+        // Append-only source_chain. field_changes rides on THIS entry only
+        // (omitted when empty, so old entries and no-op re-captures don't
+        // grow the column for nothing) — it's what the capture visible on
+        // /corex/deeds-capture actually did, not a running total.
+        $entry = $this->buildSourceChainEntry($source, $newFacts);
+        if ($fieldChanges !== []) {
+            $entry['field_changes'] = $fieldChanges;
+        }
         $chain   = $tp->source_chain ?? [];
-        $chain[] = $this->buildSourceChainEntry($source, $newFacts);
+        $chain[] = $entry;
         $diff['source_chain'] = $chain;
 
         $tp->update($diff);
@@ -671,7 +728,7 @@ final class TrackedPropertyMatchOrCreateService
         event(new TrackedPropertyEnriched(
             trackedPropertyId: (int) $tp->id,
             agencyId: (int) $tp->agency_id,
-            sourceType: (string) ($source['type'] ?? 'unknown'),
+            sourceType: $sourceType,
             fieldsAdded: $fieldsAdded,
             actorUserId: $actorUserId,
         ));
@@ -734,12 +791,23 @@ final class TrackedPropertyMatchOrCreateService
             'last_known_asking_price', 'last_known_sold_price', 'last_known_sold_date',
             'property_type', 'bedrooms', 'bathrooms', 'garages',
             'floor_size_m2', 'erf_size_m2',
+            // Deeds-specific columns (.ai/specs/deeds-capture.md) — added here
+            // so they flow through the SAME enrich() diff + precedence + audit
+            // mechanism as every other fact, instead of a second, separate
+            // unconditional-overwrite write in DeedsCaptureController. Harmless
+            // to every other source: none of them ever populate these keys.
+            'deeds_office', 'scheme_name', 'scheme_number', 'section_number',
+            'bond_holder', 'bond_amount', 'sale_type', 'deeds_registered_date',
         ];
 
         $out = [];
         foreach ($writable as $col) {
-            if (array_key_exists($col, $facts) && $facts[$col] !== null && $facts[$col] !== '') {
-                $out[$col] = $facts[$col];
+            if (!array_key_exists($col, $facts)) {
+                continue;
+            }
+            $val = $this->normaliseCapturedScalar($facts[$col]);
+            if ($val !== null) {
+                $out[$col] = $val;
             }
         }
 
@@ -750,6 +818,51 @@ final class TrackedPropertyMatchOrCreateService
         }
 
         return $out;
+    }
+
+    /**
+     * A captured value is "absent" (return null, drop from the write) when it
+     * is null, empty/whitespace-only, or one of ABSENT_PLACEHOLDERS ('-',
+     * 'N/A', em/en dash, …) — the placeholder a scraped source sends in place
+     * of a real value. The extension is fixing this at the source too, but
+     * the server must not trust that: a dash arriving here by any other path
+     * (a future source, a payload built another way) must never be accepted
+     * as data. .ai/specs/deeds-capture.md §6 Part A.
+     */
+    private function normaliseCapturedScalar($val)
+    {
+        if ($val === null) {
+            return null;
+        }
+        if (!is_string($val)) {
+            return $val; // numeric/bool — nothing to placeholder-check
+        }
+        $trimmed = trim($val);
+        if ($trimmed === '') {
+            return null;
+        }
+        if (in_array(mb_strtolower($trimmed), self::ABSENT_PLACEHOLDERS, true)) {
+            return null;
+        }
+        return $trimmed;
+    }
+
+    /**
+     * True when an existing value and a freshly captured value are the same
+     * value, not just the same string. A decimal(…,7) GPS column round-trips
+     * -30.830085 as "-30.8300850" — a plain string compare (the previous
+     * behaviour) sees that as a change on EVERY re-capture of the identical
+     * coordinate, which would make the Deeds Capture screen report a
+     * "correction" on a capture that corrected nothing. Numeric-looking
+     * values on both sides compare numerically; anything else falls back to
+     * a string compare (unchanged behaviour for text fields).
+     */
+    private function sameCapturedValue($existing, $newVal): bool
+    {
+        if (is_numeric($existing) && is_numeric($newVal)) {
+            return abs((float) $existing - (float) $newVal) < 0.0000001;
+        }
+        return (string) $existing === (string) $newVal;
     }
 
     /**
