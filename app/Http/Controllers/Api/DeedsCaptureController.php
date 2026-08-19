@@ -458,6 +458,21 @@ final class DeedsCaptureController extends Controller
             }
             $ownerContactId = $firstCurrent->contact_id ?? null;
             $ownerContactIds = collect($persistedOwners)->pluck('contact_id')->filter()->unique()->values()->all();
+
+            // 2026-08-19 (Johan): "do not let it keep saying 'ok' when it
+            // returned nothing." Observed once on a real capture: status
+            // 'ok', zero persisted owner rows — a parse can't honestly claim
+            // success while producing nothing to show. Correct the stored
+            // status/note in that exact case rather than let it stand;
+            // owners[] (below) still lands the real data either way.
+            if ($persistedOwners === [] && $ownershipParseStatus !== 'failed') {
+                $ownershipParseStatus = 'empty';
+                $ownershipParseNote = 'Parsed without error but produced no owner rows to keep — falling back to the simple owner list.';
+                $tp->update([
+                    'ownership_parse_status' => $ownershipParseStatus,
+                    'ownership_parse_note'   => $ownershipParseNote,
+                ]);
+            }
         }
 
         // ALWAYS also ingest owners[] — independent of whether
