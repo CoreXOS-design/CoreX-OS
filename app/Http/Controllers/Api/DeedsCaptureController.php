@@ -242,11 +242,25 @@ final class DeedsCaptureController extends Controller
             'has_ownership_history_raw' => $hasOwnershipHistory,
             'ownership_history_raw'     => $ownershipHistoryRaw,
         ]);
-        $owners = $hasOwnershipHistory ? [] : ($capture['owners'] ?? []);
+        // 2026-08-19 (Johan, live-tested, real capture) — this used to be
+        // $hasOwnershipHistory ? [] : ($capture['owners'] ?? []), which threw
+        // owners[] away completely whenever ownership_history_raw was ALSO
+        // present, even if that second, separate pipeline
+        // (OwnershipHistoryParser -> OwnerContactResolver) went on to produce
+        // nothing usable — proven live: a real capture on 25 Simon V D Stel
+        // Street arrived with owners[] fully populated (2 owners, full
+        // unmasked 13-digit IDs) and ownership_history_raw ALSO present;
+        // ownership_history_raw parsed to status='ok' but zero persisted
+        // rows, and the good owners[] data that had already arrived was
+        // discarded rather than used. Always resolve owners[] now — used
+        // directly below when there's no ownership history, and as a
+        // fallback when ownership_history_raw parsed to nothing usable.
+        $owners = $capture['owners'] ?? [];
 
-        // Resolve/create a Contact per owner — deduped on the owner ID (the join
-        // key), same as before, just looped for however many owners CMA listed.
-        // Phone left empty on every owner (phase-2 Virtual Agent fills it).
+        // Resolve/create a Contact per owner — deduped on the owner ID (the
+        // join key), same as before, just looped for however many owners
+        // CMA listed. Phone left empty on every owner (phase-2 Virtual Agent
+        // fills it).
         $resolvedOwners = [];
         $blockedCompanies = [];
         foreach ($owners as $o) {
@@ -436,6 +450,19 @@ final class DeedsCaptureController extends Controller
             }
             $ownerContactId = $firstCurrent->contact_id ?? null;
             $ownerContactIds = collect($persistedOwners)->pluck('contact_id')->filter()->unique()->values()->all();
+
+            // 2026-08-19 (Johan, live-tested) — ownership_history_raw parsing
+            // can succeed (status='ok') while producing ZERO usable rows (a
+            // real, observed case — see the trace note on $owners above).
+            // owners[] already arrived correctly and was already resolved to
+            // real contacts above; it must never sit unused just because the
+            // richer pipeline came back empty. Same reconcile mechanism as
+            // the no-history path — never discards, never blind-overwrites.
+            if ($persistedOwners === [] && $resolvedOwners !== []) {
+                $this->reconcileOwners($tp, $resolvedOwners);
+                $ownerContactId = $ownerContactId ?? ($resolvedOwners[0]['contact_id'] ?? null);
+                $ownerContactIds = array_values(array_filter(array_column($resolvedOwners, 'contact_id')));
+            }
         } else {
             $this->reconcileOwners($tp, $resolvedOwners);
             $ownerContactIds = array_values(array_filter(array_column($resolvedOwners, 'contact_id')));
