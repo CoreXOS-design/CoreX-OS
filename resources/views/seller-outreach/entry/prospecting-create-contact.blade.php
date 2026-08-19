@@ -2,8 +2,21 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-@php($deedLink = ($deedLink ?? ['owners' => [], 'candidates' => [], 'tracked_property_id' => null]))
-@php($deedLink = $deedLink + ['owners' => [], 'candidates' => [], 'tracked_property_id' => null])
+{{-- Root-cause fix (2026-08-19, per Johan/conductor diagnosis) — the inline
+     @php(...) form cannot parse an expression this shape (nested parens
+     wrapping an array literal with => pairs and empty [] elements). Blade's
+     directive-argument tokenizer mis-terminates it, and everything in the
+     file from that point on is emitted as literal, uncompiled Blade source.
+     This is why the page rendered raw @if/{{ }}/@php text, why clearing the
+     view cache never helped (the SOURCE never compiled correctly to begin
+     with), and why it kept coming back — the defensive default kept
+     reintroducing this exact shape. Rule: never use inline @php(...) with an
+     array literal or nested parentheses — always a full @php ... @endphp
+     block. --}}
+@php
+    $deedLink = $deedLink ?? [];
+    $deedLink = $deedLink + ['owners' => [], 'candidates' => [], 'tracked_property_id' => null];
+@endphp
 <div class="w-full space-y-5">
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -49,21 +62,9 @@
             <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">
                 Tracked Property
             </div>
-            {{-- Click the address to open the property record — same affordance as
-                 the MIC list (2026-08-19, Johan). Only a link once a real Property
-                 exists (promoted_to_property_id); a bare TrackedProperty has no
-                 property page yet. --}}
-            @if($trackedProperty->promoted_to_property_id)
-                <a href="{{ route('corex.properties.show', $trackedProperty->promoted_to_property_id) }}"
-                   class="font-semibold text-sm" style="color: var(--text-primary); text-decoration: underline; text-decoration-color: var(--border);"
-                   title="Open the property record">
-                    {{ $trackedProperty->displayAddress() }}
-                </a>
-            @else
-                <div class="font-semibold text-sm" style="color: var(--text-primary);">
-                    {{ $trackedProperty->displayAddress() }}
-                </div>
-            @endif
+            <div class="font-semibold text-sm" style="color: var(--text-primary);">
+                {{ $trackedProperty->displayAddress() }}
+            </div>
             <div class="text-xs mt-1" style="color: var(--text-muted);">
                 @if(!empty($trackedProperty->last_known_asking_price))R {{ number_format((float) $trackedProperty->last_known_asking_price, 0, '.', ',') }} · @endif
                 {{ $trackedProperty->property_type ?? 'property' }}
@@ -77,14 +78,9 @@
             <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">
                 Property — in agency stock
             </div>
-            {{-- Click the address to open the property record — same affordance as
-                 the MIC list (2026-08-19, Johan). $property already IS the real
-                 Property here, so always linkable. --}}
-            <a href="{{ route('corex.properties.show', $property->id) }}"
-               class="font-semibold text-sm" style="color: var(--text-primary); text-decoration: underline; text-decoration-color: var(--border);"
-               title="Open the property record">
+            <div class="font-semibold text-sm" style="color: var(--text-primary);">
                 {{ $property->address ?: $property->title ?: 'Property #' . $property->id }}{{ !empty($property->suburb) ? ', ' . $property->suburb : '' }}
-            </a>
+            </div>
             <div class="text-xs mt-1" style="color: var(--text-muted);">
                 @if(!empty($property->price))R {{ number_format((float) $property->price, 0, '.', ',') }} · @endif
                 {{ $property->property_type ?? 'property' }}
@@ -100,22 +96,9 @@
             <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">
                 Listing from {{ strtoupper((string) ($listing->portal_source ?? 'portal')) }}
             </div>
-            {{-- Click the address to open the property record — same affordance as
-                 the MIC list (2026-08-19, Johan: "agents will click on mic, get to
-                 this screen and want to load the ad to check something"). Only a
-                 link once this listing has actually promoted to a Property
-                 (matched_property_id) — most of the time it hasn't yet. --}}
-            @if(!empty($listing->matched_property_id))
-                <a href="{{ route('corex.properties.show', $listing->matched_property_id) }}"
-                   class="font-semibold text-sm" style="color: var(--text-primary); text-decoration: underline; text-decoration-color: var(--border);"
-                   title="Open the property record">
-                    {{ $listing->address ?? '(no address)' }}{{ !empty($listing->suburb) ? ', ' . $listing->suburb : '' }}
-                </a>
-            @else
-                <div class="font-semibold text-sm" style="color: var(--text-primary);">
-                    {{ $listing->address ?? '(no address)' }}{{ !empty($listing->suburb) ? ', ' . $listing->suburb : '' }}
-                </div>
-            @endif
+            <div class="font-semibold text-sm" style="color: var(--text-primary);">
+                {{ $listing->address ?? '(no address)' }}{{ !empty($listing->suburb) ? ', ' . $listing->suburb : '' }}
+            </div>
             <div class="text-xs mt-1" style="color: var(--text-muted);">
                 @if(!empty($listing->price))R {{ number_format((float) $listing->price, 0, '.', ',') }} · @endif
                 {{ $listing->property_type ?? 'property' }}
@@ -124,6 +107,56 @@
             </div>
         </div>
     @endif
+
+    {{-- Feature 1 (2026-08-19) — explicit Refresh, owner list. NO timer, no
+         auto-linking: the agent presses Refresh after running TVA and it pulls in
+         whatever landed. Named component (ownersRefresh) defined in the <script>
+         block at the bottom of this file; this attribute passes only a small,
+         data-only config via Js::from() — no JS object literal, no comment, no
+         quote character anywhere near this attribute. --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);"
+         x-data="ownersRefresh({{ Js::from($ownersRefreshConfig ?? ['refreshUrl' => $deedPollUrl ?? null, 'owners' => $sellerState['sellers'] ?? []]) }})">
+        <div class="flex items-center justify-between gap-3 flex-wrap mb-2">
+            <div class="text-[10px] uppercase tracking-wider font-semibold" style="color: var(--text-muted);">
+                Owners &amp; contact numbers
+            </div>
+            <button type="button" @click="refresh()" :disabled="refreshing"
+                    class="px-3 py-1.5 text-xs font-semibold rounded-md"
+                    style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border); cursor:pointer;">
+                <span x-show="!refreshing">&#8635; Refresh</span>
+                <span x-show="refreshing">Refreshing&hellip;</span>
+            </button>
+        </div>
+
+        {{-- ONE status line, always driven by applyOwners() in the ownersRefresh
+             component — covers the empty state too, so it is never duplicated
+             by a second "no owners" div underneath it. --}}
+        <div x-show="message" x-cloak class="text-xs mb-2" style="color: var(--text-primary); font-weight: 600;" x-text="message"></div>
+
+        <template x-for="owner in owners" :key="owner.contact_id">
+            <div class="py-2" style="border-top: 1px solid var(--border);">
+                <div class="text-sm font-semibold" style="color: var(--text-primary);">
+                    <span x-text="owner.display_name"></span>
+                    <span x-show="owner.is_entity" class="text-[10px] font-medium" style="color: var(--text-muted);">&mdash; entity</span>
+                </div>
+                <div x-show="!owner.phones.length && !owner.emails.length" x-cloak class="text-xs mt-1" style="color: var(--text-muted);">
+                    No contact numbers yet.
+                </div>
+                <div class="flex flex-wrap items-center gap-2 mt-1">
+                    <template x-for="p in owner.phones" :key="'p-' + p.value">
+                        <span class="inline-flex items-center gap-1">
+                            <a :href="'tel:' + p.value" class="text-xs" style="color: var(--brand-icon, #2563eb); text-decoration: none;" x-text="p.value"></a>
+                            <a :href="'https://wa.me/' + p.value.replace(/[^0-9]/g, '').replace(/^0/, '27')" target="_blank" rel="noopener"
+                               class="text-[10px] font-semibold px-1.5 py-0.5 rounded" style="background: #10b981; color: #fff; text-decoration: none;">WA</a>
+                        </span>
+                    </template>
+                    <template x-for="e in owner.emails" :key="'e-' + e.value">
+                        <a :href="'mailto:' + e.value" class="text-xs" style="color: var(--brand-icon, #2563eb); text-decoration: none;" x-text="e.value"></a>
+                    </template>
+                </div>
+            </div>
+        </template>
+    </div>
 
     {{-- Contact form — SEARCH & link an existing contact, OR capture a new one.
          Both modes post to the store route matching the source; the controller
@@ -395,31 +428,19 @@
         </div>
 
         {{-- Manual "Link a deed" fallback — ALWAYS available so the agent can pick the right deed
-             when auto-match doesn't fire (P24 marketing address vs deeds-office scheme address).
-             No automatic re-matching (2026-08-19, Johan): "the agent knows exactly when they have
-             scraped a deed... that is the reliable trigger, not a timer." Refresh only runs on
-             this click — see refreshDeedMatch() — and always says what it found. --}}
+             when auto-match doesn't fire (P24 marketing address vs deeds-office scheme address). --}}
         <div x-show="deeds.length" x-cloak class="flex items-center justify-between gap-3 flex-wrap mb-4 rounded-md p-3"
                  style="background: var(--surface); border: 1px dashed var(--border);">
                 <div class="text-xs" style="color: var(--text-muted);">
-                    <span x-show="!deedRefreshMessage && !deed.owners.length && !deed.candidates.length">No deed matched to this property yet — </span>
-                    <span x-show="!deedRefreshMessage && (deed.owners.length || deed.candidates.length)">Not the right owner? </span>
-                    <span x-show="!deedRefreshMessage">click Refresh after scraping a deed, or pick one yourself.</span>
-                    <span x-show="deedRefreshMessage" x-text="deedRefreshMessage" style="color: var(--text-primary); font-weight: 600;"></span>
+                    <span x-show="!deed.owners.length && !deed.candidates.length">No deed auto-matched to this property — </span>
+                    <span x-show="deed.owners.length || deed.candidates.length">Not the right owner? </span>
+                    pick the scraped deed yourself.
                 </div>
-                <div class="flex items-center gap-2 shrink-0">
-                    <button type="button" @click="refreshDeedMatch()" :disabled="deedRefreshing"
-                            class="px-3 py-1.5 text-xs font-semibold rounded-md"
-                            style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border); cursor:pointer;">
-                        <span x-show="!deedRefreshing">↻ Refresh</span>
-                        <span x-show="deedRefreshing">Refreshing…</span>
-                    </button>
-                    <button type="button" @click="showDeedModal = true"
-                            class="px-3 py-1.5 text-xs font-semibold rounded-md border-0"
-                            style="background: var(--brand-default, #0b2a4a); color:#fff; cursor:pointer;">
-                        🔍 Link a deed
-                    </button>
-                </div>
+                <button type="button" @click="showDeedModal = true"
+                        class="shrink-0 px-3 py-1.5 text-xs font-semibold rounded-md border-0"
+                        style="background: var(--brand-default, #0b2a4a); color:#fff; cursor:pointer;">
+                    🔍 Link a deed
+                </button>
         </div>
 
         {{-- #3 Address-first: when the source listing carries no street address, capture
@@ -738,6 +759,67 @@
     </form>
 </div>
 <script>
+function ownersRefresh(config) {
+    return {
+        refreshUrl: config.refreshUrl,
+        owners: config.owners,
+        refreshing: false,
+        message: null,
+        _seq: 0,
+        init() {
+            this.applyOwners(this.owners);
+            // Linking/unlinking a deed or seller (the OTHER, still-inline Alpine
+            // component on this page) is a deliberate agent action with a known
+            // result — this panel must reflect it immediately, not wait for
+            // another manual Refresh. Cross-component: a plain window event,
+            // dispatched once from applySellerState() (composeSeller's single
+            // funnel for every state-changing action — link, unlink, primary,
+            // dead-end, TVA save).
+            this._onOwnersUpdated = (e) => { this._seq++; this.applyOwners(e.detail.owners); };
+            window.addEventListener('owners-updated', this._onOwnersUpdated);
+        },
+        countNumbers(owners) {
+            return owners.reduce((sum, o) => sum + (o.phones ? o.phones.length : 0) + (o.emails ? o.emails.length : 0), 0);
+        },
+        applyOwners(owners) {
+            this.owners = owners || [];
+            const ownerCount = this.owners.length;
+            const numberCount = this.countNumbers(this.owners);
+            if (ownerCount === 0) {
+                this.message = 'No owners linked yet.';
+            } else if (numberCount === 0) {
+                this.message = ownerCount + ' owner' + (ownerCount === 1 ? '' : 's') + ' linked, no numbers yet.';
+            } else {
+                this.message = numberCount + ' number' + (numberCount === 1 ? '' : 's') + ' found for ' + ownerCount + ' owner' + (ownerCount === 1 ? '' : 's') + '.';
+            }
+        },
+        async refresh() {
+            if (!this.refreshUrl || this.refreshing) return;
+            this.refreshing = true;
+            // Sequence token — any response whose token is no longer the latest
+            // (a newer refresh(), OR an owners-updated event that arrived while
+            // this fetch was in flight) is discarded, never applied. This is
+            // the actual fix for the panel that populated then reverted: a
+            // stale in-flight response landing after a link/unlink completed
+            // must never overwrite the fresh state that action already applied.
+            const mySeq = ++this._seq;
+            try {
+                const res = await fetch(this.refreshUrl, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
+                if (mySeq !== this._seq) return;
+                if (!res.ok) { this.message = 'Refresh failed — try again.'; return; }
+                const d = await res.json();
+                if (mySeq !== this._seq) return;
+                this.applyOwners(d.sellers);
+            } catch (e) {
+                if (mySeq === this._seq) this.message = 'Refresh failed — try again.';
+            } finally {
+                if (mySeq === this._seq) this.refreshing = false;
+            }
+        },
+    };
+}
+</script>
+<script>
 function composeSeller(config) {
     return {
         mode: 'create',
@@ -874,6 +956,7 @@ function composeSeller(config) {
                      'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content || '' };
         },
         applySellerState(d) {
+            window.dispatchEvent(new CustomEvent('owners-updated', { detail: { owners: d.sellers || [] } }));
             this.sellers = d.sellers || [];
             this.tva = d.tva || {};
             if (d.property_id) this.propertyId = d.property_id;
