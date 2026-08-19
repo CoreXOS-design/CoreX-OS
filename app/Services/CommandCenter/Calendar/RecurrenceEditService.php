@@ -225,9 +225,9 @@ class RecurrenceEditService
      * own named method so a Dismiss call site never reads as calling Delete,
      * even though the two currently share an identical outcome for "this".
      */
-    public function dismissOccurrence(CalendarEvent $parent, string $occurrenceDate, User $user): CalendarEvent
+    public function dismissOccurrence(CalendarEvent $parent, string $occurrenceDate, User $user, ?string $reasonCode = null, ?string $reasonNotes = null): CalendarEvent
     {
-        return $this->setOccurrenceStatus($parent, $occurrenceDate, 'dismissed', $user);
+        return $this->setOccurrenceStatus($parent, $occurrenceDate, 'dismissed', $user, $reasonCode, $reasonNotes);
     }
 
     /**
@@ -237,10 +237,18 @@ class RecurrenceEditService
      * dismissed exclusion predates this fix); listed here for symmetry with
      * completeAll() and so the controller has one consistent scope-dispatch
      * shape for both actions.
+     *
+     * 2026-08-19 (Johan) — reason params optional, preserve any existing
+     * reason when omitted (mirrors CalendarEvent::markDismissed()).
      */
-    public function dismissAll(CalendarEvent $parent): void
+    public function dismissAll(CalendarEvent $parent, ?string $reasonCode = null, ?string $reasonNotes = null): void
     {
-        $parent->update(['status' => 'dismissed']);
+        $data = ['status' => 'dismissed'];
+        if ($reasonCode !== null) {
+            $data['dismissal_reason_code'] = $reasonCode;
+            $data['dismissal_reason_notes'] = $reasonNotes;
+        }
+        $parent->update($data);
     }
 
     // ── helpers ──────────────────────────────────────────────────────────
@@ -254,10 +262,10 @@ class RecurrenceEditService
      * carries it, hiding it from the grid entirely) — a completed occurrence
      * must stay visible, struck through, same as any other completed event.
      */
-    private function setOccurrenceStatus(CalendarEvent $parent, string $occurrenceDate, string $status, User $user): CalendarEvent
+    private function setOccurrenceStatus(CalendarEvent $parent, string $occurrenceDate, string $status, User $user, ?string $reasonCode = null, ?string $reasonNotes = null): CalendarEvent
     {
         $date = Carbon::parse($occurrenceDate)->toDateString();
-        return DB::transaction(function () use ($parent, $date, $status, $user) {
+        return DB::transaction(function () use ($parent, $date, $status, $user, $reasonCode, $reasonNotes) {
             $child = $this->findException($parent, $date);
             $meta = $child && is_array($child->metadata) ? $child->metadata : (is_array($parent->metadata ?? null) ? $parent->metadata : []);
             $meta['recurrence_override_date'] = $date;
@@ -266,8 +274,14 @@ class RecurrenceEditService
             } else {
                 unset($meta['recurrence_cancelled']);
             }
+            // 2026-08-19 (Johan) — reason columns only ever apply to a dismiss;
+            // completeOccurrence()/deleteOccurrence() call this with the reason
+            // params left at their default null, so $update never touches them.
+            $reasonUpdate = ($status === 'dismissed' && $reasonCode !== null)
+                ? ['dismissal_reason_code' => $reasonCode, 'dismissal_reason_notes' => $reasonNotes]
+                : [];
             if ($child) {
-                $child->update(['status' => $status, 'metadata' => $meta]);
+                $child->update(['status' => $status, 'metadata' => $meta] + $reasonUpdate);
                 return $child->fresh();
             }
             return CalendarEvent::create([
@@ -278,7 +292,7 @@ class RecurrenceEditService
                 'priority' => $parent->priority, 'status' => $status, 'source_type' => 'manual',
                 'user_id' => $parent->user_id, 'created_by_id' => $parent->created_by_id ?: $user->id,
                 'agency_id' => $parent->agency_id, 'branch_id' => $parent->branch_id, 'metadata' => $meta,
-            ]);
+            ] + $reasonUpdate);
         });
     }
 
