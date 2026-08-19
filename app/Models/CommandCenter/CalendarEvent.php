@@ -58,6 +58,7 @@ class CalendarEvent extends Model
         'property_id', 'contact_id', 'branch_id', 'agency_id',
         'reminder_offsets', 'reminder_channels', 'reminders_sent',
         'is_recurring', 'recurrence_rule', 'parent_event_id',
+        'dismissal_reason_code', 'dismissal_reason_notes',
         'metadata',
         'created_by_ai', 'ai_source', 'ai_transcript',
     ];
@@ -231,15 +232,22 @@ class CalendarEvent extends Model
         // AT-267 — an assistant's 'own' is their Assigned Agent's; everyone else: [$user->id].
         $identityIds = $user->dataIdentityIds();
 
-        // An event the user has ACCEPTED (or tentatively accepted) an invitation to
-        // is visible to them too — it renders on the invitee's calendar alongside
-        // their own events (including a same-time duplicate shown side by side).
-        // ADDITIVE: only ever widens the invitee's view; never hides or alters their
-        // own events. (Was missing entirely — the feed only queried user_id, so an
-        // accepted invite never appeared on the invitee's calendar.)
+        // 2026-08-19 (Johan) — an event this user is INVITED to (pending, accepted,
+        // or tentative — matching CalendarVisibilityResolver::canSee()'s invitation
+        // check exactly, so the two never disagree) must reach the view regardless
+        // of role scope: the invitee decides accept/reject, not their own visibility
+        // scope. Keyed off $identityIds (not bare $user->id) so this stays consistent
+        // with AT-267: an assistant's widened 'own' scope carries their assigned
+        // agent's invitations too, same as every other branch below. 'none' is
+        // deliberately excluded — that scope means the role has no calendar access
+        // at all, and an invitation is not a backdoor into a module the role can't
+        // open. One indexed subquery
+        // (calendar_event_invitations_invitee_user_id_status_index) — this scope
+        // runs on every calendar load, so it's built once and reused across
+        // whichever branch below needs it, never per-row.
         $invitedEventIds = \App\Models\CommandCenter\CalendarEventInvitation::query()
             ->whereIn('invitee_user_id', $identityIds)
-            ->whereIn('status', ['accepted', 'tentative'])
+            ->whereIn('status', ['pending', 'accepted', 'tentative'])
             ->select('event_id');
 
         return match ($scope) {
@@ -309,9 +317,47 @@ class CalendarEvent extends Model
         $this->update(['status' => 'completed']);
     }
 
-    public function markDismissed(): void
+    /**
+     * 2026-08-19 (Johan) — reason params are optional and PRESERVE any
+     * existing reason when omitted (never blank one out to null), so the
+     * mobile API's reason-less dismiss path (CommandCenterApiController::
+     * calendarDismiss(), which has no reason-picker UI and never will in
+     * this change) can never silently wipe a reason a web user already
+     * recorded.
+     */
+    /**
+     * 2026-08-19 (Johan) — human-readable dismissal reason, shared by the
+     * event panel and the Contact page (same-places-as-feedback requirement)
+     * so the two surfaces can never drift onto different wording. The reason
+     * codes are the same small hardcoded option lists the reason-picker
+     * modal already offers (index.blade.php's getReasonOptions(), branched
+     * by actor_role) — not DB-driven, so there is nothing to join against.
+     * dismissal_reason_notes already carries a readable value in the normal
+     * case (the client sends reasonPickerNotes if the agent typed one for
+     * "Other", else the raw code itself) — headline-case the code only when
+     * notes is empty or is literally the untouched code.
+     */
+    public function dismissalReasonLabel(): ?string
     {
-        $this->update(['status' => 'dismissed']);
+        if (!$this->dismissal_reason_code) {
+            return null;
+        }
+        $notes = trim((string) ($this->dismissal_reason_notes ?? ''));
+        if ($notes !== '' && $notes !== $this->dismissal_reason_code) {
+            return $notes;
+        }
+
+        return \Illuminate\Support\Str::headline($this->dismissal_reason_code);
+    }
+
+    public function markDismissed(?string $reasonCode = null, ?string $reasonNotes = null): void
+    {
+        $data = ['status' => 'dismissed'];
+        if ($reasonCode !== null) {
+            $data['dismissal_reason_code'] = $reasonCode;
+            $data['dismissal_reason_notes'] = $reasonNotes;
+        }
+        $this->update($data);
     }
 
     // ── Private event redaction (view-time; ITEM 4) ──────────────────────────
