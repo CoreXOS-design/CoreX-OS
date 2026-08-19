@@ -301,6 +301,15 @@ final class TrackedPropertyMatchOrCreateService
             );
 
             if (!empty($factTokens)) {
+                // Collect EVERY plausible candidate, not just the first — 2026-08-19
+                // (Johan, CX-102). Taking the first candidate that overlapped used to
+                // mean "whichever record happens to have the lowest id wins," with no
+                // regard for which one the capture actually describes. That's exactly
+                // how 417 and 381 Von Baumbach Avenue (two different tracked
+                // properties on the same street) got confused: both tied on
+                // word-overlap, and the older record won by accident of creation
+                // order.
+                $tied = [];
                 foreach ($candidates as $cand) {
                     // Street/unit number is a hard discriminator: the tokeniser
                     // drops <3-char tokens (so "1"/"2" never reach $factTokens),
@@ -314,16 +323,98 @@ final class TrackedPropertyMatchOrCreateService
                     );
                     $overlap = array_intersect($factTokens, $candTokens);
                     if (count($overlap) >= 2) {
-                        Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch matched via strategy=5_token_overlap', [
-                            'agency_id' => $agencyId, 'tracked_property_id' => $cand->id,
-                        ]);
-                        return $cand;
+                        $tied[] = $cand;
                     }
+                }
+
+                if (count($tied) === 1) {
+                    Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch matched via strategy=5_token_overlap', [
+                        'agency_id' => $agencyId, 'tracked_property_id' => $tied[0]->id,
+                    ]);
+                    return $tied[0];
+                }
+
+                if (count($tied) > 1) {
+                    // GPS tie-break (2026-08-19, Johan, CX-102) — more than one
+                    // candidate matched on words alone. Prefer whichever is
+                    // physically closest to the incoming capture's own coordinates
+                    // instead of silently taking the oldest. This is exactly what
+                    // would have resolved Von Baumbach Avenue correctly: the deed's
+                    // own GPS sat ~10m from the correct record and ~1km from the
+                    // one the old rule picked.
+                    $winner = $this->nearestByGps($facts, $tied);
+                    if ($winner !== null) {
+                        Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch matched via strategy=5_token_overlap_gps_tiebreak', [
+                            'agency_id' => $agencyId, 'tracked_property_id' => $winner->id,
+                            'tied_candidate_ids' => array_map(fn ($c) => $c->id, $tied),
+                        ]);
+                        return $winner;
+                    }
+
+                    // Neither side carries usable GPS to break the tie — fall back
+                    // to the original rule (oldest candidate) rather than refuse to
+                    // match. Johan (2026-08-19): staff keep working; queuing an
+                    // unresolved tie for review is deliberately NOT built here —
+                    // that's what the agent-facing "Not the same property" control
+                    // is for (CX-102 part 2), not a silent hold.
+                    Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch matched via strategy=5_token_overlap_untiebroken', [
+                        'agency_id' => $agencyId, 'tracked_property_id' => $tied[0]->id,
+                        'tied_candidate_ids' => array_map(fn ($c) => $c->id, $tied),
+                    ]);
+                    return $tied[0];
                 }
             }
         }
 
         return null;
+    }
+
+    /**
+     * GPS tie-break for Strategy 5 (2026-08-19, Johan, CX-102). When the loose
+     * word-overlap match ties between several candidates, prefer whichever is
+     * physically closest to the incoming capture's own coordinates. Prefers
+     * cma_gps over plain lat/lng on both sides, matching Strategy 2's own
+     * preference order.
+     *
+     * Returns null (no opinion) when the incoming facts carry no GPS at all, or
+     * when NONE of the tied candidates have GPS on file — the caller falls back
+     * to the original oldest-wins rule in that case, rather than refusing to
+     * match (Johan: staff keep working, this never blocks on a tie it can't
+     * break).
+     *
+     * @param  array<int, TrackedProperty>  $candidates
+     */
+    private function nearestByGps(array $facts, array $candidates): ?TrackedProperty
+    {
+        $lat = $facts['cma_gps_lat'] ?? $facts['latitude'] ?? null;
+        $lng = $facts['cma_gps_lng'] ?? $facts['longitude'] ?? null;
+        if ($lat === null || $lng === null) {
+            return null;
+        }
+        $lat = (float) $lat;
+        $lng = (float) $lng;
+
+        $nearest = null;
+        $nearestDistanceSq = null;
+        foreach ($candidates as $cand) {
+            $candLat = $cand->cma_gps_lat ?? $cand->latitude ?? null;
+            $candLng = $cand->cma_gps_lng ?? $cand->longitude ?? null;
+            if ($candLat === null || $candLng === null) {
+                continue;
+            }
+            // Flat-plane squared distance, not haversine — every candidate here
+            // already shares the same suburb (Strategy 5's own gate), so the
+            // span is at most a few km; the same degree-based comparison the
+            // rest of this service already uses for GPS (whereBetween on raw
+            // degrees) is precise enough to rank candidates at this scale.
+            $distanceSq = (((float) $candLat) - $lat) ** 2 + (((float) $candLng) - $lng) ** 2;
+            if ($nearestDistanceSq === null || $distanceSq < $nearestDistanceSq) {
+                $nearestDistanceSq = $distanceSq;
+                $nearest = $cand;
+            }
+        }
+
+        return $nearest;
     }
 
     /**
