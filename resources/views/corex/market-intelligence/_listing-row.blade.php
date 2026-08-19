@@ -85,6 +85,15 @@
     // render read-only. There is no listing record, so the slideover fetch would
     // 404; the IN STOCK badge + address both link to the Property instead.
     $isPropertyStock = (bool) ($listing->is_property_stock ?? false);
+
+    // SINGLE source of truth for "nothing about this row makes claiming
+    // senseless" (Johan 2026-08-19: "use the same source of truth, not a new
+    // one") — identical to the "unclaimed" chip's own condition below, so the
+    // row-level Claim button and that chip can never disagree. Already
+    // excludes claimed-by-anyone, mid-pitch temp lock, a durable "prospected"
+    // history badge, and company stock (own listing, never claimable). Placed
+    // here, after $isCompanyStock above, so it isn't read before it's set.
+    $isUnclaimed = !$claim && !$tempLock && !($prospected && $showProspectedBadge) && !$isCompanyStock;
 @endphp
 
 <article
@@ -216,13 +225,17 @@
                       title="Already prospected by {{ $prospected['claimer_name'] ?? 'a colleague' }} — outcome: {{ $prospOutcome }}{{ $prospDateFull ? ' on ' . $prospDateFull : '' }}. Worked and closed (back in the pool), but check the history before re-canvassing the owner.">
                     Prospected · {{ $prospName }} · {{ $prospOutcome }}{{ $prospDate ? ' · ' . $prospDate : '' }}
                 </span>
-            @elseif(!$isCompanyStock)
+            @elseif($isUnclaimed)
                 {{-- Company stock has no "unclaimed" state — the teal IN STOCK badge
                      above already says what this row is, and the claim button is
                      hidden in the action zone below (Johan's model: own stock is
-                     never claimable, so it must never look claimable either). --}}
+                     never claimable, so it must never look claimable either).
+                     $isUnclaimed is computed once at the top of this file and is
+                     the SAME condition the Claim button in the action zone below
+                     gates on — one source of truth, so the two can never disagree
+                     (Johan 2026-08-19). --}}
                 <span style="{{ $tagNeutral }}"
-                      title="Nobody has claimed this listing yet. Click the bookmark icon on the right to claim it for yourself.">unclaimed</span>
+                      title="Nobody has claimed this listing yet. Click Claim on the right to reserve it for yourself.">unclaimed</span>
             @endif
 
             {{-- Presentation marker --}}
@@ -312,23 +325,12 @@
                 </span>
             </span>
             @endif
-
-            {{-- Comment chip — .ai/specs/mic-property-row-comments.md. Johan's
-                 explicit placement: same chip group as the claim/buyer chips,
-                 built the same way as the buyer-match chip above (tagOutline
-                 button + numeric count), but NEVER hidden at zero — an agent
-                 must be able to add the first comment from the row. --}}
-            @if($listing->tracked_property_id && ($canViewComments ?? false))
-                @php $commentCount = (int) (($commentCounts ?? [])[$listing->tracked_property_id] ?? 0); @endphp
-                <button type="button"
-                        @click.stop="openCommentsModal({{ $listing->tracked_property_id }})"
-                        style="{{ $tagOutline }} cursor: pointer;"
-                        title="{{ $commentCount > 0 ? ($commentCount . ' comment' . ($commentCount === 1 ? '' : 's') . ' on this property — click to view and add.') : 'No comments yet on this property — click to add the first one for other agents.' }}">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;">
-                        <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
-                    </svg><span data-tp-comment-count="{{ $listing->tracked_property_id }}" style="font-weight: 700; margin-left: {{ $commentCount > 0 ? '3px' : '0' }};">{{ $commentCount > 0 ? $commentCount : '' }}</span>
-                </button>
-            @endif
+            {{-- Comment icon relocated to the right-hand icon group below
+                 (Johan 2026-08-19: "move the comments icon to join the other
+                 2 icons, and move the icon group left, underneath the price" —
+                 makes room for a proper Claim button under Pitch Now). Markup
+                 and behaviour (openCommentsModal, the count badge) unchanged,
+                 only moved — see the action zone below. --}}
         </div>
     </div>
 
@@ -350,34 +352,38 @@
         </div>
         @else
 
-        @include('corex.market-intelligence._suggested-action-chip', ['suggested' => $suggested, 'listing' => $listing])
-
-        <div style="display: flex; align-items: center; gap: 4px;">
+        {{-- Icon group: comment, state icon, buyers. Johan 2026-08-19: "move
+             the comments icon to join the other 2 icons, and move the icon
+             group left, underneath the price" — align-self:flex-start pulls
+             this row to the LEFT of the column (its parent is
+             align-items:flex-end), while Pitch Now / Claim below stay right-
+             aligned — visually separates "housekeeping" icons from the two
+             action buttons instead of them all bunching hard-right together.
+             No bookmark/claim icon here any more: that action now has its
+             own proper button below (was a bare 13px icon easy to miss and
+             easy to hit by mistake next to Pitch Now — same complaint as this
+             morning's filter ticks). Every icon here keeps its exact existing
+             behaviour, including the comment count badge. --}}
+        <div style="display: flex; align-items: center; gap: 4px; align-self: flex-start;">
             @php
-                // Decide which 3 icons to show based on state per spec §8.4.
-                $showBookmark = !$claim && !$tempLock;       // unclaimed only
                 $showEye      = $claimedByOther;             // colleague's claim → view detail (F.4 wires)
-                $showPhone    = !$showBookmark && !$showEye; // claimed-by-me, pitched, or pitched-recent
+                $showPhone    = !$isUnclaimed && !$showEye;  // claimed-by-me, pitched, or pitched-recent
                 $showWhatsapp = $showPhone;
                 $showUsers    = ($tiers['strong'] + $tiers['mid']) > 0;  // always if there are buyers
             @endphp
 
-            {{-- Bookmark / Claim button --}}
-            @if($showBookmark)
-            <form method="POST" action="{{ route('market-intelligence.claim', $listing->id) }}"
-                  data-tour="mic-claim"
-                  onclick="event.stopPropagation();"
-                  style="margin: 0; line-height: 0;">
-                @csrf
-                <button type="submit"
-                        aria-label="Claim this listing"
-                        title="Claim this listing"
-                        style="{{ $iconBtnBase }}">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>
-                    </svg>
+            {{-- Comment (relocated here from the middle chip row, same
+                 behaviour/modal/count badge — .ai/specs/mic-property-row-comments.md) --}}
+            @if($listing->tracked_property_id && ($canViewComments ?? false))
+                @php $commentCount = (int) (($commentCounts ?? [])[$listing->tracked_property_id] ?? 0); @endphp
+                <button type="button"
+                        @click.stop="openCommentsModal({{ $listing->tracked_property_id }})"
+                        style="{{ $iconBtnBase }}"
+                        title="{{ $commentCount > 0 ? ($commentCount . ' comment' . ($commentCount === 1 ? '' : 's') . ' on this property — click to view and add.') : 'No comments yet on this property — click to add the first one for other agents.' }}">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;">
+                        <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+                    </svg><span data-tp-comment-count="{{ $listing->tracked_property_id }}" style="font-weight: 700; margin-left: {{ $commentCount > 0 ? '3px' : '0' }};">{{ $commentCount > 0 ? $commentCount : '' }}</span>
                 </button>
-            </form>
             @endif
 
             {{-- Eye / view detail (F.4 will wire to slide-over) --}}
@@ -457,6 +463,40 @@
             </button>
             @endif
         </div>
+
+        @include('corex.market-intelligence._suggested-action-chip', ['suggested' => $suggested, 'listing' => $listing])
+
+        {{-- Claim button (Johan 2026-08-19: "pitch now means NOW, claim means
+             I want it but I can't work on it right now") — a real, comfortably
+             sized button directly below Pitch Now, clearly a different colour/
+             shape/weight so the two can't be hit by mistake (outline blue vs
+             Pitch Now's solid green chip). SAME action the property detail
+             panel's Claim already uses — same route, same controller method,
+             same form — a second, more visible entry point onto it, not a
+             parallel implementation. Gated on $isUnclaimed, the exact same
+             condition the "unclaimed" chip above uses, so this button and that
+             label can never disagree about whether claiming makes sense here
+             (already claimed, already promoted-via-tracked-property-with-a-
+             claim, mid-pitch-lock, prospected/worked history, or company stock
+             all correctly hide it, same as they already hide "unclaimed"). --}}
+        @if($isUnclaimed)
+        <form method="POST" action="{{ route('market-intelligence.claim', $listing->id) }}"
+              data-tour="mic-claim"
+              onclick="event.stopPropagation();"
+              style="margin: 0;">
+            @csrf
+            <button type="submit"
+                    aria-label="Claim this listing — reserve it for yourself without pitching yet"
+                    title="Claim — reserve this listing for yourself. It leaves the canvass list and moves to My Claims; releases automatically if you don't pitch it."
+                    style="display:inline-flex; align-items:center; gap:5px; padding:6px 12px; font-size:0.6875rem; font-weight:600; border-radius:6px; background:var(--surface); border:1.5px solid var(--brand-icon,#0ea5e9); color:var(--brand-icon,#0ea5e9); cursor:pointer; white-space:nowrap;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>
+                </svg>
+                Claim
+            </button>
+        </form>
+        @endif
+
         @endif {{-- /isCompanyStock --}}
     </div>
 </article>
