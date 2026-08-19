@@ -125,12 +125,80 @@ final class DeedsCaptureController extends Controller
             ];
         }
 
+        // CX-102 part 2 (2026-08-19, Johan) — "the system must show its
+        // working and let the agent overrule it." For every "Already
+        // tracked · deed linked" row, the recorded reason for that link
+        // (never reconstructed — read straight off the decision written at
+        // match time) plus the deed's own source ref, so the view can offer
+        // "Not the same property" against the exact capture that caused it.
+        $decisionService = app(\App\Services\Prospecting\PropertyMatchDecisionService::class);
+        $matchDecisionByTp = [];
+        foreach ($captures as $tp) {
+            if ($tp->capture_kind === 'deeds_capture') {
+                continue; // this capture created its OWN tracked property — nothing to question
+            }
+            $chain = $tp->source_chain ?? [];
+            $latestDeedsRef = null;
+            foreach ($chain as $entry) {
+                if (($entry['type'] ?? null) === 'deeds_capture' && !empty($entry['ref'])) {
+                    $latestDeedsRef = $entry['ref']; // append-only — last one is the most recent
+                }
+            }
+            if ($latestDeedsRef === null) {
+                continue;
+            }
+            $decision = $decisionService->current($agencyId, 'deeds_capture', 'deeds_capture:' . $latestDeedsRef);
+            if ($decision !== null && !$decision->isRejected()) {
+                $matchDecisionByTp[$tp->id] = $decision;
+            }
+        }
+
         return view('corex.deeds-capture.index', [
-            'captures'         => $captures,
-            'tvaByProperty'    => $tvaByProperty,
-            'tvaStandalone'    => $tvaStandalone,
-            'fieldChangesByTp' => $fieldChangesByTp,
+            'captures'          => $captures,
+            'tvaByProperty'     => $tvaByProperty,
+            'tvaStandalone'     => $tvaStandalone,
+            'fieldChangesByTp'  => $fieldChangesByTp,
+            'matchDecisionByTp' => $matchDecisionByTp,
         ]);
+    }
+
+    /**
+     * "Not the same property" (CX-102 part 2, 2026-08-19, Johan). An agent
+     * looking at an "Already tracked · deed linked" row says the deed does
+     * not belong to that property. Breaks the link; the deed's own facts
+     * either land on the alternative the agent picked, or become a fresh
+     * tracked property of their own — either way the agent's work continues
+     * with no dead end. See TrackedPropertyMatchOrCreateService::rejectMatch().
+     */
+    public function rejectMatch(Request $request, TrackedProperty $trackedProperty, TrackedPropertyMatchOrCreateService $matcher)
+    {
+        $user = $request->user();
+        $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
+        abort_if($agencyId === null || (int) $trackedProperty->agency_id !== (int) $agencyId, 404);
+
+        $data = $request->validate([
+            'source_type'                   => 'required|string|max:50',
+            'source_ref'                    => 'required|string|max:200',
+            'reason'                        => 'nullable|string|max:500',
+            'replacement_tracked_property_id' => 'nullable|integer',
+        ]);
+
+        try {
+            $result = $matcher->rejectMatch(
+                agencyId: $agencyId,
+                sourceType: $data['source_type'],
+                sourceRef: $data['source_ref'],
+                rejectedTrackedPropertyId: (int) $trackedProperty->id,
+                byUserId: (int) $user->id,
+                reason: $data['reason'] ?? null,
+                replacementTrackedPropertyId: isset($data['replacement_tracked_property_id']) ? (int) $data['replacement_tracked_property_id'] : null,
+            );
+        } catch (\DomainException $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        return redirect()->route('corex.deeds-capture.index')
+            ->with('success', 'Marked as not the same property. The deed now lives on its own record (tracked property #' . $result->id . ').');
     }
 
     /**

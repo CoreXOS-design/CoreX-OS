@@ -119,6 +119,17 @@
                         return (string) $val;
                     };
                     $deedsChanges = $fieldChangesByTp[$tp->id] ?? null;
+
+                    // CX-102 part 2 — the recorded match decision for this row, and
+                    // the (source_type, source_ref) pair the reject endpoint needs.
+                    // subject_key is "deeds_capture:{source_ref}" and source_ref can
+                    // itself contain a colon (e.g. "cmainfo:n0et..."), so split on
+                    // the FIRST colon only.
+                    $matchDecision = $matchDecisionByTp[$tp->id] ?? null;
+                    $matchDecisionSourceRef = null;
+                    if ($matchDecision) {
+                        $matchDecisionSourceRef = substr($matchDecision->subject_key, strlen($matchDecision->subject_type) + 1);
+                    }
                 @endphp
                 <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
                     <div class="flex flex-wrap items-start justify-between gap-4">
@@ -141,6 +152,61 @@
                                     </span>
                                 @endif
                             </div>
+
+                            {{-- CX-102 part 2 (2026-08-19, Johan) — "the system must show its
+                                 working and let the agent overrule it." The reason is read
+                                 straight off the decision recorded at match time, never
+                                 recomputed here. --}}
+                            @if($matchDecision)
+                                <div class="rounded p-2 mt-2 text-xs" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent); color: var(--text-secondary);">
+                                    <div>
+                                        <strong style="color: var(--text-primary);">Matched because:</strong>
+                                        {{ $matchDecision->reason }}
+                                    </div>
+                                    <details class="mt-1.5">
+                                        <summary class="cursor-pointer font-semibold" style="color: var(--ds-amber, #f59e0b);">
+                                            Not the same property?
+                                        </summary>
+                                        <form method="POST"
+                                              action="{{ route('corex.deeds-capture.reject-match', $tp->id) }}"
+                                              class="mt-2 space-y-2"
+                                              onsubmit="return confirm('Break this link? The deed will move to its own record (or the one you pick below) — nothing is deleted.');">
+                                            @csrf
+                                            <input type="hidden" name="source_type" value="{{ $matchDecision->subject_type }}">
+                                            <input type="hidden" name="source_ref" value="{{ $matchDecisionSourceRef }}">
+
+                                            @if(!empty($matchDecision->candidates) && count($matchDecision->candidates) > 1)
+                                                <div>
+                                                    <label class="block text-[11px] font-semibold mb-1" style="color: var(--text-muted);">
+                                                        More than one property was possible — pick the right one, or leave as "none of these" to give the deed its own record:
+                                                    </label>
+                                                    <select name="replacement_tracked_property_id" class="w-full rounded text-xs px-2 py-1.5" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                                        <option value="">None of these — this is a different, unlisted property</option>
+                                                        @foreach($matchDecision->candidates as $candidate)
+                                                            @if((int) $candidate['id'] !== (int) $tp->id)
+                                                                <option value="{{ $candidate['id'] }}">{{ $candidate['label'] }}</option>
+                                                            @endif
+                                                        @endforeach
+                                                    </select>
+                                                </div>
+                                            @endif
+
+                                            <div>
+                                                <label class="block text-[11px] font-semibold mb-1" style="color: var(--text-muted);">Why (optional):</label>
+                                                <input type="text" name="reason" maxlength="500" placeholder="e.g. different street number, wrong building"
+                                                       class="w-full rounded text-xs px-2 py-1.5" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                            </div>
+
+                                            <button type="submit"
+                                                    class="text-xs font-semibold px-3 py-1.5 rounded"
+                                                    style="background: color-mix(in srgb, var(--ds-crimson, #dc2626) 12%, transparent); color: var(--ds-crimson, #dc2626); border: 1px solid color-mix(in srgb, var(--ds-crimson, #dc2626) 35%, transparent);">
+                                                Not the same property
+                                            </button>
+                                        </form>
+                                    </details>
+                                </div>
+                            @endif
+
                             @if($secondaryAddr !== '')
                                 <div class="text-xs mt-1" style="color: var(--text-muted);">{{ $secondaryAddr }}</div>
                             @endif

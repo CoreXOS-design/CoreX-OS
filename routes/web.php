@@ -4261,6 +4261,11 @@ Route::middleware(['auth', 'permission:deeds_capture.access'])
         // Remove (soft delete, reversible) — wrong details / duplicates (2026-08-13).
         Route::post('/{trackedProperty}/dismiss', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'dismissProperty'])
             ->whereNumber('trackedProperty')->name('dismiss');
+        // "Not the same property" (CX-102 part 2, 2026-08-19) — an agent says a
+        // deed was matched to the wrong tracked property. Breaks the link,
+        // never touches either record's data. See TrackedPropertyMatchOrCreateService::rejectMatch().
+        Route::post('/{trackedProperty}/reject-match', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'rejectMatch'])
+            ->whereNumber('trackedProperty')->name('reject-match');
         Route::post('/tva/{tvaContactCapture}/dismiss', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'dismissTva'])
             ->whereNumber('tvaContactCapture')->name('tva.dismiss');
     });
