@@ -613,6 +613,9 @@ return [
         // ── Server Health Monitor (System Developer) — read-only live vitals ──
         ['key' => 'view_server_health',              'label' => 'View Server Health Monitor (live vitals)', 'section' => 'admin', 'type' => 'access', 'module' => 'monitoring', 'sort_order' => 1],
 
+        // ── Media Encryption at rest (AT-173) — moved from Compliance to Admin ──
+        ['key' => 'view_media_encryption_status',    'label' => 'View Media Encryption Status', 'section' => 'admin', 'type' => 'access', 'module' => 'security', 'sort_order' => 1],
+
         // ── Misfiled Documents register (AT-167) ──
         ['key' => 'access_misfiled_documents',       'label' => 'Access Misfiled Documents Register', 'section' => 'admin', 'type' => 'access', 'module' => 'filing', 'sort_order' => 5],
         ['key' => 'misfiled_documents.refile',       'label' => 'Refile Misfiled Documents',          'section' => 'admin', 'type' => 'action', 'module' => 'filing', 'sort_order' => 6],

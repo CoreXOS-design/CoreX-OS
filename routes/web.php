@@ -2172,11 +2172,6 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{submission}/linked-documents/{contactDocument}/view', [\App\Http\Controllers\Compliance\FicaController::class, 'viewLinkedDocument'])->name('linked-documents.view');
     });
 
-    // AT-173 — media-encryption status (admin visibility of encryption at rest).
-    Route::get('/compliance/media-encryption', [\App\Http\Controllers\Compliance\MediaEncryptionStatusController::class, 'index'])
-        ->middleware(['permission:access_compliance', 'agency.required'])
-        ->name('compliance.media-encryption.status');
-
     // ── Whistleblower Compliance Reporting ──
     Route::middleware(['agency.required', 'feature:compliance'])->prefix('compliance/whistleblow')->name('compliance.whistleblow.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'index'])->name('index')->middleware('permission:compliance.whistleblow.view');
@@ -2863,6 +2858,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/admin/system-health', [\App\Http\Controllers\Admin\ServerHealthController::class, 'index'])->name('admin.system-health.index');
         Route::get('/api/v1/system-health', [\App\Http\Controllers\Admin\ServerHealthController::class, 'data'])->name('api.v1.system-health');
     });
+
+    // AT-173 — media-encryption status (admin visibility of encryption at rest).
+    // Moved from Compliance to Admin — server-side encryption CONFIGURATION, the
+    // same category as Backups / Server Health / API above.
+    Route::get('/admin/media-encryption', [\App\Http\Controllers\Admin\MediaEncryptionStatusController::class, 'index'])
+        ->middleware(['permission:view_media_encryption_status', 'agency.required'])
+        ->name('admin.media-encryption.status');
 
     // ── Agency Billing (AT-11) — what agencies pay CoreX. Spec: .ai/specs/agency-billing.md
     //

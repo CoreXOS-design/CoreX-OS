@@ -1324,8 +1324,6 @@
                 </button>
                 <div class="corex-nav-panel-title">Compliance</div>
                 <a href="{{ route('compliance.fica.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.fica.*') ? 'active' : '' }}">FICA</a>
-                {{-- AT-173 — media encryption at rest status --}}
-                <a href="{{ route('compliance.media-encryption.status') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.media-encryption.*') ? 'active' : '' }}">Media Encryption</a>
                 @permission('access_rmcp')
                 <a href="{{ route('compliance.rmcp.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.rmcp.*') && !request()->routeIs('compliance.rmcp.dashboard.*') ? 'active' : '' }}">RMCP</a>
                 @endpermission
@@ -2089,6 +2087,11 @@
                 {{-- Server Health Monitor (live server vitals) --}}
                 @permission('view_server_health')
                 <a href="{{ route('admin.system-health.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.system-health.*') ? 'active' : '' }}">Server Health</a>
+                @endpermission
+
+                {{-- Media Encryption at rest (AT-173) — moved from Compliance --}}
+                @permission('view_media_encryption_status')
+                <a href="{{ route('admin.media-encryption.status') }}" class="corex-nav-subitem {{ request()->routeIs('admin.media-encryption.*') ? 'active' : '' }}">Media Encryption</a>
                 @endpermission
             </div>
         </div>
