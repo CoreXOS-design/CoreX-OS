@@ -738,20 +738,44 @@ final class DeedsCaptureController extends Controller
      * deleted_at, which the index() query's whereNull('deleted_at') then
      * excludes. Reversible by an admin (TrackedProperty::withTrashed()
      * ->find($id)->restore()); no in-app restore UI yet, not asked for.
+     *
+     * 2026-08-19 (Johan — found live-testing, blocked): this used to
+     * abort_if($trackedProperty->capture_kind !== 'deeds_capture', 404) —
+     * a genuine 404 for every "already tracked" row (capture_kind NULL,
+     * matched onto an existing MIC/prospecting lead), which is EXACTLY the
+     * category now on screen for every matched capture. Deleting the whole
+     * TrackedProperty for that category would be its own bug in the other
+     * direction — it has a life outside deeds capture (MIC/prospecting),
+     * so a hard soft-delete would wipe out a live lead just because the
+     * agent wanted this DEED off the list. Two real cases, two real
+     * behaviours, both matching the button's own promise ("no longer show
+     * here, but nothing is permanently deleted"):
+     *   - capture_kind === 'deeds_capture' (this TP exists only because of
+     *     this capture) -> soft-delete the TP, unchanged from before.
+     *   - anything else (matched onto an existing record) -> the record
+     *     stays; only deeds_captured_at is cleared, which is exactly what
+     *     scopeStillEligibleDeedsCapture() checks — the row drops off this
+     *     screen, the property/lead itself is untouched, and a fresh
+     *     capture (which unconditionally re-stamps deeds_captured_at, see
+     *     ingestOne()) makes it reappear as a capture to act on again.
      */
     public function dismissProperty(Request $request, TrackedProperty $trackedProperty)
     {
         $user = $request->user();
         $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
         abort_if((int) $trackedProperty->agency_id !== (int) $agencyId, 404);
-        abort_if($trackedProperty->capture_kind !== 'deeds_capture', 404);
 
         if ($trackedProperty->promoted_to_property_id) {
             return redirect()->route('corex.deeds-capture.index')
                 ->with('info', 'This capture was already promoted — nothing to remove.');
         }
 
-        $trackedProperty->delete();
+        if ($trackedProperty->capture_kind === 'deeds_capture') {
+            $trackedProperty->delete();
+        } else {
+            $trackedProperty->deeds_captured_at = null;
+            $trackedProperty->save();
+        }
 
         return redirect()->route('corex.deeds-capture.index')->with('success', 'Removed from the list.');
     }
