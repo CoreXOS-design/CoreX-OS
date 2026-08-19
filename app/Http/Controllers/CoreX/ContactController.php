@@ -234,6 +234,11 @@ class ContactController extends Controller
                     'address' => method_exists($pr, 'buildDisplayAddress') ? $pr->buildDisplayAddress() : ($pr->title ?? "Property #{$pr->id}"),
                     'event_date' => $ev->event_date,
                     'agent_name' => $agents->get($ev->user_id, 'Unknown'),
+                    // 2026-08-19 (Johan) — "same places feedback surfaces." A dismissed
+                    // appointment has no feedback row to show, but the reason it was
+                    // dismissed (buyer bought elsewhere, no-show, etc.) belongs here for
+                    // exactly the same reason feedback does — the next agent needs it.
+                    'dismissal_reason' => $ev->status === 'dismissed' ? $ev->dismissalReasonLabel() : null,
                     'feedback' => $fb ? [
                         // per-property-mode captures (feedback_kind=listing_presentation)
                         // never populate outcome_option_id — they store the outcome as a
@@ -315,6 +320,8 @@ class ContactController extends Controller
                         'event_date' => $sEv->event_date,
                         'agent_name' => $sAgents->get($sEv->user_id, 'Unknown'),
                         'buyer_label' => 'Interested Buyer',
+                        // See the buyer-perspective block above — same reasoning.
+                        'dismissal_reason' => $sEv->status === 'dismissed' ? $sEv->dismissalReasonLabel() : null,
                         'feedback' => $sFb ? [
                             // See the buyer-perspective block above — per-property
                             // captures store the outcome as a label string in

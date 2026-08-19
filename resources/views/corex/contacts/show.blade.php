@@ -1621,7 +1621,15 @@
                                     <div class="text-[10px]" style="color:var(--text-muted);">Agent: {{ $sv['agent_name'] }}</div>
                                 </div>
                             </div>
-                            @if($sv['feedback'] ?? null)
+                            @if($sv['dismissal_reason'] ?? null)
+                                {{-- 2026-08-19 (Johan) — same treatment as the buyer side
+                                     (_linked-events.blade.php): a dismissed appointment has
+                                     no feedback to show, but the reason it died belongs here. --}}
+                                <div class="mt-2 rounded px-3 py-2" style="background:var(--surface-2); border:1px solid var(--border);">
+                                    <span class="ds-badge ds-badge-default">Dismissed</span>
+                                    <p class="text-xs mt-1" style="color:var(--text-secondary);">{{ $sv['dismissal_reason'] }}</p>
+                                </div>
+                            @elseif($sv['feedback'] ?? null)
                                 <div class="mt-2 rounded px-3 py-2" style="background:var(--surface-2); border:1px solid var(--border);">
                                     @if($sv['feedback']['outcome_label'] ?? null)
                                         <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded-md" style="background:color-mix(in srgb, var(--ds-green, #059669) 15%, transparent); color:var(--ds-green, #059669);">{{ $sv['feedback']['outcome_label'] }}</span>

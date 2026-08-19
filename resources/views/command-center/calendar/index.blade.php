@@ -2258,6 +2258,18 @@
             </div>
         </template>
 
+        {{-- Dismissal reason — 2026-08-19 (Johan): "an agent must be able to see
+             why that appointment died." Surfaced right where an agent looks
+             first, same treatment as the Contact page's dismissal_reason
+             field (ContactController::show()) — both read the same
+             CalendarEvent::dismissalReasonLabel(). --}}
+        <template x-if="panelData.status === 'dismissed' && panelData.dismissal_reason_label">
+            <div class="px-5 py-3" style="border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--text-muted) 6%, transparent);">
+                <div class="text-[10px] font-semibold uppercase tracking-wider mb-1" style="color: var(--text-muted);">Dismissed</div>
+                <div class="text-xs" style="color: var(--text-secondary);" x-text="panelData.dismissal_reason_label"></div>
+            </div>
+        </template>
+
         {{-- Activity timeline --}}
         <template x-if="panelData.audit_log && panelData.audit_log.length > 0">
             <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
@@ -3839,7 +3851,7 @@ function calendarPage() {
         },
 
         formatAuditAction(entry) {
-            const labels = { created: 'Event created', rescheduled: 'Rescheduled', cancelled: 'Cancelled', completed: 'Marked complete', feedback_captured: 'Feedback captured', feedback_task_created: 'Auto-task created' };
+            const labels = { created: 'Event created', rescheduled: 'Rescheduled', cancelled: 'Cancelled', completed: 'Marked complete', dismissed: 'Dismissed', feedback_captured: 'Feedback captured', feedback_task_created: 'Auto-task created' };
             const base = labels[entry.action] || entry.action;
             return entry.by ? `${base} by ${entry.by}` : base;
         },

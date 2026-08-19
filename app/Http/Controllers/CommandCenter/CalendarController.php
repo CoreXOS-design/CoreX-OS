@@ -771,6 +771,10 @@ class CalendarController extends Controller
             'colour' => $colour, 'category' => $calendarEvent->category,
             'class_label' => $cfg?->label ?? $calendarEvent->category,
             'event_type' => $calendarEvent->event_type, 'status' => $calendarEvent->status,
+            // 2026-08-19 (Johan) — surfaced on the panel whenever the event was
+            // dismissed with a reason; the blade shows this near the Activity
+            // timeline when status === 'dismissed' and this is non-null.
+            'dismissal_reason_label' => $calendarEvent->dismissalReasonLabel(),
             'source_type' => $calendarEvent->source_type,
             'source_link' => $this->resolveSourceLink($calendarEvent),
             'linked_records' => $this->buildLinkedRecords($calendarEvent, $user),
@@ -1863,6 +1867,17 @@ class CalendarController extends Controller
 
     public function complete(Request $request, CalendarEvent $calendarEvent)
     {
+        // ITEM 4 gap fix, Johan 2026-08-19 — same isPrivateHiddenFrom() guard as
+        // show/update/destroy/reschedule: a non-creator may not complete someone
+        // else's private event. Unlike those four, admin/owner/super_admin MAY
+        // still act here — Johan's explicit call ("admin actions are still
+        // logged... so the audit will still show who did what") — because every
+        // branch below writes an unconditional CalendarEventAuditEntry naming
+        // performed_by_user_id, so the override is always attributable.
+        if ($calendarEvent->isPrivateHiddenFrom($request->user()) && !$this->canBypassPrivateEventGuard($request->user())) {
+            abort(403);
+        }
+
         // AT-335 — recurring scope: "this" completes only the clicked occurrence
         // (an exception child, series untouched); "all" completes the whole
         // series (today's previous behaviour, now reachable only as an explicit
@@ -1877,6 +1892,20 @@ class CalendarController extends Controller
             } else {
                 $svc->completeAll($calendarEvent);
             }
+            // 2026-08-19 (Johan) — "admin actions are still logged... so the
+            // audit will still show who did what." Audited against the PARENT
+            // id regardless of scope, same convention destroy()'s recurring
+            // branch already uses just above.
+            \App\Models\CommandCenter\CalendarEventAuditEntry::create([
+                'calendar_event_id'    => $calendarEvent->id,
+                'action'               => 'completed',
+                'old_values'           => ['recur_scope' => $scope, 'occurrence_date' => $occ],
+                'new_values'           => ['status' => 'completed'],
+                'performed_by_user_id' => $request->user()->id,
+                'performed_at'         => now(),
+                'notes'                => "Recurring event completed (scope: {$scope})",
+            ]);
+
             return $request->wantsJson()
                 ? response()->json(['ok' => true])
                 : back()->with('success', 'Event completed.');
@@ -1910,6 +1939,15 @@ class CalendarController extends Controller
 
         // Default: mark calendar event complete directly (non-deal events)
         $calendarEvent->markCompleted();
+
+        \App\Models\CommandCenter\CalendarEventAuditEntry::create([
+            'calendar_event_id'    => $calendarEvent->id,
+            'action'               => 'completed',
+            'new_values'           => ['status' => 'completed'],
+            'performed_by_user_id' => $request->user()->id,
+            'performed_at'         => now(),
+        ]);
+
         return $request->wantsJson()
             ? response()->json(['ok' => true])
             : back()->with('success', 'Event completed.');
@@ -1917,6 +1955,24 @@ class CalendarController extends Controller
 
     public function dismiss(Request $request, CalendarEvent $calendarEvent)
     {
+        // ITEM 4 gap fix, Johan 2026-08-19 — same guard as complete() above: a
+        // non-creator may not dismiss someone else's private event; admin/owner/
+        // super_admin may, because it is unconditionally audited below.
+        if ($calendarEvent->isPrivateHiddenFrom($request->user()) && !$this->canBypassPrivateEventGuard($request->user())) {
+            abort(403);
+        }
+
+        // 2026-08-19 (Johan) — the reason picker (index.blade.php's
+        // submitReasonPicker()) already sends these two fields for EVERY
+        // dismiss — the picker requires a code to be chosen before it will
+        // submit. Previously read by nothing; captured then thrown away.
+        // Deliberately NOT named completion_reason_code/completion_reason on
+        // the calendar_events row — those exact names already exist on
+        // calendar_event_class_settings and mean a different, unrelated
+        // thing (a per-class config field, unused by this flow).
+        $reasonCode  = $request->input('completion_reason_code');
+        $reasonNotes = $request->input('completion_reason');
+
         // AT-335 — same this/all recurring-scope gate as complete() above; dismiss
         // shares the identical gap (no scope prompt) and the identical fix shape.
         $scope = $request->input('recur_scope');
@@ -1924,17 +1980,52 @@ class CalendarController extends Controller
         if ($calendarEvent->is_recurring && in_array($scope, ['this', 'all'], true)) {
             $svc = app(\App\Services\CommandCenter\Calendar\RecurrenceEditService::class);
             if ($scope === 'this' && $occ) {
-                $svc->dismissOccurrence($calendarEvent, $occ, $request->user());
+                $svc->dismissOccurrence($calendarEvent, $occ, $request->user(), $reasonCode, $reasonNotes);
             } else {
-                $svc->dismissAll($calendarEvent);
+                $svc->dismissAll($calendarEvent, $reasonCode, $reasonNotes);
             }
+
+            \App\Models\CommandCenter\CalendarEventAuditEntry::create([
+                'calendar_event_id'    => $calendarEvent->id,
+                'action'               => 'dismissed',
+                'old_values'           => ['recur_scope' => $scope, 'occurrence_date' => $occ],
+                'new_values'           => ['status' => 'dismissed', 'dismissal_reason_code' => $reasonCode, 'dismissal_reason_notes' => $reasonNotes],
+                'performed_by_user_id' => $request->user()->id,
+                'performed_at'         => now(),
+                'notes'                => "Recurring event dismissed (scope: {$scope})",
+            ]);
+
             return $request->wantsJson()
                 ? response()->json(['ok' => true])
                 : back()->with('success', 'Event dismissed.');
         }
 
-        $calendarEvent->markDismissed();
+        $calendarEvent->markDismissed($reasonCode, $reasonNotes);
+
+        \App\Models\CommandCenter\CalendarEventAuditEntry::create([
+            'calendar_event_id'    => $calendarEvent->id,
+            'action'               => 'dismissed',
+            'new_values'           => ['status' => 'dismissed', 'dismissal_reason_code' => $reasonCode, 'dismissal_reason_notes' => $reasonNotes],
+            'performed_by_user_id' => $request->user()->id,
+            'performed_at'         => now(),
+        ]);
+
         return back()->with('success', 'Event dismissed.');
+    }
+
+    /**
+     * ITEM 4 gap fix, Johan 2026-08-19 — the only role set allowed to complete
+     * or dismiss another user's private event. Same role list as
+     * sharedViewData()'s $isBypass (class-visibility bypass): super_admin,
+     * admin, owner. This is narrower than isPrivateHiddenFrom(), which is
+     * deliberately role-blind for VIEWING detail (show()) — this bypass only
+     * ever gates the complete/dismiss action, never detail visibility, and is
+     * only safe because both actions write an unconditional, attributed
+     * CalendarEventAuditEntry.
+     */
+    private function canBypassPrivateEventGuard($user): bool
+    {
+        return $user && in_array($user->role ?? null, ['super_admin', 'admin', 'owner'], true);
     }
 
     // ── Private helpers ──

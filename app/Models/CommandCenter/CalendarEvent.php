@@ -58,6 +58,7 @@ class CalendarEvent extends Model
         'property_id', 'contact_id', 'branch_id', 'agency_id',
         'reminder_offsets', 'reminder_channels', 'reminders_sent',
         'is_recurring', 'recurrence_rule', 'parent_event_id',
+        'dismissal_reason_code', 'dismissal_reason_notes',
         'metadata',
         'created_by_ai', 'ai_source', 'ai_transcript',
     ];
@@ -295,9 +296,47 @@ class CalendarEvent extends Model
         $this->update(['status' => 'completed']);
     }
 
-    public function markDismissed(): void
+    /**
+     * 2026-08-19 (Johan) — reason params are optional and PRESERVE any
+     * existing reason when omitted (never blank one out to null), so the
+     * mobile API's reason-less dismiss path (CommandCenterApiController::
+     * calendarDismiss(), which has no reason-picker UI and never will in
+     * this change) can never silently wipe a reason a web user already
+     * recorded.
+     */
+    /**
+     * 2026-08-19 (Johan) — human-readable dismissal reason, shared by the
+     * event panel and the Contact page (same-places-as-feedback requirement)
+     * so the two surfaces can never drift onto different wording. The reason
+     * codes are the same small hardcoded option lists the reason-picker
+     * modal already offers (index.blade.php's getReasonOptions(), branched
+     * by actor_role) — not DB-driven, so there is nothing to join against.
+     * dismissal_reason_notes already carries a readable value in the normal
+     * case (the client sends reasonPickerNotes if the agent typed one for
+     * "Other", else the raw code itself) — headline-case the code only when
+     * notes is empty or is literally the untouched code.
+     */
+    public function dismissalReasonLabel(): ?string
     {
-        $this->update(['status' => 'dismissed']);
+        if (!$this->dismissal_reason_code) {
+            return null;
+        }
+        $notes = trim((string) ($this->dismissal_reason_notes ?? ''));
+        if ($notes !== '' && $notes !== $this->dismissal_reason_code) {
+            return $notes;
+        }
+
+        return \Illuminate\Support\Str::headline($this->dismissal_reason_code);
+    }
+
+    public function markDismissed(?string $reasonCode = null, ?string $reasonNotes = null): void
+    {
+        $data = ['status' => 'dismissed'];
+        if ($reasonCode !== null) {
+            $data['dismissal_reason_code'] = $reasonCode;
+            $data['dismissal_reason_notes'] = $reasonNotes;
+        }
+        $this->update($data);
     }
 
     // ── Private event redaction (view-time; ITEM 4) ──────────────────────────
