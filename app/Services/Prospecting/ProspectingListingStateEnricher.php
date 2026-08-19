@@ -265,6 +265,7 @@ final class ProspectingListingStateEnricher
                 // promoted claim must never return to the pool.
                 'property_id' => $r->property_id !== null ? (int) $r->property_id : null,
                 'is_promoted' => $r->property_id !== null || $r->tracked_property_promoted_id !== null,
+                'tracked_property_promoted_id' => $r->tracked_property_promoted_id !== null ? (int) $r->tracked_property_promoted_id : null,
             ];
 
             foreach (array_keys($targets) as $listingKey) {
