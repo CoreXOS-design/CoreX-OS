@@ -161,6 +161,12 @@ final class ProspectingListingStateEnricher
         $rows = DB::table('prospecting_claims as c')
             ->leftJoin('users as u', 'u.id', '=', 'c.user_id')
             ->leftJoin('prospecting_listings as cl', 'cl.id', '=', 'c.prospecting_listing_id')
+            // Authoritative promoted-state source (2026-08-19 incident) — c.property_id
+            // is only backfilled by the Pitch-Now promotion path and is NULL for claims
+            // promoted via Deeds Capture. tracked_properties.promoted_to_property_id is
+            // written by BOTH promotion paths (single Match-or-Create entry point), so
+            // it — not c.property_id — is what is_promoted must key on.
+            ->leftJoin('tracked_properties as ctp', 'ctp.id', '=', 'cl.tracked_property_id')
             ->where('c.agency_id', $agencyId)
             ->where('c.is_active', true)
             ->whereNull('c.released_at')
@@ -185,7 +191,8 @@ final class ProspectingListingStateEnricher
                 'c.last_updated_at',
                 'c.feedback_at',
                 'c.flagged_at',
-                'u.name as claimer_name'
+                'u.name as claimer_name',
+                'ctp.promoted_to_property_id as tracked_property_promoted_id'
             )
             ->orderByDesc('c.claimed_at')
             ->get();
@@ -250,11 +257,14 @@ final class ProspectingListingStateEnricher
                 'is_expiring' => $hoursLeft !== null && $hoursLeft < 1,
                 'needs_reminder' => $needsReminder,
                 'needs_bm_flag' => $needsBmFlag,
-                // Mirrors ProspectingClaim::isPromoted() — property_id is only backfilled
-                // once the listing has actually been promoted to a Property row. Drives the
-                // release/close-out guard: a promoted claim must never return to the pool.
+                // Mirrors ProspectingClaim::isPromoted() — c.property_id is only backfilled
+                // on the Pitch-Now promotion path; tracked_properties.promoted_to_property_id
+                // is written by every promotion path, so it — not property_id alone — decides
+                // is_promoted (2026-08-19: property_id-only was NULL for 94 real promoted
+                // claims). Drives the release/close-out guard and button visibility: a
+                // promoted claim must never return to the pool.
                 'property_id' => $r->property_id !== null ? (int) $r->property_id : null,
-                'is_promoted' => $r->property_id !== null,
+                'is_promoted' => $r->property_id !== null || $r->tracked_property_promoted_id !== null,
             ];
 
             foreach (array_keys($targets) as $listingKey) {
