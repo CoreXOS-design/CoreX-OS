@@ -2460,6 +2460,27 @@ class CalendarController extends Controller
             foreach ($result as $event) {
                 $event->user_invitation_status = $invitationStatuses[$event->id] ?? null;
             }
+
+            // 2026-08-19 (Johan) — organiser name for the grid-tile marker: two
+            // identically-styled tiles side by side (own appointment vs an invitation
+            // that now correctly reaches this list) were indistinguishable until
+            // clicked. Batched — one query for every organiser on the page, not
+            // per-row — and only for events the viewer was actually invited to
+            // (organizer_name left unset for the viewer's own events, which is also
+            // how the blade decides whether to render the marker at all).
+            $organizerIds = $result
+                ->filter(fn ($e) => isset($invitationStatuses[$e->id]))
+                ->pluck('user_id')->filter()->unique()->values()->all();
+            if (!empty($organizerIds)) {
+                $organizerNames = \App\Models\User::withoutGlobalScopes()
+                    ->whereIn('id', $organizerIds)
+                    ->pluck('name', 'id');
+                foreach ($result as $event) {
+                    if (isset($invitationStatuses[$event->id])) {
+                        $event->organizer_name = $organizerNames[$event->user_id] ?? null;
+                    }
+                }
+            }
         }
 
         // AT-335 — the $event->has_conflict sweep that used to live here was removed:
