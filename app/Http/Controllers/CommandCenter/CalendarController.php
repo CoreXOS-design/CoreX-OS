@@ -1110,7 +1110,13 @@ class CalendarController extends Controller
                     'date'  => $calendarEvent->event_date->format('D, j M Y H:i'),
                 ],
                 'feedback_mode' => 'per_property',
-                'feedback_kind' => 'listing_presentation',
+                // CX-103 (Johan, 2026-08-19) — per_property grouping now also
+                // covers viewing (multi-stop trips), not just listing
+                // presentations. This was hardcoded to 'listing_presentation'
+                // for both, which is what made the buyer-pipeline feedback
+                // modal treat every viewing's feedback as a listing-
+                // presentation dead-end. Reflect the real class instead.
+                'feedback_kind' => $calendarEvent->category === 'viewing' ? 'viewing' : 'listing_presentation',
                 'items' => $properties->map(fn ($p) => [
                     'property_id'    => $p->id,
                     'label'          => method_exists($p, 'buildDisplayAddress') ? $p->buildDisplayAddress() : ($p->title ?? "Property #{$p->id}"),
