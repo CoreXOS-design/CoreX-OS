@@ -206,8 +206,46 @@ final class TrackedPropertyMatchOrCreateService
             $decisionService = app(PropertyMatchDecisionService::class);
             $subjectKey = $sourceType . ':' . $sourceRef;
 
+            $rejectedTp = TrackedProperty::queryWithoutAgencyScope()
+                ->where('agency_id', $agencyId)
+                ->findOrFail($rejectedTrackedPropertyId);
+
             $decision = $decisionService->current($agencyId, 'deeds_capture', $subjectKey);
-            if ($decision === null || (int) $decision->matched_id !== $rejectedTrackedPropertyId || $decision->isRejected()) {
+
+            // 2026-08-19 fix — a capture matched before this feature existed has no
+            // recorded decision at all (Johan's own flagship example, tracked
+            // property #468, is exactly this: matched in an earlier session,
+            // nothing to read back). Without this, "Not the same property" would
+            // be a dead button on precisely the row that motivated building it.
+            // Backfill a minimal decision from the TP's own source_chain (proof
+            // this capture genuinely landed here, not a forged pairing) rather
+            // than refuse to let the agent reject something real just because
+            // the reason was never captured.
+            if ($decision === null) {
+                $matchingEntry = collect($rejectedTp->source_chain ?? [])
+                    ->last(fn ($entry) => ($entry['type'] ?? null) === $sourceType && ($entry['ref'] ?? null) === $sourceRef);
+                if ($matchingEntry === null) {
+                    throw new \DomainException(
+                        "This capture ({$subjectKey}) has no record of ever matching tracked property #{$rejectedTrackedPropertyId} — nothing to reject."
+                    );
+                }
+                // Reconstruct what this capture originally contributed from the TP's
+                // OWN current field values, keyed by exactly the field names that
+                // entry's own fields_contributed lists — the closest honest
+                // approximation available when no incoming_facts snapshot exists
+                // (this capture ran before that snapshot was ever taken).
+                $reconstructedFacts = [];
+                foreach (($matchingEntry['fields_contributed'] ?? []) as $field) {
+                    if (isset($rejectedTp->{$field})) {
+                        $reconstructedFacts[$field] = $rejectedTp->{$field};
+                    }
+                }
+                $decision = $decisionService->record(
+                    $agencyId, 'deeds_capture', $subjectKey, 'tracked_property', $rejectedTrackedPropertyId,
+                    'unrecorded', 'Matched automatically, before this screen recorded why.',
+                    incomingFacts: $reconstructedFacts ?: null,
+                );
+            } elseif ((int) $decision->matched_id !== $rejectedTrackedPropertyId || $decision->isRejected()) {
                 throw new \DomainException(
                     "No live match decision found for deeds_capture {$subjectKey} against tracked property #{$rejectedTrackedPropertyId} — nothing to reject (already rejected, or the match has since changed)."
                 );
@@ -216,9 +254,6 @@ final class TrackedPropertyMatchOrCreateService
             $source = ['type' => $sourceType, 'ref' => $sourceRef];
             $incomingFacts = $decision->incoming_facts ?? [];
 
-            $rejectedTp = TrackedProperty::queryWithoutAgencyScope()
-                ->where('agency_id', $agencyId)
-                ->findOrFail($rejectedTrackedPropertyId);
             $this->markSourceChainEntryDisputed($rejectedTp, $source, $byUserId);
 
             if ($replacementTrackedPropertyId !== null) {
