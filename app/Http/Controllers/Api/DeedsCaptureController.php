@@ -409,7 +409,13 @@ final class DeedsCaptureController extends Controller
 
             $firstCurrent = collect($persistedOwners)
                 ->first(fn (TrackedPropertyOwner $o) => $o->ownership_status === TrackedPropertyOwner::OWNERSHIP_CURRENT);
-            if ($firstCurrent) {
+            // Same discard bug, same fix, as reconcileOwners() below — a match
+            // onto a TP that already has a DIFFERENT owner on file must never
+            // have owner_contact_id blindly overwritten. The parsed owner is
+            // still persisted above (captureOwnershipHistory() -> persist()),
+            // never thrown away — just not auto-promoted to the pointer field
+            // when it disagrees with what's already there.
+            if ($firstCurrent && ($tp->owner_contact_id === null || (int) $tp->owner_contact_id === (int) $firstCurrent->contact_id)) {
                 $tp->update(['owner_contact_id' => $firstCurrent->contact_id]);
             }
             $ownerContactId = $firstCurrent->contact_id ?? null;
