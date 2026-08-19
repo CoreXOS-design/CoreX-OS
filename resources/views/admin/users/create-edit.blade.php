@@ -9,6 +9,15 @@
     $designList  = $designations ?? collect();
     $roleList    = $roles ?? collect();
 
+    // AT-378 follow-up — a brand-new agency's only branch should be the
+    // obvious default for every agent invited into it, not a blank "(no
+    // branch)" the admin has to remember to change. Only applies to NEW
+    // users with no branch already picked (old() input wins on validation
+    // redisplay) — an existing user's branch is never silently changed.
+    $defaultBranchId = (!$isEdit && $branchList->count() === 1)
+        ? (string) $branchList->first()->id
+        : '';
+
     $nameParts = $isEdit ? explode(' ', $user->name, 2) : [];
     $firstName = old('name', $nameParts[0] ?? '');
     $surname   = old('surname', $nameParts[1] ?? '');
@@ -88,6 +97,7 @@
           autocomplete="off">
         @csrf
         @if($isEdit) @method('PUT') @endif
+        <input type="hidden" name="active_tab" :value="activeTab">
 
         {{-- Hidden honeypot to absorb browser autofill --}}
         <input type="text" name="_autocomplete_trap" style="display:none;" tabindex="-1" autocomplete="username">
@@ -257,7 +267,7 @@
                                 style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                             <option value="">(no branch)</option>
                             @foreach($branchList as $b)
-                            <option value="{{ $b->id }}" {{ (string) old('branch_id', $isEdit ? $user->branch_id : '') === (string) $b->id ? 'selected' : '' }}>{{ $b->name }}</option>
+                            <option value="{{ $b->id }}" {{ (string) old('branch_id', $isEdit ? $user->branch_id : $defaultBranchId) === (string) $b->id ? 'selected' : '' }}>{{ $b->name }}</option>
                             @endforeach
                         </select>
                     </div>
@@ -591,7 +601,7 @@
                         @if($isEdit && $user->profilePhotoUrl())
                         <button type="button" class="text-[11px] font-medium mt-2 px-2 py-1 rounded-md transition-colors"
                                 style="color:var(--ds-crimson); background:color-mix(in srgb, var(--ds-crimson) 10%, transparent);"
-                                onclick="if(confirm('Remove agent photo?')){let f=document.createElement('form');f.method='POST';f.action='{{ route('admin.users.remove-file', $user) }}';f.innerHTML='<input type=hidden name=_token value='+document.querySelector('meta[name=csrf-token]').getAttribute('content')+'><input name=field value=agent_photo>';document.body.appendChild(f);f.submit();}">Remove current photo</button>
+                                onclick="if(confirm('Remove agent photo?')){let f=document.createElement('form');f.method='POST';f.action='{{ route('admin.users.remove-file', $user) }}';f.innerHTML='<input type=hidden name=_token value='+document.querySelector('meta[name=csrf-token]').getAttribute('content')+'><input name=field value=agent_photo><input type=hidden name=active_tab value=compliance>';document.body.appendChild(f);f.submit();}">Remove current photo</button>
                         @endif
                     </div>
                     {{-- FFC Certificate --}}
@@ -603,13 +613,13 @@
                         @if($isEdit && $user->ffc_certificate_path)
                         <div class="flex items-center gap-3 mb-3 p-2.5 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
                             <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color:var(--brand-icon, #0ea5e9);"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
-                            <a href="{{ asset('storage/'.$user->ffc_certificate_path) }}" target="_blank"
+                            <a href="{{ route('admin.users.ffc-certificate.download', $user) }}" target="_blank"
                                class="text-xs flex-1 truncate" style="color:var(--brand-icon, #0ea5e9);">
                                 {{ basename($user->ffc_certificate_path) }}
                             </a>
                             <button type="button" class="text-xs font-medium px-2 py-1 rounded-md transition-colors"
                                     style="color:var(--ds-crimson); background:color-mix(in srgb, var(--ds-crimson) 10%, transparent);"
-                                    onclick="if(confirm('Remove FFC certificate?')){let f=document.createElement('form');f.method='POST';f.action='{{ route('admin.users.remove-file', $user) }}';f.innerHTML=document.querySelector('meta[name=csrf-token]').content?'<input type=hidden name=_token value='+document.querySelector('meta[name=csrf-token]').getAttribute('content')+'><input name=field value=ffc_certificate>':'';;document.body.appendChild(f);f.submit();}">Remove</button>
+                                    onclick="if(confirm('Remove FFC certificate?')){let f=document.createElement('form');f.method='POST';f.action='{{ route('admin.users.remove-file', $user) }}';f.innerHTML=document.querySelector('meta[name=csrf-token]').content?'<input type=hidden name=_token value='+document.querySelector('meta[name=csrf-token]').getAttribute('content')+'><input name=field value=ffc_certificate><input type=hidden name=active_tab value=compliance>':'';;document.body.appendChild(f);f.submit();}">Remove</button>
                         </div>
                         @endif
                         <input type="file" name="ffc_certificate" accept=".pdf,.jpg,.jpeg,.png"
@@ -755,6 +765,7 @@
                 <p class="text-xs mb-3" style="color:var(--text-muted);">This user has not yet set up their password. You can resend the invitation email.</p>
                 <form method="POST" action="{{ route('admin.users.resend-invite', $user) }}">
                     @csrf
+                    <input type="hidden" name="active_tab" value="actions">
                     <button type="submit"
                             class="px-4 py-2 rounded-md text-sm font-medium transition-colors"
                             style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); color:var(--ds-amber, #f59e0b); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent);">
@@ -848,6 +859,7 @@
                                         </button>
                                         <form method="POST" action="{{ route('admin.users.toggle', $user) }}">
                                             @csrf
+                                            <input type="hidden" name="active_tab" value="actions">
                                             <button type="submit" class="corex-btn-primary text-xs"
                                                     style="background: var(--ds-crimson); border-color: var(--ds-crimson);">
                                                 Deactivate
@@ -860,6 +872,7 @@
                     @else
                         <form method="POST" action="{{ route('admin.users.toggle', $user) }}" class="inline">
                             @csrf
+                            <input type="hidden" name="active_tab" value="actions">
                             <button type="submit"
                                     class="px-4 py-2 rounded-md text-sm font-medium transition-colors w-full sm:w-auto"
                                     style="background:color-mix(in srgb, var(--ds-green, #059669) 10%, transparent); color:var(--ds-green, #059669); border:1px solid color-mix(in srgb, var(--ds-green, #059669) 25%, transparent);">

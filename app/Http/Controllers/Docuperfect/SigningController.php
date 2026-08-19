@@ -784,20 +784,41 @@ class SigningController extends Controller
     {
         $agency = null;
 
-        // Try to get agency from the creator's agency_id
-        $creator = $signingRequest->template->creator ?? null;
-        if ($creator && $creator->agency_id) {
-            $agency = Agency::find($creator->agency_id);
+        // Prefer the underlying document's own agency_id — the authoritative
+        // tenant owner of the record being signed (App\Models\Docuperfect\Document
+        // uses BelongsToAgency as of 2026_08_23_000004_add_agency_id_to_docuperfect_
+        // documents_table.php). Unlike the creator's *current* agency_id, this
+        // does not drift if the creating user is later moved to another
+        // agency, so it is the more reliable signal for an external,
+        // unauthenticated signing page.
+        $document = $signingRequest->template->document ?? null;
+        if ($document && $document->agency_id) {
+            $agency = Agency::find($document->agency_id);
         }
 
-        // Fallback to first agency
+        // Fall back to the template creator's agency_id.
         if (!$agency) {
-            $agency = Agency::first();
+            $creator = $signingRequest->template->creator ?? null;
+            if ($creator && $creator->agency_id) {
+                $agency = Agency::find($creator->agency_id);
+            }
+        }
+
+        // Absolute last resort: a GENERIC, non-tenant-specific platform
+        // default — never Agency::first(), which would leak an arbitrary
+        // real tenant's name/logo/colour onto an external, unauthenticated
+        // "signing already completed" page.
+        if (!$agency) {
+            return [
+                'name' => config('app.name', 'CoreX OS'),
+                'logo' => null,
+                'color' => '#0b2a4a',
+            ];
         }
 
         return [
-            'name' => $agency->name ?? 'Home Finders Coastal',
-            'logo' => $agency && $agency->logo_path ? asset('storage/' . $agency->logo_path) : null,
+            'name' => $agency->name ?? config('app.name', 'CoreX OS'),
+            'logo' => $agency->logo_path ? asset('storage/' . $agency->logo_path) : null,
             'color' => $agency->default_color ?? $agency->button_color ?? '#0b2a4a',
         ];
     }

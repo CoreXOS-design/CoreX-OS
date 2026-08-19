@@ -127,6 +127,9 @@
                         : null,
                     ['key'=>'leave-visibility',      'label'=>'Leave Visibility',      'type'=>'section', 'keywords'=>'leave calendar matrix roles branch'],
                     $can('compliance.whistleblow.configure') ? ['key'=>'whistleblow-settings', 'label'=>'Compliance Reporting', 'type'=>'section', 'keywords'=>'whistleblower ppra approver complaints'] : null,
+                    ($u && $u->hasFeature('proforma-invoices') && $can('proforma.manage'))
+                        ? ['key'=>'proforma-settings', 'label'=>'Proforma Invoices', 'type'=>'link', 'href'=>route('admin.proforma-settings'), 'keywords'=>'accounting invoice numbering vat bank details terms']
+                        : null,
                 ])),
             ],
             [
@@ -264,7 +267,7 @@
                             <input type="text" name="vat_no" value="{{ old('vat_no', $agency->vat_no) }}"
                                    class="w-full rounded-md px-3 py-2 text-sm"
                                    style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
-                                   placeholder="e.g. 4870264498">
+                                   placeholder="e.g. 4123456789">
                         </div>
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">FFC No</label>

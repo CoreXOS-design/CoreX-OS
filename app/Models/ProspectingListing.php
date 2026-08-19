@@ -123,6 +123,36 @@ class ProspectingListing extends Model
         return $query->whereIn('portal_status', self::OFF_MARKET_STATUSES);
     }
 
+    /**
+     * AT-380 — role-driven visibility scope for the Market Intelligence
+     * canvassing pool. Honours the per-role Data Scope set in Role Manager
+     * (market_intelligence.view → own | branch | all | none). Agency
+     * isolation is already applied by BelongsToAgency, so this only narrows
+     * within the current agency.
+     *
+     *   own    → listings captured by this user
+     *   branch → listings captured by anyone in the user's branch. A user
+     *            with NO single branch_id legitimately spans every branch
+     *            (branches.view_all) — for them "branch" IS "all", so no
+     *            extra narrowing; a genuinely unassigned user falls back to
+     *            'own' (mirrors CalendarEvent::scopeVisibleTo()).
+     *   all    → no extra narrowing (whole agency)
+     *   none   → nothing (no access)
+     */
+    public function scopeVisibleTo($query, User $user, ?string $scope)
+    {
+        return match ($scope) {
+            'all'    => $query,
+            'branch' => $user->effectiveBranchId()
+                ? $query->where('branch_id', $user->effectiveBranchId())
+                : ($user->hasPermission('branches.view_all')
+                    ? $query
+                    : $query->where('captured_by_user_id', $user->id)),
+            'none'   => $query->whereRaw('1 = 0'),
+            default  => $query->where('captured_by_user_id', $user->id), // 'own' or null
+        };
+    }
+
     public function agency()
     {
         return $this->belongsTo(Agency::class);

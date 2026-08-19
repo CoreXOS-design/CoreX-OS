@@ -238,7 +238,10 @@ class RmcpAcknowledgementController extends Controller
             $decoded = base64_decode($imageData);
             $filename = "{$user->id}-v{$version->version_number}-" . now()->format('Ymd-His') . '.png';
             $path = "rmcp/{$ack->agency_id}/acknowledgements/{$filename}";
-            Storage::disk('public')->put($path, $decoded);
+            // AT-security fix: drawn signatures used to be written to the PUBLIC disk and served via
+            // a raw, unauthenticated asset('storage/...') URL, bypassing receipt()'s ownership check
+            // entirely. Written to the private 'local' disk now; see downloadSignature() below.
+            Storage::disk('local')->put($path, $decoded);
             $signaturePath = $path;
         } elseif ($validated['signature_type'] === 'typed') {
             $signaturePath = 'typed:' . $validated['typed_name'];
@@ -270,6 +273,32 @@ class RmcpAcknowledgementController extends Controller
     }
 
     /**
+     * Stream the drawn signature image inline, behind the SAME ownership check as receipt().
+     *
+     * AT-security fix: signatures used to be stored on the PUBLIC disk and served via a raw,
+     * unauthenticated asset('storage/...') URL — completely bypassing receipt()'s auth check.
+     * New uploads land on the private 'local' disk; a 'public' disk fallback covers any legacy
+     * rows written before this fix (there is no 'disk' column on this table to record which
+     * disk a row used — same approach as AgencyDocumentsViewerController::download()).
+     */
+    public function downloadSignature(RmcpAcknowledgement $ack)
+    {
+        abort_unless($ack->user_id === Auth::id() || Auth::user()->isOwnerRole(), 403);
+
+        abort_unless(
+            $ack->signature_type === 'drawn'
+            && $ack->signature_path
+            && ! str_starts_with($ack->signature_path, 'typed:'),
+            404
+        );
+
+        $disk = Storage::disk('local')->exists($ack->signature_path) ? 'local' : 'public';
+        abort_unless(Storage::disk($disk)->exists($ack->signature_path), 404, 'Signature file is missing from storage.');
+
+        return Storage::disk($disk)->response($ack->signature_path, null, ['Content-Type' => 'image/png']);
+    }
+
+    /**
      * Download receipt as Puppeteer-generated PDF.
      */
     public function downloadReceipt(RmcpAcknowledgement $ack)
@@ -278,14 +307,19 @@ class RmcpAcknowledgementController extends Controller
         abort_unless(
             $ack->user_id === $user->id
             || $user->isOwnerRole()
-            || $user->isComplianceOfficer()
+            || $user->isComplianceOfficer((int) $ack->agency_id)
             || $user->hasPermission('manage_compliance'),
             403
         );
 
         $ack->load(['version', 'sectionAcknowledgements.section', 'user']);
 
-        $html = view('compliance.rmcp-ack.receipt-print', compact('ack'))->render();
+        // Puppeteer renders this HTML from a local temp file (file://), with no app session/auth
+        // cookies attached — a gated <img src="route(...)"> would 403 there. Embed the signature
+        // as a data URI instead so the PDF stays fully self-contained.
+        $signatureDataUri = $this->signatureDataUri($ack);
+
+        $html = view('compliance.rmcp-ack.receipt-print', compact('ack', 'signatureDataUri'))->render();
 
         $pdfPath = $this->generateReceiptPdf($html, $ack->id);
 
@@ -404,6 +438,24 @@ class RmcpAcknowledgementController extends Controller
     }
 
     // ── Helpers ──
+
+    /**
+     * Base64 data URI for a drawn signature, for embedding into the self-contained PDF HTML
+     * (see downloadReceipt() above). Returns null for typed signatures or a missing file.
+     */
+    private function signatureDataUri(RmcpAcknowledgement $ack): ?string
+    {
+        if ($ack->signature_type !== 'drawn' || !$ack->signature_path || str_starts_with($ack->signature_path, 'typed:')) {
+            return null;
+        }
+
+        $disk = Storage::disk('local')->exists($ack->signature_path) ? 'local' : 'public';
+        if (! Storage::disk($disk)->exists($ack->signature_path)) {
+            return null;
+        }
+
+        return 'data:image/png;base64,' . base64_encode(Storage::disk($disk)->get($ack->signature_path));
+    }
 
     private function currentAck($user): ?RmcpAcknowledgement
     {

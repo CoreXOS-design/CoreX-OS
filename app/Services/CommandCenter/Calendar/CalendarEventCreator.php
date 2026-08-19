@@ -172,12 +172,29 @@ class CalendarEventCreator
         // user column would re-introduce the AT-241 wrong-agency stamp.
         $agencyId = $event->agency_id !== null ? (int) $event->agency_id : null;
 
+        // SECURITY — defensive same-agency check. The authoritative guard is
+        // the request validation in CalendarController::store()/update()
+        // (Rule::exists()->where('agency_id', ...) / attendeeExistsRule()),
+        // but this method is reachable from anywhere (and its own callers may
+        // one day skip that layer), so re-verify here too rather than trust
+        // property_ids/contact_ids/attendees blindly — a raw id becomes
+        // linkable_id in calendar_event_links, and for type===agent an
+        // invitation + notification fires against that User. A genuinely
+        // agency-less event ($agencyId === null, see NULL note above) has no
+        // agency to check against, so the guard is skipped in that case only.
+
         // Multi-property support: use property_ids[] if available, else single property_id
         $propertyIds = $data['_resolved_property_ids'] ?? ($data['property_ids'] ?? []);
         if (empty($propertyIds) && !empty($data['property_id'])) {
             $propertyIds = [$data['property_id']];
         }
         foreach ($propertyIds as $pid) {
+            if ($agencyId !== null && !Property::withoutGlobalScopes()->where('id', (int) $pid)->where('agency_id', $agencyId)->exists()) {
+                \Illuminate\Support\Facades\Log::warning('syncEventLinks: skipped cross-agency property link', [
+                    'event_id' => $event->id, 'property_id' => $pid, 'event_agency_id' => $agencyId,
+                ]);
+                continue;
+            }
             $links[] = [
                 'agency_id'          => $agencyId,
                 'calendar_event_id'  => $event->id,
@@ -220,6 +237,19 @@ class CalendarEventCreator
                 $id = $attendee;
                 $role = $defaultRole;
             }
+
+            if ($agencyId !== null) {
+                $belongs = $type === \App\Models\User::class
+                    ? \App\Models\User::withoutGlobalScopes()->where('id', $id)->where('agency_id', $agencyId)->exists()
+                    : Contact::withoutGlobalScopes()->where('id', $id)->where('agency_id', $agencyId)->exists();
+                if (!$belongs) {
+                    \Illuminate\Support\Facades\Log::warning('syncEventLinks: skipped cross-agency attendee link', [
+                        'event_id' => $event->id, 'linkable_type' => $type, 'linkable_id' => $id, 'event_agency_id' => $agencyId,
+                    ]);
+                    continue;
+                }
+            }
+
             $links[] = [
                 'agency_id'          => $agencyId,
                 'calendar_event_id'  => $event->id,

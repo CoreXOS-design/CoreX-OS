@@ -7,11 +7,12 @@ use App\Models\Contact;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Models\Concerns\BelongsToAgency;
 use App\Models\Concerns\BelongsToBranch;
 
 class Document extends Model
 {
-    use BelongsToBranch, SoftDeletes;
+    use BelongsToAgency, BelongsToBranch, SoftDeletes;
 
     protected $table = 'docuperfect_documents';
 
@@ -20,6 +21,7 @@ class Document extends Model
         'template_id',
         'fields_json',
         'owner_id',
+        'agency_id',
         'branch_id',
         'pack_instance_id',
         'archived_at',

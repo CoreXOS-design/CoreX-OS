@@ -162,8 +162,10 @@ class LeaveReportController extends Controller
         $dateFrom = $request->query('from', now()->startOfMonth()->toDateString());
         $dateTo = $request->query('to', now()->endOfMonth()->toDateString());
         $txnType = $request->query('txn_type');
+        $agencyId = auth()->user()?->effectiveAgencyId();
 
         $query = LeaveTransaction::withoutGlobalScopes()
+            ->where('agency_id', $agencyId)
             ->with('user', 'leaveType', 'createdBy')
             ->whereBetween('effective_date', [$dateFrom, $dateTo])
             ->orderByDesc('created_at');

@@ -17,7 +17,12 @@ class CommandCentreService
 {
     public function assembleForUser(User $user): array
     {
-        $cacheKey = "command_centre_{$user->id}";
+        // AT-253: effectiveAgencyId() is session-dependent for owner-role users
+        // (session('active_agency_id')). Resolve it BEFORE building the cache key
+        // so an owner who switches agency within the 300s TTL gets a fresh cache
+        // entry for the new agency instead of the previous agency's cached cards.
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
+        $cacheKey = "command_centre_{$user->id}_{$agencyId}";
         return Cache::remember($cacheKey, 300, function () use ($user) {
             $cards = $this->getAgentCards($user);
 
@@ -508,7 +513,7 @@ class CommandCentreService
         $empty = ['card_id' => 'fica_ro_approvals', 'title' => 'RO Approvals', 'icon' => 'shield-check',
             'urgency' => 'high', 'count' => 0, 'items' => [], 'view_all_url' => '/corex/compliance/fica?tab=ro_queue'];
 
-        if (! $user->isComplianceOfficer()) {
+        if (! $user->isComplianceOfficer($agencyId)) {
             return $empty; // only appointed reviewers (RO/CO) see the review pool
         }
 

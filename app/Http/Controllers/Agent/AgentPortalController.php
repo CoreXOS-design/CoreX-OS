@@ -363,10 +363,13 @@ class AgentPortalController extends Controller
         // .ai/specs/agent-photo.md. Other document types store as-is.
         if ($isPhoto) {
             app(AgentProfilePhotoService::class)->set($user, $file);
-            return back()->with('success', 'Photo uploaded.');
+            return back()->withFragment('profile')->with('success', 'Photo uploaded.');
         }
 
-        $path = $file->store('agent-docs/' . $user->id, 'public');
+        // Private disk — these are sensitive compliance/identity docs (FFC/ID/PI/tax).
+        // Access goes through UserDocumentDownloadController::download(), which
+        // enforces the owner/agency-admin gate before streaming.
+        $path = $file->store('agent-docs/' . $user->id, 'local');
 
         // Create UserDocument record (source of truth)
         UserDocument::create([
@@ -394,7 +397,7 @@ class AgentPortalController extends Controller
             $user->update($updates);
         }
 
-        return back()->with('success', 'Document uploaded — pending verification.');
+        return back()->withFragment('documents')->with('success', 'Document uploaded — pending verification.');
     }
 
     /**
@@ -416,7 +419,7 @@ class AgentPortalController extends Controller
 
         $fileName = 'id-copy-' . now()->format('Ymd-His') . '.pdf';
         $path     = 'agent-docs/' . $user->id . '/' . \Illuminate\Support\Str::random(20) . '.pdf';
-        \Storage::disk('public')->put($path, $pdfBinary);
+        \Storage::disk('local')->put($path, $pdfBinary);
 
         UserDocument::create([
             'user_id'       => $user->id,
@@ -432,7 +435,7 @@ class AgentPortalController extends Controller
             'uploaded_by'   => $user->id,
         ]);
 
-        return back()->with('success', 'ID copy uploaded — pending verification.');
+        return back()->withFragment('documents')->with('success', 'ID copy uploaded — pending verification.');
     }
 
     // ══════════════════════════════════════════════════════════════

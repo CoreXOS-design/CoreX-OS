@@ -270,13 +270,24 @@ class DocumentFilingController extends Controller
             ? Property::withoutGlobalScopes()->find($validated['property_id'])
             : null;
 
+        // withoutGlobalScopes() above deliberately bypasses the agency scope so the
+        // filing register's property picker can still resolve a cross-tenant id for
+        // display purposes. But that means a foreign agency's property could hand its
+        // branch_id/agent_id straight into this (correctly-scoped) register row. Only
+        // trust those derived values when the property actually belongs to the acting
+        // user's own agency; otherwise fall through to the existing/user fallbacks
+        // exactly as if no property were linked.
+        $propertyAgencyMatches = $property
+            && $property->agency_id
+            && $property->agency_id === $user?->effectiveAgencyId();
+
         $branchId = ($validated['branch_id'] ?? null)
-            ?: $property?->branch_id
+            ?: ($propertyAgencyMatches ? $property?->branch_id : null)
             ?: $existing?->branch_id
             ?: $user?->effectiveBranchId();
 
         $agentId = ($validated['agent_id'] ?? null)
-            ?: $property?->agent_id
+            ?: ($propertyAgencyMatches ? $property?->agent_id : null)
             ?: $existing?->agent_id
             ?: $user?->id;
 

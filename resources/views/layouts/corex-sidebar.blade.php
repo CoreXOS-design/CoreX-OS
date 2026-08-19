@@ -111,7 +111,7 @@
     // ── Active group detection (ONE mechanism: routeIs) ──
     $activeGroup = null;
     if (request()->routeIs(
-        'worksheet.*', 'agent.listings*', 'rentals.*',
+        'worksheet.*', 'rentals.*',
         'agent.dashboard', 'agent.daily*', 'agent.deals.*',
         'bm.performance*', 'bm.daily*', 'bm.listings*', 'bm.my.dashboard',
         'bm.worksheet.market*', 'bm.tv-messages*', 'bm.agent.performance*',
@@ -1056,17 +1056,6 @@
                 <a href="{{ route('worksheet.index') }}" class="corex-nav-subitem {{ request()->routeIs('worksheet.*') ? 'active' : '' }}">Worksheet</a>
                 @endpermission
 
-                @permission('view_listings')
-                <a href="{{ route('agent.listings') }}" class="corex-nav-subitem {{ request()->routeIs('agent.listings*') ? 'active' : '' }}">My Listing Stock</a>
-                @endpermission
-
-                {{-- Proforma Invoice list — own/branch/all scoped via proforma.view (Role Manager) --}}
-                @feature('proforma-invoices')
-                @permission('proforma.view')
-                <a href="{{ route('proforma.index') }}" class="corex-nav-subitem {{ request()->routeIs('proforma.index') ? 'active' : '' }}">Proforma Invoices</a>
-                @endpermission
-                @endfeature
-
                 {{-- Agent section (view own stats) --}}
                 @permission('view_own_stats')
                 <div class="corex-nav-sublabel">My Performance</div>
@@ -1335,8 +1324,6 @@
                 </button>
                 <div class="corex-nav-panel-title">Compliance</div>
                 <a href="{{ route('compliance.fica.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.fica.*') ? 'active' : '' }}">FICA</a>
-                {{-- AT-173 — media encryption at rest status --}}
-                <a href="{{ route('compliance.media-encryption.status') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.media-encryption.*') ? 'active' : '' }}">Media Encryption</a>
                 @permission('access_rmcp')
                 <a href="{{ route('compliance.rmcp.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.rmcp.*') && !request()->routeIs('compliance.rmcp.dashboard.*') ? 'active' : '' }}">RMCP</a>
                 @endpermission
@@ -1713,11 +1700,12 @@
         <div class="corex-nav-section-label">Admin</div>
 
         {{-- Company (slide-panel group) — agency-level configuration and people admin --}}
-        {{-- `billing.view` and `assistants.view` are in this gate because the Company GROUP is only
-             rendered when the user holds at least one of its children's permissions — without them, a
-             role granted only billing.view (or only assistants.view) would have the whole group hidden
-             and could never reach Billing / Assistants. --}}
-        @if($user && $user->hasAnyPermission(['manage_performance_settings', 'access_role_manager', 'assistants.view', 'access_soft_deletes', 'manage_staff_take_on', 'billing.view']))
+        {{-- `billing.view`, `assistants.view` and `proforma.view` are in this gate because the Company
+             GROUP is only rendered when the user holds at least one of its children's permissions —
+             without them, a role granted only billing.view (or only assistants.view, or only
+             proforma.view) would have the whole group hidden and could never reach Billing /
+             Assistants / Proforma Invoices. --}}
+        @if($user && $user->hasAnyPermission(['manage_performance_settings', 'access_role_manager', 'assistants.view', 'access_soft_deletes', 'manage_staff_take_on', 'billing.view', 'proforma.view']))
         <div>
             <button type="button" @click="push('company')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'company' ? 'active' : '' }}">
@@ -1762,6 +1750,14 @@
                 <a href="{{ route('billing.index') }}" class="corex-nav-subitem {{ request()->routeIs('billing.*') ? 'active' : '' }}">Billing</a>
                 @endpermission
 
+                {{-- Proforma Invoice list — moved here from Agency Tracker. Still
+                     scoped own/branch/all via proforma.view (Role Manager). --}}
+                @feature('proforma-invoices')
+                @permission('proforma.view')
+                <a href="{{ route('proforma.index') }}" class="corex-nav-subitem {{ request()->routeIs('proforma.index') ? 'active' : '' }}">Proforma Invoices</a>
+                @endpermission
+                @endfeature
+
                 @permission('access_role_manager')
                 <a href="{{ route('corex.role-manager') }}" class="corex-nav-subitem {{ request()->routeIs('corex.role-manager*') ? 'active' : '' }}">Role Manager</a>
                 @endpermission
@@ -1787,18 +1783,6 @@
             </div>
         </div>
         @endif
-
-        {{-- Proforma Invoices settings (Accounting pillar) --}}
-        @feature('proforma-invoices')
-        @permission('proforma.manage')
-        <a href="{{ route('admin.proforma-settings') }}" class="corex-nav-item {{ request()->routeIs('admin.proforma-settings*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 3h6m2 6H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414a1 1 0 0 1 .293.707V19a2 2 0 0 1-2 2Z" />
-            </svg>
-            <span>Proforma Invoices</span>
-        </a>
-        @endpermission
-        @endfeature
 
         {{-- Knowledge Base --}}
         @feature('knowledge-base')
@@ -2104,6 +2088,11 @@
                 @permission('view_server_health')
                 <a href="{{ route('admin.system-health.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.system-health.*') ? 'active' : '' }}">Server Health</a>
                 @endpermission
+
+                {{-- Media Encryption at rest (AT-173) — moved from Compliance --}}
+                @permission('view_media_encryption_status')
+                <a href="{{ route('admin.media-encryption.status') }}" class="corex-nav-subitem {{ request()->routeIs('admin.media-encryption.*') ? 'active' : '' }}">Media Encryption</a>
+                @endpermission
             </div>
         </div>
 
@@ -2187,7 +2176,12 @@
         </a>
 
 {{-- Feedback Reports --}}
-        @php $feedbackCount = DB::table('feedback_reports')->where('agency_id', auth()->user()->effectiveAgencyId() ?? 1)->where('status', 'new')->count(); @endphp
+        @php
+            $sidebarAgencyId = auth()->user()?->effectiveAgencyId();
+            $feedbackCount = $sidebarAgencyId
+                ? DB::table('feedback_reports')->where('agency_id', $sidebarAgencyId)->where('status', 'new')->count()
+                : 0;
+        @endphp
         <a href="{{ route('command-center.feedback-reports') }}" class="corex-nav-item {{ request()->routeIs('command-center.feedback-reports*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 0 1 1.037-.443 48.282 48.282 0 0 0 5.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" /></svg>
             <span>Feedback Reports</span>

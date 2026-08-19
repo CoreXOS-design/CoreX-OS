@@ -121,9 +121,9 @@
                        style="background: var(--surface-2); border: 1px solid var(--border);">
                     <input type="checkbox" name="mark_compliant_on_confirm" value="1" checked class="mt-0.5">
                     <span class="text-xs" style="color: var(--text-secondary);">
-                        <span class="font-semibold" style="color: var(--text-primary);">Mark all imported properties as compliant</span>
+                        <span class="font-semibold" style="color: var(--text-primary);">Mark active imported properties as compliant</span>
                         <span class="block mt-0.5" style="color: var(--text-muted);">
-                            Use for agency go-live migrations only — pre-existing P24 stock is treated as already compliant so it can be marketed immediately on CoreX. Leave unticked for fresh imports that still need to pass FICA / mandate / photo gates.
+                            Use for agency go-live migrations only — pre-existing P24 stock with a status of Active is treated as already compliant so it can be marketed immediately on CoreX. Withdrawn, Sold, Rented, and any other non-Active status are always imported as records only, never auto-marked compliant, regardless of this toggle. Leave unticked entirely for fresh imports that still need to pass FICA / mandate / photo gates.
                         </span>
                     </span>
                 </label>

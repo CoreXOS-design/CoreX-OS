@@ -15,6 +15,7 @@ use App\Services\DealV2\DealDocumentService;
 use App\Services\DealV2\DealPipelineService;
 use App\Services\PermissionService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class DealV2Controller extends Controller
 {
@@ -263,6 +264,11 @@ class DealV2Controller extends Controller
     {
         abort_unless($this->canCapture(auth()->user()), 403);
 
+        // SECURITY (Bug 1a) — plain exists:users,id lets a cross-tenant user id
+        // be attached to the commission pivot; scope every agent-id rule to the
+        // capturer's own agency (same idiom as AgencyComplianceSettingsController).
+        $agencyId = auth()->user()->effectiveAgencyId();
+
         $data = $request->validate([
             'property_id' => ['required', 'exists:properties,id'],
             'deal_type' => ['required', 'in:bond,cash,sale_of_2nd'],
@@ -297,13 +303,13 @@ class DealV2Controller extends Controller
             'selling_external_agency' => ['nullable', 'string', 'max:255'],
             // Accept both formats: wizard JSON (agents[].side) or form (listing_agents[])
             'agents' => ['nullable', 'array'],
-            'agents.*.user_id' => ['nullable', 'exists:users,id'],
+            'agents.*.user_id' => ['nullable', Rule::exists('users', 'id')->where('agency_id', $agencyId)],
             'agents.*.side' => ['nullable', 'in:listing,selling'],
             'agents.*.split_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'listing_agents' => ['nullable', 'array'],
-            'listing_agents.*' => ['exists:users,id'],
+            'listing_agents.*' => [Rule::exists('users', 'id')->where('agency_id', $agencyId)],
             'selling_agents' => ['nullable', 'array'],
-            'selling_agents.*' => ['exists:users,id'],
+            'selling_agents.*' => [Rule::exists('users', 'id')->where('agency_id', $agencyId)],
             'listing_override' => ['nullable', 'array'],
             'selling_override' => ['nullable', 'array'],
             'step_overrides' => ['nullable', 'array'],
@@ -630,6 +636,11 @@ class DealV2Controller extends Controller
 
         $locked = $deal->isFinanciallyLocked();
 
+        // SECURITY (Bug 1a) — same agency-scoped exists idiom as store(); the
+        // re-attach block below previously read *_agents straight off the raw
+        // request with zero validation.
+        $agencyId = auth()->user()->effectiveAgencyId();
+
         $rules = [
             'notes' => ['nullable', 'string'],
             'contacts' => ['nullable', 'array'],
@@ -651,6 +662,12 @@ class DealV2Controller extends Controller
                 'selling_our_share_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
                 'selling_external_agency' => ['nullable', 'string', 'max:255'],
                 'offer_date' => ['required', 'date'],
+                'listing_agents' => ['nullable', 'array'],
+                'listing_agents.*' => [Rule::exists('users', 'id')->where('agency_id', $agencyId)],
+                'selling_agents' => ['nullable', 'array'],
+                'selling_agents.*' => [Rule::exists('users', 'id')->where('agency_id', $agencyId)],
+                'listing_override' => ['nullable', 'array'],
+                'selling_override' => ['nullable', 'array'],
             ]);
         }
 
@@ -707,8 +724,11 @@ class DealV2Controller extends Controller
                     continue;
                 }
 
-                $agentIds = $request->input($side . '_agents', []);
-                $overrides = $request->input($side . '_override', []);
+                // SECURITY (Bug 1a) — use the validated (agency-scoped) $data, not
+                // the raw request, so a foreign-agency user id can no longer be
+                // attached to the commission pivot.
+                $agentIds = $data[$side . '_agents'] ?? [];
+                $overrides = $data[$side . '_override'] ?? [];
 
                 if (empty($agentIds)) {
                     continue;

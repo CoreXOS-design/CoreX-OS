@@ -15,7 +15,12 @@
     </div>
 
     {{-- Summary cards --}}
-    @php $recovered = DB::table('buyer_lost_records')->where('agency_id', auth()->user()->effectiveAgencyId() ?? 1)->where('recorded_at', '>=', now()->subDays($days))->whereNotNull('recovered_at')->count(); @endphp
+    @php
+        $lostDealsAgencyId = auth()->user()?->effectiveAgencyId();
+        $recovered = $lostDealsAgencyId
+            ? DB::table('buyer_lost_records')->where('agency_id', $lostDealsAgencyId)->where('recorded_at', '>=', now()->subDays($days))->whereNotNull('recovered_at')->count()
+            : 0;
+    @endphp
     @php $recoveryRate = $valueData['count'] > 0 ? round($recovered / $valueData['count'] * 100) : 0; @endphp
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div class="rounded-md p-4 text-center" style="background: var(--surface); border: 1px solid var(--border);">

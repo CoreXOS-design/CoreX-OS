@@ -5,11 +5,13 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Models\Concerns\BelongsToAgency;
 use Carbon\Carbon;
 
 class P24Listing extends Model
 {
     use SoftDeletes;
+    use BelongsToAgency;
 
     protected $table = 'p24_listings';
 

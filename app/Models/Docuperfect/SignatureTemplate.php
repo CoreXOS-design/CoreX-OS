@@ -86,6 +86,18 @@ class SignatureTemplate extends Model
         return $this->belongsTo(Document::class, 'document_id');
     }
 
+    /**
+     * Derived (not a real column): signature_templates has a NOT NULL
+     * document_id FK, so every template has exactly one parent Document —
+     * agency_id is resolved via that relation (single lazy/eager load)
+     * rather than duplicating and re-backfilling the column here. See
+     * 2026_08_23_000004_add_agency_id_to_docuperfect_documents_table.php.
+     */
+    public function getAgencyIdAttribute(): ?int
+    {
+        return $this->document?->agency_id;
+    }
+
     public function creator()
     {
         return $this->belongsTo(User::class, 'created_by');

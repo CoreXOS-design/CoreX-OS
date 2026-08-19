@@ -91,6 +91,60 @@ final class VisibilityScopeTest extends TestCase
         $this->assertNotContains('Branch2 event', $eventTitles);
     }
 
+    public function test_all_branches_admin_with_no_single_branch_sees_everything_on_branch_pill(): void
+    {
+        // An admin/principal with `branches.view_all` legitimately has no single
+        // branch_id — they span every branch. Explicitly selecting the "Branch"
+        // pill (scope narrower than their 'all' ceiling) must NOT silently
+        // collapse to "own events only"; their "branch" IS every branch.
+        [$agencyId, $b1, $b2] = $this->seedAgency(twoBranches: true);
+
+        DB::table('role_permissions')->insert([
+            ['role' => 'admin', 'permission_key' => 'command_center.calendar.view', 'scope' => 'all', 'agency_id' => $agencyId, 'created_at' => now(), 'updated_at' => now()],
+            ['role' => 'admin', 'permission_key' => 'branches.view_all', 'scope' => null, 'agency_id' => $agencyId, 'created_at' => now(), 'updated_at' => now()],
+        ]);
+
+        $admin   = User::factory()->create(['agency_id' => $agencyId, 'branch_id' => null, 'role' => 'admin']);
+        $agentB1 = $this->makeUser($agencyId, $b1, 'agent');
+        $agentB2 = $this->makeUser($agencyId, $b2, 'agent');
+
+        $this->makeEvent($agencyId, $b1, $agentB1->id, 'Branch1 event');
+        $this->makeEvent($agencyId, $b2, $agentB2->id, 'Branch2 event');
+
+        $scope = PermissionService::clampScope('branch', PermissionService::calendarScope($admin));
+        $this->assertSame('branch', $scope);
+
+        $eventTitles = (new CalendarEventService())
+            ->getEventsForRange($admin, now()->subDay()->toDateString(), now()->addDay()->toDateString(), [], $scope)
+            ->pluck('title')->all();
+
+        $this->assertContains('Branch1 event', $eventTitles);
+        $this->assertContains('Branch2 event', $eventTitles);
+    }
+
+    public function test_branchless_user_without_view_all_still_falls_back_to_own(): void
+    {
+        // Regression guard: a genuinely mis-assigned branch-less user (no
+        // branches.view_all grant) must keep the safe 'own' fallback — only
+        // the branches.view_all carve-out above should widen the branch scope.
+        [$agencyId, $b1] = $this->seedAgency();
+
+        DB::table('role_permissions')->insert([
+            ['role' => 'agent', 'permission_key' => 'command_center.calendar.view', 'scope' => 'branch', 'agency_id' => $agencyId, 'created_at' => now(), 'updated_at' => now()],
+        ]);
+
+        $orphan  = User::factory()->create(['agency_id' => $agencyId, 'branch_id' => null, 'role' => 'agent']);
+        $agentB1 = $this->makeUser($agencyId, $b1, 'agent');
+
+        $this->makeEvent($agencyId, $b1, $orphan->id, 'Own event');
+        $this->makeEvent($agencyId, $b1, $agentB1->id, 'Other event');
+
+        $eventTitles = $this->eventTitles($orphan);
+
+        $this->assertContains('Own event', $eventTitles);
+        $this->assertNotContains('Other event', $eventTitles);
+    }
+
     public function test_clamp_scope_never_widens_beyond_ceiling(): void
     {
         $this->assertSame('own', PermissionService::clampScope('all', 'own'));

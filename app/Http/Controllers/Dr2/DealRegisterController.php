@@ -21,6 +21,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 /**
@@ -234,9 +235,10 @@ class DealRegisterController extends Controller
         // the save returns snappy, the rollup still runs the same request cycle (no queue
         // worker needed). Nothing is failing/retrying — it was just heavy work run inline.
         $dealPeriod = (string) ($deal->period ?? '');
+        $dealAgencyId = (int) $deal->agency_id;
         if ($dealPeriod && preg_match('/^\d{4}-\d{2}$/', $dealPeriod)) {
-            dispatch(function () use ($dealPeriod) {
-                (new RollupService())->refreshPeriod($dealPeriod);
+            dispatch(function () use ($dealPeriod, $dealAgencyId) {
+                (new RollupService())->refreshPeriod($dealPeriod, $dealAgencyId);
             })->afterResponse();
         }
 
@@ -425,6 +427,15 @@ class DealRegisterController extends Controller
     {
         $oldAcceptedStatus = (string) ($deal->accepted_status ?? '');
 
+        // SECURITY (Bug 3) — plain exists:agency_service_providers,id /
+        // exists:agency_service_provider_contacts,id let a cross-agency provider
+        // id be persisted here; Dr2DistributionComposer later resolves it with
+        // withoutGlobalScopes() (on the assumption it was already agency-checked)
+        // and uses its name/email/phone as an "attorney"/"bond originator"
+        // recipient on the AT-228 party-send flow. Scope both to the acting
+        // user's own agency.
+        $agencyId = (int) ($request->user()?->effectiveAgencyId() ?? 0);
+
         $data = $request->validate([
             'period'           => ['required'],
             'deal_date'        => ['required', 'date'],
@@ -452,10 +463,10 @@ class DealRegisterController extends Controller
             'buyer_contact_ids'  => ['nullable', 'string', 'max:500'],
             'attorney_name'    => ['nullable', 'string', 'max:255'],
             // (fix 2) attorney = firm + contact person; the deal links both.
-            'attorney_provider_id' => ['nullable', 'integer', 'exists:agency_service_providers,id'],
-            'attorney_contact_id'  => ['nullable', 'integer', 'exists:agency_service_provider_contacts,id'],
-            'bond_originator_provider_id' => ['nullable', 'integer', 'exists:agency_service_providers,id'],
-            'bond_originator_contact_id'  => ['nullable', 'integer', 'exists:agency_service_provider_contacts,id'],
+            'attorney_provider_id' => ['nullable', 'integer', Rule::exists('agency_service_providers', 'id')->where('agency_id', $agencyId)],
+            'attorney_contact_id'  => ['nullable', 'integer', Rule::exists('agency_service_provider_contacts', 'id')->where('agency_id', $agencyId)],
+            'bond_originator_provider_id' => ['nullable', 'integer', Rule::exists('agency_service_providers', 'id')->where('agency_id', $agencyId)],
+            'bond_originator_contact_id'  => ['nullable', 'integer', Rule::exists('agency_service_provider_contacts', 'id')->where('agency_id', $agencyId)],
             'accepted_status'  => ['nullable', 'string', 'max:1'],
             'commission_status' => ['nullable', 'string', 'max:50'],
             'registration_date' => ['nullable', 'date'],
@@ -707,7 +718,7 @@ class DealRegisterController extends Controller
         $dealPeriod = (string) ($deal->period ?? '');
         if ($dealPeriod && preg_match('/^\d{4}-\d{2}$/', $dealPeriod)) {
             try {
-                (new RollupService())->refreshPeriod($dealPeriod);
+                (new RollupService())->refreshPeriod($dealPeriod, (int) $deal->agency_id);
             } catch (\Throwable $e) {
                 \Log::error('DR2 RollupService failed', ['deal_id' => $deal->id, 'period' => $dealPeriod, 'error' => $e->getMessage()]);
             }

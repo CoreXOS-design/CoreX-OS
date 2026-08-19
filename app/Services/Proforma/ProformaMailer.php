@@ -31,7 +31,7 @@ class ProformaMailer
 
         $agencyName = Agency::withoutGlobalScopes()->find($invoice->agency_id)?->trading_name
             ?? Agency::withoutGlobalScopes()->find($invoice->agency_id)?->name
-            ?? 'Home Finders Coastal';
+            ?? 'Agency';
 
         try {
             Mail::to($to)->send(new ProformaInvoiceMail($invoice, $pdfBytes, $pdfFilename, $agencyName));

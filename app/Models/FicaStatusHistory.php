@@ -78,7 +78,7 @@ class FicaStatusHistory extends Model
         if ($actor->isPrimaryComplianceOfficer($agencyId)) {
             return FicaOfficerAppointment::ROLE_PRIMARY; // 'primary_compliance_officer'
         }
-        if ($actor->isMlro()) {
+        if ($actor->isMlro($agencyId)) {
             return FicaOfficerAppointment::ROLE_MLRO;    // 'mlro'
         }
         if (method_exists($actor, 'isOwnerRole') && $actor->isOwnerRole()) {

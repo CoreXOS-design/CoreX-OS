@@ -2,14 +2,17 @@
 
 namespace App\Models\Rental;
 
+use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class RentalProperty extends Model
 {
     use SoftDeletes;
+    use BelongsToAgency;
 
     protected $fillable = [
+        'agency_id',
         'address_line_1',
         'address_line_2',
         'suburb',

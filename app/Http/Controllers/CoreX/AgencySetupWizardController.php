@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Agency;
 use App\Models\AgencyOnboardingSetup;
 use App\Models\PerformanceSetting;
+use App\Models\Proforma\AgencyProformaSettings;
+use App\Models\Prospecting\Town;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -88,6 +90,13 @@ class AgencySetupWizardController extends Controller
         'contact_source' => ['step' => 'contacts', 'model' => \App\Models\ContactSource::class, 'label' => 'Contact sources', 'placeholder' => 'e.g. Walk-in'],
         'contact_identifier_label' => ['step' => 'contacts', 'model' => \App\Models\ContactIdentifierLabel::class, 'label' => 'Contact labels', 'placeholder' => 'e.g. Personal'],
         'branch'         => ['step' => 'branches', 'label' => 'Branches', 'placeholder' => 'e.g. Seabreeze Bay'],
+        // Market Intelligence / Prospecting Setup — mirrors the settings.prospecting
+        // page's own collections, delegating to the SAME canonical CRUD controllers.
+        'mic_town'            => ['step' => 'market_intelligence', 'label' => 'Towns', 'placeholder' => 'e.g. Margate'],
+        'mic_suburb'          => ['step' => 'market_intelligence', 'label' => 'Suburbs', 'placeholder' => 'e.g. Uvongo'],
+        'mic_property_type'   => ['step' => 'market_intelligence', 'label' => 'Property types', 'placeholder' => 'e.g. Vacant Land'],
+        'mic_bedroom_segment' => ['step' => 'market_intelligence', 'label' => 'Bedroom segments', 'placeholder' => 'e.g. 3 Bed'],
+        'mic_price_band'      => ['step' => 'market_intelligence', 'label' => 'Price bands', 'placeholder' => 'e.g. Entry Level'],
     ];
 
     private function stepData(string $step, Agency $agency): array
@@ -138,6 +147,24 @@ class AgencySetupWizardController extends Controller
                     ->whereIn('role', ['admin', 'branch_manager', 'agent'])
                     ->orderBy('name')->get(['id', 'name', 'email']),
             ],
+            // Same reads settings.prospecting.index itself uses (SettingsController)
+            // — the wizard step shows exactly what that page would.
+            'market_intelligence' => (function () use ($agency) {
+                $config = app(\App\Services\Prospecting\ProspectingConfigurationService::class);
+                $config->clearCache($agency->id);
+
+                return [
+                    'micTowns' => Town::withoutGlobalScopes()
+                        ->where('agency_id', $agency->id)
+                        ->orderBy('display_order')->orderBy('name')
+                        ->with(['suburbs' => fn ($q) => $q->withoutGlobalScopes()->orderBy('suburb_name')])
+                        ->get(),
+                    'micPropertyTypes'    => $config->propertyTypes($agency->id, activeOnly: false),
+                    'micBedroomSegments'  => $config->bedroomSegments($agency->id),
+                    'micPriceBandsSale'   => $config->priceBandsFor($agency->id, 'sale'),
+                    'micPriceBandsRental' => $config->priceBandsFor($agency->id, 'rental'),
+                ];
+            })(),
             default => [],
         };
     }
@@ -202,6 +229,18 @@ class AgencySetupWizardController extends Controller
                 app(\App\Http\Controllers\CoreX\ContactIdentifierLabelController::class)->store($request);
             } elseif ($collection === 'branch') {
                 app(\App\Http\Controllers\Admin\BranchAssignmentController::class)->createBranch($request);
+            } elseif ($collection === 'mic_town') {
+                app(\App\Http\Controllers\Settings\Prospecting\TownsController::class)->store($request);
+            } elseif ($collection === 'mic_suburb') {
+                // Nested under a town — the aux_partial posts town_id per suburb-add form.
+                $town = Town::findOrFail($request->input('town_id'));
+                app(\App\Http\Controllers\Settings\Prospecting\SuburbsController::class)->store($request, $town);
+            } elseif ($collection === 'mic_property_type') {
+                app(\App\Http\Controllers\Settings\Prospecting\PropertyTypesController::class)->store($request);
+            } elseif ($collection === 'mic_bedroom_segment') {
+                app(\App\Http\Controllers\Settings\Prospecting\BedroomSegmentsController::class)->store($request);
+            } elseif ($collection === 'mic_price_band') {
+                app(\App\Http\Controllers\Settings\Prospecting\PriceBandsController::class)->store($request);
             }
         } catch (ValidationException $e) {
             throw $e;
@@ -235,6 +274,21 @@ class AgencySetupWizardController extends Controller
                 // swallowed. It flashes to session immediately, so it survives
                 // our own redirect below.
                 app(\App\Http\Controllers\Admin\BranchAssignmentController::class)->deleteBranch($request, $branch);
+            } elseif ($collection === 'mic_town') {
+                $town = Town::findOrFail($id);
+                app(\App\Http\Controllers\Settings\Prospecting\TownsController::class)->archive($request, $town);
+            } elseif ($collection === 'mic_suburb') {
+                $suburb = \App\Models\Prospecting\TownSuburb::findOrFail($id);
+                app(\App\Http\Controllers\Settings\Prospecting\SuburbsController::class)->archive($request, $suburb);
+            } elseif ($collection === 'mic_property_type') {
+                $type = \App\Models\Prospecting\PropertyTypeOption::findOrFail($id);
+                app(\App\Http\Controllers\Settings\Prospecting\PropertyTypesController::class)->archive($request, $type);
+            } elseif ($collection === 'mic_bedroom_segment') {
+                $segment = \App\Models\Prospecting\BedroomSegment::findOrFail($id);
+                app(\App\Http\Controllers\Settings\Prospecting\BedroomSegmentsController::class)->archive($request, $segment);
+            } elseif ($collection === 'mic_price_band') {
+                $band = \App\Models\Prospecting\PriceBand::findOrFail($id);
+                app(\App\Http\Controllers\Settings\Prospecting\PriceBandsController::class)->archive($request, $band);
             }
         } catch (HttpException $e) {
             if (!in_array($e->getStatusCode(), [403, 404], true)) {
@@ -374,6 +428,7 @@ class AgencySetupWizardController extends Controller
                 // DR2 Wave 2 — Deal → Property → Portal sync settings live on their
                 // own singleton row (agency_deal_sync_settings), not on Agency.
                 'deal_sync' => \App\Models\AgencyDealSyncSettings::forAgency($agency->id)->{$key} ?? ($control['default'] ?? null),
+                'proforma'  => AgencyProformaSettings::forAgency($agency->id)->{$key} ?? ($control['default'] ?? null),
                 default     => $agency->{$key} ?? ($control['default'] ?? null),
             };
         }

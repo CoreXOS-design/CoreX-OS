@@ -272,7 +272,7 @@
                 <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">ID number (optional)</label>
                 <input type="text" name="id_number" value="{{ old('id_number') }}"
                        inputmode="numeric" maxlength="13" pattern="\d{13}"
-                       placeholder="e.g. 7610025020081" title="13 digits — empty is fine"
+                       placeholder="e.g. 1234567890123" title="13 digits — empty is fine"
                        class="w-full px-3 py-2 text-sm rounded-md"
                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 <p class="text-[11px] mt-1" style="color: var(--text-muted);">SA ID — 13 digits. Leave blank if not known.</p>

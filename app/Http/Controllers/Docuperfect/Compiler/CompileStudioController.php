@@ -42,15 +42,19 @@ class CompileStudioController extends Controller
     }
 
     /** Studio home: in-progress drafts + published families. */
-    public function index(): \Illuminate\View\View
+    public function index(Request $request): \Illuminate\View\View
     {
+        $agencyId = $request->user()?->effectiveAgencyId();
+
         $drafts = CompiledTemplate::query()
+            ->forAgency($agencyId)
             ->where('status', CompiledTemplate::STATUS_DRAFT)
             ->orderByDesc('updated_at')
             ->limit(100)
             ->get();
 
         $published = CompiledTemplate::query()
+            ->forAgency($agencyId)
             ->where('status', CompiledTemplate::STATUS_PUBLISHED)
             ->orderBy('family')
             ->orderByDesc('version')
@@ -97,9 +101,9 @@ class CompileStudioController extends Controller
     }
 
     /** The Studio workbench for one draft. */
-    public function studio(int $id): \Illuminate\View\View
+    public function studio(Request $request, int $id): \Illuminate\View\View
     {
-        $draft = CompiledTemplate::findOrFail($id);
+        $draft = $this->resolveTemplate($id, $request->user()?->effectiveAgencyId());
 
         return view('docuperfect.compiler.studio', [
             'draft' => $draft,
@@ -114,7 +118,7 @@ class CompileStudioController extends Controller
 
     public function bindField(Request $request, int $id): JsonResponse
     {
-        return $this->mutate($id, fn (CompiledTemplate $d) => $this->drafts->bindField(
+        return $this->mutate($request, $id, fn (CompiledTemplate $d) => $this->drafts->bindField(
             $d,
             (string) $request->input('block_id'),
             (string) $request->input('field_id'),
@@ -130,7 +134,7 @@ class CompileStudioController extends Controller
             return response()->json(['ok' => false, 'error' => 'No structure supplied.'], 422);
         }
 
-        return $this->mutate($id, fn (CompiledTemplate $d) => $this->drafts->updateStructure($d, $structure));
+        return $this->mutate($request, $id, fn (CompiledTemplate $d) => $this->drafts->updateStructure($d, $structure));
     }
 
     public function declareParty(Request $request, int $id): JsonResponse
@@ -140,12 +144,12 @@ class CompileStudioController extends Controller
             return response()->json(['ok' => false, 'error' => 'No party supplied.'], 422);
         }
 
-        return $this->mutate($id, fn (CompiledTemplate $d) => $this->drafts->declareParty($d, $party));
+        return $this->mutate($request, $id, fn (CompiledTemplate $d) => $this->drafts->declareParty($d, $party));
     }
 
     public function setVisibility(Request $request, int $id): JsonResponse
     {
-        return $this->mutate($id, fn (CompiledTemplate $d) => $this->drafts->setBlockVisibility(
+        return $this->mutate($request, $id, fn (CompiledTemplate $d) => $this->drafts->setBlockVisibility(
             $d,
             (string) $request->input('block_id'),
             (array) $request->input('expr', ['mode' => 'all']),
@@ -154,7 +158,7 @@ class CompileStudioController extends Controller
 
     public function setEditability(Request $request, int $id): JsonResponse
     {
-        return $this->mutate($id, fn (CompiledTemplate $d) => $this->drafts->setBlockEditability(
+        return $this->mutate($request, $id, fn (CompiledTemplate $d) => $this->drafts->setBlockEditability(
             $d,
             (string) $request->input('block_id'),
             (array) $request->input('expr', ['mode' => 'none']),
@@ -165,7 +169,7 @@ class CompileStudioController extends Controller
     public function suggest(Request $request, int $id, BindingSuggester $suggester): JsonResponse
     {
         try {
-            $draft = CompiledTemplate::findOrFail($id);
+            $draft = $this->resolveTemplate($id, $request->user()?->effectiveAgencyId());
             $suggestions = $suggester->suggest(
                 (string) $request->input('label', ''),
                 (string) $request->input('context', ''),
@@ -184,10 +188,10 @@ class CompileStudioController extends Controller
 
     // ── The gate + publish (via cc2's CompilePipeline) ─────────────────────────
 
-    public function lint(int $id): JsonResponse
+    public function lint(Request $request, int $id): JsonResponse
     {
         try {
-            $draft = CompiledTemplate::findOrFail($id);
+            $draft = $this->resolveTemplate($id, $request->user()?->effectiveAgencyId());
             $report = $this->pipeline->lint($draft);
 
             // Persist the auditable verdict on the DRAFT so the Studio badge + the index reflect
@@ -212,10 +216,10 @@ class CompileStudioController extends Controller
         }
     }
 
-    public function certify(int $id): JsonResponse
+    public function certify(Request $request, int $id): JsonResponse
     {
         try {
-            $draft = CompiledTemplate::findOrFail($id);
+            $draft = $this->resolveTemplate($id, $request->user()?->effectiveAgencyId());
             $report = $this->pipeline->certify($draft);
 
             return response()->json(['ok' => true, 'golden' => $report->toArray()]);
@@ -229,7 +233,7 @@ class CompileStudioController extends Controller
     public function publish(Request $request, int $id): JsonResponse
     {
         try {
-            $draft = CompiledTemplate::findOrFail($id);
+            $draft = $this->resolveTemplate($id, $request->user()?->effectiveAgencyId());
             $published = $this->pipeline->publish($draft, $request->user());
 
             return response()->json([
@@ -245,9 +249,9 @@ class CompileStudioController extends Controller
     }
 
     /** Soft-delete a draft (NN#1 — archived, recoverable). */
-    public function archive(int $id): RedirectResponse
+    public function archive(Request $request, int $id): RedirectResponse
     {
-        $draft = CompiledTemplate::findOrFail($id);
+        $draft = $this->resolveTemplate($id, $request->user()?->effectiveAgencyId());
         if ($draft->isPublished()) {
             return back()->with('error', 'Published versions are immutable and cannot be archived here.');
         }
@@ -259,10 +263,10 @@ class CompileStudioController extends Controller
     // ── internals ──────────────────────────────────────────────────────────────
 
     /** Run a draft mutation, returning the fresh structure or a user-clear error. */
-    private function mutate(int $id, callable $fn): JsonResponse
+    private function mutate(Request $request, int $id, callable $fn): JsonResponse
     {
         try {
-            $draft = CompiledTemplate::findOrFail($id);
+            $draft = $this->resolveTemplate($id, $request->user()?->effectiveAgencyId());
             $draft = $fn($draft);
 
             return response()->json([
@@ -273,6 +277,16 @@ class CompileStudioController extends Controller
         } catch (Throwable $e) {
             return response()->json(['ok' => false, 'error' => $e->getMessage()], 422);
         }
+    }
+
+    /**
+     * Resolve a CompiledTemplate by id, scoped to the caller's agency (or the CoreX-standard
+     * pack). Mirrors index()'s use of the model's own forAgency() union scope — a foreign
+     * agency's row 404s here exactly as a nonexistent id would (AT-177 tenant isolation).
+     */
+    private function resolveTemplate(int $id, ?int $agencyId): CompiledTemplate
+    {
+        return CompiledTemplate::query()->forAgency($agencyId)->findOrFail($id);
     }
 
     private function fromReference(string $key): SegmentationResult

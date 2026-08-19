@@ -31,14 +31,17 @@ class AgencyOnboardingSetup extends Model
      * resources/views/corex/settings.blade.php ($railGroups).
      */
     public const STEPS = [
-        'identity',       // 1  — Welcome / agency identity
+        'welcome',        // 0  — Welcome / what onboarding is for (explainer only)
+        'identity',       // 1  — Agency identity
         'capabilities',   // 2  — Feature switchboard (turn features on/off)
         'branding',       // 3  — Logo & agency colours (auto-detect + preview)
         'branches',       // 4  — Branches / offices
         'commission',     // 5  — Commission & revenue share
+        'proforma',       // 5a — Proforma invoices (gated: proforma-invoices feature)
         'properties',     // 6  — Properties & listings
         'presentations',  // 7  — Presentations / CMA
         'matches',        // 8  — Matches
+        'market_intelligence', // 8a — Market Intelligence / Prospecting Setup (gated: prospecting feature)
         'contacts',       // 9  — Contacts
         'compliance',     // 10 — Compliance
         'notifications',  // 11 — Notifications & dashboard
@@ -108,9 +111,11 @@ class AgencyOnboardingSetup extends Model
         // standalone detail step appear here; core steps (identity/branding/branches/
         // commission/properties/contacts/notifications/roles/access) are never gated.
         $map = [
-            'matches'       => 'core-matches',
-            'presentations' => 'presentations',
-            'compliance'    => 'compliance',
+            'matches'              => 'core-matches',
+            'presentations'        => 'presentations',
+            'compliance'           => 'compliance',
+            'proforma'             => 'proforma-invoices',
+            'market_intelligence'  => 'prospecting',
         ];
 
         return array_map(

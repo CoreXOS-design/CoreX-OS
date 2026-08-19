@@ -5,6 +5,7 @@ namespace Tests\Feature\Calendar;
 use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\CommandCenter\CalendarEvent;
+use App\Models\Contact;
 use App\Models\User;
 use App\Services\CommandCenter\Calendar\CalendarVisibilityResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -71,20 +72,29 @@ class BuyerPipelineAppointmentTest extends TestCase
         return CalendarEvent::withoutGlobalScopes()->where('title', $title)->firstOrFail();
     }
 
-    /** CONTROL — agency-bound agent (the "Cindy works" case). Unchanged behaviour. */
+    /**
+     * CONTROL — agency-bound agent (the "Cindy works" case). Behaviour
+     * unchanged for a real, same-agency attendee. (The buyer id used to be a
+     * fabricated 987654 with no backing Contact row — that only ever passed
+     * because attendees.*.id had no existence/ownership check at all, which
+     * was itself a security gap closed alongside this fix; now a real Contact
+     * fixture is required, matching the tightened validation.)
+     */
     public function test_agency_agent_creates_and_links(): void
     {
         $agency = Agency::create(['name' => 'HFC', 'slug' => 'hfc']);
+        $branch = Branch::create(['name' => 'Main', 'agency_id' => $agency->id]);
         $user   = User::factory()->create(['agency_id' => $agency->id, 'role' => 'agent']);
+        $buyer  = Contact::create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'first_name' => 'Test', 'last_name' => 'Buyer', 'phone' => '0821234567']);
 
-        $resp = $this->actingAs($user)->post(route('command-center.calendar.store'), $this->buyerViewingPayload(987654));
+        $resp = $this->actingAs($user)->post(route('command-center.calendar.store'), $this->buyerViewingPayload($buyer->id));
 
         $resp->assertSessionHasNoErrors();
         $resp->assertStatus(302);
         $event = $this->freshEvent('Viewing with Test Buyer');
         $this->assertSame((int) $agency->id, (int) $event->agency_id);
         $this->assertDatabaseHas('calendar_event_links', [
-            'calendar_event_id' => $event->id, 'role' => 'buyer_contact', 'linkable_id' => 987654, 'agency_id' => $agency->id,
+            'calendar_event_id' => $event->id, 'role' => 'buyer_contact', 'linkable_id' => $buyer->id, 'agency_id' => $agency->id,
         ]);
     }
 
@@ -105,8 +115,9 @@ class BuyerPipelineAppointmentTest extends TestCase
         // Raw agency_id NULL; acting agency 2 via the branch.
         $owner = User::factory()->create(['agency_id' => null, 'branch_id' => $branch2->id, 'role' => 'owner']);
         $this->assertSame($agency2->id, $owner->effectiveAgencyId(), 'precondition: effective agency derives from branch');
+        $buyer = Contact::create(['agency_id' => $agency2->id, 'first_name' => 'Test', 'last_name' => 'Buyer', 'phone' => '0821234567']);
 
-        $resp = $this->actingAs($owner)->post(route('command-center.calendar.store'), $this->buyerViewingPayload(987654));
+        $resp = $this->actingAs($owner)->post(route('command-center.calendar.store'), $this->buyerViewingPayload($buyer->id));
         $resp->assertStatus(302);
 
         $event = $this->freshEvent('Viewing with Test Buyer');

@@ -150,7 +150,6 @@
                 @endif
                 <button data-mode="seller" class="mode-pill active" style="padding: 4px 10px; font-size: 0.75rem; font-weight: 500; background: var(--brand-button); color: #fff; border: 0; border-radius: 4px; cursor: pointer;">Seller View</button>
             </div>
-            <button id="reset-bounds-btn" style="padding: 6px 10px; font-size: 0.75rem; font-weight: 500; color: var(--text-secondary); background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">Reset to HFC area</button>
         </div>
     </div>
 
@@ -3599,14 +3598,6 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 
-    document.getElementById('reset-bounds-btn').addEventListener('click', () => {
-        // Phase B Fix 1a — suppress lat/lng/z encoding for the next
-        // syncUrlState() cycle so the URL is clean after reset. The
-        // ensuing moveend will trigger a fetch which calls syncUrlState;
-        // the flag prevents the new HFC-area center from being re-pinned.
-        suppressViewInUrl = true;
-        map.fitBounds([[MAP_BOUNDS.south, MAP_BOUNDS.west], [MAP_BOUNDS.north, MAP_BOUNDS.east]]);
-    });
 
     // Phase 3g V2 — display-mode radios.
     document.querySelectorAll('#display-mode-group input[type="radio"]').forEach(r => {

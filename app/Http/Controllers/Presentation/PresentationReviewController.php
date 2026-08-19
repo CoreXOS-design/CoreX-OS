@@ -587,6 +587,7 @@ final class PresentationReviewController extends Controller
         $lngDelta = $radius / (111000.0 * max(0.1, cos(deg2rad($sLat))));
 
         $q = \App\Models\MarketReports\MarketReportCompRow::query()
+            ->where('agency_id', $version->agency_id)
             ->where('row_type', \App\Models\MarketReports\MarketReportCompRow::ROW_COMP)
             ->whereNotNull('sale_price')->where('sale_price', '>', 0)
             ->whereNotNull('latitude')->whereNotNull('longitude')
@@ -632,6 +633,7 @@ final class PresentationReviewController extends Controller
         $presentation = $version->presentation()->with('property')->first();
 
         $rows = \App\Models\MarketReports\MarketReportCompRow::query()
+            ->where('agency_id', $version->agency_id)
             ->where('row_type', \App\Models\MarketReports\MarketReportCompRow::ROW_COMP)
             ->whereIn('id', array_map('intval', $data['comp_row_ids']))
             ->get();

@@ -40,7 +40,8 @@ class UserDocumentAdminController extends Controller
         ]);
 
         $file = $request->file('file');
-        $path = $file->store('user-documents/' . $user->id, 'public');
+        // Private disk — see note in AgentPortalController::uploadDocument().
+        $path = $file->store('user-documents/' . $user->id, 'local');
 
         $document = UserDocument::create([
             'agency_id'           => $user->agency_id,

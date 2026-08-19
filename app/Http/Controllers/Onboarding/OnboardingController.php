@@ -13,6 +13,7 @@ use App\Models\OnboardingChecklist;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class OnboardingController extends Controller
@@ -161,7 +162,11 @@ class OnboardingController extends Controller
         ]);
 
         $file = $request->file('file');
-        $path = $file->store('onboarding/' . $application->id, 'public');
+        // Private disk — these are pre-hire applicant identity/compliance docs (ID
+        // copy, FFC cert, tax clearance, etc.) and must never be served as a static
+        // file. Access goes through downloadDocument(), which enforces the same
+        // owner-role/super_admin gate as the rest of this controller.
+        $path = $file->store('onboarding/' . $application->id, 'local');
 
         ApplicationDocument::create([
             'application_id' => $application->id,
@@ -171,6 +176,37 @@ class OnboardingController extends Controller
         ]);
 
         return back()->with('success', 'Document uploaded.');
+    }
+
+    /**
+     * Gated read path for ApplicationDocument files. New uploads go to the
+     * private 'local' disk (see uploadDocument() above); older rows may still
+     * point at a file on 'public' from before that change, so probe 'local'
+     * first and fall back to 'public' for legacy files.
+     */
+    public function downloadDocument(ApplicationDocument $doc, Request $request)
+    {
+        $user = $request->user();
+        abort_unless($user?->isOwnerRole() || $user?->effectiveRole() === 'super_admin', 403);
+
+        // ApplicationDocument has no agency_id/scope of its own — resolve the
+        // owning agency via application (AgentApplication, which is agency-scoped)
+        // and require an explicit match, in addition to the role check above, so
+        // this fails safe even if a future per-agency owner role is introduced.
+        // Mirrors UserDocumentDownloadController::authorizeAccess().
+        $applicationAgencyId = $doc->application?->agency_id;
+        abort_unless(
+            $applicationAgencyId !== null && $user->effectiveAgencyId() === $applicationAgencyId,
+            403
+        );
+
+        $path = $doc->file_path;
+        abort_unless($path, 404, 'No file attached to this document.');
+
+        $disk = Storage::disk('local')->exists($path) ? 'local' : 'public';
+        abort_unless(Storage::disk($disk)->exists($path), 404, 'Document file is missing from storage.');
+
+        return Storage::disk($disk)->download($path, $doc->file_name);
     }
 
     public function verifyDocument($docId, Request $request)

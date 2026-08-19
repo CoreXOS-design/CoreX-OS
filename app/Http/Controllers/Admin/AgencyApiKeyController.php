@@ -23,6 +23,7 @@ class AgencyApiKeyController extends Controller
     /** Generate a new key (= a new website) for the agency. */
     public function store(Request $request, Agency $agency): RedirectResponse
     {
+        $this->authorizeAgency($agency);
         $data = $this->validatePayload($request, $agency);
 
         $minted = AgencyApiKey::mintSecret();
@@ -53,6 +54,7 @@ class AgencyApiKeyController extends Controller
     /** Edit a key's name / scopes / webhook URL / rate limit / expiry. */
     public function update(Request $request, Agency $agency, AgencyApiKey $apiKey): RedirectResponse
     {
+        $this->authorizeAgency($agency);
         $this->ensureBelongs($agency, $apiKey);
         $data = $this->validatePayload($request, $agency);
 
@@ -76,6 +78,7 @@ class AgencyApiKeyController extends Controller
     /** Mint a fresh secret for an existing key (rotates the credential). */
     public function regenerate(Request $request, Agency $agency, AgencyApiKey $apiKey): RedirectResponse
     {
+        $this->authorizeAgency($agency);
         $this->ensureBelongs($agency, $apiKey);
 
         $minted = AgencyApiKey::mintSecret();
@@ -93,6 +96,7 @@ class AgencyApiKeyController extends Controller
     /** Revoke (disable without deleting) — recoverable by regenerate. */
     public function revoke(Request $request, Agency $agency, AgencyApiKey $apiKey): RedirectResponse
     {
+        $this->authorizeAgency($agency);
         $this->ensureBelongs($agency, $apiKey);
         $apiKey->forceFill(['revoked_at' => now()])->save();
 
@@ -102,6 +106,7 @@ class AgencyApiKeyController extends Controller
     /** Archive the key (soft delete — non-negotiable #1). */
     public function destroy(Request $request, Agency $agency, AgencyApiKey $apiKey): RedirectResponse
     {
+        $this->authorizeAgency($agency);
         $this->ensureBelongs($agency, $apiKey);
         $apiKey->delete();
 
@@ -114,6 +119,7 @@ class AgencyApiKeyController extends Controller
      */
     public function bulkActivate(Request $request, Agency $agency, AgencyApiKey $apiKey): RedirectResponse
     {
+        $this->authorizeAgency($agency);
         $this->ensureBelongs($agency, $apiKey);
 
         $summary = app(\App\Services\Syndication\Website\WebsiteSyndicationService::class)
@@ -134,6 +140,8 @@ class AgencyApiKeyController extends Controller
      */
     public function publishAllAgents(Request $request, Agency $agency): RedirectResponse
     {
+        $this->authorizeAgency($agency);
+
         $agents = \App\Models\User::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
             ->where('agency_id', $agency->id)
             ->where('is_active', true)
@@ -159,6 +167,7 @@ class AgencyApiKeyController extends Controller
     /** Master "website is live" switch for the agency (visibility layer 1). */
     public function toggleWebsite(Request $request, Agency $agency): RedirectResponse
     {
+        $this->authorizeAgency($agency);
         $data = $request->validate(['website_enabled' => 'required|boolean']);
         $agency->forceFill(['website_enabled' => (bool) $data['website_enabled']])->save();
 
@@ -203,6 +212,28 @@ class AgencyApiKeyController extends Controller
     {
         if ((int) $apiKey->agency_id !== (int) $agency->id) {
             abort(404);
+        }
+    }
+
+    /**
+     * Defense-in-depth tenant scope check: the route-group permission gate
+     * (manage_performance_settings + agency_api.manage) is grantable to an
+     * ordinary agency admin, not just platform owners, and Agency itself
+     * carries no tenant scope — so route-model binding won't 404 a foreign
+     * agency the way it does for child tables. Mirrors
+     * CompanySettingsController::authorizeAgency() / AgencyController::authorizeAgencyScope().
+     */
+    private function authorizeAgency(Agency $agency): void
+    {
+        $user = auth()->user();
+        if (!$user) {
+            abort(403);
+        }
+        if ($user->isOwnerRole()) {
+            return;
+        }
+        if ((int) $user->effectiveAgencyId() !== (int) $agency->id) {
+            abort(403, 'You can only manage your own agency.');
         }
     }
 

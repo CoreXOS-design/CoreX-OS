@@ -33,8 +33,22 @@ trait AuthorizesDocumentAccess
             ? PermissionService::mutationScope($user, 'documents')
             : PermissionService::getDataScope($user, 'documents');
 
+        // AT-267 H5 follow-up (2026-08-16): 'all' is an ordinary, non-owner-exclusive
+        // per-agency permission grant (e.g. an Admin/Principal role with "edit all
+        // documents" within their own agency) — it must NOT mean "every document in
+        // every agency". Owner-role accounts (isOwnerRole()) are intentionally
+        // cross-agency by design and keep the unconditional bypass, matching the
+        // pattern used everywhere else in this codebase (see FicaController::
+        // authorize..., DailyActivitySummaryController) rather than every other
+        // scoped guard in the app.
         if ($scope === 'all') {
-            return;
+            if ($user->isOwnerRole()) {
+                return;
+            }
+            if ((int) $document->agency_id === (int) ($user->effectiveAgencyId() ?? 0)) {
+                return;
+            }
+            abort(403);
         }
         if ($scope === 'branch' && (int) $document->branch_id === (int) $user->effectiveBranchId()) {
             return;

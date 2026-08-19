@@ -129,12 +129,29 @@ class BranchScope implements Scope
         $column  = $table . '.branch_id';
         $keyName = $table . '.' . $model->getKeyName();
         $authId  = $user->getKey();
-        $isUserModel = $model instanceof \App\Models\User;
+        // Both the queried model AND the authenticated principal must be
+        // App\Models\User for the self-row carve-out to fire. Checking the
+        // queried model alone is not enough: non-User Authenticatables
+        // (e.g. App\Models\AgencyApiKey for Website-API requests) have
+        // their own auto-increment id sequence that overlaps the users
+        // table's id range. If we only checked $model here, an API-key
+        // principal querying the User model (e.g. loading a property's
+        // `agent` relation) would carve out `users.id = $authId` using the
+        // API key's own id — an almost-guaranteed collision, since both
+        // sequences start at 1 — and leak an arbitrary cross-branch user's
+        // row regardless of branch_id. See AgencyScope's identical fix.
+        $selfRowCarveOutApplies = $model instanceof \App\Models\User
+            && $user instanceof \App\Models\User;
 
-        $builder->where(function (Builder $q) use ($column, $branchIds, $keyName, $authId, $isUserModel) {
+        $builder->where(function (Builder $q) use ($column, $branchIds, $keyName, $authId, $selfRowCarveOutApplies) {
             $q->whereIn($column, $branchIds);
 
-            if ($isUserModel && $authId) {
+            // The authenticated user must always be able to see their own
+            // record. Without this, a stale session branch causes the user
+            // provider to lose the logged-in row and immediately log them
+            // out on the next request. Gated on the AUTHENTICATED PRINCIPAL
+            // being a User (not just the queried model) — see comment above.
+            if ($selfRowCarveOutApplies && $authId) {
                 $q->orWhere($keyName, $authId);
             }
         });

@@ -86,7 +86,8 @@ class CommandCenterApiController extends Controller
     public function todayRefresh(Request $request): JsonResponse
     {
         // Bust the 5-min cache used by assembleForUser() then return fresh cards
-        \Illuminate\Support\Facades\Cache::forget("command_centre_{$request->user()->id}");
+        $user = $request->user();
+        \Illuminate\Support\Facades\Cache::forget("command_centre_{$user->id}_" . (int) ($user->effectiveAgencyId() ?: 0));
         return $this->today($request);
     }
 
@@ -101,6 +102,12 @@ class CommandCenterApiController extends Controller
         $defIds = DB::table('activity_definitions')
             ->where('is_enabled', 1)->where('scope', 'system')->pluck('id');
 
+        // daily_activity_entries has agency_id but no automatic tenant scope on
+        // this raw query-builder path. user_id is self-scoped here, but the
+        // agency_id filter is added as defense in depth, matching every other
+        // daily_activity_entries call site fixed in this pass.
+        $agencyId = $user->effectiveAgencyId();
+
         // M6.5 — achievement-total filter.
         $mtdPoints = (int) DB::table('daily_activity_entries as e')
             ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
@@ -108,6 +115,9 @@ class CommandCenterApiController extends Controller
             ->whereIn('e.activity_definition_id', $defIds)
             ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
             ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
+            ->when($agencyId, function ($q) use ($agencyId) {
+                $q->where('e.agency_id', $agencyId);
+            })
             ->sum(DB::raw('e.value * d.weight'));
 
         $monthlyTarget = (int) (DB::table('targets')
@@ -342,12 +352,14 @@ class CommandCenterApiController extends Controller
 
     public function calendarComplete(CalendarEvent $calendarEvent): JsonResponse
     {
+        $this->authorizeEvent($calendarEvent);
         $calendarEvent->markCompleted();
         return response()->json(['ok' => true]);
     }
 
     public function calendarDismiss(CalendarEvent $calendarEvent): JsonResponse
     {
+        $this->authorizeEvent($calendarEvent);
         $calendarEvent->markDismissed();
         return response()->json(['ok' => true]);
     }
@@ -685,9 +697,14 @@ class CommandCenterApiController extends Controller
     /**
      * Restore a soft-deleted task back to the Done column.
      */
-    public function tasksRestore(int $taskId): JsonResponse
+    public function tasksRestore(Request $request, int $taskId): JsonResponse
     {
-        $task = CommandTask::onlyTrashed()->findOrFail($taskId);
+        // Scoped to the caller the same way tasksArchiveDone/tasksArchived are —
+        // without this, any authenticated user could restore (and thus act on)
+        // another agent's soft-deleted task by guessing/enumerating its id.
+        $task = CommandTask::onlyTrashed()
+            ->where('assigned_to', $request->user()->id)
+            ->findOrFail($taskId);
         $task->restore();
         return response()->json($this->formatTask($task->load('property')));
     }

@@ -19,6 +19,11 @@ use Illuminate\Support\Facades\DB;
  * Sister to MarketCompRowsSoldAdapter — same scope-branching logic, but
  * reads rows with `row_type = 'listing'` (active for-sale entries from
  * Property Valuation page-12 "FOR SALE" blocks etc).
+ *
+ * SECURITY — this read IS agency-scoped (filter->agencyId), same as the
+ * sold adapter. See MarketCompRowsSoldAdapter's docblock: market_report_comp_rows
+ * is not covered by the market_data_points shared-pool exception
+ * (mic-complete-spec §13.1/§13.2 scopes that exception to market_data_points only).
  */
 final class MarketCompRowsActiveAdapter implements ActiveListingsSource, HasSourceRecord
 {
@@ -30,6 +35,10 @@ final class MarketCompRowsActiveAdapter implements ActiveListingsSource, HasSour
     {
         $query = DB::table('market_report_comp_rows')
             ->whereNull('deleted_at')
+            // SECURITY — see MarketCompRowsSoldAdapter. A null agencyId
+            // matches no rows (fail closed) rather than leaking every
+            // agency's data.
+            ->where('agency_id', $filter->agencyId)
             ->where('row_type', 'listing')
             ->whereNotNull('list_price')
             // Phase 3h Step 9 — demo/real isolation.

@@ -245,7 +245,17 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
                 // already-compliant P24 stock. The run was flagged at upload
                 // time; flip the compliance snapshot so MarketingReadinessService
                 // short-circuits to "ready" (see service line 31).
-                if ($run->mark_compliant_on_confirm && $property->compliance_snapshot_at === null) {
+                //
+                // Restricted to ACTIVE stock only (Johan, 2026-08-18): the toggle
+                // used to apply uniformly to every row in the run regardless of
+                // its own P24 status, so withdrawn/sold/rented stock imported
+                // alongside active listings was auto-marked "ready to market" too
+                // — wrong, since it isn't being marketed at all. Only a listing
+                // P24ListingsCsvParser::normaliseStatus() resolved to 'Active' is
+                // eligible; everything else (Withdrawn, Sold, Rented, ...) is
+                // imported as a record but never auto-stamped compliant.
+                $isActiveStock = strtolower((string) $property->status) === 'active';
+                if ($run->mark_compliant_on_confirm && $isActiveStock && $property->compliance_snapshot_at === null) {
                     $property->forceFill([
                         'compliance_snapshot_at'   => now(),
                         'compliance_snapshot_data' => [

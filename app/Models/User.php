@@ -25,6 +25,64 @@ class User extends Authenticatable
     /** Per-instance memo of branch_id → agency_id (see effectiveAgencyId — AgencyScope N+1). */
     private array $branchAgencyMemo = [];
 
+    /**
+     * Per-instance memo, keyed by session active_agency_id override value, of
+     * whether that override still matches this (non-owner) user's CURRENT
+     * membership. See effectiveAgencyId() — AgencyScope calls it on every
+     * scoped query, so the membership re-check must not run more than once
+     * per request per user instance.
+     */
+    private array $overrideAgencyMembershipMemo = [];
+
+    /**
+     * Per-instance memo: is this user an owner role? Computed at most once by
+     * effectiveAgencyId() (via $resolvingOwnerForAgencyOverride below) to
+     * decide whether the session active_agency_id override should be trusted
+     * unconditionally.
+     */
+    private ?bool $isOwnerRoleForAgencyOverrideMemo = null;
+
+    /**
+     * Re-entrancy guard for the isOwnerRole() call inside effectiveAgencyId().
+     * isOwnerRole() itself calls effectiveAgencyId() (to disambiguate
+     * same-named roles across agencies), so effectiveAgencyId() calling
+     * isOwnerRole() would recurse infinitely without this. While set, the
+     * nested effectiveAgencyId() call skips the override-trust check entirely
+     * and falls straight through to the branch/agency_id resolution below —
+     * safe because owner roles are global (agency_id NULL) and
+     * Role::allRoles() finds them regardless of which agency id is passed in
+     * (see isOwnerRole()'s docblock), so the nested call's return value can't
+     * change the is_owner outcome.
+     */
+    private bool $resolvingOwnerForAgencyOverride = false;
+
+    /**
+     * Per-instance memo, keyed by session view_as_branch_id override value, of
+     * whether that override is still authorized under the user's CURRENT
+     * permissions/membership. See effectiveBranchId() — BranchScope calls it
+     * on every scoped query, so the re-check must not run more than once per
+     * request per user instance.
+     */
+    private array $overrideBranchAuthMemo = [];
+
+    /**
+     * Re-entrancy guard for the hasPermission('branches.view_all') call inside
+     * effectiveBranchId(). That call chain is
+     * hasPermission -> PermissionService::userHasPermission -> isOwnerRole()
+     * -> effectiveAgencyId() -> (branch-derive fallback) -> effectiveBranchId()
+     * again — a guaranteed loop without this, and NOT limited to an edge
+     * case: effectiveAgencyId()'s branch-derive fallback runs on essentially
+     * every call that isn't itself short-circuited by a matching
+     * active_agency_id override. While set, the nested effectiveBranchId()
+     * call skips the override re-validation entirely and returns the raw
+     * $this->branch_id — safe because BranchSwitcherController::switch()
+     * only ever allows switching to a branch within the caller's OWN
+     * effective agency, so the override branch and the user's raw branch_id
+     * always resolve to the same agency_id; the nested call's return value
+     * can't change the permission lookup's agency context.
+     */
+    private bool $resolvingBranchOverride = false;
+
     protected $fillable = [
         'name',
         'email',
@@ -415,14 +473,79 @@ class User extends Authenticatable
         return $first . $last;
     }
 
+    /**
+     * Branch switcher override (session view_as_branch_id).
+     *
+     * Mirrors effectiveAgencyId()'s active_agency_id handling exactly (see
+     * that method's docblock for the full rationale). Authorization for this
+     * session key happens ONCE, at write time, in
+     * BranchSwitcherController::switch() — it is NOT re-validated on every
+     * request, so if the user's `branches.view_all` permission is revoked, or
+     * they are reassigned to a different branch, AFTER they switched, they
+     * would otherwise stay scoped (for reads AND writes, via BelongsToBranch's
+     * auto-fill) to the stale branch until they log out (the session key is
+     * only cleared on Login/Logout or an explicit clear()). We close that gap
+     * here by re-running the same authorization switch() does — see
+     * branchOverrideStillAuthorized() below — before trusting the override.
+     * If it no longer holds, we fall through to the normal resolution below
+     * exactly as if no override were set, rather than returning either the
+     * stale value or an unauthorized one.
+     *
+     * Memoized per-instance (overrideBranchAuthMemo) because BranchScope calls
+     * this method on every scoped query — a hasPermission() re-check per call
+     * would be a serious regression. See .ai/specs/multi-tenancy.md §3 and the
+     * identical reasoning in effectiveAgencyId().
+     */
     public function effectiveBranchId(): ?int
     {
         $override = session('view_as_branch_id');
-        if ($override !== null && $override !== '') {
-            return (int) $override;
+        if ($override !== null && $override !== '' && ! $this->resolvingBranchOverride) {
+            $key = (string) $override;
+            if (! array_key_exists($key, $this->overrideBranchAuthMemo)) {
+                $this->resolvingBranchOverride = true;
+                try {
+                    $this->overrideBranchAuthMemo[$key] = $this->branchOverrideStillAuthorized((int) $override);
+                } finally {
+                    $this->resolvingBranchOverride = false;
+                }
+            }
+
+            if ($this->overrideBranchAuthMemo[$key]) {
+                return (int) $override;
+            }
+
+            // Stale/unauthorized override: fall through to the normal
+            // resolution below.
         }
 
         return $this->branch_id ? (int) $this->branch_id : null;
+    }
+
+    /**
+     * Is the session view_as_branch_id override still authorized for this
+     * user, right now?
+     *
+     * Mirrors BranchSwitcherController::switch() exactly: `branches.view_all`
+     * authorizes any branch; without it, only a no-op switch to the user's
+     * OWN `branch_id` is authorized. Used by effectiveBranchId() to
+     * re-validate the override on every request, since switch() only
+     * authorizes it once, at write time.
+     *
+     * Uses the raw `branch_id` column (not effectiveBranchId(), which is
+     * itself session-derived) — this must reflect real, current DB state,
+     * not another override. (switch() also re-checks the branch is within
+     * the caller's effective agency, but that is unconditional for every
+     * value view_as_branch_id can ever hold — switch() is the only writer of
+     * this session key and already enforces it at write time — so it is not
+     * re-checked here.)
+     */
+    private function branchOverrideStillAuthorized(int $branchId): bool
+    {
+        if ($this->hasPermission('branches.view_all')) {
+            return true;
+        }
+
+        return (int) ($this->branch_id ?? 0) === $branchId;
     }
 
     // --- Admin Multi-Branch Manager (spec: admin-multi-branch-manager.md) ---
@@ -534,10 +657,55 @@ class User extends Authenticatable
 
     public function effectiveAgencyId(): ?int
     {
-        // Owner-level agency switcher override
+        // Agency switcher override (session active_agency_id).
+        //
+        // Owners are trusted unconditionally — full cross-agency access is by
+        // design (AgencySwitcherController::userCanSwitchTo() lets an owner
+        // switch to ANY agency).
+        //
+        // For everyone else, the override is authorized ONCE, at write time,
+        // in userCanSwitchTo() / AgencyAccessRequestController::confirmSwitch().
+        // It is NOT re-validated on every request, so if a non-owner's own
+        // membership changes AFTER they switched (e.g. an admin moves them to
+        // a different branch/agency), they would otherwise stay scoped to the
+        // stale agency until they log out (the session key is only cleared on
+        // Login/Logout). We close that gap here by re-running the same
+        // membership check userCanSwitchTo() does — see
+        // membershipMatchesAgency() below — before trusting the override for a
+        // non-owner. If it no longer matches, we fall through to the normal
+        // resolution below exactly as if no override were set, rather than
+        // returning either the stale value or an unauthorized one.
+        //
+        // Both checks are memoized per-instance (isOwnerRoleForAgencyOverrideMemo /
+        // overrideAgencyMembershipMemo) because AgencyScope calls this method on
+        // every scoped query — a DB lookup per call would be a serious
+        // regression. See .ai/specs/multi-tenancy.md §3.
         $override = session('active_agency_id');
-        if ($override !== null && $override !== '') {
-            return (int) $override;
+        if ($override !== null && $override !== '' && ! $this->resolvingOwnerForAgencyOverride) {
+            if ($this->isOwnerRoleForAgencyOverrideMemo === null) {
+                $this->resolvingOwnerForAgencyOverride = true;
+                try {
+                    $this->isOwnerRoleForAgencyOverrideMemo = $this->isOwnerRole();
+                } finally {
+                    $this->resolvingOwnerForAgencyOverride = false;
+                }
+            }
+
+            if ($this->isOwnerRoleForAgencyOverrideMemo) {
+                return (int) $override;
+            }
+
+            $key = (string) $override;
+            if (! array_key_exists($key, $this->overrideAgencyMembershipMemo)) {
+                $this->overrideAgencyMembershipMemo[$key] = $this->membershipMatchesAgency((int) $override);
+            }
+
+            if ($this->overrideAgencyMembershipMemo[$key]) {
+                return (int) $override;
+            }
+
+            // Stale override for a non-owner: membership no longer matches.
+            // Fall through to the normal resolution below.
         }
 
         // Derive from branch. Branch::find is memoized per-instance by branch id:
@@ -558,17 +726,57 @@ class User extends Authenticatable
         return $this->agency_id ? (int) $this->agency_id : null;
     }
 
+    /**
+     * Does $agencyId match this (non-owner) user's CURRENT membership?
+     *
+     * Mirrors AgencySwitcherController::userCanSwitchTo() exactly: a match on
+     * the user's own `agency_id`, OR (if they belong to a branch) a match on
+     * that branch's `agency_id`. Used by effectiveAgencyId() to re-validate a
+     * non-owner's session active_agency_id override on every request, since
+     * userCanSwitchTo() only authorizes it once, at write time.
+     *
+     * Uses the raw `agency_id`/`branch_id` columns (not effectiveAgencyId()/
+     * effectiveBranchId(), which are themselves session-derived) — this must
+     * reflect real, current DB membership, not another override.
+     */
+    private function membershipMatchesAgency(int $agencyId): bool
+    {
+        $directAgencyId = (int) ($this->agency_id ?? 0);
+        if ($directAgencyId && $directAgencyId === $agencyId) {
+            return true;
+        }
+
+        if (empty($this->branch_id)) {
+            return false;
+        }
+
+        // Reuse an already-loaded branch relation when present (avoids a
+        // query); otherwise mirror userCanSwitchTo()'s direct lookup.
+        if ($this->relationLoaded('branch') && $this->branch) {
+            return (int) $this->branch->agency_id === $agencyId;
+        }
+
+        $branchAgencyId = Branch::withoutGlobalScopes()
+            ->where('id', $this->branch_id)
+            ->value('agency_id');
+
+        return (int) $branchAgencyId === $agencyId;
+    }
+
     // ── Compliance Officer checks ──
 
     /**
      * True if this user holds ANY active FICA officer appointment
      * (primary CO or MLRO). Used by FICA approval workflow.
      */
-    public function isComplianceOfficer(): bool
+    public function isComplianceOfficer(?int $agencyId = null): bool
     {
-        return Compliance\FicaOfficerAppointment::where('user_id', $this->id)
-            ->active()
-            ->exists();
+        $query = Compliance\FicaOfficerAppointment::where('user_id', $this->id)
+            ->active();
+        if ($agencyId) {
+            $query->where('agency_id', $agencyId);
+        }
+        return $query->exists();
     }
 
     public function isPrimaryComplianceOfficer(?int $agencyId = null): bool
@@ -582,11 +790,14 @@ class User extends Authenticatable
         return $query->exists();
     }
 
-    public function isMlro(?int $branchId = null): bool
+    public function isMlro(?int $agencyId = null, ?int $branchId = null): bool
     {
         $query = Compliance\FicaOfficerAppointment::where('user_id', $this->id)
             ->mlro()
             ->active();
+        if ($agencyId) {
+            $query->where('agency_id', $agencyId);
+        }
         if ($branchId) {
             $query->where(fn($q) => $q->where('branch_id', $branchId)->orWhereNull('branch_id'));
         }

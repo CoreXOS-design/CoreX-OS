@@ -9,7 +9,7 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="w-full max-w-7xl mx-auto space-y-5">
+<div class="w-full space-y-5">
 
     {{-- Header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">

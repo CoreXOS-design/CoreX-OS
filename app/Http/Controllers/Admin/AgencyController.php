@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Agency;
+use App\Models\Branch;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -107,6 +108,14 @@ class AgencyController extends Controller
             'admin_name'     => 'required_if:is_demo,0,false,,|nullable|string|max:191',
             'admin_email'    => 'required_if:is_demo,0,false,,|nullable|email|max:191|unique:users,email',
             'admin_cell'     => 'nullable|string|max:50',
+
+            // AT-378 — every agency needs at least one branch from the moment it
+            // exists. Without this, the first Admin (and everyone invited after
+            // them) gets created with branch_id=NULL, which the rest of the app
+            // never expects (every other user in the system has one) and which
+            // silently breaks any branch-equality-filtered feature for that user.
+            'branch_name'    => 'required|string|max:255',
+            'branch_code'    => 'required|string|max:50',
         ]);
 
         $data['slug']          = $data['slug'] ?? Str::slug($data['name']);
@@ -123,10 +132,15 @@ class AgencyController extends Controller
             'email' => $data['admin_email'],
             'cell'  => $data['admin_cell'] ?? null,
         ];
-        unset($data['logo'], $data['admin_name'], $data['admin_email'], $data['admin_cell']);
+        $branchPayload = [
+            'name' => $data['branch_name'],
+            'code' => $data['branch_code'],
+        ];
+        unset($data['logo'], $data['admin_name'], $data['admin_email'], $data['admin_cell'], $data['branch_name'], $data['branch_code']);
 
-        // Atomic: live agency + first Admin must succeed together. Demo agencies
-        // skip the admin requirement entirely. See spec R1.
+        // Atomic: live agency + first branch (+ first Admin, for live agencies)
+        // must succeed together. Demo agencies skip the admin requirement but
+        // still get their first branch — AT-378. See spec R1.
         //
         // Email-only invite (spec §R1a): the Admin is created with an unusable
         // placeholder password — the same mechanism UserManagementController's
@@ -135,8 +149,28 @@ class AgencyController extends Controller
         // User::isPendingInvite()) until they set a real password via the
         // account.setup link mailed below.
         $adminUser = null;
-        $agency = DB::transaction(function () use ($data, $adminPayload, &$adminUser) {
+        $agency = DB::transaction(function () use ($data, $adminPayload, $branchPayload, &$adminUser) {
             $agency = Agency::create($data);
+
+            // AT-378 — every agency's first branch, created in the same
+            // transaction so an agency can never exist without one.
+            // withoutAgencyStamping: same reason as the admin User below —
+            // a creating owner with an active Agency Switcher session would
+            // otherwise have Branch's own BelongsToAgency creating() hook
+            // silently force this row onto THEIR switched-into agency
+            // instead of the one just created above.
+            $branch = Branch::withoutAgencyStamping(fn () => Branch::create([
+                'name'      => $branchPayload['name'],
+                'code'      => $branchPayload['code'],
+                'agency_id' => $agency->id,
+            ]));
+
+            // This was never actually set here despite AT-378 guaranteeing every
+            // agency a first branch — every branch-context fallback that reads
+            // agencies.default_branch_id (e.g. SellerOutreach\EntryPointController
+            // ::resolveBranchId()) had nothing to land on for an agency created
+            // through this form until now.
+            $agency->update(['default_branch_id' => $branch->id]);
 
             if ($adminPayload) {
                 // withoutAgencyStamping: the creating owner may have an
@@ -151,6 +185,10 @@ class AgencyController extends Controller
                     'cell'       => $adminPayload['cell'],
                     'role'       => 'admin',
                     'agency_id'  => $agency->id,
+                    // AT-378 — the first Admin defaults onto the agency's first
+                    // branch instead of NULL (every other user in the system
+                    // has one; NULL silently breaks branch-filtered features).
+                    'branch_id'  => $branch->id,
                     'is_active'  => true,
                     'invited_at' => now(),
                 ]));
@@ -196,6 +234,17 @@ class AgencyController extends Controller
         // FICA, disclosure) so a new agency has sensible gating out of the box.
         app(\App\Services\Compliance\AgencyComplianceDocTypeService::class)->ensureDefaults($agency->id);
 
+        // Seed this agency's own daily-activity points definitions from the
+        // shared system template, isolated from every other agency from the
+        // moment the agency exists — see ActivityDefinitionDefaultsService.
+        app(\App\Services\ActivityDefinitions\ActivityDefinitionDefaultsService::class)->ensureDefaults($agency->id);
+
+        // Seed a starter WhatsApp outreach template (cloned from HFC's own
+        // first template) so a brand-new agency's Seller Outreach composer
+        // is never empty — see SellerOutreachTemplateDefaultsService.
+        app(\App\Services\SellerOutreach\SellerOutreachTemplateDefaultsService::class)
+            ->ensureDefaults($agency->id, $adminUser?->id);
+
         if ($request->hasFile('logo')) {
             $ext = $request->file('logo')->getClientOriginalExtension();
             $path = $request->file('logo')->storeAs(
@@ -214,6 +263,26 @@ class AgencyController extends Controller
         $msg = $isDemo
             ? "Demo agency \"{$data['name']}\" created (no Admin required)."
             : "Agency \"{$data['name']}\" created. A password-setup email has been sent to {$adminPayload['email']}.";
+
+        // Market Intelligence (the daily canvassing-pool workspace) has no
+        // data of its own to show until Prospecting Setup — towns, suburbs,
+        // property types, price bands — is configured for THIS agency; none
+        // of that can be auto-cloned the way the WhatsApp template default
+        // is, since it's genuinely region/business-specific. Left alone, a
+        // new agency's admin opens Market Intelligence to a page with
+        // nothing on it and no obvious next step. So the creator (who is
+        // rarely a member of the agency they just made — session
+        // active_agency_id gives them the same cross-agency context the
+        // Agency Switcher uses, per AgencySwitcherController::switch())
+        // goes straight into Prospecting Setup for the new agency instead
+        // of back to the agency list. Demo agencies skip this — they're
+        // sandboxes, not a real agent's first day.
+        if (!$isDemo) {
+            session(['active_agency_id' => $agency->id]);
+
+            return redirect()->route('settings.prospecting.index')
+                ->with('success', $msg . ' Now set up Market Intelligence (towns, suburbs, price bands) so it isn\'t blank for their first agent.');
+        }
 
         return redirect()->route('agencies.index')->with('success', $msg);
     }

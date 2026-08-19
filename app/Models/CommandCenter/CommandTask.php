@@ -44,7 +44,7 @@ class CommandTask extends Model
             $this->assigned_to,
             $this->getOriginal('assigned_to'),
         ])) as $userId) {
-            \Illuminate\Support\Facades\Cache::forget("command_centre_{$userId}");
+            \Illuminate\Support\Facades\Cache::forget("command_centre_{$userId}_{$this->agency_id}");
         }
     }
 

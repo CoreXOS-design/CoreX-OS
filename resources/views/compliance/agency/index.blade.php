@@ -103,7 +103,7 @@
                                 </div>
                                 <div class="flex items-center gap-2 flex-wrap">
                                     @if($company->document_path)
-                                        <a href="{{ asset('storage/' . $company->document_path) }}" target="_blank" class="text-xs font-semibold" style="color: var(--brand-icon);">Download</a>
+                                        <a href="{{ route('compliance.agency-settings.download', $company) }}" target="_blank" class="text-xs font-semibold" style="color: var(--brand-icon);">Download</a>
                                     @endif
                                     @if($isAdmin)
                                         <a href="{{ route('compliance.agency-settings.edit', $company) }}" class="text-xs font-semibold" style="color: var(--text-secondary);">Edit</a>
@@ -138,7 +138,7 @@
                                         <div class="text-[0.6875rem] mb-2" style="color: var(--text-secondary);">{{ $bProv->document_original_name }}</div>
                                         <div class="flex items-center gap-2 flex-wrap">
                                             @if($bProv->document_path)
-                                                <a href="{{ asset('storage/' . $bProv->document_path) }}" target="_blank" class="text-xs font-semibold" style="color: var(--brand-icon);">Download</a>
+                                                <a href="{{ route('compliance.agency-settings.download', $bProv) }}" target="_blank" class="text-xs font-semibold" style="color: var(--brand-icon);">Download</a>
                                             @endif
                                             @if($canManageBranch)
                                                 <a href="{{ route('compliance.agency-settings.edit', $bProv) }}" class="text-xs font-semibold" style="color: var(--text-secondary);">Edit</a>

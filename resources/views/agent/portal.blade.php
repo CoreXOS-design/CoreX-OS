@@ -1060,7 +1060,7 @@
                 {{-- Actions --}}
                 <div class="flex items-center gap-2 mt-auto">
                     @if($doc)
-                    <a href="{{ asset('storage/' . $doc->file_path) }}" target="_blank" style="font-size:0.6875rem; padding:4px 10px; border-radius:6px; border:1px solid var(--border); color:var(--text-muted); text-decoration:none;">View</a>
+                    <a href="{{ route('user-documents.download', $doc) }}" target="_blank" style="font-size:0.6875rem; padding:4px 10px; border-radius:6px; border:1px solid var(--border); color:var(--text-muted); text-decoration:none;">View</a>
                     @endif
 
                     @if($docCfg['type'] === 'id_copy')

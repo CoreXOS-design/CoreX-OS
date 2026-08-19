@@ -71,7 +71,7 @@ class DemoConnectionController extends Controller
             'control_url'   => ['required', 'url', 'max:255'],
             'control_token' => ['nullable', 'string', 'max:255'],
         ], [
-            'control_url.required' => 'Enter the CoreX (live) address, e.g. https://corex.hfcoastal.co.za',
+            'control_url.required' => 'Enter the CoreX (live) address, e.g. https://your-agency.corexos.co.za',
             'control_url.url'      => 'That does not look like a valid address. Include https://',
         ]);
 

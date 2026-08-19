@@ -69,13 +69,27 @@ class DealPipelineService
                 foreach ($sideAgents as $agentData) {
                     $user = \App\Models\User::find($agentData['user_id']);
 
-                    $defaultCut = ($user && $user->agent_cut_percent !== null) ? (float) $user->agent_cut_percent : 50;
-                    $defaultPayeMethod = ($user && $user->paye_method) ? $user->paye_method : 'percentage';
-                    $defaultPayeValue = ($user && $user->paye_value !== null) ? (float) $user->paye_value : 0;
+                    // SECURITY (Bug 1b) — User::find() correctly returns null for a
+                    // foreign-agency id (AgencyScope), but attach() must not run
+                    // unconditionally: doing so would still write the raw,
+                    // unverified id onto the commission pivot regardless of whether
+                    // it resolved to a real (same-agency) user.
+                    if (! $user) {
+                        \Illuminate\Support\Facades\Log::warning('DealPipelineService::createDeal skipped attaching unresolved/cross-agency agent id', [
+                            'deal_reference' => $reference,
+                            'side' => $side,
+                            'user_id' => $agentData['user_id'] ?? null,
+                        ]);
+                        continue;
+                    }
+
+                    $defaultCut = ($user->agent_cut_percent !== null) ? (float) $user->agent_cut_percent : 50;
+                    $defaultPayeMethod = $user->paye_method ? $user->paye_method : 'percentage';
+                    $defaultPayeValue = ($user->paye_value !== null) ? (float) $user->paye_value : 0;
 
                     $split = $agentData['split_percent'] ?? $autoSplit;
 
-                    $deal->agents()->attach($agentData['user_id'], [
+                    $deal->agents()->attach($user->id, [
                         'side' => $side,
                         'agent_split_percent' => $split,
                         'agent_cut_percent' => $defaultCut,

@@ -189,6 +189,7 @@ class TvController extends Controller
         $tvCode = TvAccessCode::where('code', $code)
             ->forCompany()
             ->active()
+            ->with('creator')
             ->first();
 
         if (!$tvCode) {
@@ -197,14 +198,29 @@ class TvController extends Controller
 
         $tvCode->update(['last_used_at' => now()]);
 
+        // tv_access_codes has no agency_id column of its own, so a
+        // company-level code's agency is derived from its creator (the
+        // admin/BM who generated it). There is no authenticated user on this
+        // public code-gated route, so AgencyScope no-ops for every query
+        // below (see app/Models/Scopes/AgencyScope.php:56-58) — every
+        // agency-scoped query here must therefore filter explicitly. Fail
+        // closed if the creator/agency can't be resolved rather than falling
+        // through to an unscoped, all-agency view.
+        $agencyId = $tvCode->creator?->effectiveAgencyId();
+        if (!$agencyId) {
+            return view('tv.deactivated');
+        }
+
+        $agencyName = \App\Models\Agency::find($agencyId)?->name;
+
         $period = Carbon::now()->format('Y-m');
-        $companyName = 'Home Finders Coastal';
+        $companyName = $agencyName ?: config('app.name', 'CoreX OS');
 
-        // Company-wide rollup (already aggregates all branches)
-        $rollup = $service->getPeriodRollup($period);
+        // Company-wide rollup, scoped to this code's agency
+        $rollup = $service->getPeriodRollup($period, $agencyId);
 
-        // Deal status summary — aggregate across ALL branches
-        $branches = DB::table('branches')->select('id', 'name')->get();
+        // Deal status summary — aggregate across this agency's branches only
+        $branches = DB::table('branches')->select('id', 'name')->where('agency_id', $agencyId)->get();
         $statusSummary = [
             'pending_period' => 0,
             'granted_period' => 0,
@@ -219,9 +235,13 @@ class TvController extends Controller
             $statusSummary['declined_period'] += (int) ($bs['declined_period'] ?? 0);
         }
 
-        // Listing stock — ALL branches
+        // Listing stock — this agency's branches only. AgencyScope is an
+        // Eloquent global scope keyed off the authenticated user; there is
+        // none on this public route, so it no-ops here (AgencyScope.php:56-58)
+        // — filter explicitly rather than relying on it.
         $tvListings = \App\Models\ListingStock::query()
             ->where('source', 'propcon')
+            ->where('agency_id', $agencyId)
             ->where(function ($q) {
                 $q->whereRaw("lower(coalesce(status,'')) like '%active%'")
                   ->orWhereRaw("lower(coalesce(status,'')) like '%for sale%'");

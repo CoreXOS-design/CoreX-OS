@@ -960,6 +960,9 @@ class PresentationController extends Controller
             subjectSizeM2:   isset($validated['size_m2']) ? (int) $validated['size_m2'] : null,
             subjectPriceInc: isset($validated['price']) ? (float) $validated['price'] : null,
             presentationId:  $presentation->id,
+            // SECURITY — scopes MarketCompRowsSoldAdapter / MarketCompRowsActiveAdapter
+            // reads of market_report_comp_rows to this presentation's own agency.
+            agencyId:        (int) $presentation->agency_id,
         );
 
         $maService = new MarketAnalyticsService(
@@ -1280,6 +1283,9 @@ class PresentationController extends Controller
             subjectSizeM2:   isset($validated['size_m2']) ? (int) $validated['size_m2'] : null,
             subjectPriceInc: $subjectPrice,
             presentationId:  $presentation->id,
+            // SECURITY — scopes MarketCompRowsSoldAdapter / MarketCompRowsActiveAdapter
+            // reads of market_report_comp_rows to this presentation's own agency.
+            agencyId:        (int) $presentation->agency_id,
         );
 
         $maService = new MarketAnalyticsService(

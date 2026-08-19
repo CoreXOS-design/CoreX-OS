@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Docuperfect;
 
+use App\Models\Concerns\BelongsToAgency;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -23,7 +24,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class DocumentCondition extends Model
 {
-    use SoftDeletes;
+    use BelongsToAgency, SoftDeletes;
 
     protected $table = 'document_conditions';
 

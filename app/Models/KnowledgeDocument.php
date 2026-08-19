@@ -2,19 +2,34 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+/**
+ * (HFC tenant-isolation, Wave 3, ported from main) — added BelongsToAgency.
+ * Knowledge Base had NO tenant boundary at all: no agency_id, no is_global,
+ * no scope check anywhere in KnowledgeController — every agency's uploaded
+ * policy/compliance documents were visible to every other agency
+ * unconditionally. Fixed "for free" by the global scope, including Ellie's
+ * RAG search (KnowledgeSearchService queries KnowledgeChunk::whereHas
+ * ('document', ...), which inherits this model's scope through the
+ * relationship) and KnowledgeCategory::withCount('documents') (relationship
+ * subqueries inherit global scopes too — no change needed on
+ * KnowledgeCategory itself, which stays pure shared taxonomy like
+ * document_types).
+ */
 class KnowledgeDocument extends Model
 {
-    use SoftDeletes;
+    use BelongsToAgency, SoftDeletes;
 
 
     protected $table = 'knowledge_documents';
 
     protected $fillable = [
+        'agency_id',
         'category_id',
         'uploaded_by',
         'title',

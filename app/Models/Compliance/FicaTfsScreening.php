@@ -2,6 +2,7 @@
 
 namespace App\Models\Compliance;
 
+use App\Models\Concerns\BelongsToAgency;
 use App\Models\FicaSubmission;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
@@ -12,6 +13,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class FicaTfsScreening extends Model
 {
+    use BelongsToAgency;
+
     protected $fillable = [
         'fica_submission_id', 'agency_id', 'subject_kind',
         'screened_name', 'screened_name_normalised', 'screened_id_number', 'screened_id_normalised', 'screened_dob',

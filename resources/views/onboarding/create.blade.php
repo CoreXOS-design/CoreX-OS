@@ -82,7 +82,7 @@
                         <div>
                             <label for="id_number" class="prop-label">ID Number</label>
                             <input id="id_number" type="text" name="id_number" value="{{ old('id_number') }}"
-                                   inputmode="numeric" maxlength="13" placeholder="e.g. 7610025020081" class="prop-input">
+                                   inputmode="numeric" maxlength="13" placeholder="e.g. 1234567890123" class="prop-input">
                             <p class="mt-1 text-[11px]" style="color: var(--text-muted);">SA ID — 13 digits. Leave blank if not known.</p>
                             @error('id_number')<p class="mt-1 text-[11px]" style="color: var(--ds-crimson, #c41e3a);">{{ $message }}</p>@enderror
                         </div>

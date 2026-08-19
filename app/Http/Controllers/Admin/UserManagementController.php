@@ -134,7 +134,7 @@ class UserManagementController extends Controller
             ->orderBy('name')->get(['id','name']);
         $designations = DB::table('designations')
             ->where('is_enabled', 1)->orderBy('sort_order')->orderBy('name')->get(['id','name']);
-        $roles = Role::orderBy('sort_order')->get();
+        $roles = Role::allRoles($agencyId);
 
         return view('admin.users.create-edit', [
             'user'         => null,
@@ -186,6 +186,19 @@ class UserManagementController extends Controller
         $isTestAgent = ($request->input('test_agent') === '1');
 
         $fullName = trim($data['name'] . ' ' . $data['surname']);
+
+        // AT-378 follow-up — same defense the agency-creation form now has:
+        // if the caller didn't pick a branch AND the agency has exactly one,
+        // default onto it server-side too (not just the form's preselect),
+        // so a blank branch_id can't slip through a bypassed form, an API
+        // caller, or a future UI regression the way it did for AT-378.
+        if (empty($data['branch_id'])) {
+            $agencyId = auth()->user()?->effectiveAgencyId();
+            $onlyBranch = Branch::when($agencyId, fn ($q) => $q->where('agency_id', $agencyId))->limit(2)->pluck('id');
+            if ($agencyId && $onlyBranch->count() === 1) {
+                $data['branch_id'] = $onlyBranch->first();
+            }
+        }
 
         // AT-278 — re-creating someone is the same act as reinstating them, and
         // is gated identically. Spec: agent-seat-release-lock.md §6.4.
@@ -277,7 +290,9 @@ class UserManagementController extends Controller
         }
         if ($request->hasFile('ffc_certificate')) {
             $ext = $request->file('ffc_certificate')->getClientOriginalExtension();
-            $path = $request->file('ffc_certificate')->storeAs("agents/{$user->id}", "ffc.{$ext}", 'public');
+            // Private disk — sensitive compliance doc. Access goes through
+            // UserDocumentDownloadController::downloadFfcCertificate().
+            $path = $request->file('ffc_certificate')->storeAs("agents/{$user->id}", "ffc.{$ext}", 'local');
             $user->update(['ffc_certificate_path' => $path]);
         }
 
@@ -311,7 +326,7 @@ class UserManagementController extends Controller
             ->orderBy('name')->get(['id','name']);
         $designations = DB::table('designations')
             ->where('is_enabled', 1)->orderBy('sort_order')->orderBy('name')->get(['id','name']);
-        $roles = Role::orderBy('sort_order')->get();
+        $roles = Role::allRoles($agencyId);
 
         $canViewLoginHistory = (bool) auth()->user()?->hasPermission('users.login_history.view');
         $loginHistory = $canViewLoginHistory
@@ -500,16 +515,20 @@ class UserManagementController extends Controller
         }
         if ($request->hasFile('ffc_certificate')) {
             if ($user->ffc_certificate_path) {
-                Storage::disk('public')->delete($user->ffc_certificate_path);
+                // Delete from whichever disk the old file actually lives on — legacy
+                // rows may still be on 'public' from before this fix.
+                Storage::disk(Storage::disk('local')->exists($user->ffc_certificate_path) ? 'local' : 'public')
+                    ->delete($user->ffc_certificate_path);
             }
             $ext = $request->file('ffc_certificate')->getClientOriginalExtension();
-            $path = $request->file('ffc_certificate')->storeAs("agents/{$user->id}", "ffc.{$ext}", 'public');
+            $path = $request->file('ffc_certificate')->storeAs("agents/{$user->id}", "ffc.{$ext}", 'local');
             $user->update(['ffc_certificate_path' => $path]);
         }
 
         $p24Note = $this->pushUserToP24($user->fresh());
 
-        return redirect()->route('admin.users.edit', $user)->with('status', "User \"{$fullName}\" updated.{$p24Note}");
+        return $this->withActiveTab(redirect()->route('admin.users.edit', $user), $request)
+            ->with('status', "User \"{$fullName}\" updated.{$p24Note}");
     }
 
     /**
@@ -526,6 +545,24 @@ class UserManagementController extends Controller
         SyncAgentToP24Job::dispatch($user->id, registerIfMissing: false);
 
         return ' Property24 sync queued.';
+    }
+
+    /**
+     * Carry the edit page's active tab through a redirect. The tab lives only
+     * in the URL hash fragment — browsers never send it to the server — so
+     * callers that know which tab they're on flash it back explicitly via a
+     * hidden `active_tab` input; back()/route() alone silently drops it and
+     * bounces the admin to the Profile tab. These same routes are also
+     * submitted from the (tab-less) Users list page, which never sends
+     * `active_tab` — there this is a no-op and the redirect behaves exactly
+     * as before.
+     */
+    private function withActiveTab($redirect, Request $request)
+    {
+        $tab = $request->input('active_tab');
+        $validTabs = ['profile', 'role', 'finance', 'compliance', 'actions'];
+
+        return in_array($tab, $validTabs, true) ? $redirect->withFragment($tab) : $redirect;
     }
 
     public function updateDefaults(Request $request, User $user)
@@ -816,11 +853,14 @@ class UserManagementController extends Controller
 
         if ($request->hasFile('ffc_certificate')) {
             if ($user->ffc_certificate_path) {
-                Storage::disk('public')->delete($user->ffc_certificate_path);
+                // Delete from whichever disk the old file actually lives on — legacy
+                // rows may still be on 'public' from before this fix.
+                Storage::disk(Storage::disk('local')->exists($user->ffc_certificate_path) ? 'local' : 'public')
+                    ->delete($user->ffc_certificate_path);
             }
             $ext = $request->file('ffc_certificate')->getClientOriginalExtension();
             $path = $request->file('ffc_certificate')->storeAs(
-                "agents/{$user->id}", "ffc.{$ext}", 'public'
+                "agents/{$user->id}", "ffc.{$ext}", 'local'
             );
             $user->update(['ffc_certificate_path' => $path]);
         }
@@ -830,17 +870,17 @@ class UserManagementController extends Controller
         return back()->with('status', "Updated role/branch for {$user->name}.{$seatLockNote}{$p24Note}");
     }
 
-    public function resendInvite(User $user)
+    public function resendInvite(Request $request, User $user)
     {
         abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
 
         if ($user->email_verified_at) {
-            return back()->withErrors('This user has already set up their account.');
+            return $this->withActiveTab(back(), $request)->withErrors('This user has already set up their account.');
         }
 
         Mail::to($user->email)->send(new UserInviteMail($user));
 
-        return back()->with('status', "Invitation email resent to {$user->email}.");
+        return $this->withActiveTab(back(), $request)->with('status', "Invitation email resent to {$user->email}.");
     }
 
     /**
@@ -855,16 +895,19 @@ class UserManagementController extends Controller
         if ($field === 'agent_photo' && $user->agent_photo_path) {
             // Clear the file, the user_documents row and the column together.
             app(AgentProfilePhotoService::class)->clear($user);
-            return back()->with('status', "Agent photo removed for {$user->name}.");
+            return $this->withActiveTab(back(), $request)->with('status', "Agent photo removed for {$user->name}.");
         }
 
         if ($field === 'ffc_certificate' && $user->ffc_certificate_path) {
-            Storage::disk('public')->delete($user->ffc_certificate_path);
+            // Delete from whichever disk the file actually lives on — legacy rows
+            // may still be on 'public' from before this fix.
+            Storage::disk(Storage::disk('local')->exists($user->ffc_certificate_path) ? 'local' : 'public')
+                ->delete($user->ffc_certificate_path);
             $user->update(['ffc_certificate_path' => null]);
-            return back()->with('status', "FFC certificate removed for {$user->name}.");
+            return $this->withActiveTab(back(), $request)->with('status', "FFC certificate removed for {$user->name}.");
         }
 
-        return back();
+        return $this->withActiveTab(back(), $request);
     }
 
     /**
@@ -889,7 +932,7 @@ class UserManagementController extends Controller
         abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
 
         if ($user->id === auth()->id()) {
-            return back()->withErrors('You cannot deactivate yourself.');
+            return $this->withActiveTab(back(), $request)->withErrors('You cannot deactivate yourself.');
         }
 
         $reactivating = ! $user->is_active;
@@ -909,7 +952,7 @@ class UserManagementController extends Controller
             try {
                 $seatLock->assertCanReinstate($user, auth()->user(), $overrideReason);
             } catch (SeatReinstatementLockedException $e) {
-                return back()->withErrors($e->getMessage());
+                return $this->withActiveTab(back(), $request)->withErrors($e->getMessage());
             }
         }
 
@@ -946,7 +989,7 @@ class UserManagementController extends Controller
             $holdNote = ' The hold was lifted early and the reason recorded.';
         }
 
-        return back()->with('status', "{$user->name} {$state}.{$holdNote}{$p24Note}");
+        return $this->withActiveTab(back(), $request)->with('status', "{$user->name} {$state}.{$holdNote}{$p24Note}");
     }
 
     /**

@@ -66,6 +66,12 @@ class DailyActivitySummaryController extends Controller
 
         $defIds = $defs->pluck('id')->map(fn($v)=>(int)$v)->all();
 
+        // daily_activity_entries has agency_id but no automatic tenant scope on
+        // this raw query-builder path. user_id is self-scoped here, but the
+        // agency_id filter is added as defense in depth, matching every other
+        // daily_activity_entries call site fixed in this pass.
+        $agencyId = $u->effectiveAgencyId();
+
         // M6.5 — achievement total: confirmed/overridden + manual/auto_calendar/
         // auto_instant only. Provisional + revoked + auto_other excluded.
         $rows = DB::table('daily_activity_entries as e')
@@ -75,6 +81,9 @@ class DailyActivitySummaryController extends Controller
             ->whereIn('e.activity_definition_id', $defIds)
             ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
             ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
+            ->when($agencyId, function ($q) use ($agencyId) {
+                $q->where('e.agency_id', $agencyId);
+            })
             ->groupBy('e.activity_definition_id')
             ->get()
             ->keyBy('def_id');

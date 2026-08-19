@@ -146,7 +146,8 @@ class FeedbackReportController extends Controller
 
     public function show(int $id)
     {
-        $report = DB::table('feedback_reports')->where('id', $id)->first();
+        $agencyId = (int) (auth()->user()?->effectiveAgencyId() ?: 0);   // AT-253 Rule 17
+        $report = DB::table('feedback_reports')->where('id', $id)->where('agency_id', $agencyId)->first();
         if (!$report) abort(404);
         $attachments = DB::table('feedback_attachments')->where('feedback_report_id', $id)->get();
         $submitter = \App\Models\User::withoutGlobalScopes()->find($report->user_id);
@@ -161,9 +162,12 @@ class FeedbackReportController extends Controller
             'resolution_notes' => 'nullable|string|max:2000',
         ]);
 
-        DB::table('feedback_reports')->where('id', $id)->update(array_merge($data, [
+        $agencyId = (int) (auth()->user()?->effectiveAgencyId() ?: 0);   // AT-253 Rule 17
+        $updated = DB::table('feedback_reports')->where('id', $id)->where('agency_id', $agencyId)->update(array_merge($data, [
             'reviewed_at' => now(), 'reviewed_by_user_id' => auth()->id(), 'updated_at' => now(),
         ]));
+
+        if (!$updated) abort(404);
 
         return back()->with('success', 'Status updated.');
     }

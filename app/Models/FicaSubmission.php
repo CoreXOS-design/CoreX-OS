@@ -195,7 +195,7 @@ class FicaSubmission extends Model
      */
     public static function ficaScopeFor(User $user): string
     {
-        if ($user->isOwnerRole() || $user->isComplianceOfficer()) {
+        if ($user->isOwnerRole() || $user->isComplianceOfficer($user->effectiveAgencyId())) {
             return 'all';
         }
 

@@ -20,8 +20,10 @@ pass through these.
 
 - **Global scope `app/Models/Scopes/AgencyScope.php`:** re-entry guard `:27,39`; bails if no auth user
   `:56-59`; owner bypass when no switcher override `:66-80`; resolves `effectiveAgencyId()` `:82`; **strict
-  filter `WHERE agency_id = :effective`** `:96-113`; **NULL `agency_id` = ORPHAN, filtered out (NOT
-  "shared")** `:97-101`; self-row carve-out for `User` `:110-112`.
+  filter `WHERE agency_id = :effective`** `:108-125`; **NULL `agency_id` = ORPHAN, filtered out (NOT
+  "shared")** `:110-114`; self-row carve-out for `User` `:123`, gated on BOTH the queried model AND the
+  authenticated principal being `App\Models\User` (fixed 2026-08; previously gated on the queried model
+  only, which let non-User Authenticatables like `AgencyApiKey` leak cross-agency `users` rows) `:105-106`.
 - **Trait `app/Models/Concerns/BelongsToAgency.php`:** registers scope `:28-30`; **auto-stamps on `creating`**
   — force-sets `agency_id` to `effectiveAgencyId()` for scoped users (can't spoof tenant) `:34-48`; single-
   agency dev fallback `:60-75`; escape hatch `newQueryWithoutAgencyScope()` `:117-125`. **208 models use it.**

@@ -53,10 +53,14 @@ class WhistleblowController extends Controller
     {
         $user = Auth::user();
 
-        // Pre-fill from property if linked
+        // Pre-fill from property if linked. AgencyScope (via BelongsToAgency) applies
+        // here deliberately: this route requires `agency.required` + an authenticated
+        // user, so a foreign-tenant property_id correctly resolves to null (the view
+        // already treats $property as optional) instead of leaking another agency's
+        // property onto this agency's complaint form.
         $property = null;
         if ($request->filled('property_id')) {
-            $property = \App\Models\Property::withoutGlobalScopes()->find($request->property_id);
+            $property = \App\Models\Property::find($request->property_id);
         }
 
         // Agency properties for picker
@@ -109,10 +113,12 @@ class WhistleblowController extends Controller
             }
         }
 
-        // Derive property_address from property if linked
+        // Derive property_address from property if linked. AgencyScope applies here
+        // for the same reason as create(): a foreign-tenant property_id resolves to
+        // null and $propertyAddress gracefully falls back to the submitted value.
         $propertyAddress = $request->property_address;
         if ($request->property_id) {
-            $prop = \App\Models\Property::withoutGlobalScopes()->find($request->property_id);
+            $prop = \App\Models\Property::find($request->property_id);
             if ($prop) {
                 $propertyAddress = $prop->address ?? $prop->title ?? $propertyAddress;
             }

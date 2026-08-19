@@ -224,7 +224,7 @@ final class AgentCardImageService
 
         $name  = trim((string) $agent->name) ?: 'Your agent';
         $title = trim((string) ($agent->designation ?? '')) ?: 'Estate Agent';
-        $agencyName = trim((string) ($agency?->name ?? '')) ?: 'Home Finders Coastal';
+        $agencyName = trim((string) ($agency?->name ?? '')) ?: 'Agency';
 
         // FFC: prefer the agent's own, fall back to the agency's. Don't double the
         // "FFC" prefix when the stored value already starts with it (e.g. "FFC40/…").

@@ -33,7 +33,7 @@ class FicaController extends Controller
     public function index(Request $request)
     {
         $user = Auth::user();
-        $isCO = $user->isComplianceOfficer();                 // any FICA appointment (RO or CO)
+        $isCO = $user->isComplianceOfficer((int) ($user->effectiveAgencyId() ?: 0)); // any FICA appointment (RO or CO)
         $isPrimaryCo = $user->isPrimaryComplianceOfficer((int) ($user->effectiveAgencyId() ?: 0)); // Elize
         $isAdmin = $user->isOwnerRole() || $user->hasPermission('manage_compliance');
 
@@ -356,7 +356,7 @@ class FicaController extends Controller
     {
         $this->authorizeAgency($submission);
         $actor = Auth::user();
-        abort_unless($actor->isComplianceOfficer(), 403, 'Only a Compliance Officer may decide a TFS match.');
+        abort_unless($actor->isComplianceOfficer((int) $submission->agency_id), 403, 'Only a Compliance Officer may decide a TFS match.');
 
         $data = $request->validate([
             'screening_id' => 'required|integer',
@@ -477,7 +477,7 @@ class FicaController extends Controller
     public function complianceReview(FicaSubmission $submission, FicaReferralService $referrals)
     {
         $this->authorizeAgency($submission);
-        abort_unless(Auth::user()->isComplianceOfficer(), 403, 'Only compliance officers can access this page.');
+        abort_unless(Auth::user()->isComplianceOfficer((int) $submission->agency_id), 403, 'Only compliance officers can access this page.');
 
         $submission->load(['contact', 'requestedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents', 'referredBy', 'linkedDocuments.documentType']);
 
@@ -499,7 +499,7 @@ class FicaController extends Controller
     {
         $this->authorizeAgency($submission);
         $actor = Auth::user();
-        abort_unless($actor->isComplianceOfficer(), 403);
+        abort_unless($actor->isComplianceOfficer((int) $submission->agency_id), 403);
 
         // TFS sanctions gate — a hit / undecided review / unscreened pack cannot be
         // finally approved. The CO resolves the flag (clear / confirm) first.
@@ -596,7 +596,7 @@ class FicaController extends Controller
     {
         $this->authorizeAgency($submission);
         $actor = Auth::user();
-        abort_unless($actor->isComplianceOfficer(), 403);
+        abort_unless($actor->isComplianceOfficer((int) $submission->agency_id), 403);
 
         // AT-269 (P2-49) — station separation, action-enforced (see complianceApprove).
         if ($submission->status === 'referred_to_co' && ! $referrals->isReferralStationOwner($submission, $actor)) {
@@ -702,7 +702,7 @@ class FicaController extends Controller
     {
         $this->authorizeAgency($submission);
         $actor = Auth::user();
-        abort_unless($actor->isComplianceOfficer(), 403);
+        abort_unless($actor->isComplianceOfficer((int) $submission->agency_id), 403);
         abort_unless($submission->status === 'referred_to_co', 422, 'This FICA is not currently referred.');
 
         // AT-269 (P2-49) — only the recipient / primary CO may return a referred pack.
@@ -905,7 +905,7 @@ class FicaController extends Controller
 
         $user = Auth::user();
         abort_unless(
-            $user->isComplianceOfficer()
+            $user->isComplianceOfficer((int) $submission->agency_id)
             || $user->isOwnerRole()
             || $user->hasPermission('compliance.fica.approve')
             || in_array($user->role, ['admin', 'super_admin']),

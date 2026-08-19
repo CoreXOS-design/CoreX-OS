@@ -66,6 +66,11 @@ class AgentScorecardCalculator
 
         // Activity points (from existing system)
         $period       = now()->format('Y-m');
+        // daily_activity_entries has agency_id but no automatic tenant scope on
+        // this raw query-builder path. e.user_id already pins this to $user,
+        // but the agency_id filter is added as defense in depth, matching
+        // every other daily_activity_entries call site fixed in this pass.
+        $agencyId = $user->effectiveAgencyId();
         // M6.5 — achievement-total filter.
         $activityPoints = (int) DB::table('daily_activity_entries as e')
             ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
@@ -75,6 +80,9 @@ class AgentScorecardCalculator
             ->where('d.scope', 'system')
             ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
             ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
+            ->when($agencyId, function ($q) use ($agencyId) {
+                $q->where('e.agency_id', $agencyId);
+            })
             ->sum(DB::raw('e.value * d.weight'));
 
         // Average response time (hours from task created to started)

@@ -1189,6 +1189,16 @@ class ContactController extends Controller
     public function update(Request $request, Contact $contact)
     {
         $this->authorizeContact($contact);
+
+        // Only enforce the strict SA-ID format when the value is actually being
+        // changed. Pre-Phase-A.2.5 records (and rows written by the CSV import,
+        // which persists id_number with no format check) can already hold a
+        // non-compliant value — the edit form always re-submits it via
+        // old('id_number', $contact->id_number), so validating it unconditionally
+        // would block an unrelated edit (e.g. just a phone update) on a contact
+        // whose legacy ID number nobody is touching.
+        $idNumberChanged = $request->input('id_number') !== $contact->id_number;
+
         $data = $request->validate([
             'first_name'      => 'required|string|max:100',
             'last_name'       => 'required|string|max:100',
@@ -1232,7 +1242,9 @@ class ContactController extends Controller
                     ->where('is_active', true),
             ],
             'birthday'        => 'nullable|date',
-            'id_number'       => 'nullable|string|max:20',
+            'id_number'       => $idNumberChanged
+                ? ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()]
+                : ['nullable', 'string', 'max:20'],
             // Residential address — where the contact lives. Free text, set
             // ONLY here. Distinct from the structured property-address capture
             // (updatePropertyAddress), which never writes to this column.

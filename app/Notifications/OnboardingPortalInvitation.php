@@ -27,7 +27,7 @@ class OnboardingPortalInvitation extends Notification
         return (new MailMessage)
             ->subject('Review your CoreX property import — ' . $agency)
             ->greeting('Welcome to CoreX OS')
-            ->line("Home Finders Coastal has imported {$agency}'s Property24 stock into CoreX OS.")
+            ->line(config('app.name', 'CoreX OS') . " has imported {$agency}'s Property24 stock into CoreX OS.")
             ->line('Please use the secure link below to review each listing and confirm or exclude it. Your changes go live only after you click *Finish review*.')
             ->action('Open review portal', $url)
             ->line("This link expires on {$expires}. Do not share it publicly.")

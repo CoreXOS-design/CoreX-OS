@@ -46,12 +46,30 @@ class ReportingController extends Controller
         $days = (int) $request->get('days', 30);
         $service = app(ReportingService::class);
 
-        // BM: only their branch. Admin/owner: any branch.
-        if (!in_array($user->role, ['admin', 'super_admin', 'owner']) && (int) $user->branch_id !== $branchId) {
-            abort(403);
+        // 'admin'/'super_admin'/'owner' here are agency-level role STRINGS, not
+        // necessarily true platform System Owners — do not conflate the two.
+        // Only User::isOwnerRole() (Role.is_owner flag) identifies a genuine
+        // platform owner, who bypasses agency scoping entirely.
+        $isAgencyAdmin = in_array($user->role, ['admin', 'super_admin', 'owner']);
+        $isPlatformOwner = $user->isOwnerRole();
+
+        // BM: only their own branch. Agency admin/owner: any branch, but ONLY
+        // within their own agency — branch_id is untrusted client input and must
+        // be verified server-side against effectiveAgencyId(). Platform System
+        // Owner: bypasses entirely.
+        if (!$isPlatformOwner) {
+            if ($isAgencyAdmin) {
+                $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
+                $branchAgencyId = (int) \App\Models\Branch::withoutGlobalScopes()->where('id', $branchId)->value('agency_id');
+                if ($agencyId === 0 || $branchAgencyId !== $agencyId) {
+                    abort(403);
+                }
+            } elseif ((int) $user->branch_id !== $branchId) {
+                abort(403);
+            }
         }
 
-        $branches = in_array($user->role, ['admin', 'super_admin', 'owner'])
+        $branches = ($isPlatformOwner || $isAgencyAdmin)
             ? \App\Models\Branch::withoutGlobalScopes()->where('agency_id', (int) ($user->effectiveAgencyId() ?: 0))->get(['id', 'name']) // AT-253 Rule 17
             : collect();
 

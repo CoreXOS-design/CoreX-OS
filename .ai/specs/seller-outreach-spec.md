@@ -645,6 +645,28 @@ command (`PropertyAddressReconciler`), so any un-reconciled or freshly-imported 
   `routes/console.php` — the compose-time fix heals rows as they are saved, but a one-off run/schedule
   would clean already-stored rows that are never re-saved. Johan's call.
 
+## 11.3c AT-379 — starter WhatsApp template for every agency (not just HFC)
+`HfcConsentTemplatesSeeder` (§11.3) is deliberately scoped to HFC's own 7 reviewed/dictated
+templates — it was never meant to run for any other agency. That meant every OTHER agency,
+including every newly created one, had **zero** `seller_outreach_templates` rows and nothing
+to send from the composer.
+
+Fix: `App\Services\SellerOutreach\SellerOutreachTemplateDefaultsService::ensureDefaults(int
+$agencyId)` clones HFC's own first WhatsApp template (id 1, "General Marketing — Area
+Updates" — already HFC's `is_default_for_channel` row) into `$agencyId` verbatim, marked
+`is_active = true` / `is_default_for_channel = true`, UNLESS that agency already has any
+WhatsApp template of its own (active or not — a deliberate choice is never overwritten).
+Fires the same `TemplateConfigured` CREATED event the admin UI fires. Mirrors
+`ActivityDefinitionDefaultsService`'s shape and is called from two places:
+- `AgencyController::store()` — every newly created agency gets it immediately.
+- `SettingsController` (Operations → Outreach Templates section) — opportunistic backfill,
+  so any agency that existed before this fix gets seeded the first time its own settings
+  page is viewed. Demo Agency (42) and Demo Test (67) were also backfilled directly at
+  ship time (2026-08-18).
+
+Email templates are explicitly OUT of scope for this default — only the WhatsApp channel was
+reported empty. An agency starting with zero email templates is unaffected by this service.
+
 ## 11.4 `restrict_consent_outreach_to_full_status` agency toggle
 Column on `agencies` (default `false`). When on, and a template uses `{agent_designation}` with a non-blank designation, `SellerOutreachComposerService::agencyRestrictsToFullStatus()` + `agentMayClaimFullStatus()` (delegating to the canonical `CandidatePractitionerService::isFullStatus() || isPrincipal()`) gate the send with `designation_not_full_status` — a candidate/intern practitioner cannot broadcast a full-status designation claim.
 

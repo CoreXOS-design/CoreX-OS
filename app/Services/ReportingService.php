@@ -245,6 +245,14 @@ class ReportingService
             ->where('sold_by_third_party', 0);
         if (isset($filter['user_id'])) $closedQuery->where('captured_by_user_id', $filter['user_id']);
         if (isset($filter['agency_id'])) $closedQuery->where('agency_id', $filter['agency_id']);
+        // property_sold_records carries no branch_id column of its own, so scope
+        // via the capturing agent's branch (same agentIds-via-users idiom as
+        // getBranchMetrics()) instead of silently falling through to a global,
+        // all-agency count.
+        if (isset($filter['branch_id'])) {
+            $branchAgentIds = DB::table('users')->where('branch_id', $filter['branch_id'])->pluck('id');
+            $closedQuery->whereIn('captured_by_user_id', $branchAgentIds);
+        }
         $closed = $closedQuery->count();
 
         return [

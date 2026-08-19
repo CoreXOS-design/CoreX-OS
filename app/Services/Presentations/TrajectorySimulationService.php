@@ -70,6 +70,9 @@ class TrajectorySimulationService
                 subjectSizeM2:   isset($baseInputs['size_m2']) ? (int) $baseInputs['size_m2'] : null,
                 subjectPriceInc: $price,
                 presentationId:  $presentation->id,
+                // SECURITY — scopes MarketCompRowsSoldAdapter / MarketCompRowsActiveAdapter
+                // reads of market_report_comp_rows to this presentation's own agency.
+                agencyId:        (int) $presentation->agency_id,
             );
 
             $maResult   = $maService->run($maInput, persist: false);

@@ -159,6 +159,10 @@ class AgencySetupWizardTest extends TestCase
         $agency = $this->agency();
         $admin  = $this->admin($agency);
         $setup  = $this->setupFor($agency);
+        // AT-379 follow-up — 'welcome' is now the actual first step; a real user
+        // reaches identity only after it. Mark it done so the resume-pointer
+        // assertion below reflects a realistic path, not an artificially-skipped one.
+        $setup->markStepComplete('welcome');
 
         $resp = $this->actingAs($admin)->post(route('corex.agency-setup.step.save', ['step' => 'identity']), [
             'trading_name' => 'Coastal Realty (Pty) Ltd',
@@ -166,8 +170,8 @@ class AgencySetupWizardTest extends TestCase
             'ffc_no'       => 'FFC123456',
         ]);
 
-        // Step 2 is now the feature switchboard (capabilities), inserted between
-        // identity and branding (switchboard spec §5).
+        // Step 3 is now the feature switchboard (capabilities) — welcome, identity,
+        // capabilities (switchboard spec §5 + AT-379's welcome step).
         $resp->assertRedirect(route('corex.agency-setup.step', ['step' => 'capabilities']));
 
         $agency->refresh();
@@ -177,7 +181,7 @@ class AgencySetupWizardTest extends TestCase
 
         $setup->refresh();
         $this->assertContains('identity', $setup->completed_steps);
-        $this->assertSame(2, $setup->current_step);
+        $this->assertSame(3, $setup->current_step);
     }
 
     public function test_branding_step_renders_and_writes_colours_and_logo(): void
@@ -225,7 +229,8 @@ class AgencySetupWizardTest extends TestCase
             'matches_show_on_properties' => '1',
             'matches_visibility_scope' => 'branch',
             'matches_wa_message'       => 'Hi, a new listing matches your search.',
-        ])->assertRedirect(route('corex.agency-setup.step', ['step' => 'contacts']));
+        // AT-379 — market_intelligence was inserted between matches and contacts.
+        ])->assertRedirect(route('corex.agency-setup.step', ['step' => 'market_intelligence']));
 
         $this->assertSame('branch', PerformanceSetting::get('matches_visibility_scope'));
         $this->assertSame('Hi, a new listing matches your search.', PerformanceSetting::get('matches_wa_message'));
@@ -255,8 +260,9 @@ class AgencySetupWizardTest extends TestCase
             'tier_6_flqa_requirement' => 3, 'tier_7_flqa_requirement' => 4,
         ];
 
+        // AT-379 — proforma was inserted between commission and properties.
         $this->actingAs($admin)->post(route('corex.agency-setup.step.save', ['step' => 'commission']), $payload)
-            ->assertRedirect(route('corex.agency-setup.step', ['step' => 'properties']));
+            ->assertRedirect(route('corex.agency-setup.step', ['step' => 'proforma']));
 
         $c = \App\Models\CommissionSetting::forAgency($agency->id)->refresh();
         $this->assertSame(70, (int) $c->commission_split_agent);
@@ -432,8 +438,10 @@ class AgencySetupWizardTest extends TestCase
 
         $this->assertNotContains('team', \App\Models\AgencyOnboardingSetup::STEPS);
         // 11 original steps + the 'roles' explainer + the 'capabilities' feature
-        // switchboard inserted at position 2 (switchboard spec §5/§7).
-        $this->assertSame(13, \App\Models\AgencyOnboardingSetup::totalSteps());
+        // switchboard inserted at position 2 (switchboard spec §5/§7), + AT-379's
+        // 'proforma' (after commission), 'market_intelligence' (after matches),
+        // and 'welcome' (the new first step).
+        $this->assertSame(16, \App\Models\AgencyOnboardingSetup::totalSteps());
 
         $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => 'properties']))
             ->assertOk()
@@ -476,8 +484,9 @@ class AgencySetupWizardTest extends TestCase
     {
         $agency = $this->agency();
         $admin  = $this->admin($agency);
-        // capabilities is now step 2, so branches is step 4 (switchboard spec §5).
-        $this->setupFor($agency, ['current_step' => 4, 'completed_steps' => ['identity', 'capabilities', 'branding']]);
+        // welcome(1), identity(2), capabilities(3), branding(4), branches(5)
+        // (switchboard spec §5 + AT-379's welcome step).
+        $this->setupFor($agency, ['current_step' => 5, 'completed_steps' => ['welcome', 'identity', 'capabilities', 'branding']]);
 
         $this->actingAs($admin)->get(route('corex.agency-setup.index'))
             ->assertRedirect(route('corex.agency-setup.step', ['step' => 'branches']));
@@ -494,7 +503,8 @@ class AgencySetupWizardTest extends TestCase
 
         $setup->refresh();
         $this->assertNotContains('identity', (array) $setup->completed_steps);
-        $this->assertSame(2, $setup->current_step);
+        // welcome(1), identity(2), capabilities(3) — AT-379's welcome step shifted this by one.
+        $this->assertSame(3, $setup->current_step);
     }
 
     public function test_finish_marks_complete(): void
@@ -634,12 +644,20 @@ class AgencySetupWizardTest extends TestCase
 
         // No admin_password — email-only invite (spec §R1a), the field no
         // longer exists on the form or in validation.
+        //
+        // branch_name/branch_code: AT-378 requires a branch on agency
+        // creation. A live (non-demo) agency now redirects into Market
+        // Intelligence / Prospecting Setup rather than back to the agency
+        // list — see AgencyControllerCreateTest::
+        // test_creating_a_live_agency_switches_into_it_and_redirects_to_prospecting_setup.
         $this->actingAs($owner)->post(route('agencies.store'), [
             'name'        => 'New Live Agency',
             'is_demo'     => '0',
             'admin_name'  => 'Ann Admin',
             'admin_email' => 'ann@newlive.co.za',
-        ])->assertRedirect(route('agencies.index'));
+            'branch_name' => 'Head Office',
+            'branch_code' => 'HQ',
+        ])->assertRedirect(route('settings.prospecting.index'));
 
         Event::assertDispatched(AgencyCreated::class);
     }

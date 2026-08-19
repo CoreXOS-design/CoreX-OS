@@ -24,7 +24,12 @@ class LostDealAnalyticsService
 
     public function getAgentBenchmark(int $userId, int $days = 90): array
     {
-        $agencyId = DB::table('users')->where('id', $userId)->value('agency_id') ?? 1;
+        $agencyId = DB::table('users')->where('id', $userId)->value('agency_id');
+        if ($agencyId === null) {
+            // No resolvable agency — fail closed rather than benchmarking
+            // against agency #1's distribution.
+            return ['agent' => [], 'agency' => []];
+        }
 
         $agentDist = DB::table('buyer_lost_records')
             ->where('agent_owner_user_id_at_loss', $userId)

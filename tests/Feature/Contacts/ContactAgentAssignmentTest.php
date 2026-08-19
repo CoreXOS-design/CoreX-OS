@@ -150,11 +150,11 @@ final class ContactAgentAssignmentTest extends TestCase
             'first_name' => 'Ida',
             'last_name'  => 'Number',
             'phone'      => '0825554444',
-            'id_number'  => '7610025020081',
+            'id_number'  => '9001015030082',
         ])->assertSessionHasNoErrors();
 
         $contact = Contact::withoutGlobalScopes()->where('phone', '0825554444')->firstOrFail();
-        $this->assertSame('7610025020081', $contact->id_number);
+        $this->assertSame('9001015030082', $contact->id_number);
         $this->assertSame('contact_quick_add', $contact->id_number_source);
         $this->assertNotNull($contact->id_number_captured_at);
     }
@@ -171,6 +171,46 @@ final class ContactAgentAssignmentTest extends TestCase
         ])->assertSessionHasErrors('id_number');
 
         $this->assertDatabaseMissing('contacts', ['phone' => '0825555555']);
+    }
+
+    /**
+     * update() enforces the SA-ID rule only when id_number is actually being
+     * changed. A contact imported via CSV (ContactImportController writes
+     * id_number with no format check) can already hold a non-compliant value;
+     * the edit form always re-submits it unchanged, so an unrelated edit
+     * (here: last name) must not be blocked by dormant legacy data.
+     */
+    public function test_update_ignores_legacy_id_number_when_unchanged(): void
+    {
+        [$agencyId, $agent] = $this->seedFixture();
+        $contact = $this->makeContact($agencyId, $agent->id, 'Sam', 'Buyer', '0825556666', 'sam2@example.com');
+        $contact->forceFill(['id_number' => 'PASSPORT-NOT-SA-ID'])->save();
+
+        $this->actingAs($agent)
+            ->put(route('corex.contacts.update', $contact), $this->payload([
+                'last_name'  => 'Buyer-Updated',
+                'id_number'  => 'PASSPORT-NOT-SA-ID',
+            ]))
+            ->assertSessionHasNoErrors();
+
+        $fresh = $contact->fresh();
+        $this->assertSame('Buyer-Updated', $fresh->last_name);
+        $this->assertSame('PASSPORT-NOT-SA-ID', $fresh->id_number);
+    }
+
+    /** Changing id_number to a NEW invalid value must still be rejected. */
+    public function test_update_rejects_id_number_when_changed_to_invalid(): void
+    {
+        [$agencyId, $agent] = $this->seedFixture();
+        $contact = $this->makeContact($agencyId, $agent->id, 'Sam', 'Buyer', '0825557777', 'sam3@example.com');
+
+        $this->actingAs($agent)
+            ->put(route('corex.contacts.update', $contact), $this->payload([
+                'id_number' => '123',
+            ]))
+            ->assertSessionHasErrors('id_number');
+
+        $this->assertNull($contact->fresh()->id_number);
     }
 
     /**

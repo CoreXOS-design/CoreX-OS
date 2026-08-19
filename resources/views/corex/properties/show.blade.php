@@ -4500,7 +4500,7 @@
                         <div class="sm:col-span-2">
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID number (optional)</label>
                             <input type="text" x-model="newForm.id_number" inputmode="numeric" maxlength="13"
-                                   pattern="\d{13}" placeholder="e.g. 7610025020081"
+                                   pattern="\d{13}" placeholder="e.g. 1234567890123"
                                    title="13 digits — empty is fine"
                                    class="w-full rounded-md px-3 py-2 text-sm"
                                    style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
@@ -4747,7 +4747,7 @@
                             <div class="sm:col-span-2">
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID number (optional)</label>
                                 <input type="text" name="id_number" inputmode="numeric" maxlength="13"
-                                       pattern="\d{13}" placeholder="e.g. 7610025020081"
+                                       pattern="\d{13}" placeholder="e.g. 1234567890123"
                                        title="13 digits — empty is fine"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">

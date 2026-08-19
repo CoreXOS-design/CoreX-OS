@@ -337,6 +337,27 @@ class PermissionService
     }
 
     /**
+     * Market Intelligence canvassing-pool data-visibility scope for a user
+     * (own | branch | all). Reads market_intelligence.view's scope; defaults
+     * to 'own' so a user who reaches the page never accidentally sees the
+     * whole agency. AT-380.
+     */
+    public static function marketIntelligenceScope(User $user): string
+    {
+        return static::getDataScope($user, 'market_intelligence') ?? 'own';
+    }
+
+    /**
+     * Outreach & Canvassing activity-board data-visibility scope for a user
+     * (own | branch | all). Reads outreach_canvassing.view's scope; defaults
+     * to 'own'. AT-380.
+     */
+    public static function outreachCanvassingScope(User $user): string
+    {
+        return static::getDataScope($user, 'outreach_canvassing') ?? 'own';
+    }
+
+    /**
      * Clamp a user-requested scope to a role-granted ceiling.
      * Breadth order: own (0) < branch (1) < all (2). A request wider than
      * the ceiling is pulled back to the ceiling, so the page's My/Branch/All
