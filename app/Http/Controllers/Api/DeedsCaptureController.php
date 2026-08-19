@@ -358,6 +358,21 @@ final class DeedsCaptureController extends Controller
 
         $created = (bool) $tp->wasRecentlyCreated;
 
+        // TEMP DIAGNOSTIC (2026-08-19, remove with the other trace point above)
+        // — the other half of the trace: did matchOrCreate() find an existing
+        // property (created=false) or make a new one, what did it already have
+        // linked, and how many owners did THIS capture actually resolve to
+        // real contacts before any persistence decision is made.
+        Log::info('Deeds capture matched/created + owner resolution', [
+            'source_ref'                => $ref,
+            'tracked_property_id'       => $tp->id,
+            'created'                   => $created,
+            'existing_owner_contact_id' => $tp->owner_contact_id,
+            'has_ownership_history_raw' => $hasOwnershipHistory,
+            'resolved_owners_count'     => count($resolvedOwners),
+            'resolved_owners'           => $resolvedOwners,
+        ]);
+
         // owner_contact_id is a relationship pointer, not a captured physical
         // fact — it deliberately stays OUTSIDE the facts/enrich()/audit
         // mechanism above. When ownership_history_raw ran instead (§7 below),
@@ -424,6 +439,16 @@ final class DeedsCaptureController extends Controller
             $this->reconcileOwners($tp, $resolvedOwners);
             $ownerContactIds = array_values(array_filter(array_column($resolvedOwners, 'contact_id')));
         }
+
+        // TEMP DIAGNOSTIC (2026-08-19, remove with the other two trace points)
+        // — the end of the trace: what actually landed after reconcileOwners()/
+        // captureOwnershipHistory() ran.
+        Log::info('Deeds capture owner outcome', [
+            'source_ref'            => $ref,
+            'tracked_property_id'   => $tp->id,
+            'final_owner_contact_id' => $tp->fresh()->owner_contact_id,
+            'owner_rows_on_file'    => \App\Models\Prospecting\TrackedPropertyOwner::where('tracked_property_id', $tp->id)->count(),
+        ]);
 
         return [
             'source_ref'              => $ref,
