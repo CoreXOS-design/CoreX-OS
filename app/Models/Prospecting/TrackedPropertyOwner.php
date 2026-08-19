@@ -24,15 +24,29 @@ final class TrackedPropertyOwner extends Model
         'id_type',
         'is_primary',
         'role',
+        'ownership_share_pct',
+        'deed_reference',
+        'ownership_status',
     ];
 
     protected $casts = [
-        'is_primary' => 'boolean',
+        'is_primary'          => 'boolean',
+        'ownership_share_pct' => 'float',
     ];
 
     /** Owner-row roles on a deed capture. */
     public const ROLE_OWNER = 'owner';
     public const ROLE_DIRECTOR = 'director';
+
+    /**
+     * Multi-owner / ownership-history capture (.ai/specs/deeds-capture.md §7).
+     * CURRENT = the registered owner as of the deed dated in the same
+     * generation as the panel's sale/registered date; PAST = an earlier
+     * transfer's owner (e.g. a prior seller). Only CURRENT rows are linked to
+     * a promoted property as its owner — see DeedsCaptureController::promote().
+     */
+    public const OWNERSHIP_CURRENT = 'current';
+    public const OWNERSHIP_PAST = 'past';
 
     public function trackedProperty(): BelongsTo
     {
