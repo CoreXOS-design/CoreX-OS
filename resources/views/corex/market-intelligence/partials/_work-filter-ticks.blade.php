@@ -47,9 +47,24 @@
     };
 
     // Colors adapted from the header's white-on-navy to this row's light --surface.
-    $tickBase = 'display:inline-flex; align-items:center; gap:6px; text-decoration:none; font-size:0.6875rem; color: var(--text-secondary); cursor:pointer; white-space:nowrap; transition:opacity 120ms;';
-    $boxOff = 'width:14px; height:14px; border-radius:3px; border:1px solid var(--border); display:inline-flex; align-items:center; justify-content:center; font-size:10px; line-height:1; color:transparent; transition:background 100ms,border-color 100ms,color 100ms;';
-    $boxOn  = 'width:14px; height:14px; border-radius:3px; border:1px solid var(--brand-icon,#0ea5e9); background:var(--brand-icon,#0ea5e9); color:#fff; display:inline-flex; align-items:center; justify-content:center; font-size:10px; line-height:1; font-weight:900; transition:background 100ms,border-color 100ms,color 100ms;';
+    //
+    // Each tick is its OWN bordered pill (2026-08-19, Johan) — not just spaced text.
+    // Two faults reported on real use: (1) the gap between one item's label and the
+    // NEXT item's box read no bigger than the gap between a box and its own label,
+    // so the second box visually "belonged" to the wrong item and got mis-ticked;
+    // (2) the unticked box border was var(--border) — rgba(0,0,0,0.07) light /
+    // rgba(255,255,255,0.06) dark, i.e. nearly invisible in BOTH themes, checked
+    // directly against resources/css/corex.css. A pill boundary around the whole
+    // control (box + label together) fixes proximity outright — there is no reading
+    // where box B looks attached to label A once each item has its own border and
+    // padding — and doubles as the "visual separator between items" a bigger gap
+    // alone might not have been decisive enough to provide. The unticked box now
+    // borders/fills with var(--text-muted)/var(--surface-2) — solid theme-aware
+    // tokens, not a near-transparent overlay — so it reads as a real empty box in
+    // both themes before it's ever clicked.
+    $tickBase = 'display:inline-flex; align-items:center; gap:6px; text-decoration:none; font-size:0.6875rem; color: var(--text-secondary); cursor:pointer; white-space:nowrap; transition:opacity 120ms,background 120ms,border-color 120ms; padding:5px 10px 5px 8px; border-radius:6px; border:1px solid var(--border-hover); background:var(--surface);';
+    $boxOff = 'width:14px; height:14px; border-radius:3px; border:1.5px solid var(--text-muted); background:var(--surface-2); display:inline-flex; align-items:center; justify-content:center; font-size:10px; line-height:1; color:transparent; flex-shrink:0; transition:background 100ms,border-color 100ms,color 100ms;';
+    $boxOn  = 'width:14px; height:14px; border-radius:3px; border:1.5px solid var(--brand-icon,#0ea5e9); background:var(--brand-icon,#0ea5e9); color:#fff; display:inline-flex; align-items:center; justify-content:center; font-size:10px; line-height:1; font-weight:900; flex-shrink:0; transition:background 100ms,border-color 100ms,color 100ms;';
     $spin   = 'display:none; font-size:0.625rem; color: var(--text-muted); font-style:italic;';
 @endphp
 

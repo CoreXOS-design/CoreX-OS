@@ -29,9 +29,16 @@
         return route('market-intelligence.work', $q);
     };
 
-    $tickBase = 'display:inline-flex; align-items:center; gap:6px; text-decoration:none; font-size:0.75rem; color:rgba(255,255,255,0.85); cursor:pointer; white-space:nowrap; transition:opacity 120ms;';
-    $boxOff = 'width:14px; height:14px; border-radius:3px; border:1px solid rgba(255,255,255,0.5); display:inline-flex; align-items:center; justify-content:center; font-size:10px; line-height:1; color:transparent; transition:background 100ms,border-color 100ms,color 100ms;';
-    $boxOn  = 'width:14px; height:14px; border-radius:3px; border:1px solid #fff; background:#fff; color:var(--brand-default,#0b2a4a); display:inline-flex; align-items:center; justify-content:center; font-size:10px; line-height:1; font-weight:900; transition:background 100ms,border-color 100ms,color 100ms;';
+    // Same pill-per-tick fix as partials/_work-filter-ticks.blade.php (2026-08-19,
+    // Johan) — a bordered pill around each control fixes proximity (box B can no
+    // longer read as belonging to label A) and gives the unticked box real
+    // contrast (rgba(255,255,255,0.5) on navy was too close to invisible; bumped
+    // to 0.7 border + a faint 0.1 fill so the empty box is visible before it's
+    // clicked) — same reasoning as the light-surface row, adapted to this
+    // fixed-navy header (not theme-driven, so plain rgba white here, not var()).
+    $tickBase = 'display:inline-flex; align-items:center; gap:6px; text-decoration:none; font-size:0.75rem; color:rgba(255,255,255,0.85); cursor:pointer; white-space:nowrap; transition:opacity 120ms,background 120ms,border-color 120ms; padding:5px 10px 5px 8px; border-radius:6px; border:1px solid rgba(255,255,255,0.18); background:rgba(255,255,255,0.04);';
+    $boxOff = 'width:14px; height:14px; border-radius:3px; border:1.5px solid rgba(255,255,255,0.7); background:rgba(255,255,255,0.1); display:inline-flex; align-items:center; justify-content:center; font-size:10px; line-height:1; color:transparent; flex-shrink:0; transition:background 100ms,border-color 100ms,color 100ms;';
+    $boxOn  = 'width:14px; height:14px; border-radius:3px; border:1.5px solid #fff; background:#fff; color:var(--brand-default,#0b2a4a); display:inline-flex; align-items:center; justify-content:center; font-size:10px; line-height:1; font-weight:900; flex-shrink:0; transition:background 100ms,border-color 100ms,color 100ms;';
     $spin   = 'display:none; font-size:0.625rem; color:rgba(255,255,255,0.7); font-style:italic;';
 @endphp
 
