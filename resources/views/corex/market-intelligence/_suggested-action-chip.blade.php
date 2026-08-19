@@ -55,7 +55,22 @@
             default       => '',
         };
 
-        $baseChipStyle = 'display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; border-radius: 4px; text-decoration: none; cursor: pointer; white-space: nowrap;';
+        // Fixed at the COMPONENT level (Johan 2026-08-21: "fix the sizing at the
+        // component level, not per-variant") — every SuggestedAction (R1-R10:
+        // FLAG TO BM, Continue, LOG OUTCOME, PITCH NOW · HIGH, PITCH NOW,
+        // RE-PITCH STOCK, Pitched, etc.) shares this ONE style block, so they
+        // all render the same size regardless of which rule fired. min-width
+        // (not width) is sized to comfortably fit "PITCH NOW · HIGH" — the
+        // longest label an ordinary agent sees day to day — WITHOUT truncating
+        // the rarer, genuinely longer manager/edge-case labels ("RESOLVE
+        // COLLEAGUE CLAIM", "ALREADY EXISTS · OPEN PROPERTY"): those grow past
+        // it instead of clipping. justify-content:center keeps short labels
+        // ("Pitched", "Claim") centred in the shared width rather than hugging
+        // one edge. Padding/radius here MUST stay identical to the Claim
+        // button's in _listing-row.blade.php (same min-width value too) — the
+        // two are meant to square up into one block; if you change one, change
+        // the other.
+        $baseChipStyle = 'display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 6px 12px; font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; border-radius: 5px; text-decoration: none; cursor: pointer; white-space: nowrap; min-width: 160px; box-sizing: border-box;';
 
         // Small, non-interactive secondary badge — text-only (no chip
         // background/border) so it reads as a status indicator rather than

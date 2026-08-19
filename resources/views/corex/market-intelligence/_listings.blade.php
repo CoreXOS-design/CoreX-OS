@@ -87,37 +87,9 @@
         }
      }">
 
-    {{-- F.8 — quiet buyer-tier legend strip. Decodes the green/amber dots
-         on every row in one place so a first-day agent doesn't have to
-         hover each dot to learn what it means. The "tune" link goes to
-         the existing buyer-tier settings tab so a manager can adjust the
-         score cutoffs that decide tier membership. --}}
-    <div class="mi-buyer-legend"
-         style="display: flex; align-items: center; gap: 10px; padding: 6px 0;
-                font-size: 0.6875rem; color: var(--text-muted, #9ca3af);
-                border-bottom: 1px solid var(--border, rgba(0,0,0,0.07)); margin-bottom: 8px;">
-        <span>Buyer matches:</span>
-        <span style="display: inline-flex; align-items: center; gap: 4px;"
-              title="Strong-tier: buyer-match score ≥ 80 — high likelihood of conversion.">
-            <span style="width: 7px; height: 7px; border-radius: 50%; background: var(--ds-green, #10b981); display: inline-block;"></span>
-            strong-tier
-        </span>
-        <span style="display: inline-flex; align-items: center; gap: 4px;"
-              title="Mid-tier: buyer-match score 50–79.">
-            <span style="width: 7px; height: 7px; border-radius: 50%; background: var(--ds-amber, #f59e0b); display: inline-block;"></span>
-            mid-tier
-        </span>
-        <span style="display: inline-flex; align-items: center; gap: 4px;"
-              title="Weak-tier: buyer-match score under 50. Hidden from the row by default; visible in the buyer panel.">
-            <span style="width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted, #9ca3af); display: inline-block;"></span>
-            weak-tier
-        </span>
-        <a href="{{ route('settings.prospecting.index') }}#buyer-match-tiers"
-           style="margin-left: auto; color: var(--brand-icon, #0ea5e9); text-decoration: none;"
-           title="Open Prospecting Setup → Buyer Match Tiers to adjust the score cutoffs that decide tier membership.">
-            tune ↗
-        </a>
-    </div>
+    {{-- Buyer-tier legend + filter ticks moved out of the scrolling list
+         (Johan 2026-08-19) — now rendered in the empty band above the list,
+         see work.blade.php's #mic-slot-buyer-legend include. --}}
 
     {{-- Result-count + sort header strip --}}
     <div style="display: flex; align-items: flex-start; justify-content: space-between; padding: 4px 0 10px; gap: 12px; flex-wrap: wrap;">
@@ -182,6 +154,18 @@
         </div>
     </div>
 
+    {{-- MIC property row comments — .ai/specs/mic-property-row-comments.md.
+         AT-363 fix pattern (documented in .ai/CHAT_STARTER.md and used by
+         command-center/buyers/detail.blade.php's buyerWishlists component):
+         the behaviour lives in a REGISTERED Alpine.data() component (real
+         <script> block below), not inline in this HTML attribute, so a
+         double quote inside any JS string here can never re-break x-data
+         parsing again. Wraps the row stack (chip buttons call
+         openCommentsModal) and the comments modal (reads
+         commentsModalOpen/Html) so both share one component instance.
+         Deliberately does NOT wrap the buyer-panel markup below — that
+         stays under the outer scope, untouched. --}}
+    <div x-data="micRowComments()">
     {{-- Row stack --}}
     @if($listings->isEmpty())
         <div style="text-align: center; padding: 64px 24px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px;">
@@ -247,6 +231,8 @@
                     'viewerId'  => $viewerId,
                     'showProspectedBadge' => $showProspectedBadge,
                     'selectedScore' => $listing->selected_buyer_score ?? null,
+                    'commentCounts' => $commentCounts ?? [],
+                    'canViewComments' => $canViewComments ?? false,
                 ])
             @endforeach
         </div>
@@ -256,9 +242,15 @@
         </div>
     @endif
 
+    @include('corex.market-intelligence._comments-modal-shell')
+    </div>
+
     {{-- Buyer-match side panel (slides from right) — Alpine wired above.
          Same shape as the F.1/F.2 panel. F.4 will add the row-click slide-over;
-         this one is unchanged. --}}
+         this one is unchanged. Deliberately OUTSIDE the micRowComments()
+         wrapper above — it reads only the outer (buyerPanel*) scope and was
+         moved here, unmodified, purely so the comments wrapper could close
+         cleanly around the row stack + its own modal. --}}
     <div x-show="buyerPanelOpen" x-cloak
          @click="buyerPanelOpen = false"
          class="fixed inset-0 z-40"
@@ -288,6 +280,8 @@
         <div x-show="!buyerPanelLoading" x-html="buyerPanelHtml"></div>
     </div>
 </div>
+
+@include('corex.market-intelligence._comments-alpine')
 
 <style>
     .mi-row:not(:last-child) { border-bottom: 1px solid var(--border); }

@@ -97,6 +97,11 @@
     if ($activeDateFrom)                                 $activePills[] = ['label' => 'Since ' . $activeDateFrom,                'remove' => $urlWithout(['date_from','date_to'])];
     if ($activeAgencyName)                               $activePills[] = ['label' => 'Agency · ' . $activeAgencyName,            'remove' => $urlWithout('agency_name')];
     if (request('action_preset'))                        $activePills[] = ['label' => 'Preset · ' . str_replace('_', ' ', request('action_preset')), 'remove' => $urlWithout('action_preset')];
+    // Source ticks (P24/PP) default ON — a pill only appears once a source is
+    // hidden, matching the pattern above: label + × removes the param, which
+    // reverts the tick to its default (visible) state.
+    if (! request()->boolean('p24', true))               $activePills[] = ['label' => 'Source · P24 hidden',                       'remove' => $urlWithout('p24')];
+    if (! request()->boolean('pp', true))                $activePills[] = ['label' => 'Source · PP hidden',                        'remove' => $urlWithout('pp')];
 
     $sectionTitleStyle = 'font-size: 0.6875rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); padding: 6px 12px 4px;';
     $rowStyle = 'display: flex; justify-content: space-between; align-items: center; padding: 5px 12px; font-size: 0.8125rem; color: var(--text-secondary); text-decoration: none; cursor: pointer;';
