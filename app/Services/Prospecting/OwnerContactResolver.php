@@ -39,11 +39,20 @@ final class OwnerContactResolver
 
     /**
      * Persist one TrackedPropertyOwner row per parsed position, resolving/
-     * creating/deduping its Contact along the way. Always inserts fresh rows
-     * (no re-capture idempotency in this pass — see .ai/specs/deeds-capture.md
-     * §7.15's Stage 3 note; the existing single-owner syncOwners() dedup key
-     * doesn't extend cleanly here since one person can now hold several
-     * distinct deed positions on the same property).
+     * creating/deduping its Contact along the way.
+     *
+     * 2026-08-19 (found while verifying the "always ingest both sources"
+     * fix, .ai/specs/deeds-capture.md §7 — Johan's owner-data build) — this
+     * used to always insert fresh rows on every call, with no re-capture
+     * idempotency at all: recapturing the SAME property a second time
+     * duplicated every owner row. Keyed now on (tracked_property_id,
+     * id_number, deed_reference) when an id_number is present — deed_
+     * reference is the discriminator the original docblock note was right
+     * to flag (one person CAN hold several distinct deed positions on the
+     * same property, e.g. a past AND current transfer); keying on id_number
+     * alone would have collapsed those into one row. An id-less row (masked
+     * or genuinely absent — §7.4) still can't be reliably deduped and keeps
+     * inserting fresh, same fallback syncOwners() already uses.
      *
      * @param OwnershipOwnerRow[] $rows
      * @return TrackedPropertyOwner[]
@@ -53,8 +62,7 @@ final class OwnerContactResolver
         $persisted = [];
         foreach ($rows as $row) {
             $contactId = $this->resolveContact($agencyId, $user, $row);
-            $persisted[] = TrackedPropertyOwner::create([
-                'tracked_property_id' => $trackedProperty->id,
+            $attributes = [
                 'contact_id'          => $contactId,
                 'name'                => $row->name,
                 'id_number'           => $row->idNumber,
@@ -69,7 +77,18 @@ final class OwnerContactResolver
                 // linkCurrentOwners()'s query below, structurally, not by a filter someone
                 // could get wrong.
                 'ownership_status'    => $row->ownershipStatus,
-            ]);
+            ];
+
+            $persisted[] = $row->idNumber
+                ? TrackedPropertyOwner::updateOrCreate(
+                    [
+                        'tracked_property_id' => $trackedProperty->id,
+                        'id_number'           => $row->idNumber,
+                        'deed_reference'      => $row->deedReference,
+                    ],
+                    $attributes
+                )
+                : TrackedPropertyOwner::create($attributes + ['tracked_property_id' => $trackedProperty->id]);
         }
 
         return $persisted;
