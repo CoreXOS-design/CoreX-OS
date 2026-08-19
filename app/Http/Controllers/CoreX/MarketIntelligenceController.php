@@ -259,6 +259,21 @@ class MarketIntelligenceController extends Controller
                   ->where('address', '<>', 'Address not available');
         }
 
+        // Source ticks (P24 / PP) — Work tab. Canonical column, directly on
+        // every row: prospecting_listings.portal_source, enum('p24','pp')
+        // NOT NULL. No join, no string-sniffing the portal-ref prefix. Both
+        // default ON so an untouched page applies no filter here at all —
+        // identical query to before this change. Both OFF is a legitimate
+        // state (whereIn with an empty array yields zero rows, no error).
+        $sourceP24On = $request->boolean('p24', true);
+        $sourcePpOn  = $request->boolean('pp', true);
+        if (! $sourceP24On || ! $sourcePpOn) {
+            $query->whereIn('portal_source', array_keys(array_filter([
+                'p24' => $sourceP24On,
+                'pp'  => $sourcePpOn,
+            ])));
+        }
+
         // Stock match filter (legacy ?stock_filter= explicit override — still honoured
         // when the manager wants to inspect just the in-stock or out-of-stock subset).
         // 2026-08-11 fix — was whereNotNull/whereNull('matched_property_id'), the raw
@@ -1072,7 +1087,7 @@ class MarketIntelligenceController extends Controller
                 'listings'      => view('corex.market-intelligence._listings', $fragmentData)->render(),
                 'statsStrip'    => view('corex.market-intelligence._stats-strip', $fragmentData)->render(),
                 'filterRail'    => view('corex.market-intelligence._filter-rail', $fragmentData)->render(),
-                'headerActions' => view('corex.market-intelligence.partials._header-actions', $fragmentData)->render(),
+                'headerActions' => view('corex.market-intelligence.partials._header-actions', $fragmentData + ['showTicks' => false])->render(),
                 'url'           => $canonicalUrl,
             ]);
         }

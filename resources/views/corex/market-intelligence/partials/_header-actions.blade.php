@@ -1,16 +1,17 @@
-{{-- MIC Work / Analyse header actions — filter TICKS + Setup link (white-on-navy).
+{{-- MIC Work / Analyse header actions — Setup link (white-on-navy).
 
-     Ticks are plain <a href> toggle links (NOT JS-onchange checkboxes — that was
-     the bug: the onchange never navigated, so clicking did nothing). Each link
-     carries the full current query minus page (a filter change returns to page 1)
-     and toggles its own param: include_in_stock / address_filter.
-
-     UX (Johan): the reload is slow, so users re-click thinking nothing happened.
-     A small additive script gives INSTANT optimistic feedback — flip the tick glyph
-     and show "updating…" the moment you click — then lets the real <a> navigation
-     proceed. It is additive only: if JS is off/blocked the link still works.
+     Filter ticks (with-address, in-stock, P24, PP) moved to
+     partials/_work-filter-ticks.blade.php, rendered inline with the list
+     they filter (see _listings.blade.php's buyer-match legend row) instead
+     of living up here in the page header — Johan 2026-08-19: "have the
+     ticks at the actual properties ... an off screen scroll section."
+     Gated by $showTicks (default true) rather than deleted outright: the
+     Analyse tab includes this same partial with no params and still needs
+     its own in-stock tick (analyse() reads include_in_stock too) — only the
+     Work tab passes showTicks=false.
      UI_DESIGN_SYSTEM.md §2.4. --}}
 @php
+    $showTicks = $showTicks ?? true;
     $isManager = auth()->user()?->hasPermission('prospecting_setup.manage') ?? false;
 
     // Current query minus page — toggling a filter returns to page 1.
@@ -34,6 +35,7 @@
     $spin   = 'display:none; font-size:0.625rem; color:rgba(255,255,255,0.7); font-style:italic;';
 @endphp
 
+@if($showTicks)
 {{-- With-address (pull-all): restrict to listings that have a street address. --}}
 <a href="{{ $toggleUrl('address_filter', 'with_address', $addrOn) }}"
    class="mic-tick" data-active="{{ $addrOn ? '1' : '0' }}"
@@ -43,8 +45,10 @@
     With address only
     <span class="mic-tick-spin" style="{{ $spin }}">updating…</span>
 </a>
+@endif
 
 @if($isManager)
+    @if($showTicks)
     {{-- In-stock (our own portal listings, exact ref match) — manager-only audit. --}}
     <a href="{{ $toggleUrl('include_in_stock', '1', $stockOn) }}"
        class="mic-tick" data-active="{{ $stockOn ? '1' : '0' }}"
@@ -54,6 +58,7 @@
         Show in-stock too
         <span class="mic-tick-spin" style="{{ $spin }}">updating…</span>
     </a>
+    @endif
 
     <a href="{{ route('settings.prospecting.index') }}"
        class="corex-btn-outline text-sm"

@@ -29,7 +29,7 @@
         {{-- Slot: filter ticks. AJAX swap target (display:contents = no layout box),
              so a tick toggle refreshes this in place without a full reload. --}}
         <span id="mic-slot-header-actions" style="display:contents;">
-        @include('corex.market-intelligence.partials._header-actions')
+        @include('corex.market-intelligence.partials._header-actions', ['showTicks' => false])
         </span>
     </x-slot:actions>
 </x-mic-page-header>
