@@ -188,6 +188,19 @@ class ProspectingClaim extends Model
         return $this->pitched_at !== null;
     }
 
+    /**
+     * True once this claim's listing has actually been promoted to a Property
+     * (property_id is backfilled by ProspectingClaimService::consumeLockAsPermanentClaim
+     * only after the property row exists — never at claimOnPitchNow time for a
+     * not-yet-in-stock listing). A promoted claim is on the agency's books and must
+     * never be released or closed back into the canvass pool — see release(),
+     * releaseAsManager() and feedback() in MarketIntelligenceController.
+     */
+    public function isPromoted(): bool
+    {
+        return $this->property_id !== null;
+    }
+
     public function needsReminder(): bool
     {
         return $this->is_active
