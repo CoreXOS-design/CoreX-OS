@@ -95,7 +95,9 @@
     <div class="mi-buyer-legend"
          style="display: flex; align-items: center; gap: 10px; padding: 6px 0;
                 font-size: 0.6875rem; color: var(--text-muted, #9ca3af);
-                border-bottom: 1px solid var(--border, rgba(0,0,0,0.07)); margin-bottom: 8px;">
+                border-bottom: 1px solid var(--border, rgba(0,0,0,0.07)); margin-bottom: 8px;
+                flex-wrap: wrap; position: sticky; top: var(--mi-header-h, 110px);
+                z-index: 9; background: var(--surface);">
         <span>Buyer matches:</span>
         <span style="display: inline-flex; align-items: center; gap: 4px;"
               title="Strong-tier: buyer-match score ≥ 80 — high likelihood of conversion.">
@@ -112,8 +114,18 @@
             <span style="width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted, #9ca3af); display: inline-block;"></span>
             weak-tier
         </span>
+        {{-- Filter ticks — relocated here from the page header (Johan
+             2026-08-19) so they scroll with the list they filter instead of
+             living in the header above it. This row is sticky (see
+             position:sticky above, reusing the same --mi-header-h var the
+             filter rail already sticks to) so the ticks stay reachable
+             while the list scrolls. --}}
+        <span style="display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-left: auto;">
+        @include('corex.market-intelligence.partials._work-filter-ticks')
+        </span>
+
         <a href="{{ route('settings.prospecting.index') }}#buyer-match-tiers"
-           style="margin-left: auto; color: var(--brand-icon, #0ea5e9); text-decoration: none;"
+           style="color: var(--brand-icon, #0ea5e9); text-decoration: none;"
            title="Open Prospecting Setup → Buyer Match Tiers to adjust the score cutoffs that decide tier membership.">
             tune ↗
         </a>
