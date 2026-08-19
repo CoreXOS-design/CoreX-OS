@@ -2957,6 +2957,28 @@ class MarketIntelligenceController extends Controller
         if ($match !== null) {
             $property = $match['property'];
 
+            // CX-102 part 2 (2026-08-19, Johan) — "the system must show its
+            // working and let the agent overrule it." Record WHY this
+            // listing was matched to this property, at the moment of the
+            // match — read back on the property page the agent lands on
+            // next, alongside a "Not the same property" control. Shared
+            // mechanism with the deeds-capture matcher.
+            $matchReason = match ($match['strategy'] ?? null) {
+                'portal_ref'         => 'Same portal reference (' . ($listing->portal_ref ?? '?') . ') as one of your agency\'s own listings.',
+                'normalized_address' => 'Address is a close text match to one of your agency\'s own listings.',
+                'promoted_link'      => 'This listing was already promoted onto your agency\'s books.',
+                default              => 'Matched automatically.',
+            };
+            app(\App\Services\Prospecting\PropertyMatchDecisionService::class)->record(
+                agencyId: $agencyId,
+                subjectType: 'mic_claim',
+                subjectKey: 'listing:' . $listing->id,
+                matchedType: 'property',
+                matchedId: $property->id,
+                strategy: (string) ($match['strategy'] ?? 'unknown'),
+                reason: $matchReason,
+            );
+
             // EITHER WAY the MIC entry leaves the list and stays off — recorded
             // as resolved, never released back to the pool for the next agent
             // to hit the same dead end (Johan, verbatim). matched_property_id
@@ -2996,13 +3018,15 @@ class MarketIntelligenceController extends Controller
                 // nobody has worked it in a week — Johan's stale-stock rule. Do NOT
                 // block: continue the agent straight onto the existing property.
                 return redirect()->route('corex.properties.show', $property->id)
-                    ->with('success', 'Already on your books (dormant — no recent activity) — linked. Continue here instead of prospecting it again.');
+                    ->with('success', 'Already on your books (dormant — no recent activity) — linked. Continue here instead of prospecting it again.')
+                    ->with('mic_claim_listing_id', $listing->id);
             }
 
             $holderName = $property->agent?->name ?? 'the assigned agent';
 
             return redirect()->route('corex.properties.show', $property->id)
-                ->with('error', 'This is already your agency\'s own stock, held by ' . $holderName . ' — speak to them. Nothing to claim in MIC.');
+                ->with('error', 'This is already your agency\'s own stock, held by ' . $holderName . ' — speak to them. Nothing to claim in MIC.')
+                ->with('mic_claim_listing_id', $listing->id);
         }
 
         // Stale-tab guard — re-derives CURRENT claim state server-side on every
@@ -3035,6 +3059,49 @@ class MarketIntelligenceController extends Controller
         ]);
 
         return back()->with('success', 'Listing claimed');
+    }
+
+    /**
+     * "Not the same property" (CX-102 part 2, 2026-08-19, Johan) — an agent
+     * on the property page they were redirected to from claim() says CoreX
+     * matched the wrong stock. Breaks the link so the listing goes straight
+     * back into the claimable MIC pool — unblocked, no queue, no waiting.
+     * The rejection itself is permanent (PropertyMatchDecisionService), so
+     * the next claim attempt on this SAME listing will never silently offer
+     * this SAME property again — resolveForClaim() falls through to its
+     * next check, or finds nothing and lets the claim proceed normally.
+     */
+    public function rejectClaimMatch(Request $request)
+    {
+        $user = auth()->user();
+        $agencyId = $user->agency_id ?? $user->effectiveAgencyId() ?? 1;
+
+        $data = $request->validate([
+            'listing_id'  => 'required|integer',
+            'property_id' => 'required|integer',
+            'reason'      => 'nullable|string|max:500',
+        ]);
+
+        $decisions = app(\App\Services\Prospecting\PropertyMatchDecisionService::class);
+        $subjectKey = 'listing:' . $data['listing_id'];
+        $decision = $decisions->current($agencyId, 'mic_claim', $subjectKey);
+
+        if ($decision === null || (int) $decision->matched_id !== (int) $data['property_id'] || $decision->isRejected()) {
+            return back()->with('error', 'Nothing to reject — that match has already changed or been actioned.');
+        }
+
+        $decisions->reject($decision, (int) $user->id, $data['reason'] ?? null);
+
+        // Undo exactly what claim()'s block/link did — nothing else. The
+        // listing goes back to being an ordinary, unclaimed MIC prospect;
+        // the closed claim record stays as history, same as any other
+        // release.
+        ProspectingListing::where('id', $data['listing_id'])
+            ->where('agency_id', $agencyId)
+            ->update(['matched_property_id' => null]);
+
+        return redirect()->route('market-intelligence.work')
+            ->with('success', 'Marked as not the same property — it is back in your prospecting list.');
     }
 
     public function feedback(Request $request, ProspectingListing $listing)

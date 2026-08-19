@@ -4402,6 +4402,11 @@ Route::middleware(['auth', 'permission:access_prospecting'])
         Route::post('/{listing}/claim',    [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'claim'])->name('claim');
         Route::post('/{listing}/feedback', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'feedback'])->name('feedback');
         Route::post('/{listing}/release',  [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'release'])->name('release');
+        // "Not the same property" (CX-102 part 2, 2026-08-19) — an agent on the
+        // property page they landed on from claim() says the match is wrong.
+        // Not listing-scoped in the URL (posts listing_id + property_id) since
+        // it's submitted from the property page, not a MIC row.
+        Route::post('/reject-claim-match', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'rejectClaimMatch'])->name('reject-claim-match');
         Route::get('/{listing}',           [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'show'])->name('show');
     });
 

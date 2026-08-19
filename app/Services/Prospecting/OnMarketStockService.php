@@ -109,15 +109,31 @@ class OnMarketStockService
      * Deliberately bypasses the LIVE-only identitySets() cache — this must see
      * a STALE match too, to link rather than silently miss it.
      *
-     * @return array{property: Property, stale: bool}|null
+     * CX-102 part 2 (2026-08-19, Johan: "the system must show its working
+     * and let the agent overrule it") — also returns which check matched
+     * ('portal_ref', 'normalized_address', or 'promoted_link') and skips any
+     * property an agent has already rejected THIS EXACT listing against
+     * (subject_type 'mic_claim', subject_key "listing:{id}" —
+     * PropertyMatchDecisionService is the veto/record mechanism, shared with
+     * the deeds-capture matcher). A rejected match at one check falls
+     * through to the next, same "never a dead end" rule as the deeds
+     * matcher — never returns null just because the FIRST candidate was
+     * vetoed when a later check might still find a genuine one.
+     *
+     * @return array{property: Property, stale: bool, strategy: string}|null
      */
     public function resolveForClaim(ProspectingListing $listing, int $agencyId): ?array
     {
+        $decisions = app(\App\Services\Prospecting\PropertyMatchDecisionService::class);
+        $subjectKey = 'listing:' . $listing->id;
+        $rejected = fn (Property $p) => $decisions->isRejected($agencyId, 'mic_claim', $subjectKey, 'property', $p->id);
+
         $property = null;
+        $strategy = null;
 
         $ref = $listing->portal_ref;
         if ($ref !== null && $ref !== '') {
-            $property = Property::withoutGlobalScopes()
+            $candidate = Property::withoutGlobalScopes()
                 ->where('agency_id', $agencyId)
                 ->whereNull('deleted_at')
                 ->where(function ($q) use ($ref) {
@@ -130,22 +146,34 @@ class OnMarketStockService
                     }
                 })
                 ->first();
+            if ($candidate && !$rejected($candidate)) {
+                $property = $candidate;
+                $strategy = 'portal_ref';
+            }
         }
 
         if (!$property && $listing->normalized_address) {
-            $property = Property::withoutGlobalScopes()
+            $candidate = Property::withoutGlobalScopes()
                 ->where('agency_id', $agencyId)
                 ->whereNull('deleted_at')
                 ->get(['id', 'address', 'suburb'])
                 ->first(fn ($p) => ProspectingListing::normalizeAddress($p->address, $p->suburb ?? '') === $listing->normalized_address);
+            if ($candidate && !$rejected($candidate)) {
+                $property = $candidate;
+                $strategy = 'normalized_address';
+            }
         }
 
         if (!$property) {
             $trackedProperty = $listing->trackedProperty;
             if ($trackedProperty && $trackedProperty->promoted_to_property_id) {
-                $property = Property::withoutGlobalScopes()
+                $candidate = Property::withoutGlobalScopes()
                     ->whereNull('deleted_at')
                     ->find($trackedProperty->promoted_to_property_id);
+                if ($candidate && !$rejected($candidate)) {
+                    $property = $candidate;
+                    $strategy = 'promoted_link';
+                }
             }
         }
 
@@ -153,7 +181,7 @@ class OnMarketStockService
             return null;
         }
 
-        return ['property' => $property, 'stale' => $property->isStaleStock()];
+        return ['property' => $property, 'stale' => $property->isStaleStock(), 'strategy' => $strategy];
     }
 
     /** Prefixed portal_refs of the agency's on-market owned stock. */
