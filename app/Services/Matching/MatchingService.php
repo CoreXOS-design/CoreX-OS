@@ -275,7 +275,21 @@ class MatchingService
 
         $listingType  = $overrides['listing_type']  ?? $match->listing_type; // sale vs rental is a hard filter — never mix the two
         $category     = $overrides['category']      ?? $match->category;
-        $propertyType = $overrides['property_type'] ?? $match->property_type;
+        // 2026-08-19 (Falan, live bug) — this used to read the legacy singular
+        // property_type column, which the controller only ever populates with
+        // the FIRST of the buyer's selected types (property_type <-> property_types
+        // reconciliation, ContactMatchController::update()). A buyer with
+        // House+Townhouse+Vacant Land ticked got a candidate query pre-filtered
+        // to House alone — the townhouses and land were excluded before score()
+        // ever ran, never a scoring/family-gate problem (those already correctly
+        // read the full array via propertyTypeList(), see below). An explicit
+        // override still wins and still behaves as a single value — that's a
+        // deliberate ad-hoc single-type filter on the public/mobile match views
+        // (SharedMatchController, MobileCoreMatchController), not the buyer's
+        // persisted multi-select, and must not be widened.
+        $propertyTypes = array_key_exists('property_type', $overrides)
+            ? array_filter([$overrides['property_type']])
+            : $match->propertyTypeList();
         $priceMin     = $overrides['price_min']     ?? $match->price_min;
         $priceMax     = $overrides['price_max']     ?? $match->price_max;
         $bedsMin      = $overrides['beds_min']      ?? $match->beds_min;
@@ -290,6 +304,14 @@ class MatchingService
         $strLoose = function (Builder $q, string $col, string $val) {
             $q->where(function (Builder $q2) use ($col, $val) {
                 $q2->whereNull($col)->orWhere($col, $val);
+            });
+        };
+        // Multi-value counterpart — property_type is a multi-select on the buyer's
+        // side (propertyTypeList()); the candidate query must match ANY of the
+        // wanted types, not force the whole set down to one value.
+        $strLooseIn = function (Builder $q, string $col, array $vals) {
+            $q->where(function (Builder $q2) use ($col, $vals) {
+                $q2->whereNull($col)->orWhereIn($col, $vals);
             });
         };
         // listing_type uses STRICT equality — sale vs rental are different markets and
@@ -311,8 +333,8 @@ class MatchingService
             }
         }
         // category / property_type stay loose — half-filled listings still appear.
-        if ($category)     $strLoose($query, 'category', $category);
-        if ($propertyType) $strLoose($query, 'property_type', $propertyType);
+        if ($category)          $strLoose($query, 'category', $category);
+        if (!empty($propertyTypes)) $strLooseIn($query, 'property_type', $propertyTypes);
 
         // Numeric criteria: allow NULL on the property side too.
         $numLoose = function (Builder $q, string $col, string $op, int $val) {
@@ -586,8 +608,23 @@ class MatchingService
         if ($match->category && $property->category) {
             $components[] = [5, $property->category === $match->category ? 1.0 : 0.0];
         }
-        if ($match->property_type && $property->property_type) {
-            $components[] = [5, $property->property_type === $match->property_type ? 1.0 : 0.0];
+        // 2026-08-19 (Falan, live bug, second face of the same class) — this used
+        // the legacy singular property_type for an EXACT-equality scoring
+        // component. Even after propertiesForMatch()'s SQL correctly fetched
+        // Townhouse/Vacant-Land candidates for a House+Townhouse+Vacant-Land
+        // wishlist, THIS component still scored them 0/5 (property_type
+        // "Townhouse" !== match's legacy singular "House"), which — on a
+        // wishlist with few/no other criteria set — was enough to sink them
+        // below MIN_SCORE_TO_DISPLAY and drop them from the results. Reads the
+        // full propertyTypeList() and normalises case/whitespace on both sides
+        // (never assume the picker's label and however it landed in the DB
+        // agree on casing byte-for-byte) instead of a bare singular ===.
+        $wantedTypes = $match->propertyTypeList();
+        if (!empty($wantedTypes) && $property->property_type) {
+            $norm = fn ($s) => strtolower(trim((string) $s));
+            $propertyTypeNorm = $norm($property->property_type);
+            $wantedTypesNorm  = array_map($norm, $wantedTypes);
+            $components[] = [5, in_array($propertyTypeNorm, $wantedTypesNorm, true) ? 1.0 : 0.0];
         }
         if ($match->floor_size_min || $match->floor_size_max) {
             $components[] = [5, $this->rangeFitRatio((int) $property->size_m2, $match->floor_size_min, $match->floor_size_max)];
