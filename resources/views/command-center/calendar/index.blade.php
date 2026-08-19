@@ -2072,6 +2072,21 @@
                  here is auto-added. This is what replaced the auto-fill that
                  put eleven buyers on one viewing; Shawn had been manually
                  un-ticking them (by deleting chips) every single time. --}}
+            {{-- CX-103 follow-up (Johan hit this live 2026-08-19 — the property
+                 he tested against genuinely had zero buyers linked to it at
+                 that moment; contact_property rows for it are timestamped
+                 minutes AFTER his test, so this was never silent JS failure,
+                 but the section showing nothing at all for a genuine zero was
+                 indistinguishable from broken and needed fixing regardless.
+                 buyerCandidatesLoaded flips true the first time a fetch for
+                 the CURRENT property selection completes, empty or not, so
+                 "checked, found none" is never confused with "never ran". --}}
+            <template x-if="buyerCandidatesLoaded && buyerCandidates.length === 0">
+                <p class="text-xs mb-3 px-3 py-2 rounded-md" style="color: var(--text-muted); background: var(--surface-2); border: 1px solid var(--border);">
+                    No buyers are currently linked to this property.
+                </p>
+            </template>
+
             <template x-if="buyerCandidates.length > 0">
                 <div class="mb-3">
                     <label class="block text-xs font-medium mb-1.5" style="color: var(--text-secondary);">
@@ -4550,6 +4565,13 @@ function propertySearch() {
                 pickerData.buyerCandidates = (pickerData.buyerCandidates || []).filter(c => {
                     return Number(c.source_property_id) !== Number(p.id);
                 });
+                // No property selected at all any more — "checked, found
+                // none" no longer applies; go back to showing nothing rather
+                // than a stale "no buyers linked" message with no property
+                // in view to have checked.
+                if (this.chosen.length === 0) {
+                    pickerData.buyerCandidatesLoaded = false;
+                }
             }
         },
         get selected() { return this.chosen.length > 0 ? this.chosen[0] : null; },
@@ -4613,6 +4635,10 @@ function contactSearch() {
         // UNTICKED — that is the entire point of the change; a pre-ticked list
         // gets rubber-stamped exactly like the auto-fill did.
         buyerCandidates: [],
+        // Flips true once a buyer-candidate fetch for the current property
+        // selection has completed, empty result or not — lets the template
+        // tell "checked, found none" apart from "hasn't run yet".
+        buyerCandidatesLoaded: false,
         async search() {
             if (this.query.length < 2) { this.results = []; return; }
             const r = await fetch('/corex/command-center/calendar/search/attendees?q=' + encodeURIComponent(this.query), {
@@ -4689,6 +4715,7 @@ function contactSearch() {
         // Merges across properties on a multi-property event; a buyer linked
         // to more than one selected property appears once.
         setBuyerCandidates(owners) {
+            this.buyerCandidatesLoaded = true;
             owners.forEach(o => {
                 if (!o.type) o.type = 'contact';
                 const key = o.type + ':' + o.id;
