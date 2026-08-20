@@ -125,6 +125,21 @@ function demandAnalysis(cfg) {
                 .then(r => r.json())
                 .then(d => { this.count = d.count; this.rows = d.rows || []; this.truncated = !!d.truncated; })
                 .finally(() => { this.loading = false; });
+            this.syncUrl();
+        },
+        // Keeps the page's own query string carrying the CURRENT demand
+        // filter selection (Johan, 2026-08-20 — Print/PDF must reflect
+        // whatever the user has selected, not what the page loaded with).
+        // Read at click time by buyersReportExportUrl() in
+        // _print-buttons.blade.php -- no cross-component state bridge
+        // needed, the URL itself is the shared state.
+        syncUrl() {
+            const params = new URLSearchParams(window.location.search);
+            params.delete('demand_types[]');
+            this.selectedTypes.forEach(t => params.append('demand_types[]', t));
+            params.set('demand_price_min', this.priceMin);
+            params.set('demand_price_max', this.priceMax);
+            history.replaceState(null, '', window.location.pathname + '?' + params.toString());
         },
     };
 }

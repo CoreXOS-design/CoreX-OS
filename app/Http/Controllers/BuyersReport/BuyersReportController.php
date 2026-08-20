@@ -69,6 +69,162 @@ class BuyersReportController extends Controller
     }
 
     /**
+     * Print / PDF (Johan, 2026-08-20 — "no download pdf or print button",
+     * urgent for a meeting). Mirrors AgencyPerformanceReportController's
+     * print()/agentPrint() pattern EXACTLY: a chrome-free Blade view
+     * (buyers-report.print), no interactive controls, a shared
+     * _print-styles-style header with agency branding + period + generated
+     * timestamp. Unlike ROI (two separate print()/agentPrint() routes,
+     * because its agent page has a fundamentally different data shape),
+     * buyers-report's index/agent/branch pages already share ONE
+     * BuyersReportService::build() call keyed by scope -- so ONE print
+     * route covers all three, using the exact same scope/period/type
+     * resolution index() uses. This is the one deliberate deviation from
+     * "same route naming": consolidated because the underlying data shape
+     * already is.
+     *
+     * PDF uses barryvdh/laravel-dompdf (already installed, same mechanism
+     * EvaluationCertificateController uses) rendering the IDENTICAL view --
+     * one template serves both the browser "Print" affordance and the
+     * server-generated download, so they can never drift apart.
+     *
+     * Every filter the interactive page can be in MUST be reflected here:
+     * scope/branch_id/user_id, period + compare, the buyer/lead/tenant
+     * type filter, and the demand-analysis panel's property-type ticks +
+     * price range (demand_types[]/demand_price_min/demand_price_max) --
+     * the interactive page keeps its query string in sync with the demand
+     * panel via history.replaceState() specifically so the Print/PDF
+     * buttons (plain `location.search` reads at click time) carry it
+     * through without any extra plumbing. A PDF that silently drops the
+     * filter the user set would show the wrong numbers in a meeting --
+     * worse than no PDF, per Johan's own words.
+     *
+     * Per Johan's explicit call: drilldowns (the interactive per-buyer
+     * modal lists) are OMITTED from print/PDF entirely -- only the summary
+     * levels print (tiles, needs-attention top-10, by-agent, by-branch,
+     * pipeline states, demand). Elize is presenting the shape of the
+     * business in a meeting, not handing out a phone book of buyers.
+     */
+    public function print(Request $request, PeriodResolver $periods, BuyersReportScopeResolver $scopeResolver, BuyersReportService $service)
+    {
+        return view('buyers-report.print', $this->buildPrintData($request, $periods, $scopeResolver, $service));
+    }
+
+    public function pdf(Request $request, PeriodResolver $periods, BuyersReportScopeResolver $scopeResolver, BuyersReportService $service)
+    {
+        $data = $this->buildPrintData($request, $periods, $scopeResolver, $service);
+
+        $filename = 'buyers-report-' . \Illuminate\Support\Str::slug($data['scopeLabel']) . '-' . now()->format('Y-m-d') . '.pdf';
+
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('buyers-report.print', $data)->setPaper('a4', 'landscape');
+        $pdf->setOption('isRemoteEnabled', true);
+
+        return $pdf->download($filename);
+    }
+
+    private function buildPrintData(Request $request, PeriodResolver $periods, BuyersReportScopeResolver $scopeResolver, BuyersReportService $service): array
+    {
+        $user = $request->user();
+        $requestedLevel = $request->filled('scope') ? (string) $request->query('scope') : null;
+        $requestedBranchId = $request->filled('branch_id') ? (int) $request->query('branch_id') : null;
+        $requestedUserId = $request->filled('user_id') ? (int) $request->query('user_id') : null;
+
+        // The general resolver ALWAYS substitutes the VIEWER's own id for
+        // 'own' level, and the viewer's OWN branch for 'branch' level --
+        // correct for the interactive index page, wrong for printing the
+        // dedicated agent()/branch() PAGE of someone else. Those two
+        // controller actions bypass the resolver for exactly this reason
+        // (constructing the scope directly, after their own explicit
+        // canViewAgent()/canViewBranch() check) -- print/PDF must do the
+        // same, or an admin printing an agent's page would silently get
+        // their OWN figures instead.
+        if ($requestedLevel === BuyersReportScope::LEVEL_OWN && $requestedUserId !== null) {
+            abort_unless($scopeResolver->canViewAgent($user, $requestedUserId), 404);
+            $scope = new BuyersReportScope((int) $user->effectiveAgencyId(), BuyersReportScope::LEVEL_OWN, userId: $requestedUserId);
+        } elseif ($requestedLevel === BuyersReportScope::LEVEL_BRANCH && $requestedBranchId !== null) {
+            abort_unless($scopeResolver->canViewBranch($user, $requestedBranchId), 404);
+            $scope = new BuyersReportScope((int) $user->effectiveAgencyId(), BuyersReportScope::LEVEL_BRANCH, branchId: $requestedBranchId);
+        } else {
+            $scope = $scopeResolver->resolve($user, $requestedLevel, $requestedBranchId, $requestedUserId);
+        }
+        $type  = $this->resolveType($request);
+
+        [$period, $preset] = $this->resolvePeriod($request, $periods);
+
+        $report = $service->build($scope, $period, $type);
+        // Print/PDF is a static handout, not an interactive page -- no
+        // "view all" affordance exists, so it shows the same top-10 the
+        // screen shows by default, never an uncapped dump.
+        $attention = $service->needsAttention($scope, 10, $type);
+
+        [$comparison, $comparisonMeta, $compareMode] = $this->resolveComparison($request, $periods, $service, $scope, $period, $report, $type);
+
+        $demandTypes = array_values(array_filter((array) $request->query('demand_types', [])));
+        $demandPriceMin = $request->filled('demand_price_min') ? (int) $request->query('demand_price_min') : null;
+        $demandPriceMax = $request->filled('demand_price_max') ? (int) $request->query('demand_price_max') : null;
+        $demandFilterActive = !empty($demandTypes) || $demandPriceMin !== null || $demandPriceMax !== null;
+        $demandResult = app(DemandAnalysisService::class)->filter($scope, $demandTypes, $demandPriceMin, $demandPriceMax);
+
+        $scopeLabel = match ($scope->level) {
+            BuyersReportScope::LEVEL_OWN => (string) (DB::table('users')->where('id', $scope->userId)->value('name') ?? 'Agent'),
+            BuyersReportScope::LEVEL_BRANCH => $scope->branchId
+                ? (string) (DB::table('branches')->where('id', $scope->branchId)->value('name') ?? 'Branch')
+                : 'Branch',
+            default => 'Whole agency',
+        };
+
+        return array_merge([
+            'scope'          => $scope,
+            'scopeLabel'     => $scopeLabel,
+            'report'         => $report,
+            'attention'      => $attention,
+            'preset'         => $preset,
+            'type'           => $type,
+            'types'          => BuyersReportService::TYPES,
+            'compareMode'    => $compareMode,
+            'comparison'     => $comparison,
+            'comparisonMeta' => $comparisonMeta,
+            'branding'       => \App\Models\Agency::publicBrandingFor($scope->agencyId),
+            'logoData'       => $this->agencyLogoDataUri($scope->agencyId),
+            'demandTypes'        => $demandTypes,
+            'demandPriceMin'     => $demandPriceMin,
+            'demandPriceMax'     => $demandPriceMax,
+            'demandFilterActive' => $demandFilterActive,
+            'demandResult'       => $demandResult,
+            'generatedAt'        => now(),
+            'periodLabel'        => $period->label,
+        ], $this->sectionBData($scope, $period));
+    }
+
+    /**
+     * Embedded (not remote-URL) logo for the PDF path -- same reasoning
+     * EvaluationCertificateController::agencyLogoData() documents: a
+     * self-contained render is faster and never depends on a network
+     * fetch mid-render. Mirrors performance.agency-report._print-styles'
+     * inline technique. Raster only; returns null for missing/svg logos
+     * (falls back to the agency name in the header).
+     */
+    private function agencyLogoDataUri(int $agencyId): ?string
+    {
+        try {
+            $agency = \App\Models\Agency::withoutGlobalScopes()->find($agencyId);
+            $logoPath = $agency?->logo_path ?? $agency?->logo ?? null;
+            if (!$logoPath || !\Illuminate\Support\Facades\Storage::exists($logoPath)) {
+                return null;
+            }
+            $raw = \Illuminate\Support\Facades\Storage::get($logoPath);
+            $mime = \Illuminate\Support\Facades\Storage::mimeType($logoPath) ?: 'image/png';
+            if (!str_starts_with((string) $mime, 'image/') || $mime === 'image/svg+xml') {
+                return null;
+            }
+
+            return 'data:' . $mime . ';base64,' . base64_encode($raw);
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
      * "What buyers do we have now" (Johan, 2026-08-20) -- the snapshot
      * section shared by index/agent/branch: pipeline-state counts (must
      * equal the pipeline board's own stateCounts() for the same scope --

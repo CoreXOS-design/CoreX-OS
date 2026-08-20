@@ -1360,6 +1360,13 @@ Route::middleware(['auth'])->group(function () {
     // live filter (property type ticks + price range slider, overlap match).
     Route::get('/corex/buyers-report/demand', [\App\Http\Controllers\BuyersReport\BuyersReportController::class, 'demand'])
         ->middleware('permission:view_buyers_report')->name('buyers-report.demand');
+    // Print / PDF (Johan, 2026-08-20 — meeting tomorrow, urgent). One route
+    // pair covers index/agent/branch (see BuyersReportController::print()
+    // docblock for why, unlike ROI's separate print()/agentPrint()).
+    Route::get('/corex/buyers-report/print', [\App\Http\Controllers\BuyersReport\BuyersReportController::class, 'print'])
+        ->middleware('permission:view_buyers_report')->name('buyers-report.print');
+    Route::get('/corex/buyers-report/pdf', [\App\Http\Controllers\BuyersReport\BuyersReportController::class, 'pdf'])
+        ->middleware('permission:view_buyers_report')->name('buyers-report.pdf');
           Route::get('/bm/worksheet-market', [\App\Http\Controllers\BM\WorksheetMarketController::class, 'index'])
           ->middleware('permission:access_worksheet_market')->name('bm.worksheet.market');
       Route::post('/bm/worksheet-market', [\App\Http\Controllers\BM\WorksheetMarketController::class, 'save'])
