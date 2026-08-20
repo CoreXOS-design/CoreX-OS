@@ -28,6 +28,22 @@ use Illuminate\Http\Request;
  *   DevSetting::set('mobile_min_build_ios', '13');
  *   DevSetting::set('mobile_update_url_ios', 'https://apps.apple.com/za/app/corex-os/id123456789');
  *
+ * Alongside the forced gate, an optional, dismissible "Update available"
+ * notice — deliberately a SEPARATE dial from min_build. Announcing a release
+ * and forcing one are different decisions; every release you tell people
+ * about must not also be one you brick the old build for.
+ *
+ *   // Announce 1.1.0 (build 20) — dismissible notice, old builds keep working.
+ *   DevSetting::set('mobile_latest_build_android', '20');
+ *   DevSetting::set('mobile_latest_build_ios', '20');
+ *   DevSetting::set('mobile_latest_version', '1.1.0');
+ *
+ *   // Escalate to a hard block only if that release genuinely must be adopted.
+ *   DevSetting::set('mobile_min_build_android', '20');
+ *
+ *   // Emergency off-switch for either.
+ *   DevSetting::set('mobile_latest_build_android', '0');
+ *
  * Note DevSetting caches for an hour, so a change takes up to that long to
  * reach clients (DevSetting::set clears the key, so it is immediate in practice
  * on the writing node).
@@ -46,28 +62,34 @@ class MobileAppConfigController extends Controller
         // was never meant for it.
         if (! in_array($platform, ['android', 'ios'], true)) {
             return response()->json([
-                'platform'        => $platform ?: null,
-                'min_build'       => 0,
-                'update_required' => false,
-                'update_url'      => null,
-                'message'         => null,
+                'platform'         => $platform ?: null,
+                'min_build'        => 0,
+                'update_required'  => false,
+                'update_url'       => null,
+                'message'          => null,
+                'latest_build'     => 0,
+                'latest_version'   => null,
+                'update_available' => false,
             ]);
         }
 
-        $minBuild  = (int) DevSetting::get("mobile_min_build_{$platform}", '0');
-        $updateUrl = trim((string) DevSetting::get(
+        $minBuild    = (int) DevSetting::get("mobile_min_build_{$platform}", '0');
+        $latestBuild = (int) DevSetting::get("mobile_latest_build_{$platform}", '0');
+        $updateUrl   = trim((string) DevSetting::get(
             "mobile_update_url_{$platform}",
             $platform === 'android' ? self::DEFAULT_ANDROID_URL : ''
         ));
 
-        // HARD SAFETY RULE: never gate a platform we cannot send the user
-        // anywhere to update. Blocking an agent behind an "Update now" button
-        // that goes nowhere is strictly worse than letting the old build run.
-        // In practice this only bites iOS, where the App Store listing URL
-        // contains a numeric id we cannot derive — so the iOS gate stays
-        // inert until mobile_update_url_ios is actually set.
+        // HARD SAFETY RULE: never gate — or announce an update for — a
+        // platform we cannot send the user anywhere to update. Blocking (or
+        // nagging) an agent behind an "Update now" button that goes nowhere
+        // is strictly worse than staying quiet. In practice this only bites
+        // iOS, where the App Store listing URL contains a numeric id we
+        // cannot derive — so both dials stay inert until
+        // mobile_update_url_ios is actually set.
         if ($updateUrl === '') {
-            $minBuild = 0;
+            $minBuild    = 0;
+            $latestBuild = 0;
         }
 
         $build = (int) $request->query('build', 0);
@@ -80,6 +102,17 @@ class MobileAppConfigController extends Controller
             'update_required' => $minBuild > 0 && $build > 0 && $build < $minBuild,
             'update_url'      => $updateUrl ?: null,
             'message'         => trim((string) DevSetting::get('mobile_update_message', '')) ?: null,
+
+            // Optional, dismissible notice — independent of the forced gate
+            // above. latest_build = 0 means the notice is off, same
+            // off-switch semantics as min_build = 0.
+            'latest_build'   => $latestBuild,
+            'latest_version' => trim((string) DevSetting::get('mobile_latest_version', '')) ?: null,
+            // Computed server-side purely so this endpoint is self-describing
+            // when curled during an incident — the app re-derives this
+            // itself, since only the client knows for certain which build is
+            // running.
+            'update_available' => $latestBuild > 0 && $build > 0 && $build < $latestBuild,
         ]);
     }
 }

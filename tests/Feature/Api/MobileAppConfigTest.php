@@ -116,4 +116,78 @@ class MobileAppConfigTest extends TestCase
             $this->fetchConfig('android', 12)['message'],
         );
     }
+
+    // ── Optional "update available" notice — a separate dial from min_build ──
+
+    public function test_the_notice_is_off_when_latest_build_is_unset(): void
+    {
+        $body = $this->fetchConfig('android', 1);
+
+        $this->assertSame(0, $body['latest_build']);
+        $this->assertNull($body['latest_version']);
+        $this->assertFalse($body['update_available']);
+    }
+
+    public function test_it_announces_an_update_for_a_build_behind_latest(): void
+    {
+        DevSetting::set('mobile_latest_build_android', '20');
+        DevSetting::set('mobile_latest_version', '1.1.0');
+
+        $body = $this->fetchConfig('android', 19);
+
+        $this->assertSame(20, $body['latest_build']);
+        $this->assertSame('1.1.0', $body['latest_version']);
+        $this->assertTrue($body['update_available']);
+    }
+
+    public function test_it_does_not_announce_for_a_build_at_or_ahead_of_latest(): void
+    {
+        DevSetting::set('mobile_latest_build_android', '20');
+
+        $this->assertFalse($this->fetchConfig('android', 20)['update_available']);
+        $this->assertFalse($this->fetchConfig('android', 21)['update_available']);
+    }
+
+    public function test_it_never_announces_ios_without_a_configured_update_url(): void
+    {
+        // Same hard safety rule as the forced gate: latest_build is force-zeroed
+        // even though the DevSetting itself is set, because there is nowhere to
+        // send the user. An "Update now" button that opens nothing is worse
+        // than staying quiet.
+        DevSetting::set('mobile_latest_build_ios', '20');
+
+        $body = $this->fetchConfig('ios', 19);
+
+        $this->assertSame(0, $body['latest_build']);
+        $this->assertFalse($body['update_available']);
+    }
+
+    public function test_it_never_announces_an_unrecognised_platform(): void
+    {
+        DevSetting::set('mobile_latest_build_android', '99');
+        DevSetting::set('mobile_latest_build_ios', '99');
+
+        foreach (['web', 'other', ''] as $platform) {
+            $body = $this->fetchConfig($platform, 1);
+            $this->assertSame(0, $body['latest_build'], "platform '{$platform}' must not get a latest_build");
+            $this->assertNull($body['latest_version'], "platform '{$platform}' must not get a latest_version");
+            $this->assertFalse($body['update_available'], "platform '{$platform}' must not be announced to");
+        }
+    }
+
+    public function test_the_forced_gate_still_wins_when_a_build_is_behind_both(): void
+    {
+        // min_build and latest_build are independent dials, but when a build is
+        // behind BOTH, the forced gate is the one that matters — the app never
+        // gets as far as showing the optional dialog.
+        DevSetting::set('mobile_min_build_android', '13');
+        DevSetting::set('mobile_latest_build_android', '20');
+
+        $body = $this->fetchConfig('android', 12);
+
+        $this->assertTrue($body['update_required']);
+        $this->assertTrue($body['update_available']);
+        $this->assertSame(13, $body['min_build']);
+        $this->assertSame(20, $body['latest_build']);
+    }
 }
