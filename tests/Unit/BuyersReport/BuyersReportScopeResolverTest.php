@@ -187,6 +187,60 @@ final class BuyersReportScopeResolverTest extends TestCase
         $this->assertNull($scope->branchId, 'A branch belonging to a DIFFERENT agency must never resolve, even for an agency-ceiling viewer.');
     }
 
+    /**
+     * Johan (2026-08-20, post-verification) — proves the resolver clamps
+     * under a RESTRICTIVE config, not just that it faithfully reads agency
+     * 1's currently-broad one. Ties the clamped scope through to the actual
+     * controller title text (not just the raw scope object) so a report
+     * this permissive by DEFAULT still tightens correctly the moment any
+     * agency's Role Manager is set narrower — this ships to every CoreX
+     * client, not just agency 1.
+     */
+    public function test_own_ceiling_agent_requesting_company_scope_is_clamped_to_own_and_title_says_you(): void
+    {
+        $agencyId = 9011;
+        $this->seedAgency($agencyId, splitBranches: false);
+        $this->grantContactsScope('agent', $agencyId, 'own');
+
+        $agent = $this->makeUser(1401, $agencyId, 601, 'agent');
+
+        $resolver = new BuyersReportScopeResolver();
+        $scope = $resolver->resolve($agent, requestedLevel: 'agency', requestedBranchId: null, requestedUserId: 999);
+
+        $this->assertSame(BuyersReportScope::LEVEL_OWN, $scope->level, 'A restrictive config must clamp the report exactly as it clamps the pipeline board.');
+        $this->assertSame(1401, $scope->userId);
+
+        $title = $this->callDrilldownTitle('buyers', $scope, 9);
+        $this->assertStringContainsString('— You ·', $title, 'The title must reflect the CLAMPED scope, never the requested one — an own-ceiling viewer must never see "Company" even having asked for it.');
+    }
+
+    public function test_branch_ceiling_agent_requesting_company_scope_or_another_branchs_id_is_clamped_to_own_branch(): void
+    {
+        $agencyId    = 9012;
+        $ownBranch   = 1501;
+        $otherBranch = 1502;
+        $this->seedAgency($agencyId, splitBranches: true);
+        $this->seedBranch($ownBranch, $agencyId);
+        $this->seedBranch($otherBranch, $agencyId);
+        $this->grantContactsScope('branch_manager', $agencyId, 'all'); // split=1 -> effective 'branch'
+
+        $bm = $this->makeUser(1601, $agencyId, $ownBranch, 'branch_manager');
+        $resolver = new BuyersReportScopeResolver();
+
+        // Requesting company-wide -> clamped to their own branch, not agency.
+        $scopeCompany = $resolver->resolve($bm, requestedLevel: 'agency');
+        $this->assertSame(BuyersReportScope::LEVEL_BRANCH, $scopeCompany->level);
+        $this->assertSame($ownBranch, $scopeCompany->branchId);
+
+        // Requesting a DIFFERENT branch's id explicitly -> refused, own branch used.
+        $scopeOther = $resolver->resolve($bm, requestedLevel: 'agency', requestedBranchId: $otherBranch);
+        $this->assertSame($ownBranch, $scopeOther->branchId, 'A branch-ceiling viewer must never reach a DIFFERENT branch, even by supplying its id directly.');
+        $this->assertNotSame($otherBranch, $scopeOther->branchId);
+
+        $title = $this->callDrilldownTitle('buyers', $scopeOther, 4);
+        $this->assertStringContainsString('Branch ' . $ownBranch, $title, 'The title must name the VIEWER\'S OWN branch, never the one requested.');
+    }
+
     public function test_admin_default_with_no_request_params_is_agency_wide(): void
     {
         $agencyId = 9005;
@@ -202,6 +256,26 @@ final class BuyersReportScopeResolverTest extends TestCase
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────
+
+    /**
+     * Invokes the real private BuyersReportController::drilldownTitle() via
+     * reflection — proves the CLAMPED scope drives the visible title text,
+     * not just an internal object the view might render differently.
+     */
+    private function callDrilldownTitle(string $metric, BuyersReportScope $scope, int $total): string
+    {
+        $controller = new \App\Http\Controllers\BuyersReport\BuyersReportController();
+        $period = new \App\Services\Performance\Period(
+            \Carbon\CarbonImmutable::parse('2026-08-01'),
+            \Carbon\CarbonImmutable::parse('2026-08-31'),
+            'This month',
+            'this_month',
+        );
+        $method = new \ReflectionMethod($controller, 'drilldownTitle');
+        $method->setAccessible(true);
+
+        return $method->invoke($controller, $metric, $scope, $period, $total, null);
+    }
 
     private function makeUser(int $id, int $agencyId, ?int $branchId, string $role): User
     {
