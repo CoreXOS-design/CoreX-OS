@@ -9,6 +9,7 @@ use App\Models\ListingStock;
 use App\Models\Property;
 use App\Services\Prospecting\ListingImageValidator;
 use App\Services\TitleTypeClassifier;
+use App\Support\Presentations\SubjectFieldCompleteness;
 use App\Support\Presentations\SuburbMatcher;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -42,41 +43,26 @@ use Illuminate\Support\Facades\Storage;
 final class CompetitorStockMatchService
 {
     /**
-     * Progressive relaxation (Johan, 2026-08-20): "look at what is there and
-     * if not there we can water down ... no silent fails." beds/baths/
-     * garages/price on `properties` are NOT NULL DEFAULT 0 — the schema
-     * cannot distinguish "genuinely zero" from "never entered", so 0 is
-     * treated as absent for these four fields specifically. This is a
-     * matching-layer decision only; the nullable-column migration that
-     * would make this exact is a separate, later call of Johan's.
+     * 2026-08-20 — isSet()/missingSoftInputs() now live on the shared
+     * SubjectFieldCompleteness helper (App\Support\Presentations), so
+     * CmaCoverageService's "Strong/Moderate/Thin data" badge and this
+     * class's own comparable-stock cascade + pre-generate warning can
+     * never disagree again — literally the same function, not a
+     * separately-maintained matching rule. See that class's own docblock
+     * for the incident this fixes. Thin wrappers kept here so existing
+     * callers of $this->isSet()/$this->missingSoftInputs() are unchanged.
      */
     private function isSet(int|string|float|null $value): bool
     {
-        // baths is cast decimal:1 on the Property model — Laravel's decimal
-        // cast returns a STRING ("0.0"), not a native number. beds/garages
-        // come through as native ints from their tinyint columns. Accept
-        // all three shapes and compare numerically so this one helper
-        // covers every soft field without per-field special-casing.
-        return $value !== null && (float) $value > 0;
+        return SubjectFieldCompleteness::isSet($value);
     }
 
     /**
-     * Which of the subject's SOFT comparable-stock inputs are absent right
-     * now (missing or, per isSet(), meaningfully zero) — beds, baths, price.
-     * Used to build the pre-generate warning on the "Generate Presentation"
-     * modal (properties/show.blade.php); never affects matching itself
-     * (that cascade lives in resolveCriteria()/loadCandidates()/
-     * scoreComparability()).
-     *
      * @return string[] subset of ['bedrooms', 'bathrooms', 'price']
      */
     public function missingSoftInputs(Property $subject): array
     {
-        $missing = [];
-        if (!$this->isSet($subject->beds)) $missing[] = 'bedrooms';
-        if (!$this->isSet($subject->baths)) $missing[] = 'bathrooms';
-        if (!$this->isSet((int) ($subject->price ?? 0))) $missing[] = 'price';
-        return $missing;
+        return SubjectFieldCompleteness::missingSoftInputs($subject);
     }
 
     /**

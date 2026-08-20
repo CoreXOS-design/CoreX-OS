@@ -449,14 +449,10 @@
 
                                 @if(!empty($_genMissing))
                                     @php
-                                        $_genLabels = ['bedrooms' => 'bedrooms', 'bathrooms' => 'bathrooms', 'price' => 'price'];
-                                        $_genNamed  = array_map(fn ($k) => $_genLabels[$k] ?? $k, $_genMissing);
-                                        $_genJoin   = function (array $items): string {
-                                            if (count($items) === 0) return '';
-                                            if (count($items) === 1) return $items[0];
-                                            $last = array_pop($items);
-                                            return implode(', ', $items) . ' and ' . $last;
-                                        };
+                                        // Shared grammar helper (SubjectFieldCompleteness::joinNames)
+                                        // — same "a, b and c" join used by CmaCoverageService's
+                                        // merged badge sentence, not a separate copy.
+                                        $_genNamed   = $_genMissing;
                                         $_genPronoun = count($_genNamed) === 1 ? 'this' : 'these';
                                     @endphp
                                     {{-- Johan, 2026-08-20: "make it more prominent ... its the
@@ -475,7 +471,7 @@
                                                     Your report will be inaccurate
                                                 </div>
                                                 <div>
-                                                    This property is missing {{ $_genJoin($_genNamed) }}.
+                                                    This property is missing {{ \App\Support\Presentations\SubjectFieldCompleteness::joinNames($_genNamed) }}.
                                                     Comparable stock can only be matched on property type and suburb,
                                                     so the report will show far fewer — or no — comparable properties.
                                                     <a href="{{ route('corex.properties.show', $property) }}#edit" style="text-decoration:underline; font-weight:600;">Set {{ $_genPronoun }} on the property first</a> for a full report.
