@@ -74,14 +74,32 @@ class ContactHistoryService
         $buyerRows = DB::table('buyer_activity_log')
             ->where('contact_id', $contactId)->where('agency_id', $agencyId)
             ->orderByDesc('activity_date')->limit(self::PER_SOURCE_CAP)
-            ->get(['id', 'activity_type', 'activity_date', 'related_feedback_id', 'metadata', 'logged_by_user_id']);
+            ->get(['id', 'activity_type', 'activity_date', 'related_feedback_id', 'related_event_id', 'metadata', 'logged_by_user_id']);
 
         // 3) calendar_event_feedback — excluding rows already represented via buyer_activity_log.
-        $dedupFeedbackIds = $buyerRows->pluck('related_feedback_id')->filter()->values();
+        // Two different writers produce a 'feedback_captured' buyer_activity_log row:
+        // CalendarEventFeedbackObserver sets related_feedback_id (the exact calendar_event_feedback
+        // row); CalendarController's direct write only sets related_event_id. Dedup on BOTH keys —
+        // by feedback id where present, else by event id. Event-id dedup suppresses every
+        // calendar_event_feedback row for that event, which is only exactly right when the event
+        // has as many buyer_activity_log 'feedback_captured' rows as calendar_event_feedback rows
+        // (true for every case seen so far — one feedback capture per property on the viewing,
+        // one activity-log row each); a future event with MORE feedback rows than logged activity
+        // rows would over-suppress. Flagging this as a known edge case, not fixed here.
+        $feedbackCapturedRows = $buyerRows->where('activity_type', 'feedback_captured');
+        $dedupFeedbackIds = $feedbackCapturedRows->pluck('related_feedback_id')->filter()->values();
+        $dedupEventIds = $feedbackCapturedRows->pluck('related_event_id')->filter()->values();
         $feedbackRows = DB::table('calendar_event_feedback')
             ->where('contact_id', $contactId)->where('agency_id', $agencyId)
             ->whereNull('deleted_at')
-            ->when($dedupFeedbackIds->isNotEmpty(), fn ($q) => $q->whereNotIn('id', $dedupFeedbackIds))
+            ->when($dedupFeedbackIds->isNotEmpty() || $dedupEventIds->isNotEmpty(), fn ($q) => $q->where(function ($w) use ($dedupFeedbackIds, $dedupEventIds) {
+                if ($dedupFeedbackIds->isNotEmpty()) {
+                    $w->whereNotIn('id', $dedupFeedbackIds);
+                }
+                if ($dedupEventIds->isNotEmpty()) {
+                    $w->whereNotIn('calendar_event_id', $dedupEventIds);
+                }
+            }))
             ->orderByDesc('captured_at')->limit(self::PER_SOURCE_CAP)
             ->get(['id', 'feedback_kind', 'internal_notes', 'captured_by_user_id', 'captured_at', 'created_at']);
 
