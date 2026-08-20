@@ -170,7 +170,7 @@ final class PresentationReviewController extends Controller
         // first paint).
         $analysis        = (new AnalysisDataService())->compile($presentation, $version);
         $cmaValue        = $analysis['cma_valuation']    ?? [];
-        $competitorStock = $analysis['competitor_stock'] ?? ['matches' => [], 'included_ids' => null, 'visible' => []];
+        $competitorStock = $analysis['competitor_stock'] ?? ['matches' => [], 'included_ids' => null, 'visible' => [], 'missing_inputs' => [], 'has_low_confidence' => false];
 
         // Build 4 — section toggle state for Section 3 of the review.
         $sectionsCatalogue = PresentationVersion::SECTIONS_CATALOGUE;

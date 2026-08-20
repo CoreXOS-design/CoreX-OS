@@ -66,7 +66,7 @@ final class CompetitorStockMatchTest extends TestCase
         // the 85-92 range, perfect for a 50-vs-95 threshold split.
         $this->seedListing($agencyId, suburb: 'Uvongo', price: 1_950_000, beds: null, type: 'Vacant land');
 
-        // Loose threshold (50) — should include the listing.
+        // Loose threshold (50) — should include the listing, cleanly above bar.
         Agency::find($agencyId)->update([
             'competitor_stock_min_score' => 50,
             // Step-up disabled so the family fallback always shows the
@@ -76,23 +76,30 @@ final class CompetitorStockMatchTest extends TestCase
         ]);
         $loose = (new CompetitorStockMatchService())->findCompetitors($subject)->all();
         $this->assertNotEmpty($loose, 'min_score=50 should keep the in-family listing');
+        $this->assertArrayNotHasKey('low_confidence', $loose[0], 'a match that clears the threshold is not low-confidence');
 
-        // Strict threshold (95) — same listing should now drop out.
+        // 2026-08-20 — Johan: "the score threshold must not silently
+        // re-zero the result ... no silent fails, and that applies to the
+        // threshold too." A stricter threshold (95) that NOTHING clears
+        // must still surface the same real candidate — marked
+        // low_confidence — never an empty result.
         Agency::find($agencyId)->update(['competitor_stock_min_score' => 95]);
         $strict = (new CompetitorStockMatchService())->findCompetitors($subject)->all();
-        $this->assertLessThan(count($loose), count($strict),
-            'min_score=95 should filter more strictly than 50');
-        foreach ($strict as $m) {
-            $this->assertGreaterThanOrEqual(95, $m['score']);
-        }
+        $this->assertNotEmpty($strict, 'no silent fail — a real below-threshold candidate must still surface');
+        $this->assertTrue($strict[0]['low_confidence'] ?? false, 'below-threshold fallback rows must be marked low_confidence');
+        $this->assertLessThan(95, $strict[0]['score'], 'the fallback row genuinely does not clear the strict bar');
     }
 
-    public function test_subject_without_price_or_suburb_returns_empty(): void
+    // 2026-08-20 — Johan: progressive relaxation, "no silent fails". price
+    // is no longer a hard gate (was: !$subject->price returns null/empty).
+    // agency_id + suburb + a resolvable property-type family remain the
+    // only hard requirements; see test_build_criteria_returns_null_only_for_missing_suburb().
+    public function test_subject_without_suburb_returns_empty(): void
     {
-        [$subject, $agencyId] = $this->seedSubject(price: 0, beds: 3, suburb: 'Uvongo', type: 'House');
-        // The seedSubject sets price=0 → service should bail early.
-        $matches = (new CompetitorStockMatchService())->findCompetitors($subject)->all();
-        $this->assertSame([], $matches);
+        [$subject, $agencyId] = $this->seedSubject(price: 2_000_000, beds: 3, suburb: 'Uvongo', type: 'House');
+        $subject->forceFill(['suburb' => ''])->save();
+        $matches = (new CompetitorStockMatchService())->findCompetitors($subject->fresh())->all();
+        $this->assertSame([], $matches, 'suburb remains a hard gate — no floor to fall back to without it');
     }
 
     public function test_competitor_stock_compiled_into_analysis_payload(): void
@@ -380,11 +387,22 @@ final class CompetitorStockMatchTest extends TestCase
         $this->assertContains('Sectional Title', $c['family_types']);
     }
 
-    public function test_build_criteria_returns_null_for_subject_missing_data(): void
+    // 2026-08-20 — Johan: price=0 must no longer null the criteria; it
+    // waters down to "no price band" instead (see the cascade tests below).
+    // suburb is still the hard gate.
+    public function test_build_criteria_returns_null_only_for_missing_suburb(): void
     {
         [$subject] = $this->seedSubject(price: 0, beds: 3, suburb: 'Uvongo', type: 'House');
         $svc = new CompetitorStockMatchService();
-        $this->assertNull($svc->buildCriteria($subject), 'price=0 should yield null criteria');
+        $criteria = $svc->buildCriteria($subject);
+        $this->assertNotNull($criteria, 'price=0 must cascade, not null the criteria');
+        $this->assertNull($criteria['price'], 'absent price reports as null in the criteria, not 0');
+        $this->assertNull($criteria['price_min']);
+        $this->assertNull($criteria['price_max']);
+
+        [$subjectNoSuburb] = $this->seedSubject(price: 2_000_000, beds: 3, suburb: 'Uvongo', type: 'House');
+        $subjectNoSuburb->forceFill(['suburb' => ''])->save();
+        $this->assertNull($svc->buildCriteria($subjectNoSuburb->fresh()), 'suburb remains a hard gate');
     }
 
     public function test_manual_picker_respects_family_gate_even_when_filters_widen(): void
@@ -709,10 +727,242 @@ final class CompetitorStockMatchTest extends TestCase
         $response->assertJsonPath('error', 'cross_family_pick_blocked');
     }
 
+    // ── Progressive relaxation (Johan, 2026-08-20) ────────────────────
+    // "look at what is there and if not there we can water down ...
+    // if beds, baths etc present we use it. if not we use price, if not
+    // we use property type, that should be the minimum ... no silent
+    // fails." beds/baths/garages/price are NOT NULL DEFAULT 0 on
+    // `properties` — 0 is treated as absent (isSet()), never a literal
+    // zero comparison.
+
+    public function test_all_present_regression_same_result_as_before(): void
+    {
+        // Byte-for-byte the original test_returns_matches_in_price_band_
+        // sorted_by_score scenario — proves the cascade changes introduced
+        // tonight do not alter behaviour for a fully-populated subject.
+        [$subject, $agencyId] = $this->seedSubject(price: 2_000_000, beds: 3, suburb: 'Uvongo', type: 'House');
+        $exactId   = $this->seedListing($agencyId, suburb: 'Uvongo', price: 1_950_000, beds: 3, type: 'House');
+        $offTypeId = $this->seedListing($agencyId, suburb: 'Uvongo', price: 2_000_000, beds: 3, type: 'Apartment');
+        $offBedsId = $this->seedListing($agencyId, suburb: 'Uvongo', price: 2_000_000, beds: 6, type: 'House');
+
+        $matches = (new CompetitorStockMatchService())->findCompetitors($subject)->all();
+        $ids = array_column($matches, 'listing_id');
+
+        $this->assertContains($exactId, $ids);
+        $this->assertNotContains($offBedsId, $ids, 'beds tolerance still applies when the subject HAS real beds');
+        $scores = array_column($matches, 'score');
+        $this->assertSame($scores, collect($scores)->sortDesc()->values()->all());
+
+        // Criteria object itself unchanged in shape/values for a complete subject.
+        $criteria = (new CompetitorStockMatchService())->buildCriteria($subject);
+        $this->assertSame(2_000_000, $criteria['price']);
+        $this->assertSame(1_600_000, $criteria['price_min']); // 20% band, unchanged math
+        $this->assertSame(2_400_000, $criteria['price_max']);
+        $this->assertSame(3, $criteria['beds']);
+        $this->assertSame(2, $criteria['beds_min']);
+        $this->assertSame(4, $criteria['beds_max']);
+    }
+
+    public function test_price_absent_skips_price_band_matches_on_type_suburb_beds(): void
+    {
+        [$subject, $agencyId] = $this->seedSubject(price: 0, beds: 3, suburb: 'Uvongo', type: 'House');
+        // Wildly different price (would fail any ±20% band around any
+        // real subject price) but same suburb/type/beds.
+        $farPriceId = $this->seedListing($agencyId, suburb: 'Uvongo', price: 6_500_000, beds: 3, type: 'House');
+
+        $matches = (new CompetitorStockMatchService())->findCompetitors($subject)->all();
+        $ids = array_column($matches, 'listing_id');
+
+        $this->assertContains($farPriceId, $ids, 'absent price must not filter on a 0 band — the row must surface');
+    }
+
+    public function test_beds_absent_skips_beds_filter_matches_on_type_suburb_price(): void
+    {
+        [$subject, $agencyId] = $this->seedSubject(price: 2_000_000, beds: 0, suburb: 'Uvongo', type: 'House');
+        // 6 beds would fail a ±1 tolerance around any real beds value.
+        $farBedsId = $this->seedListing($agencyId, suburb: 'Uvongo', price: 2_000_000, beds: 6, type: 'House');
+
+        $matches = (new CompetitorStockMatchService())->findCompetitors($subject)->all();
+        $ids = array_column($matches, 'listing_id');
+
+        $this->assertContains($farBedsId, $ids, 'absent beds must not filter on a 0 tolerance window — the row must surface');
+    }
+
+    public function test_beds_absent_does_not_tank_score_against_real_bed_counts(): void
+    {
+        // The exact regression Johan named: "A 0-bed subject must stop
+        // tanking every real 3-bed house it is compared to."
+        [$subject, $agencyId] = $this->seedSubject(price: 2_000_000, beds: 0, suburb: 'Uvongo', type: 'House');
+        $this->seedListing($agencyId, suburb: 'Uvongo', price: 2_000_000, beds: 3, type: 'House');
+
+        $matches = (new CompetitorStockMatchService())->findCompetitors($subject)->all();
+        $this->assertNotEmpty($matches);
+        // Beds axis must be entirely absent from the breakdown (skipped,
+        // not scored as a 0-vs-3 mismatch) — every remaining axis (price,
+        // type) is a strong match, so the score should be high, not
+        // dragged down by a phantom beds penalty.
+        $this->assertArrayNotHasKey('beds', $matches[0]['breakdown']);
+        $this->assertGreaterThanOrEqual(85, $matches[0]['score']);
+    }
+
+    public function test_both_beds_and_price_absent_matches_on_type_and_suburb_only(): void
+    {
+        [$subject, $agencyId] = $this->seedSubject(price: 0, beds: 0, suburb: 'Uvongo', type: 'House');
+        // Wildly different on both axes, same type + suburb only.
+        $minimalId = $this->seedListing($agencyId, suburb: 'Uvongo', price: 9_999_000, beds: 7, type: 'House');
+        // Different suburb — must still be excluded (suburb is the floor).
+        $wrongSuburbId = $this->seedListing($agencyId, suburb: 'Margate', price: 2_000_000, beds: 3, type: 'House');
+        // Different family — must still be excluded (family gate never relaxes).
+        $wrongFamilyId = $this->seedListing($agencyId, suburb: 'Uvongo', price: 2_000_000, beds: 3, type: 'Apartment');
+
+        $matches = (new CompetitorStockMatchService())->findCompetitors($subject)->all();
+        $ids = array_column($matches, 'listing_id');
+
+        $this->assertContains($minimalId, $ids, 'type + suburb is the floor — must still return candidates');
+        $this->assertNotContains($wrongSuburbId, $ids, 'suburb gate is never relaxed');
+        $this->assertNotContains($wrongFamilyId, $ids, 'family gate is never relaxed');
+    }
+
+    public function test_missing_soft_inputs_reports_exactly_the_absent_fields(): void
+    {
+        $svc = new CompetitorStockMatchService();
+
+        [$allPresent] = $this->seedSubject(price: 2_000_000, beds: 3, suburb: 'Uvongo', type: 'House', baths: 2);
+        $this->assertSame([], $svc->missingSoftInputs($allPresent));
+
+        [$noPrice] = $this->seedSubject(price: 0, beds: 3, suburb: 'Uvongo', type: 'House', baths: 2);
+        $this->assertSame(['price'], $svc->missingSoftInputs($noPrice));
+
+        [$noBeds] = $this->seedSubject(price: 2_000_000, beds: 0, suburb: 'Uvongo', type: 'House');
+        $missing = $svc->missingSoftInputs($noBeds);
+        $this->assertContains('bedrooms', $missing);
+        $this->assertContains('bathrooms', $missing, 'baths defaults to 0 alongside beds in the fixture, both absent');
+
+        [$nothing] = $this->seedSubject(price: 0, beds: 0, suburb: 'Uvongo', type: 'House');
+        $this->assertEqualsCanonicalizing(['bedrooms', 'bathrooms', 'price'], $svc->missingSoftInputs($nothing));
+    }
+
+    public function test_threshold_no_silent_fail_returns_best_ranked_low_confidence(): void
+    {
+        [$subject, $agencyId] = $this->seedSubject(price: 2_000_000, beds: 3, suburb: 'Uvongo', type: 'House');
+        // beds: null passes the SQL beds clamp unconditionally (NULL-
+        // permissive), unlike a real out-of-tolerance beds count which
+        // would be excluded from the candidate pool entirely BEFORE
+        // scoring — that's a different failure mode (no candidates at
+        // all) than what this test targets (real candidates, low score).
+        // Same-family, different-kind (Vacant Land vs House) plus price at
+        // the edge of the ±20% band — same shape as the proven
+        // test_respects_agency_min_score_threshold fixture (~85-92 score).
+        $this->seedListing($agencyId, suburb: 'Uvongo', price: 1_950_000, beds: null, type: 'Vacant land');
+        $this->seedListing($agencyId, suburb: 'Uvongo', price: 2_390_000, beds: null, type: 'Vacant land');
+
+        // Step-up off, so the family fallback still surfaces non-exact-kind
+        // rows regardless of exact-kind count (which is 0 here).
+        // Threshold pushed high enough that neither candidate clears it.
+        Agency::find($agencyId)->update([
+            'competitor_stock_min_score'     => 99,
+            'competitor_stock_min_same_type' => 0,
+        ]);
+
+        $matches = (new CompetitorStockMatchService())->findCompetitors($subject)->all();
+
+        $this->assertNotEmpty($matches, 'no silent fail — a real candidate pool below threshold must still return the best-ranked rows');
+        foreach ($matches as $m) {
+            $this->assertTrue($m['low_confidence'] ?? false, 'rows returned below threshold must be marked low_confidence');
+        }
+        // Still sorted best-first even in the fallback path.
+        $scores = array_column($matches, 'score');
+        $this->assertSame($scores, collect($scores)->sortDesc()->values()->all());
+    }
+
+    public function test_threshold_not_marked_low_confidence_when_real_matches_clear_it(): void
+    {
+        [$subject, $agencyId] = $this->seedSubject(price: 2_000_000, beds: 3, suburb: 'Uvongo', type: 'House');
+        $this->seedListing($agencyId, suburb: 'Uvongo', price: 1_950_000, beds: 3, type: 'House');
+
+        $matches = (new CompetitorStockMatchService())->findCompetitors($subject)->all();
+        $this->assertNotEmpty($matches);
+        $this->assertArrayNotHasKey('low_confidence', $matches[0]);
+    }
+
+    // ── Pre-generate warning — real HTTP, the actual property page ────
+    // Relocated here from the review screen (Johan, 2026-08-20): "warns
+    // them BEFORE they generate ... can fix it right there while they
+    // already have the form open." Real GET, not a service-level check —
+    // an earlier fix tonight was reported green from an adapter-level
+    // pass while the actual page stayed blank; this is the corrective.
+
+    public function test_generate_modal_shows_warning_when_beds_baths_price_missing(): void
+    {
+        $this->withoutVite();
+        [$subject, $agencyId] = $this->seedSubject(price: 0, beds: 0, suburb: 'Uvongo', type: 'House');
+        $agent = User::factory()->create([
+            'agency_id' => $agencyId, 'role' => 'super_admin',
+        ]);
+        $this->actingAs($agent);
+
+        $response = $this->get(route('corex.properties.show', $subject));
+        $response->assertOk();
+        $response->assertSee('Heads up', false);
+        $response->assertSee('bedrooms, bathrooms and price', false);
+        $response->assertSee('Comparable stock will be matched on property type and suburb only', false);
+    }
+
+    public function test_generate_modal_no_warning_when_all_present(): void
+    {
+        $this->withoutVite();
+        [$subject, $agencyId] = $this->seedSubject(price: 2_000_000, beds: 3, suburb: 'Uvongo', type: 'House', baths: 2);
+        $agent = User::factory()->create([
+            'agency_id' => $agencyId, 'role' => 'super_admin',
+        ]);
+        $this->actingAs($agent);
+
+        $response = $this->get(route('corex.properties.show', $subject));
+        $response->assertOk();
+        $response->assertDontSee('Heads up', false);
+    }
+
+    public function test_generate_modal_names_only_the_actually_missing_field(): void
+    {
+        $this->withoutVite();
+        // Only price absent — beds/baths present. Message must name price
+        // ONLY, never a canned "beds, baths and price" list.
+        [$subject, $agencyId] = $this->seedSubject(price: 0, beds: 3, suburb: 'Uvongo', type: 'House', baths: 2);
+        $agent = User::factory()->create([
+            'agency_id' => $agencyId, 'role' => 'super_admin',
+        ]);
+        $this->actingAs($agent);
+
+        $response = $this->get(route('corex.properties.show', $subject));
+        $response->assertOk();
+        // Scoped to the banner's own phrasing, not a bare word check — the
+        // page legitimately shows "Bedrooms: 3" elsewhere in the property's
+        // own spec sheet, unrelated to this warning.
+        $response->assertSee('this property is missing price.', false);
+        $response->assertDontSee('missing bedrooms', false);
+        $response->assertDontSee('missing bathrooms', false);
+    }
+
+    public function test_compile_competitor_stock_surfaces_missing_inputs_for_the_banner(): void
+    {
+        [$subject, $agencyId] = $this->seedSubject(price: 0, beds: 0, suburb: 'Uvongo', type: 'House');
+        $this->seedListing($agencyId, suburb: 'Uvongo', price: 2_000_000, beds: 3, type: 'House');
+
+        $presentation = $this->seedPresentation($subject);
+        $version      = $this->seedVersion($presentation);
+
+        $analysis = (new AnalysisDataService())->compile($presentation->fresh(), $version);
+        $cs = $analysis['competitor_stock'];
+
+        $this->assertArrayHasKey('missing_inputs', $cs);
+        $this->assertEqualsCanonicalizing(['bedrooms', 'bathrooms', 'price'], $cs['missing_inputs']);
+        $this->assertArrayHasKey('has_low_confidence', $cs);
+    }
+
     // ── helpers ────────────────────────────────────────────────────────
 
     /** @return array{0:Property, 1:int} */
-    private function seedSubject(int $price, int $beds, string $suburb, string $type): array
+    private function seedSubject(int $price, int $beds, string $suburb, string $type, int $baths = 0): array
     {
         $agencyId = (int) DB::table('agencies')->insertGetId([
             'name' => 'Competitor ' . Str::random(4),
@@ -736,6 +986,7 @@ final class CompetitorStockMatchTest extends TestCase
             'suburb'        => $suburb,
             'price'         => $price,
             'beds'          => $beds,
+            'baths'         => $baths,
             'address'       => '1 Subject Way',
             'status'        => 'active',
             'listing_type'  => 'sale',
