@@ -102,7 +102,59 @@ final class BuyersReportServiceTest extends TestCase
         $this->assertSame(1, $agentRow['metrics']['buyers_won']);
     }
 
+    public function test_viewing_with_no_feedback_is_flagged_via_both_link_paths_and_fed_viewing_is_not(): void
+    {
+        $agentId = 901;
+        $this->seedUser($agentId, self::AGENCY_ID, 701, 'Viewing Agent');
+
+        $directBuyer   = $this->seedBuyer(10, self::AGENCY_ID, $agentId, 701, 'warm', 'Direct Link Buyer');
+        $tickListBuyer = $this->seedBuyer(11, self::AGENCY_ID, $agentId, 701, 'warm', 'Tick List Buyer');
+        $fedBuyer      = $this->seedBuyer(12, self::AGENCY_ID, $agentId, 701, 'warm', 'Fed Buyer');
+
+        $past = Carbon::now()->subDays(3);
+
+        // Direct link (calendar_events.contact_id) — no feedback. Must appear.
+        $evt1 = $this->seedViewing($agentId, $past, contactId: $directBuyer);
+
+        // Tick-list link (calendar_event_links, role=buyer_contact) — no feedback. Must appear.
+        $evt2 = $this->seedViewing($agentId, $past, contactId: null);
+        $this->seedEventLink($evt2, $tickListBuyer);
+
+        // Direct link, but feedback WAS captured. Must NOT appear.
+        $evt3 = $this->seedViewing($agentId, $past, contactId: $fedBuyer);
+        DB::table('calendar_event_feedback')->insert([
+            'calendar_event_id' => $evt3, 'contact_id' => $fedBuyer,
+            'feedback_kind' => 'viewing', 'captured_at' => $past,
+        ]);
+
+        $scope   = new BuyersReportScope(self::AGENCY_ID, BuyersReportScope::LEVEL_BRANCH, branchId: 701);
+        $service = app(BuyersReportService::class);
+        $result  = $service->needsAttention($scope);
+
+        $flagged = array_column($result['no_feedback'], 'contact_id');
+
+        $this->assertContains($directBuyer, $flagged, 'Direct contact_id link with no feedback must be flagged.');
+        $this->assertContains($tickListBuyer, $flagged, 'Tick-list (calendar_event_links) link with no feedback must be flagged.');
+        $this->assertNotContains($fedBuyer, $flagged, 'A viewing with feedback captured must not be flagged.');
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
+
+    private function seedViewing(int $agentId, Carbon $eventDate, ?int $contactId): int
+    {
+        return (int) DB::table('calendar_events')->insertGetId([
+            'user_id' => $agentId, 'contact_id' => $contactId, 'category' => 'viewing',
+            'title' => 'Test viewing', 'event_date' => $eventDate, 'status' => 'completed',
+        ]);
+    }
+
+    private function seedEventLink(int $eventId, int $contactId): void
+    {
+        DB::table('calendar_event_links')->insert([
+            'calendar_event_id' => $eventId, 'linkable_type' => \App\Models\Contact::class,
+            'linkable_id' => $contactId, 'role' => 'buyer_contact',
+        ]);
+    }
 
     private function seedUser(int $id, int $agencyId, int $branchId, string $name): void
     {
@@ -133,6 +185,9 @@ final class BuyersReportServiceTest extends TestCase
     private function dropSchema(): void
     {
         DB::statement('SET FOREIGN_KEY_CHECKS=0');
+        Schema::dropIfExists('calendar_event_feedback');
+        Schema::dropIfExists('calendar_event_links');
+        Schema::dropIfExists('calendar_events');
         Schema::dropIfExists('buyer_lost_records');
         Schema::dropIfExists('buyer_state_transitions');
         Schema::dropIfExists('contacts');
@@ -221,6 +276,35 @@ final class BuyersReportServiceTest extends TestCase
             $table->timestamp('recorded_at');
             $table->timestamp('recovered_at')->nullable();
             $table->timestamps();
+        });
+
+        Schema::create('calendar_events', function ($table) {
+            $table->id();
+            $table->unsignedBigInteger('user_id');
+            $table->unsignedBigInteger('contact_id')->nullable();
+            $table->string('category', 80)->nullable();
+            $table->string('title')->nullable();
+            $table->string('status', 20)->default('pending');
+            $table->dateTime('event_date');
+            $table->timestamp('deleted_at')->nullable();
+        });
+
+        Schema::create('calendar_event_links', function ($table) {
+            $table->id();
+            $table->unsignedBigInteger('calendar_event_id');
+            $table->string('linkable_type');
+            $table->unsignedBigInteger('linkable_id');
+            $table->string('role')->default('attendee');
+            $table->timestamp('deleted_at')->nullable();
+        });
+
+        Schema::create('calendar_event_feedback', function ($table) {
+            $table->id();
+            $table->unsignedBigInteger('calendar_event_id');
+            $table->unsignedBigInteger('contact_id');
+            $table->string('feedback_kind', 40)->nullable();
+            $table->timestamp('captured_at')->nullable();
+            $table->timestamp('deleted_at')->nullable();
         });
     }
 }

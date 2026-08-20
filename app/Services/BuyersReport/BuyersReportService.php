@@ -7,6 +7,7 @@ use App\Services\Performance\BuyerActivityService;
 use App\Services\Performance\HierarchyResolver;
 use App\Services\Performance\Period;
 use App\Services\Performance\PerformanceScope;
+use App\Services\Performance\Providers\BuyersAddedProvider;
 use App\Services\Performance\Providers\BuyersWonProvider;
 use Illuminate\Support\Facades\DB;
 
@@ -32,6 +33,7 @@ class BuyersReportService
         private readonly HierarchyResolver $hierarchy,
         private readonly BuyerActivityService $buyerActivity,
         private readonly BuyersWonProvider $wonProvider,
+        private readonly BuyersAddedProvider $addedProvider,
     ) {}
 
     /**
@@ -47,41 +49,57 @@ class BuyersReportService
 
         $agents  = $this->hierarchy->agents($perfScope);
         $userIds = $agents->pluck('id')->map(fn ($i) => (int) $i)->all();
-        $won     = $this->wonProvider->forUsers($userIds, $period);
 
-        $companyWon = 0;
-        $branchWon  = [];
+        // (metric key => uid => value), merged into the existing rollup shape.
+        $extra = [
+            'buyers_won'   => $this->wonProvider->forUsers($userIds, $period),
+            'buyers_added' => $this->addedProvider->forUsers($userIds, $period),
+        ];
+
+        $companyExtra = array_fill_keys(array_keys($extra), 0);
+        $branchExtra  = [];
 
         foreach ($rollup['agents'] as &$agentRow) {
             $uid = (int) $agentRow['user_id'];
-            $w   = $won[$uid] ?? 0;
-            $agentRow['metrics']['buyers_won'] = $w;
-            $companyWon += $w;
-
             $branchKey = $agentRow['branch_id'] !== null ? (string) $agentRow['branch_id'] : 'unassigned';
-            $branchWon[$branchKey] = ($branchWon[$branchKey] ?? 0) + $w;
+
+            foreach ($extra as $key => $byUser) {
+                $v = $byUser[$uid] ?? 0;
+                $agentRow['metrics'][$key] = $v;
+                $companyExtra[$key] += $v;
+                $branchExtra[$branchKey][$key] = ($branchExtra[$branchKey][$key] ?? 0) + $v;
+            }
         }
         unset($agentRow);
 
-        $rollup['company']['buyers_won'] = $companyWon;
+        foreach ($companyExtra as $key => $v) {
+            $rollup['company'][$key] = $v;
+        }
         foreach ($rollup['branches'] as $key => &$b) {
-            $b['metrics']['buyers_won'] = $branchWon[$key] ?? 0;
+            foreach (array_keys($extra) as $mk) {
+                $b['metrics'][$mk] = $branchExtra[$key][$mk] ?? 0;
+            }
         }
         unset($b);
 
         $rollup['metrics'][] = ['key' => 'buyers_won', 'label' => 'Buyers won', 'currency' => false, 'direction' => 'higher_is_better'];
+        $rollup['metrics'][] = ['key' => 'buyers_added', 'label' => 'Buyers added', 'currency' => false, 'direction' => 'higher_is_better'];
 
         return $rollup;
     }
 
     /**
      * The action list at the top of the report — problems first, longest-
-     * neglected first. Three groups, per the layout sketch: cold/lost buyers
-     * needing attention, buyers parked on purpose (shown separately, not
-     * mixed into the worry list), and recent losses with reason + value.
+     * neglected first. Four groups: cold/lost buyers needing attention,
+     * buyers parked on purpose (shown separately, not mixed into the worry
+     * list), viewings held with no feedback captured (Johan's point 5 --
+     * "has any feedback been provided ... that was taken out on
+     * appointments?" -- a buyer taken out with nothing captured afterward is
+     * exactly the gap he's trying to see), and recent losses with reason +
+     * value.
      *
-     * One grouped query for the cohort, not a per-agent loop — same
-     * discipline every provider in this codebase already follows.
+     * One grouped query per group for the cohort, not a per-agent loop --
+     * same discipline every provider in this codebase already follows.
      */
     public function needsAttention(BuyersReportScope $scope, int $limit = 50): array
     {
@@ -90,7 +108,7 @@ class BuyersReportService
         $userIds   = $agents->pluck('id')->map(fn ($i) => (int) $i)->all();
 
         if (empty($userIds)) {
-            return ['attention' => [], 'parked' => [], 'recent_losses' => []];
+            return ['attention' => [], 'parked' => [], 'no_feedback' => [], 'recent_losses' => []];
         }
 
         // Cold/lost buyers, with their most recent state-entry (for days-in-state)
@@ -111,7 +129,12 @@ class BuyersReportService
             ->get();
 
         if ($buyers->isEmpty()) {
-            return ['attention' => [], 'parked' => [], 'recent_losses' => $this->recentLosses($userIds, $limit)];
+            return [
+                'attention'     => [],
+                'parked'        => [],
+                'no_feedback'   => $this->viewingsWithNoFeedback($userIds, $limit),
+                'recent_losses' => $this->recentLosses($userIds, $limit),
+            ];
         }
 
         $buyerIds = $buyers->pluck('id')->map(fn ($i) => (int) $i)->all();
@@ -159,10 +182,81 @@ class BuyersReportService
         usort($attention, fn ($a, $z) => ($z['days_in_state'] ?? 0) <=> ($a['days_in_state'] ?? 0));
 
         return [
-            'attention'      => array_slice($attention, 0, $limit),
-            'parked'         => $parked,
-            'recent_losses'  => $this->recentLosses($userIds, $limit),
+            'attention'     => array_slice($attention, 0, $limit),
+            'parked'        => $parked,
+            'no_feedback'   => $this->viewingsWithNoFeedback($userIds, $limit),
+            'recent_losses' => $this->recentLosses($userIds, $limit),
         ];
+    }
+
+    /**
+     * Viewings already held (event_date in the past) for a buyer, with no
+     * calendar_event_feedback row captured. Checks BOTH ways a buyer can be
+     * linked to a viewing: the single calendar_events.contact_id column, and
+     * calendar_event_links (role=buyer_contact) for a multi-buyer tick-list
+     * viewing -- the buyer tick list shipped this week writes there, not to
+     * contact_id, for anyone past the first ticked buyer.
+     */
+    private function viewingsWithNoFeedback(array $userIds, int $limit): array
+    {
+        $directLinked = DB::table('calendar_events as ce')
+            ->select('ce.id as event_id', 'ce.contact_id', 'ce.user_id as agent_id', 'ce.event_date', 'ce.title')
+            ->where('ce.category', 'viewing')
+            ->whereIn('ce.user_id', $userIds)
+            ->whereNotNull('ce.contact_id')
+            ->where('ce.event_date', '<', now())
+            ->whereNull('ce.deleted_at');
+
+        $tickListLinked = DB::table('calendar_events as ce')
+            ->join('calendar_event_links as cel', function ($j) {
+                $j->on('cel.calendar_event_id', '=', 'ce.id')
+                    ->where('cel.linkable_type', '=', \App\Models\Contact::class)
+                    ->where('cel.role', '=', 'buyer_contact')
+                    ->whereNull('cel.deleted_at');
+            })
+            ->select('ce.id as event_id', 'cel.linkable_id as contact_id', 'ce.user_id as agent_id', 'ce.event_date', 'ce.title')
+            ->where('ce.category', 'viewing')
+            ->whereIn('ce.user_id', $userIds)
+            ->where('ce.event_date', '<', now())
+            ->whereNull('ce.deleted_at');
+
+        $viewings = $directLinked->unionAll($tickListLinked)->get()
+            ->unique(fn ($v) => $v->event_id . ':' . $v->contact_id);
+
+        if ($viewings->isEmpty()) {
+            return [];
+        }
+
+        $eventIds = $viewings->pluck('event_id')->unique()->map(fn ($i) => (int) $i)->all();
+        $fed = DB::table('calendar_event_feedback')
+            ->select('calendar_event_id', 'contact_id')
+            ->whereIn('calendar_event_id', $eventIds)
+            ->whereNull('deleted_at')
+            ->get()
+            ->map(fn ($f) => $f->calendar_event_id . ':' . $f->contact_id)
+            ->flip();
+
+        $agentNames = DB::table('users')->whereIn('id', $userIds)->pluck('name', 'id');
+        $contactIds = $viewings->pluck('contact_id')->unique()->map(fn ($i) => (int) $i)->all();
+        $contactNames = DB::table('contacts')->whereIn('id', $contactIds)
+            ->get(['id', 'first_name', 'last_name'])
+            ->keyBy('id');
+
+        $missing = $viewings->filter(fn ($v) => !$fed->has($v->event_id . ':' . $v->contact_id));
+
+        return $missing->sortBy('event_date')->take($limit)->map(function ($v) use ($agentNames, $contactNames) {
+            $contact = $contactNames->get((int) $v->contact_id);
+            return [
+                'event_id'   => (int) $v->event_id,
+                'contact_id' => (int) $v->contact_id,
+                'name'       => $contact ? (trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? '')) ?: 'Unnamed buyer') : 'Unnamed buyer',
+                'agent_id'   => (int) $v->agent_id,
+                'agent_name' => $agentNames[$v->agent_id] ?? 'Unassigned',
+                'title'      => $v->title,
+                'event_date' => $v->event_date,
+                'days_ago'   => (int) abs(\Carbon\CarbonImmutable::parse($v->event_date)->diffInDays(now())),
+            ];
+        })->values()->all();
     }
 
     /** Recent losses across the cohort, with reason + pre-approval value lost, newest first. */
