@@ -1886,6 +1886,7 @@ class SignatureController extends Controller
     public function sendReminder(Request $request, Document $document, SignatureRequest $signatureRequest)
     {
         $this->authorizeDocument($request->user(), $document);
+        $this->authorizeSignatureRequestForDocument($signatureRequest, $document);
 
         if (in_array($signatureRequest->status, [
             SignatureRequest::STATUS_COMPLETED,
@@ -2009,6 +2010,7 @@ class SignatureController extends Controller
     public function wetInkReview(Request $request, Document $document, SignatureRequest $signingRequest)
     {
         $this->authorizeDocument($request->user(), $document);
+        $this->authorizeSignatureRequestForDocument($signingRequest, $document);
 
         $template = $signingRequest->template;
 
@@ -2055,6 +2057,7 @@ class SignatureController extends Controller
     public function wetInkFile(Request $request, Document $document, SignatureRequest $signingRequest, $fileIndex)
     {
         $this->authorizeDocument($request->user(), $document);
+        $this->authorizeSignatureRequestForDocument($signingRequest, $document);
 
         $uploadPaths = [];
         if ($signingRequest->wet_ink_upload_path) {
@@ -2081,6 +2084,7 @@ class SignatureController extends Controller
     public function uploadOnBehalf(Request $request, Document $document, SignatureRequest $signingRequest)
     {
         $this->authorizeDocument($request->user(), $document);
+        $this->authorizeSignatureRequestForDocument($signingRequest, $document);
 
         $request->validate([
             'files'          => 'required|array|min:1',
@@ -2142,6 +2146,7 @@ class SignatureController extends Controller
     public function wetInkDecision(Request $request, Document $document, SignatureRequest $signingRequest)
     {
         $this->authorizeDocument($request->user(), $document);
+        $this->authorizeSignatureRequestForDocument($signingRequest, $document);
 
         $request->validate([
             'checklist' => 'required|array',
@@ -2599,6 +2604,20 @@ class SignatureController extends Controller
 
         if (! in_array((int) $document->owner_id, $user->dataIdentityIds(), true)) {
             abort(403);
+        }
+    }
+
+    /**
+     * Confirms a route-bound SignatureRequest actually belongs to the route-bound
+     * Document. SignatureRequest has no agency_id of its own, so its route-model
+     * binding is unscoped — authorizeDocument() alone lets a caller who legitimately
+     * owns {document} pair it with an unrelated {signatureRequest} belonging to a
+     * different tenant. Every route that binds both together must call this too.
+     */
+    private function authorizeSignatureRequestForDocument(SignatureRequest $signatureRequest, Document $document): void
+    {
+        if ((int) $signatureRequest->template?->document_id !== (int) $document->id) {
+            abort(404);
         }
     }
 
