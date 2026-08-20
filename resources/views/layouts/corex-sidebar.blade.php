@@ -984,6 +984,36 @@
                 @endif
                 @endpermission
 
+                {{-- CX-109 (Johan, 2026-08-20) — Unfiled Emails, DR2's primary email-filing workflow --}}
+                @permission('view_deals')
+                @if(\Illuminate\Support\Facades\Route::has('deals-dr2.unfiled-emails.index'))
+                    @php
+                        $unfiledEmailsCount = 0;
+                        try {
+                            $ufAgencyId = auth()->user()?->effectiveAgencyId();
+                            if ($ufAgencyId) {
+                                $unfiledEmailsCount = \App\Models\Communications\Communication::where('agency_id', $ufAgencyId)
+                                    ->where('channel', 'email')
+                                    ->whereNotExists(function ($q) {
+                                        $q->selectRaw('1')->from('communication_links')
+                                            ->whereColumn('communication_links.communication_id', 'communications.id')
+                                            ->where('communication_links.linkable_type', \App\Models\DealV2\DealV2::class)
+                                            ->whereNull('communication_links.deleted_at');
+                                    })->count();
+                            }
+                        } catch (\Throwable $e) { /* sidebar must never blow up */ }
+                    @endphp
+                    <a href="{{ route('deals-dr2.unfiled-emails.index') }}"
+                       class="corex-nav-subitem {{ request()->routeIs('deals-dr2.unfiled-emails.*') ? 'active' : '' }}"
+                       style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+                        <span>Unfiled Emails</span>
+                        @if($unfiledEmailsCount > 0)
+                            <span style="display:inline-block;min-width:18px;padding:1px 6px;background:#dc2626;color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;">{{ $unfiledEmailsCount > 99 ? '99+' : $unfiledEmailsCount }}</span>
+                        @endif
+                    </a>
+                @endif
+                @endpermission
+
                 @if(auth()->user() && in_array((string) auth()->user()->role, ['admin', 'super_admin', 'branch_manager', 'principal'], true) && \Illuminate\Support\Facades\Route::has('corex.compliance.rcr.index'))
                     @php
                         // Phase 9d — open RCR submissions for current agency.

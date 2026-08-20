@@ -703,6 +703,14 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     Route::get('/attorney/search',              [\App\Http\Controllers\Dr2\DealRegisterController::class, 'attorneySearch'])->middleware('permission:create_deals')->name('attorney.search');
     Route::post('/attorney/inline',             [\App\Http\Controllers\Dr2\DealRegisterController::class, 'attorneyInline'])->middleware('permission:create_deals')->name('attorney.inline');
 
+    // CX-109 (Johan, 2026-08-20) — the Unfiled Emails screen, DR2's primary email-filing
+    // workflow. Static paths, before the {deal} wildcards below, so "unfiled-emails" is
+    // never shadow-captured as a deal id.
+    Route::get('/unfiled-emails',                [\App\Http\Controllers\Dr2\UnfiledEmailsController::class, 'index'])->middleware('permission:view_deals')->name('unfiled-emails.index');
+    Route::get('/unfiled-emails/deal-search',     [\App\Http\Controllers\Dr2\UnfiledEmailsController::class, 'dealSearch'])->middleware('permission:view_deals')->name('unfiled-emails.deal-search');
+    Route::post('/unfiled-emails/file-batch',     [\App\Http\Controllers\Dr2\UnfiledEmailsController::class, 'fileBatch'])->middleware('permission:view_deals')->name('unfiled-emails.file-batch');
+    Route::post('/unfiled-emails/{communication}/file', [\App\Http\Controllers\Dr2\UnfiledEmailsController::class, 'file'])->whereNumber('communication')->middleware('permission:view_deals')->name('unfiled-emails.file');
+
     Route::get('/{deal}/edit',   [\App\Http\Controllers\Dr2\DealRegisterController::class, 'edit'])->middleware('permission:create_deals')->name('edit');
     // DR1 parity: update is a POST (DR1's form.blade POSTs to it), not PUT.
     Route::post('/{deal}',       [\App\Http\Controllers\Dr2\DealRegisterController::class, 'update'])->middleware('permission:create_deals')->name('update');

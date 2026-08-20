@@ -4,13 +4,12 @@ namespace App\Http\Controllers\Dr2;
 
 use App\Http\Controllers\Controller;
 use App\Models\Communications\Communication;
-use App\Models\Communications\CommunicationLearnedRef;
 use App\Models\Communications\CommunicationLink;
 use App\Models\Deal;
 use App\Models\DealV2\DealV2;
+use App\Services\Communications\CommunicationDealLinkingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 /**
  * CX-108 (Johan, 2026-08-20) — manual email-to-deal link/unlink, reachable
@@ -34,9 +33,18 @@ use Illuminate\Support\Facades\DB;
  *
  * DealV2 (not the DR1 Deal) is the linkable — matches how AT-228 already
  * links comms to DealV2, so this doesn't invent a second convention.
+ *
+ * 2026-08-20 (CX-109) — the actual link/signal-capture transaction moved to
+ * CommunicationDealLinkingService so the Unfiled Emails screen (the primary
+ * filing workflow, per Johan's redirect the same day) and this in-deal tab
+ * (kept as a secondary path) share ONE linking implementation.
  */
 class Dr2CommunicationLinkController extends Controller
 {
+    public function __construct(private CommunicationDealLinkingService $linking)
+    {
+    }
+
     /**
      * GET /deals-dr2/{deal}/communications/search?q=
      *
@@ -97,38 +105,7 @@ class Dr2CommunicationLinkController extends Controller
         $communication = Communication::where('agency_id', $agencyId)
             ->findOrFail($validated['communication_id']);
 
-        $link = DB::transaction(function () use ($communication, $dealV2Id, $agencyId, $user) {
-            // withTrashed so re-linking something previously unlinked from this
-            // SAME deal restores the one row rather than accumulating duplicates.
-            $link = CommunicationLink::withTrashed()
-                ->where('communication_id', $communication->id)
-                ->where('linkable_type', DealV2::class)
-                ->where('linkable_id', $dealV2Id)
-                ->first();
-
-            if ($link) {
-                $link->restore();
-                $link->update([
-                    'link_method'  => CommunicationLink::METHOD_MANUAL,
-                    'confirmed_by' => $user->id,
-                    'confirmed_at' => now(),
-                ]);
-            } else {
-                $link = CommunicationLink::create([
-                    'agency_id'        => $agencyId,
-                    'communication_id' => $communication->id,
-                    'linkable_type'    => DealV2::class,
-                    'linkable_id'      => $dealV2Id,
-                    'link_method'      => CommunicationLink::METHOD_MANUAL,
-                    'confirmed_by'     => $user->id,
-                    'confirmed_at'     => now(),
-                ]);
-            }
-
-            $this->captureSignals($communication, $dealV2Id, $agencyId);
-
-            return $link;
-        });
+        $link = $this->linking->link($communication, $dealV2Id, $agencyId, $user);
 
         return response()->json(['ok' => true, 'link_id' => $link->id], 201);
     }
@@ -171,70 +148,5 @@ class Dr2CommunicationLinkController extends Controller
             ->get();
 
         return response()->json(['data' => $links]);
-    }
-
-    /**
-     * Signal capture (AT-231's store, reused). Deliberately minimal —
-     * exactly the fields already sitting on the Communication row, no
-     * inference/regex heuristics for a reference number. That belongs to
-     * whatever builds the suggestion engine on top of this data, not here.
-     */
-    private function captureSignals(Communication $communication, int $dealId, ?int $agencyId): void
-    {
-        $signals = [];
-
-        if (filled($communication->from_identifier)) {
-            $signals[] = [
-                CommunicationLearnedRef::SIGNAL_SENDER_EMAIL,
-                CommunicationLearnedRef::normalizeValue($communication->from_identifier),
-            ];
-        }
-        if (filled($communication->thread_key)) {
-            $signals[] = [
-                CommunicationLearnedRef::SIGNAL_THREAD_KEY,
-                CommunicationLearnedRef::normalizeValue($communication->thread_key),
-            ];
-        }
-        if (filled($communication->subject)) {
-            $signals[] = [
-                CommunicationLearnedRef::SIGNAL_SUBJECT_PATTERN,
-                CommunicationLearnedRef::normalizeValue($communication->subject),
-            ];
-        }
-
-        foreach ($signals as [$type, $value]) {
-            if ($value === '') {
-                continue;
-            }
-            // Unique on (agency_id, signal_type, signal_value) — a re-link of the
-            // same signal bumps hits on the SAME row rather than duplicating it.
-            // deleted_at is intentionally not fillable on this model, so a
-            // previously-trashed row needs an explicit restore(), not
-            // updateOrCreate()'s mass-assignment (which would silently no-op it).
-            $ref = CommunicationLearnedRef::withTrashed()
-                ->where('agency_id', $agencyId)
-                ->where('signal_type', $type)
-                ->where('signal_value', $value)
-                ->first();
-
-            if ($ref) {
-                if ($ref->trashed()) {
-                    $ref->restore();
-                }
-                $ref->deal_id = $dealId;
-                $ref->save();
-            } else {
-                $ref = CommunicationLearnedRef::create([
-                    'agency_id'    => $agencyId,
-                    'deal_id'      => $dealId,
-                    'signal_type'  => $type,
-                    'signal_value' => $value,
-                    'is_verified'  => false,
-                    'hits'         => 0,
-                ]);
-            }
-
-            $ref->increment('hits');
-        }
     }
 }
