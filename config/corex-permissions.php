@@ -67,6 +67,17 @@ return [
         ['key' => 'view_listings',           'label' => 'View Listing Stock',              'section' => 'agency-tracker',   'type' => 'access',  'module' => 'listings',         'sort_order' => 15],
         ['key' => 'import_listings',         'label' => 'Import Listings',                 'section' => 'agency-tracker',   'type' => 'access',  'module' => 'listings',         'sort_order' => 16],
         ['key' => 'view_performance',        'label' => 'View Performance',                'section' => 'agency-tracker',   'type' => 'access',  'module' => 'agency_tracker',   'sort_order' => 17],
+        // Buyers Report (Johan, 2026-08-20) — a plain access gate, same shape as
+        // view_performance above: WHETHER a role can open the report at all.
+        // WHAT that role then sees inside it (own/branch/agency) is a SEPARATE
+        // question, answered by 'buyers_report.view' below (own/branch/all via
+        // scope_defaults, same mechanism deals.view/targets.view use) — corrected
+        // 2026-08-20 (Johan): this must NOT read contacts.view — that key governs
+        // the pipeline/contacts screens, a deliberately separate, often broader
+        // grant (HFC's agents see the whole buyers book there by design); reports
+        // are scoped more tightly, by their own key, like every other report.
+        ['key' => 'view_buyers_report',      'label' => 'View Buyers Report',              'section' => 'agency-tracker',   'type' => 'access',  'module' => 'agency_tracker',   'sort_order' => 40],
+        ['key' => 'buyers_report.view',      'label' => 'View',                            'section' => 'agency-tracker',   'type' => 'action',  'module' => 'buyers_report',    'sort_order' => 41],
         ['key' => 'manage_targets',          'label' => 'Manage Targets',                  'section' => 'agency-tracker',   'type' => 'access',  'module' => 'agency_tracker',   'sort_order' => 18],
         ['key' => 'view_rentals',            'label' => 'View Rentals',                    'section' => 'agency-tracker',   'type' => 'access',  'module' => 'rentals',          'sort_order' => 19],
         ['key' => 'manage_rentals',          'label' => 'Create & Edit Rentals',           'section' => 'agency-tracker',   'type' => 'access',  'module' => 'rentals',          'sort_order' => 20],
@@ -722,7 +733,7 @@ return [
                 // access settlements". BM keeps the deal register, loses settle_deals.
                 'view_worksheet', 'edit_worksheet', 'view_deals', 'create_deals', 'proforma.generate', 'proforma.view',
                 'calendar.tile.my_deals', // AT-216 R3 — deal-pipeline deck tile
-                'view_listings', 'view_performance', 'manage_targets',
+                'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view', 'manage_targets',
                 'view_rentals', 'manage_rentals', 'view_daily_activity', 'manage_tv_messages',
                 'deals.view', 'deals.create', 'deals.edit',
                 'listings.view', 'listings.create', 'listings.edit',
@@ -834,7 +845,7 @@ return [
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts',
                 'access_agency_tracker', 'access_daily_activity', 'access_rental_signatures',
                 'view_worksheet', 'edit_worksheet', 'view_deals', 'proforma.generate', 'proforma.view',
-                'view_listings', 'view_performance',
+                'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view',
                 'view_rentals', 'manage_rentals', 'view_daily_activity',
                 'deals.view', 'deals.create',
                 'calendar.tile.my_deals', // AT-216 R3 — deal-pipeline deck tile (agent's working surface)
@@ -929,7 +940,7 @@ return [
                 'access_my_portal',
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts',
                 'access_agency_tracker', 'access_daily_activity',
-                'view_worksheet', 'view_deals', 'view_listings', 'view_performance',
+                'view_worksheet', 'view_deals', 'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view',
                 'view_rentals', 'view_daily_activity',
                 'deals.view', 'listings.view', 'rentals.view', 'daily_activity.view', 'targets.view',
                 'access_training', 'training.view',

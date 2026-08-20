@@ -117,7 +117,7 @@
             $pastViewings = $propertiesViewed['past'] ?? collect();
             $allViewingsFlat = $upcomingViewings->concat($pastViewings);
         @endphp
-        @foreach(['overview' => 'Overview', 'timeline' => 'Activity', 'properties' => 'Viewings & Feedback', 'wishlists' => 'Wishlists', 'playbook' => 'Retention'] as $key => $label)
+        @foreach(['overview' => 'Overview', 'notes' => 'Notes', 'timeline' => 'Activity', 'properties' => 'Viewings & Feedback', 'wishlists' => 'Wishlists', 'playbook' => 'Retention'] as $key => $label)
             <button @click="activeTab = '{{ $key }}'"
                     :class="activeTab === '{{ $key }}' ? 'border-b-2' : 'border-b-2 border-transparent'"
                     :style="activeTab === '{{ $key }}' ? 'color: var(--brand-icon, #0ea5e9); border-color: var(--brand-icon, #0ea5e9);' : 'color: var(--text-secondary);'"
@@ -193,7 +193,7 @@
                         @if(!$pl->revoked_at)
                         <div class="flex items-center gap-1">
                             <button type="button"
-                                    onclick="navigator.clipboard.writeText('{{ url('/buyer/portal/' . $pl->token) }}'); this.textContent='Copied';"
+                                    onclick="navigator.clipboard.writeText('{{ url('/buyer/portal/' . $pl->token) }}'); this.textContent='Copied'; fetch('{{ route('command-center.buyers.wishlist-share-events.store', $buyer) }}', {method:'POST', headers:{'X-CSRF-TOKEN':'{{ csrf_token() }}','Accept':'application/json'}}).catch(()=>{});"
                                     class="text-[10px] font-medium px-2 py-0.5 rounded-md"
                                     style="color: var(--brand-icon, #0ea5e9); background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, transparent);">Copy</button>
                             <a href="mailto:{{ $buyer->email }}?subject={{ urlencode('Your property matches') }}&body={{ urlencode("Hi " . ($buyer->first_name ?? '') . ",\n\nYour personalised property matches are ready:\n\n" . url('/buyer/portal/' . $pl->token) . "\n\nBest regards,\n" . (auth()->user()->name ?? 'Your Agent')) }}"
@@ -213,6 +213,49 @@
                 </form>
             @endif
         </div>
+    </div>
+
+    {{-- Notes Tab (2026-08-20, Johan) — dedicated, NOT merged into Activity:
+         that log is system noise (886 of 912 rows are access-audit entries)
+         and would bury real notes. Writes to the SAME contact_notes table
+         and SAME rows contacts/show.blade.php reads — this is the whole
+         point ("linked to the contact record as well"), not a parallel
+         history. Quick-pick type + free text, neither mandatory with the
+         other (ContactNoteController::store() enforces "at least one"). --}}
+    <div x-show="activeTab === 'notes'" x-cloak class="space-y-4">
+        <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
+            <div class="text-xs font-semibold mb-3" style="color:var(--text-secondary);">Add Note</div>
+            <form method="POST" action="{{ route('corex.contacts.notes.store', $buyer) }}" class="space-y-3">
+                @csrf
+                <input type="hidden" name="redirect_to" value="buyer-notes">
+                <select name="type" class="w-full rounded-md px-3 py-2 text-sm"
+                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                    <option value="">— No quick pick —</option>
+                    @foreach(\App\Models\ContactNote::QUICK_PICK_TYPES as $quickPick)
+                        <option value="{{ $quickPick }}">{{ $quickPick }}</option>
+                    @endforeach
+                </select>
+                <textarea name="body" rows="3"
+                          placeholder="Write a note… (optional if you picked a type above)"
+                          class="w-full rounded-md px-3 py-2 text-sm resize-none"
+                          style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"></textarea>
+                <div class="flex justify-end gap-2 flex-wrap">
+                    <button type="submit" name="mark_contacted" value="1"
+                            class="text-sm font-semibold px-3 py-2 rounded-md"
+                            style="background:var(--ds-green,#16a34a); color:#fff;">Add note &amp; mark contacted</button>
+                    <button type="submit" class="corex-btn-primary text-sm">Add Note</button>
+                </div>
+            </form>
+        </div>
+
+        @forelse($buyer->contactNotes as $note)
+            @include('corex.contacts._note-item', ['note' => $note])
+        @empty
+            <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
+                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No notes yet</h3>
+                <p class="text-sm" style="color: var(--text-muted);">Use the form above to record your first note for this buyer.</p>
+            </div>
+        @endforelse
     </div>
 
     {{-- Activity Timeline Tab --}}
