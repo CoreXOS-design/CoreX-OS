@@ -135,7 +135,8 @@ class DailyActivitySetupController extends Controller
 
     public function storeDefinition(Request $request)
     {
-        abort_unless(Auth::user()?->hasPermission('manage_targets'), 403);
+        $auth = Auth::user();
+        abort_unless($auth?->hasPermission('manage_targets'), 403);
 
         $name = trim((string) $request->input('name'));
         if ($name === '') {
@@ -153,15 +154,30 @@ class DailyActivitySetupController extends Controller
 
         $isActive = $request->has('is_enabled') ? 1 : 0;
 
+        // Cross-agency isolation audit 2026-08-20 follow-up: every row created
+        // here was hardcoded scope='system', agency_id=null -- globally
+        // visible/usable by EVERY agency, regardless of who created it.
+        // manage_targets is an ordinary, per-agency-grantable permission, not
+        // owner-only, so any agency's admin could silently pollute the shared
+        // catalogue every other agency sees. Only a real System Owner may
+        // create a genuinely global (scope='system') row now; everyone else's
+        // row is scoped to their own branch, matching the ONLY non-system
+        // value manualDefinitions() already recognises below.
+        $isOwner = (bool) $auth->isOwnerRole();
+        $branchId = (int) ($auth->branch_id ?? 0);
+        if (!$isOwner && $branchId <= 0) {
+            return back()->withErrors('No branch assigned — cannot determine where to scope this activity.');
+        }
+
         DB::table('activity_definitions')->insert([
             'name'         => $name,
             'weight'       => $weight,
             'sort_order'   => $order,
             'scoring_mode' => $mode,
             'is_enabled'   => $isActive,
-            'scope'        => 'system',
-            'agency_id'    => null,
-            'branch_id'    => null,
+            'scope'        => $isOwner ? 'system' : (string) $branchId,
+            'agency_id'    => $isOwner ? null : $auth->agency_id,
+            'branch_id'    => $isOwner ? null : $branchId,
             'created_at'   => now(),
             'updated_at'   => now(),
         ]);
@@ -172,7 +188,22 @@ class DailyActivitySetupController extends Controller
 
     public function updateDefinition(Request $request, int $id)
     {
-        abort_unless(Auth::user()?->hasPermission('manage_targets'), 403);
+        $auth = Auth::user();
+        abort_unless($auth?->hasPermission('manage_targets'), 403);
+
+        // Cross-agency isolation audit 2026-08-20 follow-up: this updated
+        // ANY row by bare id with zero ownership check -- any admin with
+        // manage_targets could edit or corrupt another agency's activity by
+        // guessing/enumerating its id, silently altering their commission/
+        // points scoring. Only a System Owner may edit a scope='system' row;
+        // everyone else may only edit a row scoped to their own branch.
+        $existing = DB::table('activity_definitions')->where('id', $id)->first();
+        abort_if(!$existing, 404);
+        $isOwner = (bool) $auth->isOwnerRole();
+        if (!$isOwner) {
+            $ownBranchId = (string) ($auth->branch_id ?? '');
+            abort_unless($existing->scope !== 'system' && $existing->scope === $ownBranchId, 404);
+        }
 
         $name = trim((string) $request->input('name'));
         if ($name === '') {
