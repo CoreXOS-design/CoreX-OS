@@ -191,11 +191,11 @@ class ContactExportController extends Controller
                 if ($esignRole === 'buyer') {
                     $query->where('is_buyer', 1);
                 } elseif ($esignRole === 'seller') {
-                    // Same fix as ContactController::index() — 'seller' is a valid
-                    // pivot role (PropertyWizardController, DeedsCaptureController
-                    // "link as seller"), not only legacy 'owner'. Mirrored here so the
-                    // export always matches what the index page just showed.
-                    $query->whereHas('properties', fn ($q) => $q->whereIn('contact_property.role', ['seller', 'owner']));
+                    // Mirrors ContactController::index() — 'seller' pivot role ONLY.
+                    // 'owner' is a generic Deeds Capture "current owner of record"
+                    // signal (buyers, plain owners), not a seller signal — matching
+                    // it flooded this filter with non-sellers. See index() comment.
+                    $query->whereHas('properties', fn ($q) => $q->where('contact_property.role', 'seller'));
                 } elseif ($esignRole === 'lessor') {
                     // Mirrors the index() Landlord fix — pivot role, not contact_type_id.
                     $query->whereHas('properties', fn ($q) => $q->whereIn('contact_property.role', ['landlord', 'lessor']));

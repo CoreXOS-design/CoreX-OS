@@ -92,13 +92,20 @@ class ContactController extends Controller
         if ($request->filled('type')) {
             // Buyer/seller truth is NOT in contact_type_id (a nullable, mostly-
             // unpopulated classification). Buyer = is_buyer; seller = a
-            // contact_property pivot with role 'seller' OR 'owner' — the canonical
-            // seller-side pivot set per Property::pivotRolesForContactRole('seller_owner').
-            // PropertyWizardController links a new sale's contact with role='seller',
-            // DeedsCaptureController's "link as seller" flow also writes 'seller'; only
-            // legacy/manual links use 'owner'. Checking 'owner' alone missed every
-            // contact captured through those flows and showed as blank. Resolve the
-            // submitted contact_type to its esign_role (dynamic — ids differ per env)
+            // contact_property pivot with role 'seller' SPECIFICALLY.
+            // 2026-08-20 correction: an earlier fix here also matched role
+            // 'owner', reasoning it was a synonym written by legacy/manual
+            // links. Live data proved that wrong — 'owner' is written
+            // generically by Deeds Capture for "current owner of record" on
+            // ANY contact (buyers who now own their purchase, plain owner
+            // contacts with no sale intent), independent of any sale. Of the
+            // 52 contacts reachable only via 'owner', 46 were typed "Owner"/
+            // untyped/is_buyer and only ~6 were actually typed "Seller" —
+            // matching it flooded the Seller filter with buyers and owners.
+            // 'seller' pivot role IS the precise, intentional signal: written
+            // only when PropertyWizardController lists a sale or Deeds
+            // Capture's "link as seller" flow runs. Resolve the submitted
+            // contact_type to its esign_role (dynamic — ids differ per env)
             // and query the canonical column. Genuine classifications (Witness, etc.)
             // keep the contact_type_id filter.
             $typeId = (int) $request->type;
@@ -107,7 +114,7 @@ class ContactController extends Controller
             if ($esignRole === 'buyer') {
                 $query->where('is_buyer', 1);
             } elseif ($esignRole === 'seller') {
-                $query->whereHas('properties', fn ($q) => $q->whereIn('contact_property.role', ['seller', 'owner']));
+                $query->whereHas('properties', fn ($q) => $q->where('contact_property.role', 'seller'));
             } elseif ($esignRole === 'lessor') {
                 // Same gap as seller, same audit: Landlord/Lessor contacts are
                 // overwhelmingly linked via the contact_property pivot (role

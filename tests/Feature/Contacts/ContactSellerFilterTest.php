@@ -12,22 +12,28 @@ use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /**
- * Regression for the Contacts page "Seller" filter coming up blank for
- * agencies that do have sellers. The filter resolved a "Seller" ContactType
- * to esign_role='seller' and then matched contacts against a
- * contact_property pivot role of 'owner' ONLY — but PropertyWizardController
- * (every new sale listing) and DeedsCaptureController's "link as seller" flow
- * both write role='seller', not 'owner'. Only legacy/manually-linked contacts
- * ever carried 'owner', so most agencies' sellers never matched.
+ * Regression for the Contacts page "Seller" filter.
  *
- * Fix: match the canonical seller-side pivot set — ['seller', 'owner'], per
- * Property::pivotRolesForContactRole('seller_owner') — in both the index
- * filter and its mirrored Export filter.
+ * Round 1 (too few results): the filter matched contact_property pivot role
+ * 'owner' ONLY — but PropertyWizardController (every new sale listing) and
+ * DeedsCaptureController's "link as seller" flow write role='seller', not
+ * 'owner'. Most agencies' sellers never matched.
  *
- * The same audit found an identical gap on the "Landlord" filter (esign_role
- * 'lessor'), which fell through to matching contact_type_id alone — a mostly-
- * unpopulated column — instead of the contact_property pivot role 'landlord'
- * that PropertyWizardController actually writes for rental listings.
+ * Round 2 (too MANY results, wrong ones): the round-1 fix matched role IN
+ * ['seller', 'owner']. Live data showed 'owner' is a generic Deeds Capture
+ * "current owner of record" signal written for ANY contact who owns a
+ * property — buyers who now own their purchase, plain owner contacts with no
+ * sale intent — independent of selling. Of 52 contacts reachable only via
+ * 'owner', the large majority were typed "Owner"/untyped/is_buyer, not
+ * "Seller" — the filter surfaced buyers and owners alongside real sellers.
+ *
+ * Fix: match role 'seller' ONLY — the precise signal written exclusively by
+ * an actual sale listing or the deliberate "link as seller" action. Mirrored
+ * in the Export filter.
+ *
+ * The Landlord filter (esign_role 'lessor') doesn't share this problem:
+ * 'landlord' is written specifically by the rental-listing flow (a dedicated,
+ * intentional signal), not the generic ownership bucket 'owner' is.
  */
 final class ContactSellerFilterTest extends TestCase
 {
@@ -42,8 +48,10 @@ final class ContactSellerFilterTest extends TestCase
         $viaSellerRole = $this->makeContact($agencyId, $user->id, 'Via', 'SellerRole');
         $this->linkContactToProperty($viaSellerRole, $propertyId, 'seller');
 
-        $viaOwnerRole = $this->makeContact($agencyId, $user->id, 'Via', 'OwnerRole');
-        $this->linkContactToProperty($viaOwnerRole, $propertyId, 'owner');
+        // A buyer who now owns their purchase (Deeds Capture "current owner of
+        // record") — must NOT show up under Seller just because role='owner'.
+        $buyerWhoOwns = $this->makeContact($agencyId, $user->id, 'Buyer', 'WhoOwns');
+        $this->linkContactToProperty($buyerWhoOwns, $propertyId, 'owner');
 
         $unrelated = $this->makeContact($agencyId, $user->id, 'Unrelated', 'Tenant');
         $this->linkContactToProperty($unrelated, $propertyId, 'tenant');
@@ -55,7 +63,7 @@ final class ContactSellerFilterTest extends TestCase
         $ids = collect($response->viewData('contacts')->items())->pluck('id');
 
         $this->assertTrue($ids->contains($viaSellerRole->id), 'contact linked via role=seller is shown');
-        $this->assertTrue($ids->contains($viaOwnerRole->id), 'contact linked via role=owner is still shown');
+        $this->assertFalse($ids->contains($buyerWhoOwns->id), 'contact linked only via role=owner is excluded (not a seller signal)');
         $this->assertFalse($ids->contains($unrelated->id), 'unrelated tenant-role contact is excluded');
     }
 
