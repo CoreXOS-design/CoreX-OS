@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Branch;
 use App\Models\TvAccessCode;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -18,7 +19,15 @@ class TvCodeController extends Controller
             'branch_id' => ['required', 'integer', 'exists:branches,id'],
         ]);
 
-        $branchId = (int) $request->branch_id;
+        // Branch::findOrFail is already tenant-safe: Branch uses
+        // BelongsToAgency, so its global scope 404s a branch belonging to a
+        // different agency for any non-owner caller. Before this, the raw
+        // exists:branches,id rule above accepted ANY branch id — any admin
+        // with manage_tv_messages could mint a live public TV code for
+        // another agency's branch. Finding C1,
+        // .ai/audits/cross-agency-isolation-audit-2026-08-20.md.
+        $branch = Branch::findOrFail((int) $request->branch_id);
+        $branchId = $branch->id;
         $user = Auth::user();
 
         // Deactivate all existing active codes for this branch
@@ -46,6 +55,10 @@ class TvCodeController extends Controller
             'code_id' => ['required', 'integer', 'exists:tv_access_codes,id'],
         ]);
 
+        // TvAccessCode now uses BelongsToAgency (finding C1) — findOrFail
+        // 404s for a code belonging to a different agency instead of
+        // revoking it, since the exists:tv_access_codes,id rule above is an
+        // unscoped raw existence check.
         $code = TvAccessCode::findOrFail($request->code_id);
         $code->update(['is_active' => false]);
 
