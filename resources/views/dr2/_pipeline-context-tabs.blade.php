@@ -38,6 +38,7 @@
         <button type="button" class="dr2-tab" :class="tab==='wo' ? 'corex-tab-active' : ''" @click="tab='wo'" role="tab" :aria-selected="tab==='wo'" style="{{ $woAtt ? 'color:#b91c1c;font-weight:700;' : '' }}" title="{{ $woAtt ? 'A work order is waiting for a supplier' : '' }}">Supplier Work Orders{!! $woAtt ? ' <span aria-hidden=&quot;true&quot; style=&quot;color:#dc2626&quot;>&#9679;</span>' : '' !!}</button>
         <button type="button" class="dr2-tab" :class="tab==='docs' ? 'corex-tab-active' : ''" @click="tab='docs'" role="tab" :aria-selected="tab==='docs'">Documents</button>
         <button type="button" class="dr2-tab" :class="tab==='email' ? 'corex-tab-active' : ''" @click="tab='email'" role="tab" :aria-selected="tab==='email'">Email Parties</button>
+        <button type="button" class="dr2-tab" :class="tab==='comms' ? 'corex-tab-active' : ''" @click="tab='comms'" role="tab" :aria-selected="tab==='comms'">Linked Emails</button>
         <button type="button" class="dr2-tab" :class="tab==='pi' ? 'corex-tab-active' : ''" @click="tab='pi'" role="tab" :aria-selected="tab==='pi'">Proforma Invoice</button>
     </div>
 
@@ -52,6 +53,9 @@
     </div>
     <div x-show="tab==='email'" x-cloak role="tabpanel">
         @include('dr2._email-parties', ['deal' => $deal])
+    </div>
+    <div x-show="tab==='comms'" x-cloak role="tabpanel">
+        @include('dr2._communications', ['deal' => $deal])
     </div>
     <div x-show="tab==='pi'" x-cloak role="tabpanel">
         @include('proforma._deal-section', ['deal' => $deal])

@@ -727,6 +727,13 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     // Pipeline Dashboard Phase 2 — the TIMELINE view + horizontal drag-to-reschedule (JSON preview/commit).
     Route::get('/{deal}/pipeline/timeline',               [\App\Http\Controllers\Dr2\PipelineTimelineController::class, 'show'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.timeline');
     Route::post('/{deal}/pipeline/steps/{step}/reschedule', [\App\Http\Controllers\Dr2\PipelineTimelineController::class, 'reschedule'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.reschedule');
+    // CX-108 — manual email-to-deal link/unlink from DR2 (Johan: "email arrives in
+    // holding area - agent can go and link to a deal"). Same permission as the rest
+    // of this group's lightweight annotate actions (addRemark uses view_deals too).
+    Route::get('/{deal}/communications',                  [\App\Http\Controllers\Dr2\Dr2CommunicationLinkController::class, 'index'])->whereNumber('deal')->middleware('permission:view_deals')->name('communications.index');
+    Route::get('/{deal}/communications/search',           [\App\Http\Controllers\Dr2\Dr2CommunicationLinkController::class, 'search'])->whereNumber('deal')->middleware('permission:view_deals')->name('communications.search');
+    Route::post('/{deal}/communications/link',            [\App\Http\Controllers\Dr2\Dr2CommunicationLinkController::class, 'link'])->whereNumber('deal')->middleware('permission:view_deals')->name('communications.link');
+    Route::post('/{deal}/communications/{link}/unlink',   [\App\Http\Controllers\Dr2\Dr2CommunicationLinkController::class, 'unlink'])->whereNumber(['deal', 'link'])->middleware('permission:view_deals')->name('communications.unlink');
     // Pipeline Dashboard Phase 3 — the LIST view + grab-to-reorder (position ONLY) + inline edit-dates.
     Route::get('/{deal}/pipeline/list',                   [\App\Http\Controllers\Dr2\PipelineListController::class, 'show'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.list');
     Route::post('/{deal}/pipeline/reorder',               [\App\Http\Controllers\Dr2\PipelineListController::class, 'reorder'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.reorder');
