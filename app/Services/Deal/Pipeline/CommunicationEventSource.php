@@ -17,6 +17,15 @@ use Illuminate\Support\Collection;
  * `direction`. They are DEAL-scoped (the archive links to a deal/contact/property, never a step) until
  * a step link exists. This is the "plug in later" source promised in Phase 1 — the DTO/aggregator are
  * unchanged; it just registers alongside CommentEventSource. Spec §3.3, Phase 4.
+ *
+ * 2026-08-20 (Johan, live bug — deal 137/Linda's mail) — AT-231 §3.4: "Even a HIGH match is
+ * PROVISIONAL until the agent verifies the first email." A link with confirmed_at still NULL is
+ * exactly that provisional guess sitting in `communication_filing_suspense`, not yet accepted onto
+ * the deal. This source used to render EVERY communication_links row regardless of confirmation —
+ * an auto-suggested, never-verified email showed up in the deal's history indistinguishable from
+ * one a human actually confirmed. Fixed: only CONFIRMED links reach the feed. Johan's explicit
+ * call, and it matches the spec's own model — an unverified link isn't "filed" yet, so it has no
+ * business in the deal's settled correspondence history; it belongs in suspense until verified.
  */
 class CommunicationEventSource implements PipelineEventSource
 {
@@ -30,6 +39,7 @@ class CommunicationEventSource implements PipelineEventSource
         $commIds = CommunicationLink::query()
             ->where('linkable_type', DealV2::class)
             ->where('linkable_id', $deal->deal_v2_id)
+            ->whereNotNull('confirmed_at')
             ->pluck('communication_id')->unique();
 
         if ($commIds->isEmpty()) {
