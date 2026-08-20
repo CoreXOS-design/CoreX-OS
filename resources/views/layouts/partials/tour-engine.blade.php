@@ -218,8 +218,23 @@
                 });
 
                 if (this.autoStart) {
-                    // Let Alpine, maps and async widgets settle before spotlighting.
-                    window.setTimeout(() => this.start(), 900);
+                    // A tour's setup can switch tabs/sections to stage its first
+                    // spotlight (e.g. outreach-composer clicks the Outreach tab
+                    // open). If the user arrived with an explicit ?tab= request —
+                    // a deep link, a reload, a toggle that re-navigates with a
+                    // query param — that is deliberate navigation. Silently
+                    // auto-starting and yanking them onto a different tab a
+                    // moment later is worse than not running the tour at all:
+                    // it reads as "the page flickers, then the thing I asked
+                    // for disappears." Skip the silent auto-start in that case;
+                    // a forced start from the Guided Tours directory (?tour=)
+                    // or the manual launcher button is unaffected.
+                    const params = new URLSearchParams(window.location.search);
+                    const forced = params.get('tour') === this.tour.key;
+                    if (forced || !params.has('tab')) {
+                        // Let Alpine, maps and async widgets settle before spotlighting.
+                        window.setTimeout(() => this.start(), 900);
+                    }
                 }
             },
 
