@@ -138,18 +138,36 @@ class ProspectingListing extends Model
      *            'own' (mirrors CalendarEvent::scopeVisibleTo()).
      *   all    → no extra narrowing (whole agency)
      *   none   → nothing (no access)
+     *
+     * 2026-08-20 — 'own' no longer filters on captured_by_user_id. Live data
+     * (HFC, agency 1): 39,240 of 39,556 listings (99.2%) are captured_by the
+     * account that ran the bulk import, not the individual agent working the
+     * lead — only 2 of ~14 agents have ANY personally-captured rows at all.
+     * captured_by_user_id records who ran the ingest, not who a listing is
+     * relevant to; it was never a per-agent ownership signal for this table.
+     * 'own' collapsed to zero results for every agent/office_admin as soon
+     * as import volume swamped the tiny slice of real per-agent captures
+     * (fine at ship time on 9,595 rows; broken today on 39,556). branch_id
+     * is the only field on this table that actually reflects who a listing
+     * is relevant to, so 'own' now resolves through the same branch-based
+     * logic 'branch' already uses — 'own' stays the narrowest tier (still
+     * falls back to the same captured_by_user_id-only carve-out for a truly
+     * branchless, non-view-all user), it just no longer collapses to empty
+     * for the common case of an agent in a real branch.
      */
     public function scopeVisibleTo($query, User $user, ?string $scope)
     {
+        $branchScoped = fn ($q) => $user->effectiveBranchId()
+            ? $q->where('branch_id', $user->effectiveBranchId())
+            : ($user->hasPermission('branches.view_all')
+                ? $q
+                : $q->where('captured_by_user_id', $user->id));
+
         return match ($scope) {
-            'all'    => $query,
-            'branch' => $user->effectiveBranchId()
-                ? $query->where('branch_id', $user->effectiveBranchId())
-                : ($user->hasPermission('branches.view_all')
-                    ? $query
-                    : $query->where('captured_by_user_id', $user->id)),
-            'none'   => $query->whereRaw('1 = 0'),
-            default  => $query->where('captured_by_user_id', $user->id), // 'own' or null
+            'all'           => $query,
+            'branch', 'own' => $branchScoped($query),
+            'none'          => $query->whereRaw('1 = 0'),
+            default         => $branchScoped($query), // unset/null scope — same as 'own'
         };
     }
 
