@@ -728,7 +728,7 @@ return [
                 // access settlements". BM keeps the deal register, loses settle_deals.
                 'view_worksheet', 'edit_worksheet', 'view_deals', 'create_deals', 'proforma.generate', 'proforma.view',
                 'calendar.tile.my_deals', // AT-216 R3 — deal-pipeline deck tile
-                'view_listings', 'view_performance', 'manage_targets',
+                'view_listings', 'view_performance', 'view_buyers_report', 'manage_targets',
                 'view_rentals', 'manage_rentals', 'view_daily_activity', 'manage_tv_messages',
                 'deals.view', 'deals.create', 'deals.edit',
                 'listings.view', 'listings.create', 'listings.edit',
@@ -840,7 +840,7 @@ return [
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts',
                 'access_agency_tracker', 'access_daily_activity', 'access_rental_signatures',
                 'view_worksheet', 'edit_worksheet', 'view_deals', 'proforma.generate', 'proforma.view',
-                'view_listings', 'view_performance',
+                'view_listings', 'view_performance', 'view_buyers_report',
                 'view_rentals', 'manage_rentals', 'view_daily_activity',
                 'deals.view', 'deals.create',
                 'calendar.tile.my_deals', // AT-216 R3 — deal-pipeline deck tile (agent's working surface)
@@ -935,7 +935,7 @@ return [
                 'access_my_portal',
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts',
                 'access_agency_tracker', 'access_daily_activity',
-                'view_worksheet', 'view_deals', 'view_listings', 'view_performance',
+                'view_worksheet', 'view_deals', 'view_listings', 'view_performance', 'view_buyers_report',
                 'view_rentals', 'view_daily_activity',
                 'deals.view', 'listings.view', 'rentals.view', 'daily_activity.view', 'targets.view',
                 'access_training', 'training.view',
