@@ -91,7 +91,7 @@
                 ['key'=>'consent','label'=>'Consent'],
                 ['key'=>'communications','label'=>'Communications <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. ($contactThreads ?? collect())->count() .'</span>'],
                 ['key'=>'outreach','label'=>'Outreach <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $outreachCount .'</span>' . $outreachOptOutBadge],
-                ['key'=>'history','label'=>'History'],
+                ['key'=>'history','label'=>'History <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. ($historyCount ?? 0) .'</span>'],
             ] as $t)
             @if($t['key'] === 'outreach' && !auth()->user()->hasPermission('outreach.compose'))
                 @continue

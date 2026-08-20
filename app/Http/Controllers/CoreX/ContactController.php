@@ -409,21 +409,22 @@ class ContactController extends Controller
             ]);
         }
 
-        // AT-321-C — unlimited CSV export of the contact audit trail (History tab).
+        // CX-110 (Johan, 2026-08-20) — unlimited CSV export of the UNIFIED contact history
+        // (History tab). Was contact_audit_log-only; now the same 5-source merge the tab
+        // itself renders, honouring the same include_system toggle so the export can never
+        // disagree with what was on screen when it was requested.
         if ($request->get('export') === 'csv' && $request->get('tab') === 'history') {
-            $rows = \App\Models\ContactAuditLog::where('contact_id', $contact->id)
-                ->with('user')->orderByDesc('created_at')->get();
-            $csv = "Timestamp,Actor,Source,Category,Event Type,Summary,Before,After\n";
+            $rows = app(\App\Services\Contacts\ContactHistoryService::class)
+                ->rows($contact, $request->boolean('include_system'));
+            $csv = "Timestamp,Actor,Source,Category,Summary\n";
             foreach ($rows as $r) {
-                $actor = $r->user?->name ?? ($r->actor_label ?? 'System');
-                $csv .= '"' . $r->created_at->toIso8601String() . '","' . addslashes($actor) . '","'
-                    . addslashes($r->source ?? '') . '","' . $r->event_category . '","' . $r->event_type . '","'
-                    . addslashes($r->human_summary ?? '') . '","' . addslashes(json_encode($r->old_values ?? [])) . '","'
-                    . addslashes(json_encode($r->new_values ?? [])) . "\"\n";
+                $csv .= '"' . $r['date']->toIso8601String() . '","' . addslashes($r['actor']) . '","'
+                    . addslashes($r['source']) . '","' . $r['category'] . '","'
+                    . addslashes($r['summary']) . "\"\n";
             }
             return response($csv, 200, [
                 'Content-Type' => 'text/csv',
-                'Content-Disposition' => 'attachment; filename="contact-' . $contact->id . '-audit-log.csv"',
+                'Content-Disposition' => 'attachment; filename="contact-' . $contact->id . '-history.csv"',
             ]);
         }
 
@@ -851,30 +852,34 @@ class ContactController extends Controller
                 ->where('agent_user_id', $viewer->id)->where('contact_id', $contact->id)->first())->status
             : null;
 
-        // AT-321-C — FULL contact audit trail for the History tab, paginated (no
-        // cap). CSV export above is the unlimited one-shot. Page links keep tab=history.
-        // AT-321-C — History tab "Include system trail" toggle. Default OFF shows
-        // user changes only; the db-trigger backstop rows (source='db-trigger')
-        // are hidden unless the toggle is ticked.
+        // CX-110 (Johan, 2026-08-20) — the UNIFIED History tab. contact_audit_log alone was
+        // the wrong read path: real history (viewings, feedback, activity) was sitting in
+        // buyer_activity_log/calendar_event_feedback/calendar_events the whole time, correctly
+        // written, just never read here. ContactHistoryService merges all 5 sources; "Include
+        // system trail" now means the same thing across every source (contact_audit_log rows
+        // with actor_type <> 'user', buyer_activity_log's contact_access mirror rows, and
+        // contact_access_log itself) rather than just contact_audit_log's old db-trigger flag.
+        // ONE service instance for both calls below — $historyCount is count(rows()) off the
+        // SAME memoized rows() the paginator uses, so the tab badge can never disagree with
+        // the list under it (Johan's standing rule).
         $includeSystem = request()->boolean('include_system');
-        $fullAuditLog = \App\Models\ContactAuditLog::where('contact_id', $contact->id)
-            ->with('user')
-            ->when(!$includeSystem, fn ($q) => $q->where(fn ($w) => $w->whereNull('source')->orWhere('source', '<>', 'db-trigger')))
-            ->orderByDesc('created_at')
-            ->paginate(50, ['*'], 'history')
+        $historyService = app(\App\Services\Contacts\ContactHistoryService::class);
+        $fullAuditLog = $historyService->paginate($contact, $includeSystem)
             ->appends(array_filter(['tab' => 'history', 'include_system' => $includeSystem ? 1 : null]));
+        $historyCount = $historyService->count($contact, $includeSystem);
 
         // AT-267 — may the current user EDIT this contact? An assistant may VIEW a colleague's
         // contact but only EDIT the agent's own — OR an unowned contact (no linked agent). The view
         // renders read-only when false so no edit affordance is shown that would only 403 on save.
         $canEdit = $this->canMutateContact($contact);
 
-        // MERGE NOTE (QA2 -> Staging, 2026-07-26): both sides added a view variable here —
-        // AT-321-C's $fullAuditLog and AT-267's $canEdit. They are independent; both are kept.
+        // MERGE NOTE (QA2 -> Staging, 2026-07-26; extended 2026-08-20 for CX-110): several
+        // independent additions share this view-variable list — AT-321-C's $fullAuditLog,
+        // AT-267's $canEdit, and CX-110's $historyCount. All independent; all kept.
         // Contact-details Phase 2 adds $contactIdentifierLabels; Phase 4 adds the
         // Recent-Sends panel vars ($recentSends, $sendAuditLog, $sendAuditActors);
         // AT-321 audit adds $includeSystem (History-tab system-trail toggle).
-        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactIdentifierLabels', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent', 'fullAuditLog', 'includeSystem', 'recentSends', 'sendAuditLog', 'sendAuditActors', 'canEdit'));
+        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactIdentifierLabels', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent', 'fullAuditLog', 'includeSystem', 'historyCount', 'recentSends', 'sendAuditLog', 'sendAuditActors', 'canEdit'));
     }
 
     public function checkDuplicate(Request $request)
