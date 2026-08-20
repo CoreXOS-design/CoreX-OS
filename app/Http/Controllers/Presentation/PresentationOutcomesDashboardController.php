@@ -39,9 +39,17 @@ final class PresentationOutcomesDashboardController extends Controller
         $reasonFilter    = $request->string('reason')->toString()  ?: null;
         $agentFilter     = $request->integer('agent_id')          ?: null;
 
+        // CX (Johan, 2026-08-20) — filter on decision_at, the date actually shown
+        // on every row ("decision 12 Aug 2026"), not recorded_at (when the outcome
+        // was logged into CoreX). Filtering on recorded_at let rows with a decision
+        // date outside the picked window still appear, because they'd merely been
+        // entered into the system inside it — the visible date and the filtered
+        // date were two different columns. Everything below derives from this same
+        // $base, so the tiles, avg days, loss reasons and the list all correct
+        // together.
         $base = PresentationOutcome::query()
             ->where('presentation_outcomes.agency_id', $effective)
-            ->whereBetween('presentation_outcomes.recorded_at', [$from, $to]);
+            ->whereBetween('presentation_outcomes.decision_at', [$from, $to]);
 
         // Permission-aware narrowing.
         $isManager = in_array((string) $user->role, ['branch_manager', 'principal', 'super_admin', 'admin'], true);
@@ -72,10 +80,14 @@ final class PresentationOutcomesDashboardController extends Controller
         $lostNoDec     = (clone $base)->where('outcome', PresentationOutcome::OUTCOME_LOST_TO_NO_DECISION)->count();
         $stillPending  = (clone $base)->where('outcome', PresentationOutcome::OUTCOME_STILL_PENDING)->count();
 
-        // Average days from presentation creation → outcome recorded.
+        // Average days from presentation creation → actual decision. Narrowing
+        // $base to decision_at (above) only changes WHICH rows are averaged, not
+        // what's being measured — this SELECT is its own expression, so it needs
+        // its own column swap to stop measuring days-to-data-entry and start
+        // measuring days-to-decision, matching the "AVG DAYS TO OUTCOME" label.
         $avgDays = (clone $base)
             ->join('presentations', 'presentations.id', '=', 'presentation_outcomes.presentation_id')
-            ->selectRaw('AVG(DATEDIFF(presentation_outcomes.recorded_at, presentations.created_at)) AS d')
+            ->selectRaw('AVG(DATEDIFF(presentation_outcomes.decision_at, presentations.created_at)) AS d')
             ->value('d');
         $avgDaysInt = $avgDays !== null ? (int) round((float) $avgDays) : null;
 
