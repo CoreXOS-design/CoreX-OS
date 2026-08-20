@@ -1223,7 +1223,9 @@
                 <div class="corex-nav-sublabel">Admin</div>
                 @permission('view_performance')
                 <a href="{{ route('admin.performance') }}" class="corex-nav-subitem {{ request()->routeIs('admin.performance') ? 'active' : '' }}">Performance</a>
-                <a href="{{ route('performance.agency-report') }}" class="corex-nav-subitem {{ request()->routeIs('performance.agency-report') ? 'active' : '' }}">Performance &amp; ROI Report</a>
+                {{-- Performance & ROI Report moved to Tools → Reports (2026-08-20, Johan)
+                     — see the Reports group under the TOOLS SECTION below. Same route,
+                     same permission, one nav location instead of two. --}}
                 @endpermission
                 @permission('view_listings')
                 @if(\Illuminate\Support\Facades\Route::has('admin.listings.stock'))
@@ -1596,6 +1598,44 @@
         @endif
         @endpermission
         @endfeature
+
+        {{-- Reports (2026-08-20, Johan: "we need a report section under like tools")
+             — first two, nothing else moved: Performance & ROI Report (moved from
+             Agency Tracker → Admin, above) and the Buyers Report. Reuses each
+             report's EXISTING permission — no new permission key. The whole group
+             renders only if the user can reach at least one; each link only if the
+             user can reach that one. Same corex-nav-group-toggle / push() pattern
+             as every other nested group in this file (see "Hidden" above). --}}
+        @if($user && $user->hasAnyPermission(['view_performance', 'view_buyers_report']))
+        <div>
+            <button type="button" @click="push('reports')"
+                    class="corex-nav-item corex-nav-group-toggle {{ $groupOpen('reports') ? 'active' : '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.5m3-3v3m3-6v6m-9 0h12a2.25 2.25 0 0 0 2.25-2.25V6.75A2.25 2.25 0 0 0 18 4.5H6a2.25 2.25 0 0 0-2.25 2.25v10.5A2.25 2.25 0 0 0 6 19.5Z" />
+                </svg>
+                <span>Reports</span>
+                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div class="corex-nav-panel {{ $groupOpen('reports') ? 'is-open' : '' }}" :class="{ 'is-open': inStack('reports') }">
+                <button type="button" @click="pop()" class="corex-nav-back">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    <span>Back</span>
+                </button>
+                <div class="corex-nav-panel-title">Reports</div>
+
+                @permission('view_performance')
+                <a href="{{ route('performance.agency-report') }}" class="corex-nav-subitem {{ request()->routeIs('performance.agency-report*') ? 'active' : '' }}">Performance &amp; ROI Report</a>
+                @endpermission
+
+                @permission('view_buyers_report')
+                @if(\Illuminate\Support\Facades\Route::has('buyers-report.index'))
+                <a href="{{ route('buyers-report.index') }}" class="corex-nav-subitem {{ request()->routeIs('buyers-report.*') ? 'active' : '' }}">Buyers Report</a>
+                @endif
+                @endpermission
+            </div>
+        </div>
+        @endif
 
         {{-- Trust Interest (slide-panel group) --}}
         @if($user && $user->hasAnyPermission(['access_trust_interest', 'access_deposit_calculator', 'access_deposit_calc_history', 'access_calculators']))
