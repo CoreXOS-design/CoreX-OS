@@ -1877,6 +1877,26 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             return back()->with('success', 'Buyer portal link revoked.');
         })->name('command-center.buyers.portal-links.revoke');
 
+        // Buyers Report (Johan, 2026-08-20) — record a "Copy Link" click. The one
+        // genuine gap found verifying his belief that shares were already tracked:
+        // neither WhatsApp nor email sends are structurally identifiable as a
+        // wishlist share (see the migration's docblock), so this is new plumbing,
+        // not a duplicate of anything. Contact::findOrFail enforces agency/branch
+        // isolation the same way portal-links.generate does above — do NOT swap
+        // this for withoutGlobalScopes.
+        Route::post('/buyers/{contact}/wishlist-share-events', function (\Illuminate\Http\Request $request, \App\Models\Contact $contact) {
+            $request->validate(['contact_match_id' => 'nullable|integer']);
+            \App\Models\WishlistShareEvent::create([
+                'agency_id'         => $contact->agency_id,
+                'contact_id'        => $contact->id,
+                'contact_match_id'  => $request->integer('contact_match_id') ?: null,
+                'channel'           => 'link_copy',
+                'shared_by_user_id' => auth()->id(),
+                'shared_at'         => now(),
+            ]);
+            return response()->json(['ok' => true]);
+        })->name('command-center.buyers.wishlist-share-events.store');
+
         // Feedback Reports
         Route::post('/feedback', [\App\Http\Controllers\FeedbackReportController::class, 'store'])->name('command-center.feedback.store');
         Route::get('/feedback-reports', [\App\Http\Controllers\FeedbackReportController::class, 'index'])->middleware('permission:command_center.settings')->name('command-center.feedback-reports');
