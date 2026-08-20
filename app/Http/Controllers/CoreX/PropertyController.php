@@ -190,7 +190,13 @@ class PropertyController extends Controller
             $query->where('status', $status);
         }
         if ($listingType !== '')   $query->where('listing_type', $listingType);
-        if ($propertyType !== '')  $query->where('property_type', $propertyType);
+        if ($propertyType !== '') {
+            // 2026-08-20 audit — also match legacy/imported labels for the same
+            // type (Property::propertyTypeSynonyms), so older and P24-imported
+            // stock isn't invisible to today's exact settings-item name.
+            $typeValues = array_merge([$propertyType], Property::propertyTypeSynonyms($propertyType));
+            $query->whereIn('property_type', $typeValues);
+        }
         if ($category !== '')      $query->where('category', $category);
         if ($mandateType !== '')   $query->where('mandate_type', $mandateType);
         if ($branchFilter !== '' && $canPickAgent) $query->where('branch_id', (int) $branchFilter);
