@@ -87,6 +87,21 @@ Schedule::command('assistants:sync-matrix')->dailyAt('04:15')->withoutOverlappin
 Schedule::command('model:prune', ['--model' => [\App\Models\AssistantActivityLog::class]])
     ->dailyAt('04:30')->withoutOverlapping();
 
+// AT-72 — buyer pipeline auto-land safety net. Idempotent, agency-scoped; only
+// ever lands a contact with a countable wishlist and NO buyer_state yet onto
+// 'new' (audited via BuyerStateService::landOnPipeline() -> buyer_state_transitions).
+// Never touches a contact already in any state. Live's AT-72 observer hook
+// already keeps is_buyer honest for new wishlists (dry run 2026-08-20: 0
+// candidates, the 379-strong Buyers Pipeline is unaffected) — this exists so a
+// future gap in that hook (a bulk import, a raw UPDATE, anything that bypasses
+// the observer) can't silently strand a buyer off the pipeline indefinitely.
+// 04:45 — after buyers:recompute-states (04:00, line ~356: same domain, same
+// pattern) so the existing pipeline is settled first; clear of every other
+// window above (04:30 prune, 05:30 stale-claims). onOneServer() matches that
+// sibling job exactly — a buyer-state writer should never run concurrently
+// from two nodes.
+Schedule::command('buyers:autoland-pipeline')->dailyAt('04:45')->onOneServer()->withoutOverlapping();
+
 // AT-163 — voice-note transcription batch. Hourly; each run processes agencies
 // whose configured nightly time (default 22:00, clear of the 03:30 backup) matches
 // the current hour. CPU-nice'd inside the worker.
