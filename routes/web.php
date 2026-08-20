@@ -1350,6 +1350,8 @@ Route::middleware(['auth'])->group(function () {
     // inside the controller, reading the viewer's real 'contacts' data-scope ceiling.
     Route::get('/corex/buyers-report', [\App\Http\Controllers\BuyersReport\BuyersReportController::class, 'index'])
         ->middleware('permission:view_buyers_report')->name('buyers-report.index');
+    Route::get('/corex/buyers-report/drilldown', [\App\Http\Controllers\BuyersReport\BuyersReportController::class, 'drilldown'])
+        ->middleware('permission:view_buyers_report')->name('buyers-report.drilldown');
           Route::get('/bm/worksheet-market', [\App\Http\Controllers\BM\WorksheetMarketController::class, 'index'])
           ->middleware('permission:access_worksheet_market')->name('bm.worksheet.market');
       Route::post('/bm/worksheet-market', [\App\Http\Controllers\BM\WorksheetMarketController::class, 'save'])
