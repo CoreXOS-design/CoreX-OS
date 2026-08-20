@@ -545,10 +545,10 @@
           <input type="text" x-model="propQuery" @input.debounce.300ms="searchProperties()" @focus="searchProperties()"
                  placeholder="Search your listings by address or ref…" autocomplete="off">
           <div x-show="propResults.length" @click.outside="propResults=[]" x-cloak
-               style="position:absolute; z-index:30; left:0; right:0; top:100%; background:#fff; border:1px solid var(--border); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.12); max-height:260px; overflow:auto;">
+               style="position:absolute; z-index:30; left:0; right:0; top:100%; background:var(--surface-2, var(--surface)); border:1px solid var(--border); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.12); max-height:260px; overflow:auto;">
             <template x-for="r in propResults" :key="r.id">
-              <div @click="selectProperty(r)" style="padding:8px 12px; cursor:pointer; border-bottom:1px solid var(--border);"
-                   onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='#fff'">
+              <div @click="selectProperty(r)" style="padding:8px 12px; cursor:pointer; border-bottom:1px solid var(--border); color:var(--text-primary);"
+                   onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background='var(--surface-2, var(--surface))'">
                 <div style="font-weight:600;" x-text="r.label || r.address"></div>
                 <div style="font-size:.75rem; color:var(--text-secondary);">
                   <span x-text="r.ref ? ('Ref ' + r.ref) : ''"></span>
@@ -616,10 +616,10 @@
               <input type="text" x-model="contactQuery" @input.debounce.300ms="searchContacts()"
                      placeholder="Search contacts by name, phone or email…" autocomplete="off">
               <div x-show="contactResults.length || contactQuery.trim().length>1" @click.outside="contactResults=[]" x-cloak
-                   style="position:absolute; z-index:30; left:0; right:0; top:100%; background:#fff; border:1px solid var(--border); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.12); max-height:220px; overflow:auto;">
+                   style="position:absolute; z-index:30; left:0; right:0; top:100%; background:var(--surface-2, var(--surface)); border:1px solid var(--border); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.12); max-height:220px; overflow:auto;">
                 <template x-for="r in contactResults" :key="r.id">
-                  <div @click="selectContact(r)" style="padding:8px 12px; cursor:pointer; border-bottom:1px solid var(--border);"
-                       onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='#fff'">
+                  <div @click="selectContact(r)" style="padding:8px 12px; cursor:pointer; border-bottom:1px solid var(--border); color:var(--text-primary);"
+                       onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background='var(--surface-2, var(--surface))'">
                     <div style="font-weight:600;" x-text="r.label || r.name"></div>
                     <div style="font-size:.75rem; color:var(--text-secondary);" x-text="r.identifier || r.phone || r.email || ''"></div>
                   </div>
