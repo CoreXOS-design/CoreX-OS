@@ -9,26 +9,48 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
- * CX-110 (Johan, 2026-08-20) — the contact History tab used to read ONLY contact_audit_log.
- * Real history was sitting, correctly written, in four other tables the whole time
- * (buyer_activity_log, calendar_event_feedback, calendar_events, contact_access_log) — a
- * write-one-place/read-another gap, not data loss. This service merges all five into one
- * chronological list.
+ * CX-110/CX-111 (Johan, 2026-08-20) — the contact History tab used to read ONLY
+ * contact_audit_log. Real history was sitting, correctly written, in five other tables the
+ * whole time (buyer_activity_log, calendar_event_feedback, calendar_events,
+ * contact_access_log, portal_leads) — a write-one-place/read-another gap, not data loss.
+ * This service merges all six into one chronological list.
  *
- * Performance: at most 6 queries total, regardless of how many rows exist — one SELECT per
- * source table (5, but contact_access_log is skipped entirely when the system trail is off,
- * so the default view is 5 queries) plus one bulk actor-name lookup. No query runs per row.
- * Each source query is capped at PER_SOURCE_CAP rows (newest first) before merging, so an
- * old, heavily page-viewed contact can't turn this into an unbounded fetch. The controller
- * resolves ONE service instance and calls both paginate() and count() on it — per-instance
- * memoization means that pair never re-runs the query set a second time.
+ * CX-111 additions (portal leads + ownership changes) — Johan's escalation: RC Brewer sent
+ * portal leads to several agents; the agency's FIRST TOUCH WINS rule makes lead order
+ * evidence for who owns the buyer and, by extension, commission. So lead ORDER is treated as
+ * load-bearing, not decorative: sorted on received_at (the portal's OWN enquiry timestamp,
+ * verified genuine for 335/345 P24 and 145/145 PP leads live), never created_at (our ingest
+ * clock) — a polling job batches leads and would silently misorder first touch if ingest time
+ * were used. Where received_at could not be captured (an old row with no portal timestamp in
+ * its payload — 10 such P24 rows exist live, none touching this build's test contacts), the
+ * row falls back to created_at and is explicitly marked 'is_estimated' so the UI never
+ * presents an estimate as a fact. Ties (two leads sharing the same received_at to the second —
+ * confirmed to occur live) are marked, not silently broken by row id.
+ *
+ * Ownership changes reuse the EXISTING contact_audit_log query (event_type='agent_assigned'
+ * rows were already being fetched and already had actor_type='user', so they already reached
+ * the default view) — the only change is turning "Contact agent reassigned from #23 to #25"
+ * (raw ids) into an attributed, named sentence. Two shapes, chosen by actor vs new-agent, not
+ * by whether an old agent existed (self-claim can follow a real previous owner too):
+ *   - actor === new agent  → "{actor} claimed this contact" (+ "from {old agent}" if one
+ *     existed) — self-claim. Empirically ALL 174 live agent_assigned rows are this shape.
+ *   - actor !== new agent  → "{actor} moved this contact from {old agent} to {new agent}" —
+ *     third-party reassignment. No live example exists yet; the wording is ready for the
+ *     first one.
+ *
+ * Performance: at most 8 queries total regardless of row count — one SELECT per source table
+ * (6, but contact_access_log is skipped when the system trail is off, so the default view is
+ * 6 queries), one notification_dispatch_log lookup for portal-lead routing (only runs when
+ * portal leads exist for this contact), and one bulk actor-name lookup covering every source
+ * including old/new agent ids and lead recipients. No query runs per row. Each source query is
+ * capped at PER_SOURCE_CAP rows before merging. The controller resolves ONE service instance
+ * and calls both paginate() and count() on it — per-instance memoization means that pair never
+ * re-runs the query set a second time.
  *
  * Scope safety: every source is filtered by contact_id = the resolved $contact's id AND
- * agency_id = $contact->agency_id. The contact itself is already the correct tenant (resolved
- * upstream via the normal agency-scoped route binding) — filtering child rows to ITS id is
- * the actual scope boundary for a single-contact view; the agency_id match is defense in
- * depth, not the primary guard, since buyer_activity_log and contact_access_log carry no
- * branch_id to join through and a single contact belongs to exactly one branch/agency anyway.
+ * agency_id = $contact->agency_id — including portal_leads, which carries agency_id directly
+ * and no branch_id (same shape as buyer_activity_log/contact_access_log; the contact_id match
+ * is the real boundary for a single-contact view, agency_id is defense in depth).
  *
  * Dedup: CalendarEventFeedbackObserver writes a buyer_activity_log 'feedback_captured' row
  * for every calendar_event_feedback row it observes (for buyer-facing events), keyed by
@@ -68,7 +90,7 @@ class ContactHistoryService
             ->where('contact_id', $contactId)->where('agency_id', $agencyId)
             ->whereNull('deleted_at')
             ->orderByDesc('created_at')->limit(self::PER_SOURCE_CAP)
-            ->get(['id', 'user_id', 'actor_type', 'actor_label', 'source', 'event_category', 'event_type', 'human_summary', 'created_at']);
+            ->get(['id', 'user_id', 'actor_type', 'actor_label', 'source', 'event_category', 'event_type', 'human_summary', 'old_values', 'new_values', 'created_at']);
 
         // 2) buyer_activity_log
         $buyerRows = DB::table('buyer_activity_log')
@@ -120,13 +142,57 @@ class ContactHistoryService
                 ->get(['id', 'user_id', 'action_type', 'accessed_at'])
             : collect();
 
-        // 6) ONE bulk actor-name lookup across every source, instead of a query per row.
+        // 6) portal_leads — CX-111. Sorted by received_at (the PORTAL's own enquiry
+        // timestamp), never created_at (our ingest time) — commission rides on lead order.
+        $leadRows = DB::table('portal_leads')
+            ->where('contact_id', $contactId)->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->orderBy('received_at')->limit(self::PER_SOURCE_CAP)
+            ->get(['id', 'portal', 'listing_id', 'existing_contact_agent_id', 'received_at', 'created_at']);
+
+        // 7) Who each lead was actually routed to — the real dispatch record
+        // (notification_dispatch_log), not a live recomputation of PortalLead::agentIds(),
+        // which could drift if the listing's agent has since been reassigned. Falls back to
+        // "unrouted" (no eligible agent at send time) when a lead has no dispatch rows.
+        $leadAgentNames = [];
+        if ($leadRows->isNotEmpty()) {
+            $dispatchRows = DB::table('notification_dispatch_log')
+                ->where('subject_type', 'LIKE', '%PortalLead%')
+                ->whereIn('subject_id', $leadRows->pluck('id'))
+                ->join('users', 'users.id', '=', 'notification_dispatch_log.user_id')
+                ->select('notification_dispatch_log.subject_id', 'notification_dispatch_log.user_id', 'users.name')
+                ->distinct()
+                ->get();
+            foreach ($dispatchRows as $d) {
+                $leadAgentNames[$d->subject_id][$d->user_id] = $d->name;
+            }
+        }
+
+        // 8) Listing addresses for the lead rows — one bulk lookup, not one per lead.
+        $listingAddresses = [];
+        $listingIds = $leadRows->pluck('listing_id')->filter()->unique()->values();
+        if ($listingIds->isNotEmpty()) {
+            $listingAddresses = DB::table('properties')->whereIn('id', $listingIds)
+                ->pluck('address', 'id');
+        }
+
+        // 9) ONE bulk actor-name lookup across every source, instead of a query per row —
+        // including the old/new agent ids off every agent_assigned audit row (decoded here,
+        // once, rather than per-row later).
+        $agentAssignedIds = collect();
+        foreach ($auditRows->where('event_type', 'agent_assigned') as $r) {
+            $old = json_decode((string) $r->old_values, true);
+            $new = json_decode((string) $r->new_values, true);
+            $agentAssignedIds->push($old['agent_id'] ?? null, $new['agent_id'] ?? null);
+        }
+
         $userIds = collect()
             ->merge($auditRows->pluck('user_id'))
             ->merge($buyerRows->pluck('logged_by_user_id'))
             ->merge($feedbackRows->pluck('captured_by_user_id'))
             ->merge($eventRows->pluck('created_by_id'))
             ->merge($accessRows->pluck('user_id'))
+            ->merge($agentAssignedIds)
             ->filter()->unique()->values();
         $names = $userIds->isEmpty() ? collect() : DB::table('users')->whereIn('id', $userIds)->pluck('name', 'id');
 
@@ -139,11 +205,33 @@ class ContactHistoryService
             if (! $includeSystem && $isSystem) {
                 continue;
             }
+            $actor = $r->user_id ? ($names[$r->user_id] ?? 'Unknown user') : ($r->actor_label ?: 'System');
+            $summary = $r->human_summary ?: ucfirst(str_replace('_', ' ', $r->event_type));
+
+            // CX-111 — ownership changes. Was a raw-id sentence ("...from #23 to #25");
+            // resolve to names and word it by WHO did it, not just what changed.
+            if ($r->event_type === 'agent_assigned') {
+                $old = json_decode((string) $r->old_values, true);
+                $new = json_decode((string) $r->new_values, true);
+                $oldAgentId = $old['agent_id'] ?? null;
+                $newAgentId = $new['agent_id'] ?? null;
+                $oldAgentName = $oldAgentId ? ($names[$oldAgentId] ?? 'Unknown agent') : null;
+                $newAgentName = $newAgentId ? ($names[$newAgentId] ?? 'Unknown agent') : 'no one';
+
+                // actor === new agent → self-claim (the shape of every live example today).
+                // actor !== new agent → a third party moved it — name them, not just the change.
+                if ($r->user_id && $newAgentId && (int) $r->user_id === (int) $newAgentId) {
+                    $summary = $actor . ' claimed this contact' . ($oldAgentName ? ' from ' . $oldAgentName : '');
+                } else {
+                    $summary = $actor . ' moved this contact from ' . ($oldAgentName ?? 'unassigned') . ' to ' . $newAgentName;
+                }
+            }
+
             $rows[] = [
                 'date'     => Carbon::parse($r->created_at),
-                'actor'    => $r->user_id ? ($names[$r->user_id] ?? 'Unknown user') : ($r->actor_label ?: 'System'),
-                'summary'  => $r->human_summary ?: ucfirst(str_replace('_', ' ', $r->event_type)),
-                'category' => $isSystem ? 'system' : 'contact',
+                'actor'    => $actor,
+                'summary'  => $summary,
+                'category' => $isSystem ? 'system' : ($r->event_type === 'agent_assigned' ? 'ownership' : 'contact'),
                 'source'   => 'contact_audit_log',
                 'is_system' => $isSystem,
             ];
@@ -207,6 +295,52 @@ class ContactHistoryService
                     'category'  => 'access',
                     'source'    => 'contact_access_log',
                     'is_system' => true,
+                ];
+            }
+        }
+
+        // CX-111 — portal leads. FIRST TOUCH WINS is the agency's ownership rule, so ORDER
+        // is evidence, not decoration. Effective time = received_at (the portal's own enquiry
+        // clock) unless it was never captured, in which case it equals created_at (our ingest
+        // time) and the row is marked is_estimated so the UI never presents a guess as a fact.
+        $portalLabels = ['p24' => 'Property24', 'pp' => 'Private Property', 'website' => 'Website'];
+        $leadEntries = [];
+        foreach ($leadRows as $r) {
+            $isEstimated = $r->portal !== 'website' && $r->received_at === $r->created_at;
+            $agentNames = array_values($leadAgentNames[$r->id] ?? []);
+            $routedTo = $agentNames ? implode(', ', $agentNames) : 'no agent (none eligible at the time)';
+            $address = $r->listing_id ? ($listingAddresses[$r->listing_id] ?? null) : null;
+            $portalLabel = $portalLabels[$r->portal] ?? ucfirst($r->portal);
+
+            $leadEntries[] = [
+                'lead_id'      => $r->id,
+                'date'         => Carbon::parse($r->received_at),
+                'is_estimated' => $isEstimated,
+                'actor'        => $routedTo,
+                'summary'      => $portalLabel . ' enquiry' . ($address ? " on {$address}" : '') . ' — routed to ' . $routedTo,
+            ];
+        }
+
+        // First touch: the earliest effective timestamp among this contact's leads. A tie (two
+        // leads sharing the same second — confirmed to occur live) marks BOTH rather than
+        // picking one arbitrarily; the tie is stated in the row, not silently broken.
+        if (! empty($leadEntries)) {
+            $earliest = min(array_map(fn ($e) => $e['date']->timestamp, $leadEntries));
+            $firstTouchIds = array_column(array_filter($leadEntries, fn ($e) => $e['date']->timestamp === $earliest), 'lead_id');
+            $isTied = count($firstTouchIds) > 1;
+
+            foreach ($leadEntries as $e) {
+                $isFirst = in_array($e['lead_id'], $firstTouchIds, true);
+                $rows[] = [
+                    'date'         => $e['date'],
+                    'actor'        => $e['actor'],
+                    'summary'      => $e['summary'],
+                    'category'     => 'lead',
+                    'source'       => 'portal_leads',
+                    'is_system'    => false,
+                    'first_touch'  => $isFirst,
+                    'tied'         => $isFirst && $isTied,
+                    'is_estimated' => $e['is_estimated'],
                 ];
             }
         }

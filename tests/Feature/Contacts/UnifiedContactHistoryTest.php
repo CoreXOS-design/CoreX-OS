@@ -262,8 +262,10 @@ final class UnifiedContactHistoryTest extends TestCase
         $service2->count($this->contact, true);
         $onQueries = count(DB::getQueryLog());
 
-        $this->assertLessThanOrEqual(5, $offQueries, 'default view: 4 source tables + 1 actor lookup, memoized across paginate()+count()');
-        $this->assertLessThanOrEqual(6, $onQueries, 'system trail on: 5 source tables + 1 actor lookup, memoized across paginate()+count()');
+        // CX-111 added portal_leads as a 5th always-queried source (+1) — no notification_dispatch_log
+        // hit here since this fixture seeds no leads, so that lookup is skipped (empty $leadRows).
+        $this->assertLessThanOrEqual(6, $offQueries, 'default view: 5 source tables + 1 actor lookup, memoized across paginate()+count()');
+        $this->assertLessThanOrEqual(7, $onQueries, 'system trail on: 6 source tables + 1 actor lookup, memoized across paginate()+count()');
     }
 
     public function test_csv_export_uses_the_same_unified_source_and_toggle(): void
@@ -278,5 +280,197 @@ final class UnifiedContactHistoryTest extends TestCase
         $this->assertStringContainsString('MARKER_AUDIT_HUMAN', $csv);
         $this->assertStringNotContainsString('MARKER_AUDIT_SYSTEM', $csv);
         $this->assertStringNotContainsString('MARKER_AUDIT_OTHER_AGENCY', $csv);
+    }
+
+    // ── CX-111 (Johan's escalation) — portal leads (first touch) + ownership changes ──
+
+    private function ensureLeadNotificationEventType(): int
+    {
+        return (int) DB::table('notification_event_types')->insertGetId([
+            'key' => 'lead.portal_received', 'pillar' => 'contact', 'label' => 'Portal lead received',
+            'default_enabled' => 1, 'threshold_unit' => 'none', 'supports_in_app' => 1,
+            'supports_email' => 1, 'supports_push' => 1, 'is_adapter' => 0, 'sort_order' => 0,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
+    private function portalLead(int $agencyId, ?int $contactId, string $portal, $receivedAt, $createdAt): int
+    {
+        return (int) DB::table('portal_leads')->insertGetId([
+            'agency_id' => $agencyId, 'portal' => $portal, 'lead_type' => 'Email',
+            'listing_id' => null, 'listing_portal_ref' => null, 'contact_id' => $contactId,
+            'contact_exists' => $contactId ? 1 : 0, 'existing_contact_agent_id' => null,
+            'name' => 'Test Lead', 'email' => 'lead-' . Str::random(6) . '@example.test', 'phone' => null,
+            'message' => null, 'is_whatsapp' => 0, 'lead_source_raw' => json_encode(['__corex_lead_id' => Str::random(10)]),
+            'received_at' => $receivedAt, 'created_at' => $createdAt, 'updated_at' => $createdAt,
+        ]);
+    }
+
+    private function dispatchTo(int $leadId, int $userId, int $eventTypeId, $at): void
+    {
+        DB::table('notification_dispatch_log')->insert([
+            'user_id' => $userId, 'notification_event_type_id' => $eventTypeId,
+            'subject_type' => \App\Models\PortalLead::class, 'subject_id' => $leadId,
+            'threshold_hit_at' => $at, 'dispatched_at' => $at, 'channel' => 'in_app',
+            'created_at' => $at, 'updated_at' => $at,
+        ]);
+    }
+
+    public function test_first_touch_is_the_earliest_lead_by_received_at_not_insertion_order(): void
+    {
+        $eventTypeId = $this->ensureLeadNotificationEventType();
+        $second = User::factory()->create(['agency_id' => $this->agencyId, 'branch_id' => $this->branchId, 'role' => 'agent']);
+
+        // Inserted OUT of chronological order on purpose — first_touch must follow received_at,
+        // never row/insertion order.
+        $laterLeadId = $this->portalLead($this->agencyId, $this->contact->id, 'p24', now()->subDays(1), now()->subDays(1));
+        $earlierLeadId = $this->portalLead($this->agencyId, $this->contact->id, 'pp', now()->subDays(5), now()->subDays(5));
+        $this->dispatchTo($laterLeadId, $second->id, $eventTypeId, now()->subDays(1));
+        $this->dispatchTo($earlierLeadId, $this->agent->id, $eventTypeId, now()->subDays(5));
+
+        $rows = app(ContactHistoryService::class)->rows($this->contact, false);
+        $leadRows = collect($rows)->where('source', 'portal_leads')->values();
+
+        $this->assertCount(2, $leadRows);
+        $firstTouchRows = $leadRows->where('first_touch', true);
+        $this->assertCount(1, $firstTouchRows, 'exactly one lead is first touch when there is no tie');
+        // The earlier lead (pp, 5 days ago, routed to $this->agent) is first touch — NOT the
+        // later one (p24, 1 day ago, routed to $second) despite $laterLeadId being inserted
+        // first into the DB. Proves ordering follows received_at, not row/insertion order.
+        $this->assertSame($this->agent->name, $firstTouchRows->first()['actor']);
+        $this->assertFalse($leadRows->where('first_touch', true)->contains('actor', $second->name));
+    }
+
+    public function test_estimated_flag_marks_rows_with_no_captured_portal_timestamp(): void
+    {
+        $eventTypeId = $this->ensureLeadNotificationEventType();
+
+        // received_at === created_at on a non-website portal = no real portal timestamp was
+        // ever captured for this row (matches the 10 real p24 rows found live) — must be
+        // flagged, never silently presented as a real enquiry time.
+        $sameInstant = now()->subDays(2);
+        $estimatedLeadId = $this->portalLead($this->agencyId, $this->contact->id, 'p24', $sameInstant, $sameInstant);
+        $this->dispatchTo($estimatedLeadId, $this->agent->id, $eventTypeId, $sameInstant);
+
+        // A website lead with received_at === created_at is NOT estimated — that's correct
+        // by construction (submission IS ingestion for a website lead, no external clock).
+        $websiteInstant = now()->subDays(1);
+        $websiteLeadId = $this->portalLead($this->agencyId, $this->contact->id, 'website', $websiteInstant, $websiteInstant);
+        $this->dispatchTo($websiteLeadId, $this->agent->id, $eventTypeId, $websiteInstant);
+
+        $rows = collect(app(ContactHistoryService::class)->rows($this->contact, false))->where('source', 'portal_leads');
+
+        $estimated = $rows->firstWhere('date.timestamp', $sameInstant->timestamp);
+        $this->assertNotNull($estimated);
+        $this->assertTrue($estimated['is_estimated']);
+
+        $websiteRow = $rows->firstWhere('date.timestamp', $websiteInstant->timestamp);
+        $this->assertNotNull($websiteRow);
+        $this->assertFalse($websiteRow['is_estimated']);
+    }
+
+    public function test_tied_leads_are_both_marked_first_touch_not_arbitrarily_broken(): void
+    {
+        $eventTypeId = $this->ensureLeadNotificationEventType();
+        $second = User::factory()->create(['agency_id' => $this->agencyId, 'branch_id' => $this->branchId, 'role' => 'agent']);
+        $tiedInstant = now()->subDays(3);
+
+        $leadA = $this->portalLead($this->agencyId, $this->contact->id, 'pp', $tiedInstant, $tiedInstant);
+        $leadB = $this->portalLead($this->agencyId, $this->contact->id, 'p24', $tiedInstant, $tiedInstant);
+        $this->dispatchTo($leadA, $this->agent->id, $eventTypeId, $tiedInstant);
+        $this->dispatchTo($leadB, $second->id, $eventTypeId, $tiedInstant);
+
+        $leadRows = collect(app(ContactHistoryService::class)->rows($this->contact, false))->where('source', 'portal_leads');
+
+        $this->assertCount(2, $leadRows->where('first_touch', true), 'both tied leads must be marked first touch');
+        $this->assertCount(2, $leadRows->where('tied', true), 'both tied leads must be marked tied');
+    }
+
+    public function test_ownership_change_wording_distinguishes_self_claim_from_third_party(): void
+    {
+        $shawn = User::factory()->create(['agency_id' => $this->agencyId, 'branch_id' => $this->branchId, 'role' => 'agent', 'name' => 'Shawn Petersen']);
+        $elize = User::factory()->create(['agency_id' => $this->agencyId, 'branch_id' => $this->branchId, 'role' => 'agent', 'name' => 'Elize Marais']);
+
+        // Self-claim: actor === new agent.
+        DB::table('contact_audit_log')->insert([
+            'contact_id' => $this->contact->id, 'agency_id' => $this->agencyId, 'branch_id' => $this->branchId,
+            'user_id' => $this->agent->id, 'actor_type' => 'user', 'actor_label' => null,
+            'event_category' => 'contact', 'event_type' => 'agent_assigned',
+            'old_values' => json_encode(['agent_id' => null]), 'new_values' => json_encode(['agent_id' => (string) $this->agent->id]),
+            'human_summary' => 'Contact agent reassigned to #' . $this->agent->id, 'created_at' => now()->subDays(4),
+        ]);
+
+        // Third party: actor (Elize) !== new agent (Shawn) — moved someone else's contact.
+        DB::table('contact_audit_log')->insert([
+            'contact_id' => $this->contact->id, 'agency_id' => $this->agencyId, 'branch_id' => $this->branchId,
+            'user_id' => $elize->id, 'actor_type' => 'user', 'actor_label' => null,
+            'event_category' => 'contact', 'event_type' => 'agent_assigned',
+            'old_values' => json_encode(['agent_id' => (string) $this->agent->id]), 'new_values' => json_encode(['agent_id' => (string) $shawn->id]),
+            'human_summary' => 'Contact agent reassigned from #' . $this->agent->id . ' to #' . $shawn->id, 'created_at' => now()->subDays(3),
+        ]);
+
+        $rows = collect(app(ContactHistoryService::class)->rows($this->contact, false))->where('category', 'ownership')->sortBy('date');
+
+        $this->assertCount(2, $rows);
+        [$selfClaim, $thirdParty] = $rows->values()->all();
+
+        $this->assertSame($this->agent->name . ' claimed this contact', $selfClaim['summary']);
+        $this->assertSame($elize->name . ' moved this contact from ' . $this->agent->name . ' to ' . $shawn->name, $thirdParty['summary']);
+        // Never mislabel a third-party move as a self-claim, or vice versa.
+        $this->assertStringNotContainsString('claimed', $thirdParty['summary']);
+        $this->assertStringNotContainsString('moved', $selfClaim['summary']);
+    }
+
+    public function test_portal_leads_and_ownership_changes_never_leak_across_agencies(): void
+    {
+        $eventTypeId = $this->ensureLeadNotificationEventType();
+        $otherAgencyId = (int) DB::table('agencies')->insertGetId([
+            'name' => 'Other ' . Str::random(6), 'slug' => 'other-' . Str::random(8),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $otherBranchId = (int) DB::table('branches')->insertGetId([
+            'agency_id' => $otherAgencyId, 'name' => 'Main', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $otherAgent = User::factory()->create(['agency_id' => $otherAgencyId, 'branch_id' => $otherBranchId, 'role' => 'agent']);
+        $otherContact = Contact::create([
+            'agency_id' => $otherAgencyId, 'branch_id' => $otherBranchId,
+            'first_name' => 'Other', 'last_name' => 'AgencyLeadContact',
+            'phone' => '+2784' . random_int(1000000, 9999999), 'is_buyer' => 1, 'buyer_state' => 'warm',
+        ]);
+
+        $otherLeadId = $this->portalLead($otherAgencyId, $otherContact->id, 'p24', now(), now());
+        $this->dispatchTo($otherLeadId, $otherAgent->id, $eventTypeId, now());
+
+        DB::table('contact_audit_log')->insert([
+            'contact_id' => $otherContact->id, 'agency_id' => $otherAgencyId, 'branch_id' => $otherBranchId,
+            'user_id' => $otherAgent->id, 'actor_type' => 'user', 'event_category' => 'contact', 'event_type' => 'agent_assigned',
+            'old_values' => json_encode(['agent_id' => null]), 'new_values' => json_encode(['agent_id' => (string) $otherAgent->id]),
+            'human_summary' => 'Contact agent reassigned to #' . $otherAgent->id, 'created_at' => now(),
+        ]);
+
+        $rows = app(ContactHistoryService::class)->rows($this->contact, false);
+        $this->assertEmpty(collect($rows)->where('source', 'portal_leads'), 'this contact has no leads of its own here — the other agency\'s lead must not appear');
+        $this->assertEmpty(collect($rows)->where('category', 'ownership'), 'the other agency\'s ownership change must not appear');
+    }
+
+    public function test_portal_lead_and_ownership_sources_stay_within_query_budget(): void
+    {
+        $eventTypeId = $this->ensureLeadNotificationEventType();
+        $leadId = $this->portalLead($this->agencyId, $this->contact->id, 'pp', now(), now());
+        $this->dispatchTo($leadId, $this->agent->id, $eventTypeId, now());
+        DB::table('contact_audit_log')->insert([
+            'contact_id' => $this->contact->id, 'agency_id' => $this->agencyId, 'branch_id' => $this->branchId,
+            'user_id' => $this->agent->id, 'actor_type' => 'user', 'event_category' => 'contact', 'event_type' => 'agent_assigned',
+            'old_values' => json_encode(['agent_id' => null]), 'new_values' => json_encode(['agent_id' => (string) $this->agent->id]),
+            'human_summary' => 'x', 'created_at' => now(),
+        ]);
+
+        $service = app(ContactHistoryService::class);
+        DB::enableQueryLog();
+        $service->paginate($this->contact, false);
+        $service->count($this->contact, false);
+        $queries = count(DB::getQueryLog());
+
+        $this->assertLessThanOrEqual(8, $queries, '6 source tables + lead-routing lookup + actor lookup, memoized across paginate()+count()');
     }
 }

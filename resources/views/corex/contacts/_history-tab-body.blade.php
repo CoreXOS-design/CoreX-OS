@@ -1,19 +1,27 @@
-{{-- CX-110 (Johan, 2026-08-20) — the UNIFIED contact History tab. Merges
-     contact_audit_log, buyer_activity_log, calendar_event_feedback, calendar_events, and
-     contact_access_log (ContactHistoryService) into one chronological list. Previously
-     read ONLY contact_audit_log — real history (viewings, feedback, activity) was sitting
-     correctly written in the other four tables the whole time; this was a read-path gap,
-     not data loss. Each row is a plain array (date/actor/summary/category/source/is_system),
-     not an Eloquent model — the service already resolved actor names and built the human
-     summary, so this partial only renders. --}}
+{{-- CX-110/CX-111 (Johan, 2026-08-20) — the UNIFIED contact History tab. Merges
+     contact_audit_log, buyer_activity_log, calendar_event_feedback, calendar_events,
+     contact_access_log, and portal_leads (ContactHistoryService) into one chronological
+     list. Previously read ONLY contact_audit_log — real history (viewings, feedback,
+     activity, leads, ownership changes) was sitting correctly written in the other tables
+     the whole time; this was a read-path gap, not data loss. Each row is a plain array
+     (date/actor/summary/category/source/is_system, plus first_touch/tied/is_estimated on
+     portal-lead rows), not an Eloquent model — the service already resolved actor names and
+     built the human summary, so this partial only renders.
+
+     FIRST TOUCH WINS (Johan, CX-111): the agency's ownership rule makes lead order evidence
+     for who owns a buyer. The earliest portal-lead row for this contact is marked
+     first_touch — rendered as an unmissable badge, never just implied by position in the
+     list. A tie (two leads landing in the same second) marks BOTH rather than picking one. --}}
 @if(isset($fullAuditLog))
     @php
         $catColors = [
-            'contact'  => '#0ea5e9',
-            'activity' => '#22c55e',
-            'viewing'  => '#f59e0b',
-            'access'   => '#94a3b8',
-            'system'   => '#64748b',
+            'contact'   => '#0ea5e9',
+            'activity'  => '#22c55e',
+            'viewing'   => '#f59e0b',
+            'access'    => '#94a3b8',
+            'system'    => '#64748b',
+            'lead'      => '#16a34a',
+            'ownership' => '#7c3aed',
         ];
     @endphp
     <div class="flex items-center justify-between mb-2">
@@ -33,16 +41,24 @@
         </div>
     </div>
     @forelse($fullAuditLog as $entry)
-        <div class="flex items-start gap-3 px-4 py-2.5 rounded" style="background:var(--surface-2); border:1px solid var(--border);">
+        <div class="flex items-start gap-3 px-4 py-2.5 rounded" style="background:var(--surface-2); border:1px solid var(--border);{{ ($entry['first_touch'] ?? false) ? ' outline:2px solid #16a34a;' : '' }}">
             <div class="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style="background:{{ $catColors[$entry['category']] ?? '#94a3b8' }};"></div>
             <div class="flex-1 min-w-0">
                 <div class="flex items-start justify-between gap-2">
                     <div>
+                        @if($entry['first_touch'] ?? false)
+                            <span class="text-[10px] mr-1 px-1.5 py-0.5 rounded font-bold uppercase" style="background:#16a34a; color:#fff;">First touch</span>
+                        @endif
                         <span class="text-xs font-medium" style="color:var(--text-primary);">{{ $entry['summary'] }}</span>
                         <span class="text-[10px] ml-1 px-1.5 py-0.5 rounded" style="background:{{ $catColors[$entry['category']] ?? '#94a3b8' }}20; color:{{ $catColors[$entry['category']] ?? '#94a3b8' }};">{{ ucfirst($entry['category']) }}</span>
                     </div>
-                    <div class="text-[10px] flex-shrink-0" style="color:var(--text-muted);">{{ $entry['date']->format('j M Y, H:i') }}</div>
+                    <div class="text-[10px] flex-shrink-0" style="color:var(--text-muted);">
+                        {{ $entry['date']->format('j M Y, H:i') }}{{ ($entry['is_estimated'] ?? false) ? ' (estimated)' : '' }}
+                    </div>
                 </div>
+                @if($entry['tied'] ?? false)
+                    <div class="text-[10px] mt-0.5 font-semibold" style="color:#b45309;">Tied with another lead received the same second — order between them cannot be proven.</div>
+                @endif
                 <div class="text-[10px] mt-0.5" style="color:var(--text-muted);">
                     {{ $entry['actor'] }}
                     <span class="ml-1 px-1 py-0.5 rounded" style="background:var(--surface); border:1px solid var(--border);">{{ $entry['source'] }}</span>
