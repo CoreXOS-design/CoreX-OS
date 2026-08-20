@@ -34,17 +34,31 @@ class PipelineListController extends Controller
     ) {
     }
 
-    public function show(Deal $deal): View
+    /**
+     * Comments/Emails selector (Johan, 2026-08-20). WhatsApp is deliberately NOT an option — Johan's
+     * scope call same day: a WhatsApp thread (e.g. with an attorney) spans many deals with no reliable
+     * per-message attribution, unlike email, so WhatsApp is excluded from the deal register at the
+     * source (CommunicationEventSource), not merely hidden behind a filter choice here.
+     */
+    private const FEED_OPTIONS = ['all', 'comment', 'email'];
+
+    public function show(Request $request, Deal $deal): View
     {
         if ($uid = auth()->id()) {
             PipelineUserPreference::setViewForUser($uid, 'list');
+        }
+
+        $feed = $request->get('feed', 'all');
+        if (! in_array($feed, self::FEED_OPTIONS, true)) {
+            $feed = 'all';
         }
 
         $ctx = $this->pipelineContext($deal);
         // The PHASED read-model — anchor → Stage 1 condition groups → GRANTED gate → Stage 2, plus the
         // step-scoped comment feed (each comment carries its step id). The List renders the phased
         // two-panel layout off this (spec "LIST + PROGRESSION build 2026-07-28").
-        $ctx['board'] = $this->timeline->buildPhased($deal);
+        $ctx['board'] = $this->timeline->buildPhased($deal, $feed);
+        $ctx['feed'] = $feed;
 
         return view('dr2.pipeline-list', $ctx);
     }
