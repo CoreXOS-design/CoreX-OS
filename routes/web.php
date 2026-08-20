@@ -1343,6 +1343,19 @@ Route::middleware(['auth'])->group(function () {
         ->middleware('permission:view_performance')->name('performance.agency-report.print');
     Route::get('/corex/performance/agency-report/agent/{user}/print', [\App\Http\Controllers\Performance\AgencyPerformanceReportController::class, 'agentPrint'])
         ->middleware('permission:view_performance')->name('performance.agency-report.agent.print');
+
+    // Buyers Report (Johan, 2026-08-20) — first pass: Needs Attention list + tiles +
+    // per-agent table. Scoping is NOT view_buyers_report's job (that's a plain access
+    // gate, same shape as view_performance) — it's BuyersReportScopeResolver, called
+    // inside the controller, reading the viewer's real 'contacts' data-scope ceiling.
+    Route::get('/corex/buyers-report', [\App\Http\Controllers\BuyersReport\BuyersReportController::class, 'index'])
+        ->middleware('permission:view_buyers_report')->name('buyers-report.index');
+    Route::get('/corex/buyers-report/drilldown', [\App\Http\Controllers\BuyersReport\BuyersReportController::class, 'drilldown'])
+        ->middleware('permission:view_buyers_report')->name('buyers-report.drilldown');
+    Route::get('/corex/buyers-report/agent/{user}', [\App\Http\Controllers\BuyersReport\BuyersReportController::class, 'agent'])
+        ->middleware('permission:view_buyers_report')->name('buyers-report.agent');
+    Route::get('/corex/buyers-report/branch/{branch}', [\App\Http\Controllers\BuyersReport\BuyersReportController::class, 'branch'])
+        ->middleware('permission:view_buyers_report')->name('buyers-report.branch');
           Route::get('/bm/worksheet-market', [\App\Http\Controllers\BM\WorksheetMarketController::class, 'index'])
           ->middleware('permission:access_worksheet_market')->name('bm.worksheet.market');
       Route::post('/bm/worksheet-market', [\App\Http\Controllers\BM\WorksheetMarketController::class, 'save'])
@@ -1876,6 +1889,26 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             abort_if($updated === 0, 404);
             return back()->with('success', 'Buyer portal link revoked.');
         })->name('command-center.buyers.portal-links.revoke');
+
+        // Buyers Report (Johan, 2026-08-20) — record a "Copy Link" click. The one
+        // genuine gap found verifying his belief that shares were already tracked:
+        // neither WhatsApp nor email sends are structurally identifiable as a
+        // wishlist share (see the migration's docblock), so this is new plumbing,
+        // not a duplicate of anything. Contact::findOrFail enforces agency/branch
+        // isolation the same way portal-links.generate does above — do NOT swap
+        // this for withoutGlobalScopes.
+        Route::post('/buyers/{contact}/wishlist-share-events', function (\Illuminate\Http\Request $request, \App\Models\Contact $contact) {
+            $request->validate(['contact_match_id' => 'nullable|integer']);
+            \App\Models\WishlistShareEvent::create([
+                'agency_id'         => $contact->agency_id,
+                'contact_id'        => $contact->id,
+                'contact_match_id'  => $request->integer('contact_match_id') ?: null,
+                'channel'           => 'link_copy',
+                'shared_by_user_id' => auth()->id(),
+                'shared_at'         => now(),
+            ]);
+            return response()->json(['ok' => true]);
+        })->name('command-center.buyers.wishlist-share-events.store');
 
         // Feedback Reports
         Route::post('/feedback', [\App\Http\Controllers\FeedbackReportController::class, 'store'])->name('command-center.feedback.store');
