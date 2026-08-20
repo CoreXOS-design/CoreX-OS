@@ -243,8 +243,17 @@ final class DeedsCaptureController extends Controller
             return back()->with('error', $e->getMessage());
         }
 
-        return redirect()->route('corex.deeds-capture.index')
-            ->with('success', 'Marked as not the same property. The deed now lives on its own record (tracked property #' . $result->id . ').');
+        // 2026-08-20 — the service (TrackedPropertyMatchOrCreateService::rejectMatch(),
+        // qa1-deeds-reject-match-duplicate) no longer creates a second TrackedProperty
+        // on reject; it unlinks and $result is either the SAME property (no
+        // replacement picked) or the agent's explicitly-picked replacement. Message
+        // and redirect updated to match — no second record exists to point at, and
+        // Johan's requirement was explicit: "let the user carry on to work with that
+        // property," not bounce them to the list. #promote-form-{id} is the same id
+        // every card already renders (index.blade.php); a URL fragment scrolls the
+        // browser to it with no view/JS change needed.
+        return redirect(route('corex.deeds-capture.index') . '#promote-form-' . $result->id)
+            ->with('success', 'Marked as not the same property. The wrong match has been unlinked.');
     }
 
     /**
@@ -449,7 +458,19 @@ final class DeedsCaptureController extends Controller
         $user = $request->user();
         $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
         abort_if((int) $trackedProperty->agency_id !== (int) $agencyId, 404);
-        abort_if($trackedProperty->capture_kind !== 'deeds_capture', 404);
+        // 2026-08-20 — mirrors the same eligibility test index()'s query and
+        // scopeStillEligibleDeedsCapture() already use (and that
+        // dismissProperty() was already fixed to stop 404ing on, see that
+        // method's own comment): a capture that MATCHED an existing
+        // MIC/prospecting lead never gets capture_kind='deeds_capture'
+        // stamped (deliberate — see DEEDS BUG 1 fix above), but it is still
+        // a real, on-screen, promotable capture. The strict-only check 404'd
+        // every such row the instant "Confirm and update" was clicked (live,
+        // property #748, capture_kind NULL / deeds_captured_at set).
+        abort_if(
+            $trackedProperty->capture_kind !== 'deeds_capture' && !$trackedProperty->deeds_captured_at,
+            404
+        );
 
         if ($trackedProperty->promoted_to_property_id) {
             return redirect()->route('corex.deeds-capture.index')
