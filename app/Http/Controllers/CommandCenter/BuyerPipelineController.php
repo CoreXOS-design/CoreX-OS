@@ -134,10 +134,24 @@ class BuyerPipelineController extends Controller
             'view' => 'kanban',
             'columns' => $columns,
             'wonBuyers' => $wonBuyers,
-            'counts' => $this->stateCounts($user, $pipelineScope),
+            // 2026-08-20 (Johan, reported for a meeting) — this call was
+            // missing $leadType entirely: the kanban columns are built from
+            // a query that DOES apply applyLeadTypeFilter() (line ~53
+            // above), but this header-count query is separate and, without
+            // the argument, counted every buyer in scope regardless of the
+            // Sales/Rentals selection. Symptom exactly as reported: the
+            // column lists (scrollbars) shrank under a filter, the header
+            // badges never moved. See list view's equivalent call above,
+            // which already passed this correctly.
+            'counts' => $this->stateCounts($user, $pipelineScope, $leadType),
             'riskScores' => $riskScores,
             'coreMatchCounts' => $this->coreMatchCounts($allBuyers->pluck('id')->merge($wonBuyers->pluck('id'))),
             'pipelineScope' => $pipelineScope,
+            // Also missing entirely — the Sales/Rentals button never knew
+            // which one was active in kanban view (always rendered "All" as
+            // selected regardless of the real filter). List view already
+            // passed this; kanban simply never did.
+            'leadType' => $leadType,
             'canSeeBranch' => (bool) $user->branch_id,
             'contextListing' => $contextListing,
         ]);
