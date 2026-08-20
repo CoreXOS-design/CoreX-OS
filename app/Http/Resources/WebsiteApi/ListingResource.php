@@ -112,9 +112,16 @@ class ListingResource extends JsonResource
             // an "Other" group. See groupFeatures().
             'features_grouped' => $this->groupFeatures(),
 
-            // Media — allImages() merges dawn/noon/dusk/gallery/images JSON buckets,
-            // mirroring what CoreX syndicates to P24.
-            'images'  => $this->mapImages($this->allImages()),
+            // Media — syndicationImages() is the agent-curated gallery
+            // (gallery_images_json). NOT allImages(): that also merges
+            // images_json (a divergent public mirror) and the dawn/noon/dusk
+            // variant sets, which pulls in photos the agent already removed
+            // from the gallery — e.g. property #1322: gallery 48 vs allImages
+            // 72, the extra 24 being stale/removed images the agency website
+            // had no business still showing. P24 (Property24ListingMapper) and
+            // PrivateProperty (PrivatePropertyListingMapper) were already fixed
+            // to the gallery-scoped method; this API had been left behind.
+            'images'  => $this->mapImages($this->syndicationImages()),
             'gallery' => $this->mapGallery(),
             'video'   => [
                 // Canonical 11-char YouTube id (CoreX extracts it from any URL
