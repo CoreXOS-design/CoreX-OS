@@ -226,6 +226,34 @@ class Template extends Model
         return $this->belongsToMany(Branch::class, 'docuperfect_template_branches', 'template_id', 'branch_id');
     }
 
+    /**
+     * Cross-agency isolation audit 2026-08-20 follow-up: TemplateController's
+     * saveFields/uploadPageImages/archive/restore/webPreview/destroy/
+     * saveWizardConfig, PageImageController::show, and
+     * DocumentImporterController::editFromTemplate all did
+     * `Template::findOrFail($id)` with only a hasPermission('manage_templates')
+     * check (an ordinary, per-agency-grantable permission, not owner-only) --
+     * any agency's admin/agent could read, rewrite, delete, or clone ANY other
+     * agency's template by id. `docuperfect_templates` has no agency_id column
+     * (tenancy is via `is_global` + the docuperfect_template_branches pivot,
+     * since a branch belongs to exactly one agency) -- 404s rather than 403s
+     * to match this pipeline's existing convention (SignatureController::
+     * authorizeSignatureRequestForDocument).
+     */
+    public function assertAccessibleBy($user): void
+    {
+        if ($user->isOwnerRole()) {
+            return;
+        }
+        if ($this->is_global) {
+            return;
+        }
+        $agencyId = $user->effectiveAgencyId();
+        if (!$agencyId || !$this->branches()->where('branches.agency_id', $agencyId)->exists()) {
+            abort(404);
+        }
+    }
+
     public function documents()
     {
         return $this->hasMany(Document::class, 'template_id');

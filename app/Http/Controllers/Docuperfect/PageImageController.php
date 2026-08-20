@@ -14,7 +14,13 @@ class PageImageController extends Controller
 
     public function show(Request $request, $id, $page)
     {
+        // Cross-agency isolation audit 2026-08-20 follow-up: this route sat
+        // behind only the base `access_docuperfect` permission (essentially
+        // any user of the module) with zero ownership check on the template
+        // itself -- any agent could view another agency's template page
+        // images by id. See Template::assertAccessibleBy().
         $template = Template::findOrFail($id);
+        $template->assertAccessibleBy($request->user());
 
         $page = (int) $page;
         if ($page < 0 || $page >= $template->page_count) {
