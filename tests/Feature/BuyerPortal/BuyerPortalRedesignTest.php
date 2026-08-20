@@ -236,6 +236,56 @@ class BuyerPortalRedesignTest extends TestCase
         ]);
     }
 
+    /**
+     * Cross-agency isolation audit 2026-08-20, finding M1: property_id was
+     * validated with a bare exists:properties,id rule -- no agency check.
+     * A holder of their own legitimate buyer-portal token could pair it
+     * with a DIFFERENT agency's property id and have it recorded as a
+     * response/activity-log row against that foreign property. Fixed by
+     * scoping the exists rule to the link's own agency_id.
+     */
+    public function test_respond_rejects_a_property_belonging_to_another_agency(): void
+    {
+        $contact = $this->makeContact();
+        $token = $this->link($contact->id);
+
+        $foreignAgency = Agency::create(['name' => 'Foreign Agency', 'slug' => 'foreign-' . uniqid()]);
+        $foreignBranch = Branch::create(['agency_id' => $foreignAgency->id, 'name' => 'Foreign HQ']);
+        $foreignAgent = User::factory()->create([
+            'agency_id' => $foreignAgency->id,
+            'branch_id' => $foreignBranch->id,
+            'role' => 'agent',
+        ]);
+        $foreignProp = Property::withoutGlobalScope(AgencyScope::class)->create([
+            'agency_id' => $foreignAgency->id,
+            'agent_id' => $foreignAgent->id,
+            'branch_id' => $foreignBranch->id,
+            'external_id' => (string) Str::uuid(),
+            'title' => 'Foreign agency listing',
+            'suburb' => 'Elsewhere',
+            'city' => 'Elsewhere',
+            'property_type' => 'house',
+            'status' => 'active',
+            'price' => 1200000,
+            'published_at' => now(),
+        ]);
+
+        $res = $this->post("/buyer/portal/{$token}/respond", [
+            'property_id' => $foreignProp->id,
+            'response' => 'interested',
+        ]);
+
+        $res->assertSessionHasErrors('property_id');
+        $this->assertDatabaseMissing('buyer_property_responses', [
+            'contact_id' => $contact->id,
+            'property_id' => $foreignProp->id,
+        ]);
+        $this->assertDatabaseMissing('buyer_activity_log', [
+            'contact_id' => $contact->id,
+            'related_property_id' => $foreignProp->id,
+        ]);
+    }
+
     /** Each of the three responses is accepted and stamped. */
     public function test_all_three_actions_work(): void
     {

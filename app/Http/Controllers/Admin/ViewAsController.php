@@ -19,9 +19,23 @@ class ViewAsController extends Controller
             abort(403);
         }
 
+        // Cross-agency isolation audit 2026-08-20 (hygiene finding): branch_id was
+        // validated as a bare nullable integer with no ownership check. Not
+        // exploitable as a data leak -- BranchScope independently re-derives
+        // agency_id from the caller's own real agency before ever applying a
+        // branch filter, so a foreign branch_id just yields an empty view -- but
+        // that's a confusing UX bug worth closing at the door. A pure System
+        // Owner with no agency switcher override (effectiveAgencyId() null)
+        // legitimately sees every branch, so the scope only applies once an
+        // agency context exists.
+        $agencyId = $user->effectiveAgencyId();
+        $branchRule = $agencyId
+            ? Rule::exists('branches', 'id')->where('agency_id', $agencyId)
+            : 'exists:branches,id';
+
         $data = $request->validate([
             'role' => ['required', Rule::in(Role::allRoles($user->effectiveAgencyId())->where('is_owner', false)->pluck('name'))],
-            'branch_id' => ['nullable', 'integer'],
+            'branch_id' => ['nullable', 'integer', $branchRule],
         ]);
 
         // Pure "view mode" (do NOT swap logged-in user)

@@ -1071,7 +1071,15 @@ Route::prefix('admin/deposit-trust-interest')->middleware(['auth', 'permission:a
 // ===== ELLIE EXTERNAL REFERENCE SOURCES (ellie-reference-sources spec) =====
 // Global, CoreX-team-managed allowlist of external pages Ellie may search when
 // her own knowledge base and pillar data don't have an answer. super_admin only.
-Route::prefix('admin/ellie/reference-sources')->middleware(['auth', 'permission:manage_reference_sources'])->group(function () {
+//
+// owner_only added per cross-agency isolation audit 2026-08-20 (hygiene
+// finding): the comment above already said "super_admin only" but the
+// middleware enforced only the permission:manage_reference_sources key --
+// nothing prevented that key from being granted to a non-owner agency-admin
+// role via Role Manager, which would let that agency's admin edit what's
+// meant to be a single global, cross-agency allowlist every other agency's
+// Ellie also searches.
+Route::prefix('admin/ellie/reference-sources')->middleware(['auth', 'owner_only', 'permission:manage_reference_sources'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\EllieReferenceSourceController::class, 'index'])->name('admin.ellie.reference-sources.index');
     Route::post('/', [\App\Http\Controllers\Admin\EllieReferenceSourceController::class, 'store'])->name('admin.ellie.reference-sources.store');
     Route::post('/{referenceSource}/refresh', [\App\Http\Controllers\Admin\EllieReferenceSourceController::class, 'refresh'])->name('admin.ellie.reference-sources.refresh');
@@ -1516,14 +1524,23 @@ Route::post('bm/performance/align-agent-to-company', [\App\Http\Controllers\BM\P
 Route::post('bm/performance/align-targets', [\App\Http\Controllers\BM\PerformanceController::class, 'alignTargets'])->middleware(['auth', 'permission:manage_targets'])->name('bm.performance.align');
 
 // --- TV (no login, token-protected — legacy) ---
+// throttled per finding H1 (.ai/audits/cross-agency-isolation-audit-2026-08-20.md):
+// this shares ONE TV_TOKEN across every agency, mitigated only by a flat
+// TV_ALLOWED_BRANCH_IDS allow-list — full retirement in favour of the
+// TvAccessCode flow is still the right call, but that's a business decision
+// (is a real TV screen still pointed at this URL right now?), not a code fix.
 Route::get('/tv/branch/{branchId}', [\App\Http\Controllers\TV\BranchTvController::class, 'show'])
-    ->middleware('tv')
+    ->middleware(['tv', 'throttle:30,1'])
     ->name('tv.branch');
 
 // --- TV (code-based auth — new) ---
+// throttle on both verify AND display: the 6-digit code is the only auth,
+// and display/{code} accepts the code directly as a path segment, so a
+// brute-force sweep can skip verify entirely and hit display in a loop.
+// Finding C2, .ai/audits/cross-agency-isolation-audit-2026-08-20.md.
 Route::get('/tv', [\App\Http\Controllers\TV\TvController::class, 'index'])->name('tv.index');
-Route::post('/tv/verify', [\App\Http\Controllers\TV\TvController::class, 'verify'])->name('tv.verify');
-Route::get('/tv/display/{code}', [\App\Http\Controllers\TV\TvController::class, 'display'])->name('tv.display');
+Route::post('/tv/verify', [\App\Http\Controllers\TV\TvController::class, 'verify'])->middleware('throttle:15,1')->name('tv.verify');
+Route::get('/tv/display/{code}', [\App\Http\Controllers\TV\TvController::class, 'display'])->middleware('throttle:30,1')->name('tv.display');
 
 
 Route::post('/worksheet/align-company-target', [\App\Http\Controllers\WorksheetController::class, 'alignToCompany'])
