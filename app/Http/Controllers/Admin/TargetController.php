@@ -859,9 +859,17 @@ class TargetController extends Controller
             }
         }
 
+        // Cross-agency isolation audit 2026-08-20, finding M2: this raw
+        // DB::table() query bypassed Branch's BelongsToAgency global scope
+        // entirely, listing every branch across every agency into this
+        // dropdown -- 20 lines below (897-903), the SAME setupScope==='all'
+        // branch selection is correctly checked against the caller's own
+        // agency, but this listing query was missed. Branch::query() is
+        // auto-scoped, matching the pattern already used elsewhere in this
+        // controller (see the branchNames lookups above).
         $branches = [];
         if ($setupScope === 'all') {
-            $branches = DB::table('branches')->select('id', 'name')->orderBy('name')->get();
+            $branches = Branch::query()->select('id', 'name')->orderBy('name')->get();
         }
 
         return view('admin.targets.activity-setup', [
