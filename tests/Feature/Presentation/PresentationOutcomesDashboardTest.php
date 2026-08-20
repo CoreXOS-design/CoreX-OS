@@ -167,11 +167,18 @@ final class PresentationOutcomesDashboardTest extends TestCase
      * own count still disagrees with totalOutcomes on this exact fixture
      * (proving labelling — not forced agreement — is what was applied here).
      */
-    public function test_badge_is_labelled_and_never_a_bare_number(): void
+    /**
+     * Johan (2026-08-20), on the "5 due" badge: "This makes no sense. You are
+     * showing outcomes and on the screen its about outcomes. yet you are
+     * showing me 5 due? ... I would just remove it." A count on a menu item
+     * must count what THAT screen is for — this screen is a read-only
+     * dashboard of already-recorded outcomes, not where outcomes are
+     * captured, so no count belongs beside it at all. Removed outright, not
+     * relabelled. Proves the link stays reachable and NO badge/count markup
+     * renders, however many stale (no-outcome) presentations exist.
+     */
+    public function test_no_badge_renders_beside_the_outcomes_nav_item(): void
     {
-        // 1 outcome recorded (inside the window) + 2 stale presentations (>30d
-        // old, no outcome at all) — badge and dashboard total legitimately
-        // disagree (2 vs 1), which is fine as long as the badge says what it is.
         $this->outcomeRow('Recorded Outcome', '2026-07-01', '2026-07-01 10:00:00', '2026-06-01 09:00:00');
 
         Presentation::withoutEvents(function () {
@@ -191,9 +198,11 @@ final class PresentationOutcomesDashboardTest extends TestCase
         $response->assertOk();
         $response->assertViewHas('totalOutcomes', 1);
 
-        // The badge markup itself must carry a word, not just render "2" — a
-        // bare number beside "Outcomes" is exactly what Johan ruled out.
-        $response->assertSee('2 due', false);
-        $response->assertDontSee('>2<', false);
+        // The nav item itself is still there, still reachable, and — proven by
+        // the regex, not just presence — has NO sibling badge/count element
+        // between the label and the link's closing tag, in any form.
+        $content = $response->getContent();
+        $this->assertMatchesRegularExpression('#<span>Outcomes</span>\s*</a>#', $content);
+        $this->assertStringNotContainsString('outcomePendingCount', $content);
     }
 }

@@ -838,37 +838,16 @@
                     </a>
                 @endif
                 @if(\Illuminate\Support\Facades\Route::has('corex.presentations.outcomes.index'))
-                    @php
-                        // Phase 8 — count of presentations >30d old with no outcome (in current user's scope).
-                        $outcomePendingCount = 0;
-                        try {
-                            $user = auth()->user();
-                            $agencyId = $user?->effectiveAgencyId();
-                            if ($agencyId) {
-                                $q = \App\Models\Presentation::where('agency_id', $agencyId)
-                                    ->where('created_at', '<=', now()->subDays(30))
-                                    ->whereDoesntHave('outcome');
-                                if (!in_array((string) $user->role, ['branch_manager','principal','super_admin','admin'], true)) {
-                                    $q->where('created_by_user_id', $user->id);
-                                }
-                                $outcomePendingCount = $q->count();
-                            }
-                        } catch (\Throwable $e) { /* sidebar must never blow up */ }
-                    @endphp
+                    {{-- CX (Johan, 2026-08-20) — badge removed, not relabelled. Johan's rule: a count on
+                         a menu item must count what THAT screen is for (MIC's badge counts properties
+                         because MIC lists properties). This screen is a read-only dashboard of already-
+                         recorded outcomes — outcomes are captured on the presentation's own page
+                         (PresentationOutcomeController::record(), reached from "Presentations"), never
+                         here. A "presentations awaiting an outcome" count has no home on this nav item,
+                         labelled or not. --}}
                     <a href="{{ route('corex.presentations.outcomes.index') }}"
                        class="corex-nav-subitem {{ request()->routeIs('corex.presentations.outcomes.*') ? 'active' : '' }}">
                         <span>Outcomes</span>
-                        @if($outcomePendingCount > 0)
-                            {{-- CX (Johan, 2026-08-20) — "numbers should always be true": this counts
-                                 presentations STILL AWAITING an outcome, not a count of outcomes, so it
-                                 must never disagree with (or be mistaken for) the dashboard's own outcome
-                                 count. Labelled in-place ("N due", amber — matching the Refresh Requests
-                                 pill's own "needs attention" convention right below) rather than a bare
-                                 number, so it can't be misread as an outcomes count. --}}
-                            <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full text-[0.6875rem] font-bold"
-                                  style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b); white-space:nowrap;"
-                                  title="{{ $outcomePendingCount }} presentation{{ $outcomePendingCount === 1 ? '' : 's' }} older than 30 days with no outcome logged yet — not a count of outcomes">{{ $outcomePendingCount > 99 ? '99+' : $outcomePendingCount }} due</span>
-                        @endif
                     </a>
                 @endif
                 @if(\Illuminate\Support\Facades\Route::has('corex.presentations.refresh-requests.index'))
