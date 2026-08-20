@@ -34,17 +34,26 @@ class PipelineListController extends Controller
     ) {
     }
 
-    public function show(Deal $deal): View
+    /** Comments/Emails selector (Johan, 2026-08-20) — the option set, exactly PipelineEvent::$type. */
+    private const FEED_OPTIONS = ['all', 'comment', 'email', 'whatsapp'];
+
+    public function show(Request $request, Deal $deal): View
     {
         if ($uid = auth()->id()) {
             PipelineUserPreference::setViewForUser($uid, 'list');
+        }
+
+        $feed = $request->get('feed', 'all');
+        if (! in_array($feed, self::FEED_OPTIONS, true)) {
+            $feed = 'all';
         }
 
         $ctx = $this->pipelineContext($deal);
         // The PHASED read-model — anchor → Stage 1 condition groups → GRANTED gate → Stage 2, plus the
         // step-scoped comment feed (each comment carries its step id). The List renders the phased
         // two-panel layout off this (spec "LIST + PROGRESSION build 2026-07-28").
-        $ctx['board'] = $this->timeline->buildPhased($deal);
+        $ctx['board'] = $this->timeline->buildPhased($deal, $feed);
+        $ctx['feed'] = $feed;
 
         return view('dr2.pipeline-list', $ctx);
     }

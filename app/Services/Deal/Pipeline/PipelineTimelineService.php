@@ -379,12 +379,12 @@ class PipelineTimelineService
      * condition_key. Pure read — returns step IDs (the view maps them through the shared step-tile) plus
      * the LaneComposer stage-2 segment objects and the normalized comment feed the footer renders.
      */
-    public function buildPhased(Deal $deal): array
+    public function buildPhased(Deal $deal, string $feed = 'all'): array
     {
         $steps = DealStepInstance::where('dr1_deal_id', $deal->id)
             ->orderBy('position')->orderBy('id')->get();
 
-        $comments = $this->commentFeed($deal);
+        $comments = $this->commentFeed($deal, $feed);
 
         if ($steps->isEmpty()) {
             return ['empty' => true, 'comments' => $comments];
@@ -647,10 +647,18 @@ class PipelineTimelineService
     /**
      * The normalized comment feed (footer): who/when/text/scope/step, newest last. Shared by the phased
      * timeline + list footers. Deal-scope = a comment on the anchor/gate; step-scope = on a real step.
+     *
+     * $feed (Johan, 2026-08-20, "Comments / Emails selector") — 'all' | 'comment' | 'email' |
+     * 'whatsapp', matching PipelineEvent::$type exactly (no translation layer). Defaults to 'all' so
+     * every existing caller of buildPhased()/commentFeed() is unaffected; only the caller that wires
+     * a request param through changes behaviour. WhatsApp is always its own explicit option — never
+     * folded into "email" or silently dropped by an emails-only pick.
      */
-    private function commentFeed(Deal $deal): array
+    private function commentFeed(Deal $deal, string $feed = 'all'): array
     {
-        return $this->events->eventsForDeal($deal)->map(function ($e) {
+        return $this->events->eventsForDeal($deal)
+            ->when($feed !== 'all', fn ($events) => $events->where('type', $feed))
+            ->map(function ($e) {
             return [
                 'id'    => $e->sourceType . ':' . $e->sourceId,
                 'step'  => $e->isStepScoped() ? (int) $e->stepId : null,
