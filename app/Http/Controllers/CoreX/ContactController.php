@@ -92,9 +92,14 @@ class ContactController extends Controller
         if ($request->filled('type')) {
             // Buyer/seller truth is NOT in contact_type_id (a nullable, mostly-
             // unpopulated classification). Buyer = is_buyer; seller = a
-            // contact_property pivot with role 'owner'. Resolve the submitted
-            // contact_type to its esign_role (dynamic — ids differ per env) and
-            // query the canonical column. Genuine classifications (Witness, etc.)
+            // contact_property pivot with role 'seller' OR 'owner' — the canonical
+            // seller-side pivot set per Property::pivotRolesForContactRole('seller_owner').
+            // PropertyWizardController links a new sale's contact with role='seller',
+            // DeedsCaptureController's "link as seller" flow also writes 'seller'; only
+            // legacy/manual links use 'owner'. Checking 'owner' alone missed every
+            // contact captured through those flows and showed as blank. Resolve the
+            // submitted contact_type to its esign_role (dynamic — ids differ per env)
+            // and query the canonical column. Genuine classifications (Witness, etc.)
             // keep the contact_type_id filter.
             $typeId = (int) $request->type;
             $esignRole = ContactType::whereKey($typeId)->value('esign_role');
@@ -102,7 +107,14 @@ class ContactController extends Controller
             if ($esignRole === 'buyer') {
                 $query->where('is_buyer', 1);
             } elseif ($esignRole === 'seller') {
-                $query->whereHas('properties', fn ($q) => $q->where('contact_property.role', 'owner'));
+                $query->whereHas('properties', fn ($q) => $q->whereIn('contact_property.role', ['seller', 'owner']));
+            } elseif ($esignRole === 'lessor') {
+                // Same gap as seller, same audit: Landlord/Lessor contacts are
+                // overwhelmingly linked via the contact_property pivot (role
+                // 'landlord'), not via contact_type_id (13 vs 66 matches measured
+                // live) — contact_type_id alone showed a mostly-empty "Landlord"
+                // filter too.
+                $query->whereHas('properties', fn ($q) => $q->whereIn('contact_property.role', ['landlord', 'lessor']));
             } else {
                 $query->where('contact_type_id', $typeId);
             }

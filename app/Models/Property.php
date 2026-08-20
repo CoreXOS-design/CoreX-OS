@@ -790,6 +790,36 @@ class Property extends Model
     }
 
     /**
+     * 2026-08-20 properties-filter audit — the Property Type filter compares
+     * property_type by exact string, but ~2,600 live properties (mostly a P24
+     * bulk import batch and pre-PropertySettingItem manual entries) hold an
+     * older/shorter label for the same physical type instead of today's
+     * agency-configured PropertySettingItem name — 'Apartment' vs 'Apartment
+     * / Flat', 'VacantLand'/'Vacant Land' vs 'Vacant Land / Plot', 'Commercial'
+     * vs 'Commercial Property', 'Industrial' vs 'Industrial Property' — so
+     * selecting the current label hid every property still carrying the old
+     * one. This is the synonym set the filter matches ADDITIONALLY to the
+     * agency's own settings-item name; it never changes what's stored on the
+     * property, only what the filter recognises as "the same type". A small
+     * number of orphaned values ('sectional_title', 'Business', 'Land' — 5
+     * properties total) aren't included: they're ambiguous enough (e.g.
+     * sectional_title describes title type, not physical type) that guessing
+     * risks silently mis-bucketing them, so those need a human reclassifying
+     * the record rather than a synonym guess.
+     *
+     * @return string[]
+     */
+    public static function propertyTypeSynonyms(string $canonicalName): array
+    {
+        return [
+            'Apartment / Flat'    => ['Apartment'],
+            'Vacant Land / Plot'  => ['VacantLand', 'Vacant Land'],
+            'Commercial Property' => ['Commercial'],
+            'Industrial Property' => ['Industrial'],
+        ][$canonicalName] ?? [];
+    }
+
+    /**
      * AT-262/DR2 — the pivot roles that are the SELLER-SIDE party for a property of a
      * given listing type. On a SALE the seller-side is seller/owner; on a RENTAL it is
      * the landlord/lessor (same physical party, the "seller" column of a rental deal).
