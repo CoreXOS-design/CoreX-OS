@@ -36,7 +36,7 @@
                         <td class="px-3 py-2 text-right"><button type="button" class="underline" @click="drill('buyers_won', @js($a['name'] . ' — Buyers won'), {{ (int) $a['user_id'] }})">{{ $a['metrics']['buyers_won'] ?? 0 }}</button></td>
                         <td class="px-3 py-2 text-right"><button type="button" class="underline" @click="drill('appointments', @js($a['name'] . ' — Appointments'), {{ (int) $a['user_id'] }})">{{ $a['metrics']['appointments'] ?? 0 }}</button></td>
                         <td class="px-3 py-2 text-right"><button type="button" class="underline" @click="drill('lost', @js($a['name'] . ' — Buyers lost'), {{ (int) $a['user_id'] }})">{{ $a['metrics']['lost'] ?? 0 }}</button></td>
-                        <td class="px-3 py-2 text-right"><button type="button" class="underline" @click="drill('lost', @js($a['name'] . ' — Buyers lost'), {{ (int) $a['user_id'] }})">{{ $money($a['metrics']['lost_value'] ?? 0) }}</button></td>
+                        <td class="px-3 py-2 text-right"><button type="button" class="underline" @click="drill('lost', @js($a['name'] . ' — Buyers lost'), {{ (int) $a['user_id'] }})">{{ empty($a['metrics']['lost_value_captured']) ? 'Not captured' : $money($a['metrics']['lost_value'] ?? 0) }}</button></td>
                     </tr>
                 @empty
                     <tr><td colspan="8" class="px-3 py-6 text-center" style="color: var(--text-muted);">No agents in this scope.</td></tr>

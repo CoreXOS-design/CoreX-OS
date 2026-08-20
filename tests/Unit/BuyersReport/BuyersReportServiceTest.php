@@ -102,6 +102,109 @@ final class BuyersReportServiceTest extends TestCase
         $this->assertSame(1, $agentRow['metrics']['buyers_won']);
     }
 
+    /**
+     * Johan (2026-08-20, live review): "You have a value that is 0 across the
+     * board?" — a confident R0 next to real losses is worse than a blank, and
+     * most "lost buyers" turn out to be the system's own timeout housekeeping
+     * (reason_code=no_activity), not a human decision. Proves both facts are
+     * now surfaced: lost_value_captured is false when nothing was ever
+     * captured, and the auto/real split is counted correctly even when a mix
+     * of both exists.
+     */
+    public function test_lost_value_captured_and_auto_real_split_are_honest(): void
+    {
+        $agentId = 1001;
+        $this->seedUser($agentId, self::AGENCY_ID, 701, 'Losing Agent');
+
+        $now = Carbon::now();
+
+        $auto1 = $this->seedBuyer(20, self::AGENCY_ID, $agentId, 701, 'lost', 'Auto Lost One');
+        $auto2 = $this->seedBuyer(21, self::AGENCY_ID, $agentId, 701, 'lost', 'Auto Lost Two');
+        $real  = $this->seedBuyer(22, self::AGENCY_ID, $agentId, 701, 'lost', 'Real Lost With Value');
+
+        DB::table('buyer_lost_records')->insert([
+            ['contact_id' => $auto1, 'agency_id' => self::AGENCY_ID, 'agent_owner_user_id_at_loss' => $agentId, 'reason_code' => 'no_activity', 'reason_label' => 'No activity (auto-transitioned)', 'preapproval_amount_at_loss' => null, 'recorded_at' => $now, 'recovered_at' => null],
+            ['contact_id' => $auto2, 'agency_id' => self::AGENCY_ID, 'agent_owner_user_id_at_loss' => $agentId, 'reason_code' => 'no_activity', 'reason_label' => 'No activity (auto-transitioned)', 'preapproval_amount_at_loss' => null, 'recorded_at' => $now, 'recovered_at' => null],
+            ['contact_id' => $real, 'agency_id' => self::AGENCY_ID, 'agent_owner_user_id_at_loss' => $agentId, 'reason_code' => 'chose_another', 'reason_label' => 'Buyer chose another property', 'preapproval_amount_at_loss' => 1500000, 'recorded_at' => $now, 'recovered_at' => null],
+        ]);
+
+        $scope  = new BuyersReportScope(self::AGENCY_ID, BuyersReportScope::LEVEL_BRANCH, branchId: 701);
+        $period = new Period(Carbon::now()->subDays(1)->startOfDay()->toImmutable(), Carbon::now()->addDay()->endOfDay()->toImmutable(), 'This period', 'custom');
+
+        $result = app(BuyersReportService::class)->build($scope, $period);
+
+        $this->assertTrue($result['company']['lost_value_captured'], 'One row DID capture a value -- must read true, not "not captured".');
+        $this->assertSame(2, $result['company']['lost_auto'], 'Both no_activity rows must count as auto.');
+        $this->assertSame(1, $result['company']['lost_real'], 'The chose_another row must count as real, not auto.');
+    }
+
+    public function test_lost_value_captured_is_false_when_nothing_was_ever_captured(): void
+    {
+        $agentId = 1002;
+        $this->seedUser($agentId, self::AGENCY_ID, 702, 'All Auto Agent');
+        $now = Carbon::now();
+        $auto = $this->seedBuyer(23, self::AGENCY_ID, $agentId, 702, 'lost', 'Only Auto Lost');
+        DB::table('buyer_lost_records')->insert([
+            'contact_id' => $auto, 'agency_id' => self::AGENCY_ID, 'agent_owner_user_id_at_loss' => $agentId,
+            'reason_code' => 'no_activity', 'reason_label' => 'No activity (auto-transitioned)',
+            'preapproval_amount_at_loss' => null, 'recorded_at' => $now, 'recovered_at' => null,
+        ]);
+
+        $scope  = new BuyersReportScope(self::AGENCY_ID, BuyersReportScope::LEVEL_BRANCH, branchId: 702);
+        $period = new Period(Carbon::now()->subDays(1)->startOfDay()->toImmutable(), Carbon::now()->addDay()->endOfDay()->toImmutable(), 'This period', 'custom');
+
+        $result = app(BuyersReportService::class)->build($scope, $period);
+
+        $this->assertFalse($result['company']['lost_value_captured'], 'Nothing was ever captured -- must read false, so the tile says "Not captured" rather than R0.');
+        $this->assertSame(1, $result['company']['lost_auto']);
+        $this->assertSame(0, $result['company']['lost_real']);
+    }
+
+    /**
+     * Johan (2026-08-20, live review): "Theres no ways to say - buyer / leads
+     * - and I take it all tenants excluded here?" Answer from real data:
+     * NOT excluded — on live, ~28% of the is_buyer=1 cohort is labelled
+     * "Lessee" (a rental-side type, not a buyer). Proves the type filter
+     * genuinely narrows the buyers-held count by contact_types.name.
+     */
+    public function test_type_filter_narrows_buyers_held_by_contact_type_label(): void
+    {
+        $agentId = 1101;
+        $this->seedUser($agentId, self::AGENCY_ID, 801, 'Mixed Book Agent');
+
+        DB::table('contact_types')->insert([
+            ['id' => 1, 'name' => 'Buyer'],
+            ['id' => 2, 'name' => 'Lead'],
+            ['id' => 3, 'name' => 'Lessee'],
+        ]);
+
+        $realBuyer = $this->seedBuyer(30, self::AGENCY_ID, $agentId, 801, 'warm', 'Real Buyer');
+        DB::table('contacts')->where('id', $realBuyer)->update(['contact_type_id' => 1]);
+
+        $lead = $this->seedBuyer(31, self::AGENCY_ID, $agentId, 801, 'new', 'Pure Lead');
+        DB::table('contacts')->where('id', $lead)->update(['contact_type_id' => 2]);
+
+        $lessee = $this->seedBuyer(32, self::AGENCY_ID, $agentId, 801, 'warm', 'Actually A Tenant');
+        DB::table('contacts')->where('id', $lessee)->update(['contact_type_id' => 3]);
+
+        $scope  = new BuyersReportScope(self::AGENCY_ID, BuyersReportScope::LEVEL_BRANCH, branchId: 801);
+        $period = new Period(Carbon::now()->subDays(1)->startOfDay()->toImmutable(), Carbon::now()->addDay()->endOfDay()->toImmutable(), 'This period', 'custom');
+
+        $service = app(BuyersReportService::class);
+
+        $all = $service->build($scope, $period);
+        $this->assertSame(3, $all['company']['buyers'], 'No filter -- all three, unchanged.');
+
+        $buyersOnly = $service->build($scope, $period, 'buyer');
+        $this->assertSame(1, $buyersOnly['company']['buyers'], 'type=buyer must exclude the Lead and the Lessee.');
+
+        $leadsOnly = $service->build($scope, $period, 'lead');
+        $this->assertSame(1, $leadsOnly['company']['buyers'], 'type=lead must exclude the pure Buyer and the Lessee.');
+
+        $tenantsOnly = $service->build($scope, $period, 'tenant');
+        $this->assertSame(1, $tenantsOnly['company']['buyers'], 'type=tenant must catch the Lessee -- the exact contamination Johan asked about.');
+    }
+
     public function test_viewing_with_no_feedback_is_flagged_via_both_link_paths_and_fed_viewing_is_not(): void
     {
         $agentId = 901;
@@ -185,7 +288,10 @@ final class BuyersReportServiceTest extends TestCase
     private function dropSchema(): void
     {
         DB::statement('SET FOREIGN_KEY_CHECKS=0');
+        Schema::dropIfExists('communication_links');
+        Schema::dropIfExists('communications');
         Schema::dropIfExists('calendar_event_feedback');
+        Schema::dropIfExists('contact_types');
         Schema::dropIfExists('calendar_event_links');
         Schema::dropIfExists('calendar_events');
         Schema::dropIfExists('buyer_lost_records');
@@ -241,6 +347,7 @@ final class BuyersReportServiceTest extends TestCase
             $table->unsignedBigInteger('agency_id')->nullable();
             $table->unsignedBigInteger('agent_id')->nullable();
             $table->unsignedBigInteger('branch_id')->nullable();
+            $table->unsignedBigInteger('contact_type_id')->nullable();
             $table->boolean('is_buyer')->default(0);
             $table->string('buyer_state', 20)->nullable();
             $table->string('first_name')->nullable();
@@ -249,6 +356,11 @@ final class BuyersReportServiceTest extends TestCase
             $table->timestamp('last_contacted_at')->nullable();
             $table->timestamp('buyer_pipeline_entered_at')->nullable();
             $table->timestamp('deleted_at')->nullable();
+        });
+
+        Schema::create('contact_types', function ($table) {
+            $table->id();
+            $table->string('name');
         });
 
         Schema::create('buyer_state_transitions', function ($table) {
@@ -305,6 +417,25 @@ final class BuyersReportServiceTest extends TestCase
             $table->unsignedBigInteger('contact_id');
             $table->string('feedback_kind', 40)->nullable();
             $table->timestamp('captured_at')->nullable();
+            $table->timestamp('deleted_at')->nullable();
+        });
+
+        // BuyerActivityService::metricsByUser() always queries these two, even
+        // when a test only cares about a different metric -- must exist so the
+        // schema is self-sufficient regardless of test run order.
+        Schema::create('communications', function ($table) {
+            $table->id();
+            $table->unsignedBigInteger('agency_id')->nullable();
+            $table->unsignedBigInteger('owner_user_id')->nullable();
+            $table->string('channel', 20)->nullable();
+            $table->timestamp('occurred_at')->nullable();
+        });
+
+        Schema::create('communication_links', function ($table) {
+            $table->id();
+            $table->unsignedBigInteger('communication_id');
+            $table->string('linkable_type');
+            $table->unsignedBigInteger('linkable_id');
             $table->timestamp('deleted_at')->nullable();
         });
     }

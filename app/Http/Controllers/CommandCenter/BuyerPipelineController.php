@@ -214,22 +214,15 @@ class BuyerPipelineController extends Controller
 
     /**
      * Apply Layer 3 pipeline workspace filter to query.
+     *
+     * Delegates to BuyerPipelineScope so the Buyers Report's pipeline-state
+     * breakdown can apply the exact same filter (see that class's docblock)
+     * -- this method's own behaviour is unchanged.
      */
     private function applyPipelineScope(Builder $query, $user, string $scope): void
     {
-        if ($scope === 'own') {
-            $query->where('contacts.agent_id', $user->id);
-        } elseif ($scope === 'branch') {
-            $branchId = $user->effectiveBranchId() ?? $user->branch_id;
-            if ($branchId) {
-                $query->whereIn('contacts.agent_id', function ($sub) use ($branchId) {
-                    $sub->select('id')->from('users')->where('branch_id', $branchId)->whereNull('deleted_at');
-                });
-            } else {
-                $query->where('contacts.agent_id', $user->id);
-            }
-        }
-        // 'agency' = no additional filter (Layer 2 controls access)
+        $branchId = $user->effectiveBranchId() ?? $user->branch_id;
+        \App\Services\CommandCenter\BuyerPipelineScope::apply($query, $scope, $user->id, $branchId);
     }
 
     private function stateCounts($user, string $pipelineScope, ?string $leadType = null): array

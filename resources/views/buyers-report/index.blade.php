@@ -10,30 +10,45 @@
     // buyers-report/_needs-attention, _tiles, _drilldown-modal — reused
     // unchanged by the agent()/branch() pages so the three never drift.
     $m = $report['company'];
-    $stateLabel = fn ($s) => match ($s) { 'warm' => 'Hot', 'new' => 'New', 'cold' => 'Cold', 'lost' => 'Lost', 'won' => 'Won', default => ucfirst((string) $s) };
+    $stateLabel = fn ($s) => match ($s) { 'warm' => 'Warm', 'new' => 'New', 'cold' => 'Cold', 'lost' => 'Lost', 'won' => 'Won', default => ucfirst((string) $s) };
     $money = fn ($v) => 'R ' . number_format((float) $v, 0);
     $drilldownBase = url('/corex/buyers-report/drilldown') . '?' . http_build_query([
-        'scope' => $scope->level, 'branch_id' => $scope->branchId, 'user_id' => $scope->userId, 'period' => $preset,
+        'scope' => $scope->level, 'branch_id' => $scope->branchId, 'user_id' => $scope->userId, 'period' => $preset, 'type' => $type,
     ]);
 @endphp
 
 <div class="max-w-6xl mx-auto px-4 py-6" x-data="buyersReport({ drilldownBase: @js($drilldownBase) })">
-    <div class="flex items-center justify-between mb-6">
+    <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div>
             <h1 class="text-xl font-semibold" style="color: var(--text-primary);">Buyers Report</h1>
             <p class="text-xs mt-0.5" style="color: var(--text-muted);">
                 {{ match($scope->level) { 'own' => 'Your buyers', 'branch' => 'Your branch', default => 'Whole agency' } }}
                 · {{ ucfirst(str_replace('_', ' ', $preset)) }}
+                @if($type) · {{ $types[$type] }} only @endif
             </p>
         </div>
-        @include('performance.agency-report._period-selector', ['preset' => $preset, 'presets' => $presets, 'compareMode' => $compareMode, 'compareModes' => $compareModes])
+        <div class="flex items-end gap-3 flex-wrap">
+            @include('buyers-report._type-selector', ['type' => $type, 'types' => $types])
+            @include('performance.agency-report._period-selector', ['preset' => $preset, 'presets' => $presets, 'compareMode' => $compareMode, 'compareModes' => $compareModes])
+        </div>
     </div>
+
+    {{-- SECTION A — Johan's own heading (2026-08-20): "what happened to
+         buyers". Period-based movement: added/won/lost, appointments,
+         comms, state transitions. --}}
+    <h2 class="text-base font-semibold mb-3" style="color: var(--text-primary);">What happened to buyers</h2>
+    @include('buyers-report._tiles')
 
     @include('buyers-report._needs-attention')
 
-    @include('buyers-report._tiles')
-
     @include('buyers-report._agent-table')
+
+    {{-- SECTION B — Johan's own heading: "what buyers do we have now".
+         Point-in-time snapshot, matches the pipeline board exactly, plus
+         the demand analysis (stock-acquisition tool). --}}
+    @include('buyers-report._pipeline-states')
+
+    @include('buyers-report._demand-analysis')
 
     @include('buyers-report._drilldown-modal')
 </div>

@@ -227,10 +227,18 @@ class BuyerActivityService
             $out[(int) $uid]['buyers'] = (int) $c;
         }
 
-        // Appointments on the agent's buyers in the period.
-        $appts = DB::table('calendar_events as ce')
+        // Appointments on the agent's buyers in the period. A buyer is linked to a
+        // viewing either directly (calendar_events.contact_id, the first ticked
+        // buyer only) or via calendar_event_links (role=buyer_contact, the
+        // multi-buyer tick-list) — anyone past the first ticked buyer is ONLY
+        // reachable via the second path. Counting contact_id alone silently
+        // undercounts real appointment activity (AT-366-E audit, 2026-08-20:
+        // Appointments showed 0 against 87 real calendar events for the period).
+        // Deduped by (event, contact) pair so an event linked both ways is never
+        // double-counted.
+        $apptPairs = DB::table('calendar_events as ce')
             ->join('contacts as c', 'c.id', '=', 'ce.contact_id')
-            ->select('ce.user_id as uid', DB::raw('COUNT(*) as c'))
+            ->select('ce.id as event_id', 'ce.contact_id', 'ce.user_id as uid')
             ->where('c.agency_id', $agencyId)
             ->where('c.is_buyer', 1)
             ->whereNull('c.deleted_at')
@@ -238,10 +246,28 @@ class BuyerActivityService
             ->whereIn('ce.category', self::APPOINTMENT_CATEGORIES)
             ->whereIn('ce.user_id', $userIds)
             ->whereBetween('ce.event_date', [$period->start, $period->end])
-            ->groupBy('ce.user_id')
-            ->pluck('c', 'uid');
-        foreach ($appts as $uid => $c) {
-            $out[(int) $uid]['appointments'] = (int) $c;
+            ->unionAll(
+                DB::table('calendar_events as ce')
+                    ->join('calendar_event_links as cel', function ($j) {
+                        $j->on('cel.calendar_event_id', '=', 'ce.id')
+                            ->where('cel.linkable_type', '=', Contact::class)
+                            ->where('cel.role', '=', 'buyer_contact')
+                            ->whereNull('cel.deleted_at');
+                    })
+                    ->join('contacts as c', 'c.id', '=', 'cel.linkable_id')
+                    ->select('ce.id as event_id', 'cel.linkable_id as contact_id', 'ce.user_id as uid')
+                    ->where('c.agency_id', $agencyId)
+                    ->where('c.is_buyer', 1)
+                    ->whereNull('c.deleted_at')
+                    ->whereColumn('c.agent_id', 'ce.user_id')
+                    ->whereIn('ce.category', self::APPOINTMENT_CATEGORIES)
+                    ->whereIn('ce.user_id', $userIds)
+                    ->whereBetween('ce.event_date', [$period->start, $period->end])
+            )
+            ->get()
+            ->unique(fn ($r) => $r->event_id . ':' . $r->contact_id);
+        foreach ($apptPairs->groupBy('uid') as $uid => $rows) {
+            $out[(int) $uid]['appointments'] = $rows->count();
         }
 
         // Comms (email + WhatsApp) ingested on the agent's buyers in the period.
@@ -292,15 +318,31 @@ class BuyerActivityService
             return [];
         }
 
-        return DB::table('calendar_events')
-            ->select('contact_id', DB::raw('COUNT(*) as c'))
+        // Same both-paths union as metricsByUser() — see that method's comment.
+        $direct = DB::table('calendar_events')
+            ->select('id as event_id', 'contact_id')
             ->where('user_id', $userId)
             ->whereIn('category', self::APPOINTMENT_CATEGORIES)
             ->whereIn('contact_id', $buyerIds)
-            ->whereBetween('event_date', [$period->start, $period->end])
+            ->whereBetween('event_date', [$period->start, $period->end]);
+
+        $viaLinks = DB::table('calendar_events as ce')
+            ->join('calendar_event_links as cel', function ($j) {
+                $j->on('cel.calendar_event_id', '=', 'ce.id')
+                    ->where('cel.linkable_type', '=', Contact::class)
+                    ->where('cel.role', '=', 'buyer_contact')
+                    ->whereNull('cel.deleted_at');
+            })
+            ->select('ce.id as event_id', 'cel.linkable_id as contact_id')
+            ->where('ce.user_id', $userId)
+            ->whereIn('ce.category', self::APPOINTMENT_CATEGORIES)
+            ->whereIn('cel.linkable_id', $buyerIds)
+            ->whereBetween('ce.event_date', [$period->start, $period->end]);
+
+        return $direct->unionAll($viaLinks)->get()
+            ->unique(fn ($r) => $r->event_id . ':' . $r->contact_id)
             ->groupBy('contact_id')
-            ->pluck('c', 'contact_id')
-            ->map(fn ($c) => (int) $c)
+            ->map(fn ($rows) => $rows->count())
             ->all();
     }
 
