@@ -62,6 +62,9 @@ final class TrackedProperty extends Model
         // DEEDS BUG 1 fix — the deeds-capture EVENT marker, stamped on every
         // deeds capture (created or existing), independent of capture_kind.
         'deeds_captured_at',
+        // Data-scope build (Johan, 2026-08-20) — who scraped it, stamped on every
+        // deeds capture alongside deeds_captured_at. See scopeVisibleToDeedsCapture().
+        'deeds_captured_by_user_id',
     ];
 
     protected $casts = [
@@ -190,6 +193,74 @@ final class TrackedProperty extends Model
     public function promotedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'promoted_by_user_id');
+    }
+
+    public function deedsCapturedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'deeds_captured_by_user_id');
+    }
+
+    /**
+     * Deeds Capture screen data scope (Johan, 2026-08-20). Mirrors
+     * ProspectingListing::scopeVisibleTo() exactly — same option set, same
+     * shape — swapping in the deeds-specific "own" column. tracked_properties
+     * has no branch_id of its own, so 'branch' is resolved via the scraping
+     * user's OWN branch (Johan's explicit call), not a column on this table.
+     *
+     * A NULL deeds_captured_by_user_id (no attributable scrape — a future
+     * ingestion path that predates this build, or a queued/system import with
+     * no acting user) never matches under 'own' or 'branch' (SQL NULL
+     * semantics — correctly excluded, an unattributed record can't be
+     * "mine"), but IS included under 'all' — nothing vanishes globally, an
+     * unattributed row simply isn't anyone's in particular. Currently 0 such
+     * rows exist for any agency (verified via the migration's own backfill).
+     */
+    public function scopeVisibleToDeedsCapture($query, User $user, ?string $scope)
+    {
+        return match ($scope) {
+            'all'    => $query,
+            'branch' => $user->effectiveBranchId()
+                ? $query->whereIn('deeds_captured_by_user_id', function ($q) use ($user) {
+                        $q->select('id')->from('users')->where('branch_id', $user->effectiveBranchId());
+                    })
+                : ($user->hasPermission('branches.view_all')
+                    ? $query
+                    : $query->where('deeds_captured_by_user_id', $user->id)),
+            'none'   => $query->whereRaw('1 = 0'),
+            default  => $query->where('deeds_captured_by_user_id', $user->id), // 'own' or null
+        };
+    }
+
+    /**
+     * Deeds Capture "address or contact" search (Johan, 2026-08-20, item 4). A single box,
+     * both kinds of term, exactly as asked — no separate address/contact fields to invent.
+     * Wrapped in ONE where(fn) closure so every alternative stays grouped and ANDs against
+     * whatever scope/agent filters the caller already applied — never OR's out of scope.
+     */
+    public function scopeSearchDeeds($query, string $term)
+    {
+        $term = trim($term);
+        if ($term === '') {
+            return $query;
+        }
+        $like = '%' . addcslashes($term, '%_\\') . '%';
+
+        return $query->where(function ($q) use ($like) {
+            $q->where('street_name', 'like', $like)
+                ->orWhere('street_number', 'like', $like)
+                ->orWhere('complex_name', 'like', $like)
+                ->orWhere('suburb', 'like', $like)
+                ->orWhere('town', 'like', $like)
+                ->orWhere('erf_number', 'like', $like)
+                ->orWhereHas('ownerContact', fn ($c) => $c->where(fn ($cc) => $cc
+                    ->where('first_name', 'like', $like)
+                    ->orWhere('last_name', 'like', $like)
+                    ->orWhereRaw("CONCAT(first_name, ' ', last_name) LIKE ?", [$like])))
+                ->orWhereHas('owners.contact', fn ($c) => $c->where(fn ($cc) => $cc
+                    ->where('first_name', 'like', $like)
+                    ->orWhere('last_name', 'like', $like)
+                    ->orWhereRaw("CONCAT(first_name, ' ', last_name) LIKE ?", [$like])));
+        });
     }
 
     /**

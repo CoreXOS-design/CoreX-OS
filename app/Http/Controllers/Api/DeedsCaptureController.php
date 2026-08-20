@@ -391,6 +391,13 @@ final class DeedsCaptureController extends Controller
         // of its MIC Opportunities pipeline.
         $tp->deeds_captured_at = now();
 
+        // Data-scope build (Johan, 2026-08-20) — "the user who scraped it... that's the
+        // person who will go to deeds and look for their scraped stock." Stamped on every
+        // deeds capture (created or existing), same as deeds_captured_at directly above —
+        // always the MOST RECENT scraper, so a re-capture by a different agent correctly
+        // reassigns "own" to whoever most recently worked this record.
+        $tp->deeds_captured_by_user_id = (int) $user->id;
+
         $tp->save();
 
         // 2026-08-19 (Johan, ruling after the live trace): "the rule should
