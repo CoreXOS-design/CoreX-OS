@@ -20,10 +20,16 @@ use Tests\TestCase;
  * it's the one thing that must never regress.
  *
  * Also proves the resolver's ceiling comes from the REAL enforcement
- * mechanism (PermissionService::getDataScope('contacts'), the same one
- * ContactScope reads) rather than a bespoke rule invented for this report —
- * and proves cross-AGENCY isolation independently of the branch check, since
- * that's the more serious failure mode (AT-381).
+ * mechanism (PermissionService::getDataScope('buyers_report'), read via the
+ * report's OWN 'buyers_report.view' permission — corrected 2026-08-20,
+ * Johan: "all reports are scoped from the role manager - agents can see
+ * own, bm sees branch, admin sees all." NOT 'contacts.view', which governs
+ * the pipeline/contacts screens and is deliberately broader for HFC. Grants
+ * below store 'own'/'branch'/'all' DIRECTLY for buyers_report.view — no
+ * split_branches_enabled indirection, unlike contacts/properties, since
+ * buyers_report isn't in that special-case module list) — and proves
+ * cross-AGENCY isolation independently of the branch check, since that's
+ * the more serious failure mode (AT-381).
  *
  * DB approach: hand-built minimal schema (agencies, branches, users, roles,
  * role_permissions), same technique used all night for the RefreshDatabase /
@@ -53,7 +59,7 @@ final class BuyersReportScopeResolverTest extends TestCase
         $this->seedAgency($agencyId, splitBranches: true);
         $this->seedBranch($ownBranch, $agencyId);
         $this->seedBranch($otherBranch, $agencyId);
-        $this->grantContactsScope('branch_manager', $agencyId, 'all'); // 'all' + split_branches=1 -> effective 'branch'
+        $this->grantBuyersReportScope('branch_manager', $agencyId, 'branch');
 
         $bm = $this->makeUser(701, $agencyId, $ownBranch, 'branch_manager');
 
@@ -83,7 +89,7 @@ final class BuyersReportScopeResolverTest extends TestCase
         $this->seedAgency($agencyId, splitBranches: true);
         $this->seedBranch($ownBranch, $agencyId);
         $this->seedBranch($otherBranch, $agencyId);
-        $this->grantContactsScope('branch_manager', $agencyId, 'all');
+        $this->grantBuyersReportScope('branch_manager', $agencyId, 'branch');
 
         DB::table('users')->insert(['id' => 501, 'agency_id' => $agencyId, 'branch_id' => $ownBranch]);
         DB::table('users')->insert(['id' => 502, 'agency_id' => $agencyId, 'branch_id' => $otherBranch]);
@@ -103,7 +109,7 @@ final class BuyersReportScopeResolverTest extends TestCase
         $this->seedAgency($agencyId, splitBranches: true);
         $this->seedBranch($ownBranch, $agencyId);
         $this->seedBranch($otherBranch, $agencyId);
-        $this->grantContactsScope('branch_manager', $agencyId, 'all');
+        $this->grantBuyersReportScope('branch_manager', $agencyId, 'branch');
 
         $bm = $this->makeUser(702, $agencyId, $ownBranch, 'branch_manager');
         $resolver = new BuyersReportScopeResolver();
@@ -118,7 +124,7 @@ final class BuyersReportScopeResolverTest extends TestCase
         $branch   = 1001;
         $this->seedAgency($agencyId, splitBranches: false);
         $this->seedBranch($branch, $agencyId);
-        $this->grantContactsScope('agent', $agencyId, 'own');
+        $this->grantBuyersReportScope('agent', $agencyId, 'own');
 
         DB::table('users')->insert(['id' => 601, 'agency_id' => $agencyId, 'branch_id' => $branch]);
         DB::table('users')->insert(['id' => 602, 'agency_id' => $agencyId, 'branch_id' => $branch]);
@@ -139,7 +145,7 @@ final class BuyersReportScopeResolverTest extends TestCase
         $this->seedAgency($otherAgency, splitBranches: false);
         $this->seedBranch(1101, $myAgency);
         $this->seedBranch(1102, $otherAgency);
-        $this->grantContactsScope('admin', $myAgency, 'all');
+        $this->grantBuyersReportScope('admin', $myAgency, 'all');
 
         DB::table('users')->insert(['id' => 1201, 'agency_id' => $myAgency, 'branch_id' => 1101]);
         DB::table('users')->insert(['id' => 1202, 'agency_id' => $otherAgency, 'branch_id' => 1102]);
@@ -157,7 +163,7 @@ final class BuyersReportScopeResolverTest extends TestCase
     {
         $agencyId = 9002;
         $this->seedAgency($agencyId, splitBranches: false);
-        $this->grantContactsScope('agent', $agencyId, 'own');
+        $this->grantBuyersReportScope('agent', $agencyId, 'own');
 
         $agent = $this->makeUser(801, $agencyId, 601, 'agent');
 
@@ -176,7 +182,7 @@ final class BuyersReportScopeResolverTest extends TestCase
         $this->seedAgency($myAgency, splitBranches: false);
         $this->seedAgency($otherAgency, splitBranches: false);
         $this->seedBranch(701, $otherAgency); // belongs to the OTHER agency
-        $this->grantContactsScope('admin', $myAgency, 'all');
+        $this->grantBuyersReportScope('admin', $myAgency, 'all');
 
         $admin = $this->makeUser(901, $myAgency, null, 'admin');
 
@@ -200,7 +206,7 @@ final class BuyersReportScopeResolverTest extends TestCase
     {
         $agencyId = 9011;
         $this->seedAgency($agencyId, splitBranches: false);
-        $this->grantContactsScope('agent', $agencyId, 'own');
+        $this->grantBuyersReportScope('agent', $agencyId, 'own');
 
         $agent = $this->makeUser(1401, $agencyId, 601, 'agent');
 
@@ -222,7 +228,7 @@ final class BuyersReportScopeResolverTest extends TestCase
         $this->seedAgency($agencyId, splitBranches: true);
         $this->seedBranch($ownBranch, $agencyId);
         $this->seedBranch($otherBranch, $agencyId);
-        $this->grantContactsScope('branch_manager', $agencyId, 'all'); // split=1 -> effective 'branch'
+        $this->grantBuyersReportScope('branch_manager', $agencyId, 'branch');
 
         $bm = $this->makeUser(1601, $agencyId, $ownBranch, 'branch_manager');
         $resolver = new BuyersReportScopeResolver();
@@ -245,7 +251,7 @@ final class BuyersReportScopeResolverTest extends TestCase
     {
         $agencyId = 9005;
         $this->seedAgency($agencyId, splitBranches: false);
-        $this->grantContactsScope('admin', $agencyId, 'all');
+        $this->grantBuyersReportScope('admin', $agencyId, 'all');
 
         $admin = $this->makeUser(902, $agencyId, null, 'admin');
 
@@ -301,11 +307,11 @@ final class BuyersReportScopeResolverTest extends TestCase
         DB::table('branches')->insert(['id' => $id, 'agency_id' => $agencyId, 'name' => 'Branch ' . $id]);
     }
 
-    private function grantContactsScope(string $role, int $agencyId, string $scope): void
+    private function grantBuyersReportScope(string $role, int $agencyId, string $scope): void
     {
         DB::table('roles')->insert(['name' => $role, 'agency_id' => $agencyId, 'is_owner' => false, 'sort_order' => 1]);
         DB::table('role_permissions')->insert([
-            'role' => $role, 'permission_key' => 'contacts.view', 'agency_id' => $agencyId, 'scope' => $scope,
+            'role' => $role, 'permission_key' => 'buyers_report.view', 'agency_id' => $agencyId, 'scope' => $scope,
         ]);
     }
 

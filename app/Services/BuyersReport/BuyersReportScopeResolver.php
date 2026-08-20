@@ -7,8 +7,7 @@ use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Buyers Report scoping — deliberately modelled on BuyerPipelineController's
- * own/branch/agency toggle (Johan, 2026-08-20), NOT AgencyPerformanceReportController's.
+ * Buyers Report scoping (Johan, corrected 2026-08-20 — see below).
  *
  * THE GAP THIS EXISTS TO CLOSE: the ROI report takes branch_id/user_id straight
  * from the request query string and applies them with no check against the
@@ -17,23 +16,36 @@ use Illuminate\Support\Facades\DB;
  * is a product feature for every CoreX tenant, not a one-agency favour, so the
  * bar is higher, not lower.
  *
- * WHY THIS ISN'T A PLAIN COPY OF applyPipelineScope() EITHER: the pipeline
- * board is safe not because applyPipelineScope() enforces a ceiling — it
- * doesn't, by itself it would let anyone request ?scope=agency — but because
- * every pipeline query runs through Eloquent's Contact model, which carries
- * ContactScope as a GLOBAL scope. ContactScope reads the user's real ceiling
- * from PermissionService::getDataScope($user, 'contacts') (role_permissions
- * own/branch/all) and restricts UNCONDITIONALLY; applyPipelineScope() only
- * ever narrows further on top of that.
+ * WHICH PERMISSION KEY GOVERNS THE CEILING (corrected 2026-08-20): the first
+ * cut of this resolver read PermissionService::getDataScope($user, 'contacts')
+ * — the same ceiling ContactScope enforces on the Buyer Pipeline board and the
+ * Contacts screens. That was wrong. Johan, verbatim: "all reports are scoped
+ * from the role manager - agents can see own, bm sees branch, admin sees all."
+ * contacts.view governs whether an agent can BROWSE the buyers book on the
+ * pipeline/contacts screens — deliberately 'all' for HFC today, a real,
+ * separate product decision. It does not govern REPORTS. Reports are scoped
+ * by their OWN {module}.view permission, exactly like every other scoped
+ * report/module in this app (deals.view, targets.view, presentations.view,
+ * listings.view, …) — see PermissionService::getDataScope() call sites
+ * app-wide. This resolver now reads 'buyers_report' as its module, via the
+ * 'buyers_report.view' permission (config/corex-permissions.php), with its
+ * scope governed by the SAME role → own/branch/all default every other
+ * module already uses (config's 'scope_defaults': agent=own,
+ * branch_manager=branch, admin=all) — not invented here, just applied here.
+ * 'view_buyers_report' (no '.view' suffix) is a SEPARATE, unrelated key: a
+ * plain access gate on the route (can this role open the report AT ALL),
+ * checked via User::hasPermission(), same shape as view_performance/
+ * view_listings. buyers_report.view answers a different question (how much
+ * does an already-admitted viewer see) via getDataScope(), same shape as
+ * deals.view/targets.view. Both exist; neither substitutes for the other.
  *
  * The buyers report's data layer (BuyerActivityService, and the new metric
  * providers) queries via DB::table('contacts') — the QUERY BUILDER, not
- * Eloquent — so ContactScope's global scope never runs. Copying
- * applyPipelineScope() alone here would silently drop the actual ceiling and
- * reproduce exactly the ROI report's defect under a different name. So this
- * resolver computes BOTH layers explicitly and by hand:
- *   1. the ceiling — PermissionService::getDataScope($user, 'contacts'),
- *      the same real enforcement ContactScope reads, own/branch/all;
+ * Eloquent — so no Eloquent global scope runs underneath it regardless of
+ * which permission key governs the ceiling; this resolver computes the
+ * ceiling and the clamp explicitly and by hand:
+ *   1. the ceiling — PermissionService::getDataScope($user, 'buyers_report'),
+ *      own/branch/all, exactly as every other scoped report/module reads it;
  *   2. the requested level, clamped DOWN to that ceiling, never up
  *      (mirrors PermissionService::clampScope's own/branch/all breadth
  *      order, reused here for 'own'/'branch'/'agency' — 'agency' is this
@@ -175,11 +187,14 @@ class BuyersReportScopeResolver
             return BuyersReportScope::LEVEL_AGENCY;
         }
 
-        // Same real ceiling ContactScope enforces on every Eloquent Contact
-        // query — the mechanism this resolver exists to replicate by hand for
-        // the query-builder data layer. 'all'/null -> agency; 'branch' ->
-        // branch; anything else (including 'own') -> own.
-        $scope = \App\Services\PermissionService::getDataScope($user, 'contacts');
+        // The report's OWN scope, from its OWN permission (buyers_report.view)
+        // — NOT 'contacts'. See the class docblock: contacts.view governs the
+        // pipeline/contacts screens, a deliberately separate, often broader
+        // grant; reports are scoped more tightly, by their own module key,
+        // exactly like deals.view/targets.view/presentations.view elsewhere
+        // in this app. 'all'/null -> agency; 'branch' -> branch; anything
+        // else (including 'own') -> own.
+        $scope = \App\Services\PermissionService::getDataScope($user, 'buyers_report');
 
         return match ($scope) {
             'all', null => BuyersReportScope::LEVEL_AGENCY,
