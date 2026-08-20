@@ -23,7 +23,13 @@ use Tests\TestCase;
  * correspondence history indistinguishable from a human-confirmed one. Fixed: only confirmed links
  * reach the feed (Johan's explicit call — exclude, don't flag-and-show).
  *
- * Also covers the Comments/Emails/WhatsApp "Show" selector (?feed=) added alongside the fix.
+ * Also covers the Comments/Emails "Show" selector (?feed=) added alongside the fix.
+ *
+ * 2026-08-20 (Johan, scope call, same day) — "whatsapp is not part of the scope... theres no ways
+ * to figure out which whatsapps links to which deals. so no whatsapp in deal register." WhatsApp is
+ * excluded from CommunicationEventSource at the query itself — not filterable, not shown-unverified,
+ * simply never reaches a deal's feed. The tests below were originally written proving WhatsApp WAS a
+ * reachable feed option; they now prove the opposite.
  */
 final class CommsFeedVerificationAndFilterTest extends TestCase
 {
@@ -118,28 +124,21 @@ final class CommsFeedVerificationAndFilterTest extends TestCase
     {
         [$agency, , $user, $deal, $twinId] = $this->world();
         $email = $this->comm($agency->id, $user->id, 'email', 'Email subject line');
-        $wa    = $this->comm($agency->id, $user->id, 'whatsapp', 'Whatsapp subject line');
         $this->link($agency->id, $email->id, $twinId, confirmed: true);
-        $this->link($agency->id, $wa->id, $twinId, confirmed: true);
 
         $this->actingAs($user);
 
-        // All — both present.
+        // All — email present.
         $this->get(route('deals-dr2.pipeline.list', $deal))
-            ->assertOk()->assertSee('Email subject line')->assertSee('Whatsapp subject line');
+            ->assertOk()->assertSee('Email subject line');
 
         // Emails only.
         $this->get(route('deals-dr2.pipeline.list', $deal) . '?feed=email')
-            ->assertOk()->assertSee('Email subject line')->assertDontSee('Whatsapp subject line');
+            ->assertOk()->assertSee('Email subject line');
 
-        // WhatsApp only — the case Johan called out: it must be its own reachable option, not
-        // silently dropped when a filter is applied.
-        $this->get(route('deals-dr2.pipeline.list', $deal) . '?feed=whatsapp')
-            ->assertOk()->assertSee('Whatsapp subject line')->assertDontSee('Email subject line');
-
-        // Comments only — neither comm-derived subject should appear.
+        // Comments only — the email-derived subject should not appear.
         $this->get(route('deals-dr2.pipeline.list', $deal) . '?feed=comment')
-            ->assertOk()->assertDontSee('Email subject line')->assertDontSee('Whatsapp subject line');
+            ->assertOk()->assertDontSee('Email subject line');
     }
 
     public function test_unconfirmed_link_is_excluded_under_every_feed_value(): void
@@ -147,13 +146,49 @@ final class CommsFeedVerificationAndFilterTest extends TestCase
         // The verification gate and the type filter are independent — an unconfirmed link must
         // never resurface just because a specific feed value was picked.
         [$agency, , $user, $deal, $twinId] = $this->world();
-        $unconfirmed = $this->comm($agency->id, $user->id, 'whatsapp', 'Never verified whatsapp');
+        $unconfirmed = $this->comm($agency->id, $user->id, 'email', 'Never verified email');
         $this->link($agency->id, $unconfirmed->id, $twinId, confirmed: false);
 
         $this->actingAs($user);
-        foreach (['all', 'whatsapp'] as $feed) {
+        foreach (['all', 'email', 'comment'] as $feed) {
             $this->get(route('deals-dr2.pipeline.list', $deal) . '?feed=' . $feed)
-                ->assertOk()->assertDontSee('Never verified whatsapp');
+                ->assertOk()->assertDontSee('Never verified email');
         }
+    }
+
+    /**
+     * 2026-08-20 scope call — WhatsApp never appears in a deal's feed, under ANY filter value,
+     * REGARDLESS of confirmation status. Confirmed here on purpose: this isolates the WhatsApp
+     * exclusion from the separate confirmed_at gate — even a fully human-confirmed WhatsApp link
+     * must not surface, because the exclusion is about attribution (which deal a WhatsApp thread
+     * belongs to), not about verification.
+     */
+    public function test_whatsapp_never_appears_in_the_deal_feed_under_any_filter(): void
+    {
+        [$agency, , $user, $deal, $twinId] = $this->world();
+        $wa = $this->comm($agency->id, $user->id, 'whatsapp', 'Whatsapp subject line');
+        $this->link($agency->id, $wa->id, $twinId, confirmed: true);
+
+        $this->actingAs($user);
+
+        // 'whatsapp' is no longer a valid ?feed= option at all — it falls back to 'all', which
+        // must still not show it.
+        foreach (['all', 'email', 'comment', 'whatsapp'] as $feed) {
+            $this->get(route('deals-dr2.pipeline.list', $deal) . '?feed=' . $feed)
+                ->assertOk()->assertDontSee('Whatsapp subject line');
+        }
+    }
+
+    public function test_show_selector_no_longer_offers_a_whatsapp_option(): void
+    {
+        [, , $user, $deal] = $this->world();
+
+        $this->actingAs($user);
+        $resp = $this->get(route('deals-dr2.pipeline.list', $deal))->assertOk();
+
+        // Scoped to the Show selector's own generated option URLs (?...&feed=whatsapp), not a bare
+        // substring match — the page's global chrome has an unrelated WhatsApp nav entry
+        // (layouts/corex-sidebar.blade.php), so a plain assertDontSee('WhatsApp') false-positives.
+        $resp->assertDontSee('feed=whatsapp');
     }
 }

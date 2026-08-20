@@ -431,17 +431,18 @@
                            else if(s==='type') a.sort((x,y)=> (x.type||'').localeCompare(y.type||'') || d(x,y));
                            else a.sort(d);
                            return a; } }">
-            {{-- Show filter (Johan, 2026-08-20) — All / Comments / Emails / WhatsApp, each its own
-                 explicit option so WhatsApp is never folded into "Emails" or silently dropped by an
-                 emails-only pick. Server-side (reloads with ?feed=) so it composes with the
-                 confirmed-only gate in CommunicationEventSource, not a client-side re-filter of data
-                 that was already narrowed at the source. --}}
+            {{-- Show filter (Johan, 2026-08-20) — All / Comments / Emails. WhatsApp is deliberately
+                 NOT an option here — Johan's scope call: a WhatsApp thread spans many deals with no
+                 reliable per-message attribution, so it's excluded at the source
+                 (CommunicationEventSource), not merely left off this filter. Server-side (reloads with
+                 ?feed=) so it composes with the confirmed-only gate, not a client-side re-filter of
+                 data that was already narrowed at the source. --}}
             <div class="cbar">
               <span class="t">Comments</span>
               <span class="n">{{ count($board['comments'] ?? []) }} on this deal · shown against their step</span>
               <label class="csort">Show
                 <select onchange="location.href=this.value">
-                  @foreach(['all' => 'All', 'comment' => 'Comments', 'email' => 'Emails', 'whatsapp' => 'WhatsApp'] as $val => $label)
+                  @foreach(['all' => 'All', 'comment' => 'Comments', 'email' => 'Emails'] as $val => $label)
                     <option value="{{ route('deals-dr2.pipeline.list', array_merge(['deal' => $deal->id], request()->except('feed'), ['feed' => $val])) }}"
                             @selected(($feed ?? 'all') === $val)>{{ $label }}</option>
                   @endforeach

@@ -34,8 +34,13 @@ class PipelineListController extends Controller
     ) {
     }
 
-    /** Comments/Emails selector (Johan, 2026-08-20) — the option set, exactly PipelineEvent::$type. */
-    private const FEED_OPTIONS = ['all', 'comment', 'email', 'whatsapp'];
+    /**
+     * Comments/Emails selector (Johan, 2026-08-20). WhatsApp is deliberately NOT an option — Johan's
+     * scope call same day: a WhatsApp thread (e.g. with an attorney) spans many deals with no reliable
+     * per-message attribution, unlike email, so WhatsApp is excluded from the deal register at the
+     * source (CommunicationEventSource), not merely hidden behind a filter choice here.
+     */
+    private const FEED_OPTIONS = ['all', 'comment', 'email'];
 
     public function show(Request $request, Deal $deal): View
     {

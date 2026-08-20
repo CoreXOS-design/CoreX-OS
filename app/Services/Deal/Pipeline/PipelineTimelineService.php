@@ -648,11 +648,12 @@ class PipelineTimelineService
      * The normalized comment feed (footer): who/when/text/scope/step, newest last. Shared by the phased
      * timeline + list footers. Deal-scope = a comment on the anchor/gate; step-scope = on a real step.
      *
-     * $feed (Johan, 2026-08-20, "Comments / Emails selector") — 'all' | 'comment' | 'email' |
-     * 'whatsapp', matching PipelineEvent::$type exactly (no translation layer). Defaults to 'all' so
-     * every existing caller of buildPhased()/commentFeed() is unaffected; only the caller that wires
-     * a request param through changes behaviour. WhatsApp is always its own explicit option — never
-     * folded into "email" or silently dropped by an emails-only pick.
+     * $feed (Johan, 2026-08-20, "Comments / Emails selector") — 'all' | 'comment' | 'email',
+     * matching PipelineEvent::$type exactly (no translation layer). Defaults to 'all' so every
+     * existing caller of buildPhased()/commentFeed() is unaffected; only the caller that wires a
+     * request param through changes behaviour. WhatsApp is deliberately not a $feed value at all —
+     * CommunicationEventSource excludes it at the source (Johan's scope call, same day: no reliable
+     * per-message deal attribution for WhatsApp), so no PipelineEvent ever carries type=whatsapp.
      */
     private function commentFeed(Deal $deal, string $feed = 'all'): array
     {

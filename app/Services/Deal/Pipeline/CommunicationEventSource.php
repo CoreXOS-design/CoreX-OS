@@ -11,12 +11,12 @@ use App\Support\Pipeline\PipelineEventSource;
 use Illuminate\Support\Collection;
 
 /**
- * Pipeline Dashboard Phase 4 — email + WhatsApp events for the activity lane. Reads the comms archive
+ * Pipeline Dashboard Phase 4 — email events for the activity lane. Reads the comms archive
  * (communications) linked to the deal via the polymorphic communication_links (morph → the DR2 twin,
- * App\Models\DealV2\DealV2). `channel` becomes the event type (email|whatsapp); comms carry a real
- * `direction`. They are DEAL-scoped (the archive links to a deal/contact/property, never a step) until
- * a step link exists. This is the "plug in later" source promised in Phase 1 — the DTO/aggregator are
- * unchanged; it just registers alongside CommentEventSource. Spec §3.3, Phase 4.
+ * App\Models\DealV2\DealV2). `channel` becomes the event type (email only — see 2026-08-20 note below);
+ * comms carry a real `direction`. They are DEAL-scoped (the archive links to a deal/contact/property,
+ * never a step) until a step link exists. This is the "plug in later" source promised in Phase 1 — the
+ * DTO/aggregator are unchanged; it just registers alongside CommentEventSource. Spec §3.3, Phase 4.
  *
  * 2026-08-20 (Johan, live bug — deal 137/Linda's mail) — AT-231 §3.4: "Even a HIGH match is
  * PROVISIONAL until the agent verifies the first email." A link with confirmed_at still NULL is
@@ -26,6 +26,13 @@ use Illuminate\Support\Collection;
  * one a human actually confirmed. Fixed: only CONFIRMED links reach the feed. Johan's explicit
  * call, and it matches the spec's own model — an unverified link isn't "filed" yet, so it has no
  * business in the deal's settled correspondence history; it belongs in suspense until verified.
+ *
+ * 2026-08-20 (Johan, scope call) — "whatsapp is not part of the scope... with Linda it's a mess
+ * as agents talk to her about lots of deals. so theres no ways to figure out which whatsapps
+ * links to which deals. so no whatsapp in deal register." A WhatsApp thread with someone like an
+ * attorney spans many deals with no reliable per-message attribution, unlike email (subject/thread
+ * tokens). So this source is EMAIL-only — WhatsApp is excluded at the query itself, not filtered
+ * downstream, so it can never reach the feed under any $feed value.
  */
 class CommunicationEventSource implements PipelineEventSource
 {
@@ -48,6 +55,7 @@ class CommunicationEventSource implements PipelineEventSource
 
         return Communication::with('owner')
             ->whereIn('id', $commIds)
+            ->where('channel', Communication::CHANNEL_EMAIL)
             ->get()
             ->map(fn (Communication $c) => new PipelineEvent(
                 type: $c->channel,                                   // email | whatsapp
