@@ -44,7 +44,18 @@ class ContactNoteController extends Controller
             $contact->contactNotes()->create([
                 'user_id' => auth()->id(),
                 'type'    => $request->input('type'),
-                'body'    => $request->input('body', ''),
+                // 2026-08-20 (Johan, live-hit on staging, real error) — was
+                // $request->input('body', ''). That default only fires when
+                // the key is ABSENT; Laravel's stock ConvertEmptyStringsToNull
+                // middleware turns an empty <textarea name="body"> into
+                // body=null BEFORE this runs, so the key is PRESENT (as
+                // null), input()'s default never applies, and null hit the
+                // NOT NULL column directly: SQLSTATE[23000] "Column 'body'
+                // cannot be null". ?? '' catches both shapes — absent, and
+                // present-but-null — the earlier direct-invocation test only
+                // ever exercised "absent" (an array literal that omitted the
+                // key), not a real browser's always-present empty field.
+                'body'    => $request->input('body') ?? '',
             ]);
 
             // Same first-class contacted signal the tile buttons use — one path, no
