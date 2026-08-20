@@ -1356,6 +1356,10 @@ Route::middleware(['auth'])->group(function () {
         ->middleware('permission:view_buyers_report')->name('buyers-report.agent');
     Route::get('/corex/buyers-report/branch/{branch}', [\App\Http\Controllers\BuyersReport\BuyersReportController::class, 'branch'])
         ->middleware('permission:view_buyers_report')->name('buyers-report.branch');
+    // "What buyers do we have now" (Johan, 2026-08-20) -- demand analysis
+    // live filter (property type ticks + price range slider, overlap match).
+    Route::get('/corex/buyers-report/demand', [\App\Http\Controllers\BuyersReport\BuyersReportController::class, 'demand'])
+        ->middleware('permission:view_buyers_report')->name('buyers-report.demand');
           Route::get('/bm/worksheet-market', [\App\Http\Controllers\BM\WorksheetMarketController::class, 'index'])
           ->middleware('permission:access_worksheet_market')->name('bm.worksheet.market');
       Route::post('/bm/worksheet-market', [\App\Http\Controllers\BM\WorksheetMarketController::class, 'save'])

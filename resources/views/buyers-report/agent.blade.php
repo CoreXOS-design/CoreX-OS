@@ -11,7 +11,7 @@
     // richer per-buyer breakdown from BuyerActivityService::agentDetail()
     // (the same engine AT-366-E's ROI report agent page already uses).
     $m = $report['company'];
-    $stateLabel = fn ($s) => match ($s) { 'warm' => 'Hot', 'new' => 'New', 'cold' => 'Cold', 'lost' => 'Lost', 'won' => 'Won', default => ucfirst((string) $s) };
+    $stateLabel = fn ($s) => match ($s) { 'warm' => 'Warm', 'new' => 'New', 'cold' => 'Cold', 'lost' => 'Lost', 'won' => 'Won', default => ucfirst((string) $s) };
     $money = fn ($v) => 'R ' . number_format((float) $v, 0);
     $drilldownBase = url('/corex/buyers-report/drilldown') . '?' . http_build_query([
         'period' => $preset, 'agent_id' => $targetUser->id, 'type' => $type,
@@ -31,6 +31,7 @@
         </div>
     </div>
 
+    <h2 class="text-base font-semibold mb-3" style="color: var(--text-primary);">What happened to buyers</h2>
     @include('buyers-report._tiles')
 
     @include('buyers-report._needs-attention')
@@ -101,6 +102,10 @@
         </div>
     </div>
     @endif
+
+    @include('buyers-report._pipeline-states')
+
+    @include('buyers-report._demand-analysis')
 
     @include('buyers-report._drilldown-modal')
 </div>

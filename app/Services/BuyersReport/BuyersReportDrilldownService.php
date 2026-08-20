@@ -188,7 +188,7 @@ class BuyersReportDrilldownService
             return [
                 'name' => trim(($b->first_name ?? '') . ' ' . ($b->last_name ?? '')) ?: 'Unnamed buyer',
                 'agent' => $b->agent_name ?? 'Unassigned',
-                'state' => $b->buyer_state === 'warm' ? 'Hot' : ucfirst((string) $b->buyer_state),
+                'state' => ucfirst((string) $b->buyer_state),
                 'days_in_state' => $enteredAt ? (int) abs(\Carbon\CarbonImmutable::parse($enteredAt)->diffInDays($now)) : null,
                 'last_worked' => $lastWorked,
             ];

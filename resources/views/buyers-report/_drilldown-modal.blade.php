@@ -58,11 +58,12 @@ function buyersReport(cfg) {
         drilldownBase: cfg.drilldownBase,
         drillOpen: false, drillLoading: false, drillError: '', drillTitle: '',
         drillColumns: [], drillRows: [], drillTruncated: false,
-        // 'lost' only — the per-agent-summary → per-agent-buyer-list drill
-        // (Johan, 2026-08-20 lost-section redesign). drillBack holds the
-        // {title, subtype} to return to when a summary row is clicked
-        // through to the buyer list; null at every other level/metric.
-        drillMetric: '', drillSubtype: null, drillLevel: null, drillBack: null,
+        // Multi-level drills ('lost', 'pipeline_state') — summary -> per-
+        // agent -> buyers. drillSummaryTitle remembers the last agents-level
+        // title so backToSummary() can re-fetch it without needing to know
+        // per-metric label vocabulary (real/auto losses vs a state name) --
+        // the server always returns the authoritative title on every call.
+        drillMetric: '', drillSubtype: null, drillLevel: null, drillBack: false, drillSummaryTitle: '',
         drill(metric, title, agentId, subtype, level) {
             this.drillOpen = true; this.drillLoading = true; this.drillError = '';
             this.drillTitle = title || metric; this.drillColumns = []; this.drillRows = []; this.drillTruncated = false;
@@ -81,23 +82,22 @@ function buyersReport(cfg) {
                     this.drillTruncated = !!d.truncated;
                     this.drillSubtype = d.subtype ?? null;
                     this.drillLevel = d.level ?? null;
-                    this.drillBack = (this.drillLevel === 'buyers')
-                        ? { title: this.drillSubtype === 'auto' ? 'Auto losses (no activity)' : 'Real losses', subtype: this.drillSubtype }
-                        : null;
+                    if (this.drillLevel === 'agents') { this.drillSummaryTitle = this.drillTitle; }
+                    this.drillBack = this.drillLevel === 'buyers';
                 })
                 .catch(e => { this.drillError = e.message || 'Could not load the detail.'; })
                 .finally(() => { this.drillLoading = false; });
         },
         backToSummary() {
             if (!this.drillBack) return;
-            this.drill(this.drillMetric, this.drillBack.title, null, this.drillBack.subtype, 'agents');
+            this.drill(this.drillMetric, this.drillSummaryTitle, null, this.drillSubtype, 'agents');
         },
         rowClickable(row) {
-            return this.drillMetric === 'lost' && this.drillLevel === 'agents' && row.agent_id !== undefined;
+            return ['lost', 'pipeline_state'].includes(this.drillMetric) && this.drillLevel === 'agents' && row.agent_id !== undefined;
         },
         onRowClick(row) {
             if (!this.rowClickable(row)) return;
-            this.drill('lost', row.agent, row.agent_id, this.drillSubtype, 'buyers');
+            this.drill(this.drillMetric, row.agent, row.agent_id, this.drillSubtype, 'buyers');
         },
         closeDrill() { this.drillOpen = false; },
         cell(row, c) {

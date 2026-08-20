@@ -10,7 +10,7 @@
     // matters. Reuses the exact same partials as index.blade.php so the two
     // never drift.
     $m = $report['company'];
-    $stateLabel = fn ($s) => match ($s) { 'warm' => 'Hot', 'new' => 'New', 'cold' => 'Cold', 'lost' => 'Lost', 'won' => 'Won', default => ucfirst((string) $s) };
+    $stateLabel = fn ($s) => match ($s) { 'warm' => 'Warm', 'new' => 'New', 'cold' => 'Cold', 'lost' => 'Lost', 'won' => 'Won', default => ucfirst((string) $s) };
     $money = fn ($v) => 'R ' . number_format((float) $v, 0);
     $drilldownBase = url('/corex/buyers-report/drilldown') . '?' . http_build_query([
         'scope' => 'agency', 'branch_id' => $scope->branchId, 'period' => $preset, 'type' => $type,
@@ -30,11 +30,16 @@
         </div>
     </div>
 
+    <h2 class="text-base font-semibold mb-3" style="color: var(--text-primary);">What happened to buyers</h2>
     @include('buyers-report._tiles')
 
     @include('buyers-report._needs-attention')
 
     @include('buyers-report._agent-table')
+
+    @include('buyers-report._pipeline-states')
+
+    @include('buyers-report._demand-analysis')
 
     @include('buyers-report._drilldown-modal')
 </div>
