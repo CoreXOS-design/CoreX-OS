@@ -36,29 +36,78 @@ class BuyersReportDrilldownService
      */
     private const MAX_ROWS = 1000;
 
-    /** @param int[] $userIds @return array{count:int, rows:array[], truncated:bool} */
-    public function rows(string $metric, array $userIds, Period $period, int $agencyId): array
-    {
+    /**
+     * @param  int[]  $userIds
+     * @param  ?string  $type  buyer/lead/tenant (BuyersReportService::TYPES)
+     *                         — applies ONLY to buyers/buyers_added/lost/
+     *                         lost_value, the metrics that are this class's
+     *                         own contact queries, matching build()'s
+     *                         identical condition exactly. appointments/
+     *                         comms/buyers_won stay on the full cohort, same
+     *                         as the tile.
+     * @param  ?string  $subtype  'lost' only — 'real'|'auto' (BuyersReportService's
+     *                            reason_code=no_activity split). Required for 'lost'.
+     * @param  ?string  $level    'lost' only — 'agents' (default, per-agent summary
+     *                            for the subtype) or 'buyers' (the actual buyer
+     *                            list for one agent, requires $agentId).
+     * @return array{count:int, rows:array[], truncated:bool}
+     */
+    public function rows(
+        string $metric,
+        array $userIds,
+        Period $period,
+        int $agencyId,
+        ?string $type = null,
+        ?string $subtype = null,
+        ?string $level = null,
+        ?int $agentId = null,
+    ): array {
         if (empty($userIds)) {
             return ['count' => 0, 'rows' => [], 'truncated' => false];
         }
 
-        [$total, $rows] = match ($metric) {
-            'buyers' => $this->buyersHeld($userIds, $agencyId),
-            'buyers_added' => $this->buyersAdded($userIds, $period),
-            'buyers_won' => $this->buyersWon($userIds, $period),
-            'appointments' => $this->appointments($userIds, $period),
-            'comms_email' => $this->comms($userIds, $period, 'email'),
-            'comms_whatsapp' => $this->comms($userIds, $period, 'whatsapp'),
-            'lost', 'lost_value' => $this->lost($userIds, $period),
+        [$total, $rows] = match (true) {
+            $metric === 'buyers' => $this->buyersHeld($userIds, $agencyId, $type),
+            $metric === 'buyers_added' => $this->buyersAdded($userIds, $period, $type),
+            $metric === 'buyers_won' => $this->buyersWon($userIds, $period),
+            $metric === 'appointments' => $this->appointments($userIds, $period),
+            $metric === 'comms_email' => $this->comms($userIds, $period, 'email'),
+            $metric === 'comms_whatsapp' => $this->comms($userIds, $period, 'whatsapp'),
+            in_array($metric, ['lost', 'lost_value'], true) && $level === 'buyers' && $agentId !== null
+                => $this->lostBuyersForAgent($userIds, $period, $subtype ?? 'real', $agentId, $type),
+            in_array($metric, ['lost', 'lost_value'], true)
+                => $this->lostByAgent($userIds, $period, $subtype ?? 'real', $type),
             default => [0, []],
         };
 
         return ['count' => $total, 'rows' => $rows, 'truncated' => $total > count($rows)];
     }
 
-    public function columns(string $metric): array
+    /** Applies the same contact_types LIKE condition BuyersReportService uses — never a re-derived copy. */
+    private function applyType($query, string $alias, ?string $type): void
     {
+        if ($type === null || !isset(BuyersReportService::TYPE_LIKE[$type])) {
+            return;
+        }
+
+        $query->join('contact_types as ct', 'ct.id', '=', "{$alias}.contact_type_id")
+            ->where(function ($q) use ($type) {
+                foreach (BuyersReportService::TYPE_LIKE[$type] as $pattern) {
+                    $q->orWhere('ct.name', 'like', $pattern);
+                }
+            });
+    }
+
+    public function columns(string $metric, ?string $level = null): array
+    {
+        if (in_array($metric, ['lost', 'lost_value'], true) && $level !== 'buyers') {
+            return [
+                ['key' => 'agent', 'label' => 'Agent', 'align' => 'left'],
+                ['key' => 'count', 'label' => 'Lost', 'align' => 'right'],
+                ['key' => 'value', 'label' => 'Value lost', 'align' => 'right', 'format' => 'currency'],
+            ];
+        }
+
         return match ($metric) {
             'buyers' => [
                 ['key' => 'name', 'label' => 'Buyer', 'align' => 'left'],
@@ -101,7 +150,7 @@ class BuyersReportDrilldownService
     }
 
     /** @param int[] $userIds @return array{0:int,1:array[]} */
-    private function buyersHeld(array $userIds, int $agencyId): array
+    private function buyersHeld(array $userIds, int $agencyId, ?string $type = null): array
     {
         $query = DB::table('contacts as c')
             ->leftJoin('users as u', 'u.id', '=', 'c.agent_id')
@@ -109,6 +158,7 @@ class BuyersReportDrilldownService
             ->where('c.is_buyer', 1)
             ->whereNull('c.deleted_at')
             ->whereIn('c.agent_id', $userIds);
+        $this->applyType($query, 'c', $type);
 
         $total = (clone $query)->count();
         if ($total === 0) {
@@ -148,7 +198,7 @@ class BuyersReportDrilldownService
     }
 
     /** @param int[] $userIds @return array{0:int,1:array[]} */
-    private function buyersAdded(array $userIds, Period $period): array
+    private function buyersAdded(array $userIds, Period $period, ?string $type = null): array
     {
         $query = DB::table('contacts as c')
             ->leftJoin('users as u', 'u.id', '=', 'c.agent_id')
@@ -156,6 +206,7 @@ class BuyersReportDrilldownService
             ->whereNull('c.deleted_at')
             ->whereIn('c.agent_id', $userIds)
             ->whereBetween('c.buyer_pipeline_entered_at', [$period->start, $period->end]);
+        $this->applyType($query, 'c', $type);
 
         $total = (clone $query)->count();
         $rows = $query
@@ -263,7 +314,7 @@ class BuyersReportDrilldownService
     }
 
     /** @param int[] $userIds @return array{0:int,1:array[]} */
-    private function lost(array $userIds, Period $period): array
+    private function lost(array $userIds, Period $period, ?string $type = null): array
     {
         $query = DB::table('buyer_lost_records as blr')
             ->leftJoin('contacts as c', 'c.id', '=', 'blr.contact_id')
@@ -271,6 +322,7 @@ class BuyersReportDrilldownService
             ->whereIn('blr.agent_owner_user_id_at_loss', $userIds)
             ->whereNull('blr.recovered_at')
             ->whereBetween('blr.recorded_at', [$period->start, $period->end]);
+        $this->applyType($query, 'c', $type);
 
         $total = (clone $query)->count();
         $rows = $query
@@ -283,6 +335,100 @@ class BuyersReportDrilldownService
                 'agent' => $r->agent_name ?? 'Unassigned',
                 'reason' => $r->reason_label ?: ($r->reason_code ?: 'Unspecified'),
                 'value' => (float) $r->preapproval_amount_at_loss,
+                'recorded_at' => $r->recorded_at,
+            ])->all();
+
+        return [$total, $rows];
+    }
+
+    /**
+     * Lost drill, level 1 — per-agent summary for one subtype (real|auto).
+     * Johan (2026-08-20, lost-section redesign): "the agent who lost it is
+     * critical ... shows agent summary of losses". Mirrors
+     * BuyersReportService::lostInsight()'s isAuto test
+     * (reason_code === 'no_activity') and its real-only value tally exactly
+     * — this level's counts/value must reconcile with the tile's real/auto
+     * split, never a re-derived condition.
+     *
+     * @param int[] $userIds
+     * @return array{0:int,1:array[]}
+     */
+    private function lostByAgent(array $userIds, Period $period, string $subtype, ?string $type = null): array
+    {
+        $isAuto = $subtype === 'auto';
+
+        $query = DB::table('buyer_lost_records as blr')
+            ->leftJoin('users as u', 'u.id', '=', 'blr.agent_owner_user_id_at_loss')
+            ->leftJoin('contacts as c', 'c.id', '=', 'blr.contact_id')
+            ->whereIn('blr.agent_owner_user_id_at_loss', $userIds)
+            ->whereNull('blr.recovered_at')
+            ->whereBetween('blr.recorded_at', [$period->start, $period->end])
+            ->where(function ($q) use ($isAuto) {
+                $isAuto ? $q->where('blr.reason_code', 'no_activity')
+                        : $q->where('blr.reason_code', '!=', 'no_activity')->orWhereNull('blr.reason_code');
+            });
+        $this->applyType($query, 'c', $type);
+
+        $rows = $query
+            ->select([
+                'blr.agent_owner_user_id_at_loss as agent_id',
+                'u.name as agent_name',
+                DB::raw('COUNT(*) as cnt'),
+                DB::raw('SUM(blr.preapproval_amount_at_loss) as value_sum'),
+                DB::raw('MAX(CASE WHEN blr.preapproval_amount_at_loss IS NOT NULL THEN 1 ELSE 0 END) as any_captured'),
+            ])
+            ->groupBy('blr.agent_owner_user_id_at_loss', 'u.name')
+            ->get();
+
+        $total = (int) $rows->sum('cnt');
+
+        $out = $rows->sortByDesc('cnt')->map(fn ($r) => [
+            'agent_id' => (int) $r->agent_id,
+            'agent'    => $r->agent_name ?? 'Unassigned',
+            'count'    => (int) $r->cnt,
+            'value'    => (!$isAuto && (int) $r->any_captured === 1) ? (float) $r->value_sum : null,
+        ])->values()->all();
+
+        return [$total, $out];
+    }
+
+    /**
+     * Lost drill, level 2 — the actual buyers one agent lost, for one subtype.
+     * Same row shape as the flat lost() list, additionally pinned to a
+     * single agent so drilling in from lostByAgent() never shows more than
+     * that agent's own losses.
+     *
+     * @param int[] $userIds  already narrowed to the single agent by the controller
+     * @return array{0:int,1:array[]}
+     */
+    private function lostBuyersForAgent(array $userIds, Period $period, string $subtype, int $agentId, ?string $type = null): array
+    {
+        $isAuto = $subtype === 'auto';
+
+        $query = DB::table('buyer_lost_records as blr')
+            ->leftJoin('contacts as c', 'c.id', '=', 'blr.contact_id')
+            ->leftJoin('users as u', 'u.id', '=', 'blr.agent_owner_user_id_at_loss')
+            ->where('blr.agent_owner_user_id_at_loss', $agentId)
+            ->whereIn('blr.agent_owner_user_id_at_loss', $userIds)
+            ->whereNull('blr.recovered_at')
+            ->whereBetween('blr.recorded_at', [$period->start, $period->end]);
+        $query->where(function ($q) use ($isAuto) {
+            $isAuto ? $q->where('blr.reason_code', 'no_activity')
+                    : $q->where('blr.reason_code', '!=', 'no_activity')->orWhereNull('blr.reason_code');
+        });
+        $this->applyType($query, 'c', $type);
+
+        $total = (clone $query)->count();
+        $rows = $query
+            ->select(['c.first_name', 'c.last_name', 'u.name as agent_name', 'blr.reason_label', 'blr.reason_code', 'blr.preapproval_amount_at_loss', 'blr.recorded_at'])
+            ->orderByDesc('blr.recorded_at')
+            ->limit(self::MAX_ROWS)
+            ->get()
+            ->map(fn ($r) => [
+                'name' => trim(($r->first_name ?? '') . ' ' . ($r->last_name ?? '')) ?: 'Unnamed buyer',
+                'agent' => $r->agent_name ?? 'Unassigned',
+                'reason' => $r->reason_label ?: ($r->reason_code ?: 'Unspecified'),
+                'value' => $isAuto ? null : ($r->preapproval_amount_at_loss !== null ? (float) $r->preapproval_amount_at_loss : null),
                 'recorded_at' => $r->recorded_at,
             ])->all();
 

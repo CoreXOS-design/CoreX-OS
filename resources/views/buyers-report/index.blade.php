@@ -13,25 +13,29 @@
     $stateLabel = fn ($s) => match ($s) { 'warm' => 'Hot', 'new' => 'New', 'cold' => 'Cold', 'lost' => 'Lost', 'won' => 'Won', default => ucfirst((string) $s) };
     $money = fn ($v) => 'R ' . number_format((float) $v, 0);
     $drilldownBase = url('/corex/buyers-report/drilldown') . '?' . http_build_query([
-        'scope' => $scope->level, 'branch_id' => $scope->branchId, 'user_id' => $scope->userId, 'period' => $preset,
+        'scope' => $scope->level, 'branch_id' => $scope->branchId, 'user_id' => $scope->userId, 'period' => $preset, 'type' => $type,
     ]);
 @endphp
 
 <div class="max-w-6xl mx-auto px-4 py-6" x-data="buyersReport({ drilldownBase: @js($drilldownBase) })">
-    <div class="flex items-center justify-between mb-6">
+    <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div>
             <h1 class="text-xl font-semibold" style="color: var(--text-primary);">Buyers Report</h1>
             <p class="text-xs mt-0.5" style="color: var(--text-muted);">
                 {{ match($scope->level) { 'own' => 'Your buyers', 'branch' => 'Your branch', default => 'Whole agency' } }}
                 · {{ ucfirst(str_replace('_', ' ', $preset)) }}
+                @if($type) · {{ $types[$type] }} only @endif
             </p>
         </div>
-        @include('performance.agency-report._period-selector', ['preset' => $preset, 'presets' => $presets, 'compareMode' => $compareMode, 'compareModes' => $compareModes])
+        <div class="flex items-end gap-3 flex-wrap">
+            @include('buyers-report._type-selector', ['type' => $type, 'types' => $types])
+            @include('performance.agency-report._period-selector', ['preset' => $preset, 'presets' => $presets, 'compareMode' => $compareMode, 'compareModes' => $compareModes])
+        </div>
     </div>
 
-    @include('buyers-report._needs-attention')
-
     @include('buyers-report._tiles')
+
+    @include('buyers-report._needs-attention')
 
     @include('buyers-report._agent-table')
 

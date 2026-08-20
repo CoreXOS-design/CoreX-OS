@@ -42,13 +42,14 @@ class BuyersReportController extends Controller
         $requestedUserId = $request->filled('user_id') ? (int) $request->query('user_id') : null;
 
         $scope = $scopeResolver->resolve($user, $requestedLevel, $requestedBranchId, $requestedUserId);
+        $type  = $this->resolveType($request);
 
         [$period, $preset] = $this->resolvePeriod($request, $periods);
 
-        $report = $service->build($scope, $period);
-        $attention = $service->needsAttention($scope);
+        $report = $service->build($scope, $period, $type);
+        $attention = $service->needsAttention($scope, 50, $type);
 
-        [$comparison, $comparisonMeta, $compareMode] = $this->resolveComparison($request, $periods, $service, $scope, $period, $report);
+        [$comparison, $comparisonMeta, $compareMode] = $this->resolveComparison($request, $periods, $service, $scope, $period, $report, $type);
 
         return view('buyers-report.index', [
             'scope'      => $scope,
@@ -56,6 +57,8 @@ class BuyersReportController extends Controller
             'attention'  => $attention,
             'preset'     => $preset,
             'presets'    => PeriodResolver::PRESETS,
+            'type'       => $type,
+            'types'      => BuyersReportService::TYPES,
             'compareMode'    => $compareMode,
             'compareModes'   => PeriodResolver::COMPARE_MODES,
             'comparison'     => $comparison,
@@ -84,6 +87,7 @@ class BuyersReportController extends Controller
         $requestedUserId = $request->filled('user_id') ? (int) $request->query('user_id') : null;
 
         $scope = $scopeResolver->resolve($user, $requestedLevel, $requestedBranchId, $requestedUserId);
+        $type  = $this->resolveType($request);
 
         [$period] = $this->resolvePeriod($request, $periods);
 
@@ -95,6 +99,7 @@ class BuyersReportController extends Controller
         $userIds   = $agents->pluck('id')->map(fn ($i) => (int) $i)->all();
 
         $agentFilterName = null;
+        $agentId = null;
         if ($request->filled('agent_id')) {
             $agentId = (int) $request->query('agent_id');
             if (in_array($agentId, $userIds, true)) {
@@ -102,27 +107,50 @@ class BuyersReportController extends Controller
                 $agentFilterName = $agents->firstWhere('id', $agentId)?->name;
             } else {
                 $userIds = [];
+                $agentId = null;
             }
         }
 
-        $res = $drill->rows($metric, $userIds, $period, $scope->agencyId);
+        // 'lost'/'lost_value' only — real|auto (Johan, 2026-08-20 lost-section
+        // redesign). Anything else defaults to 'real' so a stray/missing
+        // subtype never silently surfaces auto (housekeeping) losses as the
+        // business number.
+        $subtype = $request->query('subtype', 'real');
+        $subtype = in_array($subtype, ['real', 'auto'], true) ? $subtype : 'real';
+        // A specific agent_id (e.g. clicked from the by-agent table) already
+        // identifies who — skip the per-agent summary and go straight to
+        // their buyer list. Without one, default to the summary so the
+        // agent attribution is never skipped (Johan: "the agent who lost it
+        // is critical ... do not lose it").
+        $level = $request->query('level');
+        if (!in_array($level, ['agents', 'buyers'], true)) {
+            $level = $agentId !== null ? 'buyers' : 'agents';
+        }
+
+        $res = $drill->rows($metric, $userIds, $period, $scope->agencyId, $type, $subtype, $level, $agentId);
 
         return response()->json([
-            'title'     => $this->drilldownTitle($metric, $scope, $period, $res['count'], $agentFilterName),
+            'title'     => $this->drilldownTitle($metric, $scope, $period, $res['count'], $agentFilterName, $subtype),
             'total'     => $res['count'],
-            'columns'   => $drill->columns($metric),
+            'columns'   => $drill->columns($metric, in_array($metric, ['lost', 'lost_value'], true) ? $level : null),
             'rows'      => $res['rows'],
             'truncated' => $res['truncated'],
+            'level'     => in_array($metric, ['lost', 'lost_value'], true) ? $level : null,
+            'subtype'   => in_array($metric, ['lost', 'lost_value'], true) ? $subtype : null,
         ]);
     }
 
-    private function drilldownTitle(string $metric, BuyersReportScope $scope, $period, int $total, ?string $agentFilterName): string
+    private function drilldownTitle(string $metric, BuyersReportScope $scope, $period, int $total, ?string $agentFilterName, ?string $subtype = null): string
     {
         $noun = [
             'buyers' => 'buyers held', 'buyers_added' => 'buyers added', 'buyers_won' => 'buyers won',
             'appointments' => 'appointments', 'comms_email' => 'emails', 'comms_whatsapp' => 'WhatsApps',
             'lost' => 'buyers lost', 'lost_value' => 'buyers lost',
         ][$metric] ?? $metric;
+
+        if (in_array($metric, ['lost', 'lost_value'], true) && $subtype !== null) {
+            $noun = $subtype === 'auto' ? 'auto losses (no activity)' : 'real losses';
+        }
 
         $who = $agentFilterName;
         if ($who === null) {
@@ -165,14 +193,15 @@ class BuyersReportController extends Controller
 
         $agencyId = (int) $actor->effectiveAgencyId();
         $scope = new BuyersReportScope($agencyId, BuyersReportScope::LEVEL_OWN, userId: (int) $user->id);
+        $type  = $this->resolveType($request);
 
         [$period, $preset] = $this->resolvePeriod($request, $periods);
 
-        $report = $service->build($scope, $period);
-        $attention = $service->needsAttention($scope);
+        $report = $service->build($scope, $period, $type);
+        $attention = $service->needsAttention($scope, 50, $type);
         $detail = $buyerActivity->agentDetail($agencyId, (int) $user->id, $period);
 
-        [$comparison, $comparisonMeta, $compareMode] = $this->resolveComparison($request, $periods, $service, $scope, $period, $report);
+        [$comparison, $comparisonMeta, $compareMode] = $this->resolveComparison($request, $periods, $service, $scope, $period, $report, $type);
 
         return view('buyers-report.agent', [
             'targetUser' => $user,
@@ -182,6 +211,8 @@ class BuyersReportController extends Controller
             'detail'     => $detail,
             'preset'     => $preset,
             'presets'    => PeriodResolver::PRESETS,
+            'type'       => $type,
+            'types'      => BuyersReportService::TYPES,
             'compareMode'    => $compareMode,
             'compareModes'   => PeriodResolver::COMPARE_MODES,
             'comparison'     => $comparison,
@@ -210,14 +241,15 @@ class BuyersReportController extends Controller
 
         $agencyId = (int) $actor->effectiveAgencyId();
         $scope = new BuyersReportScope($agencyId, BuyersReportScope::LEVEL_BRANCH, branchId: $branchId);
+        $type  = $this->resolveType($request);
 
         [$period, $preset] = $this->resolvePeriod($request, $periods);
 
-        $report = $service->build($scope, $period);
-        $attention = $service->needsAttention($scope);
+        $report = $service->build($scope, $period, $type);
+        $attention = $service->needsAttention($scope, 50, $type);
         $branchName = (string) (DB::table('branches')->where('id', $branchId)->value('name') ?? 'Branch');
 
-        [$comparison, $comparisonMeta, $compareMode] = $this->resolveComparison($request, $periods, $service, $scope, $period, $report);
+        [$comparison, $comparisonMeta, $compareMode] = $this->resolveComparison($request, $periods, $service, $scope, $period, $report, $type);
 
         return view('buyers-report.branch', [
             'branchName' => $branchName,
@@ -226,11 +258,25 @@ class BuyersReportController extends Controller
             'attention'  => $attention,
             'preset'     => $preset,
             'presets'    => PeriodResolver::PRESETS,
+            'type'       => $type,
+            'types'      => BuyersReportService::TYPES,
             'compareMode'    => $compareMode,
             'compareModes'   => PeriodResolver::COMPARE_MODES,
             'comparison'     => $comparison,
             'comparisonMeta' => $comparisonMeta,
         ]);
+    }
+
+    /**
+     * Johan (2026-08-20, live review): "no ways to say buyer / leads".
+     * Real, data-supported buckets only — see BuyersReportService::TYPES.
+     * null = no filter, the existing/unchanged behaviour.
+     */
+    private function resolveType(Request $request): ?string
+    {
+        $type = $request->filled('type') ? (string) $request->query('type') : null;
+
+        return ($type !== null && array_key_exists($type, BuyersReportService::TYPES)) ? $type : null;
     }
 
     /** @return array{0: Period, 1: string} resolved period + effective preset */
@@ -264,7 +310,7 @@ class BuyersReportController extends Controller
      *
      * @return array{0: ?array, 1: ?array, 2: string} [comparison, comparisonMeta, compareMode]
      */
-    private function resolveComparison(Request $request, PeriodResolver $periods, BuyersReportService $service, BuyersReportScope $scope, Period $period, array $current): array
+    private function resolveComparison(Request $request, PeriodResolver $periods, BuyersReportService $service, BuyersReportScope $scope, Period $period, array $current, ?string $type = null): array
     {
         $mode = (string) $request->query('compare', 'off');
         if (!in_array($mode, PeriodResolver::COMPARE_MODES, true)) {
@@ -282,7 +328,7 @@ class BuyersReportController extends Controller
             return [null, null, $mode];
         }
 
-        $previous = $service->build($scope, $comparePeriod);
+        $previous = $service->build($scope, $comparePeriod, $type);
         $comparison = $service->compare($current, $previous);
 
         $comparisonMeta = [
