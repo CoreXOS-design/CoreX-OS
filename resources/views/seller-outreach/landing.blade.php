@@ -2,6 +2,16 @@
 
 @section('title', $ld->agencyName)
 
+{{-- Brand the WhatsApp link-preview card as the sending agency, not CoreX
+     (Johan, 2026-08-20) — same pattern as seller-outreach/unsubscribe.blade.php. --}}
+@push('head')
+<meta property="og:site_name" content="{{ $ld->agencyName }}">
+<meta property="og:title" content="{{ $ld->agencyName }}">
+<meta property="og:description" content="{{ $ld->agencyBlurb }}">
+@if($agencyLogoUrl)<meta property="og:image" content="{{ $agencyLogoUrl }}">@endif
+<meta property="og:url" content="{{ url()->current() }}">
+@endpush
+
 @section('public-content')
 
 {{-- Agency header --}}
