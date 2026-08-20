@@ -142,18 +142,42 @@ final class MarketCompRowsSoldAdapter implements SoldTransactionsSource, HasSour
     }
 
     /**
-     * Loose property-type alignment. CMA Info uses "Residence" — we map that
-     * to the engine's "house" / "unit" buckets via simple substring sniff.
-     * When the filter type is empty, accept all rows.
+     * CMA Info source data uses several distinct labels for the same
+     * dwelling concept ("Residence" from the property-valuation parser,
+     * "Residential" from the vicinity-sale parser — same underlying erf
+     * usage code, different parser vocabulary). Both map to the engine's
+     * "house" / "unit" buckets. Land and anything else stay excluded from
+     * house/unit and only match their own bucket, so widening residential
+     * recognition can never pull commercial/vacant-land/agricultural rows
+     * into a house or unit search.
+     *
+     * 2026-08-20 — was a single hardcoded `=== 'residence'` check, so any
+     * row tagged "Residential" (25% of all comp rows agency-wide) was
+     * silently invisible to every house/unit search. Fixed by normalising
+     * (trim + lowercase, already done above) into two small canonical
+     * buckets instead of adding more literal strings one at a time.
      */
+    private const RESIDENTIAL_TYPES = ['residence', 'residential'];
+    private const LAND_TYPES = ['vacant land', 'land', 'stand', 'erf'];
+
     private function applyPropertyTypeFilter(Collection $rows, string $type): Collection
     {
         $type = strtolower(trim($type));
         if ($type === '' || $type === 'other') return $rows;
 
         return $rows->filter(function ($row) use ($type) {
-            $rowType = strtolower((string) ($row->property_type ?? ''));
-            if ($rowType === '' || $rowType === 'residence') return true;
+            $rowType = strtolower(trim((string) ($row->property_type ?? '')));
+
+            if ($rowType === '') return true;
+
+            if (in_array($rowType, self::RESIDENTIAL_TYPES, true)) {
+                return $type === 'house' || $type === 'unit';
+            }
+
+            if (in_array($rowType, self::LAND_TYPES, true)) {
+                return $type === 'land';
+            }
+
             return str_contains($rowType, $type);
         })->values();
     }
