@@ -2864,9 +2864,9 @@ class CalendarController extends Controller
         $toAttendeeRole = static function (?string $pivotRole): string {
             $r = strtolower(trim((string) $pivotRole));
             return match (true) {
-                in_array($r, ['seller', 'owner', 'landlord', 'lessor'], true) => 'seller_contact',
-                in_array($r, ['buyer', 'tenant', 'lessee'], true)             => 'buyer_contact',
-                default                                                       => 'attendee',
+                in_array($r, ['seller', 'owner', 'landlord', 'lessor'], true)                                => 'seller_contact',
+                in_array($r, CalendarEventLink::PROPERTY_PIVOT_BUYER_ROLES, true)                             => 'buyer_contact',
+                default                                                                                       => 'attendee',
             };
         };
 
