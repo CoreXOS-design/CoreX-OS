@@ -1332,28 +1332,11 @@
                 </form>
             </div>
 
-            {{-- Notes list --}}
+            {{-- Notes list — shared partial (2026-08-20): same markup the buyer
+                 pipeline's Notes tab uses, so a note written on either screen
+                 renders identically (same record, same display, on purpose). --}}
             @forelse($contact->contactNotes as $note)
-            <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
-                <div class="flex items-start justify-between gap-3">
-                    <div class="flex items-center gap-2 flex-shrink-0">
-                        <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
-                             style="background:var(--brand-default, #0b2a4a);">
-                            {{ strtoupper(substr($note->user?->name ?? '?', 0, 1)) }}
-                        </div>
-                        <div>
-                            <div class="text-xs font-semibold" style="color:var(--text-primary);">{{ $note->user?->name ?? 'Unknown' }}</div>
-                            <div class="text-xs" style="color:var(--text-muted);">{{ $note->created_at->format('d M Y H:i') }} · {{ $note->created_at->diffForHumans() }}</div>
-                        </div>
-                    </div>
-                    <form method="POST" action="{{ route('corex.contacts.notes.destroy', [$contact, $note]) }}"
-                          onsubmit="return confirm('Delete this note?');">
-                        @csrf @method('DELETE')
-                        <button type="submit" class="text-xs font-semibold flex-shrink-0" style="color: var(--ds-crimson);">Delete</button>
-                    </form>
-                </div>
-                <div class="mt-3 text-sm whitespace-pre-line" style="color:var(--text-primary);">{{ $note->body }}</div>
-            </div>
+                @include('corex.contacts._note-item', ['note' => $note])
             @empty
             <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
                 <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
