@@ -232,6 +232,7 @@ final class BuyersReportServiceTest extends TestCase
             $table->string('name')->nullable();
             $table->string('role', 40)->nullable();
             $table->boolean('is_active')->default(1);
+            $table->boolean('show_in_performance_reports')->default(1);
             $table->timestamp('deleted_at')->nullable();
         });
 
