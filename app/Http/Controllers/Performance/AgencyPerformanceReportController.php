@@ -23,6 +23,96 @@ use Illuminate\Support\Facades\DB;
  */
 class AgencyPerformanceReportController extends Controller
 {
+    /**
+     * Branch-scope authorization — 2026-08-20 security fix (cc6's finding,
+     * reproduced before this fix landed). AGENCY isolation was already solid
+     * everywhere: agencyId is always $request->user()->effectiveAgencyId(),
+     * read server-side, never request input — confirmed across all six
+     * actions. BRANCH isolation was not enforced anywhere: branch_id/user_id
+     * came straight off the query string (or, for print(), was silently
+     * forced to whole-company) with no check against the viewer's own
+     * branch, so any authenticated user holding view_performance could see
+     * the whole company or reach any branch/agent by editing the URL.
+     *
+     * Fixed with the SAME mechanism already proven in
+     * BuyerPipelineController::applyPipelineScope() — no new pattern
+     * invented: own/branch/agency, role-defaulted, effectiveBranchId()-based.
+     * 'agency' tier is gated on branches.view_all — the exact permission
+     * User::branchOverrideStillAuthorized() already gates the branch
+     * switcher on, so this can never disagree with what a legitimate
+     * view_as_branch_id override already allows. Everyone else is confined
+     * to effectiveBranchId(), which itself already honours that override —
+     * a manager legitimately switched to another branch keeps working
+     * unchanged; someone just editing the URL does not.
+     */
+    private function scopeTier(User $actor): string
+    {
+        if ($actor->hasPermission('branches.view_all')) {
+            return 'agency';
+        }
+        if ($actor->effectiveRole() === 'branch_manager') {
+            return 'branch';
+        }
+        return 'own';
+    }
+
+    /**
+     * The branch_id a report request is ALLOWED to run against — clamps to
+     * the actor's own branch (or rejects an explicit mismatch) rather than
+     * trusting the query string. 404, not 403, to match this controller's
+     * existing out-of-agency convention (agent()/agentPrint() already
+     * abort_unless(...404) rather than 403) — don't reveal whether the
+     * branch exists, just that it isn't reachable from here.
+     */
+    private function authorizeBranchId(User $actor, ?int $requestedBranchId): ?int
+    {
+        if ($this->scopeTier($actor) === 'agency') {
+            return $requestedBranchId; // whole-company role: any branch, or null = company rollup
+        }
+
+        $ownBranchId = $actor->effectiveBranchId();
+
+        if ($requestedBranchId !== null) {
+            abort_unless($requestedBranchId === $ownBranchId, 404, 'Not authorized for that branch.');
+        }
+
+        return $ownBranchId;
+    }
+
+    /**
+     * The user_id a report request is ALLOWED to run against. 'branch' tier
+     * (branch_manager) may see any agent who is a MEMBER OF THEIR OWN
+     * effective branch — not a company-wide agent picker. 'own' tier
+     * (everyone else — a plain agent) is always confined to themselves; a
+     * requested different user_id is rejected outright, never silently
+     * substituted, so a caller can tell "I got blocked" from "I got my own
+     * report by default".
+     */
+    private function authorizeUserId(User $actor, ?int $requestedUserId): ?int
+    {
+        $tier = $this->scopeTier($actor);
+
+        if ($tier === 'agency') {
+            return $requestedUserId;
+        }
+
+        if ($tier === 'branch') {
+            if ($requestedUserId === null) {
+                return null; // no single agent requested — branch-wide rollup for their own branch
+            }
+            $ownBranchId    = $actor->effectiveBranchId();
+            $targetBranchId = User::withoutGlobalScopes()->whereKey($requestedUserId)->value('branch_id');
+            abort_unless($ownBranchId !== null && (int) $targetBranchId === (int) $ownBranchId, 404, 'Not authorized for that agent.');
+            return $requestedUserId;
+        }
+
+        // 'own' tier.
+        if ($requestedUserId !== null) {
+            abort_unless($requestedUserId === $actor->id, 404, 'Not authorized for that agent.');
+        }
+        return $actor->id;
+    }
+
     public function index(Request $request, PeriodResolver $periods, AgencyPerformanceReportService $service, BuyerActivityService $buyers, ReportPeriodComparator $comparator)
     {
         $user     = $request->user();
@@ -33,6 +123,9 @@ class AgencyPerformanceReportController extends Controller
 
         $branchId = $request->filled('branch_id') ? (int) $request->query('branch_id') : null;
         $userId   = $request->filled('user_id') ? (int) $request->query('user_id') : null;
+
+        $branchId = $this->authorizeBranchId($user, $branchId);
+        $userId   = $this->authorizeUserId($user, $userId);
 
         $scope  = new PerformanceScope((int) $agencyId, $branchId, $userId);
         $report = $service->build($scope, $period);
@@ -170,6 +263,16 @@ class AgencyPerformanceReportController extends Controller
         abort_if(!$agencyId, 403, 'No agency context for the performance report.');
         abort_unless($branch === 'unassigned' || ctype_digit($branch), 404);
 
+        // Branch-scope fix — 'unassigned' spans every branch's ownerless
+        // agents, which is inherently cross-branch, so only 'agency' tier
+        // may view it. A numeric branch must equal the actor's own
+        // effectiveBranchId() unless they hold branches.view_all.
+        if ($branch === 'unassigned') {
+            abort_unless($this->scopeTier($actor) === 'agency', 404, 'Not authorized for the unassigned-branch view.');
+        } else {
+            $this->authorizeBranchId($actor, (int) $branch);
+        }
+
         [$period, $preset] = $this->resolvePeriod($request, $periods);
 
         $report = $service->branchJourney((int) $agencyId, $branch, $period);
@@ -200,6 +303,7 @@ class AgencyPerformanceReportController extends Controller
         $agencyId = $actor?->effectiveAgencyId();
         abort_if(!$agencyId, 403, 'No agency context for the performance report.');
         abort_unless((int) $user->agency_id === (int) $agencyId, 404);
+        $this->authorizeUserId($actor, (int) $user->id);
 
         [$period, $preset] = $this->resolvePeriod($request, $periods);
 
@@ -229,7 +333,13 @@ class AgencyPerformanceReportController extends Controller
 
         [$period, $preset] = $this->resolvePeriod($request, $periods);
 
-        $scope  = new PerformanceScope((int) $agencyId, null, null);
+        // Branch-scope fix — this used to force whole-company scope
+        // unconditionally, for every role: any user with view_performance
+        // got the entire company printed. Now respects tier exactly like
+        // index() does.
+        $branchId = $this->authorizeBranchId($user, null);
+        $userId   = $this->authorizeUserId($user, null);
+        $scope  = new PerformanceScope((int) $agencyId, $branchId, $userId);
         $report = $service->build($scope, $period);
         $buyerActivity = $buyers->rollup($scope, $period);
 
@@ -251,6 +361,7 @@ class AgencyPerformanceReportController extends Controller
         $agencyId = $actor?->effectiveAgencyId();
         abort_if(!$agencyId, 403, 'No agency context for the performance report.');
         abort_unless((int) $user->agency_id === (int) $agencyId, 404);
+        $this->authorizeUserId($actor, (int) $user->id);
 
         [$period, $preset] = $this->resolvePeriod($request, $periods);
 
@@ -272,7 +383,8 @@ class AgencyPerformanceReportController extends Controller
      */
     public function drilldown(Request $request, PeriodResolver $periods, PerformanceDrilldownService $drill)
     {
-        $agencyId = (int) ($request->user()?->effectiveAgencyId() ?? 0);
+        $actor    = $request->user();
+        $agencyId = (int) ($actor?->effectiveAgencyId() ?? 0);
         abort_if(!$agencyId, 403, 'No agency context.');
 
         // Accept BOTH the short contract aliases AND every provider/tile key shown on the report.
@@ -301,10 +413,20 @@ class AgencyPerformanceReportController extends Controller
         $agentId = null; $branchId = null;
         if ($level === 'agent') {
             abort_unless($id && DB::table('users')->where('id', $id)->where('agency_id', $agencyId)->exists(), 404, 'Agent not in agency.');
+            $this->authorizeUserId($actor, $id);
             $agentId = $id;
         } elseif ($level === 'branch' && $id !== null) {
             abort_unless(DB::table('branches')->where('id', $id)->where('agency_id', $agencyId)->exists(), 404, 'Branch not in agency.');
+            $this->authorizeBranchId($actor, $id);
             $branchId = $id;
+        } else {
+            // Branch-scope fix — 'company' (the default when no level/id is
+            // given at all) used to run with no restriction whatsoever: a
+            // plain agent hitting this endpoint with nothing but a metric
+            // name got the whole company's drilldown rows. Confine
+            // non-agency-tier callers to their own scope, same as index().
+            $branchId = $this->authorizeBranchId($actor, null);
+            $agentId  = $this->authorizeUserId($actor, null);
         }
 
         [$period] = $this->resolvePeriod($request, $periods);
