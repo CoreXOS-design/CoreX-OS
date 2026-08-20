@@ -109,6 +109,60 @@ class BuyersReportScopeResolver
         return new BuyersReportScope($agencyId, $level, $branchId, $userId);
     }
 
+    /**
+     * Can $user open the dedicated PAGE for agent $targetUserId? Distinct
+     * from resolve() — a page for one specific agent is a narrower ask than
+     * "what's my scope," and needs its own check: 'agency' ceiling -> any
+     * agent in the agency; 'branch' ceiling -> only an agent in the viewer's
+     * OWN branch (not just their agency — this is exactly the check
+     * AgencyPerformanceReportController::agent() is missing, per Johan);
+     * 'own' ceiling -> only the viewer themselves.
+     */
+    public function canViewAgent(User $user, int $targetUserId): bool
+    {
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
+        if (!$agencyId) {
+            return false;
+        }
+
+        $target = DB::table('users')->where('id', $targetUserId)->where('agency_id', $agencyId)->first(['id', 'branch_id']);
+        if (!$target) {
+            return false; // not even in this agency
+        }
+
+        return match ($this->ceilingFor($user, $agencyId)) {
+            BuyersReportScope::LEVEL_AGENCY => true, // agency membership already confirmed above
+            BuyersReportScope::LEVEL_BRANCH => $target->branch_id !== null
+                && (int) $target->branch_id === (int) ($user->effectiveBranchId() ?? $user->branch_id ?? 0),
+            default => (int) $targetUserId === (int) $user->id, // 'own'
+        };
+    }
+
+    /**
+     * Can $user open the dedicated PAGE for branch $targetBranchId? Same
+     * shape as canViewAgent(): 'agency' -> any branch in the agency;
+     * 'branch' -> only the viewer's own branch; 'own' -> no branch page at
+     * all (an 'own'-ceiling user has no branch-wide view to open).
+     */
+    public function canViewBranch(User $user, int $targetBranchId): bool
+    {
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
+        if (!$agencyId) {
+            return false;
+        }
+
+        $exists = DB::table('branches')->where('id', $targetBranchId)->where('agency_id', $agencyId)->exists();
+        if (!$exists) {
+            return false;
+        }
+
+        return match ($this->ceilingFor($user, $agencyId)) {
+            BuyersReportScope::LEVEL_AGENCY => true,
+            BuyersReportScope::LEVEL_BRANCH => (int) $targetBranchId === (int) ($user->effectiveBranchId() ?? $user->branch_id ?? 0),
+            default => false, // 'own' ceiling never gets a branch-wide page
+        };
+    }
+
     /** The widest level this user's role is permitted to reach — independent of what was requested. */
     private function ceilingFor(User $user, int $agencyId): string
     {

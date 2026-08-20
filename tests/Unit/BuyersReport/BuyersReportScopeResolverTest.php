@@ -67,6 +67,92 @@ final class BuyersReportScopeResolverTest extends TestCase
         $this->assertNotSame($otherBranch, $scope->branchId, '...and NEVER the one supplied in the request.');
     }
 
+    /**
+     * THE non-negotiable test for the second pass (Johan, 2026-08-20): a
+     * branch manager cannot reach another branch's drill-down or agent page
+     * by URL. cc4 found precisely this gap in AgencyPerformanceReportController's
+     * agent()/drilldown()/print routes -- they check agency membership only,
+     * never branch membership. canViewAgent()/canViewBranch() exist so the
+     * buyers report's agent/branch pages and drill-down never do the same.
+     */
+    public function test_branch_manager_cannot_view_an_agent_page_outside_their_own_branch(): void
+    {
+        $agencyId  = 9006;
+        $ownBranch = 801;
+        $otherBranch = 802;
+        $this->seedAgency($agencyId, splitBranches: true);
+        $this->seedBranch($ownBranch, $agencyId);
+        $this->seedBranch($otherBranch, $agencyId);
+        $this->grantContactsScope('branch_manager', $agencyId, 'all');
+
+        DB::table('users')->insert(['id' => 501, 'agency_id' => $agencyId, 'branch_id' => $ownBranch]);
+        DB::table('users')->insert(['id' => 502, 'agency_id' => $agencyId, 'branch_id' => $otherBranch]);
+
+        $bm = $this->makeUser(701, $agencyId, $ownBranch, 'branch_manager');
+        $resolver = new BuyersReportScopeResolver();
+
+        $this->assertTrue($resolver->canViewAgent($bm, 501), 'Own-branch agent must be viewable.');
+        $this->assertFalse($resolver->canViewAgent($bm, 502), 'Different-branch agent, same agency, must NOT be viewable.');
+    }
+
+    public function test_branch_manager_cannot_view_another_branchs_page(): void
+    {
+        $agencyId  = 9007;
+        $ownBranch = 901;
+        $otherBranch = 902;
+        $this->seedAgency($agencyId, splitBranches: true);
+        $this->seedBranch($ownBranch, $agencyId);
+        $this->seedBranch($otherBranch, $agencyId);
+        $this->grantContactsScope('branch_manager', $agencyId, 'all');
+
+        $bm = $this->makeUser(702, $agencyId, $ownBranch, 'branch_manager');
+        $resolver = new BuyersReportScopeResolver();
+
+        $this->assertTrue($resolver->canViewBranch($bm, $ownBranch));
+        $this->assertFalse($resolver->canViewBranch($bm, $otherBranch));
+    }
+
+    public function test_own_ceiling_agent_cannot_view_any_agent_page_but_their_own_or_any_branch_page(): void
+    {
+        $agencyId = 9008;
+        $branch   = 1001;
+        $this->seedAgency($agencyId, splitBranches: false);
+        $this->seedBranch($branch, $agencyId);
+        $this->grantContactsScope('agent', $agencyId, 'own');
+
+        DB::table('users')->insert(['id' => 601, 'agency_id' => $agencyId, 'branch_id' => $branch]);
+        DB::table('users')->insert(['id' => 602, 'agency_id' => $agencyId, 'branch_id' => $branch]);
+
+        $agent = $this->makeUser(601, $agencyId, $branch, 'agent');
+        $resolver = new BuyersReportScopeResolver();
+
+        $this->assertTrue($resolver->canViewAgent($agent, 601), 'An agent can view their own page.');
+        $this->assertFalse($resolver->canViewAgent($agent, 602), 'An agent cannot view a colleague\'s page, even same branch.');
+        $this->assertFalse($resolver->canViewBranch($agent, $branch), 'An own-ceiling agent gets no branch-wide page at all.');
+    }
+
+    public function test_agency_ceiling_admin_can_view_any_agent_or_branch_in_their_own_agency_but_not_another(): void
+    {
+        $myAgency = 9009;
+        $otherAgency = 9010;
+        $this->seedAgency($myAgency, splitBranches: false);
+        $this->seedAgency($otherAgency, splitBranches: false);
+        $this->seedBranch(1101, $myAgency);
+        $this->seedBranch(1102, $otherAgency);
+        $this->grantContactsScope('admin', $myAgency, 'all');
+
+        DB::table('users')->insert(['id' => 1201, 'agency_id' => $myAgency, 'branch_id' => 1101]);
+        DB::table('users')->insert(['id' => 1202, 'agency_id' => $otherAgency, 'branch_id' => 1102]);
+
+        $admin = $this->makeUser(1301, $myAgency, null, 'admin');
+        $resolver = new BuyersReportScopeResolver();
+
+        $this->assertTrue($resolver->canViewAgent($admin, 1201), 'Any agent in the admin\'s own agency.');
+        $this->assertFalse($resolver->canViewAgent($admin, 1202), 'Never an agent in a DIFFERENT agency.');
+        $this->assertTrue($resolver->canViewBranch($admin, 1101));
+        $this->assertFalse($resolver->canViewBranch($admin, 1102), 'Never a branch in a DIFFERENT agency.');
+    }
+
     public function test_agent_requesting_agency_level_is_clamped_to_own(): void
     {
         $agencyId = 9002;
