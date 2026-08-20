@@ -355,6 +355,22 @@
 
                 {{-- Presentations V2 — one-button generator (Phase 1) + coverage badge + asking-price modal (Phase 2) --}}
                 @if(auth()->user()->hasPermission('create_presentations'))
+                @php
+                    // Pre-generate accuracy warning (Johan, 2026-08-20 — relocated
+                    // from the review screen to here: "warns them BEFORE they
+                    // generate ... can fix it right there while they already
+                    // have the form open"). Same missingSoftInputs() helper the
+                    // comparable-stock cascade uses — treats beds/baths/price
+                    // of 0 as absent, same as a never-filled-in field, since the
+                    // columns are NOT NULL DEFAULT 0 and can't distinguish the two.
+                    // AGENT-ONLY: this whole block sits inside a
+                    // hasPermission('create_presentations') gate on
+                    // corex.properties.show, an authenticated agent route —
+                    // never reachable by a homeowner, who has no CoreX login at
+                    // all, let alone this permission.
+                    $_genMissing = app(\App\Services\Presentations\CompetitorStockMatchService::class)
+                        ->missingSoftInputs($property);
+                @endphp
                 <div x-data="presentationGenerator({
                         propertyId: {{ $property->id }},
                         coverageUrl: '{{ route('corex.properties.presentation-coverage', $property) }}',
@@ -424,6 +440,26 @@
                                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                                            placeholder="e.g. 1500000">
                                 </div>
+
+                                @if(!empty($_genMissing))
+                                    @php
+                                        $_genLabels = ['bedrooms' => 'bedrooms', 'bathrooms' => 'bathrooms', 'price' => 'price'];
+                                        $_genNamed  = array_map(fn ($k) => $_genLabels[$k] ?? $k, $_genMissing);
+                                        $_genJoin   = function (array $items): string {
+                                            if (count($items) === 0) return '';
+                                            if (count($items) === 1) return $items[0];
+                                            $last = array_pop($items);
+                                            return implode(', ', $items) . ' and ' . $last;
+                                        };
+                                    @endphp
+                                    <div class="mt-2 rounded-md px-3 py-2 text-[11px]"
+                                         style="background:color-mix(in srgb, var(--ds-amber,#f59e0b) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber,#f59e0b) 30%, transparent); color:var(--text-primary);">
+                                        <strong>Heads up</strong> — this property is missing {{ $_genJoin($_genNamed) }}.
+                                        Comparable stock will be matched on property type and suburb only, and the
+                                        report will be less accurate.
+                                        <a href="{{ route('corex.properties.show', $property) }}#edit" style="text-decoration:underline;">Set {{ count($_genNamed) === 1 ? 'it' : 'them' }} on the property first</a> for a full report.
+                                    </div>
+                                @endif
 
                                 {{-- Phase 3b — comp scope override at generation time --}}
                                 <div class="mt-4 pt-3" style="border-top:1px solid var(--border);">

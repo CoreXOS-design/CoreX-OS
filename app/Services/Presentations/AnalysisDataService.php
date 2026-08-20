@@ -1208,7 +1208,7 @@ class AnalysisDataService
     {
         $property = $presentation->property;
         if (!$property) {
-            return ['matches' => [], 'included_ids' => null, 'visible' => [], 'display_cap' => null];
+            return ['matches' => [], 'included_ids' => null, 'visible' => [], 'display_cap' => null, 'missing_inputs' => [], 'has_low_confidence' => false];
         }
 
         $service = app(CompetitorStockMatchService::class);
@@ -1314,6 +1314,14 @@ class AnalysisDataService
         $canonicalPos = $this->rankPriceAgainstPool($askingPrice, $competingPrices);
         $canonicalBkt = $this->bracketPricesAgainstAsking($competingPrices, $askingPrice);
 
+        // Progressive relaxation (Johan, 2026-08-20) — "a message at the top
+        // of the report ... no silent fails". Named per missing SUBJECT
+        // field (not per candidate row) so the agent-facing warning can say
+        // exactly what to go fill in. Never affects matching itself — pure
+        // reporting, computed once, cheap (three column reads).
+        $missingInputs = $service->missingSoftInputs($property);
+        $hasLowConfidence = collect($visible)->contains(fn ($row) => !empty($row['low_confidence'] ?? false));
+
         return [
             'matches'      => $matches,
             'included_ids' => $whitelist,
@@ -1326,6 +1334,8 @@ class AnalysisDataService
             'competing_with_price'      => count($competingPrices),
             'price_position_canonical'  => $canonicalPos,
             'price_brackets_canonical'  => $canonicalBkt,
+            'missing_inputs'            => $missingInputs,
+            'has_low_confidence'        => $hasLowConfidence,
         ];
     }
 

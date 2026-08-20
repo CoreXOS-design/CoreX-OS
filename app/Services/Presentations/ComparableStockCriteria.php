@@ -36,9 +36,9 @@ final class ComparableStockCriteria
         public readonly ?int $beds,
         public readonly ?int $bedsMin,
         public readonly ?int $bedsMax,
-        public readonly int $price,
-        public readonly int $priceMin,
-        public readonly int $priceMax,
+        public readonly ?int $price,
+        public readonly ?int $priceMin,
+        public readonly ?int $priceMax,
         public readonly int $bedsTol,
         public readonly int $pricePct,
         /** @var array<string,int> */
