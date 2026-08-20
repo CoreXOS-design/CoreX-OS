@@ -1343,6 +1343,13 @@ Route::middleware(['auth'])->group(function () {
         ->middleware('permission:view_performance')->name('performance.agency-report.print');
     Route::get('/corex/performance/agency-report/agent/{user}/print', [\App\Http\Controllers\Performance\AgencyPerformanceReportController::class, 'agentPrint'])
         ->middleware('permission:view_performance')->name('performance.agency-report.agent.print');
+
+    // Buyers Report (Johan, 2026-08-20) — first pass: Needs Attention list + tiles +
+    // per-agent table. Scoping is NOT view_buyers_report's job (that's a plain access
+    // gate, same shape as view_performance) — it's BuyersReportScopeResolver, called
+    // inside the controller, reading the viewer's real 'contacts' data-scope ceiling.
+    Route::get('/corex/buyers-report', [\App\Http\Controllers\BuyersReport\BuyersReportController::class, 'index'])
+        ->middleware('permission:view_buyers_report')->name('buyers-report.index');
           Route::get('/bm/worksheet-market', [\App\Http\Controllers\BM\WorksheetMarketController::class, 'index'])
           ->middleware('permission:access_worksheet_market')->name('bm.worksheet.market');
       Route::post('/bm/worksheet-market', [\App\Http\Controllers\BM\WorksheetMarketController::class, 'save'])
