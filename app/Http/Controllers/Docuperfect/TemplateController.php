@@ -643,6 +643,25 @@ class TemplateController extends Controller
             }
         }
 
+        // Other-conditions insert (2026-08-20, Johan) — the SAME structural
+        // safety pass + registration step saveContent() runs, applied here
+        // too so an OTHER_CONDITIONS marker placed during import and one
+        // placed later via the template editor's Content tab are the
+        // identical artefact, not two paths that can drift apart again.
+        $markerNormalized = app(\App\Services\Docuperfect\MarkerBlockLevelNormalizer::class)
+            ->normalize((string) ($draft->tagged_html ?? ''));
+        if ($markerNormalized !== ($draft->tagged_html ?? '')) {
+            $draft->tagged_html = $markerNormalized;
+            $draft->save();
+            $editorState = $template->editor_state ?? [];
+            if (is_array($editorState)) {
+                $editorState['tagged_html'] = $markerNormalized;
+                $template->editor_state = $editorState;
+                $template->save();
+            }
+        }
+        $this->syncInsertableBlocksFromTaggedHtml($template, $draft->tagged_html ?? '');
+
         // Generate blade view — use tagged_html (user-edited) as source, fall back to cds_json
         $bladeView = $this->generateCdsBladeView(
             $draft->cds_json,
@@ -1291,7 +1310,111 @@ BLADE;
         $documentTypes = DocumentType::orderBy('sort_order')->get();
         $namedFields = NamedField::orderBy('sort_order')->get();
 
-        return view('docuperfect.templates.edit-web', compact('template', 'branches', 'documentTypes', 'namedFields'));
+        // Other-conditions insert (2026-08-20, Johan) — the Content tab's
+        // starting document body. editor_state['tagged_html'] is the same
+        // source cdsGenerate() writes on every import (cdsGenerate() always
+        // sets it, even to an empty string), so a real imported template
+        // always has real content here — this is never the "no other
+        // conditions yet" case, only the "no editable body at all" case,
+        // which doesn't arise for anything that went through the normal
+        // import pipeline.
+        $editorState = $template->editor_state ?? [];
+        $contentTaggedHtml = is_array($editorState) ? (string) ($editorState['tagged_html'] ?? '') : '';
+
+        return view('docuperfect.templates.edit-web', compact('template', 'branches', 'documentTypes', 'namedFields', 'contentTaggedHtml'));
+    }
+
+    /**
+     * Other-conditions insert (2026-08-20, Johan): "editor insert must
+     * produce the SAME artefact the importer produces — marker AND
+     * registration, not marker alone." Saves the Content tab's edited body
+     * back onto an ALREADY-GENERATED template — the one thing editWeb()
+     * could never do before this. Mirrors cdsGenerate()'s own save shape
+     * (editor_state['tagged_html'] -> generateCdsBladeView() -> blade_view
+     * -> view:clear) so a template edited here and one freshly imported are
+     * indistinguishable to every downstream reader (webPreview, the e-sign
+     * wizard, InsertableBlockRenderer). Deliberately does NOT run the
+     * CdsBindingProjector/RoleBlockNormalizer pass cdsGenerate() runs before
+     * generation — that pipeline governs multi-party role-block contract
+     * detection, a different concern this tab never touches; re-running it
+     * here risks re-normalising already-normalised markup for no reason
+     * this feature needs.
+     *
+     * One source of truth, not a seventh: registration reuses
+     * InsertableBlockRenderer::extractMarkerBlocks() (the exact synthesis
+     * logic the signing-time fallback already relies on), never reimplements
+     * marker parsing.
+     */
+    public function saveContent(Request $request, $id)
+    {
+        $user = $request->user();
+        if (!$user->hasPermission('manage_templates')) {
+            abort(403);
+        }
+
+        $data = $request->validate([
+            'tagged_html' => 'required|string',
+        ]);
+        // Structural safety — every ~~~~MARKER~~~~ becomes the sole content
+        // of its own block-level element before anything else touches it.
+        // Same normalizer cdsGenerate() runs; see that call site's comment
+        // for why this exact equivalence matters.
+        $taggedHtml = app(\App\Services\Docuperfect\MarkerBlockLevelNormalizer::class)->normalize($data['tagged_html']);
+
+        $template = Template::findOrFail($id);
+
+        $this->syncInsertableBlocksFromTaggedHtml($template, $taggedHtml);
+
+        $editorState = $template->editor_state ?? [];
+        if (!is_array($editorState)) {
+            $editorState = [];
+        }
+        $editorState['tagged_html'] = $taggedHtml;
+        $template->editor_state = $editorState;
+
+        $bladeView = $this->generateCdsBladeView(
+            $template->cds_json ?? [],
+            $template->canonicalFieldMappings(),
+            $template->id,
+            $template->name,
+            $template->signing_parties,
+            $taggedHtml,
+            $editorState['tags'] ?? []
+        );
+        $template->blade_view = $bladeView;
+        $template->save();
+
+        Artisan::call('view:clear');
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Marker registration — the "AND registration" half of the equivalence
+     * requirement. Idempotent by block id: an already-registered block
+     * (e.g. one the importer registered, or one this same action registered
+     * on a previous save) is never re-added or overwritten, so re-saving
+     * the same content, or a document that already had a registered block,
+     * is a no-op here. New markers found in $taggedHtml that aren't yet in
+     * insertable_blocks get appended using the SAME shape
+     * synthBlockFromToken() would have synthesized for them anyway — a
+     * registered block and a would-be-synthesized fallback are byte-identical
+     * in structure by construction, never two competing shapes.
+     */
+    private function syncInsertableBlocksFromTaggedHtml(Template $template, string $taggedHtml): void
+    {
+        $found = app(\App\Services\Docuperfect\InsertableBlockRenderer::class)->extractMarkerBlocks($taggedHtml);
+        if (empty($found)) {
+            return;
+        }
+
+        $existing = collect($template->insertable_blocks ?? []);
+        $existingIds = $existing->pluck('id')->all();
+        $toAdd = collect($found)->reject(fn ($b) => in_array($b['id'] ?? null, $existingIds, true));
+
+        if ($toAdd->isNotEmpty()) {
+            $template->insertable_blocks = $existing->concat($toAdd)->values()->all();
+        }
     }
 
     public function webPreview(Request $request, $id)

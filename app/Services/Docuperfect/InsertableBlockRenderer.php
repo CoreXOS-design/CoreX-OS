@@ -782,6 +782,14 @@ final class InsertableBlockRenderer
      * (embedded HTML + misspelling — both observed in live template 111)
      * resolve to OTHER_CONDITIONS rather than rendering literally.
      */
+    /**
+     * The `~~~~TOKEN~~~~` marker shape, shared between renderUnboundMarkers()
+     * (resolving a marker at signing/prep time) and extractMarkerBlocks()
+     * (registering a marker at template-save time). One pattern — the two
+     * must never drift into recognising different things as a marker.
+     */
+    private const MARKER_PATTERN = '/~{4,}([^~]{1,200}?)~{4,}/s';
+
     private function renderUnboundMarkers(
         string $html,
         SignatureTemplate $doc,
@@ -790,7 +798,7 @@ final class InsertableBlockRenderer
         ?string $currentPartyKey = null
     ): string {
         return preg_replace_callback(
-            '/~{4,}([^~]{1,200}?)~{4,}/s',
+            self::MARKER_PATTERN,
             function ($m) use ($doc, $context, $signingToken, $currentPartyKey) {
                 $token = $this->normalisePurposeToken($m[1]);
                 if ($token === null) {
@@ -812,6 +820,45 @@ final class InsertableBlockRenderer
             },
             $html
         );
+    }
+
+    /**
+     * Editor-insert / registration equivalence (2026-08-20, Johan — "editor
+     * insert must produce the SAME artefact the importer produces — marker
+     * AND registration, not marker alone").
+     *
+     * Scans a template's tagged_html for every `~~~~TOKEN~~~~` marker and
+     * returns the SAME structured block shape synthBlockFromToken() already
+     * produces for the signing-time fallback path — reused directly, not
+     * reimplemented, so a registered block and a synthesized-fallback block
+     * for the identical token can never diverge in shape. Deduped by `id`
+     * within the html itself (the same marker appearing twice resolves to
+     * one registration, matching str_replace()'s own all-occurrences
+     * semantics — two copies of the same marker already correctly render
+     * two copies of the same block content without needing two entries).
+     * Unrecognisable marker text is skipped (mirrors renderUnboundMarkers()
+     * leaving it untouched rather than guessing).
+     *
+     * @return array<int, array{id: string, purpose: string, label: string, position_marker: string, auto_number: bool, locked: bool}>
+     */
+    public function extractMarkerBlocks(string $html): array
+    {
+        if ($html === '') {
+            return [];
+        }
+
+        $blocks = [];
+        preg_match_all(self::MARKER_PATTERN, $html, $matches);
+        foreach ($matches[1] ?? [] as $rawToken) {
+            $token = $this->normalisePurposeToken($rawToken);
+            if ($token === null) {
+                continue;
+            }
+            $block = $this->synthBlockFromToken($token);
+            $blocks[$block['id']] = $block;
+        }
+
+        return array_values($blocks);
     }
 
     /**

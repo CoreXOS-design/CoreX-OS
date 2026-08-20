@@ -1,6 +1,7 @@
 @extends('layouts.corex')
 
 @section('corex-content')
+@include('docuperfect.templates._insertable-blocks-mixin')
 <div class="-m-4 lg:-m-6 flex flex-col h-[calc(100vh-3.5rem)] lg:h-[calc(100vh-1rem)]"
      x-data="webTemplateEditor()">
 
@@ -71,8 +72,27 @@
              :class="dragging ? 'bg-[#00d4aa]' : 'bg-slate-200 hover:bg-[#00d4aa]'"
              @mousedown.prevent="startDrag($event)"></div>
 
-        {{-- RIGHT PANE: Field Assignments --}}
+        {{-- RIGHT PANE: Field Assignments / Content --}}
         <div class="flex-1 overflow-y-auto bg-white border-l border-gray-200 flex flex-col">
+
+            {{-- Tab bar (2026-08-20) — Content tab added alongside the
+                 existing Field Assignments pane; same screen, same template,
+                 not a new page. --}}
+            <div style="background:#0b2a4a;" class="px-5 pt-3 flex-shrink-0 flex items-center gap-1">
+                <button type="button" @click="activeTab = 'fields'"
+                        class="text-xs font-semibold px-3 py-2 rounded-t"
+                        :class="activeTab === 'fields' ? 'bg-white text-slate-900' : 'text-white/60 hover:text-white'">
+                    Field Assignments
+                </button>
+                <button type="button" @click="activeTab = 'content'"
+                        class="text-xs font-semibold px-3 py-2 rounded-t"
+                        :class="activeTab === 'content' ? 'bg-white text-slate-900' : 'text-white/60 hover:text-white'">
+                    Content
+                </button>
+            </div>
+
+            {{-- Field Assignments tab --}}
+            <div x-show="activeTab === 'fields'" class="flex flex-col flex-1 min-h-0">
 
             {{-- Field Assignments Header --}}
             <div style="background:#0b2a4a;" class="px-5 py-3 flex-shrink-0">
@@ -187,6 +207,37 @@
                 </div>
             </div>
 
+            </div>{{-- /Field Assignments tab --}}
+
+            {{-- Content tab (2026-08-20, Johan — "a way to insert a other
+                 conditions marker / block that esign uses") — the SAME
+                 contenteditable + insertable-blocks mechanism cds-builder
+                 uses, reused via @include, on an already-generated template.
+                 Structural safety (marker always ends up block-level) and
+                 registration (marker AND insertable_blocks entry, matching
+                 the importer exactly) both happen server-side on save —
+                 see TemplateController::saveContent(). --}}
+            <div x-show="activeTab === 'content'" x-cloak class="flex flex-col flex-1 min-h-0">
+                <div style="background:#0b2a4a;" class="px-5 py-3 flex-shrink-0">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-sm font-semibold text-white">Document Content</h3>
+                        <button type="button" @click="saveContent()" :disabled="savingContent"
+                                class="text-xs px-3 py-1.5 font-medium transition-colors rounded"
+                                :class="savingContent ? 'opacity-60 cursor-wait bg-white/20 text-white' : 'bg-white text-slate-900 hover:opacity-90'">
+                            <span x-text="savingContent ? 'Saving...' : 'Save Content'"></span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="px-5 py-4 flex-1 overflow-y-auto">
+                    @include('docuperfect.templates._insertable-blocks-panel')
+
+                    <div id="docContainer" contenteditable="true" spellcheck="false"
+                         class="doc-tagging-page border border-gray-200 rounded p-4 text-sm bg-white"
+                         style="min-height: 24rem;">{!! $contentTaggedHtml !!}</div>
+                </div>
+            </div>
+
         </div>
     </div>
 </div>
@@ -196,6 +247,13 @@ function webTemplateEditor() {
     const serverFields = @json($template->fields_json ?? []);
 
     return {
+        // Insertable Blocks & Clauses (2026-08-20) — shared with cds-builder
+        // via corexInsertableBlocksMixin() (_insertable-blocks-mixin.blade.php).
+        ...corexInsertableBlocksMixin(),
+
+        activeTab: 'fields',
+        savingContent: false,
+
         fields: serverFields.map(f => ({...f})),
         name: @json($template->name),
         templateType: @json($template->template_type),
@@ -324,6 +382,35 @@ function webTemplateEditor() {
                 this.showToast('Save failed: ' + err.message, 'error');
             } finally {
                 this.saving = false;
+            }
+        },
+
+        async saveContent() {
+            this.savingContent = true;
+            try {
+                const container = document.getElementById('docContainer');
+                const taggedHtml = container ? container.innerHTML : '';
+
+                const resp = await fetch(@json(route('docuperfect.templates.saveContent', $template->id)), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': @json(csrf_token()),
+                        'Accept': 'application/json',
+                    },
+                    body: JSON.stringify({ tagged_html: taggedHtml }),
+                });
+
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+
+                this.showToast('Content saved', 'success');
+                // Refresh the live preview iframe so the new block shows immediately.
+                const frame = document.getElementById('webPreviewFrame');
+                if (frame) frame.src = frame.src;
+            } catch (err) {
+                this.showToast('Save failed: ' + err.message, 'error');
+            } finally {
+                this.savingContent = false;
             }
         },
 
