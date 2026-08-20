@@ -1508,8 +1508,13 @@ Route::post('bm/performance/align-agent-to-company', [\App\Http\Controllers\BM\P
 Route::post('bm/performance/align-targets', [\App\Http\Controllers\BM\PerformanceController::class, 'alignTargets'])->middleware(['auth', 'permission:manage_targets'])->name('bm.performance.align');
 
 // --- TV (no login, token-protected — legacy) ---
+// throttled per finding H1 (.ai/audits/cross-agency-isolation-audit-2026-08-20.md):
+// this shares ONE TV_TOKEN across every agency, mitigated only by a flat
+// TV_ALLOWED_BRANCH_IDS allow-list — full retirement in favour of the
+// TvAccessCode flow is still the right call, but that's a business decision
+// (is a real TV screen still pointed at this URL right now?), not a code fix.
 Route::get('/tv/branch/{branchId}', [\App\Http\Controllers\TV\BranchTvController::class, 'show'])
-    ->middleware('tv')
+    ->middleware(['tv', 'throttle:30,1'])
     ->name('tv.branch');
 
 // --- TV (code-based auth — new) ---
