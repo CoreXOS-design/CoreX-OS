@@ -12,7 +12,10 @@
         ['lost', 'Buyers lost'],
         ['lost_value', 'Value lost'],
     ] as [$key, $label])
-        @php $drillMetric = $key === 'lost_value' ? 'lost' : $key; @endphp
+        @php
+            $drillMetric = $key === 'lost_value' ? 'lost' : $key;
+            $c = $comparison['company'][$key] ?? null;
+        @endphp
         <button type="button" @click="drill('{{ $drillMetric }}', @js($label))"
                 class="rounded-md px-3 py-3 text-left" style="background: var(--surface); border: 1px solid var(--border); cursor: pointer;"
                 title="Click to see the detail">
@@ -20,6 +23,7 @@
             <div class="text-lg font-semibold mt-0.5" style="color: var(--text-primary);">
                 {{ $key === 'lost_value' ? $money($m[$key] ?? 0) : number_format((float) ($m[$key] ?? 0)) }}
             </div>
+            <x-performance-delta :c="$c" :phrase="$comparisonMeta['phrase'] ?? ''" :money="$key === 'lost_value'" />
         </button>
     @endforeach
 </div>

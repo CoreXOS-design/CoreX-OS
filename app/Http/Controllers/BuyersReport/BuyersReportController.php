@@ -48,12 +48,18 @@ class BuyersReportController extends Controller
         $report = $service->build($scope, $period);
         $attention = $service->needsAttention($scope);
 
+        [$comparison, $comparisonMeta, $compareMode] = $this->resolveComparison($request, $periods, $service, $scope, $period, $report);
+
         return view('buyers-report.index', [
             'scope'      => $scope,
             'report'     => $report,
             'attention'  => $attention,
             'preset'     => $preset,
             'presets'    => PeriodResolver::PRESETS,
+            'compareMode'    => $compareMode,
+            'compareModes'   => PeriodResolver::COMPARE_MODES,
+            'comparison'     => $comparison,
+            'comparisonMeta' => $comparisonMeta,
         ]);
     }
 
@@ -165,6 +171,8 @@ class BuyersReportController extends Controller
         $attention = $service->needsAttention($scope);
         $detail = $buyerActivity->agentDetail($agencyId, (int) $user->id, $period);
 
+        [$comparison, $comparisonMeta, $compareMode] = $this->resolveComparison($request, $periods, $service, $scope, $period, $report);
+
         return view('buyers-report.agent', [
             'targetUser' => $user,
             'scope'      => $scope,
@@ -173,6 +181,10 @@ class BuyersReportController extends Controller
             'detail'     => $detail,
             'preset'     => $preset,
             'presets'    => PeriodResolver::PRESETS,
+            'compareMode'    => $compareMode,
+            'compareModes'   => PeriodResolver::COMPARE_MODES,
+            'comparison'     => $comparison,
+            'comparisonMeta' => $comparisonMeta,
         ]);
     }
 
@@ -204,6 +216,8 @@ class BuyersReportController extends Controller
         $attention = $service->needsAttention($scope);
         $branchName = (string) (DB::table('branches')->where('id', $branchId)->value('name') ?? 'Branch');
 
+        [$comparison, $comparisonMeta, $compareMode] = $this->resolveComparison($request, $periods, $service, $scope, $period, $report);
+
         return view('buyers-report.branch', [
             'branchName' => $branchName,
             'scope'      => $scope,
@@ -211,6 +225,10 @@ class BuyersReportController extends Controller
             'attention'  => $attention,
             'preset'     => $preset,
             'presets'    => PeriodResolver::PRESETS,
+            'compareMode'    => $compareMode,
+            'compareModes'   => PeriodResolver::COMPARE_MODES,
+            'comparison'     => $comparison,
+            'comparisonMeta' => $comparisonMeta,
         ]);
     }
 
@@ -231,5 +249,55 @@ class BuyersReportController extends Controller
         }
 
         return [$period, $preset];
+    }
+
+    /**
+     * 2026-08-20 (period comparison, second pass) — mirrors
+     * AgencyPerformanceReportController's resolveComparisonPeriod() +
+     * compareBuyerRollup() wiring exactly: "comparison off" is byte-
+     * identical to before this existed ($report is built once regardless);
+     * an invalid custom range fails soft to comparison-off with the error
+     * flashed, never a 500. $scope is ALREADY the resolved/clamped scope —
+     * this never re-derives it, so the comparison period can never be
+     * computed against a wider cohort than the current period was.
+     *
+     * @return array{0: ?array, 1: ?array, 2: string} [comparison, comparisonMeta, compareMode]
+     */
+    private function resolveComparison(Request $request, PeriodResolver $periods, BuyersReportService $service, BuyersReportScope $scope, Period $period, array $current): array
+    {
+        $mode = (string) $request->query('compare', 'off');
+        if (!in_array($mode, PeriodResolver::COMPARE_MODES, true)) {
+            $mode = 'off';
+        }
+
+        try {
+            $comparePeriod = $periods->resolveComparison($mode, $period, $request->query('compare_start'), $request->query('compare_end'));
+        } catch (\InvalidArgumentException $e) {
+            session()->flash('compare_error', $e->getMessage());
+            return [null, null, 'off'];
+        }
+
+        if ($comparePeriod === null) {
+            return [null, null, $mode];
+        }
+
+        $previous = $service->build($scope, $comparePeriod);
+        $comparison = $service->compare($current, $previous);
+
+        $comparisonMeta = [
+            'period'          => $comparePeriod->toArray(),
+            'mode'            => $mode,
+            'unequal_length'  => $period->lengthInDays() !== $comparePeriod->lengthInDays(),
+            'period_days'     => $period->lengthInDays(),
+            'comparison_days' => $comparePeriod->lengthInDays(),
+            'phrase' => match ($mode) {
+                'previous'       => 'vs previous period',
+                'same_last_year' => 'vs same period last year',
+                'custom'         => 'vs ' . $comparePeriod->label,
+                default          => 'vs comparison period',
+            },
+        ];
+
+        return [$comparison, $comparisonMeta, $mode];
     }
 }

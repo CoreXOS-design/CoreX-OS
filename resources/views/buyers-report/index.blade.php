@@ -26,13 +26,7 @@
                 · {{ ucfirst(str_replace('_', ' ', $preset)) }}
             </p>
         </div>
-        <form method="GET" class="flex items-center gap-2">
-            <select name="period" onchange="this.form.submit()" class="text-xs rounded-md px-2 py-1.5" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                @foreach($presets as $p)
-                    <option value="{{ $p }}" @selected($preset === $p)>{{ ucfirst(str_replace('_', ' ', $p)) }}</option>
-                @endforeach
-            </select>
-        </form>
+        @include('performance.agency-report._period-selector', ['preset' => $preset, 'presets' => $presets, 'compareMode' => $compareMode, 'compareModes' => $compareModes])
     </div>
 
     @include('buyers-report._needs-attention')

@@ -6,6 +6,7 @@ use App\Services\Performance\BranchAttributionResolver;
 use App\Services\Performance\BuyerActivityService;
 use App\Services\Performance\HierarchyResolver;
 use App\Services\Performance\Period;
+use App\Services\Performance\PeriodComparison;
 use App\Services\Performance\PerformanceScope;
 use App\Services\Performance\Providers\BuyersAddedProvider;
 use App\Services\Performance\Providers\BuyersWonProvider;
@@ -86,6 +87,56 @@ class BuyersReportService
         $rollup['metrics'][] = ['key' => 'buyers_added', 'label' => 'Buyers added', 'currency' => false, 'direction' => 'higher_is_better'];
 
         return $rollup;
+    }
+
+    /**
+     * Period-over-period deltas for company/branch/agent, mirroring
+     * AgencyPerformanceReportController::compareBuyerRollup() but generic
+     * over $current['metrics'] (already carries key/label/currency/direction
+     * for every metric build() produces, including buyers_won/buyers_added,
+     * so no separate METRICS const is needed here). $current and $previous
+     * must both come from build() for the SAME scope, different periods.
+     */
+    public function compare(array $current, array $previous): array
+    {
+        $out = ['company' => [], 'branches' => [], 'agents' => []];
+
+        foreach ($current['metrics'] as $m) {
+            $out['company'][$m['key']] = PeriodComparison::compute(
+                (float) ($current['company'][$m['key']] ?? 0),
+                (float) ($previous['company'][$m['key']] ?? 0),
+                $m['direction'],
+            );
+        }
+
+        $branchKeys = array_unique(array_merge(array_keys($current['branches']), array_keys($previous['branches'])));
+        foreach ($branchKeys as $key) {
+            $curB  = $current['branches'][$key]['metrics']  ?? [];
+            $prevB = $previous['branches'][$key]['metrics'] ?? [];
+            $row = [];
+            foreach ($current['metrics'] as $m) {
+                $row[$m['key']] = PeriodComparison::compute((float) ($curB[$m['key']] ?? 0), (float) ($prevB[$m['key']] ?? 0), $m['direction']);
+            }
+            $out['branches'][$key] = [
+                'label'   => $current['branches'][$key]['label'] ?? $previous['branches'][$key]['label'] ?? (string) $key,
+                'metrics' => $row,
+            ];
+        }
+
+        $prevAgentsByUser = [];
+        foreach ($previous['agents'] as $a) {
+            $prevAgentsByUser[$a['user_id']] = $a;
+        }
+        foreach ($current['agents'] as $a) {
+            $prevA = $prevAgentsByUser[$a['user_id']] ?? ['metrics' => []];
+            $row = [];
+            foreach ($current['metrics'] as $m) {
+                $row[$m['key']] = PeriodComparison::compute((float) ($a['metrics'][$m['key']] ?? 0), (float) ($prevA['metrics'][$m['key']] ?? 0), $m['direction']);
+            }
+            $out['agents'][] = ['user_id' => $a['user_id'], 'name' => $a['name'], 'metrics' => $row];
+        }
+
+        return $out;
     }
 
     /**
