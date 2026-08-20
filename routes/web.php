@@ -1056,7 +1056,15 @@ Route::prefix('admin/deposit-trust-interest')->middleware(['auth', 'permission:a
 // ===== ELLIE EXTERNAL REFERENCE SOURCES (ellie-reference-sources spec) =====
 // Global, CoreX-team-managed allowlist of external pages Ellie may search when
 // her own knowledge base and pillar data don't have an answer. super_admin only.
-Route::prefix('admin/ellie/reference-sources')->middleware(['auth', 'permission:manage_reference_sources'])->group(function () {
+//
+// owner_only added per cross-agency isolation audit 2026-08-20 (hygiene
+// finding): the comment above already said "super_admin only" but the
+// middleware enforced only the permission:manage_reference_sources key --
+// nothing prevented that key from being granted to a non-owner agency-admin
+// role via Role Manager, which would let that agency's admin edit what's
+// meant to be a single global, cross-agency allowlist every other agency's
+// Ellie also searches.
+Route::prefix('admin/ellie/reference-sources')->middleware(['auth', 'owner_only', 'permission:manage_reference_sources'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\EllieReferenceSourceController::class, 'index'])->name('admin.ellie.reference-sources.index');
     Route::post('/', [\App\Http\Controllers\Admin\EllieReferenceSourceController::class, 'store'])->name('admin.ellie.reference-sources.store');
     Route::post('/{referenceSource}/refresh', [\App\Http\Controllers\Admin\EllieReferenceSourceController::class, 'refresh'])->name('admin.ellie.reference-sources.refresh');
