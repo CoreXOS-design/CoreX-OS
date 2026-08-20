@@ -122,6 +122,7 @@ class TemplateController extends Controller
         }
 
         $template = Template::with(['branches', 'documentType'])->findOrFail($id);
+        $template->assertAccessibleBy($user);
 
         // CDS templates route to the CDS builder (DB-backed draft)
         if ($template->template_type === 'cds') {
@@ -222,6 +223,7 @@ class TemplateController extends Controller
         }
 
         $template = Template::findOrFail($id);
+        $template->assertAccessibleBy($user);
 
         $data = [];
 
@@ -303,6 +305,7 @@ class TemplateController extends Controller
         }
 
         $template = Template::findOrFail($id);
+        $template->assertAccessibleBy($user);
 
         $request->validate([
             'pages' => 'required|array',
@@ -330,6 +333,7 @@ class TemplateController extends Controller
         }
 
         $template = Template::findOrFail($id);
+        $template->assertAccessibleBy($user);
         $template->update(['archived_at' => now()]);
 
         return redirect()->route('docuperfect.templates.index')
@@ -344,6 +348,7 @@ class TemplateController extends Controller
         }
 
         $template = Template::findOrFail($id);
+        $template->assertAccessibleBy($user);
         $template->update(['archived_at' => null]);
 
         return redirect()->route('docuperfect.templates.index')
@@ -358,6 +363,7 @@ class TemplateController extends Controller
         }
 
         $original = Template::with(['branches', 'signatureZones'])->findOrFail($id);
+        $original->assertAccessibleBy($user);
 
         $copy = $original->replicate();
         $copy->name = $original->name . ' (Copy)';
@@ -1425,6 +1431,7 @@ BLADE;
         }
 
         $template = Template::findOrFail($id);
+        $template->assertAccessibleBy($user);
 
         // 2026-08-15 (Johan, HFC tenant-isolation fix) — no per-record check
         // existed at all; any user with manage_templates could preview any
@@ -1479,6 +1486,7 @@ BLADE;
         }
 
         $template = Template::findOrFail($id);
+        $template->assertAccessibleBy($user);
         $name = $template->name;
 
         // Soft delete — page images preserved on disk for potential restore
@@ -1520,6 +1528,7 @@ BLADE;
         }
 
         $template = Template::with(['branches', 'documentType'])->findOrFail($id);
+        $template->assertAccessibleBy($user);
 
         return view('docuperfect.templates.wizard-config', [
             'template' => $template,
@@ -1537,6 +1546,7 @@ BLADE;
         }
 
         $template = Template::findOrFail($id);
+        $template->assertAccessibleBy($user);
 
         $template->update([
             'wizard_config' => $request->input('wizard_config'),

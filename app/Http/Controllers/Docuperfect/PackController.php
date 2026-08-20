@@ -373,7 +373,16 @@ class PackController extends Controller
             return in_array($slot->template_id, $selectedIds) ? [$slot->template_id] : [];
         }
         if ($slot->document_type_id) {
-            return Template::whereIn('id', $selectedIds)
+            // Cross-agency isolation audit 2026-08-20 follow-up: $selectedIds
+            // is client-supplied (request input) with no prior ownership
+            // check -- an agent submitting a guessed foreign template id
+            // matching this slot's document_type_id could clone another
+            // agency's template into their own document via
+            // createDocumentFromTemplate. Template::visibleTo() is the
+            // existing agency/branch-visibility scope (is_global OR the
+            // caller's own branch pivot).
+            return Template::visibleTo(auth()->user())
+                ->whereIn('id', $selectedIds)
                 ->where('document_type_id', $slot->document_type_id)
                 ->pluck('id')
                 ->toArray();
