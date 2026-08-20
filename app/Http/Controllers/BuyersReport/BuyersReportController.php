@@ -108,10 +108,11 @@ class BuyersReportController extends Controller
         $res = $drill->rows($metric, $userIds, $period, $scope->agencyId);
 
         return response()->json([
-            'title'   => $this->drilldownTitle($metric, $scope, $period, $res['count'], $agentFilterName),
-            'total'   => $res['count'],
-            'columns' => $drill->columns($metric),
-            'rows'    => $res['rows'],
+            'title'     => $this->drilldownTitle($metric, $scope, $period, $res['count'], $agentFilterName),
+            'total'     => $res['count'],
+            'columns'   => $drill->columns($metric),
+            'rows'      => $res['rows'],
+            'truncated' => $res['truncated'],
         ]);
     }
 

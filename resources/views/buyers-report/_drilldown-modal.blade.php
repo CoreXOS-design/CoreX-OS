@@ -18,6 +18,9 @@
             <div x-show="!drillLoading && !drillError && drillRows.length === 0" class="text-xs py-8 text-center" style="color:var(--text-muted);">
                 Nothing to show for this figure in the selected period.
             </div>
+            <div x-show="drillTruncated" class="text-[11px] mb-2" style="color:var(--text-muted);">
+                Showing the first <span x-text="drillRows.length"></span> — narrow the period to see the rest.
+            </div>
             <table x-show="!drillLoading && !drillError && drillRows.length > 0" class="w-full text-xs">
                 <thead>
                     <tr style="background:var(--surface-2);">
@@ -45,16 +48,16 @@ function buyersReport(cfg) {
     return {
         drilldownBase: cfg.drilldownBase,
         drillOpen: false, drillLoading: false, drillError: '', drillTitle: '',
-        drillColumns: [], drillRows: [],
+        drillColumns: [], drillRows: [], drillTruncated: false,
         drill(metric, title, agentId) {
             this.drillOpen = true; this.drillLoading = true; this.drillError = '';
-            this.drillTitle = title || metric; this.drillColumns = []; this.drillRows = [];
+            this.drillTitle = title || metric; this.drillColumns = []; this.drillRows = []; this.drillTruncated = false;
             const sep = this.drilldownBase.includes('?') ? '&' : '?';
             let url = this.drilldownBase + sep + 'metric=' + encodeURIComponent(metric);
             if (agentId !== null && agentId !== undefined && agentId !== '') url += '&agent_id=' + encodeURIComponent(agentId);
             fetch(url, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } })
                 .then(r => { if (!r.ok) throw new Error('Could not load the detail (' + r.status + ').'); return r.json(); })
-                .then(d => { this.drillTitle = d.title || this.drillTitle; this.drillColumns = d.columns || []; this.drillRows = d.rows || []; })
+                .then(d => { this.drillTitle = d.title || this.drillTitle; this.drillColumns = d.columns || []; this.drillRows = d.rows || []; this.drillTruncated = !!d.truncated; })
                 .catch(e => { this.drillError = e.message || 'Could not load the detail.'; })
                 .finally(() => { this.drillLoading = false; });
         },

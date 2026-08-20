@@ -24,14 +24,26 @@ class BuyersReportDrilldownService
 
     public const METRICS = ['buyers', 'buyers_added', 'buyers_won', 'appointments', 'comms_email', 'comms_whatsapp', 'lost', 'lost_value'];
 
-    /** @param int[] $userIds @return array{count:int, rows:array[]} */
+    /**
+     * 2026-08-20 (Johan, pre-Staging GATE 2) — a modal is for a human to scan,
+     * not a data export; no cohort on this box comes close, but the query
+     * itself must never be allowed to grow unbounded just because a very
+     * wide custom period or a very large agency eventually exists. 'count'
+     * is always the TRUE total (a cheap separate COUNT(*), run before the
+     * cap) so the tile and the drill-down never disagree on the number —
+     * only 'rows' is capped, with 'truncated' telling the UI when that
+     * happened.
+     */
+    private const MAX_ROWS = 1000;
+
+    /** @param int[] $userIds @return array{count:int, rows:array[], truncated:bool} */
     public function rows(string $metric, array $userIds, Period $period, int $agencyId): array
     {
         if (empty($userIds)) {
-            return ['count' => 0, 'rows' => []];
+            return ['count' => 0, 'rows' => [], 'truncated' => false];
         }
 
-        $rows = match ($metric) {
+        [$total, $rows] = match ($metric) {
             'buyers' => $this->buyersHeld($userIds, $agencyId),
             'buyers_added' => $this->buyersAdded($userIds, $period),
             'buyers_won' => $this->buyersWon($userIds, $period),
@@ -39,10 +51,10 @@ class BuyersReportDrilldownService
             'comms_email' => $this->comms($userIds, $period, 'email'),
             'comms_whatsapp' => $this->comms($userIds, $period, 'whatsapp'),
             'lost', 'lost_value' => $this->lost($userIds, $period),
-            default => [],
+            default => [0, []],
         };
 
-        return ['count' => count($rows), 'rows' => $rows];
+        return ['count' => $total, 'rows' => $rows, 'truncated' => $total > count($rows)];
     }
 
     public function columns(string $metric): array
@@ -88,22 +100,26 @@ class BuyersReportDrilldownService
         };
     }
 
-    /** @param int[] $userIds */
+    /** @param int[] $userIds @return array{0:int,1:array[]} */
     private function buyersHeld(array $userIds, int $agencyId): array
     {
-        $buyers = DB::table('contacts as c')
+        $query = DB::table('contacts as c')
             ->leftJoin('users as u', 'u.id', '=', 'c.agent_id')
-            ->select(['c.id', 'c.first_name', 'c.last_name', 'c.agent_id', 'c.buyer_state', 'c.last_activity_at', 'c.last_contacted_at', 'u.name as agent_name'])
             ->where('c.agency_id', $agencyId)
             ->where('c.is_buyer', 1)
             ->whereNull('c.deleted_at')
-            ->whereIn('c.agent_id', $userIds)
-            ->orderBy('c.first_name')
-            ->get();
+            ->whereIn('c.agent_id', $userIds);
 
-        if ($buyers->isEmpty()) {
-            return [];
+        $total = (clone $query)->count();
+        if ($total === 0) {
+            return [0, []];
         }
+
+        $buyers = $query
+            ->select(['c.id', 'c.first_name', 'c.last_name', 'c.agent_id', 'c.buyer_state', 'c.last_activity_at', 'c.last_contacted_at', 'u.name as agent_name'])
+            ->orderBy('c.first_name')
+            ->limit(self::MAX_ROWS)
+            ->get();
 
         $buyerIds = $buyers->pluck('id')->map(fn ($i) => (int) $i)->all();
         $latest = DB::table('buyer_state_transitions')
@@ -115,7 +131,7 @@ class BuyersReportDrilldownService
 
         $now = now();
 
-        return $buyers->map(function ($b) use ($latest, $now) {
+        $rows = $buyers->map(function ($b) use ($latest, $now) {
             $enteredAt = $latest->get((int) $b->id, collect())->firstWhere('to_state', $b->buyer_state)?->entered_at;
             $lastWorked = $this->greatest($b->last_contacted_at, $b->last_activity_at);
 
@@ -127,61 +143,79 @@ class BuyersReportDrilldownService
                 'last_worked' => $lastWorked,
             ];
         })->values()->all();
+
+        return [$total, $rows];
     }
 
-    /** @param int[] $userIds */
+    /** @param int[] $userIds @return array{0:int,1:array[]} */
     private function buyersAdded(array $userIds, Period $period): array
     {
-        return DB::table('contacts as c')
+        $query = DB::table('contacts as c')
             ->leftJoin('users as u', 'u.id', '=', 'c.agent_id')
-            ->select(['c.first_name', 'c.last_name', 'u.name as agent_name', 'c.buyer_pipeline_entered_at'])
             ->where('c.is_buyer', 1)
             ->whereNull('c.deleted_at')
             ->whereIn('c.agent_id', $userIds)
-            ->whereBetween('c.buyer_pipeline_entered_at', [$period->start, $period->end])
+            ->whereBetween('c.buyer_pipeline_entered_at', [$period->start, $period->end]);
+
+        $total = (clone $query)->count();
+        $rows = $query
+            ->select(['c.first_name', 'c.last_name', 'u.name as agent_name', 'c.buyer_pipeline_entered_at'])
             ->orderByDesc('c.buyer_pipeline_entered_at')
+            ->limit(self::MAX_ROWS)
             ->get()
             ->map(fn ($r) => [
                 'name' => trim(($r->first_name ?? '') . ' ' . ($r->last_name ?? '')) ?: 'Unnamed buyer',
                 'agent' => $r->agent_name ?? 'Unassigned',
                 'entered' => $r->buyer_pipeline_entered_at,
             ])->all();
+
+        return [$total, $rows];
     }
 
-    /** @param int[] $userIds */
+    /** @param int[] $userIds @return array{0:int,1:array[]} */
     private function buyersWon(array $userIds, Period $period): array
     {
-        return DB::table('buyer_state_transitions as t')
+        $query = DB::table('buyer_state_transitions as t')
             ->join('contacts as c', 'c.id', '=', 't.contact_id')
             ->leftJoin('users as u', 'u.id', '=', 'c.agent_id')
-            ->select(['c.first_name', 'c.last_name', 'u.name as agent_name', 't.occurred_at'])
             ->where('t.to_state', \App\Services\BuyerStateService::WON)
             ->whereIn('c.agent_id', $userIds)
             ->whereNull('c.deleted_at')
-            ->whereBetween('t.occurred_at', [$period->start, $period->end])
+            ->whereBetween('t.occurred_at', [$period->start, $period->end]);
+
+        $total = (clone $query)->count();
+        $rows = $query
+            ->select(['c.first_name', 'c.last_name', 'u.name as agent_name', 't.occurred_at'])
             ->orderByDesc('t.occurred_at')
+            ->limit(self::MAX_ROWS)
             ->get()
             ->map(fn ($r) => [
                 'name' => trim(($r->first_name ?? '') . ' ' . ($r->last_name ?? '')) ?: 'Unnamed buyer',
                 'agent' => $r->agent_name ?? 'Unassigned',
                 'won_at' => $r->occurred_at,
             ])->all();
+
+        return [$total, $rows];
     }
 
-    /** @param int[] $userIds */
+    /** @param int[] $userIds @return array{0:int,1:array[]} */
     private function appointments(array $userIds, Period $period): array
     {
-        return DB::table('calendar_events as ce')
+        $query = DB::table('calendar_events as ce')
             ->join('contacts as c', 'c.id', '=', 'ce.contact_id')
             ->leftJoin('users as u', 'u.id', '=', 'ce.user_id')
-            ->select(['c.first_name', 'c.last_name', 'u.name as agent_name', 'ce.title', 'ce.category', 'ce.event_date'])
             ->where('c.is_buyer', 1)
             ->whereNull('c.deleted_at')
             ->whereColumn('c.agent_id', 'ce.user_id')
             ->whereIn('ce.category', self::APPOINTMENT_CATEGORIES)
             ->whereIn('ce.user_id', $userIds)
-            ->whereBetween('ce.event_date', [$period->start, $period->end])
+            ->whereBetween('ce.event_date', [$period->start, $period->end]);
+
+        $total = (clone $query)->count();
+        $rows = $query
+            ->select(['c.first_name', 'c.last_name', 'u.name as agent_name', 'ce.title', 'ce.category', 'ce.event_date'])
             ->orderByDesc('ce.event_date')
+            ->limit(self::MAX_ROWS)
             ->get()
             ->map(fn ($r) => [
                 'name' => trim(($r->first_name ?? '') . ' ' . ($r->last_name ?? '')) ?: 'Unnamed buyer',
@@ -190,47 +224,59 @@ class BuyersReportDrilldownService
                 'category' => ucfirst(str_replace('_', ' ', (string) $r->category)),
                 'date' => $r->event_date,
             ])->all();
+
+        return [$total, $rows];
     }
 
-    /** @param int[] $userIds */
+    /** @param int[] $userIds @return array{0:int,1:array[]} */
     private function comms(array $userIds, Period $period, string $channel): array
     {
-        return DB::table('communications as m')
+        $query = DB::table('communications as m')
             ->join('communication_links as cl', function ($j) {
                 $j->on('cl.communication_id', '=', 'm.id')
                     ->where('cl.linkable_type', '=', Contact::class)
                     ->whereNull('cl.deleted_at');
             })
             ->join('contacts as c', 'c.id', '=', 'cl.linkable_id')
-            ->leftJoin('users as u', 'u.id', '=', 'm.owner_user_id')
-            ->select(['c.first_name', 'c.last_name', 'u.name as agent_name', 'm.occurred_at'])
             ->where('c.is_buyer', 1)
             ->whereNull('c.deleted_at')
             ->whereColumn('c.agent_id', 'm.owner_user_id')
             ->whereIn('m.owner_user_id', $userIds)
             ->where('m.channel', $channel)
-            ->whereBetween('m.occurred_at', [$period->start, $period->end])
+            ->whereBetween('m.occurred_at', [$period->start, $period->end]);
+
+        $total = (clone $query)->distinct()->count('m.id');
+        $rows = $query
+            ->leftJoin('users as u', 'u.id', '=', 'm.owner_user_id')
+            ->select(['c.first_name', 'c.last_name', 'u.name as agent_name', 'm.occurred_at'])
             ->orderByDesc('m.occurred_at')
             ->distinct()
+            ->limit(self::MAX_ROWS)
             ->get()
             ->map(fn ($r) => [
                 'name' => trim(($r->first_name ?? '') . ' ' . ($r->last_name ?? '')) ?: 'Unnamed buyer',
                 'agent' => $r->agent_name ?? 'Unassigned',
                 'sent_at' => $r->occurred_at,
             ])->all();
+
+        return [$total, $rows];
     }
 
-    /** @param int[] $userIds */
+    /** @param int[] $userIds @return array{0:int,1:array[]} */
     private function lost(array $userIds, Period $period): array
     {
-        return DB::table('buyer_lost_records as blr')
+        $query = DB::table('buyer_lost_records as blr')
             ->leftJoin('contacts as c', 'c.id', '=', 'blr.contact_id')
             ->leftJoin('users as u', 'u.id', '=', 'blr.agent_owner_user_id_at_loss')
-            ->select(['c.first_name', 'c.last_name', 'u.name as agent_name', 'blr.reason_label', 'blr.reason_code', 'blr.preapproval_amount_at_loss', 'blr.recorded_at'])
             ->whereIn('blr.agent_owner_user_id_at_loss', $userIds)
             ->whereNull('blr.recovered_at')
-            ->whereBetween('blr.recorded_at', [$period->start, $period->end])
+            ->whereBetween('blr.recorded_at', [$period->start, $period->end]);
+
+        $total = (clone $query)->count();
+        $rows = $query
+            ->select(['c.first_name', 'c.last_name', 'u.name as agent_name', 'blr.reason_label', 'blr.reason_code', 'blr.preapproval_amount_at_loss', 'blr.recorded_at'])
             ->orderByDesc('blr.recorded_at')
+            ->limit(self::MAX_ROWS)
             ->get()
             ->map(fn ($r) => [
                 'name' => trim(($r->first_name ?? '') . ' ' . ($r->last_name ?? '')) ?: 'Unnamed buyer',
@@ -239,6 +285,8 @@ class BuyersReportDrilldownService
                 'value' => (float) $r->preapproval_amount_at_loss,
                 'recorded_at' => $r->recorded_at,
             ])->all();
+
+        return [$total, $rows];
     }
 
     private function greatest(?string $a, ?string $b): ?string
