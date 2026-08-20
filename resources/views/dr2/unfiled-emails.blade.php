@@ -118,7 +118,7 @@
                             <td style="padding:.6rem .9rem;font-weight:600;">{{ $email->subject ?: '(no subject)' }}</td>
                             <td style="padding:.6rem .9rem;white-space:nowrap;color:var(--text-muted,#6b7280);">{{ optional($email->occurred_at)->format('j M Y H:i') }}</td>
                             <td style="padding:.6rem .9rem;color:var(--text-muted,#6b7280);max-width:22rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-                                {{ \Illuminate\Support\Str::limit($email->body_display ?: ($email->body_text ?: $email->body_preview), 90) }}
+                                {{ \Illuminate\Support\Str::limit((string) ($email->body_display ?: ($email->body_text ?: $email->body_preview)), 90) }}
                             </td>
                             <td style="padding:.6rem .9rem;text-align:right;">
                                 <button type="button" class="corex-btn-primary text-sm" @click="openPicker({{ $email->id }})">File</button>
