@@ -237,6 +237,23 @@ final class Dr2CommunicationLinkTest extends TestCase
         $this->assertNull($restored->deleted_at);
     }
 
+    /**
+     * 2026-08-20, caught during Staging verification — the "Linked Emails" tab was wired into
+     * _pipeline-context-tabs.blade.php (used by the Board / pipeline-timeline view) but
+     * pipeline-list.blade.php (the LIST view — Deal panels: Deal Structure / Work Orders /
+     * Documents / Email Parties / ... / Proforma Invoice) keeps its OWN separate tab bar and
+     * never got the same button + panel. Every other test in this file drives the controller
+     * directly and would stay green regardless of whether any tab exists to reach it from — this
+     * is the one test that would have caught the gap before it reached a real deal page.
+     */
+    public function test_the_linked_emails_tab_is_reachable_from_the_list_view(): void
+    {
+        $this->actingAs($this->agent);
+        $resp = $this->get(route('deals-dr2.pipeline.list', $this->deal))->assertOk();
+        $resp->assertSee('Linked Emails');
+        $resp->assertSee("tab==='comms'", false);
+    }
+
     public function test_search_excludes_communications_already_linked_to_the_deal(): void
     {
         $linked = $this->comm(['subject' => 'Transfer pack']);

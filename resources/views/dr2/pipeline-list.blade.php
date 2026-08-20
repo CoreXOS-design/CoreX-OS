@@ -395,6 +395,7 @@
           <button type="button" class="dr2-tab" :class="tab==='wo'?'corex-tab-active':''" @click="set('wo')" role="tab" :aria-selected="tab==='wo'" style="{{ $woAtt ? 'color:#b91c1c;font-weight:700;' : '' }}" title="{{ $woAtt ? 'A work order is waiting for a supplier' : '' }}">Supplier Work Orders{!! $woAtt ? ' <span aria-hidden=&quot;true&quot; style=&quot;color:#dc2626&quot;>&#9679;</span>' : '' !!}</button>
           <button type="button" class="dr2-tab" :class="tab==='docs'?'corex-tab-active':''" @click="set('docs')" role="tab" :aria-selected="tab==='docs'">Documents</button>
           <button type="button" class="dr2-tab" :class="tab==='email'?'corex-tab-active':''" @click="set('email')" role="tab" :aria-selected="tab==='email'">Email Parties</button>
+          <button type="button" class="dr2-tab" :class="tab==='comms'?'corex-tab-active':''" @click="set('comms')" role="tab" :aria-selected="tab==='comms'">Linked Emails</button>
           <button type="button" class="dr2-tab" :class="tab==='pi'?'corex-tab-active':''" @click="set('pi')" role="tab" :aria-selected="tab==='pi'">Proforma Invoice</button>
           <button type="button" class="dr2-tab" :class="tab==='comments'?'corex-tab-active':''" @click="set('comments')" role="tab" :aria-selected="tab==='comments'">Comments{{ count($board['comments'] ?? []) ? ' ('.count($board['comments']).')' : '' }}</button>
         </div>
@@ -404,6 +405,7 @@
           <div class="rp" x-show="tab==='wo'" x-cloak role="tabpanel">@include('dr2._supplier-work-orders', ['deal' => $deal, 'steps' => $steps, 'locked' => $locked])</div>
           <div class="rp" x-show="tab==='docs'" x-cloak role="tabpanel">@include('dr2._deal-documents', ['deal' => $deal])</div>
           <div class="rp" x-show="tab==='email'" x-cloak role="tabpanel">@include('dr2._email-parties', ['deal' => $deal])</div>
+          <div class="rp" x-show="tab==='comms'" x-cloak role="tabpanel">@include('dr2._communications', ['deal' => $deal])</div>
           <div class="rp" x-show="tab==='pi'" x-cloak role="tabpanel">@include('proforma._deal-section', ['deal' => $deal])</div>
 
           {{-- Comments tab — per-step comments. Each comment is a HEADER line (step badge · date · who)
