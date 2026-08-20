@@ -1365,9 +1365,13 @@ Route::get('/tv/branch/{branchId}', [\App\Http\Controllers\TV\BranchTvController
     ->name('tv.branch');
 
 // --- TV (code-based auth — new) ---
+// throttle on both verify AND display: the 6-digit code is the only auth,
+// and display/{code} accepts the code directly as a path segment, so a
+// brute-force sweep can skip verify entirely and hit display in a loop.
+// Finding C2, .ai/audits/cross-agency-isolation-audit-2026-08-20.md.
 Route::get('/tv', [\App\Http\Controllers\TV\TvController::class, 'index'])->name('tv.index');
-Route::post('/tv/verify', [\App\Http\Controllers\TV\TvController::class, 'verify'])->name('tv.verify');
-Route::get('/tv/display/{code}', [\App\Http\Controllers\TV\TvController::class, 'display'])->name('tv.display');
+Route::post('/tv/verify', [\App\Http\Controllers\TV\TvController::class, 'verify'])->middleware('throttle:15,1')->name('tv.verify');
+Route::get('/tv/display/{code}', [\App\Http\Controllers\TV\TvController::class, 'display'])->middleware('throttle:30,1')->name('tv.display');
 
 
 Route::post('/worksheet/align-company-target', [\App\Http\Controllers\WorksheetController::class, 'alignToCompany'])

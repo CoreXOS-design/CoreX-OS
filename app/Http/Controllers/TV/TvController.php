@@ -189,7 +189,6 @@ class TvController extends Controller
         $tvCode = TvAccessCode::where('code', $code)
             ->forCompany()
             ->active()
-            ->with('creator')
             ->first();
 
         if (!$tvCode) {
@@ -198,15 +197,16 @@ class TvController extends Controller
 
         $tvCode->update(['last_used_at' => now()]);
 
-        // tv_access_codes has no agency_id column of its own, so a
-        // company-level code's agency is derived from its creator (the
-        // admin/BM who generated it). There is no authenticated user on this
-        // public code-gated route, so AgencyScope no-ops for every query
-        // below (see app/Models/Scopes/AgencyScope.php:56-58) — every
+        // tv_access_codes now carries its own agency_id (cross-agency
+        // isolation audit 2026-08-20, finding C1) — use it directly rather
+        // than re-deriving from the creator, which breaks silently if the
+        // creating admin's account is later deleted. There is no
+        // authenticated user on this public code-gated route, so AgencyScope
+        // no-ops for every query below (see AgencyScope.php:56-58) — every
         // agency-scoped query here must therefore filter explicitly. Fail
-        // closed if the creator/agency can't be resolved rather than falling
-        // through to an unscoped, all-agency view.
-        $agencyId = $tvCode->creator?->effectiveAgencyId();
+        // closed if the agency can't be resolved rather than falling through
+        // to an unscoped, all-agency view.
+        $agencyId = $tvCode->agency_id;
         if (!$agencyId) {
             return view('tv.deactivated');
         }
