@@ -8,6 +8,7 @@ use App\Models\Contact;
 use App\Models\Deal;
 use App\Models\Docuperfect\Clause;
 use App\Models\Docuperfect\Template;
+use App\Models\PerformanceSetting;
 use App\Models\Property;
 use App\Models\User;
 use App\Services\AI\EllieReferenceSourceSearchService;
@@ -16,7 +17,6 @@ use App\Services\AI\NavigationAtlasService;
 use App\Services\AI\TourKnowledgeService;
 use App\Services\Agent\AgentPerformanceService;
 use App\Services\PropertyCostService;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -652,8 +652,15 @@ class EllieToolkit
 
     private function primeRate(): array
     {
-        $rate    = DB::table('performance_settings')->where('key', 'sa_prime_rate')->value('value');
-        $updated = DB::table('performance_settings')->where('key', 'sa_prime_rate_updated_at')->value('value');
+        // Cross-agency isolation audit 2026-08-20, finding H2: this used to
+        // read via a raw, unscoped DB::table() query with no agency_id
+        // filter and no ORDER BY — if two agencies both configured their own
+        // override, this returned whichever row MySQL happened to return
+        // first, non-deterministically handing one agency's configured rate
+        // to the other. PerformanceSetting::get() is the sanctioned,
+        // agency-scoped accessor (same one CalculatorController uses).
+        $rate    = PerformanceSetting::get('sa_prime_rate');
+        $updated = PerformanceSetting::get('sa_prime_rate_updated_at');
 
         if (empty($rate)) {
             return [
