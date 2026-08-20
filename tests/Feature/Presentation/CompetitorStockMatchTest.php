@@ -903,9 +903,12 @@ final class CompetitorStockMatchTest extends TestCase
 
         $response = $this->get(route('corex.properties.show', $subject));
         $response->assertOk();
-        $response->assertSee('Heads up', false);
-        $response->assertSee('bedrooms, bathrooms and price', false);
-        $response->assertSee('Comparable stock will be matched on property type and suburb only', false);
+        // 2026-08-20 — Johan: "make it more prominent ... let me see a red
+        // or something." Consequence-first heading, real --ds-red token
+        // (not a new colour), dynamic field naming unchanged.
+        $response->assertSee('Your report will be inaccurate', false);
+        $response->assertSee('This property is missing bedrooms, bathrooms and price.', false);
+        $response->assertSee('Comparable stock can only be matched on property type and suburb', false);
     }
 
     public function test_generate_modal_no_warning_when_all_present(): void
@@ -919,7 +922,7 @@ final class CompetitorStockMatchTest extends TestCase
 
         $response = $this->get(route('corex.properties.show', $subject));
         $response->assertOk();
-        $response->assertDontSee('Heads up', false);
+        $response->assertDontSee('Your report will be inaccurate', false);
     }
 
     public function test_generate_modal_names_only_the_actually_missing_field(): void
@@ -938,7 +941,7 @@ final class CompetitorStockMatchTest extends TestCase
         // Scoped to the banner's own phrasing, not a bare word check — the
         // page legitimately shows "Bedrooms: 3" elsewhere in the property's
         // own spec sheet, unrelated to this warning.
-        $response->assertSee('this property is missing price.', false);
+        $response->assertSee('This property is missing price.', false);
         $response->assertDontSee('missing bedrooms', false);
         $response->assertDontSee('missing bathrooms', false);
     }

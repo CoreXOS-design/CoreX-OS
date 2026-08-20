@@ -451,13 +451,31 @@
                                             $last = array_pop($items);
                                             return implode(', ', $items) . ' and ' . $last;
                                         };
+                                        $_genPronoun = count($_genNamed) === 1 ? 'this' : 'these';
                                     @endphp
-                                    <div class="mt-2 rounded-md px-3 py-2 text-[11px]"
-                                         style="background:color-mix(in srgb, var(--ds-amber,#f59e0b) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber,#f59e0b) 30%, transparent); color:var(--text-primary);">
-                                        <strong>Heads up</strong> — this property is missing {{ $_genJoin($_genNamed) }}.
-                                        Comparable stock will be matched on property type and suburb only, and the
-                                        report will be less accurate.
-                                        <a href="{{ route('corex.properties.show', $property) }}#edit" style="text-decoration:underline;">Set {{ count($_genNamed) === 1 ? 'it' : 'them' }} on the property first</a> for a full report.
+                                    {{-- Johan, 2026-08-20: "make it more prominent ... its the
+                                         reason the presentation will be broken. so let them have
+                                         it." Consequence-first copy, real --ds-red (the app's own
+                                         danger token — used elsewhere at properties/show.blade.php's
+                                         SG-search error banner), solid border + heavier fill + icon +
+                                         bold heading, not a thin tinted strip. Still just a visible
+                                         warning, not a gate — no confirm step, Generate stays one click. --}}
+                                    <div class="mt-2 rounded-md px-3 py-2.5 text-[11px]"
+                                         style="background:color-mix(in srgb, var(--ds-red) 14%, transparent); border:1.5px solid var(--ds-red); color:var(--text-primary);">
+                                        <div class="flex items-start gap-2">
+                                            <span style="color:var(--ds-red); font-size:14px; line-height:1;">⚠</span>
+                                            <div>
+                                                <div class="font-bold uppercase tracking-wide" style="color:var(--ds-red); font-size:11px; margin-bottom:2px;">
+                                                    Your report will be inaccurate
+                                                </div>
+                                                <div>
+                                                    This property is missing {{ $_genJoin($_genNamed) }}.
+                                                    Comparable stock can only be matched on property type and suburb,
+                                                    so the report will show far fewer — or no — comparable properties.
+                                                    <a href="{{ route('corex.properties.show', $property) }}#edit" style="text-decoration:underline; font-weight:600;">Set {{ $_genPronoun }} on the property first</a> for a full report.
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 @endif
 
