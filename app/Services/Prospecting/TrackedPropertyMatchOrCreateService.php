@@ -252,33 +252,56 @@ final class TrackedPropertyMatchOrCreateService
             }
 
             $source = ['type' => $sourceType, 'ref' => $sourceRef];
-            $incomingFacts = $decision->incoming_facts ?? [];
 
             $this->markSourceChainEntryDisputed($rejectedTp, $source, $byUserId);
 
+            // 2026-08-20 (Johan, LIVE, urgent — staff arriving in 2 hours).
+            // Verbatim: "it should just unlink the current record from
+            // whatever corex thought it matched. done. No 2nd property
+            // needed. and let the user carry on to work with that
+            // property." REPLACES the previous behaviour (create a fresh
+            // TrackedProperty from incoming_facts when no replacement is
+            // picked) — that created a genuinely duplicate, ownerless
+            // record (live: TrackedProperty #748 rejected -> #37905,
+            // owner_contact_id NULL) because the facts/owner snapshot this
+            // capture contributed had no clean home to land in without
+            // spinning up a whole second record for it.
+            //
+            // A rejection now does exactly two things and nothing else:
+            //   1. Mark the disputed source_chain entry (above) — the
+            //      record shows its working, unchanged from before.
+            //   2. Record the rejection on property_match_decisions (below)
+            //      — the part Johan explicitly wants kept: it's what stops
+            //      the SAME wrong pairing being re-suggested on a rescrape
+            //      (TrackedPropertyMatchOrCreateService::acceptCandidate()
+            //      -> isVetoedCandidate() checks this on every strategy,
+            //      including Strategy 1's source-ref lookup, so a stale
+            //      external ref can never bypass the veto).
+            // $rejectedTp itself is returned UNCHANGED — no enrich(), no
+            // create(), no owner data moved. The agent keeps working the
+            // same real property they were already on; the capture that
+            // didn't belong there is simply no longer treated as if it did.
+            //
+            // The "pick a specific replacement" path is unaffected: an
+            // agent explicitly naming a DIFFERENT existing property as the
+            // real match is a deliberate, intentional action — not the bug
+            // (that only ever fired on the no-replacement branch) — so
+            // enrich() still applies the facts there.
             if ($replacementTrackedPropertyId !== null) {
                 $replacement = TrackedProperty::queryWithoutAgencyScope()
                     ->where('agency_id', $agencyId)
                     ->findOrFail($replacementTrackedPropertyId);
-                $resultTp = $this->enrich($replacement, $incomingFacts, $source, $byUserId);
+                $resultTp = $this->enrich($replacement, $decision->incoming_facts ?? [], $source, $byUserId);
+                // The agent named a SPECIFIC different property — the owner
+                // this capture had already resolved onto $rejectedTp belongs
+                // with it, not left behind. Never guesses which of
+                // $rejectedTp's owners are this capture's: only rows
+                // reconcileOwners() could have written at the moment this
+                // capture ran qualify (correlated against decided_at).
+                $this->carryContributedOwnersToRejectionResult($rejectedTp, $resultTp, $decision->decided_at);
             } else {
-                $resultTp = $this->create($agencyId, $incomingFacts, $source, $byUserId);
+                $resultTp = $rejectedTp;
             }
-
-            // Deeds-specific bookkeeping (2026-08-19 fix) — matchOrCreate() itself
-            // knows nothing about capture_kind/deeds_captured_at; DeedsCaptureController::store()
-            // stamps both AFTER calling matchOrCreate(), so calling create()/enrich()
-            // directly here (bypassing that controller) skipped them. Without this,
-            // a rejected capture with no replacement created a TrackedProperty
-            // TrackedProperty::scopeStillEligibleDeedsCapture() would never surface —
-            // the agent's "carry on and promote it as a new property" path would
-            // silently dead-end on an invisible row. Mirrors the controller exactly:
-            // capture_kind only on a genuine create, deeds_captured_at always.
-            if ($replacementTrackedPropertyId === null && empty($resultTp->capture_kind)) {
-                $resultTp->capture_kind = 'deeds_capture';
-            }
-            $resultTp->deeds_captured_at = now();
-            $resultTp->save();
 
             $decisionService->reject(
                 $decision,
@@ -318,6 +341,60 @@ final class TrackedPropertyMatchOrCreateService
         $chain[$matchIndex]['disputed_by_user_id'] = $byUserId;
 
         $tp->update(['source_chain' => $chain]);
+    }
+
+    /**
+     * 2026-08-20 (Johan, LIVE, urgent) — moves the owner(s) that THIS
+     * specific capture contributed to $rejectedTp across to $resultTp when
+     * a match is rejected. Only rows Api\DeedsCaptureController::
+     * reconcileOwners() could have written at the moment this capture ran
+     * qualify — a tight window from $decidedAt, matching the precision
+     * markSourceChainEntryDisputed() already relies on. Never touches an
+     * owner $rejectedTp had from an earlier, unrelated capture: the
+     * rejection says THIS capture doesn't belong to $rejectedTp, not that
+     * $rejectedTp's own history is wrong.
+     *
+     * Rows are RELOCATED (updated tracked_property_id), never duplicated —
+     * $rejectedTp keeps everything it had before this capture touched it;
+     * $resultTp gains exactly what this capture had linked. If $resultTp
+     * already has an owner (the enrich()/replacement-picked path), never
+     * overwrite it — same never-blind-overwrite rule as reconcileOwners();
+     * the relocated row still lands on $resultTp for the agent to see and
+     * resolve, just not auto-promoted to owner_contact_id.
+     */
+    private function carryContributedOwnersToRejectionResult(
+        TrackedProperty $rejectedTp,
+        TrackedProperty $resultTp,
+        ?Carbon $decidedAt
+    ): void {
+        if ($decidedAt === null || $resultTp->is($rejectedTp)) {
+            return;
+        }
+
+        $contributed = \App\Models\Prospecting\TrackedPropertyOwner::where('tracked_property_id', $rejectedTp->id)
+            ->where('created_at', '>=', $decidedAt)
+            ->where('created_at', '<=', $decidedAt->copy()->addSeconds(10))
+            ->get();
+
+        if ($contributed->isEmpty()) {
+            return;
+        }
+
+        $resultAlreadyHasOwner = $resultTp->owner_contact_id !== null
+            || \App\Models\Prospecting\TrackedPropertyOwner::where('tracked_property_id', $resultTp->id)->exists();
+
+        foreach ($contributed as $owner) {
+            $owner->tracked_property_id = $resultTp->id;
+            $owner->save();
+        }
+
+        if (!$resultAlreadyHasOwner) {
+            $primary = $contributed->first(fn ($o) => $o->conflict_flagged_at === null) ?? $contributed->first();
+            if ($primary && $primary->conflict_flagged_at === null) {
+                $resultTp->owner_contact_id = $primary->contact_id;
+                $resultTp->save();
+            }
+        }
     }
 
     /**
