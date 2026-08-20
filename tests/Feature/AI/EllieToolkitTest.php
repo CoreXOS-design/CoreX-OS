@@ -130,6 +130,30 @@ final class EllieToolkitTest extends TestCase
         $this->assertStringStartsWith('R ', $result['transfer']['total']);
     }
 
+    /**
+     * Cross-agency isolation audit 2026-08-20, finding H2: primeRate() read
+     * `sa_prime_rate` via a raw, unscoped DB::table() query with no
+     * agency_id filter and no ORDER BY. If two agencies both configured
+     * their own override, the query returned whichever row MySQL happened
+     * to return first -- non-deterministically capable of handing one
+     * agency's configured rate to a user asking in a different agency.
+     * Fixed by routing through PerformanceSetting::get(), the sanctioned
+     * agency-scoped accessor.
+     */
+    public function test_prime_rate_returns_the_callers_own_agency_override_not_anothers(): void
+    {
+        [$mine] = $this->twoAgents();
+        [$theirs] = $this->twoAgents();
+
+        \App\Models\PerformanceSetting::create(['agency_id' => $mine->agency_id, 'key' => 'sa_prime_rate', 'value' => '11.00']);
+        \App\Models\PerformanceSetting::create(['agency_id' => $theirs->agency_id, 'key' => 'sa_prime_rate', 'value' => '99.00']);
+
+        Auth::login($mine);
+        $result = $this->callTool('sa_prime_rate', [], $mine);
+
+        $this->assertSame('11.00%', $result['sa_prime_lending_rate']);
+    }
+
     public function test_an_unknown_tool_is_reported_not_fatal(): void
     {
         [$mine] = $this->twoAgents();
