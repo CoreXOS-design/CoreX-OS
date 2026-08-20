@@ -31,9 +31,145 @@
         <div class="rounded-md px-4 py-3 text-sm" style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-secondary);">{{ session('info') }}</div>
     @endif
 
+    {{-- Data scope + Agent picker + Search (Johan, 2026-08-20) — same idiom as the Contacts
+         list's own filter bar (corex.contacts.index): Alpine agent-picker modal fed by a
+         server-scoped candidate list, a search box, submitted via one GET form so every
+         control composes (search + agent both apply; scope is a ceiling, not a UI toggle). --}}
+    <div x-data="{
+            agentPicker: false,
+            agentSearch: '',
+            agents: {{ Illuminate\Support\Js::from($agentList) }},
+            get filtered() {
+                if (!this.agentSearch) return this.agents;
+                const q = this.agentSearch.toLowerCase();
+                return this.agents.filter(a => a.name.toLowerCase().includes(q) || a.email.toLowerCase().includes(q));
+            },
+            pickAgent(id) {
+                const f = this.$refs.deedsFilterForm;
+                let h = f.querySelector('input[name=agent_id]');
+                if (!h) { h = document.createElement('input'); h.type = 'hidden'; h.name = 'agent_id'; f.appendChild(h); }
+                h.value = (id == null) ? '' : id;
+                f.submit();
+            }
+         }"
+         class="rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <form method="GET" action="{{ route('corex.deeds-capture.index') }}" x-ref="deedsFilterForm" class="flex flex-wrap items-center gap-3">
+
+            <div class="relative flex-1 min-w-[200px] max-w-sm">
+                <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style="color:var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
+                </svg>
+                <input type="text" name="search" value="{{ $searchTerm }}"
+                       placeholder="Search address or contact…"
+                       class="w-full pl-10 pr-3 py-2 text-sm rounded-md transition-all duration-300"
+                       style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);outline:none;">
+            </div>
+
+            @if($canPickAgent)
+            {{-- Always rendered (even with no selection) so a Search submit never drops the
+                 current agent filter back to "All" — same reasoning as the Contacts page. --}}
+            <input type="hidden" name="agent_id" value="{{ $filterAgentId }}">
+
+            <div class="inline-flex items-center gap-1">
+                <button type="button" @click="agentPicker = true"
+                        class="list-header-filter inline-flex items-center gap-1.5 cursor-pointer"
+                        style="{{ $selectedAgent ? 'border-color:var(--brand-icon,#0ea5e9);color:var(--brand-icon,#0ea5e9);' : '' }}">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <circle cx="9" cy="7" r="4"/><path stroke-linecap="round" stroke-linejoin="round" d="M3 21v-1a6 6 0 016-6h0M16 19l2 2 4-4"/>
+                    </svg>
+                    {{ $selectedAgent ? $selectedAgent->name : ($filterAgentId === 'unassigned' ? 'Unattributed' : 'All Agents') }}
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </button>
+                @if($filterAgentId !== '')
+                <button type="button" @click="pickAgent('')"
+                   class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold transition-all duration-300 cursor-pointer"
+                   style="color:var(--text-muted);" title="Clear agent filter">&times;</button>
+                @endif
+            </div>
+
+            <div x-show="agentPicker" x-cloak
+                 class="fixed inset-0 z-50 flex items-center justify-center p-4"
+                 style="background:rgba(0,0,0,0.5);"
+                 @click.self="agentPicker = false"
+                 @keydown.escape.window="agentPicker = false"
+                 x-transition.opacity>
+                <div class="w-full max-w-md rounded-md overflow-hidden flex flex-col" style="max-height:80vh;
+                     background:var(--surface);border:1px solid var(--border);box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+                    <div class="flex items-center justify-between px-4 py-3 flex-shrink-0" style="border-bottom:1px solid var(--border);">
+                        <h3 class="text-sm font-semibold" style="color:var(--text-primary);">Select Agent</h3>
+                        <button type="button" @click="agentPicker = false"
+                                class="inline-flex items-center justify-center w-7 h-7 rounded-md transition-all duration-300"
+                                style="color:var(--text-muted);"
+                                onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="p-3 flex-shrink-0" style="border-bottom:1px solid var(--border);">
+                        <div class="relative">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5" style="color:var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <circle cx="11" cy="11" r="8"/><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-4.35-4.35"/>
+                            </svg>
+                            <input type="text" x-model="agentSearch" placeholder="Search agents..."
+                                   class="w-full pl-8 pr-3 py-1.5 text-xs rounded-md outline-none transition-all duration-300"
+                                   style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);">
+                        </div>
+                    </div>
+                    <div class="flex-1" style="overflow-y:auto;">
+                        <button type="button" @click="pickAgent('')"
+                           class="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-semibold transition-all duration-300 text-left"
+                           style="color:var(--text-secondary);border-bottom:1px solid var(--border);"
+                           onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+                            <span class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold flex-shrink-0" style="background:var(--surface-2);color:var(--text-secondary);">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-1a4 4 0 00-4-4H6a4 4 0 00-4 4v1h5M12 12a4 4 0 100-8 4 4 0 000 8z"/></svg>
+                            </span>
+                            All agents
+                        </button>
+                        <button type="button" @click="pickAgent('unassigned')"
+                           class="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-semibold transition-all duration-300 text-left"
+                           style="color:var(--text-secondary);border-bottom:1px solid var(--border);"
+                           onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+                            Unattributed (no scraper on file)
+                        </button>
+                        <template x-for="agent in filtered" :key="agent.id">
+                            <button type="button" @click="pickAgent(agent.id)"
+                               class="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs transition-all duration-300 text-left"
+                               onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+                                <span class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold flex-shrink-0"
+                                      style="background:var(--brand-default,#0b2a4a);color:#fff;"
+                                      x-text="agent.name.charAt(0).toUpperCase()">
+                                </span>
+                                <div class="min-w-0">
+                                    <div class="font-semibold truncate" style="color:var(--text-primary);" x-text="agent.name"></div>
+                                    <div class="truncate" style="color:var(--text-muted);" x-text="agent.email"></div>
+                                </div>
+                            </button>
+                        </template>
+                        <div x-show="filtered.length === 0" class="px-4 py-4 text-xs text-center" style="color:var(--text-muted);">
+                            No agents found
+                        </div>
+                    </div>
+                </div>
+            </div>
+            @endif
+
+            <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
+            @if(request()->hasAny(['search', 'agent_id']))
+            <a href="{{ route('corex.deeds-capture.index') }}" class="text-xs underline transition-all duration-300" style="color:var(--text-muted);">Clear</a>
+            @endif
+        </form>
+    </div>
+
     @if($captures->isEmpty())
         <div class="rounded-md p-8 text-center" style="background: var(--surface); border: 1px solid var(--border);">
-            <p class="text-sm" style="color: var(--text-muted);">No deeds captures waiting. Capture a property from CMA Info to see it here.</p>
+            @if($searchTerm !== '' || $filterAgentId !== '')
+                <p class="text-sm" style="color: var(--text-muted);">No deeds captures match this filter. <a href="{{ route('corex.deeds-capture.index') }}" class="underline">Clear it</a> to see everything in your scope.</p>
+            @else
+                <p class="text-sm" style="color: var(--text-muted);">No deeds captures waiting. Capture a property from CMA Info to see it here.</p>
+            @endif
         </div>
     @else
         <div class="space-y-3">
@@ -205,6 +341,14 @@
                             <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">Property</div>
                             <div class="font-semibold text-sm" style="color: var(--text-primary);">
                                 {{ $headline !== '' ? $headline : 'This property' }}
+                            </div>
+
+                            {{-- Agent column (Johan, 2026-08-20, item 2) — who scraped this. "This
+                                 column is what makes the whole screen usable — do it first." A NULL
+                                 scraper shows honestly, never a blank line an agent could misread as
+                                 "no one worked this" vs. "this loaded wrong". --}}
+                            <div class="text-xs mt-1" style="color: var(--text-muted);">
+                                Scraped by <span class="font-medium" style="color: var(--text-secondary);">{{ $tp->deedsCapturedBy->name ?? 'Unknown' }}</span>
                             </div>
 
                             {{-- Johan, after reading his own screen: "at what stage are you

@@ -58,4 +58,48 @@ final class TvaContactCapture extends Model
     {
         return $this->belongsTo(User::class, 'captured_by_user_id');
     }
+
+    /**
+     * Deeds Capture data scope (Johan, 2026-08-20) — same scope value, same
+     * option set as TrackedProperty::scopeVisibleToDeedsCapture(), applied to
+     * the standalone-TVA-capture block on the same screen. Unlike
+     * TrackedProperty, captured_by_user_id here is NOT NULL by schema — every
+     * row is genuinely attributed, no NULL-handling needed.
+     */
+    public function scopeVisibleToDeedsCapture($query, User $user, ?string $scope)
+    {
+        return match ($scope) {
+            'all'    => $query,
+            'branch' => $user->effectiveBranchId()
+                ? $query->whereIn('captured_by_user_id', function ($q) use ($user) {
+                        $q->select('id')->from('users')->where('branch_id', $user->effectiveBranchId());
+                    })
+                : ($user->hasPermission('branches.view_all')
+                    ? $query
+                    : $query->where('captured_by_user_id', $user->id)),
+            'none'   => $query->whereRaw('1 = 0'),
+            default  => $query->where('captured_by_user_id', $user->id), // 'own' or null
+        };
+    }
+
+    /**
+     * Deeds Capture "address or contact" search, contact half only — a standalone TVA
+     * capture has no address to match. Same single-box search as
+     * TrackedProperty::scopeSearchDeeds(); a term that only matches an address simply
+     * finds nothing here, which is correct, not a leak (TVA rows stay scope-gated
+     * independently either way).
+     */
+    public function scopeSearchDeeds($query, string $term)
+    {
+        $term = trim($term);
+        if ($term === '') {
+            return $query;
+        }
+        $like = '%' . addcslashes($term, '%_\\') . '%';
+
+        return $query->where(fn ($q) => $q
+            ->where('first_name', 'like', $like)
+            ->orWhere('surname', 'like', $like)
+            ->orWhereRaw("CONCAT(first_name, ' ', surname) LIKE ?", [$like]));
+    }
 }

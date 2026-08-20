@@ -31,10 +31,34 @@ final class DeedsCaptureController extends Controller
         $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
         abort_if($agencyId === null, 403, 'No agency context.');
 
+        // Data scope (Johan, 2026-08-20): "lots of data now flowing in and staff is getting
+        // lost as they are all seeing everything that was scraped." Same None/Own/Branch/All
+        // mechanism as Market Intelligence (PermissionService::deedsCaptureScope() reads
+        // deeds_capture.view's Role Manager scope, defaults 'own'). Applied to the SAME query
+        // that drives both the list AND its count/pagination total, so list and count can
+        // never disagree — the exact bug shape MIC and the buyers pipeline shipped twice.
+        $deedsScope = \App\Services\PermissionService::deedsCaptureScope($user);
+
+        // Agent picker (Johan, 2026-08-20, item 3) — mirrors ContactController::index()
+        // exactly: offered ONLY when the scope ceiling is wide enough to have anyone else
+        // to pick ('own' has nobody else, so no picker at all — never offer a choice the
+        // backend would then refuse). $agentList() below already clamps its OWN candidate
+        // set to the same ceiling, so a picked id can never fall outside what visibleToDeedsCapture()
+        // would allow.
+        $canPickAgent = in_array($deedsScope, ['all', 'branch'], true);
+        $filterAgentId = $request->has('agent_id') ? (string) $request->query('agent_id', '') : '';
+
+        // Search (item 4) — one box, address or contact, both.
+        $searchTerm = trim((string) $request->query('search', ''));
+
         $captures = TrackedProperty::query()
             ->withoutGlobalScopes()
-            ->with(['ownerContact', 'owners.contact'])
+            ->with(['ownerContact', 'owners.contact', 'deedsCapturedBy'])
             ->where('agency_id', $agencyId)
+            ->visibleToDeedsCapture($user, $deedsScope)
+            ->when($canPickAgent && $filterAgentId === 'unassigned', fn ($q) => $q->whereNull('deeds_captured_by_user_id'))
+            ->when($canPickAgent && $filterAgentId !== '' && $filterAgentId !== 'unassigned', fn ($q) => $q->where('deeds_captured_by_user_id', (int) $filterAgentId))
+            ->when($searchTerm !== '', fn ($q) => $q->searchDeeds($searchTerm))
             ->whereNull('deleted_at')
             // DEEDS BUG 1 fix (2026-08-19) — surface on the EVENT marker
             // (deeds_captured_at IS NOT NULL), not just the pipeline
@@ -79,9 +103,20 @@ final class DeedsCaptureController extends Controller
         // the agent to act on and drops off the screen. Matched ones render
         // under their TrackedProperty card; standalone (no suspense record)
         // render as their own block, headed by name + surname + ID per spec.
+        // Same data scope, applied here too (2026-08-20) — a standalone TVA block (matched to
+        // no visible TrackedProperty) is still "everything that was scraped" sitting on this
+        // exact screen; scoping only $captures and leaving this unrestricted would repeat the
+        // list-filters-but-something-else-doesn't bug on the SAME page.
         $tvaCaptures = TvaContactCapture::query()
             ->with(['items' => fn ($q) => $q->whereNull('ingested_at'), 'matchedContact'])
             ->where('agency_id', $agencyId)
+            ->visibleToDeedsCapture($user, $deedsScope)
+            // Same agent pick + search apply here (item 3/4) — a standalone TVA block is
+            // still a scraped record on this screen; leaving it unfiltered while the
+            // property list responds to the same controls would be visibly inconsistent.
+            ->when($canPickAgent && $filterAgentId === 'unassigned', fn ($q) => $q->whereNull('captured_by_user_id'))
+            ->when($canPickAgent && $filterAgentId !== '' && $filterAgentId !== 'unassigned', fn ($q) => $q->where('captured_by_user_id', (int) $filterAgentId))
+            ->when($searchTerm !== '', fn ($q) => $q->searchDeeds($searchTerm))
             ->whereHas('items', fn ($q) => $q->whereNull('ingested_at'))
             ->orderByDesc('created_at')
             ->get();
@@ -228,6 +263,11 @@ final class DeedsCaptureController extends Controller
             }
         }
 
+        $agentList = $canPickAgent ? $this->deedsAgentList($user, $deedsScope)->values() : collect();
+        $selectedAgent = ($canPickAgent && $filterAgentId !== '' && $filterAgentId !== 'unassigned')
+            ? $agentList->firstWhere('id', (int) $filterAgentId)
+            : null;
+
         return view('corex.deeds-capture.index', [
             'captures'          => $captures,
             'tvaByProperty'     => $tvaByProperty,
@@ -236,7 +276,36 @@ final class DeedsCaptureController extends Controller
             'matchDecisionByTp' => $matchDecisionByTp,
             'stockStatusByTp'   => $stockStatusByTp,
             'openConflictsByTp' => $openConflictsByTp,
+            'canPickAgent'      => $canPickAgent,
+            'filterAgentId'     => $filterAgentId,
+            'agentList'         => $agentList,
+            'selectedAgent'     => $selectedAgent,
+            'searchTerm'        => $searchTerm,
+            'deedsScope'        => $deedsScope,
         ]);
+    }
+
+    /**
+     * Agent picker candidate list (Johan, 2026-08-20, item 3) — mirrors
+     * ContactController::agentList() exactly, clamped to the SAME scope ceiling
+     * visibleToDeedsCapture() enforces. This is the piece that keeps the picker
+     * from ever offering a choice the backend would then refuse — "we hit exactly
+     * that trap on the pipeline scope work today" (Johan): 'branch' only lists the
+     * user's own branch, 'own' is never called at all ($canPickAgent is false).
+     */
+    private function deedsAgentList($user, string $scope): \Illuminate\Support\Collection
+    {
+        $query = \App\Models\User::agencyMembers()->where('is_assistant', false)->where('is_active', 1)->orderBy('name');
+
+        if ($scope === 'branch') {
+            $branchId = $user->effectiveBranchId();
+            if ($branchId) {
+                $query->where('branch_id', $branchId);
+            }
+        }
+        // 'all' — every agency member, no further narrowing.
+
+        return $query->get(['id', 'name', 'email']);
     }
 
     /**
@@ -252,6 +321,7 @@ final class DeedsCaptureController extends Controller
         $user = $request->user();
         $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
         abort_if($agencyId === null || (int) $trackedProperty->agency_id !== (int) $agencyId, 404);
+        $this->assertPropertyInDeedsScope($user, $trackedProperty);
 
         $data = $request->validate([
             'source_type'                   => 'required|string|max:50',
@@ -307,6 +377,7 @@ final class DeedsCaptureController extends Controller
         $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
         abort_if($agencyId === null || (int) $trackedProperty->agency_id !== (int) $agencyId, 404);
         abort_if((int) $trackedPropertyOwner->tracked_property_id !== (int) $trackedProperty->id, 404);
+        $this->assertPropertyInDeedsScope($user, $trackedProperty);
 
         $data = $request->validate([
             'decision' => 'required|in:use,dismiss',
@@ -352,6 +423,7 @@ final class DeedsCaptureController extends Controller
         $user = $request->user();
         $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
         abort_if((int) $tvaContactCapture->agency_id !== (int) $agencyId, 404);
+        $this->assertTvaInDeedsScope($user, $tvaContactCapture);
 
         $data = $request->validate([
             'item_ids'   => 'required|array|min:1',
@@ -484,11 +556,44 @@ final class DeedsCaptureController extends Controller
         return ['contact' => $contact, 'count' => $items->count()];
     }
 
+    /**
+     * Data-scope enforcement (Johan, 2026-08-20) — server-side, not just a hidden list row.
+     * A route-model-bound TrackedProperty resolves by ID alone, agency check aside; without
+     * this, a branch/own-scoped agent could reach another agent's out-of-scope capture just
+     * by guessing/editing the URL, even though it never appeared on their list. Called from
+     * every write action below, right after the existing agency-mismatch check.
+     */
+    private function assertPropertyInDeedsScope($user, TrackedProperty $trackedProperty): void
+    {
+        $scope = \App\Services\PermissionService::deedsCaptureScope($user);
+        abort_unless(
+            TrackedProperty::query()->withoutGlobalScopes()
+                ->visibleToDeedsCapture($user, $scope)
+                ->whereKey($trackedProperty->id)
+                ->exists(),
+            404
+        );
+    }
+
+    /** Same enforcement as assertPropertyInDeedsScope(), for the standalone TVA-capture actions. */
+    private function assertTvaInDeedsScope($user, TvaContactCapture $tvaContactCapture): void
+    {
+        $scope = \App\Services\PermissionService::deedsCaptureScope($user);
+        abort_unless(
+            TvaContactCapture::query()->withoutGlobalScopes()
+                ->visibleToDeedsCapture($user, $scope)
+                ->whereKey($tvaContactCapture->id)
+                ->exists(),
+            404
+        );
+    }
+
     public function promote(Request $request, TrackedProperty $trackedProperty, TrackedPropertyMatchOrCreateService $matcher)
     {
         $user = $request->user();
         $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
         abort_if((int) $trackedProperty->agency_id !== (int) $agencyId, 404);
+        $this->assertPropertyInDeedsScope($user, $trackedProperty);
         // 2026-08-20 — mirrors the same eligibility test index()'s query and
         // scopeStillEligibleDeedsCapture() already use (and that
         // dismissProperty() was already fixed to stop 404ing on, see that
@@ -816,6 +921,7 @@ final class DeedsCaptureController extends Controller
         $user = $request->user();
         $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
         abort_if((int) $trackedProperty->agency_id !== (int) $agencyId, 404);
+        $this->assertPropertyInDeedsScope($user, $trackedProperty);
 
         if ($trackedProperty->promoted_to_property_id) {
             return redirect()->route('corex.deeds-capture.index')
@@ -842,6 +948,7 @@ final class DeedsCaptureController extends Controller
         $user = $request->user();
         $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
         abort_if((int) $tvaContactCapture->agency_id !== (int) $agencyId, 404);
+        $this->assertTvaInDeedsScope($user, $tvaContactCapture);
 
         $tvaContactCapture->delete();
 

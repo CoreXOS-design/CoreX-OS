@@ -422,6 +422,16 @@ return [
         // ── Prospecting ──
         ['key' => 'access_prospecting',          'label' => 'Access Prospecting',          'section' => 'prospecting',      'type' => 'access',  'module' => 'prospecting',      'sort_order' => 1],
         ['key' => 'deeds_capture.access',        'label' => 'Access Deeds Capture',        'section' => 'prospecting',      'type' => 'access',  'module' => 'prospecting',      'sort_order' => 2],
+        // Johan, 2026-08-20: "lots of data now flowing in and staff is getting lost as they
+        // are all seeing everything that was scraped." `.view` is the SCOPED visibility key
+        // (own/branch/all via Role Manager's Data Scope control) — same mechanism as
+        // market_intelligence.view above. Own = the record's deeds_captured_by_user_id
+        // (the agent who scraped it — "that's the person who will go to deeds and look for
+        // their scraped stock", Johan's own definition); Branch = that scraper's branch
+        // (tracked_properties itself has no branch_id). Deliberately NOT added to any role's
+        // `include` list here — Johan sets the defaults himself; unset resolves to 'own'
+        // (the safe default), same as every other unset scope key.
+        ['key' => 'deeds_capture.view',          'label' => 'View Deeds Capture List',     'section' => 'prospecting',      'type' => 'action',  'module' => 'deeds_capture',    'sort_order' => 3],
 
         // ── Market Intelligence Centre (Phase A2) ── per spec §12.2/§12.3
         ['key' => 'mic.edit_address',            'label' => 'Edit / Add Property Address',         'section' => 'prospecting',      'type' => 'action',  'module' => 'mic',              'sort_order' => 50],
