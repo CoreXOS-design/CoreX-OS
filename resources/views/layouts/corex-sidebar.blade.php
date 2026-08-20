@@ -859,8 +859,15 @@
                        class="corex-nav-subitem {{ request()->routeIs('corex.presentations.outcomes.*') ? 'active' : '' }}">
                         <span>Outcomes</span>
                         @if($outcomePendingCount > 0)
+                            {{-- CX (Johan, 2026-08-20) — "numbers should always be true": this counts
+                                 presentations STILL AWAITING an outcome, not a count of outcomes, so it
+                                 must never disagree with (or be mistaken for) the dashboard's own outcome
+                                 count. Labelled in-place ("N due", amber — matching the Refresh Requests
+                                 pill's own "needs attention" convention right below) rather than a bare
+                                 number, so it can't be misread as an outcomes count. --}}
                             <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full text-[0.6875rem] font-bold"
-                                  style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color:var(--brand-icon, #0ea5e9);">{{ $outcomePendingCount > 99 ? '99+' : $outcomePendingCount }}</span>
+                                  style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b); white-space:nowrap;"
+                                  title="{{ $outcomePendingCount }} presentation{{ $outcomePendingCount === 1 ? '' : 's' }} older than 30 days with no outcome logged yet — not a count of outcomes">{{ $outcomePendingCount > 99 ? '99+' : $outcomePendingCount }} due</span>
                         @endif
                     </a>
                 @endif
