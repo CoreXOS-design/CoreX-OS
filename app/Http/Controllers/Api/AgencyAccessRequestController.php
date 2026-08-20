@@ -264,7 +264,14 @@ class AgencyAccessRequestController extends Controller
     public function authorize(AgencyAccessRequest $request, Request $http): JsonResponse
     {
         $user = auth()->user();
-        if (!$user || $user->role !== 'admin' || (int) $user->agency_id !== (int) $request->target_agency_id) {
+        // Cross-agency isolation audit 2026-08-20 (hygiene finding): this
+        // hardcoded role === 'admin' instead of consulting the registered
+        // agency.authorize_external_access permission key (agency-access-
+        // authorization-spec.md), so toggling that permission in Role
+        // Manager for a different role had no effect on this path -- not a
+        // leak (nothing became more permissive), but the config an admin
+        // sets in Role Manager silently didn't apply here.
+        if (!$user || !$user->hasPermission('agency.authorize_external_access') || (int) $user->agency_id !== (int) $request->target_agency_id) {
             return response()->json(['ok' => false, 'error' => 'Forbidden'], 403);
         }
         // Must have been a targeted admin
