@@ -18,6 +18,12 @@
     gone: each row's action cell is now a search box that IS the filing control,
     always present. The post-filing "Filed. Related emails found." suggestion modal
     stays exactly as it was — Johan explicitly asked to keep it.
+
+    CX-113 Phase D (Johan, 2026-08-21) — "auto-suggest the deal from filing history...
+    suggest, never auto-file." Fetched from Dr2FilingSuggestionService the moment a
+    row's search box opens, shown above the results until the agent types something.
+    A click files it — same explicit-action requirement as every other row in this
+    list, never automatic.
 --}}
 @extends('layouts.corex')
 
@@ -34,11 +40,28 @@
         dealQ: '', dealResults: [], dealSearching: false, filing: false, err: '',
         suggestModal: false, suggestDeal: null, suggestions: [], suggestSelected: [], batchFiling: false,
         expandedId: null, expandedHtml: '', expanding: false,
+        filingSuggestion: null, filingSuggestionLoading: false,
         openPicker(commId, move = false){
             if(this.filingId === commId) return; // already active on this row — don't wipe what's typed
             this.filingId = commId; this.moveMode = move; this.dealQ=''; this.dealResults=[]; this.err='';
+            this.fetchFilingSuggestion(commId);
         },
-        closePicker(){ this.filingId = null; this.moveMode = false; },
+        closePicker(){ this.filingId = null; this.moveMode = false; this.filingSuggestion = null; },
+        // CX-113 Phase D (Johan, 2026-08-21) — "auto-suggest the deal from filing
+        // history... suggest, never auto-file." Fetched once, when the row's search
+        // opens, before the agent has typed anything. Shown ABOVE the normal search
+        // results; typing a query doesn't clear it, but the real search results (once
+        // 2+ chars are typed) take visual priority — the suggestion is a starting
+        // point, never forced.
+        async fetchFilingSuggestion(commId){
+            this.filingSuggestion = null; this.filingSuggestionLoading = true;
+            try {
+                const r = await fetch('{{ url('deals-dr2/unfiled-emails') }}/' + commId + '/suggest', {headers:{Accept:'application/json'}});
+                const j = await r.json();
+                this.filingSuggestion = (j && j.deal_id) ? j : null;
+            } catch(e) { this.filingSuggestion = null; }
+            this.filingSuggestionLoading = false;
+        },
         async toggleExpand(commId){
             if(this.expandedId === commId){ this.expandedId = null; return; }
             this.expandedId = commId; this.expandedHtml = ''; this.expanding = true;
@@ -336,6 +359,24 @@
                                            @keydown.escape="closePicker()"
                                            placeholder="{{ $filedInfo ? 'Move to another deal…' : 'Search deal — address, seller, buyer, attorney…' }}"
                                            class="corex-input text-sm" style="width:100%;">
+                                    {{-- CX-113 Phase D — filing-history suggestion. Shown BEFORE the
+                                         agent types anything (dealQ empty); a real search takes
+                                         priority the moment they start typing. Click = files it
+                                         immediately, exactly like a normal search result — this is
+                                         still an explicit agent action, never automatic. --}}
+                                    <div x-show="filingId === {{ $email->id }} && dealQ.trim().length === 0 && filingSuggestion" x-cloak
+                                         style="position:absolute;z-index:41;left:0;right:0;top:100%;background:var(--surface,#fff);border:1px solid var(--brand-icon,#0ea5e9);border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);padding:.5rem .7rem;">
+                                        <div style="font-size:.7rem;font-weight:600;color:var(--brand-icon,#0ea5e9);text-transform:uppercase;letter-spacing:.03em;margin-bottom:.2rem;">Suggested</div>
+                                        <div style="font-size:.8rem;font-weight:600;cursor:pointer;"
+                                             :class="filing ? 'pointer-events-none opacity-50' : ''"
+                                             x-text="filingSuggestion && filingSuggestion.label"
+                                             @click="file({{ $email->id }}, filingSuggestion.deal_id)"></div>
+                                        <div style="font-size:.72rem;color:var(--text-muted,#9ca3af);" x-text="filingSuggestion && filingSuggestion.reason"></div>
+                                    </div>
+                                    <div x-show="filingId === {{ $email->id }} && dealQ.trim().length === 0 && filingSuggestionLoading" x-cloak
+                                         style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface,#fff);border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);padding:.5rem .7rem;font-size:.75rem;color:var(--text-muted,#9ca3af);">
+                                        Checking filing history…
+                                    </div>
                                     <div x-show="filingId === {{ $email->id }} && dealSearching" x-cloak
                                          style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface,#fff);border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);padding:.5rem .7rem;font-size:.8rem;color:var(--text-muted,#9ca3af);">
                                         Searching…
