@@ -205,19 +205,36 @@ final class DeedsCaptureController extends Controller
         // the literal status, exact day count, which date field it came from (and
         // whether it's a fallback), and the resulting band. No second flag.
         $ageResolver = app(\App\Services\Prospecting\PropertyDuplicateAgeResolver::class);
+        // Side-by-side comparison panel (Johan, 2026-08-21): "current property... vs
+        // new scraped property - showing details side by side... that will allow
+        // agent to make simple call right there and then." Built from the SAME
+        // evidence PropertyMatchDecisionService records on confirmation, so the panel
+        // can never show the agent something different from what gets logged.
+        $matchEvidence = app(\App\Services\Prospecting\PropertyDuplicateMatchEvidence::class);
         $stockStatusByTp = [];
         foreach ($captures as $tp) {
             if ($tp->promoted_to_property_id) {
                 $property = \App\Models\Property::withoutGlobalScopes()->find($tp->promoted_to_property_id);
                 $stockStatusByTp[$tp->id] = $property
-                    ? ['state' => $property->isStaleStock() ? 'stale' : 'live', 'property' => $property, 'already' => true, 'age' => null]
-                    : ['state' => 'unknown', 'property' => null, 'already' => true, 'age' => null];
+                    ? ['state' => $property->isStaleStock() ? 'stale' : 'live', 'property' => $property, 'already' => true, 'age' => null, 'panel' => null]
+                    : ['state' => 'unknown', 'property' => null, 'already' => true, 'age' => null, 'panel' => null];
                 continue;
             }
             $preview = $matcher->previewPropertyMatch($tp);
-            $stockStatusByTp[$tp->id] = $preview
-                ? ['state' => $preview->isStaleStock() ? 'stale' : 'live', 'property' => $preview, 'already' => false, 'age' => $ageResolver->resolve($preview)]
-                : ['state' => 'not_promoted', 'property' => null, 'already' => false, 'age' => null];
+            if ($preview) {
+                $strategy = $matchEvidence->strategyFor($tp);
+                $stockStatusByTp[$tp->id] = [
+                    'state' => $preview->isStaleStock() ? 'stale' : 'live', 'property' => $preview, 'already' => false,
+                    'age' => $ageResolver->resolve($preview),
+                    'panel' => [
+                        'rows' => $matchEvidence->panelRows($tp, $preview),
+                        'strategy' => $strategy,
+                        'candidateCount' => $matchEvidence->candidateCount($tp, $strategy, (int) $agencyId),
+                    ],
+                ];
+            } else {
+                $stockStatusByTp[$tp->id] = ['state' => 'not_promoted', 'property' => null, 'already' => false, 'age' => null, 'panel' => null];
+            }
         }
 
         // Owner-data build part 2 (Johan, 2026-08-19) — an open conflict
