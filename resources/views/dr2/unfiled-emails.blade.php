@@ -12,8 +12,18 @@
         filingId: null,
         dealQ: '', dealResults: [], dealSearching: false, filing: false, err: '',
         suggestModal: false, suggestDeal: null, suggestions: [], suggestSelected: [], batchFiling: false,
+        expandedId: null, expandedHtml: '', expanding: false,
         openPicker(commId){ this.filingId = commId; this.dealQ=''; this.dealResults=[]; this.err=''; },
         closePicker(){ this.filingId = null; },
+        async toggleExpand(commId){
+            if(this.expandedId === commId){ this.expandedId = null; return; }
+            this.expandedId = commId; this.expandedHtml = ''; this.expanding = true;
+            try {
+                const r = await fetch('{{ url('deals-dr2/communications') }}/' + commId + '/body', {headers:{Accept:'text/html'}});
+                this.expandedHtml = r.ok ? await r.text() : '<p style="color:#b91c1c;font-size:.8rem;">Could not load this email.</p>';
+            } catch(e) { this.expandedHtml = '<p style="color:#b91c1c;font-size:.8rem;">Could not load this email.</p>'; }
+            this.expanding = false;
+        },
         async searchDeals(){
             if(this.dealQ.trim().length < 2){ this.dealResults = []; return; }
             this.dealSearching = true;
@@ -113,15 +123,27 @@
                 </thead>
                 <tbody>
                     @foreach($emails as $email)
-                        <tr id="unfiled-row-{{ $email->id }}" style="border-top:1px solid var(--border,rgba(0,0,0,.06));">
+                        <tr id="unfiled-row-{{ $email->id }}" style="border-top:1px solid var(--border,rgba(0,0,0,.06));cursor:pointer;" @click="toggleExpand({{ $email->id }})">
                             <td style="padding:.6rem .9rem;white-space:nowrap;">{{ $email->from_identifier ?: '(unknown)' }}</td>
-                            <td style="padding:.6rem .9rem;font-weight:600;">{{ $email->subject ?: '(no subject)' }}</td>
+                            <td style="padding:.6rem .9rem;font-weight:600;">
+                                <span style="display:inline-block;width:.9rem;color:var(--text-muted,#9ca3af);" x-text="expandedId === {{ $email->id }} ? '▾' : '▸'"></span>
+                                {{ $email->subject ?: '(no subject)' }}
+                            </td>
                             <td style="padding:.6rem .9rem;white-space:nowrap;color:var(--text-muted,#6b7280);">{{ optional($email->occurred_at)->format('j M Y H:i') }}</td>
                             <td style="padding:.6rem .9rem;color:var(--text-muted,#6b7280);max-width:22rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
                                 {{ \Illuminate\Support\Str::limit((string) ($email->body_display ?: ($email->body_text ?: $email->body_preview)), 90) }}
                             </td>
-                            <td style="padding:.6rem .9rem;text-align:right;">
+                            <td style="padding:.6rem .9rem;text-align:right;" @click.stop>
                                 <button type="button" class="corex-btn-primary text-sm" @click="openPicker({{ $email->id }})">File</button>
+                            </td>
+                        </tr>
+                        {{-- CX-112 — read the email before filing/confirming. Reuses the SAME
+                             viewer partial as the filed-emails-on-a-deal screen (below/sibling
+                             view), fetched on demand — never eager-loaded for the whole list. --}}
+                        <tr x-show="expandedId === {{ $email->id }}" x-cloak>
+                            <td colspan="5" style="padding:.75rem .9rem;background:var(--surface-muted,#f9fafb);">
+                                <div x-show="expanding" x-cloak style="font-size:.8rem;color:var(--text-muted,#9ca3af);">Loading…</div>
+                                <div x-show="!expanding" x-html="expandedHtml"></div>
                             </td>
                         </tr>
                         {{-- Deal picker, inline under the row it belongs to --}}
