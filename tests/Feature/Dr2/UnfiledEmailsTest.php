@@ -256,6 +256,21 @@ final class UnfiledEmailsTest extends TestCase
         $this->assertStringNotContainsString('2 Other Rd', $labels);
     }
 
+    public function test_deal_search_matches_by_attorney_name_not_just_address_or_deal_no(): void
+    {
+        // CX-113 Phase C — "not just deal number": the row-level deal picker must also
+        // find a deal by its attorney, the same way Phase B's email search does.
+        DB::table('deals')->where('id', $this->deal->id)->update(['attorney_name' => 'Zanele Dlamini']);
+
+        $results = $this->actingAs($this->agent)
+            ->getJson(route('deals-dr2.unfiled-emails.deal-search') . '?q=Dlamini')
+            ->assertOk()
+            ->json();
+
+        $labels = collect($results)->pluck('label')->implode(' | ');
+        $this->assertStringContainsString('1 Test Rd', $labels);
+    }
+
     public function test_the_search_box_filters_by_subject_or_sender(): void
     {
         $this->registerDealParty('findme@example.com');
