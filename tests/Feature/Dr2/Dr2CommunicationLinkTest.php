@@ -273,6 +273,74 @@ final class Dr2CommunicationLinkTest extends TestCase
         $this->assertContains($unlinked->id, $ids);
     }
 
+    // ── CX-113 Phase B — same search broadening as Unfiled Emails, this screen too ──
+
+    public function test_search_never_returns_a_whatsapp_communication(): void
+    {
+        // Real pre-existing gap fixed alongside the broadening: this endpoint had NO
+        // channel filter at all before — WhatsApp is excluded from DR2 entirely.
+        $this->comm(['channel' => Communication::CHANNEL_WHATSAPP, 'subject' => 'Transfer pack via whatsapp']);
+
+        $results = $this->actingAs($this->agent)
+            ->getJson(route('deals-dr2.communications.search', $this->deal) . '?q=Transfer')
+            ->assertOk()
+            ->json('data');
+
+        $subjects = array_column($results, 'subject');
+        $this->assertNotContains('Transfer pack via whatsapp', $subjects);
+    }
+
+    public function test_search_matches_body_text_not_just_subject_or_sender(): void
+    {
+        $comm = $this->comm(['subject' => 'Nothing findable in the subject', 'body_text' => 'The FICA copy is attached for your records.']);
+
+        $results = $this->actingAs($this->agent)
+            ->getJson(route('deals-dr2.communications.search', $this->deal) . '?q=FICA')
+            ->assertOk()
+            ->json('data');
+
+        $this->assertContains($comm->id, array_column($results, 'id'));
+    }
+
+    public function test_search_matches_a_cced_recipient_not_just_the_sender(): void
+    {
+        $comm = $this->comm([
+            'subject' => 'CCed recipient search target',
+            'participant_identifiers' => ['conveyancer@bbb-attorneys.co.za', 'ccrecipient@example.com'],
+        ]);
+
+        $results = $this->actingAs($this->agent)
+            ->getJson(route('deals-dr2.communications.search', $this->deal) . '?q=ccrecipient')
+            ->assertOk()
+            ->json('data');
+
+        $this->assertContains($comm->id, array_column($results, 'id'));
+    }
+
+    public function test_search_matches_the_deals_own_property_address_even_though_the_email_never_mentions_it(): void
+    {
+        // $this->deal already has property_address = '1 Test Rd' from setUp, but the
+        // deal-field match only widens the search to a deal's PARTY emails — needs at
+        // least one real deal_contacts row so there's a party to resolve at all.
+        $contactId = (int) DB::table('contacts')->insertGetId([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->branchId, 'email' => 'conveyancer@bbb-attorneys.co.za',
+            'first_name' => 'Test', 'last_name' => 'Party', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('deal_contacts')->insert([
+            'deal_id' => $this->deal->id, 'contact_id' => $contactId, 'role' => 'seller',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $comm = $this->comm(['subject' => 'No address mentioned in this one']); // from_identifier defaults to conveyancer@bbb-attorneys.co.za
+
+        $results = $this->actingAs($this->agent)
+            ->getJson(route('deals-dr2.communications.search', $this->deal) . '?q=' . urlencode('1 Test Rd'))
+            ->assertOk()
+            ->json('data');
+
+        $this->assertContains($comm->id, array_column($results, 'id'));
+    }
+
     public function test_unlink_is_scoped_to_the_deal_it_belongs_to(): void
     {
         $otherDealV2Id = (int) DB::table('deals_v2')->insertGetId([

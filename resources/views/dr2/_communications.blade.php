@@ -82,7 +82,7 @@
         {{-- Search + link --}}
         <div style="position:relative;margin-bottom:.7rem;">
             <input type="text" x-model="q" @input.debounce.220ms="search()" autocomplete="off"
-                   placeholder="Search unlinked emails by subject or sender…" class="corex-input" style="width:100%;font-size:.8rem;">
+                   placeholder="Search subject, body, sender/recipient, property, seller, buyer, or attorney…" class="corex-input" style="width:100%;font-size:.8rem;">
             <div x-show="results.length" x-cloak style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface,#fff);border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);max-height:16rem;overflow:auto;">
                 <template x-for="row in results" :key="row.id">
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.5rem .7rem;border-bottom:1px solid #f3f4f6;">

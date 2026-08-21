@@ -9,6 +9,7 @@ use App\Models\Communications\CommunicationLink;
 use App\Models\Deal;
 use App\Models\DealV2\DealV2;
 use App\Services\Communications\CommunicationDealLinkingService;
+use App\Services\Communications\Dr2DealPartyEmailResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -42,17 +43,28 @@ use Illuminate\Http\Request;
  */
 class Dr2CommunicationLinkController extends Controller
 {
-    public function __construct(private CommunicationDealLinkingService $linking)
-    {
+    public function __construct(
+        private CommunicationDealLinkingService $linking,
+        private Dr2DealPartyEmailResolver $dealParties,
+    ) {
     }
 
     /**
      * GET /deals-dr2/{deal}/communications/search?q=
      *
-     * Deliberately dumb: a plain contains-match on subject/from, agency-scoped,
-     * excluding communications already linked (non-trashed) to this deal. No
-     * ranking, no suggestion — the agent picks. Building a smarter matcher is
-     * the suggestion engine's job, not this one's.
+     * Agency-scoped, email-only (WhatsApp excluded from DR2 entirely — Johan, "attorney
+     * threads span many deals and are unattributable"; this endpoint had NO channel
+     * filter at all before CX-113 Phase B, a real pre-existing gap fixed here since this
+     * exact method was already being touched for the search broadening), excluding
+     * communications already linked (non-trashed) to this deal.
+     *
+     * CX-113 Phase B (Johan, 2026-08-21) — same broadened search as the Unfiled Emails
+     * screen, so an agent learns ONE search box, not two: subject, body, sender AND
+     * recipient/CC addresses, plus property address/seller/buyer/attorney (via
+     * Dr2DealPartyEmailResolver — same agency-wide resolution, not narrowed to this one
+     * deal, since an agent may legitimately want to find and attach an email connected
+     * to a DIFFERENT deal's party here too). No ranking, no suggestion — the agent
+     * picks. Building a smarter matcher is the suggestion engine's job, not this one's.
      */
     public function search(Request $request, Deal $deal): JsonResponse
     {
@@ -69,12 +81,22 @@ class Dr2CommunicationLinkController extends Controller
             ->where('linkable_id', $dealV2Id)
             ->pluck('communication_id');
 
+        $searchDealEmails = $this->dealParties->partyEmailsMatchingDealFields($agencyId, $q);
+
         $results = Communication::query()
             ->where('agency_id', $agencyId)
+            ->where('channel', Communication::CHANNEL_EMAIL)
             ->whereNotIn('id', $alreadyLinkedIds)
-            ->where(function ($w) use ($q) {
+            ->where(function ($w) use ($q, $searchDealEmails) {
                 $w->where('subject', 'like', "%{$q}%")
-                    ->orWhere('from_identifier', 'like', "%{$q}%");
+                    ->orWhere('body_text', 'like', "%{$q}%")
+                    ->orWhere('from_identifier', 'like', "%{$q}%")
+                    ->orWhereRaw('participant_identifiers LIKE ?', ["%{$q}%"]);
+                if (! empty($searchDealEmails)) {
+                    $w->orWhere(function ($w2) use ($searchDealEmails) {
+                        $w2->matchingAnyEmail($searchDealEmails);
+                    });
+                }
             })
             ->orderByDesc('occurred_at')
             ->limit(20)
