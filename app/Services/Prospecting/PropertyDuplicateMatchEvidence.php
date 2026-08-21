@@ -111,41 +111,93 @@ class PropertyDuplicateMatchEvidence
      * agreement — Johan's example: matching street name, different number), differs,
      * or unknown (one or both sides blank — never scored as a mismatch).
      *
-     * @return array<int, array{key: string, label: string, existing: ?string, scraped: ?string, used: bool, strength: string}>
+     * Johan, 2026-08-21 (after seeing the panel on staging): "if both sides are not
+     * recorded or blank dont show it. no use matching nothing to nothing." A row is
+     * hidden ONLY when BOTH sides have no data — one side present and the other
+     * blank is exactly the meaningful case (the scrape found something we don't
+     * hold, or vice versa) and always stays. hiddenCount is returned so the screen
+     * can say the panel is filtered, not incomplete.
+     *
+     * @return array{rows: array<int, array{key: string, label: string, existing: ?string, scraped: ?string, used: bool, strength: string}>, hiddenCount: int}
      */
     public function panelRows(TrackedProperty $tp, Property $property): array
     {
         $used = $this->usedFieldsFor($this->strategyFor($tp));
         $streetStrength = $this->streetStrength($tp->street_number, $tp->street_name, $property->street_number, $property->street_name);
 
-        $rows = [
+        // Street address is empty on a side only when BOTH its number and name are
+        // blank on that side — a bare number with no name (or vice versa) still
+        // counts as "has something".
+        $streetExistingEmpty = $this->isEmptyValue($property->street_number) && $this->isEmptyValue($property->street_name);
+        $streetScrapedEmpty = $this->isEmptyValue($tp->street_number) && $this->isEmptyValue($tp->street_name);
+
+        $candidates = [
             [
                 'key' => 'street', 'label' => 'Street address',
                 'existing' => $this->formatValue(trim((string) $property->street_number . ' ' . (string) $property->street_name)),
                 'scraped' => $this->formatValue(trim((string) $tp->street_number . ' ' . (string) $tp->street_name)),
                 'used' => in_array('street_number', $used, true) || in_array('street_name', $used, true),
                 'strength' => $streetStrength,
+                'emptyBoth' => $streetExistingEmpty && $streetScrapedEmpty,
             ],
-            $this->identityRow('suburb', 'Suburb / township', $tp->suburb, $property->suburb, $used, corroborating: true),
-            $this->identityRow('erf_number', 'Erf / stand number', $tp->erf_number, $property->erf_number, $used, corroborating: false),
-            $this->identityRow('title_deed_number', 'Title deed number', $tp->title_deed_number, $property->title_deed_number, $used, corroborating: false),
-            $this->identityRow('complex_name', 'Complex / scheme', $tp->complex_name ?: $tp->scheme_name, $property->complex_name, $used, corroborating: false),
-            $this->identityRow('unit_number', 'Unit / section number', $tp->section_number ?: $tp->unit_number, $property->unit_number, $used, corroborating: false),
+            $this->identityRow('suburb', 'Suburb / township', $tp->suburb, $property->suburb, $used),
+            $this->identityRow('erf_number', 'Erf / stand number', $tp->erf_number, $property->erf_number, $used),
+            $this->identityRow('title_deed_number', 'Title deed number', $tp->title_deed_number, $property->title_deed_number, $used),
+            $this->identityRow('complex_name', 'Complex / scheme', $tp->complex_name ?: $tp->scheme_name, $property->complex_name, $used),
+            $this->identityRow('unit_number', 'Unit / section number', $tp->section_number ?: $tp->unit_number, $property->unit_number, $used),
             $this->gpsRow($tp, $property, $used),
-            $this->identityRow('extent', 'Extent / erf size', $this->extentValue($tp), $this->formatValue($property->erf_size_m2 ? $property->erf_size_m2 . ' m²' : null), $used, corroborating: false, alreadyFormatted: true),
-            $this->identityRow('property_type', 'Property type', $tp->property_type, $property->property_type, $used, corroborating: true),
-            $this->identityRow('owner_name', 'Owner name(s)', $this->trackedOwnerNames($tp), $this->propertyOwnerNames($property), $used, corroborating: false),
-            [
-                'key' => 'last_sale', 'label' => 'Last sale',
-                'existing' => 'Not tracked on this record',
-                'scraped' => $this->formatValue($tp->last_known_sold_price
-                    ? 'R' . number_format((float) $tp->last_known_sold_price, 0, '.', ',') . ($tp->last_known_sold_date ? ' on ' . \Illuminate\Support\Carbon::parse($tp->last_known_sold_date)->format('Y-m-d') : '')
-                    : null),
-                'used' => false, 'strength' => 'unknown',
-            ],
+            $this->extentRow($tp, $property, $used),
+            $this->identityRow('property_type', 'Property type', $tp->property_type, $property->property_type, $used),
+            $this->identityRow('owner_name', 'Owner name(s)', $this->trackedOwnerNames($tp), $this->propertyOwnerNames($property), $used),
+            $this->lastSaleRow($tp),
         ];
 
-        return $rows;
+        $hiddenCount = 0;
+        $rows = [];
+        foreach ($candidates as $row) {
+            if ($row['emptyBoth']) {
+                $hiddenCount++;
+                continue;
+            }
+            unset($row['emptyBoth']);
+            $rows[] = $row;
+        }
+
+        return ['rows' => $rows, 'hiddenCount' => $hiddenCount];
+    }
+
+    private function lastSaleRow(TrackedProperty $tp): array
+    {
+        // properties carries no "last sale" field of its own — the existing side is
+        // structurally always empty. The row is only meaningful (and only shown)
+        // when the SCRAPE has a genuine price; a price of 0 means absent, exactly
+        // the beds=0/price=0 trap from the presentation work — never a real sale.
+        $priceIsReal = $tp->last_known_sold_price !== null && (float) $tp->last_known_sold_price > 0;
+
+        return [
+            'key' => 'last_sale', 'label' => 'Last sale',
+            'existing' => 'Not tracked on this record',
+            'scraped' => $priceIsReal
+                ? 'R' . number_format((float) $tp->last_known_sold_price, 0, '.', ',') . ($tp->last_known_sold_date ? ' on ' . \Illuminate\Support\Carbon::parse($tp->last_known_sold_date)->format('Y-m-d') : '')
+                : null,
+            'used' => false, 'strength' => 'unknown',
+            'emptyBoth' => !$priceIsReal,
+        ];
+    }
+
+    private function extentRow(TrackedProperty $tp, Property $property, array $used): array
+    {
+        // Extent contract (.ai/specs/deeds-capture.md §6) — freehold and sectional
+        // extents are two DIFFERENT columns, never crossed. erf_size_m2 (freehold)
+        // takes priority; section_extent_m2 (sectional "floor size") is the fallback.
+        $tpRaw = $tp->erf_size_m2 ?? $tp->section_extent_m2 ?? null;
+        $propRaw = $property->erf_size_m2 ?? null;
+
+        // A size of 0 is never a genuine extent — the beds=0/price=0 trap.
+        $tpExtent = $this->isEmptyValue($tpRaw, zeroMeansAbsent: true) ? null : $tpRaw . ' m²';
+        $propExtent = $this->isEmptyValue($propRaw, zeroMeansAbsent: true) ? null : $propRaw . ' m²';
+
+        return $this->identityRow('extent', 'Extent / erf size', $tpExtent, $propExtent, $used, alreadyFormatted: true);
     }
 
     /**
@@ -181,17 +233,11 @@ class PropertyDuplicateMatchEvidence
         return $numberBoth ? ($numberMatch ? 'weak' : 'differs') : ($nameMatch ? 'weak' : 'differs');
     }
 
-    /**
-     * A single-value identity/corroborating field. $corroborating=true means "agrees,
-     * but on its own is only medium evidence" (suburb, property type) — an exact
-     * match still renders 'strong' since Johan's ask is "highlight what matched", not
-     * a numeric score; $corroborating only affects nothing here today but keeps the
-     * call sites self-documenting for the next field added.
-     */
-    private function identityRow(string $key, string $label, $tpValue, $propertyValue, array $used, bool $corroborating, bool $alreadyFormatted = false): array
+    /** A single-value identity field, e.g. erf number, suburb, title deed number. */
+    private function identityRow(string $key, string $label, $tpValue, $propertyValue, array $used, bool $alreadyFormatted = false): array
     {
-        $tpNorm = $tpValue === null || $tpValue === '' ? null : mb_strtolower(trim((string) $tpValue));
-        $propNorm = $propertyValue === null || $propertyValue === '' ? null : mb_strtolower(trim((string) $propertyValue));
+        $tpNorm = $this->isEmptyValue($tpValue) ? null : mb_strtolower(trim((string) $tpValue));
+        $propNorm = $this->isEmptyValue($propertyValue) ? null : mb_strtolower(trim((string) $propertyValue));
 
         $strength = match (true) {
             $tpNorm === null || $propNorm === null => 'unknown',
@@ -205,6 +251,7 @@ class PropertyDuplicateMatchEvidence
             'scraped' => $alreadyFormatted ? $tpValue : $this->formatValue($tpValue),
             'used' => in_array($key, $used, true),
             'strength' => $strength,
+            'emptyBoth' => $tpNorm === null && $propNorm === null,
         ];
     }
 
@@ -225,7 +272,30 @@ class PropertyDuplicateMatchEvidence
             'scraped' => $this->formatValue($tpGps),
             'used' => false, // resolvePropertyMatch() (TP-to-Property) does not use GPS today — informational only.
             'strength' => $strength,
+            'emptyBoth' => $tpGps === null && $propGps === null,
         ];
+    }
+
+    /**
+     * Consistent emptiness check for the hide-both-sides rule: null, empty string,
+     * whitespace-only, AND — for fields where $zeroMeansAbsent is true — zero, which
+     * for a size/price is never a genuine value (the beds=0/price=0 trap from the
+     * presentation work). Never applied to identity fields (erf number, etc.), where
+     * "0" could in principle be scraped and should still be shown as data.
+     */
+    private function isEmptyValue($value, bool $zeroMeansAbsent = false): bool
+    {
+        if ($value === null) {
+            return true;
+        }
+        if (is_string($value) && trim($value) === '') {
+            return true;
+        }
+        if ($zeroMeansAbsent && is_numeric($value) && (float) $value === 0.0) {
+            return true;
+        }
+
+        return false;
     }
 
     private function haversineMetres(float $lat1, float $lng1, float $lat2, float $lng2): float
@@ -236,17 +306,6 @@ class PropertyDuplicateMatchEvidence
         $a = sin($dLat / 2) ** 2 + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLng / 2) ** 2;
 
         return $earthRadius * 2 * atan2(sqrt($a), sqrt(1 - $a));
-    }
-
-    private function extentValue(TrackedProperty $tp): ?string
-    {
-        // Extent contract (.ai/specs/deeds-capture.md §6) — freehold and sectional
-        // extents are two DIFFERENT columns, never crossed. erf_size_m2 (freehold)
-        // takes priority; section_extent_m2 (sectional "floor size") is the fallback,
-        // never cadastral_extent (raw scraped text, not the parsed numeric value).
-        $extent = $tp->erf_size_m2 ?? $tp->section_extent_m2 ?? null;
-
-        return $extent ? $this->formatValue($extent . ' m²') : null;
     }
 
     private function formatValue($value): ?string
