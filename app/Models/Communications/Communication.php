@@ -410,4 +410,25 @@ class Communication extends Model
             ->map(fn ($id) => (int) $id)
             ->unique()->values()->all();
     }
+
+    /**
+     * CX-113 (Johan, 2026-08-21) — DR2's agent picker: "was $agent actually a party to
+     * this email" (owner_user_id === $agent, OR one of $agent's own mailbox addresses
+     * is in participant_identifiers). Deliberately narrower than scopeVisibleTo()'s
+     * 'own' tier — no thread-level widening (b2) and no AT-132 grants (c), both of
+     * which are properties of the REQUESTING user's own access, not "what this other
+     * named agent was on". Used only when an admin/BM explicitly picks one agent from
+     * the DR2 Unfiled Emails filter — never for a user's own default visibility.
+     */
+    public function scopeInvolvingAgent(Builder $query, User $agent): Builder
+    {
+        $mailboxAddresses = static::participantMailboxAddresses($agent);
+
+        return $query->where(function (Builder $q) use ($agent, $mailboxAddresses) {
+            $q->where('owner_user_id', $agent->id);
+            foreach ($mailboxAddresses as $addr) {
+                $q->orWhereRaw('JSON_CONTAINS(participant_identifiers, ?)', [json_encode($addr)]);
+            }
+        });
+    }
 }

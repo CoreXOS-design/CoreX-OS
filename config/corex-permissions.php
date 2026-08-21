@@ -465,8 +465,17 @@ return [
         ['key' => 'deals_v2.view_overview',      'label' => 'View Pipeline Overview',      'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 19],
 
         // ── Deal Comms Suspense (AT-231) — inbound attorney-email review queue ──
-        ['key' => 'deal_comms_suspense.view',    'label' => 'View Comms Suspense (attorney email filing queue)', 'section' => 'deals-v2', 'type' => 'access', 'module' => 'deal_comms_suspense', 'sort_order' => 20],
-        ['key' => 'deal_comms_suspense.resolve', 'label' => 'Resolve Comms Suspense (confirm / reassign / reject)', 'section' => 'deals-v2', 'type' => 'action', 'module' => 'deal_comms_suspense', 'sort_order' => 21],
+        ['key' => 'deal_comms_suspense.view',    'label' => 'View Comms Suspense (attorney email filing queue)', 'section' => 'deals-v2', 'type' => 'access', 'module' => 'deal_comms_suspense', 'sort_order' => 21],
+        ['key' => 'deal_comms_suspense.resolve', 'label' => 'Resolve Comms Suspense (confirm / reassign / reject)', 'section' => 'deals-v2', 'type' => 'action', 'module' => 'deal_comms_suspense', 'sort_order' => 22],
+
+        // ── DR2 Unfiled Emails (CX-113 Phase A, Johan 2026-08-21) — data-scope view key,
+        // same mechanism as deeds_capture.view / deals_v2.view: drives the None/Own/Branch/All
+        // selector in Role Manager. Own = the picking staff member was actually a party
+        // (To/From/CC) to the email (PermissionService::dr2UnfiledEmailsScope() reads this,
+        // Communication::scopeVisibleTo() enforces it) — never a shared-mailbox concept, HFC
+        // has none. Deliberately NOT added to any role's `include` list here — Johan sets the
+        // defaults himself in Role Manager; unset resolves to 'own', the safe default.
+        ['key' => 'dr2_unfiled_emails.view',      'label' => 'View Unfiled Emails List',    'section' => 'deals-v2',         'type' => 'action',  'module' => 'dr2_unfiled_emails', 'sort_order' => 20],
 
         // ── Agencies ── REMOVED 2026-05-07: System Owner only (see agency-admin-rule.md).
         // Routes now gated by `owner_only` middleware. No permission keys needed.

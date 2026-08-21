@@ -2,12 +2,15 @@
 
 namespace App\Http\Controllers\Dr2;
 
+use App\Exceptions\Communications\AlreadyFiledException;
 use App\Http\Controllers\Controller;
 use App\Models\Communications\Communication;
 use App\Models\Communications\CommunicationLink;
 use App\Models\Deal;
 use App\Models\DealV2\DealV2;
+use App\Models\User;
 use App\Services\Communications\CommunicationDealLinkingService;
+use App\Services\PermissionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -38,12 +41,38 @@ class UnfiledEmailsController extends Controller
     {
     }
 
-    /** The working queue — every unfiled email, newest first, searchable. */
+    /**
+     * The working queue — every unfiled email THE USER WAS A PARTY TO, newest first,
+     * searchable.
+     *
+     * CX-113 Phase A (Johan, 2026-08-21) — "565 unfiled emails as one wholesale list...
+     * agents only see emails they were part of." Scope resolution mirrors Deeds
+     * Capture/Market Intelligence exactly (PermissionService::getDataScope +
+     * clampScope — decided mechanism, cc5 building Deeds Capture's quick filters
+     * against the same one): a role ceiling from Role Manager
+     * (dr2_unfiled_emails.view), clamped against the ?scope= request param, rendered
+     * as a plain server-side pill toggle that never shows an option past the ceiling
+     * (STRICT gating per Johan's instruction — not Buyer Pipeline's looser version).
+     * The actual row filter is Communication::scopeVisibleTo() (AT-118/AT-127,
+     * already built for the Comms Archive) — own/branch/all PLUS genuine to/from/cc
+     * participant matching via participant_identifiers, so "own" truly means "emails
+     * this person was on", never a shared-mailbox assumption (HFC has none).
+     */
     public function index(Request $request): View
     {
         $user     = $request->user();
         $agencyId = $user->effectiveAgencyId();
         $search   = trim((string) $request->input('q', ''));
+
+        $ceiling = PermissionService::dr2UnfiledEmailsScope($user);
+        $scope   = PermissionService::clampScope($request->input('scope'), $ceiling);
+
+        $canPickAgent  = in_array($scope, ['branch', 'all'], true);
+        $agentList     = $canPickAgent ? $this->agentList($user, $scope) : collect();
+        $filterAgentId = $request->has('agent_id') ? (string) $request->query('agent_id', '') : '';
+        $selectedAgent = ($canPickAgent && $filterAgentId !== '')
+            ? $agentList->firstWhere('id', (int) $filterAgentId)
+            : null;
 
         $query = Communication::query()
             ->where('agency_id', $agencyId)
@@ -55,6 +84,16 @@ class UnfiledEmailsController extends Controller
                     ->whereNull('communication_links.deleted_at');
             });
 
+        // Agent picker only ever offers a candidate already inside $agentList (built
+        // scoped to the same $scope ceiling below) — a forged agent_id outside that
+        // set is simply ignored, falling back to the full $scope visibility rather
+        // than either erroring or accidentally widening access.
+        if ($selectedAgent) {
+            $query->involvingAgent(User::query()->findOrFail($selectedAgent->id));
+        } else {
+            $query->visibleTo($user, $scope);
+        }
+
         if (mb_strlen($search) >= 2) {
             $query->where(function ($q) use ($search) {
                 $q->where('subject', 'like', "%{$search}%")
@@ -65,9 +104,37 @@ class UnfiledEmailsController extends Controller
         $emails = $query->orderByDesc('occurred_at')->paginate(25)->withQueryString();
 
         return view('dr2.unfiled-emails', [
-            'emails' => $emails,
-            'search' => $search,
+            'emails'         => $emails,
+            'search'         => $search,
+            'scope'          => $scope,
+            'permittedScope' => $ceiling,
+            'canPickAgent'   => $canPickAgent,
+            'agentList'      => $agentList,
+            'filterAgentId'  => $filterAgentId,
+            'selectedAgent'  => $selectedAgent,
         ]);
+    }
+
+    /**
+     * Agent picker candidate list — same decided mechanism as
+     * DeedsCaptureController::deedsAgentList(), clamped to the SAME scope ceiling the
+     * row query enforces, so the picker can never offer a name the backend would then
+     * refuse. Deeds Capture's live version also excludes is_assistant users; that
+     * column does not exist yet on this branch's schema (newer live-only work, out of
+     * this task's scope) — omitted rather than pulled in unrelated.
+     */
+    private function agentList(User $user, string $scope): \Illuminate\Support\Collection
+    {
+        $query = User::agencyMembers()->where('is_active', 1)->orderBy('name');
+
+        if ($scope === 'branch') {
+            $branchId = $user->effectiveBranchId();
+            if ($branchId) {
+                $query->where('branch_id', $branchId);
+            }
+        }
+
+        return $query->get(['id', 'name', 'email']);
     }
 
     /**
@@ -103,16 +170,21 @@ class UnfiledEmailsController extends Controller
 
     /**
      * POST /deals-dr2/unfiled-emails/{communication}/file
-     * body: deal_id
+     * body: deal_id, move (optional bool)
      *
      * Files ONE email, then looks for other unfiled emails that share a signal with
      * the deal it was just filed to. Returns them as suggestions — the agent confirms
      * via fileBatch(), nothing here auto-files a second email.
+     *
+     * CX-113 Phase A — "file once", never a silent second link. If another filer won
+     * the race to a DIFFERENT deal first, this returns 409 naming that deal instead of
+     * creating a duplicate link; the caller may resubmit with move=true to take it.
      */
     public function file(Request $request, Communication $communication): JsonResponse
     {
         $validated = $request->validate([
             'deal_id' => ['required', 'integer'],
+            'move'    => ['sometimes', 'boolean'],
         ]);
 
         $user     = $request->user();
@@ -123,7 +195,23 @@ class UnfiledEmailsController extends Controller
         $deal = Deal::query()->visibleTo($user)->findOrFail($validated['deal_id']);
         abort_if($deal->deal_v2_id === null, 422, 'This deal has no DR2 twin to link a communication to.');
 
-        $link = $this->linking->link($communication, $deal->deal_v2_id, $agencyId, $user);
+        try {
+            $link = $this->linking->link($communication, $deal->deal_v2_id, $agencyId, $user, (bool) ($validated['move'] ?? false));
+        } catch (AlreadyFiledException $e) {
+            $existingDeal = Deal::where('deal_v2_id', $e->existingLink->linkable_id)->first();
+
+            return response()->json([
+                'ok'             => false,
+                'already_filed'  => true,
+                'message'        => $existingDeal
+                    ? "Already filed to #{$existingDeal->deal_no} · {$existingDeal->property_address}."
+                    : 'Already filed to another deal.',
+                'existing_deal'  => $existingDeal ? [
+                    'id'    => $existingDeal->id,
+                    'label' => trim(($existingDeal->deal_no ? "#{$existingDeal->deal_no} · " : '') . ($existingDeal->property_address ?: '')),
+                ] : null,
+            ], 409);
+        }
 
         $suggestions = $this->linking
             ->findRelatedUnfiled($agencyId, $deal->deal_v2_id, $communication->id)
