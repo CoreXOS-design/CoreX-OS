@@ -81,6 +81,137 @@ class Dr2DealPartyEmailResolver
     }
 
     /**
+     * CX-113 Phase E (Johan, 2026-08-21) — "how do we enhance this so agents don't file
+     * to the wrong deal." Every party email on ONE deal, grouped by role, so the inline
+     * row picker can answer "does the sender/a recipient match a NAMED role on this
+     * candidate deal" — the near-conclusive signal. Same tables/columns as
+     * resolveEmails() above, just scoped to a single deal_id and keeping the role
+     * label instead of flattening it away.
+     *
+     * @return array<string, array<int, string>> e.g. ['buyer' => [...], 'seller' =>
+     *         [...], 'attorney' => [...], 'bond_originator' => [...], 'bond_attorney'
+     *         => [...], 'coc_supplier' => [...]]
+     */
+    public function partyEmailsByRoleForDeal(int $dealId): array
+    {
+        $roles = [];
+
+        $contactRows = DB::table('deal_contacts')
+            ->join('contacts', 'contacts.id', '=', 'deal_contacts.contact_id')
+            ->where('deal_contacts.deal_id', $dealId)
+            ->whereNotNull('contacts.email')
+            ->get(['deal_contacts.role', 'contacts.email']);
+        foreach ($contactRows as $row) {
+            $role = in_array($row->role, ['buyer', 'seller'], true) ? $row->role : 'other_party';
+            $email = strtolower(trim((string) $row->email));
+            if ($email !== '' && str_contains($email, '@')) {
+                $roles[$role][] = $email;
+            }
+        }
+
+        $providerColumns = [
+            'attorney_provider_id'        => 'attorney',
+            'bond_originator_provider_id' => 'bond_originator',
+            'bond_attorney_provider_id'   => 'bond_attorney',
+        ];
+        $deal = DB::table('deals')->where('id', $dealId)->first(array_keys($providerColumns));
+        foreach ($providerColumns as $column => $roleName) {
+            $providerId = $deal->$column ?? null;
+            if (! $providerId) {
+                continue;
+            }
+            $personEmails = DB::table('agency_service_provider_contacts')
+                ->where('service_provider_id', $providerId)->whereNull('deleted_at')->pluck('email');
+            $firmEmail = DB::table('agency_service_providers')
+                ->where('id', $providerId)->whereNull('deleted_at')->value('email');
+            foreach ($personEmails->push($firmEmail) as $e) {
+                $e = strtolower(trim((string) $e));
+                if ($e !== '' && str_contains($e, '@')) {
+                    $roles[$roleName][] = $e;
+                }
+            }
+        }
+
+        $workOrders = DB::table('deal_step_work_orders')
+            ->where('dr1_deal_id', $dealId)->whereNull('deleted_at')
+            ->get(['recipient_email', 'service_provider_id']);
+        foreach ($workOrders as $wo) {
+            if ($wo->service_provider_id) {
+                $personEmails = DB::table('agency_service_provider_contacts')
+                    ->where('service_provider_id', $wo->service_provider_id)->whereNull('deleted_at')->pluck('email');
+                foreach ($personEmails as $e) {
+                    $e = strtolower(trim((string) $e));
+                    if ($e !== '' && str_contains($e, '@')) {
+                        $roles['coc_supplier'][] = $e;
+                    }
+                }
+            }
+            $recipient = strtolower(trim((string) ($wo->recipient_email ?? '')));
+            if ($recipient !== '' && str_contains($recipient, '@')) {
+                $roles['coc_supplier'][] = $recipient;
+            }
+        }
+
+        foreach ($roles as $role => $emails) {
+            $roles[$role] = array_values(array_unique($emails));
+        }
+
+        return $roles;
+    }
+
+    /**
+     * CX-113 Phase E refinement 2 (Johan, 2026-08-21) — "koos from ooba does all our
+     * bonds so we get a lot of emails from him... weight each signal by how
+     * discriminating it actually is." A party who appears on ONE deal makes an email
+     * match near-conclusive; a party on MANY deals (a regular bond originator, the
+     * agency's usual conveyancer) makes the same match nearly meaningless for
+     * disambiguation. Computed live from real data — never a hardcoded "common
+     * suppliers" list, so it stays true as the book changes. Same three sources as
+     * partyEmailsByRoleForDeal()/resolveEmails() above, just counting DISTINCT deals
+     * per email instead of grouping by role.
+     *
+     * @return array<string, int> normalised email => distinct deal count
+     */
+    public function partyDealFrequency(int $agencyId): array
+    {
+        $pairs = collect();
+
+        DB::table('deal_contacts')
+            ->join('deals', 'deals.id', '=', 'deal_contacts.deal_id')
+            ->join('contacts', 'contacts.id', '=', 'deal_contacts.contact_id')
+            ->where('deals.agency_id', $agencyId)->whereNotNull('deals.deal_v2_id')
+            ->whereNotNull('contacts.email')
+            ->get(['deals.id as deal_id', 'contacts.email'])
+            ->each(fn ($r) => $pairs->push([strtolower(trim($r->email)), $r->deal_id]));
+
+        foreach (['attorney_provider_id', 'bond_originator_provider_id', 'bond_attorney_provider_id'] as $column) {
+            DB::table('deals')
+                ->join('agency_service_provider_contacts', 'agency_service_provider_contacts.service_provider_id', '=', "deals.$column")
+                ->where('deals.agency_id', $agencyId)->whereNotNull('deals.deal_v2_id')->whereNotNull("deals.$column")
+                ->whereNull('agency_service_provider_contacts.deleted_at')
+                ->get(['deals.id as deal_id', 'agency_service_provider_contacts.email'])
+                ->each(fn ($r) => $r->email ? $pairs->push([strtolower(trim($r->email)), $r->deal_id]) : null);
+            DB::table('deals')
+                ->join('agency_service_providers', 'agency_service_providers.id', '=', "deals.$column")
+                ->where('deals.agency_id', $agencyId)->whereNotNull('deals.deal_v2_id')->whereNotNull("deals.$column")
+                ->whereNull('agency_service_providers.deleted_at')
+                ->get(['deals.id as deal_id', 'agency_service_providers.email'])
+                ->each(fn ($r) => $r->email ? $pairs->push([strtolower(trim($r->email)), $r->deal_id]) : null);
+        }
+
+        DB::table('deal_step_work_orders')
+            ->join('deals', 'deals.id', '=', 'deal_step_work_orders.dr1_deal_id')
+            ->where('deals.agency_id', $agencyId)->whereNotNull('deals.deal_v2_id')->whereNull('deal_step_work_orders.deleted_at')
+            ->get(['deals.id as deal_id', 'deal_step_work_orders.recipient_email'])
+            ->each(fn ($r) => $r->recipient_email ? $pairs->push([strtolower(trim($r->recipient_email)), $r->deal_id]) : null);
+
+        return $pairs->filter(fn ($p) => $p[0] !== '' && str_contains($p[0], '@'))
+            ->groupBy(fn ($p) => $p[0])
+            ->map(fn ($g) => $g->pluck(1)->unique()->count())
+            ->all();
+    }
+
+    /**
      * @param  (callable(Builder):void)|null  $extraDealFilter  Additional WHERE applied
      *         to the `deals` table in every branch below (narrows which deals' parties
      *         get resolved; omit for "every DR2-twinned deal in the agency").
