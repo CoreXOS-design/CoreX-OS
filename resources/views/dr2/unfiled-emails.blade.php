@@ -47,12 +47,16 @@
             this.fetchFilingSuggestion(commId);
         },
         closePicker(){ this.filingId = null; this.moveMode = false; this.filingSuggestion = null; },
-        // CX-113 Phase D (Johan, 2026-08-21) — "auto-suggest the deal from filing
-        // history... suggest, never auto-file." Fetched once, when the row's search
+        // CX-113 Phase D (Johan, 2026-08-21) — auto-suggest the deal from filing
+        // history; suggest, never auto-file. Fetched once, when the row's search
         // opens, before the agent has typed anything. Shown ABOVE the normal search
         // results; typing a query doesn't clear it, but the real search results (once
         // 2+ chars are typed) take visual priority — the suggestion is a starting
-        // point, never forced.
+        // point, never forced. NOTE: this comment sits inside the double-quoted x-data
+        // attribute — no literal double-quote character (the one this note is itself
+        // avoiding) may EVER appear on these lines, even in a comment; the browser's
+        // HTML parser terminates the attribute at the first one, regardless of JS
+        // syntax (confirmed live — this exact mistake shipped once already).
         async fetchFilingSuggestion(commId){
             this.filingSuggestion = null; this.filingSuggestionLoading = true;
             try {
