@@ -1135,13 +1135,20 @@ final class EntryPointController extends Controller
             ]);
         }
 
-        // properties.beds/baths/garages/price/suburb/property_type/status are
-        // NOT NULL — fall back to the schema defaults (0 / empty / 'house' /
-        // 'draft') when the prospecting row doesn't carry the value.
+        // properties.beds/baths/garages/price/suburb/property_type are NOT
+        // NULL — fall back to the schema defaults (0 / empty / 'house') when
+        // the prospecting row doesn't carry the value. 'status' is explicit,
+        // not defaulted (2026-08-21, Johan, .ai/specs/2026-08-20-property-
+        // status-prospecting.md): this path promotes a MIC ProspectingListing
+        // straight to Property, bypassing TrackedProperty entirely -- it is
+        // unambiguously MIC ingest, so it always lands as Prospecting, never
+        // the schema's 'draft' default (that default is for the agent-create
+        // wizard, not this path).
         return Property::create(array_merge([
             'agency_id'     => $agencyId,
             'branch_id'     => $propertyBranchId,
             'agent_id'      => $propertyAgentId,
+            'status'        => Property::STATUS_PROSPECTING,
             'external_id'   => 'prospecting:' . $listing->id,
             'title'         => $address !== '' ? $address : 'Prospecting listing ' . $listing->id,
             'address'       => $address !== '' ? $address : null,
@@ -1156,7 +1163,6 @@ final class EntryPointController extends Controller
             'property_type' => $listing->property_type ?? 'house',
             // No listing_type on prospecting_listings — default to 'sale'.
             'listing_type'  => 'sale',
-            'status'        => 'draft',
         ], $extra));
     }
 

@@ -218,6 +218,38 @@ final class TrackedProperty extends Model
         return $this->promoted_to_property_id !== null;
     }
 
+    /**
+     * PROSPECTING (Johan, 2026-08-20/21 — .ai/specs/2026-08-20-property-status-
+     * prospecting.md): "properties created by DEEDS INGEST and MIC INGEST get
+     * status Prospecting... properties created by an AGENT still get Draft."
+     * The single source of truth promoteToStock() uses to decide which -- so
+     * the deeds-capture "Promote" button and the generic Tracked Properties
+     * "Promote" button (which also serves P24/PP/cmainfo/chrome-capture as
+     * well as manually-tracked properties) can never disagree.
+     *
+     * Source-type prefix 'manual' (manual_prospect_entry, manual_agent,
+     * manual_admin -- confirmed against real qa1 AND live source_chain/
+     * external_refs data, 2026-08-21) means a human typed it in -- not
+     * automated ingest, even if the TP also picked up automated enrichment
+     * later. True if ANY non-manual source ever contributed.
+     *
+     * Reads source_chain (inline on the model, no extra query) first; falls
+     * back to the externalRefs relation for rows where source_chain is empty.
+     */
+    public function isFromAutomatedIngest(): bool
+    {
+        $types = collect($this->source_chain ?? [])
+            ->pluck('type')
+            ->filter()
+            ->map(fn ($t) => strtolower((string) $t));
+
+        if ($types->isEmpty()) {
+            $types = $this->externalRefs()->pluck('source_type')->filter()->map(fn ($t) => strtolower((string) $t));
+        }
+
+        return $types->contains(fn ($t) => ! str_starts_with($t, 'manual'));
+    }
+
     public function displayAddress(): string
     {
         $parts = array_filter([

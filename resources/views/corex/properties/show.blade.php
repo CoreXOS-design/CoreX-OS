@@ -153,6 +153,10 @@
             // be able to tell "we sold it" from "they sold it".
             'sold_by_3rd_party' => 'var(--ds-amber)',
             'withdrawn' => 'var(--ds-amber)',
+            // 2026-08-21 — Prospecting purple (matches the properties-list tile
+            // colour, so the two screens read as the same pool at a glance).
+            'prospecting' => 'var(--ds-purple, #7c3aed)',
+            'not_selling' => 'var(--text-muted)',
         ];
         $statusBadgeVariants = [
             'active'    => 'ds-badge-success',
@@ -160,6 +164,8 @@
             'sold'      => 'ds-badge-info',
             'sold_by_3rd_party' => 'ds-badge-warning',
             'withdrawn' => 'ds-badge-warning',
+            'prospecting' => 'ds-badge-info',
+            'not_selling' => 'ds-badge-default',
         ];
         $sc = $statusColors[$property->status] ?? 'var(--text-muted)';
         $scBadge = $statusBadgeVariants[$property->status] ?? 'ds-badge-default';
@@ -1005,6 +1011,35 @@
         {{-- RIGHT: tabs --}}
         <div class="flex-1 min-w-0" style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:clip;">
 
+        {{-- PROSPECTING banner (Johan, 2026-08-20/21, .ai/specs/2026-08-20-
+             property-status-prospecting.md) — deliberately the FIRST thing in
+             this column, mobile and desktop alike, not tucked in a dropdown:
+             the spec's own risk #3 is that if this move isn't obvious the
+             prospecting pile just grows. Two buttons, one click each. --}}
+        @if(!$isNew && $property->isProspecting())
+        <div class="p-4 flex items-center justify-between gap-3 flex-wrap" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 35%, transparent);">
+            <div class="text-sm" style="color: var(--text-primary);">
+                <strong>Prospecting</strong> — ingested stock, no mandate yet.
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+                <form method="POST" action="{{ route('corex.properties.convert-from-prospecting', $property) }}"
+                      onsubmit="return confirm('Move this property to Draft — mandate won?');">
+                    @csrf
+                    <button type="submit" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background: var(--ds-green, #059669); color:#fff;">
+                        Won the mandate — move to Draft
+                    </button>
+                </form>
+                <form method="POST" action="{{ route('corex.properties.mark-not-selling', $property) }}"
+                      onsubmit="return confirm('Mark this property Not selling? This closes it out of Prospecting.');">
+                    @csrf
+                    <button type="submit" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        Not selling
+                    </button>
+                </form>
+            </div>
+        </div>
+        @endif
+
         {{-- Mobile-only header strip --}}
         <div class="lg:hidden p-4" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
             <div class="flex items-start gap-3">
@@ -1028,7 +1063,14 @@
                                 'rental' => 'For Rent',
                                 default  => 'For Sale',
                             };
-                            $statusLabel2 = ucwords(str_replace('_', ' ', (string) ($property->status ?: 'Draft')));
+                            // 2026-08-21 — was a raw ucwords() of the status column,
+                            // which mislabelled 'not_selling' as "Not Selling" (Title
+                            // Case) instead of Johan's exact "Not selling" (sentence
+                            // case). statusBadge() is the model's own single source
+                            // of truth for this exact label everywhere else on this
+                            // page (the compact pill lower down uses it already) —
+                            // reusing it here instead of re-deriving.
+                            $statusLabel2 = $property->status ? $property->statusBadge() : 'Draft';
                             $brandPillStyle2 = 'background:var(--brand-default); color:#fff; border:none;';
                         @endphp
                         <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle2 }}">{{ $listingTypeLabel2 }}</span>
@@ -1172,7 +1214,7 @@
                 $descPreview  = \Illuminate\Support\Str::limit(strip_tags($property->description ?? ''), 220);
                 $statusColor      = $statusColors[$property->status] ?? 'var(--text-muted)';
                 $statusBadgeClass = $statusBadgeVariants[$property->status] ?? 'ds-badge-default';
-                $statusLabel      = ucwords(str_replace('_', ' ', $property->status ?: 'draft'));
+                $statusLabel      = $property->status ? $property->statusBadge() : 'Draft';
                 $photoCount       = count($property->allImages());
             @endphp
 
