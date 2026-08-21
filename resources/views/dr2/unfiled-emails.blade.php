@@ -24,6 +24,17 @@
     row's search box opens, shown above the results until the agent types something.
     A click files it — same explicit-action requirement as every other row in this
     list, never automatic.
+
+    CX-113 Phase E (Johan, 2026-08-21) — real problem on his screen: searching "santa"
+    returned 5+ deals that all share "Santana" in the address; picking from that list
+    is guessing. The right-side box was too narrow to show enough to decide, so the
+    search moved to its own full-width row directly beneath each email row (still no
+    modal — same explicit click-to-file). Every result now carries property address,
+    status, and parties, PLUS why it's a candidate for THIS specific email — signal
+    badges (email address match, learned filing history, a party surname in the
+    subject, property address) ranked strongest-first server-side. Reuses
+    Dr2DealPartyEmailResolver and Dr2FilingSuggestionService entirely — no new
+    matcher.
 --}}
 @extends('layouts.corex')
 
@@ -79,10 +90,21 @@
             if(this.dealQ.trim().length < 2){ this.dealResults = []; return; }
             this.dealSearching = true;
             try {
-                const r = await fetch('{{ route('deals-dr2.unfiled-emails.deal-search') }}?q=' + encodeURIComponent(this.dealQ.trim()), {headers:{Accept:'application/json'}});
+                const r = await fetch('{{ route('deals-dr2.unfiled-emails.deal-search') }}?q=' + encodeURIComponent(this.dealQ.trim()) + '&communication_id=' + this.filingId, {headers:{Accept:'application/json'}});
                 this.dealResults = await r.json();
             } catch(e) { this.dealResults = []; }
             this.dealSearching = false;
+        },
+        // CX-113 Phase E — signal-badge colour per type: email (near-conclusive) reads
+        // strongest/greenest, learned history close behind, subject and property
+        // weaker/neutral. Purely a display concern, not part of the ranking itself —
+        // ranking is entirely server-side (score, already sorted before this array
+        // ever reaches the browser).
+        signalBadgeStyle(type){
+            if(type === 'email')  return 'background:#dcfce7;color:#166534;';
+            if(type === 'history') return 'background:#dbeafe;color:#1e40af;';
+            if(type === 'subject') return 'background:#fef3c7;color:#92400e;';
+            return 'background:#f3f4f6;color:#4b5563;';
         },
         async file(commId, dealId){
             this.filing = true; this.err = '';
@@ -313,11 +335,10 @@
                         @if($state !== 'unfiled')
                             <th style="padding:.6rem .9rem;">Status</th>
                         @endif
-                        <th style="padding:.6rem .9rem;"></th>
                     </tr>
                 </thead>
                 <tbody>
-                    @php($colCount = $state !== 'unfiled' ? 6 : 5)
+                    @php($colCount = $state !== 'unfiled' ? 5 : 4)
                     @foreach($emails as $email)
                         @php($filedInfo = $filedInfoByCommId[$email->id] ?? null)
                         <tr id="unfiled-row-{{ $email->id }}" style="border-top:1px solid var(--border,rgba(0,0,0,.06));cursor:pointer;" @click="toggleExpand({{ $email->id }})">
@@ -359,17 +380,19 @@
                                     @endif
                                 </td>
                             @endif
-                            {{-- CX-113 Phase C (Johan, 2026-08-21) — "deal search and select ON
-                                 THE ROW itself... no modal for the filing action." Replaces the
-                                 File/Move button + separate expand-row picker: the search box
-                                 IS the row's filing control, always present, no extra click to
-                                 reveal it. Same searchDeals()/file() as before, same shared
-                                 dealQ/dealResults/filingId state (only one row is ever "active"
-                                 at a time) — just anchored directly under THIS input instead of
-                                 a whole-width row below. click.outside closes it without a
-                                 separate Cancel button. --}}
-                            <td style="padding:.6rem .9rem;text-align:right;white-space:nowrap;position:relative;" @click.stop>
-                                <div style="position:relative;display:inline-block;width:15rem;text-align:left;"
+                        </tr>
+                        {{-- CX-113 Phase E (Johan, 2026-08-21) — "make the row taller and move
+                             the deal search to the bottom of each email row, bottom left. The
+                             current inline box on the right is too narrow to show enough. Give
+                             it the full row width so results can carry real detail." A second
+                             row, visually fused to the one above (no top border, tight top
+                             padding), full table width — same searchDeals()/file()/openPicker()
+                             state as before, just repositioned and widened so each result card
+                             can show property/status/parties/signal badges instead of one bare
+                             line. click.outside closes it without a separate Cancel button. --}}
+                        <tr @click.stop>
+                            <td colspan="{{ $colCount }}" style="padding:0 .9rem .6rem;">
+                                <div style="position:relative;max-width:38rem;"
                                      @click.outside="filingId === {{ $email->id }} && closePicker()">
                                     <input type="text" autocomplete="off"
                                            :value="filingId === {{ $email->id }} ? dealQ : ''"
@@ -378,11 +401,9 @@
                                            @keydown.escape="closePicker()"
                                            placeholder="{{ $filedInfo ? 'Move to another deal…' : 'Search deal — address, seller, buyer, attorney…' }}"
                                            class="corex-input text-sm" style="width:100%;">
-                                    {{-- CX-113 Phase D — filing-history suggestion. Shown BEFORE the
-                                         agent types anything (dealQ empty); a real search takes
-                                         priority the moment they start typing. Click = files it
-                                         immediately, exactly like a normal search result — this is
-                                         still an explicit agent action, never automatic. --}}
+                                    {{-- CX-113 Phase D — filing-history suggestion, shown BEFORE the
+                                         agent types anything; a real search takes over the moment
+                                         they type. Click files it — still an explicit action. --}}
                                     <div x-show="filingId === {{ $email->id }} && dealQ.trim().length === 0 && filingSuggestion" x-cloak
                                          style="position:absolute;z-index:41;left:0;right:0;top:100%;background:var(--surface,#fff);border:1px solid var(--brand-icon,#0ea5e9);border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);padding:.5rem .7rem;">
                                         <div style="font-size:.7rem;font-weight:600;color:var(--brand-icon,#0ea5e9);text-transform:uppercase;letter-spacing:.03em;margin-bottom:.2rem;">Suggested</div>
@@ -400,13 +421,30 @@
                                          style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface,#fff);border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);padding:.5rem .7rem;font-size:.8rem;color:var(--text-muted,#9ca3af);">
                                         Searching…
                                     </div>
+                                    {{-- CX-113 Phase E — rich result cards: property address, status,
+                                         parties, and WHY each deal is a candidate for THIS email
+                                         (signal badges, strongest-first — the backend already sorts
+                                         by score, never re-sorted client-side). An unbadged result
+                                         is a plain text match — it naturally sorts last. --}}
                                     <div x-show="filingId === {{ $email->id }} && !dealSearching && dealResults.length" x-cloak
-                                         style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface,#fff);border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);max-height:14rem;overflow:auto;">
+                                         style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface,#fff);border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);max-height:22rem;overflow:auto;">
                                         <template x-for="d in dealResults" :key="d.id">
-                                            <div style="padding:.5rem .7rem;border-bottom:1px solid #f3f4f6;font-size:.8rem;cursor:pointer;"
+                                            <div style="padding:.6rem .75rem;border-bottom:1px solid #f3f4f6;cursor:pointer;"
                                                  onmouseover="this.style.background='var(--surface-2,#f9fafb)'" onmouseout="this.style.background=''"
                                                  :class="filing ? 'pointer-events-none opacity-50' : ''"
-                                                 x-text="d.label" @click="file({{ $email->id }}, d.id)"></div>
+                                                 @click="file({{ $email->id }}, d.id)">
+                                                <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;">
+                                                    <span style="font-weight:600;font-size:.85rem;" x-text="d.label"></span>
+                                                    <span style="font-size:.68rem;padding:.1rem .5rem;border-radius:999px;background:var(--surface-2,#f3f4f6);color:var(--text-muted,#6b7280);white-space:nowrap;flex-shrink:0;" x-text="d.status"></span>
+                                                </div>
+                                                <div style="font-size:.75rem;color:var(--text-muted,#6b7280);margin-top:.1rem;"
+                                                     x-text="[d.seller_name ? ('Seller: ' + d.seller_name) : null, d.buyer_name ? ('Buyer: ' + d.buyer_name) : null, d.attorney_name ? ('Attorney: ' + d.attorney_name) : null].filter(Boolean).join('  ·  ')"></div>
+                                                <div x-show="d.signals && d.signals.length" style="display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.4rem;">
+                                                    <template x-for="s in (d.signals || [])" :key="s.type + s.label">
+                                                        <span :style="'font-size:.68rem;padding:.15rem .5rem;border-radius:999px;font-weight:600;' + signalBadgeStyle(s.type)" x-text="s.label"></span>
+                                                    </template>
+                                                </div>
+                                            </div>
                                         </template>
                                     </div>
                                 </div>
