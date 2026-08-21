@@ -102,17 +102,22 @@
             <div class="flex items-center gap-3">
                 {{-- Data scope — plain server-rendered pill group, full GET navigation, same
                      idiom as MIC's filter rail / Buyer Pipeline. STRICT gating: a scope past
-                     the role ceiling never renders as an option at all. Active pill uses a
-                     LITERAL hex color, not var(--brand-default) — corex.css has a dark-mode
-                     guard (html.dark [style*="color:var(--brand-default"] { color: var(--text-primary) !important })
-                     that neutralises that variable used as inline TEXT color, since it's meant
-                     for backgrounds/icons; using it here rendered invisible white-on-white. --}}
+                     the role ceiling never renders as an option at all. Active pill keeps
+                     WHITE text and swaps the BACKGROUND to the brand accent instead of a dark
+                     literal/var(--brand-default) on white — corex.css has a broad dark-mode
+                     guard (html.dark [style*="color:var(--brand-default"], plus a list of dark
+                     literal hexes incl. #0b2a4a) that neutralises ANY of those used as inline
+                     TEXT color, confirmed via Chrome DevTools Protocol matched-styles (both the
+                     variable and the literal rendered invisible white-on-white). Matches the
+                     agent-picker button's own accent-highlight convention elsewhere on this
+                     screen (border/text in --brand-icon) but inverted to background so the text
+                     itself is never a color the guard can catch. --}}
                 <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid rgba(255,255,255,0.25);">
                     @foreach($scopeLabels as $key => $label)
                         @if(($scopeRank[$key] ?? 9) <= $maxRank)
                             <a href="{{ route('deals-dr2.unfiled-emails.index', array_merge(request()->except(['scope', 'page']), ['scope' => $key])) }}"
                                class="px-3 py-1.5 text-sm font-medium transition-colors"
-                               style="{{ $scope === $key ? 'background: #fff; color: #0b2a4a;' : 'color: #fff;' }}">{{ $label }}</a>
+                               style="{{ $scope === $key ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'color: #fff;' }}">{{ $label }}</a>
                         @endif
                     @endforeach
                 </div>
