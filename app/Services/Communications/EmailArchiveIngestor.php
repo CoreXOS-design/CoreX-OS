@@ -42,8 +42,10 @@ class EmailArchiveIngestor
 
     /**
      * @param array $msg keys: external_id, thread_key, from, counterpart,
-     *                   participants[], subject, body_text, occurred_at (Carbon),
-     *                   raw (string), attachments[] (each: filename, mime, bytes)
+     *                   participants[], to[], cc[] (role-tagged, optional — adapters
+     *                   that cannot split To/Cc simply omit them), subject, body_text,
+     *                   occurred_at (Carbon), raw (string), attachments[] (each:
+     *                   filename, mime, bytes)
      * @param string $direction Communication::DIRECTION_INBOUND|OUTBOUND
      */
     public function ingest(CommunicationMailbox $mailbox, array $msg, string $direction): string
@@ -170,6 +172,13 @@ class EmailArchiveIngestor
             'thread_key'             => $msg['thread_key'] ?? null,
             'from_identifier'        => $msg['from'] ?? null,
             'participant_identifiers' => array_values($msg['participants'] ?? []),
+            // CX-113 Phase G — role-tagged, unlike participant_identifiers above (a
+            // flat, deduplicated To+Cc+From set with no way to tell who was which).
+            // Null (not []) when the poller genuinely never supplied a split, so a
+            // legacy/other-adapter row is honestly distinguishable from "confirmed
+            // zero recipients" — the view falls back to the merged list either way.
+            'to_identifiers'         => isset($msg['to']) ? array_values($msg['to']) : null,
+            'cc_identifiers'         => isset($msg['cc']) ? array_values($msg['cc']) : null,
             'occurred_at'            => $msg['occurred_at'] ?? now(),
             'captured_at'            => now(),
             'subject'                => isset($msg['subject']) ? Str::limit((string) $msg['subject'], 1000, '') : null,

@@ -99,6 +99,8 @@ class ProvisionalReconciler
             'thread_key'              => $promote['thread_key'] ?? $hit->thread_key,
             'from_identifier'         => $promote['from_identifier'] ?? $hit->from_identifier,
             'participant_identifiers' => $promote['participant_identifiers'] ?? $hit->participant_identifiers,
+            'to_identifiers'          => $promote['to_identifiers'] ?? $hit->to_identifiers,
+            'cc_identifiers'          => $promote['cc_identifiers'] ?? $hit->cc_identifiers,
             'occurred_at'             => $occurredAt,
             'captured_at'             => $promote['captured_at'] ?? now(),
             'subject'                 => $promote['subject'] ?? $hit->subject,
