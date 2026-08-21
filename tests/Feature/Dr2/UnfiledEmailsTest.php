@@ -271,6 +271,155 @@ final class UnfiledEmailsTest extends TestCase
         $this->assertStringContainsString('1 Test Rd', $labels);
     }
 
+    // ── CX-113 Phase E — signal-scored, status-aware deal ranking ────────────
+
+    /** Second "Santana"-style deal sharing an address term with $this->deal, for ranking tests. */
+    private function makeCandidateDeal(array $over = []): Deal
+    {
+        $dealV2Id = (int) DB::table('deals_v2')->insertGetId(array_merge([
+            'reference' => 'DR2-' . Str::random(5), 'deal_type' => 'cash', 'listing_agent_id' => $this->agent->id,
+            'purchase_price' => 900_000, 'commission_amount' => 45_000, 'commission_vat' => 6_750,
+            'offer_date' => '2026-03-01', 'branch_id' => $this->branchId, 'agency_id' => $this->agencyId,
+            'created_by_id' => $this->agent->id, 'created_at' => now(), 'updated_at' => now(),
+        ], []));
+        $deal = Deal::withoutEvents(fn () => Deal::withoutGlobalScopes()->create(array_merge([
+            'period' => '2026-03', 'deal_date' => '2026-03-01', 'property_value' => 900_000, 'total_commission' => 51_750,
+            'reference' => 'REG-' . Str::random(5), 'deal_no' => random_int(1000, 9999), 'deal_type' => 'cash',
+            'seller_name' => 'Candidate Seller', 'property_address' => 'Unit 9 Santana Close',
+            'agency_id' => $this->agencyId, 'branch_id' => $this->branchId, 'deal_v2_id' => $dealV2Id,
+        ], $over)));
+        // visibleTo() (deal-search's own gate) scopes 'own' via the deal_user pivot —
+        // every candidate deal in these ranking tests must be attached the same way
+        // setUp() attaches $this->deal, or it simply never appears in results at all.
+        $deal->agents()->attach($this->agent->id, ['side' => 'selling']);
+
+        return $deal;
+    }
+
+    /** Registers $email as the attorney on $deal via deals.attorney_provider_id (real join path). */
+    private function registerAttorneyOnDeal(Deal $deal, string $email): void
+    {
+        $providerId = (int) DB::table('agency_service_providers')->insertGetId([
+            'agency_id' => $this->agencyId, 'name' => 'Test Firm ' . Str::random(4), 'specialty' => 'transfer_attorney',
+            'is_active' => 1, 'created_by_id' => $this->agent->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('agency_service_provider_contacts')->insert([
+            'agency_id' => $this->agencyId, 'service_provider_id' => $providerId,
+            'attorney_name' => 'Test Attorney', 'email' => $email,
+            'is_active' => 1, 'created_by_id' => $this->agent->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('deals')->where('id', $deal->id)->update(['attorney_provider_id' => $providerId]);
+    }
+
+    public function test_deal_search_ranks_an_email_address_match_above_a_plain_text_match(): void
+    {
+        DB::table('deals')->where('id', $this->deal->id)->update(['property_address' => 'Unit 1 Santana Road']);
+        $plain = $this->makeCandidateDeal(['property_address' => 'Unit 9 Santana Close']);
+        $this->registerAttorneyOnDeal($plain, 'attorney-on-plain@example.com'); // unrelated to this comm
+
+        // Deliberately NOT the shared default from_identifier — setUp() already
+        // registers that one as a deal party, which would make it appear on 2 deals
+        // and dilute the very "unique party" signal this test is isolating.
+        $matched = $this->makeCandidateDeal(['property_address' => '5 Santana Ave']);
+        $this->registerAttorneyOnDeal($matched, 'sole-attorney-for-this-test@example.com');
+
+        $comm = $this->comm(['subject' => 'Nothing distinctive here', 'from_identifier' => 'sole-attorney-for-this-test@example.com']);
+
+        $results = $this->actingAs($this->agent)
+            ->getJson(route('deals-dr2.unfiled-emails.deal-search') . '?q=Santana&communication_id=' . $comm->id)
+            ->assertOk()
+            ->json();
+
+        $this->assertSame($matched->id, $results[0]['id']); // email match sorts first
+        $this->assertSame('email', $results[0]['signals'][0]['type']);
+        $this->assertStringContainsString('attorney', $results[0]['signals'][0]['label']);
+    }
+
+    public function test_deal_search_weights_a_frequent_partys_email_far_below_a_unique_one(): void
+    {
+        // A "busy attorney" on 3 deals — Johan's own example ("koos from ooba does all
+        // our bonds"). Matching them should barely move the ranking.
+        $busy = 'busy-attorney@example.com';
+        $busyDeal = $this->makeCandidateDeal(['property_address' => '1 Busy Rd']);
+        $this->registerAttorneyOnDeal($busyDeal, $busy);
+        $this->registerAttorneyOnDeal($this->makeCandidateDeal(['property_address' => '2 Busy Rd']), $busy);
+        $this->registerAttorneyOnDeal($this->makeCandidateDeal(['property_address' => '3 Busy Rd']), $busy);
+
+        // A unique party on the deal we actually want to find, sharing the same
+        // search term as the busy deals so both are real candidates.
+        $uniqueDeal = $this->makeCandidateDeal(['property_address' => '4 Busy Rd']);
+        $this->registerAttorneyOnDeal($uniqueDeal, 'once-only@example.com');
+
+        $comm = $this->comm(['subject' => 'No distinctive subject', 'from_identifier' => $busy]);
+
+        $results = $this->actingAs($this->agent)
+            ->getJson(route('deals-dr2.unfiled-emails.deal-search') . '?q=Busy&communication_id=' . $comm->id)
+            ->assertOk()
+            ->json();
+
+        $busyResult = collect($results)->firstWhere('id', $busyDeal->id);
+        $this->assertNotNull($busyResult);
+        $this->assertStringContainsString('3 deals', $busyResult['signals'][0]['label']);
+        $this->assertLessThan(20, $busyResult['signals'][0]['score']); // barely moves the ranking
+    }
+
+    public function test_deal_search_badges_a_party_surname_found_in_the_subject(): void
+    {
+        DB::table('deals')->where('id', $this->deal->id)->update([
+            'property_address' => '1 Test Rd', 'seller_name' => 'Rabia Amra',
+        ]);
+        $comm = $this->comm(['subject' => 'Re: PROGRESS REPORT : SETION 4 SANTANA (AMRA / GOVENDER)']);
+
+        $results = $this->actingAs($this->agent)
+            ->getJson(route('deals-dr2.unfiled-emails.deal-search') . '?q=Test&communication_id=' . $comm->id)
+            ->assertOk()
+            ->json();
+
+        $mine = collect($results)->firstWhere('id', $this->deal->id);
+        $this->assertNotNull($mine);
+        $subjectSignal = collect($mine['signals'])->firstWhere('type', 'subject');
+        $this->assertNotNull($subjectSignal);
+        $this->assertStringContainsString('Amra', $subjectSignal['label']);
+        $this->assertStringContainsString('seller', $subjectSignal['label']);
+    }
+
+    public function test_deal_search_ranks_a_proceeding_deal_above_an_equally_signalled_declined_one(): void
+    {
+        $proceeding = $this->makeCandidateDeal(['property_address' => '1 Status Rd', 'accepted_status' => 'R']);
+        $declined = $this->makeCandidateDeal(['property_address' => '2 Status Rd', 'accepted_status' => 'D']);
+        $comm = $this->comm(['subject' => 'Neither deal has a content signal here']);
+
+        $results = $this->actingAs($this->agent)
+            ->getJson(route('deals-dr2.unfiled-emails.deal-search') . '?q=Status&communication_id=' . $comm->id)
+            ->assertOk()
+            ->json();
+
+        $ids = collect($results)->pluck('id')->all();
+        $this->assertLessThan(array_search($declined->id, $ids), array_search($proceeding->id, $ids));
+        $this->assertSame('Declined', collect($results)->firstWhere('id', $declined->id)['status']);
+        $this->assertSame('Registered', collect($results)->firstWhere('id', $proceeding->id)['status']);
+    }
+
+    public function test_deal_search_response_includes_property_address_status_and_party_names(): void
+    {
+        DB::table('deals')->where('id', $this->deal->id)->update([
+            'property_address' => '1 Test Rd', 'seller_name' => 'A Seller', 'buyer_name' => 'A Buyer',
+            'attorney_name' => 'An Attorney', 'accepted_status' => 'G',
+        ]);
+
+        $results = $this->actingAs($this->agent)
+            ->getJson(route('deals-dr2.unfiled-emails.deal-search') . '?q=Test')
+            ->assertOk()
+            ->json();
+
+        $mine = collect($results)->firstWhere('id', $this->deal->id);
+        $this->assertSame('1 Test Rd', $mine['property_address']);
+        $this->assertSame('Granted', $mine['status']);
+        $this->assertSame('A Seller', $mine['seller_name']);
+        $this->assertSame('A Buyer', $mine['buyer_name']);
+        $this->assertSame('An Attorney', $mine['attorney_name']);
+    }
+
     public function test_the_search_box_filters_by_subject_or_sender(): void
     {
         $this->registerDealParty('findme@example.com');

@@ -227,7 +227,7 @@ class UnfiledEmailsController extends Controller
     }
 
     /**
-     * GET /deals-dr2/unfiled-emails/deal-search?q=
+     * GET /deals-dr2/unfiled-emails/deal-search?q=&communication_id=
      * Mirrors CommsSuspenseController::dealSearch() (same query shape, same DR1 Deal
      * model) but gated on this screen's own view_deals permission rather than the
      * suspense module's deal_comms_suspense.resolve, so the two pickers don't share a
@@ -237,6 +237,17 @@ class UnfiledEmailsController extends Controller
      * alongside the existing property_address/deal_no/seller_name/buyer_name so the
      * inline row search can find the deal by any of the same fields Phase B's email
      * search already matches on.
+     *
+     * CX-113 Phase E (Johan, 2026-08-21) — "how do we enhance this so agents don't file
+     * to the wrong deal." Real example: searching "santa" returns 5+ deals that all
+     * share "Santana" in the address — address text alone doesn't disambiguate. When
+     * communication_id is given, every result is scored against THAT email's own
+     * signals — email-address match against a NAMED role (near-conclusive), a party
+     * surname appearing in the subject, a property-address token match (typo-tolerant:
+     * significant address WORDS, not an exact-string compare — "SETION" vs "SECTION"
+     * must not sink the match), and Dr2FilingSuggestionService's own learned-history
+     * verdict, reused rather than re-derived. Results are returned STRONGEST-FIRST;
+     * the agent still clicks — nothing here files anything.
      */
     public function dealSearch(Request $request): JsonResponse
     {
@@ -244,6 +255,13 @@ class UnfiledEmailsController extends Controller
         $search = trim((string) $request->input('q', ''));
         if (mb_strlen($search) < 2) {
             return response()->json([]);
+        }
+
+        $agencyId = $user->effectiveAgencyId();
+        $communication = null;
+        $commId = $request->input('communication_id');
+        if ($commId) {
+            $communication = Communication::where('agency_id', $agencyId)->find($commId);
         }
 
         $deals = Deal::query()->visibleTo($user)
@@ -255,12 +273,176 @@ class UnfiledEmailsController extends Controller
                     ->orWhere('attorney_name', 'like', "%{$search}%");
             })
             ->orderByDesc('id')->limit(10)
-            ->get(['id', 'deal_no', 'property_address', 'seller_name']);
+            ->get(['id', 'deal_no', 'property_address', 'seller_name', 'buyer_name', 'attorney_name', 'accepted_status']);
 
-        return response()->json($deals->map(fn ($d) => [
-            'id'    => (int) $d->id,
-            'label' => trim(($d->deal_no ? "#{$d->deal_no} · " : '') . ($d->property_address ?: '') . ($d->seller_name ? " · {$d->seller_name}" : '')),
-        ])->all());
+        $historySuggestion = $communication ? $this->filingSuggestions->suggestFor($communication) : null;
+        // CX-113 Phase E refinement 2 — computed ONCE per request (agency-wide), not
+        // per deal: how many distinct deals each party email appears on. A party on
+        // one deal makes an email match near-conclusive; a party on many (the
+        // agency's regular bond originator, its usual conveyancer) makes the same
+        // match barely worth anything for disambiguation.
+        $partyFrequency = $communication ? $this->dealParties->partyDealFrequency($agencyId) : [];
+
+        $results = $deals->map(function (Deal $d) use ($communication, $historySuggestion, $partyFrequency) {
+            $signals = $communication ? $this->matchSignalsFor($communication, $d, $historySuggestion, $partyFrequency) : [];
+            $score = array_sum(array_column($signals, 'score'));
+
+            // CX-113 Phase E refinement 1 (Johan, 2026-08-21) — "the same property can
+            // have several deals over time... only 1 is proceeding... dr2 status will
+            // play an important part." Real staging values: P/G/R/D (Pending/Granted/
+            // Registered/Declined — no separate cancelled/collapsed/completed code
+            // exists in the data or the model). Proceeding = anything but Declined. A
+            // mild ranking NUDGE, not a hard filter or an override of real content
+            // signals — declined deals still show, still rank on their own signals,
+            // just not ahead of an equally-signalled proceeding one. Status itself is
+            // shown on every card regardless (below), not just used for scoring.
+            if ($communication && $d->accepted_status !== 'D') {
+                $score += 15;
+            }
+
+            return [
+                'id'              => (int) $d->id,
+                'label'           => trim(($d->deal_no ? "#{$d->deal_no} · " : '') . ($d->property_address ?: '')),
+                'property_address' => $d->property_address,
+                'status'          => $this->dealStatusLabel($d->accepted_status),
+                'seller_name'     => $d->seller_name,
+                'buyer_name'      => $d->buyer_name,
+                'attorney_name'   => $d->attorney_name,
+                'signals'         => $signals,
+                'score'           => $score,
+            ];
+        })->sortByDesc('score')->values();
+
+        return response()->json($results->all());
+    }
+
+    private function dealStatusLabel(?string $code): string
+    {
+        return match ($code) {
+            'G'     => 'Granted',
+            'R'     => 'Registered',
+            'D'     => 'Declined',
+            default => 'Pending',
+        };
+    }
+
+    /**
+     * The match signals, strongest weight first. Score is deliberately coarse (not a
+     * probability) — only the RELATIVE ordering matters, since results are always
+     * sorted by it and the agent still picks explicitly.
+     *
+     * @param  array<string, int>  $partyFrequency  normalised email => distinct deal count
+     * @return array<int, array{type: string, label: string, score: int}>
+     */
+    private function matchSignalsFor(Communication $communication, Deal $deal, ?array $historySuggestion, array $partyFrequency): array
+    {
+        $signals = [];
+
+        // 1) Email address match — sender or a participant IS a named party on this
+        // exact deal. Reuses Dr2DealPartyEmailResolver's per-deal role resolution — no
+        // separate matcher. Weighted by how DISCRIMINATING that party actually is
+        // (Johan: "koos from ooba does all our bonds... matches dozens of deals
+        // equally"): unique-to-this-deal is near-conclusive; a party who turns up on
+        // many deals barely moves the ranking, and the badge says so honestly rather
+        // than implying it identifies this one.
+        $roleEmails = $this->dealParties->partyEmailsByRoleForDeal($deal->id);
+        $roleDisplay = [
+            'buyer' => 'buyer', 'seller' => 'seller', 'attorney' => 'attorney',
+            'bond_originator' => 'bond originator', 'bond_attorney' => 'bond attorney',
+            'coc_supplier' => 'COC supplier', 'other_party' => 'party',
+        ];
+        $from = strtolower(trim((string) $communication->from_identifier));
+        $participants = collect($communication->participant_identifiers ?? [])
+            ->map(fn ($e) => strtolower(trim((string) $e)))->all();
+
+        foreach ($roleEmails as $role => $emails) {
+            $matchedEmail = null;
+            $isSender = false;
+            if ($from !== '' && in_array($from, $emails, true)) {
+                $matchedEmail = $from;
+                $isSender = true;
+            } elseif ($hit = array_values(array_intersect($participants, $emails))) {
+                $matchedEmail = $hit[0];
+            }
+            if ($matchedEmail === null) {
+                continue;
+            }
+
+            $freq = max(1, $partyFrequency[$matchedEmail] ?? 1);
+            $roleLabel = $roleDisplay[$role];
+            if ($freq <= 1) {
+                $label = ($isSender ? 'Sender is the ' : 'A recipient is the ') . "{$roleLabel} on this deal";
+                $score = $isSender ? 100 : 95;
+            } else {
+                // Quadratic decay — "barely moves the ranking" once a party turns up
+                // on more than a couple of deals (freq=2 -> 25, freq=5 -> 4, floored
+                // at 5 so it's never literally zero-weight).
+                $label = ucfirst($roleLabel) . " on {$freq} deals";
+                $score = max(5, (int) round(100 / ($freq ** 2)));
+            }
+            $signals[] = ['type' => 'email', 'label' => $label, 'score' => $score];
+            break;
+        }
+
+        // 2) Learned filing history — Dr2FilingSuggestionService's own verdict, reused
+        // verbatim (never re-derived) when it points at THIS deal.
+        if ($historySuggestion && (int) $historySuggestion['deal_id'] === (int) $deal->id) {
+            $signals[] = ['type' => 'history', 'label' => $historySuggestion['reason'], 'score' => 90];
+        }
+
+        // 3) A party's surname appears in the subject — cheap, strong when it hits.
+        $subject = (string) $communication->subject;
+        foreach (['seller_name' => 'seller', 'buyer_name' => 'buyer', 'attorney_name' => 'attorney'] as $field => $role) {
+            $matchedWord = $this->partyNameWordIn($deal->$field, $subject);
+            if ($matchedWord !== null) {
+                $signals[] = ['type' => 'subject', 'label' => "\"{$matchedWord}\" matches the {$role} on this deal", 'score' => 50];
+            }
+        }
+
+        // 4) Property address — typo-tolerant: significant WORDS from the address, not
+        // an exact substring, so a real agent typo (Johan's own example: "SETION" for
+        // "SECTION") doesn't sink the signal. Weakest of the four here on purpose —
+        // in Johan's own "santa" example every candidate deal shares the same street
+        // name, so this alone never disambiguates; email/subject/history do that work.
+        if ($this->propertyAddressWordIn($deal->property_address, $subject . ' ' . (string) $communication->body_text)) {
+            $signals[] = ['type' => 'property', 'label' => 'Property address matches', 'score' => 20];
+        }
+
+        return $signals;
+    }
+
+    /** First word (3+ chars) of $name found as a case-insensitive substring of $haystack, or null. */
+    private function partyNameWordIn(?string $name, string $haystack): ?string
+    {
+        if (! $name || $haystack === '') {
+            return null;
+        }
+        foreach (preg_split('/\s+/', trim($name)) as $word) {
+            $word = trim($word, ".,");
+            if (mb_strlen($word) >= 3 && mb_stripos($haystack, $word) !== false) {
+                return $word;
+            }
+        }
+        return null;
+    }
+
+    /** True if any significant (3+ char, non-structural) word of $address appears in $haystack. */
+    private function propertyAddressWordIn(?string $address, string $haystack): bool
+    {
+        if (! $address || $haystack === '') {
+            return false;
+        }
+        $stopwords = ['unit', 'door', 'section', 'sect', 'flat', 'road', 'street', 'ave', 'avenue', 'drive', 'close', 'complex'];
+        preg_match_all('/[a-z0-9]+/i', $address, $m);
+        foreach ($m[0] as $word) {
+            if (mb_strlen($word) < 3 || in_array(mb_strtolower($word), $stopwords, true)) {
+                continue;
+            }
+            if (mb_stripos($haystack, $word) !== false) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
