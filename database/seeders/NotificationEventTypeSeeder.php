@@ -140,6 +140,10 @@ class NotificationEventTypeSeeder extends Seeder
             $this->row('prospecting.claim_stale_warning', 'agent', 'My activity', 'Your claimed property is going stale', 'none', null, null, null, 51, false, null, inApp: true, email: true, push: false),
             // MIC funnel phase 2 — the losing agent is warned when a BM/admin reassigns a stale claim away.
             $this->row('prospecting.claim_reassigned', 'agent', 'My activity', 'Your claimed property was reassigned', 'none', null, null, null, 52, false, null, inApp: true, email: true, push: false),
+            // Deeds-capture duplicate-match take rule (Johan, 2026-08-21) — a match in the
+            // approval band notifies admin/BM; the requesting agent is notified of the decision.
+            $this->row('deeds.duplicate_take_pending', 'agent', 'My activity', 'Duplicate-property take needs approval', 'none', null, null, null, 53, false, null, inApp: true, email: true, push: false),
+            $this->row('deeds.duplicate_take_decided', 'agent', 'My activity', 'Your duplicate-property take request was decided', 'none', null, null, null, 54, false, null, inApp: true, email: true, push: false),
             // AT-373 inc7 — the 'esign.clause_flagged' event type was retired with the recipient
             // clause-flag mechanism (recipients now amend via the wet-ink tool at their turn).
         ];

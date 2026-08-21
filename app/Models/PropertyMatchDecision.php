@@ -40,27 +40,44 @@ class PropertyMatchDecision extends Model
         'matched_type',
         'matched_id',
         'strategy',
+        'confidence_score',
         'reason',
         'candidates',
         'incoming_facts',
         'decided_at',
+        'confirmed_at',
+        'confirmed_by_user_id',
         'rejected_at',
         'rejected_by_user_id',
         'rejected_reason',
+        'reject_reason_code',
         'resolved_matched_type',
         'resolved_matched_id',
+        'outcome',
     ];
 
     protected $casts = [
         'candidates'      => 'array',
         'incoming_facts'  => 'array',
         'decided_at'  => 'datetime',
+        'confirmed_at' => 'datetime',
         'rejected_at' => 'datetime',
+        'confidence_score' => 'integer',
     ];
 
     public function isRejected(): bool
     {
         return $this->rejected_at !== null;
+    }
+
+    public function isConfirmed(): bool
+    {
+        return $this->confirmed_at !== null;
+    }
+
+    public function confirmedBy(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(User::class, 'confirmed_by_user_id');
     }
 
     public function rejectedBy(): \Illuminate\Database\Eloquent\Relations\BelongsTo

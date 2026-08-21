@@ -229,6 +229,31 @@
                                 </div>
                             @endif
 
+                            {{-- Deeds-capture duplicate-match take rule (Johan, 2026-08-21) —
+                                 everything needed to decide, on the SAME flag: the literal
+                                 status, the exact day count, which date field it came from
+                                 (and whether that's a fallback), and the resulting band. A
+                                 guessed age is never presented as a known one. --}}
+                            @php $age = $stockStatus['age'] ?? null; @endphp
+                            @if($age)
+                                @php
+                                    $bandColor = match ($age->band) {
+                                        'active_blocked', 'no_go' => 'var(--ds-red, #dc2626)',
+                                        'needs_approval' => 'var(--ds-amber, #f59e0b)',
+                                        'auto_take' => 'var(--ds-green, #059669)',
+                                        default => 'var(--text-muted)',
+                                    };
+                                @endphp
+                                <div class="text-xs mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5" style="color: var(--text-muted);">
+                                    <span class="font-semibold" style="color: {{ $bandColor }};">{{ $age->actionLabel() }}</span>
+                                    <span>· Status: {{ $stockStatus['property']->statusBadge() }}</span>
+                                    @if($age->days !== null)
+                                        <span>· Off market {{ $age->days }} {{ $age->days === 1 ? 'day' : 'days' }}
+                                            ({{ $age->dateFieldLabel() }}{{ $age->isFallback ? ' — estimated, not directly recorded' : '' }})</span>
+                                    @endif
+                                </div>
+                            @endif
+
                             {{-- "Two clear controls" (Johan) — the primary confirm lives in the
                                  Action column on the right (relabelled below to say what it
                                  does); this is its pair: a real, always-visible button, not a
@@ -545,9 +570,32 @@
                             <form id="promote-form-{{ $tp->id }}" method="POST" action="{{ route('corex.deeds-capture.promote', $tp->id) }}"
                                   onsubmit="return confirm({{ Js::from($isAlreadyTracked ? 'Update ' . $rowConfirmName . ' with these details and link the owner? Any ticked contact numbers below will be added too.' : 'Add this as a new property and link the owner? Any ticked contact numbers below will be added too.') }});">
                                 @csrf
-                                <button type="submit" class="text-xs font-semibold px-4 py-2 rounded-md text-white" style="background: var(--brand-button, #0ea5e9);">
-                                    {{ $isAlreadyTracked ? ('Confirm and update ' . $rowConfirmName) : 'Add as a new property' }}
-                                </button>
+                                @if($stockStatus['property'] ?? null)
+                                    {{-- Deeds-capture duplicate-match take rule (Johan, 2026-08-21) —
+                                         "we flag - there is a potential match - agent can investigate and
+                                         confirm same property or different." The match is a suggestion,
+                                         never applied automatically. --}}
+                                    <div class="text-xs mb-2" style="color: var(--text-muted);">
+                                        If different, why? (only used if you pick "Different property")
+                                        <select name="reject_reason_code" class="ml-1 text-xs rounded-md px-1.5 py-1" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                            @foreach(\App\Services\Prospecting\PropertyMatchDecisionService::REJECT_REASON_CODES as $code => $label)
+                                                <option value="{{ $code }}">{{ $label }}</option>
+                                            @endforeach
+                                        </select>
+                                    </div>
+                                    <div class="flex flex-wrap gap-2">
+                                        <button type="submit" name="match_decision" value="same" class="text-xs font-semibold px-4 py-2 rounded-md text-white" style="background: var(--brand-button, #0ea5e9);">
+                                            Same property — {{ $rowConfirmName }}
+                                        </button>
+                                        <button type="submit" name="match_decision" value="different" formnovalidate class="text-xs font-semibold px-4 py-2 rounded-md" style="background: transparent; border:1px solid var(--border); color: var(--text-primary);">
+                                            Different property — add as new
+                                        </button>
+                                    </div>
+                                @else
+                                    <button type="submit" class="text-xs font-semibold px-4 py-2 rounded-md text-white" style="background: var(--brand-button, #0ea5e9);">
+                                        Add as a new property
+                                    </button>
+                                @endif
                             </form>
                             {{-- Remove (2026-08-13) — soft delete, reversible; wrong details / duplicates. --}}
                             <form method="POST" action="{{ route('corex.deeds-capture.dismiss', $tp->id) }}"

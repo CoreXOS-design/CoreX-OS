@@ -47,6 +47,7 @@ class PropertyMatchDecisionService
         string $reason,
         ?array $candidates = null,
         ?array $incomingFacts = null,
+        ?int $confidenceScore = null,
     ): PropertyMatchDecision {
         return PropertyMatchDecision::create([
             'agency_id'      => $agencyId,
@@ -55,11 +56,40 @@ class PropertyMatchDecisionService
             'matched_type'   => $matchedType,
             'matched_id'     => $matchedId,
             'strategy'       => $strategy,
+            'confidence_score' => $confidenceScore,
             'reason'         => $reason,
             'candidates'     => $candidates,
             'incoming_facts' => $incomingFacts,
             'decided_at'     => Carbon::now(),
         ]);
+    }
+
+    /**
+     * "Same property" — the agent's explicit confirmation. Deeds-capture duplicate-
+     * match take rule (Johan, 2026-08-21): "capture confirmations too, or we have no
+     * baseline to measure against." A decision is never both confirmed and rejected.
+     */
+    public function confirm(PropertyMatchDecision $decision, int $byUserId): PropertyMatchDecision
+    {
+        $decision->update([
+            'confirmed_at'         => Carbon::now(),
+            'confirmed_by_user_id' => $byUserId,
+        ]);
+
+        return $decision->refresh();
+    }
+
+    /**
+     * What happened as a RESULT of the decision — created a new property, took the
+     * existing one, was blocked by a band, or sent for admin/BM approval. Deeds-
+     * capture duplicate-match take rule (Johan, 2026-08-21): "a blocked property
+     * still tells us whether the match was right" — written regardless of outcome.
+     */
+    public function recordOutcome(PropertyMatchDecision $decision, string $outcome): PropertyMatchDecision
+    {
+        $decision->update(['outcome' => $outcome]);
+
+        return $decision->refresh();
     }
 
     /**
@@ -116,15 +146,33 @@ class PropertyMatchDecisionService
         ?string $reason = null,
         ?string $resolvedMatchedType = null,
         ?int $resolvedMatchedId = null,
+        ?string $reasonCode = null,
     ): PropertyMatchDecision {
         $decision->update([
             'rejected_at'            => Carbon::now(),
             'rejected_by_user_id'    => $byUserId,
             'rejected_reason'        => $reason,
+            'reject_reason_code'     => $reasonCode,
             'resolved_matched_type'  => $resolvedMatchedType,
             'resolved_matched_id'    => $resolvedMatchedId,
         ]);
 
         return $decision->refresh();
     }
+
+    /**
+     * Fixed pick-list for WHY a match was rejected (deeds-capture duplicate-match
+     * take rule, Johan, 2026-08-21): "the single most useful field for improving
+     * matching, because it tells us WHICH signal misled the matcher." Refine this
+     * list from what the matcher actually does as wrong matches surface — that
+     * refinement is a separate future job, not this one.
+     */
+    public const REJECT_REASON_CODES = [
+        'different_erf'          => 'Different erf / stand number',
+        'same_street_diff_number' => 'Same street, different number',
+        'different_suburb'       => 'Different suburb or township',
+        'same_owner_diff_property' => 'Same owner name, different property',
+        'sectional_unit_mismatch' => 'Sectional title unit mismatch',
+        'other'                  => 'Other',
+    ];
 }
