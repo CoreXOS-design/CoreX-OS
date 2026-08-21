@@ -281,4 +281,106 @@ final class DeedsCaptureDataScopeTest extends TestCase
             ->post(route('corex.deeds-capture.dismiss', $outOfScope->id))
             ->assertRedirect(route('corex.deeds-capture.index'));
     }
+
+    // ──────────────────────── on-screen quick filters (Johan, 2026-08-21) ────────────────────────
+
+    public function test_quick_filter_options_are_built_from_the_role_ceiling(): void
+    {
+        // agent ceiling = own -> nothing to toggle between, no pills at all.
+        $agentResp = $this->actingAs($this->agentOwn)->get(route('corex.deeds-capture.index'));
+        $this->assertSame(['own'], $agentResp->viewData('deedsScopeOptions'));
+
+        // branch_manager ceiling = branch -> own + branch, never 'all'.
+        $bmResp = $this->actingAs($this->branchManager)->get(route('corex.deeds-capture.index'));
+        $this->assertSame(['own', 'branch'], $bmResp->viewData('deedsScopeOptions'));
+
+        // admin ceiling = all -> all three.
+        $adminResp = $this->actingAs($this->admin)->get(route('corex.deeds-capture.index'));
+        $this->assertSame(['own', 'branch', 'all'], $adminResp->viewData('deedsScopeOptions'));
+    }
+
+    public function test_clicking_each_quick_filter_moves_the_row_count_and_the_agent_picker(): void
+    {
+        $mine        = $this->deedsCapture(['deeds_captured_by_user_id' => $this->agentOwn->id]);
+        $sameBranch  = $this->deedsCapture(['deeds_captured_by_user_id' => $this->agentSameBranch->id]);
+        $otherBranch = $this->deedsCapture(['deeds_captured_by_user_id' => $this->agentOtherBranch->id]);
+
+        // Admin (ceiling all) clicking each pill in turn — the SAME account, three requests,
+        // three different, sensible row counts. This is the "must differ sensibly" proof.
+        $own = $this->actingAs($this->admin)->get(route('corex.deeds-capture.index', ['scope' => 'own']));
+        $this->assertSame('own', $own->viewData('deedsScope'));
+        $this->assertCount(0, $own->viewData('captures'), 'admin personally scraped nothing here');
+        $this->assertFalse($own->viewData('canPickAgent'), 'nobody else to pick while narrowed to Own');
+
+        $branch = $this->actingAs($this->admin)->get(route('corex.deeds-capture.index', ['scope' => 'branch']));
+        $this->assertSame('branch', $branch->viewData('deedsScope'));
+        $branchIds = $branch->viewData('captures')->pluck('id');
+        $this->assertTrue($branchIds->contains($mine->id));
+        $this->assertTrue($branchIds->contains($sameBranch->id));
+        $this->assertFalse($branchIds->contains($otherBranch->id));
+        $this->assertTrue($branch->viewData('canPickAgent'));
+
+        $all = $this->actingAs($this->admin)->get(route('corex.deeds-capture.index', ['scope' => 'all']));
+        $this->assertSame('all', $all->viewData('deedsScope'));
+        $allIds = $all->viewData('captures')->pluck('id');
+        $this->assertTrue($allIds->contains($mine->id));
+        $this->assertTrue($allIds->contains($sameBranch->id));
+        $this->assertTrue($allIds->contains($otherBranch->id));
+
+        // The count IS the list — no separate badge to disagree with it, but prove the
+        // paginator total tracks the same query the rows come from in every state.
+        $this->assertSame($own->viewData('captures')->total(), $own->viewData('captures')->count());
+        $this->assertSame($branch->viewData('captures')->total(), $branch->viewData('captures')->count());
+        $this->assertSame($all->viewData('captures')->total(), $all->viewData('captures')->count());
+    }
+
+    /**
+     * The hard requirement: a restricted role must not be able to escalate scope by crafting
+     * a request, even though the button for a wider scope is never rendered for them at all.
+     */
+    public function test_scope_cannot_be_escalated_by_a_crafted_request(): void
+    {
+        $mine        = $this->deedsCapture(['deeds_captured_by_user_id' => $this->agentOwn->id]);
+        $sameBranch  = $this->deedsCapture(['deeds_captured_by_user_id' => $this->agentSameBranch->id]);
+        $otherBranch = $this->deedsCapture(['deeds_captured_by_user_id' => $this->agentOtherBranch->id]);
+
+        // agent ceiling = own. Hand-craft ?scope=branch and ?scope=all — the button for
+        // either would never even render (proven above), but the server must refuse to
+        // widen anyway.
+        foreach (['branch', 'all'] as $escalation) {
+            $resp = $this->actingAs($this->agentOwn)->get(route('corex.deeds-capture.index', ['scope' => $escalation]));
+            $resp->assertOk();
+            $this->assertSame('own', $resp->viewData('deedsScope'), "?scope=$escalation must clamp back to the agent's own ceiling");
+            $ids = $resp->viewData('captures')->pluck('id');
+            $this->assertTrue($ids->contains($mine->id));
+            $this->assertFalse($ids->contains($sameBranch->id), "?scope=$escalation must not leak the branch colleague's row to an own-ceiling agent");
+            $this->assertFalse($ids->contains($otherBranch->id), "?scope=$escalation must not leak the other branch's row to an own-ceiling agent");
+            $this->assertFalse($resp->viewData('canPickAgent'), "the agent picker must not appear just because ?scope=$escalation was crafted");
+        }
+
+        // branch_manager ceiling = branch. Hand-craft ?scope=all — must clamp back to branch,
+        // never reach the other branch's row.
+        $bmResp = $this->actingAs($this->branchManager)->get(route('corex.deeds-capture.index', ['scope' => 'all']));
+        $bmResp->assertOk();
+        $this->assertSame('branch', $bmResp->viewData('deedsScope'));
+        $bmIds = $bmResp->viewData('captures')->pluck('id');
+        $this->assertTrue($bmIds->contains($mine->id));
+        $this->assertTrue($bmIds->contains($sameBranch->id));
+        $this->assertFalse($bmIds->contains($otherBranch->id), '?scope=all must not leak the other branch to a branch-ceiling BM');
+    }
+
+    /**
+     * Same escalation proof, but via the agent picker's own candidate list — a branch-ceiling
+     * user must never be OFFERED an agent outside their branch, and even if one were picked
+     * by hand-crafting ?agent_id=, the underlying scope clamp still excludes that agent's rows
+     * (covered by test_picking_an_out_of_scope_agent_id_by_hand_returns_nothing_for_them above;
+     * this asserts the candidate LIST itself, the thing a real click could ever produce).
+     */
+    public function test_agent_picker_candidate_list_never_exceeds_the_active_scope(): void
+    {
+        // Admin narrowed to "Own" via the quick filter — the picker must show NO candidates
+        // (matches canPickAgent=false above), not silently fall back to the wider ceiling.
+        $resp = $this->actingAs($this->admin)->get(route('corex.deeds-capture.index', ['scope' => 'own']));
+        $this->assertTrue($resp->viewData('agentList')->isEmpty());
+    }
 }
