@@ -230,6 +230,11 @@ class UnfiledEmailsController extends Controller
      * model) but gated on this screen's own view_deals permission rather than the
      * suspense module's deal_comms_suspense.resolve, so the two pickers don't share a
      * permission dependency across unrelated modules.
+     *
+     * CX-113 Phase C (Johan, 2026-08-21) — "not just deal number": attorney_name added
+     * alongside the existing property_address/deal_no/seller_name/buyer_name so the
+     * inline row search can find the deal by any of the same fields Phase B's email
+     * search already matches on.
      */
     public function dealSearch(Request $request): JsonResponse
     {
@@ -244,7 +249,8 @@ class UnfiledEmailsController extends Controller
                 $q->where('property_address', 'like', "%{$search}%")
                     ->orWhere('deal_no', 'like', "%{$search}%")
                     ->orWhere('seller_name', 'like', "%{$search}%")
-                    ->orWhere('buyer_name', 'like', "%{$search}%");
+                    ->orWhere('buyer_name', 'like', "%{$search}%")
+                    ->orWhere('attorney_name', 'like', "%{$search}%");
             })
             ->orderByDesc('id')->limit(10)
             ->get(['id', 'deal_no', 'property_address', 'seller_name']);

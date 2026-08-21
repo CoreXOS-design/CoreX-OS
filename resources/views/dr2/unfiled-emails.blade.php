@@ -12,6 +12,12 @@
     navigation (Johan's explicit correction: not an Alpine/AJAX toggle, same idiom as
     MIC's filter rail / Buyer Pipeline) with STRICT gating — an option past the
     user's role ceiling never renders at all, not just clamped server-side.
+
+    CX-113 Phase C (Johan, 2026-08-21) — "deal search and select ON THE ROW itself...
+    no modal for the filing action." The old File-button-then-expand-row picker is
+    gone: each row's action cell is now a search box that IS the filing control,
+    always present. The post-filing "Filed. Related emails found." suggestion modal
+    stays exactly as it was — Johan explicitly asked to keep it.
 --}}
 @extends('layouts.corex')
 
@@ -28,7 +34,10 @@
         dealQ: '', dealResults: [], dealSearching: false, filing: false, err: '',
         suggestModal: false, suggestDeal: null, suggestions: [], suggestSelected: [], batchFiling: false,
         expandedId: null, expandedHtml: '', expanding: false,
-        openPicker(commId, move = false){ this.filingId = commId; this.moveMode = move; this.dealQ=''; this.dealResults=[]; this.err=''; },
+        openPicker(commId, move = false){
+            if(this.filingId === commId) return; // already active on this row — don't wipe what's typed
+            this.filingId = commId; this.moveMode = move; this.dealQ=''; this.dealResults=[]; this.err='';
+        },
         closePicker(){ this.filingId = null; this.moveMode = false; },
         async toggleExpand(commId){
             if(this.expandedId === commId){ this.expandedId = null; return; }
@@ -308,12 +317,39 @@
                                     @endif
                                 </td>
                             @endif
-                            <td style="padding:.6rem .9rem;text-align:right;white-space:nowrap;" @click.stop>
-                                @if($filedInfo)
-                                    <button type="button" class="corex-btn-outline text-sm" @click="openPicker({{ $email->id }}, true)">Move</button>
-                                @else
-                                    <button type="button" class="corex-btn-primary text-sm" @click="openPicker({{ $email->id }})">File</button>
-                                @endif
+                            {{-- CX-113 Phase C (Johan, 2026-08-21) — "deal search and select ON
+                                 THE ROW itself... no modal for the filing action." Replaces the
+                                 File/Move button + separate expand-row picker: the search box
+                                 IS the row's filing control, always present, no extra click to
+                                 reveal it. Same searchDeals()/file() as before, same shared
+                                 dealQ/dealResults/filingId state (only one row is ever "active"
+                                 at a time) — just anchored directly under THIS input instead of
+                                 a whole-width row below. click.outside closes it without a
+                                 separate Cancel button. --}}
+                            <td style="padding:.6rem .9rem;text-align:right;white-space:nowrap;position:relative;" @click.stop>
+                                <div style="position:relative;display:inline-block;width:15rem;text-align:left;"
+                                     @click.outside="filingId === {{ $email->id }} && closePicker()">
+                                    <input type="text" autocomplete="off"
+                                           :value="filingId === {{ $email->id }} ? dealQ : ''"
+                                           @focus="openPicker({{ $email->id }}, {{ $filedInfo ? 'true' : 'false' }})"
+                                           @input="dealQ = $event.target.value; searchDeals()"
+                                           @keydown.escape="closePicker()"
+                                           placeholder="{{ $filedInfo ? 'Move to another deal…' : 'Search deal — address, seller, buyer, attorney…' }}"
+                                           class="corex-input text-sm" style="width:100%;">
+                                    <div x-show="filingId === {{ $email->id }} && dealSearching" x-cloak
+                                         style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface,#fff);border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);padding:.5rem .7rem;font-size:.8rem;color:var(--text-muted,#9ca3af);">
+                                        Searching…
+                                    </div>
+                                    <div x-show="filingId === {{ $email->id }} && !dealSearching && dealResults.length" x-cloak
+                                         style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface,#fff);border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);max-height:14rem;overflow:auto;">
+                                        <template x-for="d in dealResults" :key="d.id">
+                                            <div style="padding:.5rem .7rem;border-bottom:1px solid #f3f4f6;font-size:.8rem;cursor:pointer;"
+                                                 onmouseover="this.style.background='var(--surface-2,#f9fafb)'" onmouseout="this.style.background=''"
+                                                 :class="filing ? 'pointer-events-none opacity-50' : ''"
+                                                 x-text="d.label" @click="file({{ $email->id }}, d.id)"></div>
+                                        </template>
+                                    </div>
+                                </div>
                             </td>
                         </tr>
                         {{-- CX-112 — read the email before filing/confirming. Reuses the SAME
@@ -323,25 +359,6 @@
                             <td colspan="{{ $colCount }}" style="padding:.75rem .9rem;background:var(--surface-muted,#f9fafb);">
                                 <div x-show="expanding" x-cloak style="font-size:.8rem;color:var(--text-muted,#9ca3af);">Loading…</div>
                                 <div x-show="!expanding" x-html="expandedHtml"></div>
-                            </td>
-                        </tr>
-                        {{-- Deal picker, inline under the row it belongs to — same picker for
-                             File (unfiled row) and Move (filed row); moveMode set by openPicker(). --}}
-                        <tr x-show="filingId === {{ $email->id }}" x-cloak>
-                            <td colspan="{{ $colCount }}" style="padding:.6rem .9rem;background:var(--surface-muted,#f9fafb);">
-                                <div style="position:relative;max-width:26rem;">
-                                    <input type="text" x-model="dealQ" @input.debounce.220ms="searchDeals()" autocomplete="off"
-                                           :placeholder="moveMode ? 'Search for the deal to move this email to…' : 'Search for the deal (address, deal no, seller/buyer)…'" class="corex-input" style="width:100%;">
-                                    <div x-show="dealResults.length" x-cloak style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface,#fff);border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);max-height:14rem;overflow:auto;">
-                                        <template x-for="d in dealResults" :key="d.id">
-                                            <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.5rem .7rem;border-bottom:1px solid #f3f4f6;">
-                                                <span x-text="d.label" style="font-size:.85rem;"></span>
-                                                <button type="button" class="corex-btn-outline text-sm" :disabled="filing" @click="file({{ $email->id }}, d.id)">Select</button>
-                                            </div>
-                                        </template>
-                                    </div>
-                                </div>
-                                <button type="button" class="text-sm" style="color:var(--text-muted,#6b7280);margin-top:.4rem;" @click="closePicker()">Cancel</button>
                             </td>
                         </tr>
                     @endforeach
