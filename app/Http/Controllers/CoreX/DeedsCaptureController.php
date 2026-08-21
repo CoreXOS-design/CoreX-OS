@@ -744,10 +744,12 @@ final class DeedsCaptureController extends Controller
 
                 if ($duplicateAge->band === \App\Services\Prospecting\PropertyDuplicateAgeResult::BAND_ACTIVE_BLOCKED) {
                     $decisionService->recordOutcome($matchDecision, 'blocked');
-                    $reason = $matchPreview->isDraft()
-                        ? 'This matches ' . ($matchPreview->address ?: 'an existing property') . ', which is a Draft — an agent is already working it.'
-                        : 'This matches ' . ($matchPreview->address ?: 'an existing property') . ', which is live stock on the market right now'
-                            . (($matchPreview->p24_syndication_status ?? null) === 'active' ? ' and currently on Property24' : '') . '.';
+                    // 2 Venice Drive incident (2026-08-21) — the reason list is the
+                    // SAME $duplicateAge->blockReasons the panel shows, so this message
+                    // can never disagree with what's on screen, and both reasons show
+                    // together when both fire (active AND an unexpired mandate).
+                    $reason = 'This matches ' . ($matchPreview->address ?: 'an existing property') . ' — '
+                        . implode(', ', $duplicateAge->blockReasons) . '.';
                     return redirect()->route('corex.deeds-capture.index')->with('error', $reason . ' It cannot be updated from Deeds Capture.');
                 }
 
@@ -973,6 +975,80 @@ final class DeedsCaptureController extends Controller
      *     capture (which unconditionally re-stamps deeds_captured_at, see
      *     ingestOne()) makes it reappear as a capture to act on again.
      */
+    /**
+     * 2 Venice Drive incident (2026-08-21) — Johan: "if 2 venice is blocked then
+     * why do I still have the 2 buttons... Same property reads like an action
+     * that will do something, when the whole point is that nothing can be
+     * done." When a match is hard-blocked (active status, or an unexpired
+     * mandate), confirming "same" must never look like it will promote or
+     * reassign — because it can't. This RECORDS the confirmation (the matcher
+     * was right — valuable signal for tuning it) and clears the row from the
+     * queue, exactly like the "Remove" button (dismissProperty() below),
+     * because there is genuinely nothing left for the agent to do.
+     *
+     * Re-resolves the match and band at request time rather than trusting
+     * whatever the page showed when it was loaded — if the property changed
+     * state in the meantime (e.g. went off market), this refuses rather than
+     * silently doing something the agent never actually saw.
+     */
+    public function acknowledgeBlockedMatch(
+        Request $request,
+        TrackedProperty $trackedProperty,
+        \App\Services\Prospecting\TrackedPropertyMatchOrCreateService $matcher,
+        \App\Services\Prospecting\PropertyDuplicateAgeResolver $ageResolver,
+        \App\Services\Prospecting\PropertyDuplicateMatchEvidence $evidence,
+        \App\Services\Prospecting\PropertyMatchDecisionService $decisionService,
+    ) {
+        $user = $request->user();
+        $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
+        abort_if((int) $trackedProperty->agency_id !== (int) $agencyId, 404);
+
+        if ($trackedProperty->promoted_to_property_id) {
+            return redirect()->route('corex.deeds-capture.index')->with('info', 'This capture was already promoted.');
+        }
+
+        $matchPreview = $matcher->previewPropertyMatch($trackedProperty);
+        if (!$matchPreview) {
+            return redirect()->route('corex.deeds-capture.index')->with('error', 'No match found for this capture — nothing to confirm.');
+        }
+
+        $age = $ageResolver->resolve($matchPreview);
+        if ($age->band !== \App\Services\Prospecting\PropertyDuplicateAgeResult::BAND_ACTIVE_BLOCKED) {
+            // Its state changed since the page loaded (e.g. it's no longer
+            // active) — refuse rather than silently confirming something the
+            // agent never actually saw on screen.
+            return redirect()->route('corex.deeds-capture.index')
+                ->with('error', 'This match is no longer blocked — please refresh and use the Same/Different buttons.');
+        }
+
+        $matchDecision = $decisionService->record(
+            agencyId: $agencyId,
+            subjectType: 'deeds_capture_property',
+            subjectKey: 'deeds_capture_property:' . $trackedProperty->id,
+            matchedType: 'property',
+            matchedId: $matchPreview->id,
+            strategy: $evidence->strategyFor($trackedProperty),
+            reason: 'Deeds capture matched an existing property, blocked (' . implode(', ', $age->blockReasons) . ').',
+            incomingFacts: $evidence->comparedValues($trackedProperty, $matchPreview),
+        );
+        $decisionService->confirm($matchDecision, (int) $user->id);
+        $decisionService->recordOutcome($matchDecision, 'blocked_acknowledged');
+
+        // Clear from the queue — the SAME reversible mechanism "Remove" already
+        // uses below, not a new one.
+        if ($trackedProperty->capture_kind === 'deeds_capture') {
+            $trackedProperty->delete();
+        } else {
+            $trackedProperty->deeds_captured_at = null;
+            $trackedProperty->save();
+        }
+
+        $agentName = $matchPreview->agent->name ?? 'the current agent';
+
+        return redirect()->route('corex.deeds-capture.index')
+            ->with('success', 'Confirmed — left with ' . $agentName . '. Removed from your queue.');
+    }
+
     public function dismissProperty(Request $request, TrackedProperty $trackedProperty)
     {
         $user = $request->user();
