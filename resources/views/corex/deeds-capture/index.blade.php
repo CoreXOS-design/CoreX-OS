@@ -55,6 +55,34 @@
          class="rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
         <form method="GET" action="{{ route('corex.deeds-capture.index') }}" x-ref="deedsFilterForm" class="flex flex-wrap items-center gap-3">
 
+            {{-- Scope quick filters (Johan, 2026-08-21) — "there should always be the scope -
+                 admin all, bm branch, agent own... click own / branch / all quick filters."
+                 Same mechanism as Calendar / DealV2 / Assistants / BuyersReport / MIC's buyer
+                 pipeline: a plain GET link per option, PermissionService::clampScope() on the
+                 server is the actual authority. $deedsScopeOptions is built from the ROLE
+                 CEILING (deeds_capture.view's Role Manager grant) — an option beyond the
+                 ceiling never renders at all (MIC's stricter pattern, not Buyer Pipeline's
+                 looser always-show-All one — Johan's explicit call, 2026-08-21). Belt and
+                 braces: even if a button were absent, a hand-crafted ?scope= is independently
+                 clamped server-side in the controller — see
+                 DeedsCaptureDataScopeTest::test_scope_cannot_be_escalated_by_a_crafted_request.
+                 Only rendered when there's an actual choice — a 1-option ceiling (e.g. 'own')
+                 has nothing to toggle between, so no pills at all, matching every other
+                 screen's convention of hiding a toggle nobody can use. --}}
+            @if(count($deedsScopeOptions) > 1)
+            @php
+                $deedsScopeLabels = ['own' => 'Own', 'branch' => 'Branch', 'all' => 'All'];
+                $deedsScopeCarry = request()->except(['scope', 'page']);
+            @endphp
+            <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
+                @foreach($deedsScopeOptions as $i => $sc)
+                <a href="{{ route('corex.deeds-capture.index', array_merge($deedsScopeCarry, ['scope' => $sc])) }}"
+                   class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
+                   style="{{ $i > 0 ? 'border-left:1px solid var(--border);' : '' }} {{ $deedsScope === $sc ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">{{ $deedsScopeLabels[$sc] }}</a>
+                @endforeach
+            </div>
+            @endif
+
             <div class="relative flex-1 min-w-[200px] max-w-sm">
                 <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style="color:var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
