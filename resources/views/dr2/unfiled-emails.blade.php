@@ -3,8 +3,23 @@
     workflow. "unfiled email arrives -> agent works through the unfiled pile -> picks
     the deal it belongs to." Backed by UnfiledEmailsController
     (routes: deals-dr2.unfiled-emails.*).
+
+    CX-113 Phase A (Johan, 2026-08-21) — scope + agent picker added: own/branch/all
+    visibility (agents only see emails they were actually a party to — HFC has no
+    shared mailboxes) and an admin/BM agent picker, both driven by the SAME decided
+    mechanism as Deeds Capture / Market Intelligence (PermissionService::getDataScope
+    + clampScope). Scope toggle is a plain server-rendered pill group + full GET
+    navigation (Johan's explicit correction: not an Alpine/AJAX toggle, same idiom as
+    MIC's filter rail / Buyer Pipeline) with STRICT gating — an option past the
+    user's role ceiling never renders at all, not just clamped server-side.
 --}}
 @extends('layouts.corex')
+
+@php
+    $scopeLabels = ['own' => 'Mine', 'branch' => 'Branch', 'all' => 'Company'];
+    $scopeRank   = ['own' => 1, 'branch' => 2, 'all' => 3];
+    $maxRank     = $scopeRank[$permittedScope] ?? 1;
+@endphp
 
 @section('corex-content')
 <div class="w-full space-y-5"
@@ -82,21 +97,130 @@
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Unfiled Emails</h1>
-                <p class="text-sm text-white/60">Emails not yet filed to a deal. File one, and any related unfiled emails are suggested.</p>
+                <p class="text-sm text-white/60">Emails not yet filed to a deal, that you were actually a party to. File one, and any related unfiled emails are suggested.</p>
             </div>
-            <div class="text-sm text-white/80">{{ $emails->total() }} unfiled</div>
+            <div class="flex items-center gap-3">
+                {{-- Data scope — plain server-rendered pill group, full GET navigation, same
+                     idiom as MIC's filter rail / Buyer Pipeline. STRICT gating: a scope past
+                     the role ceiling never renders as an option at all. --}}
+                <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid rgba(255,255,255,0.25);">
+                    @foreach($scopeLabels as $key => $label)
+                        @if(($scopeRank[$key] ?? 9) <= $maxRank)
+                            <a href="{{ route('deals-dr2.unfiled-emails.index', array_merge(request()->except(['scope', 'page']), ['scope' => $key])) }}"
+                               class="px-3 py-1.5 text-sm font-medium transition-colors"
+                               style="{{ $scope === $key ? 'background: #fff; color: var(--brand-default, #0b2a4a);' : 'color: #fff;' }}">{{ $label }}</a>
+                        @endif
+                    @endforeach
+                </div>
+                <div class="text-sm text-white/80">{{ $emails->total() }} unfiled</div>
+            </div>
         </div>
     </div>
 
-    {{-- Search --}}
-    <form method="GET" action="{{ route('deals-dr2.unfiled-emails.index') }}" class="flex items-center gap-2">
-        <input type="text" name="q" value="{{ $search }}" placeholder="Search by subject or sender…"
-               class="corex-input" style="max-width:24rem;">
-        <button type="submit" class="corex-btn-outline text-sm">Search</button>
-        @if($search)
-            <a href="{{ route('deals-dr2.unfiled-emails.index') }}" class="text-sm" style="color: var(--text-muted,#6b7280);">Clear</a>
-        @endif
-    </form>
+    {{-- Search + agent picker — one GET form so every control composes (search, scope,
+         and the picked agent all apply together); scope travels as a hidden field so a
+         Search submit never resets it back to the default. Agent-picker Alpine idiom
+         copied from Deeds Capture/DealsCaptureController (same decided mechanism). --}}
+    <div x-data="{
+            agentPicker: false,
+            agentSearch: '',
+            agents: {{ \Illuminate\Support\Js::from($agentList) }},
+            get filtered() {
+                if (!this.agentSearch) return this.agents;
+                const q = this.agentSearch.toLowerCase();
+                return this.agents.filter(a => a.name.toLowerCase().includes(q) || a.email.toLowerCase().includes(q));
+            },
+            pickAgent(id) {
+                const f = this.$refs.unfiledFilterForm;
+                let h = f.querySelector('input[name=agent_id]');
+                if (!h) { h = document.createElement('input'); h.type = 'hidden'; h.name = 'agent_id'; f.appendChild(h); }
+                h.value = (id === null) ? '' : id;
+                f.submit();
+            }
+         }">
+        <form method="GET" action="{{ route('deals-dr2.unfiled-emails.index') }}" x-ref="unfiledFilterForm" class="flex flex-wrap items-center gap-2">
+            <input type="hidden" name="scope" value="{{ $scope }}">
+            <input type="text" name="q" value="{{ $search }}" placeholder="Search by subject or sender…"
+                   class="corex-input" style="max-width:24rem;">
+
+            @if($canPickAgent)
+                {{-- Always rendered so a Search submit never drops the current agent filter. --}}
+                <input type="hidden" name="agent_id" value="{{ $filterAgentId }}">
+
+                <div class="inline-flex items-center gap-1">
+                    <button type="button" @click="agentPicker = true"
+                            class="list-header-filter inline-flex items-center gap-1.5 cursor-pointer"
+                            style="{{ $selectedAgent ? 'border-color:var(--brand-icon,#0ea5e9);color:var(--brand-icon,#0ea5e9);' : '' }}">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <circle cx="9" cy="7" r="4"/><path stroke-linecap="round" stroke-linejoin="round" d="M3 21v-1a6 6 0 016-6h0M16 19l2 2 4-4"/>
+                        </svg>
+                        {{ $selectedAgent ? $selectedAgent->name : 'All Agents' }}
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </button>
+                    @if($filterAgentId !== '')
+                        <button type="button" @click="pickAgent(null)"
+                           class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold transition-all duration-300 cursor-pointer"
+                           style="color:var(--text-muted);" title="Clear agent filter">&times;</button>
+                    @endif
+                </div>
+
+                <div x-show="agentPicker" x-cloak
+                     class="fixed inset-0 z-50 flex items-center justify-center p-4"
+                     style="background:rgba(0,0,0,0.5);"
+                     @click.self="agentPicker = false"
+                     @keydown.escape.window="agentPicker = false"
+                     x-transition.opacity>
+                    <div class="w-full max-w-md rounded-md overflow-hidden flex flex-col" style="max-height:80vh;background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+                        <div class="flex items-center justify-between px-4 py-3 flex-shrink-0" style="border-bottom:1px solid var(--border,#e5e7eb);">
+                            <h3 class="text-sm font-semibold" style="color:var(--text-primary);">Select Agent</h3>
+                            <button type="button" @click="agentPicker = false"
+                                    class="inline-flex items-center justify-center w-7 h-7 rounded-md transition-all duration-300"
+                                    style="color:var(--text-muted);">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="p-3 flex-shrink-0" style="border-bottom:1px solid var(--border,#e5e7eb);">
+                            <input type="text" x-model="agentSearch" placeholder="Search agents..."
+                                   class="w-full px-3 py-1.5 text-xs rounded-md outline-none"
+                                   style="border:1px solid var(--border,#e5e7eb);background:var(--surface-2,#f9fafb);color:var(--text-primary);">
+                        </div>
+                        <div class="flex-1" style="overflow-y:auto;">
+                            <button type="button" @click="pickAgent(null)"
+                               class="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-left"
+                               style="color:var(--text-secondary);border-bottom:1px solid var(--border,#e5e7eb);">
+                                All agents
+                            </button>
+                            <template x-for="agent in filtered" :key="agent.id">
+                                <button type="button" @click="pickAgent(agent.id)"
+                                   class="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-left"
+                                   style="border-bottom:1px solid var(--border,rgba(0,0,0,.04));">
+                                    <span class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold flex-shrink-0"
+                                          style="background:var(--brand-default,#0b2a4a);color:#fff;"
+                                          x-text="agent.name.charAt(0).toUpperCase()"></span>
+                                    <div class="min-w-0">
+                                        <div class="font-semibold truncate" style="color:var(--text-primary);" x-text="agent.name"></div>
+                                        <div class="truncate" style="color:var(--text-muted);" x-text="agent.email"></div>
+                                    </div>
+                                </button>
+                            </template>
+                            <div x-show="filtered.length === 0" class="px-4 py-4 text-xs text-center" style="color:var(--text-muted);">
+                                No agents found
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            @endif
+
+            <button type="submit" class="corex-btn-outline text-sm">Search</button>
+            @if($search || $filterAgentId !== '')
+                <a href="{{ route('deals-dr2.unfiled-emails.index', ['scope' => $scope]) }}" class="text-sm" style="color: var(--text-muted,#6b7280);">Clear</a>
+            @endif
+        </form>
+    </div>
 
     <p x-show="err" x-cloak x-text="err" style="color:#b91c1c;font-size:.85rem;"></p>
 
