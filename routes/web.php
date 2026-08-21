@@ -2792,6 +2792,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             // MIC funnel phase 2 — agency-configurable stale-claim warn/release thresholds.
             Route::get('/stale-rules',                            [\App\Http\Controllers\Settings\Prospecting\StaleRulesController::class, 'edit'])->name('stale-rules.edit');
             Route::put('/stale-rules',                            [\App\Http\Controllers\Settings\Prospecting\StaleRulesController::class, 'update'])->name('stale-rules.update');
+            // Deeds-capture duplicate-match take rule (Johan, 2026-08-21) — agency-configurable no-go/auto-take thresholds.
+            Route::get('/duplicate-rules',                        [\App\Http\Controllers\Settings\Prospecting\DuplicateRulesController::class, 'edit'])->name('duplicate-rules.edit');
+            Route::put('/duplicate-rules',                        [\App\Http\Controllers\Settings\Prospecting\DuplicateRulesController::class, 'update'])->name('duplicate-rules.update');
         });
 
     // ── Seller Outreach Templates (per-agency template CRUD) ──
@@ -4685,6 +4688,20 @@ Route::middleware(['auth', 'permission:deeds_capture.access'])
             ->whereNumber('trackedProperty')->whereNumber('trackedPropertyOwner')->name('owner-conflict.resolve');
         Route::post('/tva/{tvaContactCapture}/dismiss', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'dismissTva'])
             ->whereNumber('tvaContactCapture')->name('tva.dismiss');
+    });
+
+// Deeds-capture duplicate-match take rule (Johan, 2026-08-21) — BM/admin approval
+// queue for a match in the approval band. Same permission gate as the analogous
+// MIC stale-claim review (prospecting_setup.manage) — reused, not invented.
+Route::middleware(['auth', 'permission:prospecting_setup.manage'])
+    ->prefix('corex/property-take-requests')
+    ->name('corex.property-take-requests.')
+    ->group(function () {
+        Route::get('/', [\App\Http\Controllers\Prospecting\PropertyTakeRequestController::class, 'index'])->name('index');
+        Route::post('/{propertyTakeRequest}/approve', [\App\Http\Controllers\Prospecting\PropertyTakeRequestController::class, 'approve'])
+            ->whereNumber('propertyTakeRequest')->name('approve');
+        Route::post('/{propertyTakeRequest}/reject', [\App\Http\Controllers\Prospecting\PropertyTakeRequestController::class, 'reject'])
+            ->whereNumber('propertyTakeRequest')->name('reject');
     });
 
 // Spec: .ai/specs/build-f-market-intelligence-redesign-spec.md §6.

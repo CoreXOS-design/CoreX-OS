@@ -46,6 +46,8 @@ final class SuggestedActionThresholds extends Model
         'new_listing_lookback_days',
         'claim_warn_days',
         'claim_release_days',
+        'deeds_duplicate_no_go_days',
+        'deeds_duplicate_auto_take_days',
     ];
 
     protected $casts = [
@@ -62,6 +64,8 @@ final class SuggestedActionThresholds extends Model
         'new_listing_lookback_days'  => 'integer',
         'claim_warn_days'            => 'integer',
         'claim_release_days'         => 'integer',
+        'deeds_duplicate_no_go_days'      => 'integer',
+        'deeds_duplicate_auto_take_days'  => 'integer',
     ];
 
     /**
@@ -89,6 +93,8 @@ final class SuggestedActionThresholds extends Model
             'new_listing_lookback_days'  => 1,
             'claim_warn_days'            => 7,   // warn the agent-on-it (Johan default)
             'claim_release_days'         => 10,  // stale → BM/admin move-or-keep review (Johan default)
+            'deeds_duplicate_no_go_days'     => 7,  // younger than this → refused outright (Johan default)
+            'deeds_duplicate_auto_take_days' => 14, // at/older than this → agent takes it automatically (Johan default)
         ];
     }
 

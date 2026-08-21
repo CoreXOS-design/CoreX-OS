@@ -234,19 +234,25 @@ final class DeedsCaptureController extends Controller
         // uses, read-only, so the preview can never disagree with what
         // actually happens when the agent presses Promote.
         $matcher = app(\App\Services\Prospecting\TrackedPropertyMatchOrCreateService::class);
+        // Deeds-capture duplicate-match take rule (Johan, 2026-08-21) — the SAME flag
+        // Johan asked for on 2026-08-19 ("how does an agent know this is stock or
+        // not?"), extended with what the agent/BM/admin actually needs to DECIDE:
+        // the literal status, exact day count, which date field it came from (and
+        // whether it's a fallback), and the resulting band. No second flag.
+        $ageResolver = app(\App\Services\Prospecting\PropertyDuplicateAgeResolver::class);
         $stockStatusByTp = [];
         foreach ($captures as $tp) {
             if ($tp->promoted_to_property_id) {
                 $property = \App\Models\Property::withoutGlobalScopes()->find($tp->promoted_to_property_id);
                 $stockStatusByTp[$tp->id] = $property
-                    ? ['state' => $property->isStaleStock() ? 'stale' : 'live', 'property' => $property, 'already' => true]
-                    : ['state' => 'unknown', 'property' => null, 'already' => true];
+                    ? ['state' => $property->isStaleStock() ? 'stale' : 'live', 'property' => $property, 'already' => true, 'age' => null]
+                    : ['state' => 'unknown', 'property' => null, 'already' => true, 'age' => null];
                 continue;
             }
             $preview = $matcher->previewPropertyMatch($tp);
             $stockStatusByTp[$tp->id] = $preview
-                ? ['state' => $preview->isStaleStock() ? 'stale' : 'live', 'property' => $preview, 'already' => false]
-                : ['state' => 'not_promoted', 'property' => null, 'already' => false];
+                ? ['state' => $preview->isStaleStock() ? 'stale' : 'live', 'property' => $preview, 'already' => false, 'age' => $ageResolver->resolve($preview)]
+                : ['state' => 'not_promoted', 'property' => null, 'already' => false, 'age' => null];
         }
 
         // Owner-data build part 2 (Johan, 2026-08-19) — an open conflict
@@ -754,6 +760,124 @@ final class DeedsCaptureController extends Controller
         $overrides['property_type']       = $propertyType;
         $overrides['p24_suburb_mismatch'] = $p24City === null;
 
+        // Deeds-capture duplicate-match take rule (Johan, 2026-08-21, revised same
+        // day). The decision point is THIS click — not a separate control on the
+        // property page. previewPropertyMatch() runs the exact same match
+        // promoteToStock() itself will use, read-only, so this can never disagree
+        // with what actually happens below.
+        //
+        // "The match is a suggestion, not a fact" — a proposed match is NEVER
+        // applied automatically. The agent confirms SAME or DIFFERENT (two buttons
+        // on the row in place of the old single button, whenever a match exists);
+        // that confirmation is logged to property_match_decisions (the EXISTING
+        // CX-102 "same property?" mechanism, extended — not a second one) BEFORE
+        // any rule applies, "regardless of which band the property falls into and
+        // regardless of whether the action is then blocked" (Johan) — the
+        // rejections are the valuable signal for tuning the matcher later.
+        //
+        //   DIFFERENT → forceCreate: true below. A brand new property, exactly as
+        //               if no match had ever been found. Band rules never apply.
+        //   SAME      → gated by the matched property's status:
+        //     active / draft         → hard block. Someone is already working it.
+        //     0–X days off market    → hard block ("no go").
+        //     X–Y days off market    → a PropertyTakeRequest is filed; admin/BM
+        //                              decide later. Nothing promoted/reassigned yet.
+        //     Y+ days off market     → proceeds below; PropertyDuplicateTakeService
+        //                              (inside the transaction) explicitly moves
+        //                              status to Prospecting and agent to the
+        //                              capturing agent — recorded, never silent.
+        //
+        // Every hard block below is routed through PropertyDuplicateBlockGuard —
+        // ONE authorisation checkpoint, not scattered logic — so a future admin
+        // override (Johan has not yet confirmed whether one should exist) is a
+        // single function to change.
+        $matchPreview = $matcher->previewPropertyMatch($trackedProperty);
+        $forceCreate = false;
+
+        if ($matchPreview) {
+            $decisionInput = $request->validate([
+                'match_decision' => ['required', 'in:same,different'],
+                'reject_reason_code' => ['nullable', 'in:' . implode(',', array_keys(\App\Services\Prospecting\PropertyMatchDecisionService::REJECT_REASON_CODES))],
+            ]);
+
+            $ageResolver = app(\App\Services\Prospecting\PropertyDuplicateAgeResolver::class);
+            $decisionService = app(\App\Services\Prospecting\PropertyMatchDecisionService::class);
+            $evidence = app(\App\Services\Prospecting\PropertyDuplicateMatchEvidence::class);
+
+            $subjectKey = 'deeds_capture_property:' . $trackedProperty->id;
+            $matchDecision = $decisionService->record(
+                agencyId: $agencyId,
+                subjectType: 'deeds_capture_property',
+                subjectKey: $subjectKey,
+                matchedType: 'property',
+                matchedId: $matchPreview->id,
+                strategy: $evidence->strategyFor($trackedProperty),
+                reason: 'Deeds capture matched an existing property on file.',
+                incomingFacts: $evidence->comparedValues($trackedProperty, $matchPreview),
+            );
+
+            if ($decisionInput['match_decision'] === 'different') {
+                $decisionService->reject(
+                    $matchDecision,
+                    (int) $user->id,
+                    reasonCode: $decisionInput['reject_reason_code'] ?? 'other',
+                );
+                $decisionService->recordOutcome($matchDecision, 'created_new');
+                $forceCreate = true;
+            } else {
+                $decisionService->confirm($matchDecision, (int) $user->id);
+                $duplicateAge = $ageResolver->resolve($matchPreview);
+
+                if ($duplicateAge->band === \App\Services\Prospecting\PropertyDuplicateAgeResult::BAND_ACTIVE_BLOCKED) {
+                    $decisionService->recordOutcome($matchDecision, 'blocked');
+                    $reason = $matchPreview->isDraft()
+                        ? 'This matches ' . ($matchPreview->address ?: 'an existing property') . ', which is a Draft — an agent is already working it.'
+                        : 'This matches ' . ($matchPreview->address ?: 'an existing property') . ', which is live stock on the market right now'
+                            . (($matchPreview->p24_syndication_status ?? null) === 'active' ? ' and currently on Property24' : '') . '.';
+                    return redirect()->route('corex.deeds-capture.index')->with('error', $reason . ' It cannot be updated from Deeds Capture.');
+                }
+
+                if ($duplicateAge->band === \App\Services\Prospecting\PropertyDuplicateAgeResult::BAND_NO_GO) {
+                    $decisionService->recordOutcome($matchDecision, 'blocked');
+                    return redirect()->route('corex.deeds-capture.index')->with('error',
+                        'This matches ' . ($matchPreview->address ?: 'an existing property') . ' (' . $matchPreview->statusBadge() . '), off the market for only '
+                        . $duplicateAge->days . ' ' . ($duplicateAge->days === 1 ? 'day' : 'days') . ' (' . $duplicateAge->dateFieldLabel() . '). '
+                        . 'You cannot take this property yet — wait, or ask an admin/BM to review.'
+                    );
+                }
+
+                if ($duplicateAge->band === \App\Services\Prospecting\PropertyDuplicateAgeResult::BAND_NEEDS_APPROVAL) {
+                    $decisionService->recordOutcome($matchDecision, 'sent_for_approval');
+                    $existingRequest = \App\Models\Prospecting\PropertyTakeRequest::where('tracked_property_id', $trackedProperty->id)
+                        ->where('status', \App\Models\Prospecting\PropertyTakeRequest::STATUS_PENDING)
+                        ->first();
+                    if (!$existingRequest) {
+                        $existingRequest = \App\Models\Prospecting\PropertyTakeRequest::create([
+                            'agency_id'                => $agencyId,
+                            'tracked_property_id'      => $trackedProperty->id,
+                            'property_id'              => $matchPreview->id,
+                            'requested_by_user_id'     => $user->id,
+                            'status'                   => \App\Models\Prospecting\PropertyTakeRequest::STATUS_PENDING,
+                            'age_days'                 => $duplicateAge->days,
+                            'date_field_used'          => $duplicateAge->dateField,
+                            'date_is_fallback'         => $duplicateAge->isFallback,
+                            'matched_property_status'  => $matchPreview->status,
+                        ]);
+                        app(\App\Services\Prospecting\PropertyTakeRequestNotifier::class)->notifyApprovers($existingRequest);
+                    }
+                    return redirect()->route('corex.deeds-capture.index')->with('info',
+                        'This matches ' . ($matchPreview->address ?: 'an existing property') . ' (' . $matchPreview->statusBadge() . '), off the market for '
+                        . $duplicateAge->days . ' days (' . $duplicateAge->dateFieldLabel() . '). '
+                        . 'That needs admin or branch manager approval before it can be taken — they have been notified.'
+                    );
+                }
+
+                $decisionService->recordOutcome($matchDecision, 'took_existing');
+                // BAND_AUTO_TAKE — falls through to the transaction below, where
+                // PropertyDuplicateTakeService performs the recorded reassignment.
+            }
+        }
+
         // One-button promote+ingest (2026-08-19, Johan, verbatim from last night):
         // "the user should now tick the contact details they want, and clicking
         // the promote to property + contact should be clicked, not click ingest
@@ -780,7 +904,7 @@ final class DeedsCaptureController extends Controller
         // inside this one (MySQL savepoints via Laravel's transaction nesting).
         $identifiers = app(ContactIdentifierService::class);
         [$property, $ownerContactIds, $tvaContactsTouched] = DB::transaction(function () use (
-            $trackedProperty, $matcher, $overrides, $agencyId, $user, $tvaInput, $identifiers
+            $trackedProperty, $matcher, $overrides, $agencyId, $user, $tvaInput, $identifiers, $matchPreview, $forceCreate
         ) {
             // No "asking price" concept on a deeds capture — Johan (2026-08-18):
             // "we cannot prefill the price - remove that... if anything, save it
@@ -790,7 +914,26 @@ final class DeedsCaptureController extends Controller
             // (property 6100: R420,000 from 2008-08-28). Falls through to
             // promoteToStock()'s own 0-default; the sale price is logged as a
             // PropertyNote below instead.
-            $property = $matcher->promoteToStock($trackedProperty->id, (int) $user->id, $overrides);
+            $property = $matcher->promoteToStock($trackedProperty->id, (int) $user->id, $overrides, $forceCreate);
+
+            // Deeds-capture duplicate-match take rule (Johan, 2026-08-21) — a MATCH
+            // onto an existing property that reached this point (not forceCreate'd
+            // as "different", and every hard block/approval band already returned
+            // above before this transaction opened) is, by construction, in the
+            // auto-take band. promoteToStock()'s REFRESH branch deliberately never
+            // touches status or agent_id (see TrackedPropertyMatchOrCreateService::
+            // REFRESHABLE_PROPERTY_FIELDS) — that's still correct for every OTHER
+            // promote path (the generic Tracked Properties button), so it is not
+            // changed here. This is the one, explicit, scoped-to-deeds-capture
+            // reassignment instead — never silent: "who took it, from whom, when,
+            // and which band/date justified it" is recorded on the SAME
+            // property_audit_log every other property change uses, not a new
+            // mechanism.
+            if ($matchPreview && !$forceCreate) {
+                $age = app(\App\Services\Prospecting\PropertyDuplicateAgeResolver::class)->resolve($property);
+                app(\App\Services\Prospecting\PropertyDuplicateTakeService::class)
+                    ->reassign($property, $user, $age);
+            }
 
             if ($trackedProperty->last_known_sold_price) {
                 PropertyNote::create([

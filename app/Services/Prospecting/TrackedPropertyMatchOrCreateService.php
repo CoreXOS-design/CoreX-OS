@@ -1548,8 +1548,9 @@ final class TrackedPropertyMatchOrCreateService
         int $trackedPropertyId,
         int $promotingUserId,
         array $propertyFields = [],
+        bool $forceCreate = false,
     ): Property {
-        return DB::transaction(function () use ($trackedPropertyId, $promotingUserId, $propertyFields) {
+        return DB::transaction(function () use ($trackedPropertyId, $promotingUserId, $propertyFields, $forceCreate) {
             $tp = TrackedProperty::queryWithoutAgencyScope()->findOrFail($trackedPropertyId);
 
             if ($tp->isPromoted()) {
@@ -1564,7 +1565,13 @@ final class TrackedPropertyMatchOrCreateService
                 );
             }
 
-            $existingProperty = $this->resolvePropertyMatch($tp);
+            // Deeds-capture duplicate-match take rule (Johan, 2026-08-21) — "Different
+            // property" override. The agent has explicitly said this is NOT the
+            // property resolvePropertyMatch() found, so skip it entirely and create
+            // fresh, exactly as if no match existed. Opt-in and additive — every
+            // other caller (the generic Tracked Properties promote button, etc.)
+            // is unaffected; default false preserves existing behaviour everywhere.
+            $existingProperty = $forceCreate ? null : $this->resolvePropertyMatch($tp);
 
             if ($existingProperty) {
                 // REFRESH — never blank an existing value with null/empty,
