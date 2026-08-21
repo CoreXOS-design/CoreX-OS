@@ -537,4 +537,89 @@ class TrackedPropertyMatchOrCreateTest extends TestCase
         $this->assertSame($tp->id, (int) $ref->tracked_property_id);
         $this->assertSame($this->agency->id, (int) $ref->agency_id);
     }
+
+    // ──────────────────────── leading-zero unit/erf normalisation (property 15698, 2026-08-21) ────
+
+    /**
+     * The real staging incident: property 15698 is "Munro Gardens" unit '02';
+     * the deed's scraped section_number was '2'. Exact-string comparison missed
+     * this — the fix strips leading zeros on purely-numeric identifiers.
+     */
+    public function test_sectional_match_ignores_leading_zero_on_unit_number(): void
+    {
+        $existing = Property::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'agent_id' => $this->user->id,
+            'address' => 'Unit 02, Munro Gardens, Munro Avenue', 'suburb' => 'Margate',
+            'complex_name' => 'Munro Gardens', 'unit_number' => '02',
+            'property_type' => 'house', 'beds' => 2, 'baths' => 1, 'garages' => 0, 'price' => 800000,
+            'title' => 'Test', 'status' => 'active', 'listing_type' => 'sale',
+        ]);
+
+        $tp = TrackedProperty::create([
+            'agency_id' => $this->agency->id, 'complex_name' => 'MUNRO GARDENS', 'scheme_name' => 'MUNRO GARDENS',
+            'scheme_number' => '375/1996', 'section_number' => '2', 'suburb' => 'MARGATE',
+            'capture_kind' => 'deeds_capture',
+        ]);
+
+        $match = $this->service->previewPropertyMatch($tp);
+
+        $this->assertNotNull($match, 'section_number "2" must match unit_number "02"');
+        $this->assertSame($existing->id, $match->id);
+    }
+
+    public function test_freehold_match_ignores_leading_zero_on_erf_number(): void
+    {
+        $existing = Property::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'agent_id' => $this->user->id,
+            'address' => '1 Test Street', 'suburb' => 'Margate', 'erf_number' => '045',
+            'property_type' => 'house', 'beds' => 3, 'baths' => 2, 'garages' => 1, 'price' => 1000000,
+            'title' => 'Test', 'status' => 'active', 'listing_type' => 'sale',
+        ]);
+
+        $tp = TrackedProperty::create([
+            'agency_id' => $this->agency->id, 'erf_number' => '45', 'suburb' => 'Margate',
+            'capture_kind' => 'deeds_capture',
+        ]);
+
+        $match = $this->service->previewPropertyMatch($tp);
+
+        $this->assertNotNull($match, 'erf_number "45" must match "045"');
+        $this->assertSame($existing->id, $match->id);
+    }
+
+    /**
+     * The caution in the same fix: normalisation must never collapse GENUINELY
+     * distinct identifiers. A purely-numeric "1" must not match an alphanumeric
+     * "G01" (a real, different sectional label), and different numbers stay
+     * different regardless of padding.
+     */
+    public function test_leading_zero_normalisation_never_collapses_distinct_units(): void
+    {
+        Property::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'agent_id' => $this->user->id,
+            'address' => 'Unit G01, Test Complex', 'suburb' => 'Margate',
+            'complex_name' => 'Test Complex', 'unit_number' => 'G01',
+            'property_type' => 'house', 'beds' => 2, 'baths' => 1, 'garages' => 0, 'price' => 800000,
+            'title' => 'Test', 'status' => 'active', 'listing_type' => 'sale',
+        ]);
+        Property::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'agent_id' => $this->user->id,
+            'address' => 'Unit 10, Test Complex', 'suburb' => 'Margate',
+            'complex_name' => 'Test Complex', 'unit_number' => '10',
+            'property_type' => 'house', 'beds' => 2, 'baths' => 1, 'garages' => 0, 'price' => 800000,
+            'title' => 'Test', 'status' => 'active', 'listing_type' => 'sale',
+        ]);
+
+        // Deed says unit '1' -- must NOT match unit 'G01' (alnum, genuinely different)
+        // and must NOT match unit '10' (a different number, not a padding variant).
+        $tp = TrackedProperty::create([
+            'agency_id' => $this->agency->id, 'complex_name' => 'Test Complex', 'scheme_name' => 'Test Complex',
+            'scheme_number' => '1/2000', 'section_number' => '1', 'suburb' => 'Margate',
+            'capture_kind' => 'deeds_capture',
+        ]);
+
+        $match = $this->service->previewPropertyMatch($tp);
+
+        $this->assertNull($match, 'unit "1" must not collapse onto "G01" or "10" -- neither is a padding variant of it');
+    }
 }

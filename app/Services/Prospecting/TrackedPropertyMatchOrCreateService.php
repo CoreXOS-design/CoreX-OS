@@ -1476,23 +1476,35 @@ final class TrackedPropertyMatchOrCreateService
             $complexName = trim((string) ($tp->complex_name ?: $tp->scheme_name));
             $section = trim((string) $tp->section_number);
             if ($complexName !== '' && $section !== '') {
+                // 2026-08-21 (property 15698 incident) — unit_number is compared
+                // leading-zero-normalised, not by exact string, on BOTH sides: a
+                // deed's section_number '2' must match a stored unit_number '02'.
+                // Fetch every unit in the named complex (a small set) and filter in
+                // PHP with normaliseNumericIdentifier() rather than exact SQL
+                // equality, so this can never silently miss a real match again.
+                $sectionKey = TrackedPropertyAddress::normaliseNumericIdentifier($section);
                 $match = Property::queryWithoutAgencyScope()
                     ->where('agency_id', $tp->agency_id)
                     ->whereNull('deleted_at')
                     ->whereRaw('LOWER(complex_name) = ?', [mb_strtolower($complexName)])
-                    ->where('unit_number', $section)
-                    ->first();
+                    ->get()
+                    ->first(fn ($candidate) => TrackedPropertyAddress::normaliseNumericIdentifier($candidate->unit_number) === $sectionKey);
                 if ($match) {
                     return $match;
                 }
             }
         } elseif (filled($tp->erf_number) && filled($tp->suburb)) {
+            // Same leading-zero normalisation for erf/stand number. Scoped to the
+            // suburb (indexed) + erf_number NOT NULL to keep the PHP-side filter set
+            // small — a suburb-wide fetch, not agency-wide.
+            $erfKey = TrackedPropertyAddress::normaliseNumericIdentifier($tp->erf_number);
             $match = Property::queryWithoutAgencyScope()
                 ->where('agency_id', $tp->agency_id)
                 ->whereNull('deleted_at')
-                ->where('erf_number', trim((string) $tp->erf_number))
+                ->whereNotNull('erf_number')
                 ->where('suburb_normalised', TrackedPropertyAddress::normaliseSuburb($tp->suburb))
-                ->first();
+                ->get()
+                ->first(fn ($candidate) => TrackedPropertyAddress::normaliseNumericIdentifier($candidate->erf_number) === $erfKey);
             if ($match) {
                 return $match;
             }

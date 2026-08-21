@@ -181,6 +181,28 @@ final class TrackedPropertyAddress extends Model
     }
 
     /**
+     * unit/stand/erf number comparison key (property 15698 incident, 2026-08-21):
+     * a deed's section_number '2' failed to match a stored unit_number '02' because
+     * the match strategies compared them as exact strings. Leading zeros are
+     * stripped ONLY when the value is purely numeric — "01" and "1" become the same
+     * key, but "01" and "G01" (a real, distinct sectional label) are NEVER touched
+     * and stay genuinely different, and "000" normalises to "0", never to "" (never
+     * silently becomes "no value"). Case-insensitive on the alnum path so "g01" and
+     * "G01" still match. Shared by TrackedPropertyMatchOrCreateService::
+     * resolvePropertyMatch() and PropertyDuplicateMatchEvidence::candidateCount() —
+     * ONE normalisation, so they can never disagree about what "matches" means.
+     */
+    public static function normaliseNumericIdentifier($value): ?string
+    {
+        $v = trim((string) ($value ?? ''));
+        if ($v === '') {
+            return null;
+        }
+
+        return ctype_digit($v) ? (ltrim($v, '0') ?: '0') : mb_strtolower($v);
+    }
+
+    /**
      * Subset of address fields that get mirrored to the parent TP cache.
      * Used by TrackedPropertyAddressObserver. Single source of truth so
      * the observer and downstream readers stay in sync.

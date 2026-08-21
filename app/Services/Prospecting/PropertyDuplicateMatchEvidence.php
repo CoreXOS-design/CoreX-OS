@@ -73,16 +73,23 @@ class PropertyDuplicateMatchEvidence
      */
     public function candidateCount(TrackedProperty $tp, string $strategy, int $agencyId): int
     {
+        // Leading-zero-normalised unit/erf comparison (property 15698 incident,
+        // 2026-08-21) — the SAME TrackedPropertyAddress::normaliseNumericIdentifier()
+        // resolvePropertyMatch() uses, so this can never disagree about what counts
+        // as a candidate.
         return match ($strategy) {
             'sectional' => Property::queryWithoutAgencyScope()
                 ->where('agency_id', $agencyId)->whereNull('deleted_at')
                 ->whereRaw('LOWER(complex_name) = ?', [mb_strtolower(trim((string) ($tp->complex_name ?: $tp->scheme_name)))])
-                ->where('unit_number', trim((string) $tp->section_number))
+                ->get(['unit_number'])
+                ->filter(fn ($p) => TrackedPropertyAddress::normaliseNumericIdentifier($p->unit_number) === TrackedPropertyAddress::normaliseNumericIdentifier($tp->section_number))
                 ->count(),
             'freehold_erf' => Property::queryWithoutAgencyScope()
                 ->where('agency_id', $agencyId)->whereNull('deleted_at')
-                ->where('erf_number', trim((string) $tp->erf_number))
+                ->whereNotNull('erf_number')
                 ->where('suburb_normalised', TrackedPropertyAddress::normaliseSuburb($tp->suburb))
+                ->get(['erf_number'])
+                ->filter(fn ($p) => TrackedPropertyAddress::normaliseNumericIdentifier($p->erf_number) === TrackedPropertyAddress::normaliseNumericIdentifier($tp->erf_number))
                 ->count(),
             default => Property::queryWithoutAgencyScope()
                 ->where('agency_id', $agencyId)->whereNull('deleted_at')
