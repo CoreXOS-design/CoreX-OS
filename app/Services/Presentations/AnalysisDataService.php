@@ -137,7 +137,12 @@ class AnalysisDataService
         // STEP 2a — size-normalised median-floored blend. Computed ONCE here and
         // shared by the headline (compileCmaValuation) and the STEP 2b guardrail
         // so the two can never disagree about which value the seller sees.
-        $blend = $this->computeSizeNormalisedBlend($inPoolComps, $cmaComputed);
+        //
+        // Johan (2026-08-21) — the size lift defaults OFF (agent opt-in only).
+        // Hardcoded false here: this is Phase 1 (kill switch + band fix only).
+        // Phase 2 adds the generate-modal tick + a recorded per-presentation
+        // choice; this call site will read that instead of the literal false.
+        $blend = $this->computeSizeNormalisedBlend($inPoolComps, $cmaComputed, false);
 
         $cmaValuation = $this->compileCmaValuation($fields, $askingPrice, $cmaSelectedRange, $conditionContext, $cmaComputed, $blend);
 
@@ -808,7 +813,7 @@ class AnalysisDataService
      * Shared by the headline (compileCmaValuation) and the guardrail
      * (computeValuationGuardrail) so the two agree by construction.
      */
-    private function computeSizeNormalisedBlend(Collection $inPoolComps, array $cmaComputed): array
+    private function computeSizeNormalisedBlend(Collection $inPoolComps, array $cmaComputed, bool $applyLift = false): array
     {
         $median        = $this->intOrNull($cmaComputed['method_median']['raw'] ?? null);
         $rm2Row        = $cmaComputed['method_rm2_extent'] ?? [];
@@ -836,12 +841,26 @@ class AnalysisDataService
             && $basisRatio >= self::BLEND_TRUST_RATIO_MIN
             && $basisRatio <= self::BLEND_TRUST_RATIO_MAX;
 
-        // Median floor; lift only when trustworthy AND the size-normalised value
-        // sits ABOVE the median (a larger-than-comps subject).
+        // Median floor; lift only when EXPLICITLY opted in ($applyLift) AND
+        // trustworthy AND the size-normalised value sits ABOVE the median (a
+        // larger-than-comps subject).
+        //
+        // Johan (2026-08-21, size-lift ruling): "CMA has been in the game for
+        // a long time. I think they are better at it at this stage than
+        // CoreX." The size lift is no longer automatic — it defaults OFF, so
+        // the headline is the honest comp-median unless an agent deliberately
+        // opts in. $applyLift defaults false; the caller (an agent's explicit
+        // choice) is the only thing that can flip it. This is Phase 1 of that
+        // ruling — the opt-in surface (tick box + recorded choice) lands
+        // separately; for now $applyLift is never true, so the lift is fully
+        // disabled for everyone. The Lower/Upper band derives from $middle
+        // (below), which now equals this un-lifted baseline by construction
+        // — no separate band fix needed, it was always coupled to the
+        // headline.
         $headlineBaseline = $median;
         $weight           = 0.0;
         $lifted           = false;
-        if ($trustworthy && $median !== null && $rm2 !== null && $rm2 > $median) {
+        if ($applyLift && $trustworthy && $median !== null && $rm2 !== null && $rm2 > $median) {
             $span   = self::BLEND_LIFT_HIGH_PCT - self::BLEND_LIFT_LOW_PCT;
             $weight = $span > 0
                 ? max(0.0, min(1.0, (($upliftPct ?? 0) - self::BLEND_LIFT_LOW_PCT) / $span))
