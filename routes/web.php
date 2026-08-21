@@ -3852,6 +3852,11 @@ Route::middleware(['auth', 'permission:access_presentations', 'feature:presentat
     Route::post('/version/{version}/review/condition',
         [\App\Http\Controllers\Presentation\PresentationReviewController::class, 'setCondition'])
         ->name('review.condition');
+    // Johan (2026-08-21, size-lift ruling) — agent opts into the CMA
+    // size-normalised lift; defaults off. Recorded on the presentation.
+    Route::post('/version/{version}/review/size-lift',
+        [\App\Http\Controllers\Presentation\PresentationReviewController::class, 'toggleSizeLift'])
+        ->name('review.size-lift');
     // Build 4 — toggle a report section on/off with dependency cascade.
     Route::post('/version/{version}/review/sections',
         [\App\Http\Controllers\Presentation\PresentationReviewController::class, 'toggleSection'])
