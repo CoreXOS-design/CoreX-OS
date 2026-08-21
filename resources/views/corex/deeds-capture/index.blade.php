@@ -739,17 +739,110 @@
                                  will DO." Same action as always (promote()) — the label now
                                  names what actually happens instead of "Promote to property +
                                  contact", which meant nothing to an agent. --}}
-                            <form id="promote-form-{{ $tp->id }}" method="POST" action="{{ route('corex.deeds-capture.promote', $tp->id) }}"
-                                  onsubmit="return confirm({{ Js::from($isAlreadyTracked ? 'Update ' . $rowConfirmName . ' with these details and link the owner? Any ticked contact numbers below will be added too.' : 'Add this as a new property and link the owner? Any ticked contact numbers below will be added too.') }});">
+                            @if($stockStatus['property'] ?? null)
+                                {{-- Deeds-capture duplicate-match take rule (Johan, 2026-08-21) —
+                                     "the Same/Different confirmation buttons sit with this panel,
+                                     since this is where the decision is now made." The form and its
+                                     buttons render with the comparison panel below, not here. --}}
+                                <div class="text-xs" style="color: var(--text-muted);">Decide using the comparison below ↓</div>
+                            @else
+                                <form id="promote-form-{{ $tp->id }}" method="POST" action="{{ route('corex.deeds-capture.promote', $tp->id) }}"
+                                      onsubmit="return confirm('Add this as a new property and link the owner? Any ticked contact numbers below will be added too.');">
+                                    @csrf
+                                    <button type="submit" class="text-xs font-semibold px-4 py-2 rounded-md text-white" style="background: var(--brand-button, #0ea5e9);">
+                                        Add as a new property
+                                    </button>
+                                </form>
+                            @endif
+                            {{-- Remove (2026-08-13) — soft delete, reversible; wrong details / duplicates. --}}
+                            <form method="POST" action="{{ route('corex.deeds-capture.dismiss', $tp->id) }}"
+                                  onsubmit="return confirm('Remove this capture from the list? It will no longer show here, but nothing is permanently deleted.');">
                                 @csrf
-                                @if($stockStatus['property'] ?? null)
-                                    {{-- Deeds-capture duplicate-match take rule (Johan, 2026-08-21) —
-                                         "we flag - there is a potential match - agent can investigate and
-                                         confirm same property or different." The match is a suggestion,
-                                         never applied automatically. --}}
+                                <button type="submit" class="text-xs font-semibold px-3 py-1 rounded-md"
+                                        style="background:transparent; color:#ef4444; border:1px solid rgba(239,68,68,0.4);">
+                                    Remove
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+
+                    {{-- Side-by-side comparison panel (Johan, 2026-08-21): "current property -
+                         what we have from properties, vs new scraped property - showing details
+                         side by side that matches. that will allow agent to make simple call
+                         right there and then." Inline, full-width — plenty of screen space,
+                         no modal. Rows come from PropertyDuplicateMatchEvidence::panelRows(),
+                         the SAME evidence PropertyMatchDecisionService records on confirmation,
+                         so this can never show the agent something different from what gets
+                         logged when they decide. --}}
+                    @php $panel = $stockStatus['panel'] ?? null; @endphp
+                    @if($panel)
+                        <div class="mt-3 rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
+                            <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
+                                <div class="text-xs font-bold uppercase tracking-wider" style="color: var(--text-muted);">Is this the same property?</div>
+                                @if($panel['candidateCount'] > 1)
+                                    {{-- Johan: "if more than one candidate exists, SAY SO on screen." Only the
+                                         top candidate (the one resolvePropertyMatch() itself would use) is
+                                         detailed below — see the deploy report for what fuller support would cost. --}}
+                                    <span class="text-xs font-semibold px-2 py-0.5 rounded-full" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color: var(--ds-amber, #f59e0b);">
+                                        {{ $panel['candidateCount'] }} possible matches found — showing the top one
+                                    </span>
+                                @endif
+                            </div>
+                            <div class="text-[10px] mb-3" style="color: var(--text-muted);">
+                                <span style="color: var(--ds-green, #059669); font-weight:600;">Strong match</span> ·
+                                <span style="color: var(--ds-amber, #f59e0b); font-weight:600;">Weak / partial</span> ·
+                                <span style="color: var(--ds-crimson, #c41e3a); font-weight:600;">Differs</span> ·
+                                <span style="color: var(--text-muted); font-weight:600;">Not recorded</span>
+                            </div>
+
+                            <div class="overflow-x-auto">
+                            <table class="min-w-full text-xs">
+                                <thead>
+                                    <tr>
+                                        <th class="text-left pb-2 pr-3" style="color: var(--text-muted); font-weight:600;">Field</th>
+                                        <th class="text-left pb-2 pr-3" style="color: var(--text-muted); font-weight:600;">
+                                            Existing property
+                                            <a href="{{ route('corex.properties.show', $stockStatus['property']->id) }}" target="_blank" rel="noopener"
+                                               class="font-normal no-underline ml-1" style="color: var(--brand-icon, #2563eb);"
+                                               title="Opens in a new tab — you won't lose your place here.">Open property →</a>
+                                        </th>
+                                        <th class="text-left pb-2" style="color: var(--text-muted); font-weight:600;">Scraped deed</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach($panel['rows'] as $row)
+                                        @php
+                                            $rowColor = match ($row['strength']) {
+                                                'strong' => 'var(--ds-green, #059669)',
+                                                'weak' => 'var(--ds-amber, #f59e0b)',
+                                                'differs' => 'var(--ds-crimson, #c41e3a)',
+                                                default => 'var(--text-muted)',
+                                            };
+                                        @endphp
+                                        <tr style="border-top: 1px solid var(--border);">
+                                            <td class="py-1.5 pr-3 align-top" style="color: var(--text-secondary); white-space: nowrap;">
+                                                {{ $row['label'] }}
+                                                @if($row['used'])
+                                                    <span class="text-[9px] font-semibold ml-1 px-1 py-0.5 rounded"
+                                                          style="background: color-mix(in srgb, var(--brand-icon, #2563eb) 15%, transparent); color: var(--brand-icon, #2563eb);"
+                                                          title="The matcher used this field to propose this match">USED TO MATCH</span>
+                                                @endif
+                                            </td>
+                                            <td class="py-1.5 pr-3 align-top" style="color: {{ $rowColor }};">{{ $row['existing'] ?? 'Not recorded' }}</td>
+                                            <td class="py-1.5 align-top" style="color: {{ $rowColor }};">{{ $row['scraped'] ?? 'Not recorded' }}</td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                            </div>
+
+                            <div class="mt-3 pt-3" style="border-top: 1px solid var(--border);">
+                                <form id="promote-form-{{ $tp->id }}" method="POST" action="{{ route('corex.deeds-capture.promote', $tp->id) }}"
+                                      onsubmit="return confirm({{ Js::from('Update ' . $rowConfirmName . ' with these details and link the owner? Any ticked contact numbers below will be added too.') }});">
+                                    @csrf
                                     <div class="text-xs mb-2" style="color: var(--text-muted);">
                                         If different, why? (only used if you pick "Different property")
-                                        <select name="reject_reason_code" class="ml-1 text-xs rounded-md px-1.5 py-1" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                        <select name="reject_reason_code" class="ml-1 text-xs rounded-md px-1.5 py-1" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                             @foreach(\App\Services\Prospecting\PropertyMatchDecisionService::REJECT_REASON_CODES as $code => $label)
                                                 <option value="{{ $code }}">{{ $label }}</option>
                                             @endforeach
@@ -763,23 +856,10 @@
                                             Different property — add as new
                                         </button>
                                     </div>
-                                @else
-                                    <button type="submit" class="text-xs font-semibold px-4 py-2 rounded-md text-white" style="background: var(--brand-button, #0ea5e9);">
-                                        Add as a new property
-                                    </button>
-                                @endif
-                            </form>
-                            {{-- Remove (2026-08-13) — soft delete, reversible; wrong details / duplicates. --}}
-                            <form method="POST" action="{{ route('corex.deeds-capture.dismiss', $tp->id) }}"
-                                  onsubmit="return confirm('Remove this capture from the list? It will no longer show here, but nothing is permanently deleted.');">
-                                @csrf
-                                <button type="submit" class="text-xs font-semibold px-3 py-1 rounded-md"
-                                        style="background:transparent; color:#ef4444; border:1px solid rgba(239,68,68,0.4);">
-                                    Remove
-                                </button>
-                            </form>
+                                </form>
+                            </div>
                         </div>
-                    </div>
+                    @endif
 
                     {{-- Ownership parse status (2026-08-19, .ai/specs/deeds-capture.md §7.9) — a
                          parse failure NEVER blocks the property capture above; this is where the
