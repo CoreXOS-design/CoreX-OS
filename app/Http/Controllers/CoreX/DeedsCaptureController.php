@@ -37,14 +37,34 @@ final class DeedsCaptureController extends Controller
         // deeds_capture.view's Role Manager scope, defaults 'own'). Applied to the SAME query
         // that drives both the list AND its count/pagination total, so list and count can
         // never disagree — the exact bug shape MIC and the buyers pipeline shipped twice.
-        $deedsScope = \App\Services\PermissionService::deedsCaptureScope($user);
+        //
+        // On-screen quick filters (Johan, 2026-08-21): "there should always be the scope -
+        // admin all, bm branch, agent own... that then needs to be on the screen as well -
+        // click own / branch / all quick filters." Role Manager's grant is the CEILING; the
+        // ?scope= request is the user's pick WITHIN that ceiling, clamped server-side via the
+        // same PermissionService::clampScope() every other screen already uses (Calendar,
+        // DealV2, Assistants, BuyersReport, MIC's buyer pipeline) — belt and braces: the
+        // button set below is built FROM the ceiling so a wider option never even renders
+        // (MIC's stricter pattern, not Buyer Pipeline's looser always-render-All one), AND
+        // the server clamps independently, so a hand-crafted ?scope= outside the ceiling can
+        // never widen what a request actually returns even with the button absent.
+        $deedsScopeCeiling = \App\Services\PermissionService::deedsCaptureScope($user);
+        $deedsScope = \App\Services\PermissionService::clampScope($request->input('scope'), $deedsScopeCeiling);
+        $deedsScopeOptions = match ($deedsScopeCeiling) {
+            'all'    => ['own', 'branch', 'all'],
+            'branch' => ['own', 'branch'],
+            'none'   => [],
+            default  => ['own'], // 'own', or unset (null coalesces to 'own' upstream)
+        };
 
-        // Agent picker (Johan, 2026-08-20, item 3) — mirrors ContactController::index()
-        // exactly: offered ONLY when the scope ceiling is wide enough to have anyone else
-        // to pick ('own' has nobody else, so no picker at all — never offer a choice the
-        // backend would then refuse). $agentList() below already clamps its OWN candidate
-        // set to the same ceiling, so a picked id can never fall outside what visibleToDeedsCapture()
-        // would allow.
+        // Agent picker (Johan, 2026-08-20, item 3; confirmed standard, 2026-08-21) — mirrors
+        // ContactController::index() exactly: offered ONLY when the ACTIVE scope (post-clamp,
+        // not the ceiling) is wide enough to have anyone else to pick — an admin who has
+        // clicked down to "Own" has nobody else in view either, until they widen the quick
+        // filter back up. 'own' has nobody else, so no picker at all — never offer a choice
+        // the backend would then refuse. $agentList() below clamps its OWN candidate set to
+        // this SAME active scope, so a picked id can never fall outside what
+        // visibleToDeedsCapture() would allow.
         $canPickAgent = in_array($deedsScope, ['all', 'branch'], true);
         $filterAgentId = $request->has('agent_id') ? (string) $request->query('agent_id', '') : '';
 
@@ -288,6 +308,7 @@ final class DeedsCaptureController extends Controller
             'selectedAgent'     => $selectedAgent,
             'searchTerm'        => $searchTerm,
             'deedsScope'        => $deedsScope,
+            'deedsScopeOptions' => $deedsScopeOptions,
         ]);
     }
 
