@@ -250,8 +250,10 @@
 
     <p x-show="err" x-cloak x-text="err" style="color:#b91c1c;font-size:.85rem;"></p>
 
-    {{-- List --}}
-    <div style="padding:0;overflow:hidden;background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);border-radius:.5rem;">
+    {{-- List — overflow-x:auto (CX-113 Phase B, not overflow:hidden as before): the new
+         Status column on Filed/All makes the table wide enough to need horizontal scroll
+         on narrow viewports; hidden would clip it off-screen with no way to reach it. --}}
+    <div style="padding:0;overflow-x:auto;background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);border-radius:.5rem;">
         @if($emails->isEmpty())
             <div style="padding:2rem;text-align:center;color:var(--text-muted,#9ca3af);">
                 @if($search)
