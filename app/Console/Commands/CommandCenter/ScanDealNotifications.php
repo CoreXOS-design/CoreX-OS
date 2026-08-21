@@ -152,7 +152,7 @@ class ScanDealNotifications extends Command
 
         // AT-259 — deal.milestone_due: a deal-milestone CalendarEvent (event_type='deal') coming within the
         // threshold window. Fires to the event owner (user_id). DEFAULT OFF (opt-in).
-        \App\Models\CalendarEvent::withoutGlobalScopes()->query()
+        \App\Models\CommandCenter\CalendarEvent::withoutGlobalScopes()->query()
             ->where('event_type', 'deal')
             ->where('status', 'pending')
             ->whereNotNull('user_id')
