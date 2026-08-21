@@ -35,6 +35,23 @@
     subject, property address) ranked strongest-first server-side. Reuses
     Dr2DealPartyEmailResolver and Dr2FilingSuggestionService entirely — no new
     matcher.
+
+    CX-113 Phase F (Johan, 2026-08-21) — styling pass after actually testing Phase E:
+    "works great. looks absolute shit... looks 1980 computers." The table structure
+    itself was the problem — fixed columns forced Preview off-screen at 1440px AND
+    trapped the full-width deal search inside a two-column strip. Rebuilt as a card
+    list (`space-y-3` of `rounded-md` / `var(--surface)` / `var(--border)` divs),
+    matching resources/views/corex/deeds-capture/index.blade.php's own card treatment
+    — no invented classes, every token here is real in corex.css. Subject promoted to
+    primary weight (was competing equally with sender/date/preview); preview demoted
+    to one muted truncated line; ALL-CAPS source subjects tamed via CSS
+    text-transform:capitalize (paint-time only — the underlying text, and every test
+    asserting on it, is unchanged). Signal/status badges recoloured using Deeds
+    Capture's own `color-mix(in srgb, {token} 15%, transparent)` formula against real
+    --ds-green/--ds-amber/--text-muted tokens, driven by the signal's OWN SCORE (not
+    just its type) so a diluted match (Johan's "koos from ooba" case) visibly reads
+    weaker than a unique one. Presentation only — ranking, filtering, filing, dedup,
+    and the suggestion popup are all byte-for-byte the same logic as Phase E.
 --}}
 @extends('layouts.corex')
 
@@ -95,16 +112,28 @@
             } catch(e) { this.dealResults = []; }
             this.dealSearching = false;
         },
-        // CX-113 Phase E — signal-badge colour per type: email (near-conclusive) reads
-        // strongest/greenest, learned history close behind, subject and property
-        // weaker/neutral. Purely a display concern, not part of the ranking itself —
-        // ranking is entirely server-side (score, already sorted before this array
-        // ever reaches the browser).
-        signalBadgeStyle(type){
-            if(type === 'email')  return 'background:#dcfce7;color:#166534;';
-            if(type === 'history') return 'background:#dbeafe;color:#1e40af;';
-            if(type === 'subject') return 'background:#fef3c7;color:#92400e;';
-            return 'background:#f3f4f6;color:#4b5563;';
+        // CX-113 Phase E/F — signal-badge colour driven by the signal's OWN SCORE, not
+        // just its type: an email match on a party unique to this deal (score 100) and
+        // the SAME type of match on a party who is on nine other deals (score ~5,
+        // Johan's koos-from-ooba case) must NOT look equally confident. Real corex.css
+        // tokens only (verified against the file, same formula Deeds Capture uses for
+        // its match-strength legend): --ds-green = strong, --ds-amber = weak/partial,
+        // --text-muted = barely worth noting. Purely a display mapping — the ranking
+        // itself is entirely server-side and untouched. NOTE: nothing on these lines,
+        // or anywhere else inside this double-quoted x-data attribute, may ever
+        // contain a literal double-quote character — the browser's HTML parser
+        // terminates the attribute at the first one regardless of JS/comment syntax.
+        // Shipped that exact mistake three times today; every edit here gets re-swept.
+        signalBadgeStyle(score){
+            const token = score >= 80 ? 'var(--ds-green, #059669)' : (score >= 30 ? 'var(--ds-amber, #f59e0b)' : 'var(--text-muted, #9ca3af)');
+            return 'background:color-mix(in srgb, ' + token + ' 15%, transparent);color:' + token + ';';
+        },
+        // Deal-status pill on each search result — same colour language as the signal
+        // badges: proceeding statuses read positive, Declined reads as the negative
+        // tone Deeds Capture uses for its own status indicators.
+        dealStatusPillStyle(status){
+            const token = status === 'Declined' ? 'var(--ds-crimson, #c41e3a)' : (status === 'Pending' ? 'var(--text-muted, #9ca3af)' : 'var(--ds-green, #059669)');
+            return 'background:color-mix(in srgb, ' + token + ' 15%, transparent);color:' + token + ';';
         },
         async file(commId, dealId){
             this.filing = true; this.err = '';
@@ -308,162 +337,153 @@
 
     <p x-show="err" x-cloak x-text="err" style="color:#b91c1c;font-size:.85rem;"></p>
 
-    {{-- List — overflow-x:auto (CX-113 Phase B, not overflow:hidden as before): the new
-         Status column on Filed/All makes the table wide enough to need horizontal scroll
-         on narrow viewports; hidden would clip it off-screen with no way to reach it. --}}
-    <div style="padding:0;overflow-x:auto;background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);border-radius:.5rem;">
-        @if($emails->isEmpty())
-            <div style="padding:2rem;text-align:center;color:var(--text-muted,#9ca3af);">
-                @if($search)
-                    No {{ $state === 'filed' ? 'filed' : ($state === 'all' ? '' : 'unfiled') }} emails match "{{ $search }}".
-                @elseif($state === 'filed')
-                    No emails filed to a deal yet in this scope.
-                @elseif($state === 'all')
-                    Nothing in this scope yet — filed or unfiled.
-                @else
-                    Nothing unfiled in this scope — every deal-connected email you can see is already filed.
-                @endif
-            </div>
-        @else
-            <table class="w-full text-sm" style="border-collapse:collapse;">
-                <thead>
-                    <tr style="background: var(--surface-muted,#f9fafb); text-align:left;">
-                        <th style="padding:.6rem .9rem;">Sender</th>
-                        <th style="padding:.6rem .9rem;">Subject</th>
-                        <th style="padding:.6rem .9rem;">Date</th>
-                        <th style="padding:.6rem .9rem;">Preview</th>
-                        @if($state !== 'unfiled')
-                            <th style="padding:.6rem .9rem;">Status</th>
-                        @endif
-                    </tr>
-                </thead>
-                <tbody>
-                    @php($colCount = $state !== 'unfiled' ? 5 : 4)
-                    @foreach($emails as $email)
-                        @php($filedInfo = $filedInfoByCommId[$email->id] ?? null)
-                        <tr id="unfiled-row-{{ $email->id }}" style="border-top:1px solid var(--border,rgba(0,0,0,.06));cursor:pointer;" @click="toggleExpand({{ $email->id }})">
-                            <td style="padding:.6rem .9rem;white-space:nowrap;{{ $state !== 'unfiled' ? 'max-width:10rem;overflow:hidden;text-overflow:ellipsis;' : '' }}">{{ $email->from_identifier ?: '(unknown)' }}</td>
-                            <td style="padding:.6rem .9rem;font-weight:600;">
-                                <span style="display:inline-block;width:.9rem;color:var(--text-muted,#9ca3af);" x-text="expandedId === {{ $email->id }} ? '▾' : '▸'"></span>
+    {{-- List — CX-113 Phase F (Johan, 2026-08-21, after actually looking at the deployed
+         page): "stop using a table. Make each email a CARD, matching the deeds screen's
+         card treatment." A table forces fixed columns, which is exactly what caused the
+         Preview column to run off-screen at 1440px and trapped the full-width deal
+         search inside a two-column strip. A card has none of that — no fixed columns to
+         overflow, text wraps/truncates naturally instead of forcing nowrap cells. Same
+         `space-y-3` list rhythm and `rounded-md` / `var(--surface)` / `var(--border)`
+         card treatment as Deeds Capture (resources/views/corex/deeds-capture/index.blade.php)
+         — no invented classes, every token here is real in corex.css. --}}
+    @if($emails->isEmpty())
+        <div class="rounded-md p-8" style="text-align:center;color:var(--text-muted,#9ca3af);background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);">
+            @if($search)
+                No {{ $state === 'filed' ? 'filed' : ($state === 'all' ? '' : 'unfiled') }} emails match "{{ $search }}".
+            @elseif($state === 'filed')
+                No emails filed to a deal yet in this scope.
+            @elseif($state === 'all')
+                Nothing in this scope yet — filed or unfiled.
+            @else
+                Nothing unfiled in this scope — every deal-connected email you can see is already filed.
+            @endif
+        </div>
+    @else
+        <div class="space-y-3">
+            @foreach($emails as $email)
+                @php($filedInfo = $filedInfoByCommId[$email->id] ?? null)
+                @php($previewText = (string) ($email->body_display ?: ($email->body_text ?: $email->body_preview)))
+                <div id="unfiled-row-{{ $email->id }}" class="rounded-md p-4" style="background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);">
+                    <div style="cursor:pointer;" @click="toggleExpand({{ $email->id }})">
+                        {{-- Line 1 — SUBJECT, the thing an agent actually scans for. Real chevron
+                             (same SVG path already used by the agent-picker dropdown elsewhere on
+                             this screen — one icon language, not a raw ▶ character), rotates open
+                             via Alpine, no separate icon set introduced. text-transform:capitalize
+                             tames source subjects that arrive in shouting ALL CAPS — a pure paint-
+                             time style, the underlying text (and every test that asserts on it) is
+                             completely unchanged. truncate = single line + ellipsis; full text is
+                             always the title attribute AND fully visible the moment the card
+                             expands, so nothing is ever lost, only deferred. --}}
+                        <div class="flex items-start gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="flex-shrink-0" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                                 style="margin-top:.2rem;color:var(--text-muted,#9ca3af);transition:transform .15s;"
+                                 :style="'margin-top:.2rem;color:var(--text-muted,#9ca3af);transition:transform .15s;transform:rotate(' + (expandedId === {{ $email->id }} ? 0 : -90) + 'deg);'">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+                            </svg>
+                            <div class="text-sm font-semibold truncate" style="min-width:0;flex:1;color:var(--text-primary);text-transform:capitalize;" title="{{ $email->subject ?: '(no subject)' }}">
                                 {{ $email->subject ?: '(no subject)' }}
-                            </td>
-                            <td style="padding:.6rem .9rem;white-space:nowrap;color:var(--text-muted,#6b7280);">{{ optional($email->occurred_at)->format('j M Y H:i') }}</td>
-                            <td style="padding:.6rem .9rem;color:var(--text-muted,#6b7280);max-width:{{ $state !== 'unfiled' ? '10rem' : '22rem' }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-                                {{ \Illuminate\Support\Str::limit((string) ($email->body_display ?: ($email->body_text ?: $email->body_preview)), 90) }}
-                            </td>
-                            {{-- Filed-state Status column (Johan, 2026-08-21, layout fix) — was
-                                 white-space:nowrap with NO width cap, so a long deal label (a full
-                                 property address) forced the row — and the whole table — wider than
-                                 the viewport, with the Action column clipped off the right edge and
-                                 no way to reach it (Johan: "no one will find it," reject a horizontal
-                                 scrollbar as the fix). Bounded to a fixed column width with real
-                                 wrapping instead of nowrap: the deal label wraps onto as many lines
-                                 as it needs WITHIN the column (word-break for an unbroken long
-                                 address token), "by X · date" stays its own line via the existing
-                                 <br>. Same idiom as every other column here — a plain inline max-width
-                                 + wrap, not a new pattern. Only exists on Filed/All; Unfiled never
-                                 renders this <td> at all, so this cannot collide with the Unfiled-row
-                                 rework in flight on this same file (cc2, taller rows + deal search
-                                 moved to bottom-left — a change confined to the LAST <td>, which this
-                                 does not touch). --}}
+                            </div>
                             @if($state !== 'unfiled')
-                                <td style="padding:.6rem .9rem;font-size:.78rem;color:var(--text-muted,#6b7280);max-width:12rem;overflow-wrap:break-word;word-break:break-word;">
-                                    @if($filedInfo)
-                                        @if($filedInfo['deal_id'])
-                                            <a href="{{ route('deals-dr2.pipeline.list', $filedInfo['deal_id']) }}" @click.stop style="color:var(--brand-icon,#0ea5e9);text-decoration:underline;">{{ $filedInfo['deal_label'] }}</a>
-                                        @else
-                                            {{ $filedInfo['deal_label'] }}
-                                        @endif
-                                        <br>{{ $filedInfo['filed_by'] ? "by {$filedInfo['filed_by']}" : '' }}{{ $filedInfo['filed_at'] ? " · {$filedInfo['filed_at']}" : '' }}
-                                    @else
-                                        <span style="color:#9ca3af;">Not filed</span>
-                                    @endif
-                                </td>
+                                <span class="flex-shrink-0" style="font-size:.68rem;padding:.1rem .5rem;border-radius:999px;font-weight:600;white-space:nowrap;{{ $filedInfo ? 'background:color-mix(in srgb, var(--ds-green,#059669) 15%, transparent);color:var(--ds-green,#059669);' : 'background:var(--surface-2,#f3f4f6);color:var(--text-muted,#9ca3af);' }}">{{ $filedInfo ? 'Filed' : 'Not filed' }}</span>
                             @endif
-                        </tr>
-                        {{-- CX-113 Phase E (Johan, 2026-08-21) — "make the row taller and move
-                             the deal search to the bottom of each email row, bottom left. The
-                             current inline box on the right is too narrow to show enough. Give
-                             it the full row width so results can carry real detail." A second
-                             row, visually fused to the one above (no top border, tight top
-                             padding), full table width — same searchDeals()/file()/openPicker()
-                             state as before, just repositioned and widened so each result card
-                             can show property/status/parties/signal badges instead of one bare
-                             line. click.outside closes it without a separate Cancel button. --}}
-                        <tr @click.stop>
-                            <td colspan="{{ $colCount }}" style="padding:0 .9rem .6rem;">
-                                <div style="position:relative;max-width:38rem;"
-                                     @click.outside="filingId === {{ $email->id }} && closePicker()">
-                                    <input type="text" autocomplete="off"
-                                           :value="filingId === {{ $email->id }} ? dealQ : ''"
-                                           @focus="openPicker({{ $email->id }}, {{ $filedInfo ? 'true' : 'false' }})"
-                                           @input="dealQ = $event.target.value; searchDeals()"
-                                           @keydown.escape="closePicker()"
-                                           placeholder="{{ $filedInfo ? 'Move to another deal…' : 'Search deal — address, seller, buyer, attorney…' }}"
-                                           class="corex-input text-sm" style="width:100%;">
-                                    {{-- CX-113 Phase D — filing-history suggestion, shown BEFORE the
-                                         agent types anything; a real search takes over the moment
-                                         they type. Click files it — still an explicit action. --}}
-                                    <div x-show="filingId === {{ $email->id }} && dealQ.trim().length === 0 && filingSuggestion" x-cloak
-                                         style="position:absolute;z-index:41;left:0;right:0;top:100%;background:var(--surface,#fff);border:1px solid var(--brand-icon,#0ea5e9);border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);padding:.5rem .7rem;">
-                                        <div style="font-size:.7rem;font-weight:600;color:var(--brand-icon,#0ea5e9);text-transform:uppercase;letter-spacing:.03em;margin-bottom:.2rem;">Suggested</div>
-                                        <div style="font-size:.8rem;font-weight:600;cursor:pointer;"
-                                             :class="filing ? 'pointer-events-none opacity-50' : ''"
-                                             x-text="filingSuggestion && filingSuggestion.label"
-                                             @click="file({{ $email->id }}, filingSuggestion.deal_id)"></div>
-                                        <div style="font-size:.72rem;color:var(--text-muted,#9ca3af);" x-text="filingSuggestion && filingSuggestion.reason"></div>
+                        </div>
+                        {{-- Line 2 — sender · date, small and muted; secondary information recedes. --}}
+                        <div class="text-xs truncate" style="margin:.25rem 0 0 1.35rem;color:var(--text-muted,#9ca3af);">
+                            {{ $email->from_identifier ?: '(unknown)' }} · {{ optional($email->occurred_at)->format('j M Y H:i') }}
+                        </div>
+                        {{-- Preview — one muted truncated line. The expand control already shows
+                             the full body, so this earns its place only as a quick scan aid, never
+                             competing with the subject for attention. --}}
+                        @if($previewText !== '')
+                            <div class="text-xs truncate" style="margin:.2rem 0 0 1.35rem;color:var(--text-muted,#9ca3af);">
+                                {{ \Illuminate\Support\Str::limit($previewText, 140) }}
+                            </div>
+                        @endif
+                        @if($state !== 'unfiled' && $filedInfo)
+                            <div class="text-xs" style="margin:.35rem 0 0 1.35rem;color:var(--text-muted,#9ca3af);">
+                                @if($filedInfo['deal_id'])
+                                    Filed to <a href="{{ route('deals-dr2.pipeline.list', $filedInfo['deal_id']) }}" @click.stop style="color:var(--brand-icon,#0ea5e9);font-weight:600;">{{ $filedInfo['deal_label'] }}</a>
+                                @else
+                                    Filed to {{ $filedInfo['deal_label'] }}
+                                @endif
+                                {{ $filedInfo['filed_by'] ? "by {$filedInfo['filed_by']}" : '' }}{{ $filedInfo['filed_at'] ? " · {$filedInfo['filed_at']}" : '' }}
+                            </div>
+                        @endif
+                    </div>
+
+                    {{-- CX-112 — read the email before filing/confirming. Reuses the SAME viewer
+                         partial as the filed-emails-on-a-deal screen, fetched on demand — never
+                         eager-loaded for the whole list. --}}
+                    <div x-show="expandedId === {{ $email->id }}" x-cloak class="mt-3 pt-3" style="border-top:1px solid var(--border,#e5e7eb);">
+                        <div x-show="expanding" x-cloak class="text-xs" style="color:var(--text-muted,#9ca3af);">Loading…</div>
+                        <div x-show="!expanding" x-html="expandedHtml"></div>
+                    </div>
+
+                    {{-- CX-113 Phase E/F — deal search, full width, at the bottom of the card as
+                         its own visually distinct action zone (Johan: "bottom left... give it the
+                         full row width so results can carry real detail" — a card gives that
+                         naturally, no fixed columns to trap it inside). Same searchDeals()/file()/
+                         openPicker() state as before — presentation-only change. --}}
+                    <div class="mt-3 pt-3" style="border-top:1px solid var(--border,#e5e7eb);" @click.stop>
+                        <div style="position:relative;" @click.outside="filingId === {{ $email->id }} && closePicker()">
+                            <input type="text" autocomplete="off"
+                                   :value="filingId === {{ $email->id }} ? dealQ : ''"
+                                   @focus="openPicker({{ $email->id }}, {{ $filedInfo ? 'true' : 'false' }})"
+                                   @input="dealQ = $event.target.value; searchDeals()"
+                                   @keydown.escape="closePicker()"
+                                   placeholder="{{ $filedInfo ? 'Move to another deal…' : 'Search deal — address, seller, buyer, attorney…' }}"
+                                   class="corex-input text-sm" style="width:100%;max-width:38rem;">
+                            {{-- CX-113 Phase D — filing-history suggestion, shown BEFORE the agent
+                                 types anything; a real search takes over the moment they type. --}}
+                            <div x-show="filingId === {{ $email->id }} && dealQ.trim().length === 0 && filingSuggestion" x-cloak
+                                 style="position:relative;max-width:38rem;margin-top:.4rem;background:var(--surface-2,#f9fafb);border:1px solid var(--brand-icon,#0ea5e9);border-radius:.5rem;padding:.6rem .75rem;">
+                                <div style="font-size:.68rem;font-weight:600;color:var(--brand-icon,#0ea5e9);text-transform:uppercase;letter-spacing:.03em;margin-bottom:.2rem;">Suggested</div>
+                                <div class="text-sm" style="font-weight:600;cursor:pointer;color:var(--text-primary);"
+                                     :class="filing ? 'pointer-events-none opacity-50' : ''"
+                                     x-text="filingSuggestion && filingSuggestion.label"
+                                     @click="file({{ $email->id }}, filingSuggestion.deal_id)"></div>
+                                <div class="text-xs" style="color:var(--text-muted,#9ca3af);" x-text="filingSuggestion && filingSuggestion.reason"></div>
+                            </div>
+                            <div x-show="filingId === {{ $email->id }} && dealQ.trim().length === 0 && filingSuggestionLoading" x-cloak
+                                 class="text-xs" style="max-width:38rem;margin-top:.4rem;color:var(--text-muted,#9ca3af);">
+                                Checking filing history…
+                            </div>
+                            <div x-show="filingId === {{ $email->id }} && dealSearching" x-cloak
+                                 class="text-xs" style="max-width:38rem;margin-top:.4rem;color:var(--text-muted,#9ca3af);">
+                                Searching…
+                            </div>
+                            {{-- CX-113 Phase E — rich result cards: property address, status,
+                                 parties, and WHY each deal is a candidate for THIS email (signal
+                                 badges, strongest-first — the backend already sorts by score,
+                                 never re-sorted client-side). An unbadged result is a plain text
+                                 match — it naturally sorts last. Same card/border/spacing language
+                                 as the outer list, not a different visual system. --}}
+                            <div x-show="filingId === {{ $email->id }} && !dealSearching && dealResults.length" x-cloak
+                                 class="space-y-2" style="max-width:38rem;margin-top:.5rem;max-height:24rem;overflow:auto;">
+                                <template x-for="d in dealResults" :key="d.id">
+                                    <div class="rounded-md p-3" style="border:1px solid var(--border,#e5e7eb);cursor:pointer;"
+                                         :style="'border-radius:.375rem;padding:.65rem .8rem;border:1px solid var(--border,#e5e7eb);cursor:pointer;' + (filing ? 'pointer-events:none;opacity:.5;' : '')"
+                                         @click="file({{ $email->id }}, d.id)">
+                                        <div class="flex items-center justify-between gap-2">
+                                            <span class="text-sm truncate" style="font-weight:600;color:var(--text-primary);min-width:0;" x-text="d.label"></span>
+                                            <span class="flex-shrink-0" :style="'font-size:.68rem;padding:.1rem .5rem;border-radius:999px;font-weight:600;white-space:nowrap;' + dealStatusPillStyle(d.status)" x-text="d.status"></span>
+                                        </div>
+                                        <div class="text-xs truncate" style="color:var(--text-muted,#9ca3af);margin-top:.15rem;"
+                                             x-text="[d.seller_name ? ('Seller: ' + d.seller_name) : null, d.buyer_name ? ('Buyer: ' + d.buyer_name) : null, d.attorney_name ? ('Attorney: ' + d.attorney_name) : null].filter(Boolean).join('  ·  ')"></div>
+                                        <div x-show="d.signals && d.signals.length" class="flex flex-wrap" style="gap:.3rem;margin-top:.4rem;">
+                                            <template x-for="s in (d.signals || [])" :key="s.type + s.label">
+                                                <span :style="'font-size:.68rem;padding:.15rem .5rem;border-radius:999px;font-weight:600;' + signalBadgeStyle(s.score)" x-text="s.label"></span>
+                                            </template>
+                                        </div>
                                     </div>
-                                    <div x-show="filingId === {{ $email->id }} && dealQ.trim().length === 0 && filingSuggestionLoading" x-cloak
-                                         style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface,#fff);border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);padding:.5rem .7rem;font-size:.75rem;color:var(--text-muted,#9ca3af);">
-                                        Checking filing history…
-                                    </div>
-                                    <div x-show="filingId === {{ $email->id }} && dealSearching" x-cloak
-                                         style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface,#fff);border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);padding:.5rem .7rem;font-size:.8rem;color:var(--text-muted,#9ca3af);">
-                                        Searching…
-                                    </div>
-                                    {{-- CX-113 Phase E — rich result cards: property address, status,
-                                         parties, and WHY each deal is a candidate for THIS email
-                                         (signal badges, strongest-first — the backend already sorts
-                                         by score, never re-sorted client-side). An unbadged result
-                                         is a plain text match — it naturally sorts last. --}}
-                                    <div x-show="filingId === {{ $email->id }} && !dealSearching && dealResults.length" x-cloak
-                                         style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface,#fff);border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);max-height:22rem;overflow:auto;">
-                                        <template x-for="d in dealResults" :key="d.id">
-                                            <div style="padding:.6rem .75rem;border-bottom:1px solid #f3f4f6;cursor:pointer;"
-                                                 onmouseover="this.style.background='var(--surface-2,#f9fafb)'" onmouseout="this.style.background=''"
-                                                 :class="filing ? 'pointer-events-none opacity-50' : ''"
-                                                 @click="file({{ $email->id }}, d.id)">
-                                                <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;">
-                                                    <span style="font-weight:600;font-size:.85rem;" x-text="d.label"></span>
-                                                    <span style="font-size:.68rem;padding:.1rem .5rem;border-radius:999px;background:var(--surface-2,#f3f4f6);color:var(--text-muted,#6b7280);white-space:nowrap;flex-shrink:0;" x-text="d.status"></span>
-                                                </div>
-                                                <div style="font-size:.75rem;color:var(--text-muted,#6b7280);margin-top:.1rem;"
-                                                     x-text="[d.seller_name ? ('Seller: ' + d.seller_name) : null, d.buyer_name ? ('Buyer: ' + d.buyer_name) : null, d.attorney_name ? ('Attorney: ' + d.attorney_name) : null].filter(Boolean).join('  ·  ')"></div>
-                                                <div x-show="d.signals && d.signals.length" style="display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.4rem;">
-                                                    <template x-for="s in (d.signals || [])" :key="s.type + s.label">
-                                                        <span :style="'font-size:.68rem;padding:.15rem .5rem;border-radius:999px;font-weight:600;' + signalBadgeStyle(s.type)" x-text="s.label"></span>
-                                                    </template>
-                                                </div>
-                                            </div>
-                                        </template>
-                                    </div>
-                                </div>
-                            </td>
-                        </tr>
-                        {{-- CX-112 — read the email before filing/confirming. Reuses the SAME
-                             viewer partial as the filed-emails-on-a-deal screen (below/sibling
-                             view), fetched on demand — never eager-loaded for the whole list. --}}
-                        <tr x-show="expandedId === {{ $email->id }}" x-cloak>
-                            <td colspan="{{ $colCount }}" style="padding:.75rem .9rem;background:var(--surface-muted,#f9fafb);">
-                                <div x-show="expanding" x-cloak style="font-size:.8rem;color:var(--text-muted,#9ca3af);">Loading…</div>
-                                <div x-show="!expanding" x-html="expandedHtml"></div>
-                            </td>
-                        </tr>
-                    @endforeach
-                </tbody>
-            </table>
-        @endif
-    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            @endforeach
+        </div>
+    @endif
 
     <div>{{ $emails->links() }}</div>
 
