@@ -91,7 +91,7 @@
     <p x-show="err" x-cloak x-text="err" style="color:#b91c1c;font-size:.85rem;"></p>
 
     {{-- List --}}
-    <div class="corex-card" style="padding:0;overflow:hidden;">
+    <div style="padding:0;overflow:hidden;background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);border-radius:.5rem;">
         @if($emails->isEmpty())
             <div style="padding:2rem;text-align:center;color:var(--text-muted,#9ca3af);">
                 @if($search)
@@ -150,9 +150,15 @@
 
     <div>{{ $emails->links() }}</div>
 
-    {{-- Suggestion modal — Johan: surface, never auto-file. --}}
-    <div x-show="suggestModal" x-cloak style="position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:60;">
-        <div class="corex-card" style="max-width:32rem;width:92%;padding:1.25rem;">
+    {{-- Suggestion modal — Johan: surface, never auto-file. Backdrop + centering matches the
+         established modal pattern used elsewhere (e.g. partials/whatsapp-send-confirm-modal.blade.php,
+         dr2/partials/_grant-conflict-modal.blade.php): fixed inset:0 backdrop, flex-centered content
+         box with its OWN explicit background/border — "corex-card" below was never a real CSS class
+         (confirmed by grep against resources/css/corex.css — only .corex-kpi-card and .corex-panel
+         consume the --corex-card-bg variable), so the box rendered with no background at all and
+         text sat directly on the semi-transparent backdrop. --}}
+    <div x-show="suggestModal" x-cloak style="position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999;padding:1rem;">
+        <div style="max-width:32rem;width:92%;padding:1.25rem;background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);border-radius:.5rem;box-shadow:0 20px 40px rgba(0,0,0,.25);">
             <h3 style="margin:0 0 .4rem;font-size:1rem;font-weight:700;">Filed. Related emails found.</h3>
             <p style="margin:0 0 .8rem;font-size:.85rem;color:var(--text-muted,#6b7280);">
                 These unfiled emails share a sender, thread, or subject with the one just filed to
