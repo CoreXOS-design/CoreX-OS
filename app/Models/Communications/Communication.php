@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Communication Archive index row (AT-32). Channel-agnostic; raw payload on
@@ -434,6 +435,28 @@ class Communication extends Model
             $q->where('owner_user_id', $agent->id);
             foreach ($mailboxAddresses as $addr) {
                 $q->orWhereRaw('JSON_CONTAINS(participant_identifiers, ?)', [json_encode($addr)]);
+            }
+        });
+    }
+
+    /**
+     * CX-113 Phase A (Johan's correction, 2026-08-21) — "the emails needs to match on
+     * buyer or seller or supplier that are involved in a dr2 deal." Restricts to
+     * communications where from_identifier OR any participant_identifiers entry is one
+     * of the given (already normalised lower/trim) email addresses. An empty $emails
+     * list matches nothing — never silently falls back to "everything" (a resolver
+     * returning [] means no deal parties exist yet, not "skip the filter").
+     */
+    public function scopeMatchingAnyEmail(Builder $query, array $emails): Builder
+    {
+        if (empty($emails)) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->where(function (Builder $q) use ($emails) {
+            $q->whereIn(DB::raw('LOWER(TRIM(from_identifier))'), $emails);
+            foreach ($emails as $email) {
+                $q->orWhereRaw('JSON_CONTAINS(participant_identifiers, ?)', [json_encode($email)]);
             }
         });
     }

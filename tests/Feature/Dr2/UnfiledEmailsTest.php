@@ -81,12 +81,32 @@ final class UnfiledEmailsTest extends TestCase
         // deal_user pivot, not listing_agent_id — attach the test agent so this deal is
         // actually visible to them, matching how a real agent is on their own deal.
         $this->deal->agents()->attach($this->agent->id, ['side' => 'selling']);
+
+        // CX-113 Phase A correction — the Unfiled Emails list now ALSO requires a deal-party
+        // match (buyer/seller/supplier), on top of scope. Register comm()'s default
+        // from_identifier as a deal-party contact so every existing test's fixture emails
+        // keep passing that filter without individually opting in.
+        $this->registerDealParty('conveyancer@bbb-attorneys.co.za');
     }
 
     protected function tearDown(): void
     {
         PermissionService::clearCache();
         parent::tearDown();
+    }
+
+    /** Registers $email as a buyer/seller-role deal_contacts party on $this->deal. */
+    private function registerDealParty(string $email): void
+    {
+        $contactId = (int) DB::table('contacts')->insertGetId([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->branchId, 'email' => $email,
+            'first_name' => 'Test', 'last_name' => 'Party',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('deal_contacts')->insert([
+            'deal_id' => $this->deal->id, 'contact_id' => $contactId, 'role' => 'seller',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
     }
 
     private function comm(array $over = []): Communication
@@ -238,6 +258,7 @@ final class UnfiledEmailsTest extends TestCase
 
     public function test_the_search_box_filters_by_subject_or_sender(): void
     {
+        $this->registerDealParty('findme@example.com');
         $this->comm(['subject' => 'Findable subject XYZ']);
         $this->comm(['from_identifier' => 'findme@example.com', 'subject' => 'Different subject']);
         $this->comm(['subject' => 'Not matching anything']);
@@ -406,6 +427,63 @@ final class UnfiledEmailsTest extends TestCase
             ->assertOk();
         $resp->assertDontSee('Other branch agent email, forged filter target');
         $resp->assertSee('My branch email, falls back here'); // filter ignored, falls back to full branch scope
+    }
+
+    // ── CX-113 Phase A correction (Johan, 2026-08-21) — deal-party filter ────────────
+
+    public function test_an_email_with_no_connection_to_any_deal_is_excluded_even_though_the_user_could_otherwise_see_it(): void
+    {
+        // Scope-visible (owned by the test agent), but the sender is nobody's deal
+        // party anywhere — must not appear. This is the corrected premise itself:
+        // scope alone is no longer sufficient.
+        $this->comm(['from_identifier' => 'random-newsletter@nowhere.example.com', 'subject' => 'No deal connection at all']);
+
+        $resp = $this->actingAs($this->agent)->get(route('deals-dr2.unfiled-emails.index'))->assertOk();
+        $resp->assertDontSee('No deal connection at all');
+    }
+
+    public function test_deal_party_filter_includes_an_attorney_via_the_deal_provider_column(): void
+    {
+        // Exercises the SUPPLIER path via deals.attorney_provider_id ->
+        // agency_service_provider_contacts.email — a genuinely different code path
+        // from the buyer/seller deal_contacts shortcut the default fixture uses.
+        $providerId = (int) DB::table('agency_service_providers')->insertGetId([
+            'agency_id' => $this->agencyId, 'name' => 'Test Attorneys Inc', 'specialty' => 'transfer_attorney',
+            'is_active' => 1, 'created_by_id' => $this->agent->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('agency_service_provider_contacts')->insert([
+            'agency_id' => $this->agencyId, 'service_provider_id' => $providerId,
+            'attorney_name' => 'Test Attorney', 'email' => 'attorney-person@testattorneys.co.za',
+            'is_active' => 1, 'created_by_id' => $this->agent->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('deals')->where('id', $this->deal->id)->update(['attorney_provider_id' => $providerId]);
+
+        $this->comm(['from_identifier' => 'attorney-person@testattorneys.co.za', 'subject' => 'Attorney provider column email']);
+
+        $resp = $this->actingAs($this->agent)->get(route('deals-dr2.unfiled-emails.index'))->assertOk();
+        $resp->assertSee('Attorney provider column email');
+    }
+
+    public function test_deal_party_filter_includes_a_coc_supplier_via_a_deal_step_work_order(): void
+    {
+        // Exercises the deal_step_work_orders path (COC / electrician / entomologist /
+        // etc. — the agency-configured service_type list, not a fixed taxonomy).
+        $stepInstanceId = (int) DB::table('deal_step_instances')->insertGetId([
+            'deal_id' => $this->dealV2Id, 'dr1_deal_id' => $this->deal->id, 'agency_id' => $this->agencyId,
+            'name' => 'Test Step', 'status' => 'not_started', 'trigger_type' => 'manual',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('deal_step_work_orders')->insert([
+            'deal_step_instance_id' => $stepInstanceId, 'dr1_deal_id' => $this->deal->id, 'agency_id' => $this->agencyId,
+            'service_type' => 'Electrician', 'responsible_party' => 'supplier',
+            'recipient_email' => 'electrician@testcoc.co.za', 'status' => 'pending',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->comm(['from_identifier' => 'electrician@testcoc.co.za', 'subject' => 'COC work order supplier email']);
+
+        $resp = $this->actingAs($this->agent)->get(route('deals-dr2.unfiled-emails.index'))->assertOk();
+        $resp->assertSee('COC work order supplier email');
     }
 
     public function test_filing_a_second_time_to_a_different_deal_is_refused_not_silently_duplicated(): void
