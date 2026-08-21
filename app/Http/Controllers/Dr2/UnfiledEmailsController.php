@@ -10,6 +10,7 @@ use App\Models\Deal;
 use App\Models\DealV2\DealV2;
 use App\Models\User;
 use App\Services\Communications\CommunicationDealLinkingService;
+use App\Services\Communications\Dr2DealPartyEmailResolver;
 use App\Services\PermissionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -37,16 +38,31 @@ use Illuminate\View\View;
  */
 class UnfiledEmailsController extends Controller
 {
-    public function __construct(private CommunicationDealLinkingService $linking)
-    {
+    public function __construct(
+        private CommunicationDealLinkingService $linking,
+        private Dr2DealPartyEmailResolver $dealParties,
+    ) {
     }
 
     /**
-     * The working queue — every unfiled email THE USER WAS A PARTY TO, newest first,
-     * searchable.
+     * The working queue — every unfiled email that is BOTH (1) a candidate for filing
+     * to a DR2 deal — a party on it (To/From/CC) matches a buyer, seller, or supplier
+     * on a DR2-twinned deal — AND (2) one the current user is entitled to see, newest
+     * first, searchable.
      *
-     * CX-113 Phase A (Johan, 2026-08-21) — "565 unfiled emails as one wholesale list...
-     * agents only see emails they were part of." Scope resolution mirrors Deeds
+     * CX-113 Phase A, corrected premise (Johan, 2026-08-21): "we cannot simply pull
+     * all emails into unfiled. the emails needs to match on buyer or seller or
+     * supplier that are involved in a dr2 deal... all emails are ingested and
+     * attached to contact records, thats perfect, but for deal emails we are looking
+     * for matches to a deal." Dr2DealPartyEmailResolver resolves the real, current
+     * deal-party email set (buyer/seller via deal_contacts, supplier via the SAME
+     * columns/tables AT-231's AttorneyCorrespondenceResolver already ships against —
+     * deals.attorney_provider_id/bond_originator_provider_id/bond_attorney_provider_id
+     * + deal_step_work_orders — never a parallel mechanism). Applied via
+     * Communication::scopeMatchingAnyEmail() BEFORE scope, so the two filters compose
+     * as a genuine AND, not either alone.
+     *
+     * Scope resolution (who's ENTITLED to see a deal-party candidate) mirrors Deeds
      * Capture/Market Intelligence exactly (PermissionService::getDataScope +
      * clampScope — decided mechanism, cc5 building Deeds Capture's quick filters
      * against the same one): a role ceiling from Role Manager
@@ -74,6 +90,8 @@ class UnfiledEmailsController extends Controller
             ? $agentList->firstWhere('id', (int) $filterAgentId)
             : null;
 
+        $dealPartyEmails = $this->dealParties->partyEmailsForAgency($agencyId);
+
         $query = Communication::query()
             ->where('agency_id', $agencyId)
             ->where('channel', Communication::CHANNEL_EMAIL)
@@ -82,7 +100,8 @@ class UnfiledEmailsController extends Controller
                     ->whereColumn('communication_links.communication_id', 'communications.id')
                     ->where('communication_links.linkable_type', DealV2::class)
                     ->whereNull('communication_links.deleted_at');
-            });
+            })
+            ->matchingAnyEmail($dealPartyEmails);
 
         // Agent picker only ever offers a candidate already inside $agentList (built
         // scoped to the same $scope ceiling below) — a forged agent_id outside that
