@@ -212,6 +212,84 @@ class Dr2DealPartyEmailResolver
     }
 
     /**
+     * CX-113 Phase G (Johan, 2026-08-22) — "who the recipients are... say so inline"
+     * on the expanded email card. Same three sources as partyDealFrequency(), but
+     * keeping role + deal identity instead of collapsing to a count, so the card can
+     * say "attorney on deal #1788" for a party unique enough to name, or fall back to
+     * the same "Role on N deals" wording already used on the ranked deal-search
+     * badges (partyDealFrequency/matchSignalsFor) when a party is too common to name
+     * usefully — same threshold, same wording, one taxonomy across the whole screen.
+     *
+     * @param  array<int, string>  $emails  addresses to resolve (any case/whitespace)
+     * @return array<string, array<int, array{deal_id:int, deal_no:?string, property_address:?string, role:string}>>
+     *         normalised email => every DR2-twinned deal it is a named party on
+     */
+    public function dealMatchesForEmails(int $agencyId, array $emails): array
+    {
+        $wanted = collect($emails)
+            ->map(fn ($e) => strtolower(trim((string) $e)))
+            ->filter(fn ($e) => $e !== '' && str_contains($e, '@'))
+            ->unique()->values();
+        if ($wanted->isEmpty()) {
+            return [];
+        }
+
+        $rows = collect();
+
+        DB::table('deal_contacts')
+            ->join('deals', 'deals.id', '=', 'deal_contacts.deal_id')
+            ->join('contacts', 'contacts.id', '=', 'deal_contacts.contact_id')
+            ->where('deals.agency_id', $agencyId)->whereNotNull('deals.deal_v2_id')
+            ->whereNotNull('contacts.email')
+            ->get(['deals.id as deal_id', 'deals.deal_no', 'deals.property_address', 'contacts.email', 'deal_contacts.role'])
+            ->each(function ($r) use ($rows) {
+                $role = in_array($r->role, ['buyer', 'seller'], true) ? $r->role : 'other_party';
+                $rows->push([$r->email, $r->deal_id, $r->deal_no, $r->property_address, $role]);
+            });
+
+        $providerRoles = [
+            'attorney_provider_id' => 'attorney',
+            'bond_originator_provider_id' => 'bond_originator',
+            'bond_attorney_provider_id' => 'bond_attorney',
+        ];
+        foreach ($providerRoles as $column => $roleName) {
+            DB::table('deals')
+                ->join('agency_service_provider_contacts', 'agency_service_provider_contacts.service_provider_id', '=', "deals.$column")
+                ->where('deals.agency_id', $agencyId)->whereNotNull('deals.deal_v2_id')->whereNotNull("deals.$column")
+                ->whereNull('agency_service_provider_contacts.deleted_at')
+                ->get(['deals.id as deal_id', 'deals.deal_no', 'deals.property_address', 'agency_service_provider_contacts.email'])
+                ->each(fn ($r) => $r->email ? $rows->push([$r->email, $r->deal_id, $r->deal_no, $r->property_address, $roleName]) : null);
+            DB::table('deals')
+                ->join('agency_service_providers', 'agency_service_providers.id', '=', "deals.$column")
+                ->where('deals.agency_id', $agencyId)->whereNotNull('deals.deal_v2_id')->whereNotNull("deals.$column")
+                ->whereNull('agency_service_providers.deleted_at')
+                ->get(['deals.id as deal_id', 'deals.deal_no', 'deals.property_address', 'agency_service_providers.email'])
+                ->each(fn ($r) => $r->email ? $rows->push([$r->email, $r->deal_id, $r->deal_no, $r->property_address, $roleName]) : null);
+        }
+
+        DB::table('deal_step_work_orders')
+            ->join('deals', 'deals.id', '=', 'deal_step_work_orders.dr1_deal_id')
+            ->where('deals.agency_id', $agencyId)->whereNotNull('deals.deal_v2_id')->whereNull('deal_step_work_orders.deleted_at')
+            ->get(['deals.id as deal_id', 'deals.deal_no', 'deals.property_address', 'deal_step_work_orders.recipient_email'])
+            ->each(fn ($r) => $r->recipient_email ? $rows->push([$r->recipient_email, $r->deal_id, $r->deal_no, $r->property_address, 'coc_supplier']) : null);
+
+        $wantedSet = $wanted->flip();
+
+        return $rows->map(fn ($r) => [strtolower(trim((string) $r[0])), $r[1], $r[2], $r[3], $r[4]])
+            ->filter(fn ($r) => $wantedSet->has($r[0]))
+            ->groupBy(fn ($r) => $r[0])
+            ->map(function ($group) {
+                return $group->map(fn ($r) => [
+                    'deal_id' => (int) $r[1],
+                    'deal_no' => $r[2],
+                    'property_address' => $r[3],
+                    'role' => $r[4],
+                ])->unique(fn ($m) => $m['deal_id'] . ':' . $m['role'])->values()->all();
+            })
+            ->all();
+    }
+
+    /**
      * @param  (callable(Builder):void)|null  $extraDealFilter  Additional WHERE applied
      *         to the `deals` table in every branch below (narrows which deals' parties
      *         get resolved; omit for "every DR2-twinned deal in the agency").

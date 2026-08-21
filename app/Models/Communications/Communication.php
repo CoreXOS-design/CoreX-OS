@@ -34,7 +34,7 @@ class Communication extends Model
 
     protected $fillable = [
         'agency_id', 'channel', 'direction', 'external_id', 'thread_key', 'wa_chat_id', 'counterpart_lid',
-        'from_identifier', 'participant_identifiers', 'occurred_at', 'captured_at',
+        'from_identifier', 'participant_identifiers', 'to_identifiers', 'cc_identifiers', 'occurred_at', 'captured_at',
         'provisional_at', 'subject', 'body_text', 'body_preview', 'body_display', 'body_status', 'raw_path',
         'has_attachments', 'content_hash', 'text_hash', 'source_ref',
         'owner_user_id', 'purged_at', 'purged_reason',
@@ -47,6 +47,8 @@ class Communication extends Model
 
     protected $casts = [
         'participant_identifiers' => 'array',
+        'to_identifiers'          => 'array',
+        'cc_identifiers'          => 'array',
         'occurred_at'            => 'datetime',
         'captured_at'            => 'datetime',
         'provisional_at'         => 'datetime',

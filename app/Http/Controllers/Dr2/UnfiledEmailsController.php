@@ -5,12 +5,14 @@ namespace App\Http\Controllers\Dr2;
 use App\Exceptions\Communications\AlreadyFiledException;
 use App\Http\Controllers\Controller;
 use App\Models\Communications\Communication;
+use App\Models\Communications\CommunicationDr2Dismissal;
 use App\Models\Communications\CommunicationLink;
 use App\Models\Deal;
 use App\Models\DealV2\DealV2;
 use App\Models\User;
 use App\Services\Communications\CommunicationDealLinkingService;
 use App\Services\Communications\Dr2DealPartyEmailResolver;
+use App\Services\Communications\Dr2EmailDismissalService;
 use App\Services\Communications\Dr2FilingSuggestionService;
 use App\Services\PermissionService;
 use Illuminate\Http\JsonResponse;
@@ -43,6 +45,7 @@ class UnfiledEmailsController extends Controller
         private CommunicationDealLinkingService $linking,
         private Dr2DealPartyEmailResolver $dealParties,
         private Dr2FilingSuggestionService $filingSuggestions,
+        private Dr2EmailDismissalService $dismissals,
     ) {
     }
 
@@ -96,8 +99,12 @@ class UnfiledEmailsController extends Controller
         // confirmed to a real deal by a human, so the deal-party candidate filter
         // (below) is moot for it and is not re-applied — only the unfiled bucket needs
         // "is this even a candidate" answered.
+        // CX-113 Phase G — a 4th bucket, "Removed": emails an agent has said are not
+        // deal correspondence (Dr2EmailDismissalService). Every other bucket excludes
+        // them (below) so a removed email genuinely leaves the working queue; this
+        // bucket is the only place they are still findable, with a Restore action.
         $state = $request->input('state', 'unfiled');
-        if (! in_array($state, ['unfiled', 'filed', 'all'], true)) {
+        if (! in_array($state, ['unfiled', 'filed', 'all', 'removed'], true)) {
             $state = 'unfiled';
         }
 
@@ -109,17 +116,24 @@ class UnfiledEmailsController extends Controller
                 ->where('communication_links.linkable_type', DealV2::class)
                 ->whereNull('communication_links.deleted_at');
         };
+        $hasActiveDismissal = function ($q) {
+            $q->selectRaw('1')->from('communication_dr2_dismissals')
+                ->whereColumn('communication_dr2_dismissals.communication_id', 'communications.id')
+                ->whereNull('communication_dr2_dismissals.restored_at');
+        };
 
         $query = Communication::query()
             ->where('agency_id', $agencyId)
             ->where('channel', Communication::CHANNEL_EMAIL);
 
-        if ($state === 'unfiled') {
-            $query->whereNotExists($hasActiveDealLink)->matchingAnyEmail($dealPartyEmails);
+        if ($state === 'removed') {
+            $query->whereExists($hasActiveDismissal);
+        } elseif ($state === 'unfiled') {
+            $query->whereNotExists($hasActiveDismissal)->whereNotExists($hasActiveDealLink)->matchingAnyEmail($dealPartyEmails);
         } elseif ($state === 'filed') {
-            $query->whereExists($hasActiveDealLink);
+            $query->whereNotExists($hasActiveDismissal)->whereExists($hasActiveDealLink);
         } else { // all
-            $query->where(function ($q) use ($hasActiveDealLink, $dealPartyEmails) {
+            $query->whereNotExists($hasActiveDismissal)->where(function ($q) use ($hasActiveDealLink, $dealPartyEmails) {
                 $q->whereExists($hasActiveDealLink)
                     ->orWhere(function ($q2) use ($hasActiveDealLink, $dealPartyEmails) {
                         $q2->whereNotExists($hasActiveDealLink)->matchingAnyEmail($dealPartyEmails);
@@ -190,6 +204,23 @@ class UnfiledEmailsController extends Controller
             ];
         }
 
+        // CX-113 Phase G — dismissal display for the Removed state (who removed it,
+        // why, when) plus the Restore action's target id.
+        $dismissedInfoByCommId = [];
+        if ($state === 'removed') {
+            $dismissals = CommunicationDr2Dismissal::with('dismissedBy')
+                ->whereIn('communication_id', $emails->getCollection()->pluck('id'))
+                ->whereNull('restored_at')
+                ->get()->keyBy('communication_id');
+            foreach ($dismissals as $commId => $d) {
+                $dismissedInfoByCommId[$commId] = [
+                    'reason'       => $d->reasonLabel(),
+                    'dismissed_by' => $d->dismissedBy?->name,
+                    'dismissed_at' => optional($d->dismissed_at)->format('j M Y H:i'),
+                ];
+            }
+        }
+
         return view('dr2.unfiled-emails', [
             'emails'            => $emails,
             'search'            => $search,
@@ -201,6 +232,8 @@ class UnfiledEmailsController extends Controller
             'selectedAgent'     => $selectedAgent,
             'state'             => $state,
             'filedInfoByCommId' => $filedInfoByCommId,
+            'dismissedInfoByCommId' => $dismissedInfoByCommId,
+            'dismissalReasons'  => CommunicationDr2Dismissal::REASONS,
         ]);
     }
 
@@ -572,5 +605,46 @@ class UnfiledEmailsController extends Controller
         }
 
         return response()->json(['ok' => true, 'filed_link_ids' => $filed]);
+    }
+
+    /**
+     * POST /deals-dr2/unfiled-emails/{communication}/dismiss
+     * body: reason (one of CommunicationDr2Dismissal::REASONS), reason_other (required
+     * when reason=other)
+     *
+     * CX-113 Phase G — "not deal correspondence" (Johan, 2026-08-22). Agency-wide, same
+     * as filing: once dismissed, the row leaves every agent's Unfiled/Filed/All view,
+     * not just the dismisser's own. Never touches the Communication row or its contact
+     * link — this only decides whether DR2 offers it.
+     */
+    public function dismiss(Request $request, Communication $communication): JsonResponse
+    {
+        $validated = $request->validate([
+            'reason'       => ['required', 'string', 'in:' . implode(',', array_keys(CommunicationDr2Dismissal::REASONS))],
+            'reason_other' => ['required_if:reason,' . CommunicationDr2Dismissal::REASON_OTHER, 'nullable', 'string', 'max:255'],
+        ]);
+
+        $user     = $request->user();
+        $agencyId = $user->effectiveAgencyId();
+        abort_unless((int) $communication->agency_id === (int) $agencyId, 404);
+
+        $dismissal = $this->dismissals->dismiss($communication, $user, $validated['reason'], $validated['reason_other'] ?? null);
+
+        return response()->json([
+            'ok'     => true,
+            'reason' => $dismissal->reasonLabel(),
+        ]);
+    }
+
+    /** POST /deals-dr2/unfiled-emails/{communication}/restore — puts a dismissed email back. */
+    public function restore(Request $request, Communication $communication): JsonResponse
+    {
+        $user     = $request->user();
+        $agencyId = $user->effectiveAgencyId();
+        abort_unless((int) $communication->agency_id === (int) $agencyId, 404);
+
+        $this->dismissals->restore($communication, $user);
+
+        return response()->json(['ok' => true]);
     }
 }

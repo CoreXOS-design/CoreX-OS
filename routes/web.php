@@ -821,6 +821,9 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     // CX-113 Phase D — filing-history auto-suggest, fetched when a row's inline search
     // opens, before the agent has typed anything.
     Route::get('/unfiled-emails/{communication}/suggest', [\App\Http\Controllers\Dr2\UnfiledEmailsController::class, 'suggest'])->whereNumber('communication')->middleware('permission:view_deals')->name('unfiled-emails.suggest');
+    // CX-113 Phase G (Johan, 2026-08-22) — "not deal correspondence", reversible.
+    Route::post('/unfiled-emails/{communication}/dismiss', [\App\Http\Controllers\Dr2\UnfiledEmailsController::class, 'dismiss'])->whereNumber('communication')->middleware('permission:view_deals')->name('unfiled-emails.dismiss');
+    Route::post('/unfiled-emails/{communication}/restore', [\App\Http\Controllers\Dr2\UnfiledEmailsController::class, 'restore'])->whereNumber('communication')->middleware('permission:view_deals')->name('unfiled-emails.restore');
 
     // CX-112 (Johan, 2026-08-21) — on-demand email body/attachment viewing, shared by the
     // Unfiled Emails screen and the filed-emails section on a deal, so agents learn ONE
