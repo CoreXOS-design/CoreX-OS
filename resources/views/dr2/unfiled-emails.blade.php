@@ -321,17 +321,32 @@
                     @foreach($emails as $email)
                         @php($filedInfo = $filedInfoByCommId[$email->id] ?? null)
                         <tr id="unfiled-row-{{ $email->id }}" style="border-top:1px solid var(--border,rgba(0,0,0,.06));cursor:pointer;" @click="toggleExpand({{ $email->id }})">
-                            <td style="padding:.6rem .9rem;white-space:nowrap;">{{ $email->from_identifier ?: '(unknown)' }}</td>
+                            <td style="padding:.6rem .9rem;white-space:nowrap;{{ $state !== 'unfiled' ? 'max-width:10rem;overflow:hidden;text-overflow:ellipsis;' : '' }}">{{ $email->from_identifier ?: '(unknown)' }}</td>
                             <td style="padding:.6rem .9rem;font-weight:600;">
                                 <span style="display:inline-block;width:.9rem;color:var(--text-muted,#9ca3af);" x-text="expandedId === {{ $email->id }} ? '▾' : '▸'"></span>
                                 {{ $email->subject ?: '(no subject)' }}
                             </td>
                             <td style="padding:.6rem .9rem;white-space:nowrap;color:var(--text-muted,#6b7280);">{{ optional($email->occurred_at)->format('j M Y H:i') }}</td>
-                            <td style="padding:.6rem .9rem;color:var(--text-muted,#6b7280);max-width:22rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                            <td style="padding:.6rem .9rem;color:var(--text-muted,#6b7280);max-width:{{ $state !== 'unfiled' ? '10rem' : '22rem' }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
                                 {{ \Illuminate\Support\Str::limit((string) ($email->body_display ?: ($email->body_text ?: $email->body_preview)), 90) }}
                             </td>
+                            {{-- Filed-state Status column (Johan, 2026-08-21, layout fix) — was
+                                 white-space:nowrap with NO width cap, so a long deal label (a full
+                                 property address) forced the row — and the whole table — wider than
+                                 the viewport, with the Action column clipped off the right edge and
+                                 no way to reach it (Johan: "no one will find it," reject a horizontal
+                                 scrollbar as the fix). Bounded to a fixed column width with real
+                                 wrapping instead of nowrap: the deal label wraps onto as many lines
+                                 as it needs WITHIN the column (word-break for an unbroken long
+                                 address token), "by X · date" stays its own line via the existing
+                                 <br>. Same idiom as every other column here — a plain inline max-width
+                                 + wrap, not a new pattern. Only exists on Filed/All; Unfiled never
+                                 renders this <td> at all, so this cannot collide with the Unfiled-row
+                                 rework in flight on this same file (cc2, taller rows + deal search
+                                 moved to bottom-left — a change confined to the LAST <td>, which this
+                                 does not touch). --}}
                             @if($state !== 'unfiled')
-                                <td style="padding:.6rem .9rem;white-space:nowrap;font-size:.78rem;color:var(--text-muted,#6b7280);">
+                                <td style="padding:.6rem .9rem;font-size:.78rem;color:var(--text-muted,#6b7280);max-width:12rem;overflow-wrap:break-word;word-break:break-word;">
                                     @if($filedInfo)
                                         @if($filedInfo['deal_id'])
                                             <a href="{{ route('deals-dr2.pipeline.list', $filedInfo['deal_id']) }}" @click.stop style="color:var(--brand-icon,#0ea5e9);text-decoration:underline;">{{ $filedInfo['deal_label'] }}</a>
