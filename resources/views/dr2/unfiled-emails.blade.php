@@ -24,12 +24,12 @@
 @section('corex-content')
 <div class="w-full space-y-5"
      x-data="{
-        filingId: null,
+        filingId: null, moveMode: false,
         dealQ: '', dealResults: [], dealSearching: false, filing: false, err: '',
         suggestModal: false, suggestDeal: null, suggestions: [], suggestSelected: [], batchFiling: false,
         expandedId: null, expandedHtml: '', expanding: false,
-        openPicker(commId){ this.filingId = commId; this.dealQ=''; this.dealResults=[]; this.err=''; },
-        closePicker(){ this.filingId = null; },
+        openPicker(commId, move = false){ this.filingId = commId; this.moveMode = move; this.dealQ=''; this.dealResults=[]; this.err=''; },
+        closePicker(){ this.filingId = null; this.moveMode = false; },
         async toggleExpand(commId){
             if(this.expandedId === commId){ this.expandedId = null; return; }
             this.expandedId = commId; this.expandedHtml = ''; this.expanding = true;
@@ -55,19 +55,23 @@
                     method: 'POST',
                     headers: {'Content-Type':'application/json', Accept:'application/json', 'X-CSRF-TOKEN':'{{ csrf_token() }}'},
                     credentials: 'same-origin',
-                    body: JSON.stringify({deal_id: dealId})
+                    body: JSON.stringify({deal_id: dealId, move: this.moveMode})
                 });
                 const j = await r.json();
                 if(r.ok && j.ok){
                     this.filingId = null;
-                    document.getElementById('unfiled-row-' + commId)?.remove();
-                    if(j.suggestions && j.suggestions.length){
-                        this.suggestDeal = j.deal;
-                        this.suggestions = j.suggestions;
-                        this.suggestSelected = j.suggestions.map(s => s.id);
-                        this.suggestModal = true;
-                    } else {
+                    if(this.moveMode){
                         location.reload();
+                    } else {
+                        document.getElementById('unfiled-row-' + commId)?.remove();
+                        if(j.suggestions && j.suggestions.length){
+                            this.suggestDeal = j.deal;
+                            this.suggestions = j.suggestions;
+                            this.suggestSelected = j.suggestions.map(s => s.id);
+                            this.suggestModal = true;
+                        } else {
+                            location.reload();
+                        }
                     }
                 } else {
                     this.err = (j.message || 'Could not file that email.');
@@ -121,8 +125,19 @@
                         @endif
                     @endforeach
                 </div>
-                <div class="text-sm text-white/80">{{ $emails->total() }} unfiled</div>
+                <div class="text-sm text-white/80">{{ $emails->total() }} {{ $state === 'filed' ? 'filed' : ($state === 'all' ? 'total' : 'unfiled') }}</div>
             </div>
+        </div>
+
+        {{-- CX-113 Phase B — filed-state filter. Unfiled (default) / Filed / All. Search
+             spans whichever state is active. Same pill idiom as scope above, no ceiling
+             gating (state is not a permission concept — every scope tier gets all three). --}}
+        <div class="mt-3 inline-flex rounded-md overflow-hidden" style="border: 1px solid rgba(255,255,255,0.25);">
+            @foreach(['unfiled' => 'Unfiled', 'filed' => 'Filed', 'all' => 'All'] as $key => $label)
+                <a href="{{ route('deals-dr2.unfiled-emails.index', array_merge(request()->except(['state', 'page']), ['state' => $key])) }}"
+                   class="px-3 py-1.5 text-sm font-medium transition-colors"
+                   style="{{ $state === $key ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'color: #fff;' }}">{{ $label }}</a>
+            @endforeach
         </div>
     </div>
 
@@ -149,8 +164,10 @@
          }">
         <form method="GET" action="{{ route('deals-dr2.unfiled-emails.index') }}" x-ref="unfiledFilterForm" class="flex flex-wrap items-center gap-2">
             <input type="hidden" name="scope" value="{{ $scope }}">
-            <input type="text" name="q" value="{{ $search }}" placeholder="Search by subject or sender…"
-                   class="corex-input" style="max-width:24rem;">
+            <input type="hidden" name="state" value="{{ $state }}">
+            <input type="text" name="q" value="{{ $search }}"
+                   placeholder="Search subject, body, sender/recipient, property, seller, buyer, or attorney…"
+                   class="corex-input" style="max-width:28rem;">
 
             @if($canPickAgent)
                 {{-- Always rendered so a Search submit never drops the current agent filter. --}}
@@ -226,7 +243,7 @@
 
             <button type="submit" class="corex-btn-outline text-sm">Search</button>
             @if($search || $filterAgentId !== '')
-                <a href="{{ route('deals-dr2.unfiled-emails.index', ['scope' => $scope]) }}" class="text-sm" style="color: var(--text-muted,#6b7280);">Clear</a>
+                <a href="{{ route('deals-dr2.unfiled-emails.index', ['scope' => $scope, 'state' => $state]) }}" class="text-sm" style="color: var(--text-muted,#6b7280);">Clear</a>
             @endif
         </form>
     </div>
@@ -238,9 +255,13 @@
         @if($emails->isEmpty())
             <div style="padding:2rem;text-align:center;color:var(--text-muted,#9ca3af);">
                 @if($search)
-                    No unfiled emails match "{{ $search }}".
+                    No {{ $state === 'filed' ? 'filed' : ($state === 'all' ? '' : 'unfiled') }} emails match "{{ $search }}".
+                @elseif($state === 'filed')
+                    No emails filed to a deal yet in this scope.
+                @elseif($state === 'all')
+                    Nothing in this scope yet — filed or unfiled.
                 @else
-                    Nothing unfiled — every ingested email is filed to a deal.
+                    Nothing unfiled in this scope — every deal-connected email you can see is already filed.
                 @endif
             </div>
         @else
@@ -251,11 +272,16 @@
                         <th style="padding:.6rem .9rem;">Subject</th>
                         <th style="padding:.6rem .9rem;">Date</th>
                         <th style="padding:.6rem .9rem;">Preview</th>
+                        @if($state !== 'unfiled')
+                            <th style="padding:.6rem .9rem;">Status</th>
+                        @endif
                         <th style="padding:.6rem .9rem;"></th>
                     </tr>
                 </thead>
                 <tbody>
+                    @php($colCount = $state !== 'unfiled' ? 6 : 5)
                     @foreach($emails as $email)
+                        @php($filedInfo = $filedInfoByCommId[$email->id] ?? null)
                         <tr id="unfiled-row-{{ $email->id }}" style="border-top:1px solid var(--border,rgba(0,0,0,.06));cursor:pointer;" @click="toggleExpand({{ $email->id }})">
                             <td style="padding:.6rem .9rem;white-space:nowrap;">{{ $email->from_identifier ?: '(unknown)' }}</td>
                             <td style="padding:.6rem .9rem;font-weight:600;">
@@ -266,25 +292,44 @@
                             <td style="padding:.6rem .9rem;color:var(--text-muted,#6b7280);max-width:22rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
                                 {{ \Illuminate\Support\Str::limit((string) ($email->body_display ?: ($email->body_text ?: $email->body_preview)), 90) }}
                             </td>
-                            <td style="padding:.6rem .9rem;text-align:right;" @click.stop>
-                                <button type="button" class="corex-btn-primary text-sm" @click="openPicker({{ $email->id }})">File</button>
+                            @if($state !== 'unfiled')
+                                <td style="padding:.6rem .9rem;white-space:nowrap;font-size:.78rem;color:var(--text-muted,#6b7280);">
+                                    @if($filedInfo)
+                                        @if($filedInfo['deal_id'])
+                                            <a href="{{ route('deals-dr2.pipeline.list', $filedInfo['deal_id']) }}" @click.stop style="color:var(--brand-icon,#0ea5e9);text-decoration:underline;">{{ $filedInfo['deal_label'] }}</a>
+                                        @else
+                                            {{ $filedInfo['deal_label'] }}
+                                        @endif
+                                        <br>{{ $filedInfo['filed_by'] ? "by {$filedInfo['filed_by']}" : '' }}{{ $filedInfo['filed_at'] ? " · {$filedInfo['filed_at']}" : '' }}
+                                    @else
+                                        <span style="color:#9ca3af;">Not filed</span>
+                                    @endif
+                                </td>
+                            @endif
+                            <td style="padding:.6rem .9rem;text-align:right;white-space:nowrap;" @click.stop>
+                                @if($filedInfo)
+                                    <button type="button" class="corex-btn-outline text-sm" @click="openPicker({{ $email->id }}, true)">Move</button>
+                                @else
+                                    <button type="button" class="corex-btn-primary text-sm" @click="openPicker({{ $email->id }})">File</button>
+                                @endif
                             </td>
                         </tr>
                         {{-- CX-112 — read the email before filing/confirming. Reuses the SAME
                              viewer partial as the filed-emails-on-a-deal screen (below/sibling
                              view), fetched on demand — never eager-loaded for the whole list. --}}
                         <tr x-show="expandedId === {{ $email->id }}" x-cloak>
-                            <td colspan="5" style="padding:.75rem .9rem;background:var(--surface-muted,#f9fafb);">
+                            <td colspan="{{ $colCount }}" style="padding:.75rem .9rem;background:var(--surface-muted,#f9fafb);">
                                 <div x-show="expanding" x-cloak style="font-size:.8rem;color:var(--text-muted,#9ca3af);">Loading…</div>
                                 <div x-show="!expanding" x-html="expandedHtml"></div>
                             </td>
                         </tr>
-                        {{-- Deal picker, inline under the row it belongs to --}}
+                        {{-- Deal picker, inline under the row it belongs to — same picker for
+                             File (unfiled row) and Move (filed row); moveMode set by openPicker(). --}}
                         <tr x-show="filingId === {{ $email->id }}" x-cloak>
-                            <td colspan="5" style="padding:.6rem .9rem;background:var(--surface-muted,#f9fafb);">
+                            <td colspan="{{ $colCount }}" style="padding:.6rem .9rem;background:var(--surface-muted,#f9fafb);">
                                 <div style="position:relative;max-width:26rem;">
                                     <input type="text" x-model="dealQ" @input.debounce.220ms="searchDeals()" autocomplete="off"
-                                           placeholder="Search for the deal (address, deal no, seller/buyer)…" class="corex-input" style="width:100%;">
+                                           :placeholder="moveMode ? 'Search for the deal to move this email to…' : 'Search for the deal (address, deal no, seller/buyer)…'" class="corex-input" style="width:100%;">
                                     <div x-show="dealResults.length" x-cloak style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface,#fff);border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);max-height:14rem;overflow:auto;">
                                         <template x-for="d in dealResults" :key="d.id">
                                             <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.5rem .7rem;border-bottom:1px solid #f3f4f6;">

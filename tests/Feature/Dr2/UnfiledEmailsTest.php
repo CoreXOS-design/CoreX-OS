@@ -275,6 +275,127 @@ final class UnfiledEmailsTest extends TestCase
         $resp2->assertSee('findme@example.com');
     }
 
+    // ── CX-113 Phase B — broadened search, filed-state filter ────────────────
+
+    public function test_search_matches_the_deals_property_address_even_though_the_email_text_never_mentions_it(): void
+    {
+        $this->comm(['subject' => 'Weekly update, no address in it']);
+
+        $resp = $this->actingAs($this->agent)
+            ->get(route('deals-dr2.unfiled-emails.index') . '?q=' . urlencode('1 Test Rd'))
+            ->assertOk();
+        $resp->assertSee('Weekly update, no address in it');
+    }
+
+    public function test_search_matches_the_deals_seller_name(): void
+    {
+        DB::table('deals')->where('id', $this->deal->id)->update(['seller_name' => 'Zanele Dlamini']);
+        $this->comm(['subject' => 'No name mentioned in this one']);
+
+        $resp = $this->actingAs($this->agent)
+            ->get(route('deals-dr2.unfiled-emails.index') . '?q=Dlamini')
+            ->assertOk();
+        $resp->assertSee('No name mentioned in this one');
+    }
+
+    public function test_search_matches_body_text_not_just_subject(): void
+    {
+        $this->comm(['subject' => 'Subject with nothing findable', 'body_text' => 'The FICA copy is attached for your records.']);
+
+        $resp = $this->actingAs($this->agent)
+            ->get(route('deals-dr2.unfiled-emails.index') . '?q=FICA')
+            ->assertOk();
+        $resp->assertSee('Subject with nothing findable');
+    }
+
+    public function test_search_matches_a_cced_recipient_not_just_the_sender(): void
+    {
+        $this->comm([
+            'subject' => 'CCed recipient search target',
+            'participant_identifiers' => ['conveyancer@bbb-attorneys.co.za', 'ccrecipient@example.com'],
+        ]);
+
+        $resp = $this->actingAs($this->agent)
+            ->get(route('deals-dr2.unfiled-emails.index') . '?q=ccrecipient')
+            ->assertOk();
+        $resp->assertSee('CCed recipient search target');
+    }
+
+    public function test_filed_state_shows_only_filed_emails_with_the_deal_and_who_filed_it(): void
+    {
+        $filed = $this->comm(['subject' => 'Already filed subject']);
+        $unfiled = $this->comm(['subject' => 'Still unfiled subject']);
+        CommunicationLink::create([
+            'agency_id' => $this->agencyId, 'communication_id' => $filed->id,
+            'linkable_type' => DealV2::class, 'linkable_id' => $this->dealV2Id,
+            'link_method' => CommunicationLink::METHOD_MANUAL,
+            'confirmed_by' => $this->agent->id, 'confirmed_at' => now(),
+        ]);
+
+        $resp = $this->actingAs($this->agent)
+            ->get(route('deals-dr2.unfiled-emails.index') . '?state=filed')
+            ->assertOk();
+        $resp->assertSee('Already filed subject');
+        $resp->assertDontSee('Still unfiled subject');
+        $resp->assertSee($this->agent->name); // who filed it
+        $resp->assertSee((string) $this->deal->deal_no); // which deal
+    }
+
+    public function test_all_state_shows_both_filed_and_deal_party_matched_unfiled_emails(): void
+    {
+        $filed = $this->comm(['subject' => 'All-state filed subject']);
+        $unfiled = $this->comm(['subject' => 'All-state unfiled subject']);
+        CommunicationLink::create([
+            'agency_id' => $this->agencyId, 'communication_id' => $filed->id,
+            'linkable_type' => DealV2::class, 'linkable_id' => $this->dealV2Id,
+            'link_method' => CommunicationLink::METHOD_MANUAL,
+            'confirmed_by' => $this->agent->id, 'confirmed_at' => now(),
+        ]);
+
+        $resp = $this->actingAs($this->agent)
+            ->get(route('deals-dr2.unfiled-emails.index') . '?state=all')
+            ->assertOk();
+        $resp->assertSee('All-state filed subject');
+        $resp->assertSee('All-state unfiled subject');
+    }
+
+    public function test_move_action_on_a_filed_row_reuses_the_file_endpoint_with_move_true(): void
+    {
+        $comm = $this->comm(['subject' => 'Move me from the filed list']);
+        CommunicationLink::create([
+            'agency_id' => $this->agencyId, 'communication_id' => $comm->id,
+            'linkable_type' => DealV2::class, 'linkable_id' => $this->dealV2Id,
+            'link_method' => CommunicationLink::METHOD_MANUAL,
+            'confirmed_by' => $this->agent->id, 'confirmed_at' => now(),
+        ]);
+
+        $otherDealV2Id = (int) DB::table('deals_v2')->insertGetId([
+            'reference' => 'DR2-' . Str::random(5), 'deal_type' => 'cash', 'listing_agent_id' => $this->agent->id,
+            'purchase_price' => 900_000, 'commission_amount' => 45_000, 'commission_vat' => 6_750,
+            'offer_date' => '2026-03-01', 'branch_id' => $this->branchId, 'agency_id' => $this->agencyId,
+            'created_by_id' => $this->agent->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $otherDeal = Deal::withoutEvents(fn () => Deal::withoutGlobalScopes()->create([
+            'period' => '2026-03', 'deal_date' => '2026-03-01', 'property_value' => 900_000, 'total_commission' => 51_750,
+            'reference' => 'REG-' . Str::random(5), 'deal_no' => random_int(1000, 9999), 'deal_type' => 'cash',
+            'seller_name' => 'Move Target Seller', 'property_address' => '4 Move Target Rd',
+            'agency_id' => $this->agencyId, 'branch_id' => $this->branchId, 'deal_v2_id' => $otherDealV2Id,
+        ]));
+        $otherDeal->agents()->attach($this->agent->id, ['side' => 'selling']);
+
+        $this->actingAs($this->agent)
+            ->postJson(route('deals-dr2.unfiled-emails.file', $comm), ['deal_id' => $otherDeal->id, 'move' => true])
+            ->assertCreated()
+            ->assertJson(['ok' => true]);
+
+        $this->assertDatabaseHas('communication_links', [
+            'communication_id' => $comm->id, 'linkable_id' => $otherDealV2Id, 'deleted_at' => null,
+        ]);
+        $this->assertDatabaseMissing('communication_links', [
+            'communication_id' => $comm->id, 'linkable_id' => $this->dealV2Id, 'deleted_at' => null,
+        ]);
+    }
+
     // ── CX-113 Phase A — scope, agent picker, file-once ──────────────────────
 
     public function test_own_scope_hides_a_colleagues_email_the_agent_was_not_a_party_to(): void
