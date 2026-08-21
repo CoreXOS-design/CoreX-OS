@@ -695,4 +695,82 @@ final class UnfiledEmailsTest extends TestCase
             'communication_id' => $comm->id, 'linkable_id' => $otherDealV2Id, 'deleted_at' => null,
         ]);
     }
+
+    // ── CX-113 Phase D — auto-suggest from filing history ────────────────────
+
+    public function test_suggest_recommends_the_deal_a_previous_email_from_the_same_sender_was_filed_to(): void
+    {
+        $first = $this->comm(['subject' => 'First one filed to seed the signal']);
+        $this->actingAs($this->agent)
+            ->postJson(route('deals-dr2.unfiled-emails.file', $first), ['deal_id' => $this->deal->id])
+            ->assertCreated();
+
+        // Different subject, no thread_key — isolates the match to sender_email only.
+        $second = $this->comm(['subject' => 'A brand new email, same sender though']);
+
+        $resp = $this->actingAs($this->agent)
+            ->getJson(route('deals-dr2.unfiled-emails.suggest', $second))
+            ->assertOk()
+            ->json();
+
+        $this->assertSame($this->deal->id, $resp['deal_id']);
+        $this->assertStringContainsString('sender', $resp['reason']);
+        $this->assertStringContainsString('1 previous email', $resp['reason']);
+    }
+
+    public function test_suggest_counts_multiple_prior_filings_and_prefers_thread_over_sender(): void
+    {
+        $threadKey = 'thread-' . Str::random(8);
+        $first = $this->comm(['subject' => 'Filed #1', 'thread_key' => $threadKey]);
+        $secondFiled = $this->comm(['subject' => 'Filed #2', 'thread_key' => $threadKey]);
+        $this->actingAs($this->agent)
+            ->postJson(route('deals-dr2.unfiled-emails.file', $first), ['deal_id' => $this->deal->id])
+            ->assertCreated();
+        $this->actingAs($this->agent)
+            ->postJson(route('deals-dr2.unfiled-emails.file', $secondFiled), ['deal_id' => $this->deal->id])
+            ->assertCreated();
+
+        // Same thread AND same sender both point here — thread should win as the
+        // more specific signal, and the count should reflect 2 prior hits.
+        $third = $this->comm(['subject' => 'A reply on the same thread', 'thread_key' => $threadKey]);
+
+        $resp = $this->actingAs($this->agent)
+            ->getJson(route('deals-dr2.unfiled-emails.suggest', $third))
+            ->assertOk()
+            ->json();
+
+        $this->assertSame($this->deal->id, $resp['deal_id']);
+        $this->assertStringContainsString('thread', $resp['reason']);
+        $this->assertStringContainsString('2 previous emails', $resp['reason']);
+    }
+
+    public function test_suggest_returns_empty_when_nothing_has_been_learned_yet(): void
+    {
+        $comm = $this->comm(['subject' => 'Never filed before, nothing to learn from']);
+
+        $resp = $this->actingAs($this->agent)
+            ->getJson(route('deals-dr2.unfiled-emails.suggest', $comm))
+            ->assertOk()
+            ->json();
+
+        $this->assertEmpty($resp);
+    }
+
+    public function test_suggest_never_leaks_across_agencies(): void
+    {
+        $otherAgencyId = (int) DB::table('agencies')->insertGetId([
+            'name' => 'Other ' . Str::random(6), 'slug' => 'other-' . Str::random(8),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $otherComm = Communication::create([
+            'agency_id' => $otherAgencyId, 'channel' => Communication::CHANNEL_EMAIL,
+            'direction' => Communication::DIRECTION_INBOUND, 'external_id' => Str::random(14),
+            'from_identifier' => 'nobody@other-agency.example.com', 'subject' => 'Not this agency',
+            'occurred_at' => now(), 'captured_at' => now(), 'has_attachments' => false,
+        ]);
+
+        $this->actingAs($this->agent)
+            ->getJson(route('deals-dr2.unfiled-emails.suggest', $otherComm))
+            ->assertNotFound();
+    }
 }

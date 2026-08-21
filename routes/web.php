@@ -710,6 +710,9 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     Route::get('/unfiled-emails/deal-search',     [\App\Http\Controllers\Dr2\UnfiledEmailsController::class, 'dealSearch'])->middleware('permission:view_deals')->name('unfiled-emails.deal-search');
     Route::post('/unfiled-emails/file-batch',     [\App\Http\Controllers\Dr2\UnfiledEmailsController::class, 'fileBatch'])->middleware('permission:view_deals')->name('unfiled-emails.file-batch');
     Route::post('/unfiled-emails/{communication}/file', [\App\Http\Controllers\Dr2\UnfiledEmailsController::class, 'file'])->whereNumber('communication')->middleware('permission:view_deals')->name('unfiled-emails.file');
+    // CX-113 Phase D — filing-history auto-suggest, fetched when a row's inline search
+    // opens, before the agent has typed anything.
+    Route::get('/unfiled-emails/{communication}/suggest', [\App\Http\Controllers\Dr2\UnfiledEmailsController::class, 'suggest'])->whereNumber('communication')->middleware('permission:view_deals')->name('unfiled-emails.suggest');
 
     // CX-112 (Johan, 2026-08-21) — on-demand email body/attachment viewing, shared by the
     // Unfiled Emails screen and the filed-emails section on a deal, so agents learn ONE
