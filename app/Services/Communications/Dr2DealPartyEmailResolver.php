@@ -2,7 +2,7 @@
 
 namespace App\Services\Communications;
 
-use App\Models\Deal;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -27,6 +27,16 @@ use Illuminate\Support\Facades\DB;
  * agency_service_provider_contacts.email (confirmed against live: e.g. "Van Dyk &
  * Swart Inc" the firm has no email, "Linda" the contact person does). Both are read,
  * firm email as a fallback, contact-person email as the primary source.
+ *
+ * CX-113 Phase B (Johan, 2026-08-21) — search must also reach "property address,
+ * reference number, seller, buyer, attorney" even when none of that text appears in
+ * the email itself. deals.property_address/seller_name/buyer_name/attorney_name are
+ * denormalised directly on the deal row (no join needed), so a search term is matched
+ * against those fields, and only the resolved party emails of the MATCHING deals are
+ * returned — narrower than the full agency set, used to widen the WHERE, never to
+ * replace the existing subject/body/from_identifier text search. Reference numbers are
+ * deliberately NOT indexed separately — they live in free-text subject/body, already
+ * covered by that same text search.
  */
 class Dr2DealPartyEmailResolver
 {
@@ -40,11 +50,55 @@ class Dr2DealPartyEmailResolver
      */
     public function partyEmailsForAgency(int $agencyId): array
     {
+        return $this->resolveEmails($agencyId);
+    }
+
+    /**
+     * Party emails, narrowed to deals whose property_address, seller_name, buyer_name,
+     * or attorney_name contains $term (case-insensitive substring — matches the same
+     * "type a few letters" idiom as the rest of CoreX's search boxes).
+     *
+     * @return array<int, string>
+     */
+    public function partyEmailsMatchingDealFields(int $agencyId, string $term): array
+    {
+        $term = trim($term);
+        if ($term === '') {
+            return [];
+        }
+
+        return $this->resolveEmails($agencyId, function (Builder $q) use ($term) {
+            // Qualified with deals. — agency_service_provider_contacts (joined in some
+            // branches below) ALSO has its own attorney_name column; unqualified this is
+            // ambiguous the moment both tables are in the same query.
+            $q->where(function (Builder $w) use ($term) {
+                $w->where('deals.property_address', 'like', "%{$term}%")
+                    ->orWhere('deals.seller_name', 'like', "%{$term}%")
+                    ->orWhere('deals.buyer_name', 'like', "%{$term}%")
+                    ->orWhere('deals.attorney_name', 'like', "%{$term}%");
+            });
+        });
+    }
+
+    /**
+     * @param  (callable(Builder):void)|null  $extraDealFilter  Additional WHERE applied
+     *         to the `deals` table in every branch below (narrows which deals' parties
+     *         get resolved; omit for "every DR2-twinned deal in the agency").
+     * @return array<int, string>
+     */
+    private function resolveEmails(int $agencyId, ?callable $extraDealFilter = null): array
+    {
+        $applyDealFilter = function (Builder $q) use ($agencyId, $extraDealFilter) {
+            $q->where('deals.agency_id', $agencyId)->whereNotNull('deals.deal_v2_id');
+            if ($extraDealFilter) {
+                $extraDealFilter($q);
+            }
+        };
+
         $buyerSeller = DB::table('deal_contacts')
             ->join('deals', 'deals.id', '=', 'deal_contacts.deal_id')
             ->join('contacts', 'contacts.id', '=', 'deal_contacts.contact_id')
-            ->where('deals.agency_id', $agencyId)
-            ->whereNotNull('deals.deal_v2_id')
+            ->where($applyDealFilter)
             ->whereNotNull('contacts.email')
             ->pluck('contacts.email');
 
@@ -56,8 +110,7 @@ class Dr2DealPartyEmailResolver
             $supplierEmails = $supplierEmails->merge(
                 DB::table('deals')
                     ->join('agency_service_provider_contacts', 'agency_service_provider_contacts.service_provider_id', '=', "deals.$column")
-                    ->where('deals.agency_id', $agencyId)
-                    ->whereNotNull('deals.deal_v2_id')
+                    ->where($applyDealFilter)
                     ->whereNotNull("deals.$column")
                     ->whereNull('agency_service_provider_contacts.deleted_at')
                     ->pluck('agency_service_provider_contacts.email')
@@ -66,8 +119,7 @@ class Dr2DealPartyEmailResolver
             $supplierEmails = $supplierEmails->merge(
                 DB::table('deals')
                     ->join('agency_service_providers', 'agency_service_providers.id', '=', "deals.$column")
-                    ->where('deals.agency_id', $agencyId)
-                    ->whereNotNull('deals.deal_v2_id')
+                    ->where($applyDealFilter)
                     ->whereNotNull("deals.$column")
                     ->whereNull('agency_service_providers.deleted_at')
                     ->pluck('agency_service_providers.email')
@@ -80,8 +132,7 @@ class Dr2DealPartyEmailResolver
         // assigned supplier's contact-person email.
         $workOrderBase = DB::table('deal_step_work_orders')
             ->join('deals', 'deals.id', '=', 'deal_step_work_orders.dr1_deal_id')
-            ->where('deals.agency_id', $agencyId)
-            ->whereNotNull('deals.deal_v2_id')
+            ->where($applyDealFilter)
             ->whereNull('deal_step_work_orders.deleted_at');
 
         $supplierEmails = $supplierEmails->merge(

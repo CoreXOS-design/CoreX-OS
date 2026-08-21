@@ -90,18 +90,40 @@ class UnfiledEmailsController extends Controller
             ? $agentList->firstWhere('id', (int) $filterAgentId)
             : null;
 
+        // CX-113 Phase B — Unfiled (default) / Filed / All. A filed email is already
+        // confirmed to a real deal by a human, so the deal-party candidate filter
+        // (below) is moot for it and is not re-applied — only the unfiled bucket needs
+        // "is this even a candidate" answered.
+        $state = $request->input('state', 'unfiled');
+        if (! in_array($state, ['unfiled', 'filed', 'all'], true)) {
+            $state = 'unfiled';
+        }
+
         $dealPartyEmails = $this->dealParties->partyEmailsForAgency($agencyId);
+
+        $hasActiveDealLink = function ($q) {
+            $q->selectRaw('1')->from('communication_links')
+                ->whereColumn('communication_links.communication_id', 'communications.id')
+                ->where('communication_links.linkable_type', DealV2::class)
+                ->whereNull('communication_links.deleted_at');
+        };
 
         $query = Communication::query()
             ->where('agency_id', $agencyId)
-            ->where('channel', Communication::CHANNEL_EMAIL)
-            ->whereNotExists(function ($q) {
-                $q->selectRaw('1')->from('communication_links')
-                    ->whereColumn('communication_links.communication_id', 'communications.id')
-                    ->where('communication_links.linkable_type', DealV2::class)
-                    ->whereNull('communication_links.deleted_at');
-            })
-            ->matchingAnyEmail($dealPartyEmails);
+            ->where('channel', Communication::CHANNEL_EMAIL);
+
+        if ($state === 'unfiled') {
+            $query->whereNotExists($hasActiveDealLink)->matchingAnyEmail($dealPartyEmails);
+        } elseif ($state === 'filed') {
+            $query->whereExists($hasActiveDealLink);
+        } else { // all
+            $query->where(function ($q) use ($hasActiveDealLink, $dealPartyEmails) {
+                $q->whereExists($hasActiveDealLink)
+                    ->orWhere(function ($q2) use ($hasActiveDealLink, $dealPartyEmails) {
+                        $q2->whereNotExists($hasActiveDealLink)->matchingAnyEmail($dealPartyEmails);
+                    });
+            });
+        }
 
         // Agent picker only ever offers a candidate already inside $agentList (built
         // scoped to the same $scope ceiling below) — a forged agent_id outside that
@@ -113,24 +135,70 @@ class UnfiledEmailsController extends Controller
             $query->visibleTo($user, $scope);
         }
 
+        // CX-113 Phase B — search reaches beyond the email's own text: property
+        // address, reference number, seller, buyer, attorney, subject, body, and BOTH
+        // sender and recipient addresses. Reference numbers live in free-text
+        // subject/body (already covered) rather than a separate indexed field.
+        // Realistically indexable today (569 rows): all of it, instantly — nothing
+        // here has a real index (LIKE '%term%' can't use one, nor can JSON_CONTAINS on
+        // participant_identifiers without a generated column). Fine at this volume;
+        // revisit with a generated+indexed participant column or full-text index if
+        // the unfiled/filed pool grows into the thousands.
         if (mb_strlen($search) >= 2) {
-            $query->where(function ($q) use ($search) {
+            $searchDealEmails = $this->dealParties->partyEmailsMatchingDealFields($agencyId, $search);
+            $query->where(function ($q) use ($search, $searchDealEmails) {
                 $q->where('subject', 'like', "%{$search}%")
-                    ->orWhere('from_identifier', 'like', "%{$search}%");
+                    ->orWhere('body_text', 'like', "%{$search}%")
+                    ->orWhere('from_identifier', 'like', "%{$search}%")
+                    ->orWhereRaw('participant_identifiers LIKE ?', ["%{$search}%"]);
+                if (! empty($searchDealEmails)) {
+                    $q->orWhere(function ($q2) use ($searchDealEmails) {
+                        $q2->matchingAnyEmail($searchDealEmails);
+                    });
+                }
             });
         }
 
-        $emails = $query->orderByDesc('occurred_at')->paginate(25)->withQueryString();
+        $emails = $query->with(['links' => function ($q) {
+            $q->where('linkable_type', DealV2::class)->whereNull('deleted_at')->with('confirmedBy');
+        }])->orderByDesc('occurred_at')->paginate(25)->withQueryString();
+
+        // Filed-row display (Phase B: "which deal it is on and who filed it, with a
+        // move to another deal action") — resolve DealV2 ids on this page to their DR1
+        // labels in one query rather than N+1.
+        $dealV2Ids = $emails->getCollection()
+            ->flatMap(fn (Communication $c) => $c->links->pluck('linkable_id'))
+            ->unique()->values();
+        $dealsByV2Id = Deal::query()->whereIn('deal_v2_id', $dealV2Ids)
+            ->get(['id', 'deal_v2_id', 'deal_no', 'property_address'])
+            ->keyBy('deal_v2_id');
+
+        $filedInfoByCommId = [];
+        foreach ($emails->getCollection() as $c) {
+            $link = $c->links->first();
+            if (! $link) {
+                continue;
+            }
+            $deal = $dealsByV2Id->get($link->linkable_id);
+            $filedInfoByCommId[$c->id] = [
+                'deal_id'    => $deal?->id,
+                'deal_label' => $deal ? trim(($deal->deal_no ? "#{$deal->deal_no} · " : '') . ($deal->property_address ?: '')) : 'Unknown deal',
+                'filed_by'   => $link->confirmedBy?->name,
+                'filed_at'   => optional($link->confirmed_at)->format('j M Y H:i'),
+            ];
+        }
 
         return view('dr2.unfiled-emails', [
-            'emails'         => $emails,
-            'search'         => $search,
-            'scope'          => $scope,
-            'permittedScope' => $ceiling,
-            'canPickAgent'   => $canPickAgent,
-            'agentList'      => $agentList,
-            'filterAgentId'  => $filterAgentId,
-            'selectedAgent'  => $selectedAgent,
+            'emails'            => $emails,
+            'search'            => $search,
+            'scope'             => $scope,
+            'permittedScope'    => $ceiling,
+            'canPickAgent'      => $canPickAgent,
+            'agentList'         => $agentList,
+            'filterAgentId'     => $filterAgentId,
+            'selectedAgent'     => $selectedAgent,
+            'state'             => $state,
+            'filedInfoByCommId' => $filedInfoByCommId,
         ]);
     }
 
