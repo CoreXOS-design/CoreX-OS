@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Dr2;
 
+use App\Exceptions\Communications\AlreadyFiledException;
 use App\Http\Controllers\Controller;
 use App\Models\Communications\Communication;
 use App\Models\Communications\CommunicationLink;
@@ -84,16 +85,22 @@ class Dr2CommunicationLinkController extends Controller
 
     /**
      * POST /deals-dr2/{deal}/communications/link
-     * body: communication_id
+     * body: communication_id, move (optional bool)
      *
      * Attaches + captures signals, both in one transaction — a link that
      * recorded no signal, or a signal recorded with no link, is a half-done
      * operation either way.
+     *
+     * CX-113 Phase A — same "file once" guard as the Unfiled Emails screen's
+     * file() (Johan: "the two screens should behave the SAME way"). If the
+     * search here is stale and the communication was filed elsewhere in the
+     * meantime, this refuses with 409 instead of creating a second link.
      */
     public function link(Request $request, Deal $deal): JsonResponse
     {
         $validated = $request->validate([
             'communication_id' => ['required', 'integer'],
+            'move'             => ['sometimes', 'boolean'],
         ]);
 
         $user = $request->user();
@@ -105,7 +112,23 @@ class Dr2CommunicationLinkController extends Controller
         $communication = Communication::where('agency_id', $agencyId)
             ->findOrFail($validated['communication_id']);
 
-        $link = $this->linking->link($communication, $dealV2Id, $agencyId, $user);
+        try {
+            $link = $this->linking->link($communication, $dealV2Id, $agencyId, $user, (bool) ($validated['move'] ?? false));
+        } catch (AlreadyFiledException $e) {
+            $existingDeal = Deal::where('deal_v2_id', $e->existingLink->linkable_id)->first();
+
+            return response()->json([
+                'ok'            => false,
+                'already_filed' => true,
+                'message'       => $existingDeal
+                    ? "Already filed to #{$existingDeal->deal_no} · {$existingDeal->property_address}."
+                    : 'Already filed to another deal.',
+                'existing_deal' => $existingDeal ? [
+                    'id'    => $existingDeal->id,
+                    'label' => trim(($existingDeal->deal_no ? "#{$existingDeal->deal_no} · " : '') . ($existingDeal->property_address ?: '')),
+                ] : null,
+            ], 409);
+        }
 
         return response()->json(['ok' => true, 'link_id' => $link->id], 201);
     }

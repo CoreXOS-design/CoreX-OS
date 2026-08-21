@@ -2,6 +2,7 @@
 
 namespace App\Services\Communications;
 
+use App\Exceptions\Communications\AlreadyFiledException;
 use App\Models\Communications\Communication;
 use App\Models\Communications\CommunicationLearnedRef;
 use App\Models\Communications\CommunicationLink;
@@ -34,10 +35,34 @@ class CommunicationDealLinkingService
      * Attach $communication to $dealV2Id, capture signals, return the (created or
      * restored) link. One transaction — a link with no signal, or a signal with no
      * link, is a half-done operation either way.
+     *
+     * CX-113 Phase A (Johan, 2026-08-21) — "file once": filing files the email
+     * itself, not the filer's copy. Locks the Communication row first so two
+     * simultaneous filers of the SAME still-unfiled email are serialized — the
+     * second transaction blocks until the first commits, then re-reads the
+     * now-current link state rather than racing it. If the email already carries
+     * an active link to a DIFFERENT deal, the second filer is refused with
+     * AlreadyFiledException (never a silent second link) unless $move is true, in
+     * which case the old link is released and the new one takes its place.
      */
-    public function link(Communication $communication, int $dealV2Id, ?int $agencyId, User $user): CommunicationLink
+    public function link(Communication $communication, int $dealV2Id, ?int $agencyId, User $user, bool $move = false): CommunicationLink
     {
-        return DB::transaction(function () use ($communication, $dealV2Id, $agencyId, $user) {
+        return DB::transaction(function () use ($communication, $dealV2Id, $agencyId, $user, $move) {
+            Communication::query()->whereKey($communication->id)->lockForUpdate()->first();
+
+            $existingOther = CommunicationLink::where('communication_id', $communication->id)
+                ->where('linkable_type', DealV2::class)
+                ->where('linkable_id', '!=', $dealV2Id)
+                ->first();
+
+            if ($existingOther && ! $move) {
+                throw new AlreadyFiledException($communication, $existingOther);
+            }
+
+            if ($existingOther && $move) {
+                $existingOther->delete();
+            }
+
             // withTrashed so re-linking something previously unlinked from this SAME deal
             // restores the one row rather than accumulating duplicates.
             $link = CommunicationLink::withTrashed()
