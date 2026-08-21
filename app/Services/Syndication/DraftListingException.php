@@ -7,9 +7,15 @@ use Illuminate\Http\Request;
 
 /**
  * Thrown when a user tries to publish/activate/submit a property to ANY portal
- * or website while it is still a draft. A draft has not been finalised for
- * market, so it must be set to Active before it can be syndicated anywhere
- * (P24, Private Property, or an agency website).
+ * or website while it is off-market (Property::OFF_MARKET_STATUSES — draft,
+ * prospecting, withdrawn, archived, cancelled, etc.). None of those are ready
+ * for market, so the listing must be set to Active before it can be
+ * syndicated anywhere (P24, Private Property, or an agency website).
+ *
+ * Class name/error code kept as-is (2026-08-21) even though the trigger
+ * broadened beyond literal drafts -- EnforcesMarketingReadiness::
+ * enforceListingNotDraft() is still the one and only guard this exception
+ * belongs to; renaming would touch every call site for no behavioural gain.
  *
  * Renderable (Laravel 11 pattern): returns a 422 with a clear, actionable
  * message for the syndication panel's Alpine error surface, and a flash redirect
@@ -26,7 +32,16 @@ class DraftListingException extends \Exception
 
     public function userMessage(): string
     {
-        return "This property is still a draft — set its status to Active before publishing it to {$this->portal}.";
+        if ($this->property->isDraft()) {
+            return "This property is still a draft — set its status to Active before publishing it to {$this->portal}.";
+        }
+        if ($this->property->isProspecting()) {
+            return "This property is still in Prospecting — win the mandate and move it to Draft (then Active) before publishing it to {$this->portal}.";
+        }
+
+        $label = $this->property->statusBadge();
+
+        return "This property's status is \"{$label}\" — it must be set to Active before publishing it to {$this->portal}.";
     }
 
     public function render(Request $request)

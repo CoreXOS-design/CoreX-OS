@@ -182,30 +182,36 @@
     {{-- KPI stats --}}
     @php
         $kpiIcons = [
-            'Total'     => '<path stroke-linecap="round" stroke-linejoin="round" d="M3 9.75L12 3l9 6.75V21H3V9.75z"/><path stroke-linecap="round" stroke-linejoin="round" d="M9 21V12h6v9"/>',
-            'On Market' => '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9" fill="none"/>',
-            'Draft'     => '<path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/>',
-            'Sold'      => '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>',
+            'Total'       => '<path stroke-linecap="round" stroke-linejoin="round" d="M3 9.75L12 3l9 6.75V21H3V9.75z"/><path stroke-linecap="round" stroke-linejoin="round" d="M9 21V12h6v9"/>',
+            'On Market'   => '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9" fill="none"/>',
+            'Draft'       => '<path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/>',
+            'Sold'        => '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>',
+            // PROSPECTING (Johan, 2026-08-20/21) — magnifying-glass, distinct
+            // from Draft's pencil so the two pools read as visibly different
+            // at a glance, matching the whole point of separating them.
+            'Prospecting' => '<circle cx="10.5" cy="10.5" r="6.75" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 15.75L21 21"/>',
         ];
         $kpiColors = [
-            'Total'     => ['bg' => 'color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent)',  'fg' => 'var(--brand-icon, #0ea5e9)'],
-            'On Market' => ['bg' => 'color-mix(in srgb, var(--ds-green, #059669) 12%, transparent)',   'fg' => 'var(--ds-green, #059669)'],
-            'Draft'     => ['bg' => 'color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent)',   'fg' => 'var(--ds-amber, #f59e0b)'],
-            'Sold'      => ['bg' => 'color-mix(in srgb, var(--ds-navy, #0b2a4a) 12%, transparent)',    'fg' => 'var(--ds-navy, #0b2a4a)'],
+            'Total'       => ['bg' => 'color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent)',  'fg' => 'var(--brand-icon, #0ea5e9)'],
+            'On Market'   => ['bg' => 'color-mix(in srgb, var(--ds-green, #059669) 12%, transparent)',   'fg' => 'var(--ds-green, #059669)'],
+            'Draft'       => ['bg' => 'color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent)',   'fg' => 'var(--ds-amber, #f59e0b)'],
+            'Sold'        => ['bg' => 'color-mix(in srgb, var(--ds-navy, #0b2a4a) 12%, transparent)',    'fg' => 'var(--ds-navy, #0b2a4a)'],
+            'Prospecting' => ['bg' => 'color-mix(in srgb, var(--ds-purple, #7c3aed) 12%, transparent)',  'fg' => 'var(--ds-purple, #7c3aed)'],
         ];
     @endphp
     @php
         $kpiTiles = [
-            ['label' => 'Total',     'value' => $stats['total'],  'filter' => ''],
-            ['label' => 'On Market', 'value' => $stats['active'], 'filter' => 'on_market'],
-            ['label' => 'Draft',     'value' => $stats['draft'],  'filter' => 'draft'],
-            ['label' => 'Sold',      'value' => $stats['sold'],   'filter' => 'sold'],
+            ['label' => 'Total',       'value' => $stats['total'],       'filter' => ''],
+            ['label' => 'On Market',   'value' => $stats['active'],      'filter' => 'on_market'],
+            ['label' => 'Prospecting', 'value' => $stats['prospecting'], 'filter' => \App\Models\Property::STATUS_PROSPECTING],
+            ['label' => 'Draft',       'value' => $stats['draft'],       'filter' => 'draft'],
+            ['label' => 'Sold',        'value' => $stats['sold'],        'filter' => 'sold'],
         ];
         $currentStatus = $status ?? '';
         $baseUrl = request()->url();
         $preserveParams = collect(request()->query())->except('status', 'page')->toArray();
     @endphp
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 xl:gap-4" data-tour="re-properties-kpis">
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 xl:gap-4" data-tour="re-properties-kpis">
         @foreach($kpiTiles as $kpi)
         @php
             $isActive = ($kpi['filter'] === '' && $currentStatus === '') || $kpi['filter'] === $currentStatus;
@@ -334,8 +340,10 @@
             <select name="status" onchange="this.form.submit()" class="list-header-filter" data-tour="re-properties-status">
                 <option value="" {{ $status === '' ? 'selected' : '' }}>All Statuses</option>
                 <option value="on_market" {{ $status === 'on_market' ? 'selected' : '' }}>On Market</option>
+                <option value="{{ \App\Models\Property::STATUS_PROSPECTING }}" {{ $status === \App\Models\Property::STATUS_PROSPECTING ? 'selected' : '' }}>Prospecting</option>
                 <option value="draft" {{ $status === 'draft' ? 'selected' : '' }}>Draft</option>
                 <option value="sold" {{ $status === 'sold' ? 'selected' : '' }}>Sold</option>
+                <option value="{{ \App\Models\Property::STATUS_NOT_SELLING }}" {{ $status === \App\Models\Property::STATUS_NOT_SELLING ? 'selected' : '' }}>Not selling</option>
                 {{-- AT-350 — sold by another agency. Separate from Sold on purpose:
                      "how much did WE sell" and "how much did we LOSE" are different
                      questions and an agent must be able to filter for either. --}}

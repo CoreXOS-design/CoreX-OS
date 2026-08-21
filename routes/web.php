@@ -3448,6 +3448,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // AT-262 — change listing type = duplicate to the other type + archive (de-list) the original.
         Route::post('/{property}/change-type', [\App\Http\Controllers\CoreX\PropertyController::class, 'changeType'])->name('change-type');
         Route::post('/{property}/publish-toggle', [\App\Http\Controllers\CoreX\PropertyController::class, 'publishToggle'])->name('publish-toggle');
+        // PROSPECTING (Johan, 2026-08-20/21) — the one-click Prospecting -> Draft
+        // (mandate won) and Prospecting -> Not selling (dead end) transitions.
+        Route::post('/{property}/convert-from-prospecting', [\App\Http\Controllers\CoreX\PropertyController::class, 'convertFromProspecting'])->name('convert-from-prospecting');
+        Route::post('/{property}/mark-not-selling', [\App\Http\Controllers\CoreX\PropertyController::class, 'markNotSelling'])->name('mark-not-selling');
         Route::post('/{property}/upload-images',[\App\Http\Controllers\CoreX\PropertyController::class, 'uploadImages'])->name('upload-images');
         Route::post('/{property}/delete-image',[\App\Http\Controllers\CoreX\PropertyController::class, 'deleteImage'])->name('deleteImage');
         // Bulk gallery delete — "Delete selected" / "Delete all". One transaction,
