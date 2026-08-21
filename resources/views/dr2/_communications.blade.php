@@ -5,11 +5,21 @@
     Dr2CommunicationLinkController (routes: deals-dr2.communications.*).
     include('dr2._communications', ['deal' => $deal]).
 --}}
-<div class="corex-card" style="padding:1rem;" data-tour="dr2-communications"
+<div style="padding:1rem;background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);border-radius:.5rem;" data-tour="dr2-communications"
      x-data="{
         open: true,
         links: [],
         q: '', results: [], searching: false, linking: false, err: '',
+        expandedId: null, expandedHtml: '', expanding: false,
+        async toggleExpand(commId){
+            if(this.expandedId === commId){ this.expandedId = null; return; }
+            this.expandedId = commId; this.expandedHtml = ''; this.expanding = true;
+            try {
+                const r = await fetch('{{ url('deals-dr2/communications') }}/' + commId + '/body', {headers:{Accept:'text/html'}});
+                this.expandedHtml = r.ok ? await r.text() : '<p style="color:#b91c1c;font-size:.8rem;">Could not load this email.</p>';
+            } catch(e) { this.expandedHtml = '<p style="color:#b91c1c;font-size:.8rem;">Could not load this email.</p>'; }
+            this.expanding = false;
+        },
         async loadLinks(){
             try {
                 const r = await fetch('{{ route('deals-dr2.communications.index', $deal) }}', {headers:{Accept:'application/json'}});
@@ -93,14 +103,25 @@
         </div>
         <div style="display:flex;flex-direction:column;gap:.35rem;">
             <template x-for="row in links" :key="row.id">
-                <div style="display:flex;align-items:center;justify-content:space-between;gap:.6rem;font-size:.78rem;padding:.4rem .55rem;border:1px solid var(--border,rgba(0,0,0,.06));border-radius:6px;">
-                    <div style="min-width:0;">
-                        <span style="font-weight:600;" x-text="(row.communication && row.communication.subject) || '(no subject)'"></span>
-                        <span style="color:#9ca3af;" x-text="' — ' + ((row.communication && row.communication.from_identifier) || '')"></span>
+                <div>
+                    {{-- CX-112 — read the email before trusting a filing decision to it. Reuses
+                         the SAME on-demand viewer as the Unfiled Emails screen, so an agent
+                         learns one email viewer, not two. --}}
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:.6rem;font-size:.78rem;padding:.4rem .55rem;border:1px solid var(--border,rgba(0,0,0,.06));border-radius:6px;cursor:pointer;"
+                         @click="toggleExpand(row.communication_id)">
+                        <div style="min-width:0;">
+                            <span style="display:inline-block;width:.8rem;color:#9ca3af;" x-text="expandedId === row.communication_id ? '▾' : '▸'"></span>
+                            <span style="font-weight:600;" x-text="(row.communication && row.communication.subject) || '(no subject)'"></span>
+                            <span style="color:#9ca3af;" x-text="' — ' + ((row.communication && row.communication.from_identifier) || '')"></span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:.5rem;white-space:nowrap;">
+                            <span style="color:#9ca3af;" x-text="row.link_method"></span>
+                            <button type="button" class="corex-btn-outline" style="font-size:.72rem;padding:.2rem .6rem;" @click.stop="unlink(row.id)">Unlink</button>
+                        </div>
                     </div>
-                    <div style="display:flex;align-items:center;gap:.5rem;white-space:nowrap;">
-                        <span style="color:#9ca3af;" x-text="row.link_method"></span>
-                        <button type="button" class="corex-btn-outline" style="font-size:.72rem;padding:.2rem .6rem;" @click="unlink(row.id)">Unlink</button>
+                    <div x-show="expandedId === row.communication_id" x-cloak style="padding:.6rem;margin-top:.3rem;background:var(--surface-muted,#f9fafb);border-radius:6px;">
+                        <div x-show="expanding" x-cloak style="font-size:.78rem;color:var(--text-muted,#9ca3af);">Loading…</div>
+                        <div x-show="!expanding" x-html="expandedHtml"></div>
                     </div>
                 </div>
             </template>

@@ -711,6 +711,12 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     Route::post('/unfiled-emails/file-batch',     [\App\Http\Controllers\Dr2\UnfiledEmailsController::class, 'fileBatch'])->middleware('permission:view_deals')->name('unfiled-emails.file-batch');
     Route::post('/unfiled-emails/{communication}/file', [\App\Http\Controllers\Dr2\UnfiledEmailsController::class, 'file'])->whereNumber('communication')->middleware('permission:view_deals')->name('unfiled-emails.file');
 
+    // CX-112 (Johan, 2026-08-21) — on-demand email body/attachment viewing, shared by the
+    // Unfiled Emails screen and the filed-emails section on a deal, so agents learn ONE
+    // viewer. Static paths, same reason as unfiled-emails above.
+    Route::get('/communications/{communication}/body',   [\App\Http\Controllers\Dr2\CommunicationBodyController::class, 'show'])->whereNumber('communication')->middleware('permission:view_deals')->name('comms-body.show');
+    Route::get('/communications/attachments/{attachment}', [\App\Http\Controllers\Dr2\CommunicationBodyController::class, 'attachment'])->whereNumber('attachment')->middleware('permission:view_deals')->name('comms-body.attachment');
+
     Route::get('/{deal}/edit',   [\App\Http\Controllers\Dr2\DealRegisterController::class, 'edit'])->middleware('permission:create_deals')->name('edit');
     // DR1 parity: update is a POST (DR1's form.blade POSTs to it), not PUT.
     Route::post('/{deal}',       [\App\Http\Controllers\Dr2\DealRegisterController::class, 'update'])->middleware('permission:create_deals')->name('update');
