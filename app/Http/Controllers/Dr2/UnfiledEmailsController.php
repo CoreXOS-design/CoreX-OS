@@ -11,6 +11,7 @@ use App\Models\DealV2\DealV2;
 use App\Models\User;
 use App\Services\Communications\CommunicationDealLinkingService;
 use App\Services\Communications\Dr2DealPartyEmailResolver;
+use App\Services\Communications\Dr2FilingSuggestionService;
 use App\Services\PermissionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -41,6 +42,7 @@ class UnfiledEmailsController extends Controller
     public function __construct(
         private CommunicationDealLinkingService $linking,
         private Dr2DealPartyEmailResolver $dealParties,
+        private Dr2FilingSuggestionService $filingSuggestions,
     ) {
     }
 
@@ -259,6 +261,23 @@ class UnfiledEmailsController extends Controller
             'id'    => (int) $d->id,
             'label' => trim(($d->deal_no ? "#{$d->deal_no} · " : '') . ($d->property_address ?: '') . ($d->seller_name ? " · {$d->seller_name}" : '')),
         ])->all());
+    }
+
+    /**
+     * GET /deals-dr2/unfiled-emails/{communication}/suggest
+     *
+     * CX-113 Phase D (Johan, 2026-08-21) — "auto-suggest the deal from filing history...
+     * suggest, never auto-file." Fetched when the agent opens a row's inline search box,
+     * before they've typed anything. Returns {} (never a 404) when nothing is learned
+     * yet for this email — an empty suggestion is a normal, expected outcome, not an
+     * error.
+     */
+    public function suggest(Request $request, Communication $communication): JsonResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+        abort_unless((int) $communication->agency_id === (int) $agencyId, 404);
+
+        return response()->json($this->filingSuggestions->suggestFor($communication) ?? []);
     }
 
     /**
