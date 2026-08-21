@@ -616,12 +616,22 @@
                                     </span>
                                 @endif
                             </div>
-                            <div class="text-[10px] mb-3" style="color: var(--text-muted);">
+                            <div class="text-[10px] mb-1" style="color: var(--text-muted);">
                                 <span style="color: var(--ds-green, #059669); font-weight:600;">Strong match</span> ·
                                 <span style="color: var(--ds-amber, #f59e0b); font-weight:600;">Weak / partial</span> ·
                                 <span style="color: var(--ds-crimson, #c41e3a); font-weight:600;">Differs</span> ·
                                 <span style="color: var(--text-muted); font-weight:600;">Not recorded</span>
                             </div>
+                            {{-- Johan, 2026-08-21: "if both sides are not recorded or blank dont show
+                                 it... simple hide if no data on both sides." A field with no data on
+                                 EITHER side is dropped entirely (never a "not recorded" vs "not
+                                 recorded" row) — this line says so, so the panel reads as filtered,
+                                 not incomplete. --}}
+                            @if($panel['hiddenCount'] > 0)
+                                <div class="text-[10px] mb-3" style="color: var(--text-muted);">
+                                    {{ $panel['hiddenCount'] }} {{ $panel['hiddenCount'] === 1 ? 'field' : 'fields' }} hidden — no data on either side
+                                </div>
+                            @endif
 
                             <div class="overflow-x-auto">
                             <table class="min-w-full text-xs">

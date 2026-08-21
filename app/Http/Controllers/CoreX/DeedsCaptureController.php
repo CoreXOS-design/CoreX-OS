@@ -223,11 +223,13 @@ final class DeedsCaptureController extends Controller
             $preview = $matcher->previewPropertyMatch($tp);
             if ($preview) {
                 $strategy = $matchEvidence->strategyFor($tp);
+                $panelRows = $matchEvidence->panelRows($tp, $preview);
                 $stockStatusByTp[$tp->id] = [
                     'state' => $preview->isStaleStock() ? 'stale' : 'live', 'property' => $preview, 'already' => false,
                     'age' => $ageResolver->resolve($preview),
                     'panel' => [
-                        'rows' => $matchEvidence->panelRows($tp, $preview),
+                        'rows' => $panelRows['rows'],
+                        'hiddenCount' => $panelRows['hiddenCount'],
                         'strategy' => $strategy,
                         'candidateCount' => $matchEvidence->candidateCount($tp, $strategy, (int) $agencyId),
                     ],
