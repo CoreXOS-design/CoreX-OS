@@ -418,7 +418,16 @@
                                 @endphp
                                 <div class="text-xs mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5" style="color: var(--text-muted);">
                                     <span class="font-semibold" style="color: {{ $bandColor }};">{{ $age->actionLabel() }}</span>
-                                    <span>· Status: {{ $stockStatus['property']->statusBadge() }}</span>
+                                    @if($age->blockReasons)
+                                        {{-- 2 Venice Drive incident (2026-08-21) — TWO INDEPENDENT blockers, both
+                                             shown when both fire ("Currently active" AND "Mandate runs to..."),
+                                             never just one silently hiding the other. --}}
+                                        @foreach($age->blockReasons as $reason)
+                                            <span>· {{ $reason }}</span>
+                                        @endforeach
+                                    @else
+                                        <span>· Status: {{ $stockStatus['property']->statusBadge() }}</span>
+                                    @endif
                                     @if($age->days !== null)
                                         <span>· Off market {{ $age->days }} {{ $age->days === 1 ? 'day' : 'days' }}
                                             ({{ $age->dateFieldLabel() }}{{ $age->isFallback ? ' — estimated, not directly recorded' : '' }})</span>
@@ -847,26 +856,61 @@
                             </div>
 
                             <div class="mt-3 pt-3" style="border-top: 1px solid var(--border);">
-                                <form id="promote-form-{{ $tp->id }}" method="POST" action="{{ route('corex.deeds-capture.promote', $tp->id) }}"
-                                      onsubmit="return confirm({{ Js::from('Update ' . $rowConfirmName . ' with these details and link the owner? Any ticked contact numbers below will be added too.') }});">
-                                    @csrf
+                                @if($age && $age->band === 'active_blocked')
+                                    {{-- 2 Venice Drive incident (2026-08-21) — Johan: "if 2 venice is blocked
+                                         then why do I still have the 2 buttons... Same property reads like an
+                                         action that will do something, when the whole point is that nothing
+                                         can be done." Confirming SAME here can never promote or reassign — it
+                                         only RECORDS that the matcher was right and clears the row, since
+                                         there's nothing left for the agent to do. Different reason: never
+                                         blocked (a wrong match must always stay escapable). --}}
                                     <div class="text-xs mb-2" style="color: var(--text-muted);">
+                                        {{ implode(', ', $age->blockReasons) }} — nothing to promote here.
                                         If different, why? (only used if you pick "Different property")
-                                        <select name="reject_reason_code" class="ml-1 text-xs rounded-md px-1.5 py-1" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                        <select name="reject_reason_code" form="reject-form-{{ $tp->id }}" class="ml-1 text-xs rounded-md px-1.5 py-1" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                             @foreach(\App\Services\Prospecting\PropertyMatchDecisionService::REJECT_REASON_CODES as $code => $label)
                                                 <option value="{{ $code }}">{{ $label }}</option>
                                             @endforeach
                                         </select>
                                     </div>
                                     <div class="flex flex-wrap gap-2">
-                                        <button type="submit" name="match_decision" value="same" class="text-xs font-semibold px-4 py-2 rounded-md text-white" style="background: var(--brand-button, #0ea5e9);">
-                                            Same property — {{ $rowConfirmName }}
-                                        </button>
-                                        <button type="submit" name="match_decision" value="different" formnovalidate class="text-xs font-semibold px-4 py-2 rounded-md" style="background: transparent; border:1px solid var(--border); color: var(--text-primary);">
-                                            Different property — add as new
-                                        </button>
+                                        <form method="POST" action="{{ route('corex.deeds-capture.acknowledge-blocked-match', $tp->id) }}"
+                                              onsubmit="return confirm('Confirm this is the same property? It stays exactly as it is, and this capture is removed from your queue.');">
+                                            @csrf
+                                            <button type="submit" class="text-xs font-semibold px-4 py-2 rounded-md text-white" style="background: var(--ds-green, #059669);">
+                                                Yes, same property — leave it with {{ $stockStatus['property']->agent->name ?? 'the current agent' }}
+                                            </button>
+                                        </form>
+                                        <form id="reject-form-{{ $tp->id }}" method="POST" action="{{ route('corex.deeds-capture.promote', $tp->id) }}">
+                                            @csrf
+                                            <input type="hidden" name="match_decision" value="different">
+                                            <button type="submit" formnovalidate class="text-xs font-semibold px-4 py-2 rounded-md" style="background: transparent; border:1px solid var(--border); color: var(--text-primary);">
+                                                Different property — add as new
+                                            </button>
+                                        </form>
                                     </div>
-                                </form>
+                                @else
+                                    <form id="promote-form-{{ $tp->id }}" method="POST" action="{{ route('corex.deeds-capture.promote', $tp->id) }}"
+                                          onsubmit="return confirm({{ Js::from('Update ' . $rowConfirmName . ' with these details and link the owner? Any ticked contact numbers below will be added too.') }});">
+                                        @csrf
+                                        <div class="text-xs mb-2" style="color: var(--text-muted);">
+                                            If different, why? (only used if you pick "Different property")
+                                            <select name="reject_reason_code" class="ml-1 text-xs rounded-md px-1.5 py-1" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                @foreach(\App\Services\Prospecting\PropertyMatchDecisionService::REJECT_REASON_CODES as $code => $label)
+                                                    <option value="{{ $code }}">{{ $label }}</option>
+                                                @endforeach
+                                            </select>
+                                        </div>
+                                        <div class="flex flex-wrap gap-2">
+                                            <button type="submit" name="match_decision" value="same" class="text-xs font-semibold px-4 py-2 rounded-md text-white" style="background: var(--brand-button, #0ea5e9);">
+                                                Same property — {{ $rowConfirmName }}
+                                            </button>
+                                            <button type="submit" name="match_decision" value="different" formnovalidate class="text-xs font-semibold px-4 py-2 rounded-md" style="background: transparent; border:1px solid var(--border); color: var(--text-primary);">
+                                                Different property — add as new
+                                            </button>
+                                        </div>
+                                    </form>
+                                @endif
                             </div>
                         </div>
                     @endif

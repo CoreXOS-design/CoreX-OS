@@ -4689,6 +4689,11 @@ Route::middleware(['auth', 'permission:deeds_capture.access'])
         Route::get('/', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'index'])->name('index');
         Route::post('/{trackedProperty}/promote', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'promote'])
             ->whereNumber('trackedProperty')->name('promote');
+        // 2 Venice Drive incident (2026-08-21) — confirming "same property" on a
+        // BLOCKED match records the decision and clears the row; it can never
+        // promote or reassign. See DeedsCaptureController::acknowledgeBlockedMatch().
+        Route::post('/{trackedProperty}/acknowledge-blocked-match', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'acknowledgeBlockedMatch'])
+            ->whereNumber('trackedProperty')->name('acknowledge-blocked-match');
         // TVA (The Virtual Agent) contact capture (2026-08-12) — tick-to-ingest.
         Route::post('/tva/{tvaContactCapture}/ingest', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'ingestTva'])
             ->whereNumber('tvaContactCapture')->name('tva.ingest');

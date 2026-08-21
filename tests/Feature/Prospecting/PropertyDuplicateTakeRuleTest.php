@@ -360,6 +360,106 @@ final class PropertyDuplicateTakeRuleTest extends TestCase
         $this->assertNotSame($this->elize->id, $howard->agent_id);
     }
 
+    // ──────────────────────── 2 Venice Drive incident (2026-08-21): two independent blockers ────
+
+    public function test_future_expiry_date_blocks_regardless_of_off_market_status(): void
+    {
+        // Off-market status, but the mandate hasn't actually expired -- the exact
+        // "status is stale/wrong" scenario the mandate blocker exists for.
+        $property = $this->property(['status' => 'withdrawn', 'expiry_date' => '2027-08-16']);
+
+        $age = app(PropertyDuplicateAgeResolver::class)->resolve($property);
+
+        $this->assertSame(PropertyDuplicateAgeResult::BAND_ACTIVE_BLOCKED, $age->band, 'a future expiry_date must never reach auto_take, whatever the status says');
+        $this->assertContains('Mandate runs to 16 Aug 2027', $age->blockReasons);
+        $this->assertNull($age->days, 'a hard block computes no age at all');
+    }
+
+    public function test_venice_drive_real_scenario_shows_both_reasons(): void
+    {
+        // The exact real case: status=active AND a future expiry_date. Both
+        // reasons must show together, never just one hiding the other.
+        $property = $this->property(['status' => 'active', 'expiry_date' => '2027-08-16']);
+
+        $age = app(PropertyDuplicateAgeResolver::class)->resolve($property);
+
+        $this->assertSame(PropertyDuplicateAgeResult::BAND_ACTIVE_BLOCKED, $age->band);
+        $this->assertSame(['Currently active', 'Mandate runs to 16 Aug 2027'], $age->blockReasons);
+    }
+
+    public function test_recently_expired_mandate_still_lands_in_no_go_safely(): void
+    {
+        // Withdrawn, no status-change history (falls to expiry_date fallback) --
+        // expired only 3 days ago, inside the no-go window. The mandate BLOCKER
+        // (blocker #2) is deliberately narrow -- it only fires for a genuinely
+        // FUTURE expiry_date; a recently-past one is the ordinary no_go band's
+        // job, and daysAgo()'s signed/clamped arithmetic keeps that safe without
+        // needing a second named blocker for it.
+        $property = $this->property(['status' => 'withdrawn', 'expiry_date' => now()->subDays(3)->toDateString()]);
+
+        $age = app(PropertyDuplicateAgeResolver::class)->resolve($property);
+
+        $this->assertSame(PropertyDuplicateAgeResult::BAND_NO_GO, $age->band);
+        $this->assertSame([], $age->blockReasons);
+        $this->assertSame(3, $age->days);
+    }
+
+    public function test_expiry_date_safely_past_no_go_threshold_is_unaffected(): void
+    {
+        // Regression: an ordinary, long-expired mandate must still reach auto_take
+        // exactly as before -- the new blocker must not over-fire on old dates.
+        $property = $this->property(['status' => 'withdrawn', 'expiry_date' => now()->subDays(30)->toDateString()]);
+
+        $age = app(PropertyDuplicateAgeResolver::class)->resolve($property);
+
+        $this->assertSame(PropertyDuplicateAgeResult::BAND_AUTO_TAKE, $age->band);
+        $this->assertSame([], $age->blockReasons);
+        $this->assertSame(30, $age->days);
+    }
+
+    // ──────────────────────── 2 Venice Drive incident: honest blocked-state buttons ────
+
+    public function test_acknowledging_blocked_match_records_confirmation_and_clears_queue_without_touching_property(): void
+    {
+        $existing = $this->property(['status' => 'active', 'agent_id' => $this->elize->id]);
+        $tp = $this->trackedPropertyMatching($existing);
+
+        $response = $this->actingAs($this->johan)
+            ->post(route('corex.deeds-capture.acknowledge-blocked-match', $tp->id));
+        $response->assertRedirect(route('corex.deeds-capture.index'));
+
+        // Property is completely untouched -- this must never promote or reassign.
+        $existing->refresh();
+        $this->assertSame('active', $existing->status);
+        $this->assertSame($this->elize->id, $existing->agent_id);
+        $this->assertNull(PropertyAuditLog::where('property_id', $existing->id)->where('event_type', 'deeds_duplicate_reassigned')->first(), 'a blocked match must never write a reassignment audit entry');
+
+        // The row is cleared from the queue (soft-deleted -- this TP exists only
+        // because of this capture), reversibly, same mechanism as "Remove".
+        $this->assertNotNull($tp->fresh()->deleted_at);
+
+        // The confirmation is recorded -- valuable signal that the matcher was right.
+        $decision = PropertyMatchDecision::where('subject_key', 'deeds_capture_property:' . $tp->id)->first();
+        $this->assertNotNull($decision);
+        $this->assertTrue($decision->isConfirmed());
+        $this->assertSame('blocked_acknowledged', $decision->outcome);
+    }
+
+    public function test_acknowledging_blocked_match_refuses_when_match_is_not_actually_blocked(): void
+    {
+        $existing = $this->property(['status' => 'withdrawn', 'expiry_date' => now()->subDays(30)->toDateString(), 'agent_id' => $this->elize->id]);
+        $tp = $this->trackedPropertyMatching($existing);
+
+        $this->actingAs($this->johan)
+            ->post(route('corex.deeds-capture.acknowledge-blocked-match', $tp->id))
+            ->assertRedirect(route('corex.deeds-capture.index'));
+
+        $this->assertTrue(session()->has('error'));
+        $tp->refresh();
+        $this->assertNull($tp->deleted_at, 'a genuinely take-able match must not be silently cleared via this route');
+        $this->assertNull(PropertyMatchDecision::where('subject_key', 'deeds_capture_property:' . $tp->id)->first());
+    }
+
     // ──────────────────────── helpers ──────────────────────────────────────────
 
     private function property(array $attrs): Property

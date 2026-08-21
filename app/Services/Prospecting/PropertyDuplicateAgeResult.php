@@ -25,6 +25,15 @@ final class PropertyDuplicateAgeResult
         /** True when $dateField is a fallback (the primary signal for this status was unavailable). */
         public readonly bool $isFallback,
         public readonly string $band,
+        /**
+         * Every independent reason a hard block fired — e.g. ['Currently active',
+         * 'Mandate runs to 16 Aug 2027'] when both apply (2 Venice Drive, 2026-08-21).
+         * Empty for every band except BAND_ACTIVE_BLOCKED, which is never returned
+         * without at least one reason.
+         *
+         * @var array<int, string>
+         */
+        public readonly array $blockReasons = [],
     ) {}
 
     public function actionLabel(): string
