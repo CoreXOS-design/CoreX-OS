@@ -102,13 +102,17 @@
             <div class="flex items-center gap-3">
                 {{-- Data scope — plain server-rendered pill group, full GET navigation, same
                      idiom as MIC's filter rail / Buyer Pipeline. STRICT gating: a scope past
-                     the role ceiling never renders as an option at all. --}}
+                     the role ceiling never renders as an option at all. Active pill uses a
+                     LITERAL hex color, not var(--brand-default) — corex.css has a dark-mode
+                     guard (html.dark [style*="color:var(--brand-default"] { color: var(--text-primary) !important })
+                     that neutralises that variable used as inline TEXT color, since it's meant
+                     for backgrounds/icons; using it here rendered invisible white-on-white. --}}
                 <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid rgba(255,255,255,0.25);">
                     @foreach($scopeLabels as $key => $label)
                         @if(($scopeRank[$key] ?? 9) <= $maxRank)
                             <a href="{{ route('deals-dr2.unfiled-emails.index', array_merge(request()->except(['scope', 'page']), ['scope' => $key])) }}"
                                class="px-3 py-1.5 text-sm font-medium transition-colors"
-                               style="{{ $scope === $key ? 'background: #fff; color: var(--brand-default, #0b2a4a);' : 'color: #fff;' }}">{{ $label }}</a>
+                               style="{{ $scope === $key ? 'background: #fff; color: #0b2a4a;' : 'color: #fff;' }}">{{ $label }}</a>
                         @endif
                     @endforeach
                 </div>
