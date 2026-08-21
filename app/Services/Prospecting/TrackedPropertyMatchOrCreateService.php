@@ -1626,6 +1626,20 @@ final class TrackedPropertyMatchOrCreateService
 
                 $property = $existingProperty;
             } else {
+                // PROSPECTING (Johan, 2026-08-20/21 — .ai/specs/2026-08-20-
+                // property-status-prospecting.md): this single Property::create()
+                // is the shared gateway for BOTH promote buttons -- the
+                // deeds-capture screen's and the generic Tracked Properties
+                // screen's (which also serves P24/PP/cmainfo/chrome-capture
+                // and manually-tracked properties). isFromAutomatedIngest()
+                // is the one place that distinguishes them, so both promote
+                // buttons stay correctly branched through one method instead
+                // of needing their own copies of this logic. A purely
+                // manually-tracked TP (an agent typed it in, nothing
+                // automated ever contributed) stays 'draft' -- unchanged,
+                // exactly matching "properties created by an agent still get
+                // Draft".
+                $status = $tp->isFromAutomatedIngest() ? Property::STATUS_PROSPECTING : 'draft';
                 $property = Property::create(array_merge(
                     [
                         'agency_id'                => $tp->agency_id,
@@ -1651,7 +1665,7 @@ final class TrackedPropertyMatchOrCreateService
                         'garages'                  => $tp->garages ?? 0,
                         'price'                    => $tp->last_known_asking_price ?? 0,
                         'title'                    => $tp->displayAddress(),
-                        'status'                   => 'draft',
+                        'status'                   => $status,
                         'listing_type'             => 'sale',
                         // complex_name/unit_number (2026-08-14) — carry the
                         // scheme/section identity onto the new Property so a

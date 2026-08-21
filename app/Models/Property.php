@@ -57,7 +57,27 @@ class Property extends Model
     public const OFF_MARKET_STATUSES = [
         'sold', 'sold_by_3rd_party', 'transferred', 'withdrawn', 'expired',
         'cancelled', 'let_out', 'draft', 'archived', 'unavailable',
+        'prospecting', 'not_selling',
     ];
+
+    /**
+     * PROSPECTING / NOT SELLING (Johan, 2026-08-20/21 — .ai/specs/2026-08-20-
+     * property-status-prospecting.md). Prospecting = ingested-but-unmandated
+     * stock (deeds/MIC ingest), kept separate from 'draft' (agent-created,
+     * about to go live) so the two pools never dilute each other. We do NOT
+     * hold the mandate on a prospecting property -- it must be exactly as
+     * unsyndicatable as any other off-market status, which is why closing
+     * this gap meant pointing the ONE existing syndication guard
+     * (EnforcesMarketingReadiness::enforceListingNotDraft()) at
+     * OFF_MARKET_STATUSES generally (via isOnMarket()) rather than adding a
+     * second, prospecting-specific check beside it.
+     *
+     * Not selling = the one-click dead-end for prospecting stock that will
+     * never convert (owner contacted, won't sell / not on market / lost).
+     * Label confirmed verbatim by Johan: "Not selling".
+     */
+    public const STATUS_PROSPECTING = 'prospecting';
+    public const STATUS_NOT_SELLING = 'not_selling';
 
     /**
      * AT-350 — the listing sold, but ANOTHER agency sold it (typically under an
@@ -257,12 +277,27 @@ class Property extends Model
      * True when this property is still an unpublished draft. A draft is never
      * ready to be pushed to any portal/website — it must be set Active first.
      * Case-insensitive so 'Draft'/'DRAFT' are caught alongside the canonical
-     * lowercase 'draft'. The single source of truth for the syndication draft
-     * guard (EnforcesMarketingReadiness::enforceListingNotDraft()).
+     * lowercase 'draft'. EnforcesMarketingReadiness::enforceListingNotDraft()
+     * (2026-08-21) now gates on isOnMarket() generally rather than this
+     * method specifically, but isDraft() stays as the precise "is it exactly
+     * a draft" check other callers (canChangeType(), the properties-list
+     * marketing-status column) still need.
      */
     public function isDraft(): bool
     {
         return strtolower(trim((string) $this->status)) === 'draft';
+    }
+
+    /** True when this is ingested-but-unmandated stock (deeds/MIC ingest). */
+    public function isProspecting(): bool
+    {
+        return strtolower(trim((string) $this->status)) === self::STATUS_PROSPECTING;
+    }
+
+    /** True when an agent has closed this out as a dead end ("Not selling"). */
+    public function isNotSelling(): bool
+    {
+        return strtolower(trim((string) $this->status)) === self::STATUS_NOT_SELLING;
     }
 
     /**
@@ -1281,7 +1316,7 @@ class Property extends Model
     private const CONCLUDED_STATUSES = ['sold', self::STATUS_SOLD_BY_3RD_PARTY, 'transferred', 'rented', 'let_out'];
 
     /** Off-market, but not concluded — withdrawn, expired, never published, etc. */
-    private const INACTIVE_STATUSES = ['withdrawn', 'cancelled', 'expired', 'unavailable', 'archived', 'draft'];
+    private const INACTIVE_STATUSES = ['withdrawn', 'cancelled', 'expired', 'unavailable', 'archived', 'draft', self::STATUS_PROSPECTING, self::STATUS_NOT_SELLING];
 
     /**
      * THE single source of truth for reading `status`. ALWAYS compare against this,
@@ -1446,6 +1481,12 @@ class Property extends Model
             // A concluded rental reads "Rented" / "Let Out" — never "To Let", which
             // would advertise a tenanted property as available.
             in_array($status, ['rented', 'let_out'], true)   => ucwords(str_replace('_', ' ', $status)),
+            // Exact labels (2026-08-21, Johan) — MUST precede the generic
+            // INACTIVE_STATUSES ucwords() fallback below: "Not selling" is
+            // sentence case, not Title Case, and ucwords() would badge it
+            // "Not Selling".
+            $status === self::STATUS_PROSPECTING => 'Prospecting',
+            $status === self::STATUS_NOT_SELLING => 'Not selling',
             in_array($status, self::INACTIVE_STATUSES, true) => ucwords(str_replace('_', ' ', $status)),
             $this->isRental()                                => 'To Let',
             default => 'For Sale',

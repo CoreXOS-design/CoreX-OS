@@ -227,13 +227,19 @@ class PropertyController extends Controller
             "COUNT(*) as total,"
             . " SUM(CASE WHEN status NOT IN ($offMarketIn) THEN 1 ELSE 0 END) as active,"
             . " SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft,"
-            . " SUM(CASE WHEN status = 'sold' THEN 1 ELSE 0 END) as sold"
+            . " SUM(CASE WHEN status = 'sold' THEN 1 ELSE 0 END) as sold,"
+            // PROSPECTING (Johan, 2026-08-20/21) — same clone-of-$query
+            // aggregate every other tile already uses, so this tile can never
+            // disagree with the filtered list: "whatever filters the list
+            // must also filter every count, badge and tile."
+            . " SUM(CASE WHEN status = '" . Property::STATUS_PROSPECTING . "' THEN 1 ELSE 0 END) as prospecting"
         )->first();
         $stats = [
-            'total'  => (int) ($agg->total ?? 0),
-            'active' => (int) ($agg->active ?? 0),
-            'draft'  => (int) ($agg->draft ?? 0),
-            'sold'   => (int) ($agg->sold ?? 0),
+            'total'       => (int) ($agg->total ?? 0),
+            'active'      => (int) ($agg->active ?? 0),
+            'draft'       => (int) ($agg->draft ?? 0),
+            'sold'        => (int) ($agg->sold ?? 0),
+            'prospecting' => (int) ($agg->prospecting ?? 0),
         ];
 
         // Sorting — whitelisted columns only
@@ -1582,6 +1588,67 @@ class PropertyController extends Controller
         }
         $property->save();
 
+        return back()->with('success', $msg);
+    }
+
+    /**
+     * PROSPECTING → DRAFT (Johan, 2026-08-20/21 — .ai/specs/2026-08-20-
+     * property-status-prospecting.md): "the change from prospecting to draft
+     * happens manually by an agent whe[n] the[y] won the mandate." The spec's
+     * own risk #3: if this move isn't easy and obvious, the prospecting pile
+     * just grows instead of clearing — treated as a requirement, one click,
+     * same shape as publishToggle() above (auth, direct field update, JSON/
+     * back dual response), not a new mechanism.
+     */
+    public function convertFromProspecting(Request $request, Property $property)
+    {
+        $this->authorizeProperty($property);
+
+        if (! $property->isProspecting()) {
+            $msg = 'This property is not in Prospecting.';
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json(['error' => $msg], 422);
+            }
+            return back()->with('error', $msg);
+        }
+
+        $property->status = 'draft';
+        $property->save();
+
+        $msg = 'Moved to Draft — mandate won.';
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json(['success' => true, 'message' => $msg, 'status' => $property->status]);
+        }
+        return back()->with('success', $msg);
+    }
+
+    /**
+     * PROSPECTING → NOT SELLING (Johan, 2026-08-20/21, label confirmed
+     * verbatim): the one-click dead end for prospecting stock that will never
+     * convert — owner contacted, won't sell / not on market / lost. Only
+     * valid from Prospecting (mirrors convertFromProspecting() above); a
+     * draft or live listing has its own lifecycle (Archive, Withdraw) and
+     * isn't this button's job.
+     */
+    public function markNotSelling(Request $request, Property $property)
+    {
+        $this->authorizeProperty($property);
+
+        if (! $property->isProspecting()) {
+            $msg = 'Only a Prospecting property can be marked Not selling.';
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json(['error' => $msg], 422);
+            }
+            return back()->with('error', $msg);
+        }
+
+        $property->status = Property::STATUS_NOT_SELLING;
+        $property->save();
+
+        $msg = 'Marked Not selling.';
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json(['success' => true, 'message' => $msg, 'status' => $property->status]);
+        }
         return back()->with('success', $msg);
     }
 
