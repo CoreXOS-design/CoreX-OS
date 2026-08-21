@@ -69,6 +69,7 @@
         suggestModal: false, suggestDeal: null, suggestions: [], suggestSelected: [], batchFiling: false,
         expandedId: null, expandedHtml: '', expanding: false,
         filingSuggestion: null, filingSuggestionLoading: false,
+        removeId: null, removing: false, removeOther: '',
         openPicker(commId, move = false){
             if(this.filingId === commId) return; // already active on this row — don't wipe what's typed
             this.filingId = commId; this.moveMode = move; this.dealQ=''; this.dealResults=[]; this.err='';
@@ -134,6 +135,41 @@
         dealStatusPillStyle(status){
             const token = status === 'Declined' ? 'var(--ds-crimson, #c41e3a)' : (status === 'Pending' ? 'var(--text-muted, #9ca3af)' : 'var(--ds-green, #059669)');
             return 'background:color-mix(in srgb, ' + token + ' 15%, transparent);color:' + token + ';';
+        },
+        // CX-113 Phase G (Johan, 2026-08-22) — not deal correspondence, reversible.
+        // Same click-a-reason-and-its-done idiom as filing (no separate confirm step);
+        // agency-wide, so the row leaves everyone's queue, not just the remover's.
+        async dismissEmail(commId, reason){
+            if(reason === 'other' && !this.removeOther.trim()) return;
+            this.removing = true;
+            try {
+                const r = await fetch('{{ url('deals-dr2/unfiled-emails') }}/' + commId + '/dismiss', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json', Accept:'application/json', 'X-CSRF-TOKEN':'{{ csrf_token() }}'},
+                    credentials: 'same-origin',
+                    body: JSON.stringify({reason: reason, reason_other: this.removeOther.trim() || null})
+                });
+                const j = await r.json();
+                if(r.ok && j.ok){
+                    this.removeId = null; this.removeOther = '';
+                    document.getElementById('unfiled-row-' + commId)?.remove();
+                } else {
+                    this.err = 'Could not remove that email.';
+                }
+            } catch(e) { this.err = 'Could not remove that email.'; }
+            this.removing = false;
+        },
+        async restoreEmail(commId){
+            this.removing = true;
+            try {
+                await fetch('{{ url('deals-dr2/unfiled-emails') }}/' + commId + '/restore', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json', Accept:'application/json', 'X-CSRF-TOKEN':'{{ csrf_token() }}'},
+                    credentials: 'same-origin',
+                });
+                document.getElementById('unfiled-row-' + commId)?.remove();
+            } catch(e) { this.err = 'Could not restore that email.'; }
+            this.removing = false;
         },
         async file(commId, dealId){
             this.filing = true; this.err = '';
@@ -212,7 +248,7 @@
                         @endif
                     @endforeach
                 </div>
-                <div class="text-sm text-white/80">{{ $emails->total() }} {{ $state === 'filed' ? 'filed' : ($state === 'all' ? 'total' : 'unfiled') }}</div>
+                <div class="text-sm text-white/80">{{ $emails->total() }} {{ $state === 'filed' ? 'filed' : ($state === 'all' ? 'total' : ($state === 'removed' ? 'removed' : 'unfiled')) }}</div>
             </div>
         </div>
 
@@ -220,7 +256,7 @@
              spans whichever state is active. Same pill idiom as scope above, no ceiling
              gating (state is not a permission concept — every scope tier gets all three). --}}
         <div class="mt-3 inline-flex rounded-md overflow-hidden" style="border: 1px solid rgba(255,255,255,0.25);">
-            @foreach(['unfiled' => 'Unfiled', 'filed' => 'Filed', 'all' => 'All'] as $key => $label)
+            @foreach(['unfiled' => 'Unfiled', 'filed' => 'Filed', 'all' => 'All', 'removed' => 'Removed'] as $key => $label)
                 <a href="{{ route('deals-dr2.unfiled-emails.index', array_merge(request()->except(['state', 'page']), ['state' => $key])) }}"
                    class="px-3 py-1.5 text-sm font-medium transition-colors"
                    style="{{ $state === $key ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'color: #fff;' }}">{{ $label }}</a>
@@ -337,6 +373,14 @@
 
     <p x-show="err" x-cloak x-text="err" style="color:#b91c1c;font-size:.85rem;"></p>
 
+    {{-- CX-113 Phase G — see the dr2-email-body comment below for why. Scoped to this
+         class only, so Comms Suspense/Archive's own use of the same shared partial is
+         completely unaffected. --}}
+    <style>
+        .dr2-email-body .cx-msg { justify-content: flex-start !important; }
+        .dr2-email-body .cx-bubble { max-width: 100% !important; }
+    </style>
+
     {{-- List — CX-113 Phase F (Johan, 2026-08-21, after actually looking at the deployed
          page): "stop using a table. Make each email a CARD, matching the deeds screen's
          card treatment." A table forces fixed columns, which is exactly what caused the
@@ -349,11 +393,13 @@
     @if($emails->isEmpty())
         <div class="rounded-md p-8" style="text-align:center;color:var(--text-muted,#9ca3af);background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);">
             @if($search)
-                No {{ $state === 'filed' ? 'filed' : ($state === 'all' ? '' : 'unfiled') }} emails match "{{ $search }}".
+                No {{ $state === 'filed' ? 'filed' : ($state === 'all' ? '' : ($state === 'removed' ? 'removed' : 'unfiled')) }} emails match "{{ $search }}".
             @elseif($state === 'filed')
                 No emails filed to a deal yet in this scope.
             @elseif($state === 'all')
                 Nothing in this scope yet — filed or unfiled.
+            @elseif($state === 'removed')
+                Nothing removed in this scope.
             @else
                 Nothing unfiled in this scope — every deal-connected email you can see is already filed.
             @endif
@@ -362,6 +408,7 @@
         <div class="space-y-3">
             @foreach($emails as $email)
                 @php($filedInfo = $filedInfoByCommId[$email->id] ?? null)
+                @php($dismissedInfo = $dismissedInfoByCommId[$email->id] ?? null)
                 @php($previewText = (string) ($email->body_display ?: ($email->body_text ?: $email->body_preview)))
                 <div id="unfiled-row-{{ $email->id }}" class="rounded-md p-4" style="background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);">
                     <div style="cursor:pointer;" @click="toggleExpand({{ $email->id }})">
@@ -386,7 +433,30 @@
                             @if($state !== 'unfiled')
                                 <span class="flex-shrink-0" style="font-size:.68rem;padding:.1rem .5rem;border-radius:999px;font-weight:600;white-space:nowrap;{{ $filedInfo ? 'background:color-mix(in srgb, var(--ds-green,#059669) 15%, transparent);color:var(--ds-green,#059669);' : 'background:var(--surface-2,#f3f4f6);color:var(--text-muted,#9ca3af);' }}">{{ $filedInfo ? 'Filed' : 'Not filed' }}</span>
                             @endif
+                            {{-- CX-113 Phase G — "getting an email that should not be in here so how
+                                 do i remove it?" Reversible: takes the row out of DR2's queue only,
+                                 never touches the Communication or its contact link. Shown for a row
+                                 that isn't already filed (a filed row is already correctly placed). --}}
+                            @if($state !== 'removed' && ! $filedInfo)
+                                <button type="button" class="flex-shrink-0 text-xs" @click.stop="removeId = (removeId === {{ $email->id }} ? null : {{ $email->id }})"
+                                        style="color:var(--text-muted,#9ca3af);font-weight:500;white-space:nowrap;">Not deal related?</button>
+                            @endif
                         </div>
+                        @if($state !== 'removed' && ! $filedInfo)
+                            <div x-show="removeId === {{ $email->id }}" x-cloak @click.stop
+                                 class="flex flex-wrap items-center gap-1.5" style="margin:.4rem 0 0 1.35rem;">
+                                @foreach($dismissalReasons as $key => $label)
+                                    @if($key !== 'other')
+                                        <button type="button" class="text-xs" :disabled="removing" @click="dismissEmail({{ $email->id }}, '{{ $key }}')"
+                                                style="padding:.2rem .55rem;border-radius:999px;border:1px solid var(--border,#e5e7eb);background:var(--surface-2,#f9fafb);color:var(--text-primary);">{{ $label }}</button>
+                                    @endif
+                                @endforeach
+                                <input type="text" x-model="removeOther" @click.stop placeholder="Other reason…"
+                                       class="corex-input text-xs" style="width:9rem;padding:.2rem .5rem;">
+                                <button type="button" class="text-xs" :disabled="removing || !removeOther.trim()" @click="dismissEmail({{ $email->id }}, 'other')"
+                                        style="padding:.2rem .55rem;border-radius:999px;border:1px solid var(--border,#e5e7eb);background:var(--surface-2,#f9fafb);color:var(--text-primary);">Remove</button>
+                            </div>
+                        @endif
                         {{-- Line 2 — sender · date, small and muted; secondary information recedes. --}}
                         <div class="text-xs truncate" style="margin:.25rem 0 0 1.35rem;color:var(--text-muted,#9ca3af);">
                             {{ $email->from_identifier ?: '(unknown)' }} · {{ optional($email->occurred_at)->format('j M Y H:i') }}
@@ -409,12 +479,25 @@
                                 {{ $filedInfo['filed_by'] ? "by {$filedInfo['filed_by']}" : '' }}{{ $filedInfo['filed_at'] ? " · {$filedInfo['filed_at']}" : '' }}
                             </div>
                         @endif
+                        @if($state === 'removed' && $dismissedInfo)
+                            <div class="text-xs flex items-center gap-2 flex-wrap" style="margin:.35rem 0 0 1.35rem;color:var(--text-muted,#9ca3af);">
+                                <span>Removed — {{ $dismissedInfo['reason'] }}{{ $dismissedInfo['dismissed_by'] ? " by {$dismissedInfo['dismissed_by']}" : '' }}{{ $dismissedInfo['dismissed_at'] ? " · {$dismissedInfo['dismissed_at']}" : '' }}</span>
+                                <button type="button" class="text-xs" :disabled="removing" @click.stop="restoreEmail({{ $email->id }})"
+                                        style="padding:.15rem .5rem;border-radius:999px;border:1px solid var(--brand-icon,#0ea5e9);color:var(--brand-icon,#0ea5e9);font-weight:600;">Restore</button>
+                            </div>
+                        @endif
                     </div>
 
                     {{-- CX-112 — read the email before filing/confirming. Reuses the SAME viewer
                          partial as the filed-emails-on-a-deal screen, fetched on demand — never
-                         eager-loaded for the whole list. --}}
-                    <div x-show="expandedId === {{ $email->id }}" x-cloak class="mt-3 pt-3" style="border-top:1px solid var(--border,#e5e7eb);">
+                         eager-loaded for the whole list. dr2-email-body (styled once, below,
+                         scoped to this class) widens the reused chat-bubble markup to the full
+                         card — that partial's max-width:82% + left/right chat alignment is
+                         correct for a two-party thread view, not a single card, and left a large
+                         empty gap on the right (Johan, 2026-08-22, looking at a real expanded
+                         card). Presentation-only override from OUTSIDE the shared partial — that
+                         file is reused by Comms Suspense/Archive too and stays untouched. --}}
+                    <div x-show="expandedId === {{ $email->id }}" x-cloak class="mt-3 pt-3 dr2-email-body" style="border-top:1px solid var(--border,#e5e7eb);">
                         <div x-show="expanding" x-cloak class="text-xs" style="color:var(--text-muted,#9ca3af);">Loading…</div>
                         <div x-show="!expanding" x-html="expandedHtml"></div>
                     </div>
@@ -423,7 +506,10 @@
                          its own visually distinct action zone (Johan: "bottom left... give it the
                          full row width so results can carry real detail" — a card gives that
                          naturally, no fixed columns to trap it inside). Same searchDeals()/file()/
-                         openPicker() state as before — presentation-only change. --}}
+                         openPicker() state as before — presentation-only change. Hidden for a
+                         Removed row (Phase G) — an email flagged "not deal correspondence" isn't
+                         offered a deal to file to; Restore it first. --}}
+                    @if($state !== 'removed')
                     <div class="mt-3 pt-3" style="border-top:1px solid var(--border,#e5e7eb);" @click.stop>
                         <div style="position:relative;" @click.outside="filingId === {{ $email->id }} && closePicker()">
                             <input type="text" autocomplete="off"
@@ -480,6 +566,7 @@
                             </div>
                         </div>
                     </div>
+                    @endif
                 </div>
             @endforeach
         </div>

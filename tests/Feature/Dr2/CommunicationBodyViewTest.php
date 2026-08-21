@@ -160,4 +160,103 @@ final class CommunicationBodyViewTest extends TestCase
             ->assertOk()
             ->assertSee($longTail, false);
     }
+
+    /**
+     * CX-113 Phase G (Johan, 2026-08-22) — "cant see all the email addresses it was
+     * sent from or sent to." Confirmed by direct investigation that the ingestion
+     * pipeline discarded the To/Cc split before this fix; these cover the fix and its
+     * honest fallback for rows captured before it existed.
+     */
+    public function test_body_shows_to_and_cc_addresses_when_the_row_has_them(): void
+    {
+        $comm = $this->comm($this->agencyId, [
+            'to_identifiers' => ['buyer@example.com', 'agent2@hfcoastal.co.za'],
+            'cc_identifiers' => ['manager@hfcoastal.co.za'],
+        ]);
+
+        $resp = $this->actingAs($this->agent)
+            ->get(route('deals-dr2.comms-body.show', $comm->id))
+            ->assertOk();
+
+        $resp->assertSee('To', false);
+        $resp->assertSee('buyer@example.com', false);
+        $resp->assertSee('agent2@hfcoastal.co.za', false);
+        $resp->assertSee('Cc', false);
+        $resp->assertSee('manager@hfcoastal.co.za', false);
+    }
+
+    public function test_body_falls_back_to_an_unlabelled_recipients_list_for_a_legacy_row(): void
+    {
+        // to_identifiers/cc_identifiers null — predates the Phase G ingestion fix.
+        $comm = $this->comm($this->agencyId, [
+            'to_identifiers' => null,
+            'cc_identifiers' => null,
+            'participant_identifiers' => ['conveyancer@bbb-attorneys.co.za', 'legacy-recipient@example.com'],
+        ]);
+
+        $resp = $this->actingAs($this->agent)
+            ->get(route('deals-dr2.comms-body.show', $comm->id))
+            ->assertOk();
+
+        $resp->assertSee('Recipients', false);
+        $resp->assertSee('legacy-recipient@example.com', false);
+        $resp->assertDontSee('>To<', false);
+        $resp->assertDontSee('>Cc<', false);
+    }
+
+    public function test_body_annotates_a_recipient_who_is_a_named_party_on_a_dr2_deal(): void
+    {
+        $dealV2Id = (int) DB::table('deals_v2')->insertGetId([
+            'reference' => 'DR2-' . Str::random(5), 'deal_type' => 'bond', 'listing_agent_id' => $this->agent->id,
+            'purchase_price' => 1_500_000, 'commission_amount' => 75_000, 'commission_vat' => 11_250,
+            'offer_date' => '2026-03-01', 'branch_id' => $this->branchId, 'agency_id' => $this->agencyId,
+            'created_by_id' => $this->agent->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $deal = \App\Models\Deal::withoutEvents(fn () => \App\Models\Deal::withoutGlobalScopes()->create([
+            'period' => '2026-03', 'deal_date' => '2026-03-01', 'property_value' => 1_500_000, 'total_commission' => 86_250,
+            'reference' => 'REG-' . Str::random(5), 'deal_no' => random_int(1000, 9999), 'deal_type' => 'bond',
+            'seller_name' => 'Test Seller', 'property_address' => 'MARKER_ANNOTATE_PROPERTY',
+            'agency_id' => $this->agencyId, 'branch_id' => $this->branchId, 'deal_v2_id' => $dealV2Id,
+        ]));
+        $contactId = (int) DB::table('contacts')->insertGetId([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->branchId, 'email' => 'seller-party@example.com',
+            'first_name' => 'Test', 'last_name' => 'Seller', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('deal_contacts')->insert([
+            'deal_id' => $deal->id, 'contact_id' => $contactId, 'role' => 'seller',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $comm = $this->comm($this->agencyId, [
+            'to_identifiers' => ['seller-party@example.com'],
+            'cc_identifiers' => [],
+        ]);
+
+        $resp = $this->actingAs($this->agent)
+            ->get(route('deals-dr2.comms-body.show', $comm->id))
+            ->assertOk();
+
+        $resp->assertSee('seller on deal', false);
+        $resp->assertSee((string) $deal->deal_no, false);
+    }
+
+    public function test_body_annotates_a_recipient_who_is_a_known_contact_but_not_a_deal_party(): void
+    {
+        DB::table('contacts')->insert([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->branchId, 'email' => 'plain-contact@example.com',
+            'first_name' => 'Plain', 'last_name' => 'Contact', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $comm = $this->comm($this->agencyId, [
+            'to_identifiers' => ['plain-contact@example.com'],
+            'cc_identifiers' => [],
+        ]);
+
+        $resp = $this->actingAs($this->agent)
+            ->get(route('deals-dr2.comms-body.show', $comm->id))
+            ->assertOk();
+
+        $resp->assertSee('Plain Contact', false);
+        $resp->assertSee('contact', false);
+    }
 }

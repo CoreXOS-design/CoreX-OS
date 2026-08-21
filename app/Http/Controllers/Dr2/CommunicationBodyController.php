@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Dr2;
 use App\Http\Controllers\Controller;
 use App\Models\Communications\Communication;
 use App\Models\Communications\CommunicationAttachment;
+use App\Models\Contact;
 use App\Services\Communications\CommunicationStorageService;
+use App\Services\Communications\Dr2DealPartyEmailResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
@@ -26,6 +28,10 @@ use Illuminate\Support\Facades\Storage;
  */
 class CommunicationBodyController extends Controller
 {
+    public function __construct(private Dr2DealPartyEmailResolver $dealParties)
+    {
+    }
+
     /** GET /deals-dr2/communications/{communication}/body — the rendered bubble for ONE email. */
     public function show(Request $request, Communication $communication)
     {
@@ -34,7 +40,11 @@ class CommunicationBodyController extends Controller
 
         $communication->loadMissing('attachments');
 
-        return view('compliance.communication-archive._thread-bubble', [
+        $recipients = view('dr2._email-recipients', [
+            'communication' => $communication,
+        ] + $this->recipientData($communication, $agencyId))->render();
+
+        $bubble = view('compliance.communication-archive._thread-bubble', [
             'm' => $communication,
             'attachmentRoute' => 'deals-dr2.comms-body.attachment',
             'attachmentRetryRoute' => 'deals-dr2.comms-body.attachment', // DR2 is email-only (no
@@ -43,6 +53,91 @@ class CommunicationBodyController extends Controller
             // exists rather than left dangling.
             'transcribeRoute' => 'deals-dr2.comms-body.attachment',
         ])->render();
+
+        return $recipients . $bubble;
+    }
+
+    /**
+     * CX-113 Phase G (Johan, 2026-08-22) — "cant see all the email addresses it was
+     * sent from or sent to... say so inline." Builds From/To/Cc (or, for a legacy row
+     * captured before Phase G, an honest "Recipients" fallback — see
+     * Dr2DealPartyEmailResolver's dealMatchesForEmails() doc block) plus, per address,
+     * whatever the system already knows: a named deal-party role (near-conclusive when
+     * unique) using the SAME "Role on N deals" specificity wording as the ranked
+     * deal-search badges (never a separate taxonomy), or — failing that — a known
+     * contact's name.
+     *
+     * @return array{to: array<int,string>, cc: array<int,string>, legacyRecipients: ?array<int,string>, annotations: array<string,string>}
+     */
+    private function recipientData(Communication $communication, int $agencyId): array
+    {
+        $to = $communication->to_identifiers;
+        $cc = $communication->cc_identifiers;
+
+        // Phase G shipped after this row was captured — to_identifiers/cc_identifiers
+        // were never persisted for it (see the ingestion fix's commit message: the
+        // role split existed in memory at parse time and was discarded before Phase
+        // G). The best we can honestly show is the full merged set, unlabeled.
+        $legacyRecipients = null;
+        if ($to === null && $cc === null) {
+            $from = strtolower(trim((string) $communication->from_identifier));
+            $legacyRecipients = collect($communication->participant_identifiers ?? [])
+                ->map(fn ($e) => strtolower(trim((string) $e)))
+                ->filter(fn ($e) => $e !== '' && $e !== $from)
+                ->unique()->values()->all();
+        }
+
+        $allAddresses = collect([$communication->from_identifier])
+            ->merge($to ?? [])->merge($cc ?? [])->merge($legacyRecipients ?? [])
+            ->filter()->unique()->values()->all();
+
+        $annotations = $this->annotationsFor($allAddresses, $agencyId);
+
+        return [
+            'to' => $to ?? [],
+            'cc' => $cc ?? [],
+            'legacyRecipients' => $legacyRecipients,
+            'annotations' => $annotations,
+        ];
+    }
+
+    /** @return array<string, string> normalised email => one-line annotation */
+    private function annotationsFor(array $addresses, int $agencyId): array
+    {
+        $dealMatches = $this->dealParties->dealMatchesForEmails($agencyId, $addresses);
+        $partyFrequency = $this->dealParties->partyDealFrequency($agencyId);
+
+        $roleDisplay = [
+            'buyer' => 'buyer', 'seller' => 'seller', 'attorney' => 'attorney',
+            'bond_originator' => 'bond originator', 'bond_attorney' => 'bond attorney',
+            'coc_supplier' => 'COC supplier', 'other_party' => 'party',
+        ];
+
+        $out = [];
+        foreach ($addresses as $addr) {
+            $email = strtolower(trim((string) $addr));
+            $matches = $dealMatches[$email] ?? [];
+            if ($matches !== []) {
+                $freq = max(1, $partyFrequency[$email] ?? count($matches));
+                $roleLabel = $roleDisplay[$matches[0]['role']] ?? 'party';
+                if ($freq <= 1) {
+                    $deal = $matches[0];
+                    $label = trim(($deal['deal_no'] ? "#{$deal['deal_no']}" : '') . ($deal['property_address'] ? " · {$deal['property_address']}" : ''));
+                    $out[$email] = "{$roleLabel} on deal {$label}";
+                } else {
+                    $out[$email] = ucfirst($roleLabel) . " on {$freq} deals";
+                }
+                continue;
+            }
+
+            $contact = Contact::query()->where('agency_id', $agencyId)
+                ->whereRaw('LOWER(email) = ?', [$email])->first(['id', 'first_name', 'last_name']);
+            if ($contact) {
+                $out[$email] = trim($contact->full_name) !== '' ? "{$contact->full_name} — contact" : 'known contact';
+            }
+        }
+
+        return $out;
     }
 
     /** GET /deals-dr2/communications/attachments/{attachment} — same streaming as the

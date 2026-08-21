@@ -922,4 +922,161 @@ final class UnfiledEmailsTest extends TestCase
             ->getJson(route('deals-dr2.unfiled-emails.suggest', $otherComm))
             ->assertNotFound();
     }
+
+    /**
+     * CX-113 Phase G (Johan, 2026-08-22) — "getting an email that should not be in
+     * here so how do i remove it?" Real example: a Google Ads/web-design supplier
+     * sitting in the DR2 unfiled queue. Reversible, agency-wide, reason-tagged, never
+     * touches the Communication row or its contact link.
+     */
+    public function test_dismiss_removes_an_email_from_the_unfiled_list(): void
+    {
+        $comm = $this->comm(['subject' => 'Not deal related subject line']);
+
+        $this->actingAs($this->agent)
+            ->postJson(route('deals-dr2.unfiled-emails.dismiss', $comm), ['reason' => 'supplier_marketing'])
+            ->assertOk()
+            ->assertJson(['ok' => true, 'reason' => 'Supplier/marketing']);
+
+        $this->assertDatabaseHas('communication_dr2_dismissals', [
+            'communication_id' => $comm->id,
+            'reason' => 'supplier_marketing',
+            'dismissed_by_user_id' => $this->agent->id,
+        ]);
+
+        $resp = $this->actingAs($this->agent)->get(route('deals-dr2.unfiled-emails.index'))->assertOk();
+        $resp->assertDontSee('Not deal related subject line');
+    }
+
+    public function test_dismiss_excludes_the_email_from_the_all_state_too(): void
+    {
+        $comm = $this->comm(['subject' => 'Dismissed from all state subject']);
+        $this->actingAs($this->agent)
+            ->postJson(route('deals-dr2.unfiled-emails.dismiss', $comm), ['reason' => 'personal'])
+            ->assertOk();
+
+        $resp = $this->actingAs($this->agent)
+            ->get(route('deals-dr2.unfiled-emails.index', ['state' => 'all']))
+            ->assertOk();
+        $resp->assertDontSee('Dismissed from all state subject');
+    }
+
+    public function test_dismissed_email_is_findable_under_the_removed_state_with_reason_and_who(): void
+    {
+        $comm = $this->comm(['subject' => 'Findable when removed subject']);
+        $this->actingAs($this->agent)
+            ->postJson(route('deals-dr2.unfiled-emails.dismiss', $comm), ['reason' => 'duplicate'])
+            ->assertOk();
+
+        $resp = $this->actingAs($this->agent)
+            ->get(route('deals-dr2.unfiled-emails.index', ['state' => 'removed']))
+            ->assertOk();
+        $resp->assertSee('Findable when removed subject');
+        $resp->assertSee('Duplicate');
+        $resp->assertSee($this->agent->name, false);
+    }
+
+    public function test_restore_puts_a_dismissed_email_back_in_the_unfiled_list(): void
+    {
+        $comm = $this->comm(['subject' => 'Restored subject line']);
+        $this->actingAs($this->agent)
+            ->postJson(route('deals-dr2.unfiled-emails.dismiss', $comm), ['reason' => 'not_deal_related'])
+            ->assertOk();
+
+        $this->actingAs($this->agent)
+            ->postJson(route('deals-dr2.unfiled-emails.restore', $comm))
+            ->assertOk()
+            ->assertJson(['ok' => true]);
+
+        $this->assertDatabaseHas('communication_dr2_dismissals', [
+            'communication_id' => $comm->id,
+            'restored_by_user_id' => $this->agent->id,
+        ]);
+
+        $unfiled = $this->actingAs($this->agent)->get(route('deals-dr2.unfiled-emails.index'))->assertOk();
+        $unfiled->assertSee('Restored subject line');
+
+        $removed = $this->actingAs($this->agent)
+            ->get(route('deals-dr2.unfiled-emails.index', ['state' => 'removed']))
+            ->assertOk();
+        $removed->assertDontSee('Restored subject line');
+    }
+
+    public function test_dismiss_rejects_an_unknown_reason(): void
+    {
+        $comm = $this->comm();
+
+        $this->actingAs($this->agent)
+            ->postJson(route('deals-dr2.unfiled-emails.dismiss', $comm), ['reason' => 'made_up_reason'])
+            ->assertStatus(422);
+    }
+
+    public function test_dismiss_with_other_reason_requires_free_text(): void
+    {
+        $comm = $this->comm();
+
+        $this->actingAs($this->agent)
+            ->postJson(route('deals-dr2.unfiled-emails.dismiss', $comm), ['reason' => 'other'])
+            ->assertStatus(422);
+
+        $this->actingAs($this->agent)
+            ->postJson(route('deals-dr2.unfiled-emails.dismiss', $comm), ['reason' => 'other', 'reason_other' => 'Newsletter signup confirmation'])
+            ->assertOk();
+
+        $this->assertDatabaseHas('communication_dr2_dismissals', [
+            'communication_id' => $comm->id,
+            'reason' => 'other',
+            'reason_other' => 'Newsletter signup confirmation',
+        ]);
+    }
+
+    public function test_dismissal_is_agency_wide_not_just_visible_to_the_dismisser(): void
+    {
+        // Admin/scope=all so the colleague would see this email if it were NOT
+        // dismissed — otherwise "they don't see it" proves nothing about the
+        // dismissal itself (an unrelated agent at 'own' scope never would anyway).
+        Role::create(['name' => 'admin', 'label' => 'Admin', 'agency_id' => $this->agencyId]);
+        RolePermission::create(['role' => 'admin', 'permission_key' => 'view_deals', 'agency_id' => $this->agencyId]);
+        RolePermission::create(['role' => 'admin', 'permission_key' => 'dr2_unfiled_emails.view', 'scope' => 'all', 'agency_id' => $this->agencyId]);
+        Role::clearCache();
+        PermissionService::clearCache();
+
+        $comm = $this->comm(['subject' => 'Agency wide dismiss subject']);
+        $colleague = User::factory()->create(['agency_id' => $this->agencyId, 'role' => 'admin', 'is_active' => true]);
+
+        // Sanity check: BEFORE dismissal, the wide-scope colleague genuinely sees it.
+        $before = $this->actingAs($colleague)->get(route('deals-dr2.unfiled-emails.index'))->assertOk();
+        $before->assertSee('Agency wide dismiss subject');
+
+        $this->actingAs($this->agent)
+            ->postJson(route('deals-dr2.unfiled-emails.dismiss', $comm), ['reason' => 'not_deal_related'])
+            ->assertOk();
+
+        $after = $this->actingAs($colleague)->get(route('deals-dr2.unfiled-emails.index'))->assertOk();
+        $after->assertDontSee('Agency wide dismiss subject');
+    }
+
+    public function test_dismiss_does_not_touch_the_communication_or_its_contact_link(): void
+    {
+        $comm = $this->comm();
+        $contactId = (int) DB::table('contacts')->insertGetId([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->branchId, 'email' => 'linked-contact@example.com',
+            'first_name' => 'Linked', 'last_name' => 'Contact', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        CommunicationLink::create([
+            'agency_id' => $this->agencyId, 'communication_id' => $comm->id,
+            'linkable_type' => \App\Models\Contact::class, 'linkable_id' => $contactId,
+            'link_method' => CommunicationLink::METHOD_DETERMINISTIC, 'confidence' => 100, 'confirmed_at' => now(),
+        ]);
+
+        $this->actingAs($this->agent)
+            ->postJson(route('deals-dr2.unfiled-emails.dismiss', $comm), ['reason' => 'not_deal_related'])
+            ->assertOk();
+
+        $this->assertDatabaseHas('communications', ['id' => $comm->id, 'deleted_at' => null]);
+        $this->assertDatabaseHas('communication_links', [
+            'communication_id' => $comm->id, 'linkable_type' => \App\Models\Contact::class,
+            'linkable_id' => $contactId, 'deleted_at' => null,
+        ]);
+    }
 }
