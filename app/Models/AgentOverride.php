@@ -49,6 +49,7 @@ class AgentOverride extends Model
     public const TYPE_FIELD_EDITED      = 'field_edited';
     public const TYPE_REVIEW_TAKEOVER   = 'review_takeover';
     public const TYPE_COMP_UNAVAILABLE  = 'comp_unavailable';
+    public const TYPE_SIZE_LIFT_TOGGLED = 'size_lift_toggled'; // Johan 2026-08-21 — CMA size-lift opt-in
 
     public function presentationVersion()
     {
