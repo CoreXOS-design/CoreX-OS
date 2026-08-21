@@ -16,8 +16,8 @@
             this.expandedId = commId; this.expandedHtml = ''; this.expanding = true;
             try {
                 const r = await fetch('{{ url('deals-dr2/communications') }}/' + commId + '/body', {headers:{Accept:'text/html'}});
-                this.expandedHtml = r.ok ? await r.text() : '<p style="color:#b91c1c;font-size:.8rem;">Could not load this email.</p>';
-            } catch(e) { this.expandedHtml = '<p style="color:#b91c1c;font-size:.8rem;">Could not load this email.</p>'; }
+                this.expandedHtml = r.ok ? await r.text() : '<p style=\'color:#b91c1c;font-size:.8rem;\'>Could not load this email.</p>';
+            } catch(e) { this.expandedHtml = '<p style=\'color:#b91c1c;font-size:.8rem;\'>Could not load this email.</p>'; }
             this.expanding = false;
         },
         async loadLinks(){
