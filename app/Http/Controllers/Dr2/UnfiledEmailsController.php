@@ -452,6 +452,33 @@ class UnfiledEmailsController extends Controller
         if ($historySuggestion) {
             $candidateDealIds->push($historySuggestion['deal_id']);
         }
+
+        // CX-113 Phase J (Johan, 2026-08-22, urgent — real failure): "SECTION 5 ALOHA
+        // PARK must find deal #1790." Before this, candidates came ONLY from party-email
+        // matches + learned history — a deal with no deal_contacts rows (most of them:
+        // only 12 of 80 twinned deals have any, confirmed on real staging data) could
+        // never enter the pool no matter how obviously its subject matched. Widened here
+        // with a real DB search on the SAME significant words the property-match signal
+        // itself requires (2+) to actually count — this only WIDENS who gets considered;
+        // scoreDeal()/matchSignalsFor() (Phase J's own stricter 2-word-minimum fix)
+        // still decides whether it's confident enough to show, so a coincidental
+        // single-word hit still can't surface a wrong deal here either.
+        $subjectWords = $this->significantWords((string) $communication->subject);
+        if (! empty($subjectWords)) {
+            $subjectCandidates = Deal::query()->whereNotNull('deal_v2_id')
+                ->where(function ($q) use ($subjectWords) {
+                    foreach ($subjectWords as $w) {
+                        $q->orWhere('property_address', 'like', "%{$w}%")
+                            ->orWhere('seller_name', 'like', "%{$w}%")
+                            ->orWhere('buyer_name', 'like', "%{$w}%");
+                    }
+                })
+                ->limit(30)->pluck('id');
+            foreach ($subjectCandidates as $id) {
+                $candidateDealIds->push($id);
+            }
+        }
+
         $candidateDealIds = $candidateDealIds->unique()->values();
 
         if ($candidateDealIds->isEmpty()) {
@@ -566,8 +593,22 @@ class UnfiledEmailsController extends Controller
 
         // 2) Learned filing history — Dr2FilingSuggestionService's own verdict, reused
         // verbatim (never re-derived) when it points at THIS deal.
+        //
+        // CX-113 Phase J (Johan, 2026-08-22, urgent — real failure): "5 previous emails
+        // with this sender were filed to #1791" was a FIXED score of 90 regardless of
+        // how many OTHER deals that sender has also been filed to — for
+        // linda@vdsatt.co.za (real frequency 9, confirmed via partyDealFrequency) that
+        // number is nearly meaningless, yet it alone was enough to cross the confidence
+        // bar and produce a false "confident" auto-match (97 Shortens for an Aloha Park
+        // email). Weighted the SAME way a single party-email match already is, capped
+        // at 60 (max, freq=1) — DELIBERATELY kept below AUTO_MATCH_CONFIDENCE_THRESHOLD
+        // (90) so history can NEVER alone produce a confident match, even for a sender
+        // who has (so far) only ever been filed to one deal. Johan, explicit: "sender
+        // history must not be sufficient alone."
         if ($historySuggestion && (int) $historySuggestion['deal_id'] === (int) $deal->id) {
-            $signals[] = ['type' => 'history', 'label' => $historySuggestion['reason'], 'score' => 90];
+            $senderFreq = max(1, $partyFrequency[strtolower(trim((string) $communication->from_identifier))] ?? 1);
+            $historyScore = max(5, (int) round(60 / ($senderFreq ** 2)));
+            $signals[] = ['type' => 'history', 'label' => $historySuggestion['reason'], 'score' => $historyScore];
         }
 
         // 3) A party's surname appears in the subject — cheap, strong when it hits.
@@ -579,13 +620,20 @@ class UnfiledEmailsController extends Controller
             }
         }
 
-        // 4) Property address — typo-tolerant: significant WORDS from the address, not
-        // an exact substring, so a real agent typo (Johan's own example: "SETION" for
-        // "SECTION") doesn't sink the signal. Weakest of the four here on purpose —
-        // in Johan's own "santa" example every candidate deal shares the same street
-        // name, so this alone never disambiguates; email/subject/history do that work.
-        if ($this->propertyAddressWordIn($deal->property_address, $subject . ' ' . (string) $communication->body_text)) {
-            $signals[] = ['type' => 'property', 'label' => 'Property address matches', 'score' => 20];
+        // 4) Property address — CX-113 Phase J fix (Johan, 2026-08-22, urgent — real
+        // failure): this used to fire on ANY SINGLE significant word matching anywhere
+        // in the subject+body, which is how "Property address matches" got asserted for
+        // "97 Shortens Country Estate" against an ALOHA PARK email — the single word
+        // "Estate" happened to appear in unrelated body text ("AN ESTATE B L KOORSTEN",
+        // a deceased-estate reference). Now requires AT LEAST TWO matched significant
+        // words (still typo-tolerant at the word level — Johan's own "SETION" example
+        // still matches "SECTION" is unaffected since that's partyNameWordIn/subject,
+        // not this — but a false single-word coincidence can no longer pass as a match).
+        // An address with fewer than 2 significant words simply cannot fire this signal
+        // — other signals must do the work instead of a coin-flip on one generic word.
+        $matchedPropertyWords = $this->propertyAddressWordsMatched($deal->property_address, $subject . ' ' . (string) $communication->body_text);
+        if (count($matchedPropertyWords) >= 2) {
+            $signals[] = ['type' => 'property', 'label' => 'Property address matches (' . implode(', ', $matchedPropertyWords) . ')', 'score' => 20];
         }
 
         return $signals;
@@ -606,23 +654,45 @@ class UnfiledEmailsController extends Controller
         return null;
     }
 
-    /** True if any significant (3+ char, non-structural) word of $address appears in $haystack. */
-    private function propertyAddressWordIn(?string $address, string $haystack): bool
+    /**
+     * Significant (3+ char, non-structural) lowercased words extracted from $text —
+     * shared by the property-address matcher and (Phase J) autoMatchesFor()'s
+     * subject-based candidate search, so "what counts as a real word" is defined once.
+     */
+    private const PROPERTY_MATCH_STOPWORDS = [
+        'unit', 'door', 'section', 'sect', 'flat', 'road', 'street', 'ave', 'avenue',
+        'drive', 'close', 'complex', 're', 'fwd', 'fw', 'progress', 'report', 'the', 'and',
+    ];
+
+    private function significantWords(string $text): array
+    {
+        preg_match_all('/[a-z0-9]+/i', $text, $m);
+
+        return collect($m[0])
+            ->map(fn ($w) => mb_strtolower($w))
+            ->filter(fn ($w) => mb_strlen($w) >= 3 && ! in_array($w, self::PROPERTY_MATCH_STOPWORDS, true))
+            ->unique()->values()->all();
+    }
+
+    /**
+     * CX-113 Phase J fix (Johan, 2026-08-22, urgent — real failure): used to return a
+     * bare bool on the FIRST single-word hit — how "97 Shortens Country Estate" falsely
+     * matched an Aloha Park email via the one generic word "Estate" appearing,
+     * coincidentally, in unrelated body text. Now returns every matched word so the
+     * caller can require MORE than one before treating it as a real match, and show
+     * honestly which words actually matched.
+     *
+     * @return array<int, string> matched significant words, lowercased
+     */
+    private function propertyAddressWordsMatched(?string $address, string $haystack): array
     {
         if (! $address || $haystack === '') {
-            return false;
+            return [];
         }
-        $stopwords = ['unit', 'door', 'section', 'sect', 'flat', 'road', 'street', 'ave', 'avenue', 'drive', 'close', 'complex'];
-        preg_match_all('/[a-z0-9]+/i', $address, $m);
-        foreach ($m[0] as $word) {
-            if (mb_strlen($word) < 3 || in_array(mb_strtolower($word), $stopwords, true)) {
-                continue;
-            }
-            if (mb_stripos($haystack, $word) !== false) {
-                return true;
-            }
-        }
-        return false;
+        $addressWords = $this->significantWords($address);
+        $haystackLower = mb_strtolower($haystack);
+
+        return array_values(array_filter($addressWords, fn ($w) => mb_stripos($haystackLower, $w) !== false));
     }
 
     /**
