@@ -133,7 +133,13 @@ class CommunicationDealLinkingService
             }
 
             $this->captureSignals($communication, $dealV2Id, $agencyId);
-            $this->fileAttachments($communication, $dealV2Id, $user);
+            $attachmentSummary = $this->fileAttachments($communication, $dealV2Id, $user);
+
+            // Ephemeral — not a real column, not persisted. A cheap way for the
+            // caller to read "did this filing half-work?" without changing link()'s
+            // return type (findRelatedUnfiled and every other existing caller is
+            // unaffected if it never reads this attribute).
+            $link->setAttribute('attachment_filing', $attachmentSummary);
 
             return $link;
         });
@@ -277,19 +283,37 @@ class CommunicationDealLinkingService
      * logged — it must never swallow the whole filing action, mirroring Comms
      * Suspense's own "absorb a missing blob — never break the file".
      *
-     * JUNK FILTER — NOT BUILT (Johan's call, not made yet, 2026-08-22): signature/
-     * logo images (image001.png etc.) are NOT excluded. Comms Suspense doesn't
-     * filter them either — checked, confirmed empty. This is exactly where a
-     * filter would go if/when Johan rules on one.
+     * JUNK FILTER (Johan's ruling, 2026-08-22): "only ingest pdf documents". Non-PDF
+     * attachments (signature/logo images, but also anything else non-PDF) are never
+     * filed as deal documents — they are NOT deleted anywhere; the email itself still
+     * carries them untouched. Verified by the file's own magic bytes (isPdf() below),
+     * not by filename or the sender-supplied mime — a mislabelled file must not slip
+     * through, and a genuine PDF with an odd filename or wrong mime must not be
+     * excluded. Measured on staging (2026-08-22, email-channel attachments): 431/2198
+     * (19.6%) are genuinely PDF; of the 1767 excluded, 1574 match the classic Outlook
+     * inline-signature naming (imageNNN.jpg/png, image.png, noname, RSImage*) and 193
+     * do not — that residual includes a small number of real paperwork sent as
+     * Word/Excel (e.g. body-corporate letters, rental schedules, asking-price lists)
+     * and some ID-document photos (e.g. "Trevor ID front.jpg") that this rule
+     * deliberately excludes from the document library per Johan's explicit ruling.
+     *
+     * Returns a per-communication filing summary (filed / skipped_duplicate /
+     * skipped_non_pdf / failed) so the caller can surface a half-worked filing to the
+     * agent instead of a silent "ok" — a filing where 2 of 3 attachments failed must
+     * say so (Johan, 2026-08-22).
+     *
+     * @return array{filed:int,skipped_duplicate:int,skipped_non_pdf:int,failed:int}
      */
-    private function fileAttachments(Communication $communication, int $dealV2Id, User $user): void
+    private function fileAttachments(Communication $communication, int $dealV2Id, User $user): array
     {
+        $summary = ['filed' => 0, 'skipped_duplicate' => 0, 'skipped_non_pdf' => 0, 'failed' => 0];
+
         $dr1Deal = Deal::where('deal_v2_id', $dealV2Id)->first();
         if (! $dr1Deal) {
             // No DR1 twin for this DealV2 yet — nothing to file into. The comm->deal
             // link above still stands; attachments simply have nowhere to land until
             // the twin exists.
-            return;
+            return $summary;
         }
 
         $attachments = $communication->attachments()
@@ -300,12 +324,19 @@ class CommunicationDealLinkingService
         foreach ($attachments as $attachment) {
             try {
                 if ($this->isDuplicateOnDeal((string) $attachment->content_hash, $dealV2Id)) {
+                    $summary['skipped_duplicate']++;
                     continue;
                 }
 
                 $bytes = $this->storage->get((string) $attachment->storage_path);
                 if ($bytes === null) {
+                    $summary['failed']++;
                     continue; // absorb a missing blob — never break the filing
+                }
+
+                if (! $this->isPdf($bytes)) {
+                    $summary['skipped_non_pdf']++;
+                    continue; // not deleted anywhere — the email still carries it
                 }
 
                 $disk = 'local';
@@ -316,26 +347,32 @@ class CommunicationDealLinkingService
                     'original_name' => $attachment->filename ?: 'attachment',
                     'storage_path'  => $path,
                     'disk'          => $disk,
-                    'mime_type'     => $attachment->mime ?: 'application/octet-stream',
+                    'mime_type'     => 'application/pdf', // verified by magic bytes above, not trusted from the sender
                     'size'          => (int) $attachment->size_bytes,
                     'source_type'   => 'inbound_email',
                 ], $user);
 
-                // Provenance: THIS communication produced THIS document, via
-                // attachment filing specifically (method distinct from Comms
-                // Suspense's attorney_ref) — drives withdrawAttachmentDocuments()
-                // on move/unlink and isDuplicateOnDeal() above.
+                // Provenance: THIS attachment (not just this communication — see
+                // source_attachment_id docblock on the migration for why the
+                // distinction matters) produced THIS document, via attachment
+                // filing specifically (method distinct from Comms Suspense's
+                // attorney_ref) — drives withdrawAttachmentDocuments() on
+                // move/unlink and isDuplicateOnDeal() above.
                 CommunicationLink::create([
-                    'agency_id'        => $communication->agency_id,
-                    'communication_id' => $communication->id,
-                    'linkable_type'    => Document::class,
-                    'linkable_id'      => $doc->id,
-                    'link_method'      => CommunicationLink::METHOD_ATTACHMENT,
-                    'confidence'       => 100,
-                    'confirmed_by'     => $user->id,
-                    'confirmed_at'     => now(),
+                    'agency_id'             => $communication->agency_id,
+                    'communication_id'      => $communication->id,
+                    'linkable_type'         => Document::class,
+                    'linkable_id'           => $doc->id,
+                    'source_attachment_id'  => $attachment->id,
+                    'link_method'           => CommunicationLink::METHOD_ATTACHMENT,
+                    'confidence'            => 100,
+                    'confirmed_by'          => $user->id,
+                    'confirmed_at'          => now(),
                 ]);
+
+                $summary['filed']++;
             } catch (\Throwable $e) {
+                $summary['failed']++;
                 Log::warning('DR2 attachment filing failed for one attachment — filing continued', [
                     'communication_id' => $communication->id,
                     'attachment_id'    => $attachment->id,
@@ -343,6 +380,20 @@ class CommunicationDealLinkingService
                 ]);
             }
         }
+
+        return $summary;
+    }
+
+    /**
+     * True content check, not filename/mime — a PDF's own magic number is the first
+     * 5 bytes of the file, `%PDF-`, per the PDF spec. Sender-supplied mime and
+     * filename extension are both untrusted (Johan, 2026-08-22: "a mislabelled file
+     * should not slip through and a correctly-formed PDF with an odd filename should
+     * not be excluded").
+     */
+    private function isPdf(string $bytes): bool
+    {
+        return str_starts_with($bytes, '%PDF-');
     }
 
     /**
@@ -351,14 +402,17 @@ class CommunicationDealLinkingService
      * deal is skipped, not re-filed. Scoped per deal, not global — the same file
      * legitimately filed to two different deals is not a duplicate.
      *
-     * Precision note: this checks whether ANY attachment on a communication that
-     * has already produced a live document on this deal shares the hash — not
-     * strictly "this exact attachment, by id". In the realistic case (the same
-     * PDF re-attached across a thread) this is exact. The only imprecision is a
-     * communication with two DIFFERENT attachments where one failed to file
-     * (missing blob) — building fully attachment-precise provenance would need a
-     * schema change to the shared communication_links table, not done given other
-     * lanes are actively working in comms right now.
+     * Attachment-precise via source_attachment_id (2026-08-22 fix — found during
+     * verification): an EARLIER version of this method matched on "does the
+     * PRODUCING COMMUNICATION have any attachment with this hash", which is a
+     * false-positive trap for a multi-attachment email — once its first attachment
+     * files, the check trivially matches that SAME attachment against itself for
+     * every subsequent attachment on the same email (a communication that "produced
+     * a document" always "has an attachment" with the just-filed hash — that's just
+     * the first attachment matching itself), silently skipping every attachment
+     * after the first regardless of whether its content had ever actually been
+     * filed. Matching on source_attachment_id's own content_hash instead of the
+     * producing communication's full attachment set is exact.
      */
     private function isDuplicateOnDeal(string $contentHash, int $dealV2Id): bool
     {
@@ -366,20 +420,15 @@ class CommunicationDealLinkingService
             return false; // never block filing on an unhashed attachment
         }
 
-        $producingCommIds = CommunicationLink::where('linkable_type', Document::class)
+        return CommunicationLink::where('linkable_type', Document::class)
             ->where('link_method', CommunicationLink::METHOD_ATTACHMENT)
             ->whereNull('deleted_at')
             ->whereIn('linkable_id', function ($q) use ($dealV2Id) {
                 $q->select('id')->from('documents')->where('deal_id', $dealV2Id)->whereNull('deleted_at');
             })
-            ->pluck('communication_id');
-
-        if ($producingCommIds->isEmpty()) {
-            return false;
-        }
-
-        return CommunicationAttachment::whereIn('communication_id', $producingCommIds)
-            ->where('content_hash', $contentHash)
+            ->whereIn('source_attachment_id', function ($q) use ($contentHash) {
+                $q->select('id')->from('communication_attachments')->where('content_hash', $contentHash);
+            })
             ->exists();
     }
 
