@@ -479,9 +479,18 @@ class UnfiledEmailsController extends Controller
         // scoreDeal()/matchSignalsFor() (Phase J's own stricter 2-word-minimum fix)
         // still decides whether it's confident enough to show, so a coincidental
         // single-word hit still can't surface a wrong deal here either.
+        // CX-113 Phase J (Johan, 2026-08-22, urgent — real failure, second half): deal
+        // #1790 ITSELF has no DR2 twin (deal_v2_id null) — the same gap this morning's
+        // filing-bug fix excluded from dealSearch()/file(). That exclusion is correct
+        // for filing (there's nothing to link to). It is WRONG for finding — an agent
+        // needs to see the real match exists even if it can't be filed until someone
+        // twins it. So: no deal_v2_id filter here (widening only, never on dealSearch()
+        // or file()/fileBatch(), which stay exactly as this morning left them). Each
+        // result below carries 'fileable' so the view can show a non-twinned match
+        // honestly instead of offering a click that would 422.
         $subjectWords = $this->significantWords((string) $communication->subject);
         if (! empty($subjectWords)) {
-            $subjectCandidates = Deal::query()->whereNotNull('deal_v2_id')
+            $subjectCandidates = Deal::query()
                 ->where(function ($q) use ($subjectWords) {
                     foreach ($subjectWords as $w) {
                         $q->orWhere('property_address', 'like', "%{$w}%")
@@ -502,9 +511,14 @@ class UnfiledEmailsController extends Controller
         }
 
         $deals = Deal::query()->visibleTo($user)->whereIn('id', $candidateDealIds)
-            ->get(['id', 'deal_no', 'property_address', 'seller_name', 'buyer_name', 'attorney_name', 'accepted_status']);
+            ->get(['id', 'deal_no', 'property_address', 'seller_name', 'buyer_name', 'attorney_name', 'accepted_status', 'deal_v2_id']);
 
-        return $deals->map(fn (Deal $d) => $this->scoreDeal($d, $communication, $historySuggestion, $partyFrequency))
+        return $deals->map(function (Deal $d) use ($communication, $historySuggestion, $partyFrequency) {
+            $result = $this->scoreDeal($d, $communication, $historySuggestion, $partyFrequency);
+            $result['fileable'] = $d->deal_v2_id !== null;
+
+            return $result;
+        })
             ->filter(fn ($r) => $r['score'] >= self::AUTO_MATCH_CONFIDENCE_THRESHOLD)
             ->sortByDesc('score')->take(3)->values()->all();
     }
