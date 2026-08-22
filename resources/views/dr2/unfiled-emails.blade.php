@@ -420,6 +420,7 @@
                 @php($autoMatches = $autoMatchByCommId[$email->id] ?? [])
                 @php($topMatch = $autoMatches[0] ?? null)
                 @php($altMatches = array_slice($autoMatches, 1))
+                @php($evidence = $evidenceByCommId[$email->id] ?? null)
                 {{-- CX-113 Phase I — two-column card (Comms Suspense's own layout, salvaged
                      per Johan: "I like the look a lot more"): content left, action panel
                      right. flex-wrap (not a hard breakpoint) so the panel drops below the
@@ -505,6 +506,52 @@
                             </div>
                         @endif
                     </div>
+
+                    {{-- CX-113 Phase K (Johan, 2026-08-22) — left-column evidence panel: "use the
+                         massive space on the left... show the agents why we are matching an email
+                         to a deal." Fills the space below the preview that was previously empty on
+                         every unfiled row — does NOT touch the two-column layout, the action panel,
+                         or anything else that shipped this afternoon. Shows what did NOT match as
+                         well as what did (Johan, explicit — "that is what lets an agent catch a
+                         wrong suggestion instead of trusting it"), for the single best candidate
+                         found, confident or not. Hidden entirely when nothing was even a candidate
+                         (evidence is null) — nothing to show evidence FOR in that case. --}}
+                    @if($evidence)
+                        <div class="mt-3 pt-3" style="border-top:1px solid var(--border,#e5e7eb);" @click.stop>
+                            <div style="font-size:.68rem;font-weight:700;color:var(--text-muted,#9ca3af);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.5rem;">
+                                Why {{ $evidence['deal_label'] }}{{ $evidence['confident'] ? '' : ' — not confident enough' }}
+                            </div>
+                            <div class="space-y-1">
+                                @foreach(['seller', 'buyer'] as $side)
+                                    @php($sideEv = $evidence[$side])
+                                    <div class="flex items-start gap-2 text-xs">
+                                        <span class="flex-shrink-0" style="width:1rem;color:{{ $sideEv['matched'] ? 'var(--ds-green,#059669)' : 'var(--text-muted,#9ca3af)' }};">{{ $sideEv['matched'] ? '✓' : '✗' }}</span>
+                                        <span style="color:{{ $sideEv['matched'] ? 'var(--text-primary)' : 'var(--text-muted,#9ca3af)' }};">
+                                            {{ ucfirst($sideEv['role']) }} — {{ $sideEv['matched'] ? 'matched' : 'not matched' }}@if($sideEv['name']) ({{ $sideEv['name'] }}{{ $sideEv['matched_email'] ? ' — ' . $sideEv['matched_email'] : '' }})@endif
+                                        </span>
+                                    </div>
+                                @endforeach
+
+                                @if(count($evidence['emails']))
+                                    <div class="text-xs" style="margin:.4rem 0 .1rem;color:var(--text-muted,#9ca3af);font-weight:600;">Email addresses on this email</div>
+                                    @foreach($evidence['emails'] as $e)
+                                        <div class="flex items-start gap-2 text-xs">
+                                            <span class="flex-shrink-0" style="width:1rem;color:{{ $e['matched'] ? 'var(--ds-green,#059669)' : 'var(--text-muted,#9ca3af)' }};">{{ $e['matched'] ? '✓' : '✗' }}</span>
+                                            <span style="color:{{ $e['matched'] ? 'var(--text-primary)' : 'var(--text-muted,#9ca3af)' }};min-width:0;word-break:break-all;">{{ $e['email'] }} — {{ $e['note'] }}</span>
+                                        </div>
+                                    @endforeach
+                                @endif
+
+                                <div class="text-xs" style="margin:.4rem 0 .1rem;color:var(--text-muted,#9ca3af);font-weight:600;">Subject</div>
+                                @foreach($evidence['subject'] as $s)
+                                    <div class="flex items-start gap-2 text-xs">
+                                        <span class="flex-shrink-0" style="width:1rem;color:{{ $s['matched'] ? 'var(--ds-green,#059669)' : 'var(--text-muted,#9ca3af)' }};">{{ $s['matched'] ? '✓' : '✗' }}</span>
+                                        <span style="color:{{ $s['matched'] ? 'var(--text-primary)' : 'var(--text-muted,#9ca3af)' }};">{{ $s['checked'] }} — {{ $s['note'] }}</span>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+                    @endif
 
                     {{-- CX-112 — read the email before filing/confirming. Reuses the SAME viewer
                          partial as the filed-emails-on-a-deal screen, fetched on demand — never
