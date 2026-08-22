@@ -539,8 +539,9 @@
                         <div class="rounded-md p-3" style="background:var(--surface-2,#f9fafb);border:1px solid var(--border,#e5e7eb);">
                             <div style="font-size:.68rem;font-weight:700;color:var(--text-muted,#9ca3af);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.5rem;">Auto matched</div>
                             @if($topMatch)
-                                <div class="rounded-md p-2.5" style="background:var(--surface,#fff);border:1px solid var(--brand-icon,#0ea5e9);cursor:pointer;"
-                                     @click="file({{ $email->id }}, {{ $topMatch['id'] }})">
+                                @php($topFileable = $topMatch['fileable'] ?? true)
+                                <div class="rounded-md p-2.5" style="background:var(--surface,#fff);border:1px solid var(--brand-icon,#0ea5e9);{{ $topFileable ? 'cursor:pointer;' : '' }}"
+                                     @if($topFileable) @click="file({{ $email->id }}, {{ $topMatch['id'] }})" @endif>
                                     <div class="flex items-center justify-between gap-2">
                                         <span class="text-sm truncate" style="font-weight:600;color:var(--text-primary);min-width:0;">{{ $topMatch['label'] }}</span>
                                         <span class="flex-shrink-0" style="font-size:.65rem;padding:.1rem .45rem;border-radius:999px;font-weight:600;white-space:nowrap;{{ $topMatch['status'] === 'Declined' ? 'background:color-mix(in srgb, var(--ds-crimson,#c41e3a) 15%, transparent);color:var(--ds-crimson,#c41e3a);' : ($topMatch['status'] === 'Pending' ? 'background:var(--surface-2,#f3f4f6);color:var(--text-muted,#9ca3af);' : 'background:color-mix(in srgb, var(--ds-green,#059669) 15%, transparent);color:var(--ds-green,#059669);') }}">{{ $topMatch['status'] }}</span>
@@ -553,17 +554,32 @@
                                     @foreach($topMatch['signals'] as $sig)
                                         <div class="text-xs" style="color:var(--text-secondary,var(--text-primary));margin-top:.3rem;line-height:1.4;">{{ $sig['label'] }}</div>
                                     @endforeach
+                                    {{-- CX-113 Phase J (Johan, 2026-08-22, urgent) — this deal is a REAL
+                                         match found via subject/property text, but has no DR2 twin yet
+                                         (deal_v2_id null), so there is nothing to file to. Say so honestly
+                                         instead of offering a click that would refuse with a 422. --}}
+                                    @unless($topFileable)
+                                        <div class="text-xs" style="margin-top:.4rem;color:var(--ds-amber,#f59e0b);font-weight:600;">Found, but not yet in the Deal Register — can't file until it's added.</div>
+                                    @endunless
                                 </div>
-                                <button type="button" class="w-full text-xs font-semibold" style="margin-top:.5rem;padding:.5rem;border-radius:.375rem;background:var(--brand-default,#0b2a4a);color:#fff;"
-                                        @click="file({{ $email->id }}, {{ $topMatch['id'] }})">Confirm &amp; file {{ $topMatch['label'] }}</button>
+                                @if($topFileable)
+                                    <button type="button" class="w-full text-xs font-semibold" style="margin-top:.5rem;padding:.5rem;border-radius:.375rem;background:var(--brand-default,#0b2a4a);color:#fff;"
+                                            @click="file({{ $email->id }}, {{ $topMatch['id'] }})">Confirm &amp; file {{ $topMatch['label'] }}</button>
+                                @else
+                                    <button type="button" class="w-full text-xs font-semibold" disabled style="margin-top:.5rem;padding:.5rem;border-radius:.375rem;background:var(--surface-2,#f3f4f6);color:var(--text-muted,#9ca3af);opacity:.7;cursor:not-allowed;">Not yet in the Deal Register</button>
+                                @endif
                                 @if(count($altMatches))
                                     <div style="margin-top:.6rem;padding-top:.5rem;border-top:1px solid var(--border,#e5e7eb);">
                                         <div style="font-size:.65rem;color:var(--text-muted,#9ca3af);margin-bottom:.35rem;">Or:</div>
                                         <div class="space-y-1.5">
                                             @foreach($altMatches as $alt)
-                                                <div class="rounded-md p-2" style="background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);cursor:pointer;"
-                                                     @click="file({{ $email->id }}, {{ $alt['id'] }})">
+                                                @php($altFileable = $alt['fileable'] ?? true)
+                                                <div class="rounded-md p-2" style="background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);{{ $altFileable ? 'cursor:pointer;' : 'opacity:.7;' }}"
+                                                     @if($altFileable) @click="file({{ $email->id }}, {{ $alt['id'] }})" @endif>
                                                     <div class="text-xs truncate" style="font-weight:600;color:var(--text-primary);">{{ $alt['label'] }}</div>
+                                                    @unless($altFileable)
+                                                        <div class="text-xs" style="color:var(--ds-amber,#f59e0b);">Not yet in the Deal Register</div>
+                                                    @endunless
                                                     @foreach($alt['signals'] as $sig)
                                                         <div class="text-xs truncate" style="color:var(--text-muted,#9ca3af);">{{ $sig['label'] }}</div>
                                                     @endforeach
@@ -631,9 +647,10 @@
                              one. Reject reuses the existing reason-picker, unchanged, just
                              relocated here from the old inline text-link trigger. --}}
                         <div class="mt-3 pt-3" style="border-top:1px solid var(--border,#e5e7eb);display:flex;flex-direction:column;gap:.5rem;">
-                            <button type="button" class="w-full text-xs font-semibold" :disabled="! {{ $topMatch ? 'true' : 'false' }}"
-                                    style="padding:.55rem;border-radius:.375rem;background:var(--brand-default,#0b2a4a);color:#fff;{{ $topMatch ? '' : 'opacity:.4;cursor:not-allowed;' }}"
-                                    @click="{{ $topMatch ? 'file(' . $email->id . ', ' . $topMatch['id'] . ')' : '' }}">Confirm &amp; file</button>
+                            @php($stackFileable = $topMatch && ($topMatch['fileable'] ?? true))
+                            <button type="button" class="w-full text-xs font-semibold" :disabled="! {{ $stackFileable ? 'true' : 'false' }}"
+                                    style="padding:.55rem;border-radius:.375rem;background:var(--brand-default,#0b2a4a);color:#fff;{{ $stackFileable ? '' : 'opacity:.4;cursor:not-allowed;' }}"
+                                    @click="{{ $stackFileable ? 'file(' . $email->id . ', ' . $topMatch['id'] . ')' : '' }}">Confirm &amp; file</button>
                             <button type="button" class="w-full text-xs" style="padding:.5rem;border-radius:.375rem;background:var(--surface-2,#f3f4f6);color:var(--text-secondary,var(--text-primary));border:1px solid var(--border,#e5e7eb);"
                                     @click="openPicker({{ $email->id }}); $nextTick(() => document.getElementById('deal-search-{{ $email->id }}')?.focus())">Search all deals…</button>
                             <button type="button" class="w-full text-xs" style="padding:.5rem;border-radius:.375rem;background:transparent;color:var(--ds-crimson,#c41e3a);border:1px solid var(--ds-crimson,#c41e3a);"
