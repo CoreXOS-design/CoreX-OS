@@ -164,6 +164,12 @@ class Dr2CommunicationLinkController extends Controller
      * captured signal history is deliberately independent of whether any
      * particular link is currently active, so an unlink (correcting a
      * wrong filing) never erases what was learned from it.
+     *
+     * CX-114 (Johan, 2026-08-22) — unlinking a filed email now also withdraws
+     * (soft-deletes) any documents its attachments filed into this deal's
+     * document library, via CommunicationDealLinkingService::unlink(). A
+     * document left behind on a deal its email no longer links to is worse than
+     * no document at all.
      */
     public function unlink(Request $request, Deal $deal, CommunicationLink $link): JsonResponse
     {
@@ -172,7 +178,7 @@ class Dr2CommunicationLinkController extends Controller
             404
         );
 
-        $link->delete();
+        $this->linking->unlink($link);
 
         return response()->json(['ok' => true]);
     }

@@ -3118,7 +3118,7 @@ CREATE TABLE `communication_links` (
   `communication_id` bigint unsigned NOT NULL,
   `linkable_type` varchar(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `linkable_id` bigint unsigned NOT NULL,
-  `link_method` enum('deterministic','attorney_ref','ellie_suggested','manual') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `link_method` enum('deterministic','attorney_ref','ellie_suggested','manual','attachment') COLLATE utf8mb4_unicode_ci NOT NULL,
   `confidence` decimal(5,2) DEFAULT NULL,
   `confirmed_by` bigint unsigned DEFAULT NULL,
   `confirmed_at` timestamp NULL DEFAULT NULL,
@@ -15322,3 +15322,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1178,'2026_08_21_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1179,'2026_08_21_120100_add_size_lift_toggled_override_type',232);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1180,'2026_08_22_090000_add_recipient_identifiers_to_communications_table',233);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1181,'2026_08_22_090100_create_dr2_email_dismissals_table',233);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1182,'2026_08_22_000001_add_attachment_to_communication_links_link_method_enum',234);
