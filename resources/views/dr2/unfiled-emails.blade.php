@@ -545,7 +545,14 @@
                                         <span class="text-sm truncate" style="font-weight:600;color:var(--text-primary);min-width:0;">{{ $topMatch['label'] }}</span>
                                         <span class="flex-shrink-0" style="font-size:.65rem;padding:.1rem .45rem;border-radius:999px;font-weight:600;white-space:nowrap;{{ $topMatch['status'] === 'Declined' ? 'background:color-mix(in srgb, var(--ds-crimson,#c41e3a) 15%, transparent);color:var(--ds-crimson,#c41e3a);' : ($topMatch['status'] === 'Pending' ? 'background:var(--surface-2,#f3f4f6);color:var(--text-muted,#9ca3af);' : 'background:color-mix(in srgb, var(--ds-green,#059669) 15%, transparent);color:var(--ds-green,#059669);') }}">{{ $topMatch['status'] }}</span>
                                     </div>
-                                    <div class="text-xs" style="color:var(--text-secondary,var(--text-primary));margin-top:.3rem;line-height:1.4;">{{ $topMatch['signals'][0]['label'] ?? '' }}</div>
+                                    {{-- Every contributing signal, not just the first — the >=90
+                                         confidence bar can be cleared by ONE strong signal or by
+                                         several weaker ones adding up (e.g. property+subject+a
+                                         diluted party match together); showing only signals[0] would
+                                         understate why a combination match is actually confident. --}}
+                                    @foreach($topMatch['signals'] as $sig)
+                                        <div class="text-xs" style="color:var(--text-secondary,var(--text-primary));margin-top:.3rem;line-height:1.4;">{{ $sig['label'] }}</div>
+                                    @endforeach
                                 </div>
                                 <button type="button" class="w-full text-xs font-semibold" style="margin-top:.5rem;padding:.5rem;border-radius:.375rem;background:var(--brand-default,#0b2a4a);color:#fff;"
                                         @click="file({{ $email->id }}, {{ $topMatch['id'] }})">Confirm &amp; file {{ $topMatch['label'] }}</button>
@@ -557,7 +564,9 @@
                                                 <div class="rounded-md p-2" style="background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);cursor:pointer;"
                                                      @click="file({{ $email->id }}, {{ $alt['id'] }})">
                                                     <div class="text-xs truncate" style="font-weight:600;color:var(--text-primary);">{{ $alt['label'] }}</div>
-                                                    <div class="text-xs truncate" style="color:var(--text-muted,#9ca3af);">{{ $alt['signals'][0]['label'] ?? '' }}</div>
+                                                    @foreach($alt['signals'] as $sig)
+                                                        <div class="text-xs truncate" style="color:var(--text-muted,#9ca3af);">{{ $sig['label'] }}</div>
+                                                    @endforeach
                                                 </div>
                                             @endforeach
                                         </div>
