@@ -331,12 +331,25 @@
                     // on a button it's just noise the agent has to read past.
                     $shortStreetAddress = fn ($p) => trim((string) ($p->street_number ?? '') . ' ' . (string) ($p->street_name ?? '')) ?: null;
 
-                    $isAlreadyTracked = $tp->capture_kind !== 'deeds_capture';
-                    if (!$isAlreadyTracked) {
-                        $rowStatusLine = "New to us — we don't have this property yet.";
-                        $rowWhyLine = null;
-                        $rowConfirmName = $shortStreetAddress($tp) ?: ($headline !== '' ? $headline : 'this property');
-                    } elseif ($stockStatus['state'] === 'live') {
+                    // $tpPredatesThisCapture answers ONE question: did this TrackedProperty's
+                    // own identity exist before this deeds event (capture_kind !== 'deeds_capture'
+                    // means an earlier prospecting/P24/CMA source created it, and this deed only
+                    // layered onto it)? That's the right question for the "View →" link and the
+                    // "No — different property" reject control further down — both are about
+                    // whether there's prior history/a match-decision to view or reject.
+                    //
+                    // It is NOT the right question for whether this address matches an EXISTING
+                    // agency Property — that's $stockStatus, built by the duplicate matcher
+                    // completely independently of capture_kind. The old code (renamed here from
+                    // $isAlreadyTracked, which read as the opposite of what it checked) used THIS
+                    // variable to gate $stockStatus's own live/stale branches, so a freshly-created
+                    // TrackedProperty (capture_kind='deeds_capture') that the matcher had ALSO just
+                    // matched to an existing Property showed "New to us" and the branch that would
+                    // have said so was never reached — the exact contradiction Johan found on 43
+                    // Ridge Road (2026-08-22).
+                    $tpPredatesThisCapture = $tp->capture_kind !== 'deeds_capture';
+
+                    if ($stockStatus['state'] === 'live') {
                         $matchedAddress = $stockStatus['property']->address ?: 'a property already on your books';
                         $rowStatusLine = 'We think this is the same as ' . $matchedAddress
                             . ' — currently on the market with ' . ($stockStatus['property']->agent->name ?? 'one of your agents') . '.';
@@ -349,7 +362,7 @@
                             . ' — not on the market, last worked ' . ($lastWorked ? \Illuminate\Support\Carbon::parse($lastWorked)->diffForHumans() : 'a while ago') . '.';
                         $rowWhyLine = $matchDecision->reason ?? null;
                         $rowConfirmName = $shortStreetAddress($stockStatus['property']) ?: $matchedAddress;
-                    } else {
+                    } elseif ($tpPredatesThisCapture) {
                         // already tracked, but no existing live property match found —
                         // still a genuine match worth confirming (this is #468's own
                         // case), just not yet real agency stock. The system is not
@@ -359,6 +372,10 @@
                         // than inventing doubt that was never there.
                         $rowStatusLine = 'We already have this property on file, but it is not on your books.';
                         $rowWhyLine = $matchDecision->reason ?? 'Not recorded for older captures.';
+                        $rowConfirmName = $shortStreetAddress($tp) ?: ($headline !== '' ? $headline : 'this property');
+                    } else {
+                        $rowStatusLine = "New to us — we don't have this property yet.";
+                        $rowWhyLine = null;
                         $rowConfirmName = $shortStreetAddress($tp) ?: ($headline !== '' ? $headline : 'this property');
                     }
                 @endphp
@@ -386,7 +403,7 @@
                                  opens the record without ever printing its number. --}}
                             <div class="text-sm mt-1.5" style="color: var(--text-primary);">
                                 {{ $rowStatusLine }}
-                                @if($isAlreadyTracked)
+                                @if($tpPredatesThisCapture)
                                     <a href="{{ route('corex.tracked-properties.show', $tp->id) }}"
                                        target="_blank" rel="noopener" class="font-semibold no-underline"
                                        style="color: var(--brand-icon, #2563eb);"
@@ -442,7 +459,7 @@
                                  optional candidate picker + reason before the actual submit,
                                  same toggle pattern already used for "what this capture found"
                                  further down this same file. --}}
-                            @if($isAlreadyTracked)
+                            @if($tpPredatesThisCapture)
                                 <div class="mt-2" x-data="{ open: false }">
                                     <button type="button" @click="open = !open"
                                             class="text-xs font-semibold px-2.5 py-1 rounded"

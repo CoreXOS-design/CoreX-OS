@@ -332,47 +332,6 @@ class ComposeSellerService
     }
 
     /**
-     * Cross-path fix (2026-08-18, Johan repro — "Tracey Hummel"): linking a
-     * seller HERE (the outreach/MIC compose "+ Link as seller" action) is a
-     * complete identity decision on its own — the agent never has to touch
-     * the TVA numbers picker at all to consider this person handled. But the
-     * Deeds Capture screen's TVA block visibility is gated purely on
-     * `tva_contact_capture_items.ingested_at IS NULL` (any pending item),
-     * which this action never touched — so a fully-linked seller's TVA block
-     * sat on the Deeds Capture screen forever, looking untouched even though
-     * the agent had already resolved the person via this screen.
-     *
-     * Same one-shot-decision semantics as ingestTva() (CoreX\
-     * DeedsCaptureController, 027b3fd80): every still-pending item on the
-     * matching capture(s) is marked resolved-without-a-contact
-     * (ingested_at = now(), ingested_contact_id left null) — soft/logical
-     * discard only, per non-negotiable #1, nothing hard-deleted. Matches on
-     * SA ID only (never on name — TVA's raw scraped name and the resolved
-     * Contact's name can legitimately differ, e.g. "Tracey Hummel" vs "Kim
-     * Tracey Whittle" sharing one real ID number).
-     */
-    public function dismissMatchingTvaCapture(int $agencyId, ?string $idNumber): void
-    {
-        if (! $idNumber) {
-            return;
-        }
-
-        $captureIds = TvaContactCapture::query()
-            ->where('agency_id', $agencyId)
-            ->where('id_number', $idNumber)
-            ->pluck('id');
-
-        if ($captureIds->isEmpty()) {
-            return;
-        }
-
-        TvaContactCaptureItem::query()
-            ->whereIn('tva_contact_capture_id', $captureIds)
-            ->whereNull('ingested_at')
-            ->update(['ingested_at' => now()]);
-    }
-
-    /**
      * Write the agent-picked TVA numbers onto ONE specific seller Contact (Part B). Mirrors the
      * deeds-capture TVA ingest: dedupes, marks each item ingested, reconciles identifiers. Only the
      * passed item ids are written, and only onto this contact — never merged across sellers.

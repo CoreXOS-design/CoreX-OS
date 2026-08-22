@@ -1489,11 +1489,14 @@ final class EntryPointController extends Controller
         // agent's deliberate re-add sticks against the deed auto-link (R2).
         $svc->linkSellerToProperty((int) $contact->id, $propertyId, 'manual');
         $svc->clearRemoval((int) $listing->id, $contact->id_number ? (string) $contact->id_number : null);
-        // Cross-path fix (2026-08-18) — linking the seller here is a complete identity
-        // decision; dismiss any matching TVA capture on the Deeds Capture screen so it
-        // doesn't sit there looking untouched. See ComposeSellerService::
-        // dismissMatchingTvaCapture() for the full rationale.
-        $svc->dismissMatchingTvaCapture($agencyId, $contact->id_number ? (string) $contact->id_number : null);
+        // 2026-08-18's dismissMatchingTvaCapture() call used to live here — it silently
+        // marked every pending TVA number "reviewed" the moment a seller was linked this
+        // way, even though the agent never saw the picker. Removed 2026-08-22 (Johan: "an
+        // agent who never saw a number must never have that number marked as declined on
+        // their behalf") after it soft-dismissed 249 real scraped numbers. The Deeds
+        // Capture screen's "this capture looked stuck forever" problem that call existed
+        // to fix is now solved honestly at render time — see DeedsCaptureController::
+        // index()'s $sellerLinkedIdNumbers — instead of by mutating data here.
 
         $listing = DB::table('prospecting_listings')->where('id', $prospectingListingId)->first();
 

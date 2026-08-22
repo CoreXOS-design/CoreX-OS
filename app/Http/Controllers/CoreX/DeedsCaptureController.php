@@ -174,6 +174,30 @@ final class DeedsCaptureController extends Controller
             }
         }
 
+        // Honest replacement for the removed ComposeSellerService::dismissMatchingTvaCapture()
+        // (Johan, 2026-08-22): that method used to answer "has this person already been
+        // handled elsewhere?" by silently marking their pending TVA numbers reviewed — which
+        // cost 249 real scraped numbers before anyone noticed. The real question re-derives
+        // FRESH at render time, the same way $ownerMatchesByIdNumber above does: does a
+        // Contact with this exact ID number currently hold an active seller link on ANY
+        // property? If so, the card says so — the numbers stay visible and pickable either
+        // way; only the explanatory badge changes, never the data.
+        $sellerLinkedIdNumbers = Contact::withoutGlobalScopes()
+            ->where('agency_id', $agencyId)
+            ->whereIn('id_number', $idNumbers)
+            ->whereExists(function ($q) {
+                $q->select(DB::raw(1))
+                    ->from('contact_property')
+                    ->whereColumn('contact_property.contact_id', 'contacts.id')
+                    ->where('contact_property.role', 'seller');
+            })
+            ->pluck('id_number')
+            ->unique();
+        foreach ($tvaCaptures as $tvaCapture) {
+            $tvaCapture->sellerAlreadyLinked = $tvaCapture->id_number
+                && $sellerLinkedIdNumbers->contains($tvaCapture->id_number);
+        }
+
         // 2026-08-19 (Johan, .ai/specs/deeds-capture.md §6 Part B) — "users
         // will see enriched for a current property but wont know what
         // happened to the data. so rather show it in deeds." Show what the
