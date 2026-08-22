@@ -50,9 +50,15 @@ class CommunicationDealLinkingService
         return DB::transaction(function () use ($communication, $dealV2Id, $agencyId, $user, $move) {
             Communication::query()->whereKey($communication->id)->lockForUpdate()->first();
 
+            // CX-113 Phase H (Johan, 2026-08-22) — a PROVISIONAL link (confirmed_at
+            // null — e.g. the AT-231 correspondence pipeline's suggested-deal guess for
+            // a no-contact sender) is a machine guess, not a filing decision, so it must
+            // never block or force "move" on the agent's actual choice. Only a CONFIRMED
+            // link to a different deal is a real conflict.
             $existingOther = CommunicationLink::where('communication_id', $communication->id)
                 ->where('linkable_type', DealV2::class)
                 ->where('linkable_id', '!=', $dealV2Id)
+                ->whereNotNull('confirmed_at')
                 ->first();
 
             if ($existingOther && ! $move) {
@@ -62,6 +68,16 @@ class CommunicationDealLinkingService
             if ($existingOther && $move) {
                 $existingOther->delete();
             }
+
+            // A stale PROVISIONAL link to a different deal (the machine guessed wrong,
+            // the agent picked a different one) is soft-deleted here too — never left to
+            // linger as an orphan a later query (e.g. the guessed deal's own Linked
+            // Emails tab) could pick up and show as if it meant something.
+            CommunicationLink::where('communication_id', $communication->id)
+                ->where('linkable_type', DealV2::class)
+                ->where('linkable_id', '!=', $dealV2Id)
+                ->whereNull('confirmed_at')
+                ->delete();
 
             // withTrashed so re-linking something previously unlinked from this SAME deal
             // restores the one row rather than accumulating duplicates.
