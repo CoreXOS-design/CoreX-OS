@@ -403,6 +403,22 @@ class UnfiledEmailsController extends Controller
         $signals = $communication ? $this->matchSignalsFor($communication, $d, $historySuggestion, $partyFrequency) : [];
         $score = array_sum(array_column($signals, 'score'));
 
+        // CX-113 Phase J (Johan, 2026-08-22, urgent) — "multi-party corroboration must
+        // actually drive the ranking." That already exists for two+ EMAIL-role matches
+        // on the same deal (200/300, in matchSignalsFor()). This is the same principle
+        // for a DIFFERENT combination: two or more INDEPENDENT signal TYPES agreeing —
+        // e.g. a party surname in the subject AND a real (2+-word) property-address
+        // match — is genuinely stronger than either alone, the same way it is for party
+        // emails. Real case that drove this: deal #1790 (Aloha Park) scored subject=50 +
+        // property=20 + status=15 = 85, just under the 90 confidence bar, on an email
+        // whose subject and property both genuinely point at it. Skipped when
+        // corroboration already fired, to avoid double-stacking two bonuses for the
+        // same underlying idea.
+        $signalTypes = collect($signals)->pluck('type')->unique();
+        if ($signalTypes->count() >= 2 && ! $signalTypes->contains('corroboration')) {
+            $score += 10;
+        }
+
         // CX-113 Phase E refinement 1 (Johan, 2026-08-21) — "the same property can
         // have several deals over time... only 1 is proceeding... dr2 status will
         // play an important part." Real staging values: P/G/R/D (Pending/Granted/
