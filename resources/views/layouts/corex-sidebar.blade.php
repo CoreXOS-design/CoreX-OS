@@ -1099,29 +1099,32 @@
                 <a href="{{ route('deals-dr2.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-dr2.*') ? 'active' : '' }}">Deal Register (DR2)</a>
                 @endif
                 @endpermission
-
-                {{-- AT-231 P2b — inbound attorney-email review queue --}}
-                @permission('deal_comms_suspense.view')
-                @if(\Illuminate\Support\Facades\Route::has('corex.comms-suspense.index'))
-                    @php
-                        $commsSuspenseCount = 0;
-                        try {
-                            $csAgencyId = auth()->user()?->effectiveAgencyId();
-                            if ($csAgencyId) {
-                                $commsSuspenseCount = \App\Models\Communications\CommunicationFilingSuspense::where('agency_id', $csAgencyId)->where('status', 'pending')->count();
-                            }
-                        } catch (\Throwable $e) { /* sidebar must never blow up */ }
-                    @endphp
-                    <a href="{{ route('corex.comms-suspense.index') }}"
-                       class="corex-nav-subitem {{ request()->routeIs('corex.comms-suspense.*') ? 'active' : '' }}"
-                       style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
-                        <span>Comms Suspense</span>
-                        @if($commsSuspenseCount > 0)
-                            <span style="display:inline-block;min-width:18px;padding:1px 6px;background:#dc2626;color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;">{{ $commsSuspenseCount > 99 ? '99+' : $commsSuspenseCount }}</span>
-                        @endif
-                    </a>
-                @endif
+                {{-- Branch Manager section ends here (matches the section's own opening
+                     comment above) — permission-block fix, 2026-08-22. Previously the
+                     matching @endpermission for view_branch_stats did not appear until
+                     far below (after the Daily Activities/Setup groups), so EVERYTHING
+                     between here and there — Comms Suspense, Unfiled Emails, RCR·FIC
+                     2026, Deal Link Review, and the whole Daily Activities/Setup
+                     section — was silently gated behind view_branch_stats too, on top
+                     of whatever permission each item already checked on its own. cc1
+                     found this two days ago; re-verified against the current file
+                     before fixing (global @permission/@endpermission count was already
+                     balanced at 127/127, confirming this was a MISPLACED closing tag,
+                     not a missing one — the stray @endpermission this one replaces sat
+                     just before "Admin section" below and has been removed from there,
+                     not left as an extra). --}}
                 @endpermission
+
+                {{-- Comms Suspense retired from navigation (Johan, 2026-08-22): "we can
+                     remove the comms suspense from the menus and build the tech into
+                     unfiled. no use having a menu item that will never work." Route,
+                     controller, view and data are UNTOUCHED — only this nav entry (and
+                     its pending-count badge) is gone. corex.comms-suspense.index still
+                     resolves directly for anyone with it bookmarked; see
+                     resources/views/layouts/corex-sidebar.blade.php:998-1002 for the
+                     one remaining "To File (attorney emails)" link to the same screen
+                     under Compliance — left alone, out of this task's stated scope,
+                     flagged to Johan separately rather than removed silently. --}}
 
                 {{-- CX-109 (Johan, 2026-08-20) — Unfiled Emails, DR2's primary email-filing workflow --}}
                 @permission('view_deals')
@@ -1232,7 +1235,13 @@
                 <a href="{{ route('bm.tv-messages') }}" class="corex-nav-subitem {{ request()->routeIs('bm.tv-messages*') ? 'active' : '' }}">TV Messages</a>
                 @endpermission
                 @endfeature
-                @endpermission
+                {{-- The @endpermission that used to sit here closed view_branch_stats
+                     (which now closes right after the Deal Register/DR2 block above,
+                     2026-08-22) — removed, not moved, since view_daily_activity already
+                     has its own self-contained @permission/@endpermission pair a few
+                     lines up and never needed this one. Leaving it here would have been
+                     a stray @endpermission with nothing left to close — a fatal Blade
+                     compile error, not just a silent visibility bug. --}}
 
                 {{-- Admin section (view company stats) --}}
                 @permission('view_company_stats')
