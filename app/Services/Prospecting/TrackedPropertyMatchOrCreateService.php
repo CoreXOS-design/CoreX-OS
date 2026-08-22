@@ -1393,19 +1393,16 @@ final class TrackedPropertyMatchOrCreateService
     }
 
     /**
-     * Canonicalise street name so "Mitchell St" and "MITCHELL STREET" land in the same bucket.
+     * Canonicalise street name so "Mitchell St" and "MITCHELL STREET" land in
+     * the same bucket. Delegates to TrackedPropertyAddress::normaliseStreet()
+     * (2026-08-22, matcher-accuracy fix) — that is now the ONE implementation
+     * (Crescent/ordinals/whitespace/apostrophe/unit-prefix/end-anchored
+     * abbreviations all live there), so this method and TrackedPropertyAddress
+     * can never silently drift apart on what "same street" means again.
      */
     private function normaliseStreetName(?string $name): ?string
     {
-        if ($name === null || $name === '') return null;
-        $name = trim($name);
-        $name = preg_replace('/\bst\.?\b/i', 'Street', $name);
-        $name = preg_replace('/\brd\.?\b/i', 'Road', $name);
-        $name = preg_replace('/\bave\.?\b/i', 'Avenue', $name);
-        $name = preg_replace('/\bdr\.?\b/i', 'Drive', $name);
-        $name = preg_replace('/\blane\.?\b/i', 'Lane', $name);
-        $name = preg_replace('/\bcl(?:o)?se?\.?\b/i', 'Close', $name);
-        return ucwords(mb_strtolower((string) $name));
+        return TrackedPropertyAddress::normaliseStreet($name);
     }
 
     private function extractAddressTokens(string $s): array
@@ -1483,13 +1480,14 @@ final class TrackedPropertyMatchOrCreateService
                 // PHP with normaliseNumericIdentifier() rather than exact SQL
                 // equality, so this can never silently miss a real match again.
                 $sectionKey = TrackedPropertyAddress::normaliseNumericIdentifier($section);
-                $match = Property::queryWithoutAgencyScope()
+                $matches = Property::queryWithoutAgencyScope()
                     ->where('agency_id', $tp->agency_id)
                     ->whereNull('deleted_at')
                     ->whereRaw('LOWER(complex_name) = ?', [mb_strtolower($complexName)])
                     ->get()
-                    ->first(fn ($candidate) => TrackedPropertyAddress::normaliseNumericIdentifier($candidate->unit_number) === $sectionKey);
-                if ($match) {
+                    ->filter(fn ($candidate) => TrackedPropertyAddress::normaliseNumericIdentifier($candidate->unit_number) === $sectionKey)
+                    ->values();
+                if ($match = $this->resolveOrLogAmbiguous($tp, $matches, 'sectional')) {
                     return $match;
                 }
             }
@@ -1497,31 +1495,103 @@ final class TrackedPropertyMatchOrCreateService
             // Same leading-zero normalisation for erf/stand number. Scoped to the
             // suburb (indexed) + erf_number NOT NULL to keep the PHP-side filter set
             // small — a suburb-wide fetch, not agency-wide.
+            //
+            // 2026-08-22 (matcher-accuracy build, real data evidence: stand 1166,
+            // Lynne Avenue, Ramsgate — 6 genuinely different portions sharing the
+            // identical bare stand number "1166" with no portion suffix captured
+            // anywhere) — a bare erf/stand number can legitimately match MORE THAN
+            // ONE distinct Property when a subdivided erf's portion was never
+            // captured structurally. Collecting every candidate (rather than
+            // ->first()) is what makes that ambiguity visible instead of silently
+            // merging onto whichever portion happens to sort first.
             $erfKey = TrackedPropertyAddress::normaliseNumericIdentifier($tp->erf_number);
-            $match = Property::queryWithoutAgencyScope()
+            $matches = Property::queryWithoutAgencyScope()
                 ->where('agency_id', $tp->agency_id)
                 ->whereNull('deleted_at')
                 ->whereNotNull('erf_number')
                 ->where('suburb_normalised', TrackedPropertyAddress::normaliseSuburb($tp->suburb))
                 ->get()
-                ->first(fn ($candidate) => TrackedPropertyAddress::normaliseNumericIdentifier($candidate->erf_number) === $erfKey);
-            if ($match) {
+                ->filter(fn ($candidate) => TrackedPropertyAddress::normaliseNumericIdentifier($candidate->erf_number) === $erfKey)
+                ->values();
+            if ($match = $this->resolveOrLogAmbiguous($tp, $matches, 'freehold_erf')) {
                 return $match;
             }
         }
 
         // Fallback: normalised address + suburb, for either title type.
         if (filled($tp->street_number) && filled($tp->street_name) && filled($tp->suburb)) {
-            $candidate = Property::queryWithoutAgencyScope()
+            $matches = Property::queryWithoutAgencyScope()
                 ->where('agency_id', $tp->agency_id)
                 ->whereNull('deleted_at')
                 ->where('street_number', trim((string) $tp->street_number))
                 ->where('street_name_normalised', TrackedPropertyAddress::normaliseStreet($tp->street_name))
                 ->where('suburb_normalised', TrackedPropertyAddress::normaliseSuburb($tp->suburb))
-                ->first();
-            if ($candidate && ! $this->propertyIdentityConflicts($tp, $candidate)) {
-                return $candidate;
+                ->get()
+                ->reject(fn ($candidate) => $this->propertyIdentityConflicts($tp, $candidate))
+                ->values();
+            if ($match = $this->resolveOrLogAmbiguous($tp, $matches, 'address_fallback')) {
+                return $match;
             }
+        }
+
+        // NEW (2026-08-22, property 15698 gap) — GPS proximity. resolvePropertyMatch()
+        // never checked distance at all before this: the panel already rendered a GPS
+        // comparison row flagged 'used' => false with a comment saying exactly that.
+        // 15698's nearest real candidate was 24.6m away and this method never looked —
+        // structural identity (erf/section/address) found nothing, so it fell straight
+        // to "create new" with zero awareness a close neighbour existed.
+        //
+        // Tight radius (25m) and NEVER auto-accepted even when it finds exactly one
+        // candidate — GPS is a corroborating signal, not an identity one (geocode
+        // confidence varies: suburb-centroid vs rooftop-accurate are indistinguishable
+        // from the coordinates alone). Always logged for a human to review, never
+        // silently linked and never silently dropped.
+        if ($tp->latitude !== null && $tp->longitude !== null) {
+            $tol = 0.00025; // ~25m bounding-box pre-filter; exact haversine below
+            $nearby = Property::queryWithoutAgencyScope()
+                ->where('agency_id', $tp->agency_id)
+                ->whereNull('deleted_at')
+                ->whereNotNull('latitude')->whereNotNull('longitude')
+                ->whereBetween('latitude', [(float) $tp->latitude - $tol, (float) $tp->latitude + $tol])
+                ->whereBetween('longitude', [(float) $tp->longitude - $tol, (float) $tp->longitude + $tol])
+                ->get()
+                ->filter(fn ($candidate) => TrackedPropertyAddress::haversineMetres(
+                    (float) $tp->latitude, (float) $tp->longitude, (float) $candidate->latitude, (float) $candidate->longitude
+                ) <= 25.0)
+                ->reject(fn ($candidate) => $this->propertyIdentityConflicts($tp, $candidate))
+                ->values();
+            if ($nearby->isNotEmpty()) {
+                Log::warning('TrackedPropertyMatchOrCreateService::resolvePropertyMatch GPS-proximity candidate(s) found — NOT auto-linked, needs human review', [
+                    'agency_id' => $tp->agency_id, 'tracked_property_id' => $tp->id,
+                    'candidate_property_ids' => $nearby->pluck('id')->all(),
+                ]);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * A strategy's candidate set collapsed to exactly one → that one, safely.
+     * More than one (the Villa Del Sol / Lynne Avenue class of case — several
+     * genuinely different units/portions share the same bare identity key) →
+     * NEVER silently pick the first. Logged so the ambiguity is visible, and
+     * this returns null exactly as if nothing had matched, so the caller falls
+     * through to the next strategy (or "create new") rather than guessing —
+     * "no stock" is the SAFE failure mode here; a wrong auto-merge is not.
+     *
+     * @param  \Illuminate\Support\Collection<int, Property>  $matches
+     */
+    private function resolveOrLogAmbiguous(TrackedProperty $tp, $matches, string $strategy): ?Property
+    {
+        if ($matches->count() === 1) {
+            return $matches->first();
+        }
+        if ($matches->count() > 1) {
+            Log::warning('TrackedPropertyMatchOrCreateService::resolvePropertyMatch AMBIGUOUS — multiple candidates, none auto-linked', [
+                'agency_id' => $tp->agency_id, 'tracked_property_id' => $tp->id, 'strategy' => $strategy,
+                'candidate_property_ids' => $matches->pluck('id')->all(),
+            ]);
         }
 
         return null;

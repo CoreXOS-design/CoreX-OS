@@ -65,39 +65,87 @@ class PropertyDuplicateMatchEvidence
 
     /**
      * How many Property rows the WINNING strategy's own query would return — not just
-     * the one resolvePropertyMatch() happened to pick first. Johan: "if more than one
-     * candidate exists, SAY SO on screen." Runs the exact same WHERE clause
-     * resolvePropertyMatch() uses for that strategy, ->count() instead of ->first(),
-     * so it can never disagree about what "candidate" means. One extra COUNT query
-     * per matched row on the screen — negligible (a few dozen rows at most).
+     * the one resolvePropertyMatch() happened to pick first. Delegates to candidates()
+     * (2026-08-22, matcher-accuracy build) so the count and the actual list can never
+     * disagree. Kept as its own method — every existing call site asks for a count
+     * only, and a ->count() on an already-materialised collection is free.
      */
     public function candidateCount(TrackedProperty $tp, string $strategy, int $agencyId): int
     {
-        // Leading-zero-normalised unit/erf comparison (property 15698 incident,
-        // 2026-08-21) — the SAME TrackedPropertyAddress::normaliseNumericIdentifier()
-        // resolvePropertyMatch() uses, so this can never disagree about what counts
-        // as a candidate.
+        return $this->candidates($tp, $strategy, $agencyId)->count();
+    }
+
+    /**
+     * The actual candidate Property rows the winning strategy's query would return —
+     * not just how many (2026-08-22, matcher-accuracy build). Johan: "if more than one
+     * candidate exists, SAY SO on screen" — this is what makes that literal: the
+     * Villa Del Sol (8 units, one stand) / Lynne Avenue (6 portions, one stand) class
+     * of case needs every candidate listed so an agent can pick the right one, not
+     * just a warning number. Runs the exact same filter TrackedPropertyMatchOrCreateService::
+     * resolvePropertyMatch() uses for each strategy (including the leading-zero-
+     * normalised unit/erf comparison, property 15698), so the panel can never disagree
+     * with what actually happens when the agent presses Promote.
+     *
+     * @return \Illuminate\Support\Collection<int, Property>
+     */
+    public function candidates(TrackedProperty $tp, string $strategy, int $agencyId): \Illuminate\Support\Collection
+    {
         return match ($strategy) {
             'sectional' => Property::queryWithoutAgencyScope()
                 ->where('agency_id', $agencyId)->whereNull('deleted_at')
                 ->whereRaw('LOWER(complex_name) = ?', [mb_strtolower(trim((string) ($tp->complex_name ?: $tp->scheme_name)))])
-                ->get(['unit_number'])
+                ->get()
                 ->filter(fn ($p) => TrackedPropertyAddress::normaliseNumericIdentifier($p->unit_number) === TrackedPropertyAddress::normaliseNumericIdentifier($tp->section_number))
-                ->count(),
+                ->values(),
             'freehold_erf' => Property::queryWithoutAgencyScope()
                 ->where('agency_id', $agencyId)->whereNull('deleted_at')
                 ->whereNotNull('erf_number')
                 ->where('suburb_normalised', TrackedPropertyAddress::normaliseSuburb($tp->suburb))
-                ->get(['erf_number'])
+                ->get()
                 ->filter(fn ($p) => TrackedPropertyAddress::normaliseNumericIdentifier($p->erf_number) === TrackedPropertyAddress::normaliseNumericIdentifier($tp->erf_number))
-                ->count(),
+                ->values(),
+            'gps_proximity' => ($tp->latitude === null || $tp->longitude === null)
+                ? collect()
+                : Property::queryWithoutAgencyScope()
+                    ->where('agency_id', $agencyId)->whereNull('deleted_at')
+                    ->whereNotNull('latitude')->whereNotNull('longitude')
+                    ->whereBetween('latitude', [(float) $tp->latitude - 0.00025, (float) $tp->latitude + 0.00025])
+                    ->whereBetween('longitude', [(float) $tp->longitude - 0.00025, (float) $tp->longitude + 0.00025])
+                    ->get()
+                    ->filter(fn ($p) => TrackedPropertyAddress::haversineMetres((float) $tp->latitude, (float) $tp->longitude, (float) $p->latitude, (float) $p->longitude) <= 25.0)
+                    ->values(),
             default => Property::queryWithoutAgencyScope()
                 ->where('agency_id', $agencyId)->whereNull('deleted_at')
                 ->where('street_number', trim((string) $tp->street_number))
                 ->where('street_name_normalised', TrackedPropertyAddress::normaliseStreet($tp->street_name))
                 ->where('suburb_normalised', TrackedPropertyAddress::normaliseSuburb($tp->suburb))
-                ->count(),
+                ->get()
+                ->values(),
         };
+    }
+
+    /**
+     * Overall verdict for the deeds-capture screen (2026-08-22, matcher-accuracy
+     * build, Johan's three-tier spec): CONFIDENT (exactly one structural-identity
+     * candidate — sectional/freehold_erf/address_fallback — safe to auto-take),
+     * POSSIBLE (more than one candidate, OR the only signal available is GPS
+     * proximity — never confident on its own, since geocode precision varies), or
+     * NONE (nothing found at all — a genuinely new property).
+     */
+    public function verdict(TrackedProperty $tp, int $agencyId): string
+    {
+        $strategy = $this->strategyFor($tp);
+        $count = $this->candidateCount($tp, $strategy, $agencyId);
+        if ($count === 1) {
+            return 'confident';
+        }
+        if ($count > 1) {
+            return 'possible';
+        }
+
+        // Nothing on the structural-identity strategy — try GPS as a last check
+        // purely to inform the agent; GPS alone is always 'possible' at best.
+        return $this->candidates($tp, 'gps_proximity', $agencyId)->isNotEmpty() ? 'possible' : 'none';
     }
 
     /** Which comparedValues() keys the given strategy actually reads to propose a match. */
@@ -269,7 +317,7 @@ class PropertyDuplicateMatchEvidence
 
         $strength = 'unknown';
         if ($tpGps !== null && $propGps !== null) {
-            $metres = $this->haversineMetres((float) $tp->latitude, (float) $tp->longitude, (float) $property->latitude, (float) $property->longitude);
+            $metres = TrackedPropertyAddress::haversineMetres((float) $tp->latitude, (float) $tp->longitude, (float) $property->latitude, (float) $property->longitude);
             $strength = $metres <= 25 ? 'strong' : ($metres <= 150 ? 'weak' : 'differs');
         }
 
@@ -277,7 +325,11 @@ class PropertyDuplicateMatchEvidence
             'key' => 'gps', 'label' => 'GPS coordinates',
             'existing' => $this->formatValue($propGps),
             'scraped' => $this->formatValue($tpGps),
-            'used' => false, // resolvePropertyMatch() (TP-to-Property) does not use GPS today — informational only.
+            // 2026-08-22 (matcher-accuracy build, property 15698 gap) —
+            // resolvePropertyMatch() NOW checks GPS (a new, always-corroborating-
+            // only strategy — see TrackedPropertyMatchOrCreateService), so this is
+            // no longer purely informational when nothing else matched.
+            'used' => true,
             'strength' => $strength,
             'emptyBoth' => $tpGps === null && $propGps === null,
         ];
@@ -303,16 +355,6 @@ class PropertyDuplicateMatchEvidence
         }
 
         return false;
-    }
-
-    private function haversineMetres(float $lat1, float $lng1, float $lat2, float $lng2): float
-    {
-        $earthRadius = 6371000;
-        $dLat = deg2rad($lat2 - $lat1);
-        $dLng = deg2rad($lng2 - $lng1);
-        $a = sin($dLat / 2) ** 2 + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLng / 2) ** 2;
-
-        return $earthRadius * 2 * atan2(sqrt($a), sqrt(1 - $a));
     }
 
     private function formatValue($value): ?string

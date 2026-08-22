@@ -116,16 +116,15 @@ final class TrackedProperty extends Model
     }
 
     /**
-     * Canonical suburb normalisation: lowercase + trim + strip punctuation + collapse spaces.
-     * Used by both the model on save AND the match-or-create service when looking up.
+     * Canonical suburb normalisation. Delegates to TrackedPropertyAddress::
+     * normaliseSuburb() (2026-08-22, matcher-accuracy fix) — that is now the
+     * ONE implementation (apostrophe handling + township/marketing-suburb
+     * alias resolution live there), so this class and TrackedPropertyAddress
+     * can never silently drift apart on what "same suburb" means again.
      */
     public static function normaliseSuburb(?string $s): ?string
     {
-        if ($s === null || $s === '') return null;
-        $s = mb_strtolower(trim($s));
-        $s = preg_replace('/[^\w\s]/u', ' ', $s);
-        $s = preg_replace('/\s+/', ' ', (string) $s);
-        return trim((string) $s) ?: null;
+        return \App\Models\Prospecting\TrackedPropertyAddress::normaliseSuburb($s);
     }
 
     public function externalRefs(): HasMany
