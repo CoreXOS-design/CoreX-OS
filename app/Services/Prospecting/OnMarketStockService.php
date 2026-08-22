@@ -417,11 +417,51 @@ class OnMarketStockService
      *
      * Returns a raw SQL fragment for use in ->selectRaw(...). Pass qualified
      * columns for aliased queries (e.g. 'pl.id', 'pl.portal_source').
+     *
+     * MIC SPEED FIX ROUND 2, Option 2 (Johan, 2026-08-22) — when called
+     * against prospecting_listings' own default columns (id/portal_source/
+     * normalized_address, optionally under a single table alias), this reads
+     * the prospecting_listings.dedup_identity VIRTUAL generated column
+     * instead of re-deriving the CASE/CONCAT expression on every row, every
+     * call. dedup_identity IS this exact expression (see migration
+     * 2026_08_22_140100) — same value, computed once by MySQL from the
+     * column definition rather than four times per page load in application
+     * SQL. Any OTHER column combination (a genuinely different table/shape)
+     * falls back to the original inline expression unchanged.
      */
     public function distinctPropertyCountSql(string $idCol = 'id', string $sourceCol = 'portal_source', string $normCol = 'normalized_address'): string
     {
+        if ($alias = $this->prospectingListingsDefaultAlias($idCol, $sourceCol, $normCol)) {
+            $dedupCol = $alias !== '' ? "{$alias}.dedup_identity" : 'dedup_identity';
+            return "COUNT(DISTINCT {$dedupCol})";
+        }
+
         return "COUNT(DISTINCT CASE WHEN {$normCol} IS NULL OR {$normCol} = '' "
             . "THEN CONCAT('id:', {$idCol}) ELSE CONCAT({$sourceCol}, '|', {$normCol}) END)";
+    }
+
+    /**
+     * Returns the shared table alias (possibly '') when all three columns are
+     * prospecting_listings' own default names under the SAME alias prefix —
+     * the only shape dedup_identity can stand in for. Returns null for any
+     * other combination (different table, mismatched aliases, custom column
+     * names) so those keep computing the CASE expression inline.
+     */
+    private function prospectingListingsDefaultAlias(string $idCol, string $sourceCol, string $normCol): ?string
+    {
+        $split = static fn (string $c) => str_contains($c, '.') ? explode('.', $c, 2) : ['', $c];
+        [$idAlias, $idName]     = $split($idCol);
+        [$sourceAlias, $sourceName] = $split($sourceCol);
+        [$normAlias, $normName]   = $split($normCol);
+
+        if ($idName !== 'id' || $sourceName !== 'portal_source' || $normName !== 'normalized_address') {
+            return null;
+        }
+        if ($idAlias !== $sourceAlias || $idAlias !== $normAlias) {
+            return null;
+        }
+
+        return $idAlias;
     }
 
     /** Test/maintenance hook — drop the per-request memo. */
