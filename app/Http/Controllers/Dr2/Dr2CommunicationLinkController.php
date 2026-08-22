@@ -129,7 +129,9 @@ class Dr2CommunicationLinkController extends Controller
         $agencyId = $user->effectiveAgencyId();
         $dealV2Id = $deal->deal_v2_id;
 
-        abort_if($dealV2Id === null, 422, 'This deal has no DR2 twin to link a communication to.');
+        // Plain language: no internal jargon ("DR2 twin", "deal_v2_id") ever reaches
+        // the agent (Johan, 2026-08-22 — same fix as UnfiledEmailsController::file()).
+        abort_if($dealV2Id === null, 422, "This deal hasn't been added to the Deal Register yet, so this email can't be filed to it.");
 
         $communication = Communication::where('agency_id', $agencyId)
             ->findOrFail($validated['communication_id']);

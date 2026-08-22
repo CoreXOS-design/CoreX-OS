@@ -298,6 +298,14 @@ class UnfiledEmailsController extends Controller
         }
 
         $deals = Deal::query()->visibleTo($user)
+            // Johan, 2026-08-22: "DR2 no twin link to link comm to" — an agent picked
+            // a real search result and filing refused. Root cause: this query never
+            // excluded deals with no DR2 twin (deal_v2_id null — 74 of 154 real deals
+            // on staging, not an edge case), so the picker was offering results it
+            // could never actually file to. Filing links to the DealV2 row
+            // (CommunicationLink::linkable_type = DealV2), so a deal with no twin has
+            // nothing to link to — excluded here instead of discovered on click.
+            ->whereNotNull('deal_v2_id')
             ->where(function ($q) use ($search) {
                 $q->where('property_address', 'like', "%{$search}%")
                     ->orWhere('deal_no', 'like', "%{$search}%")
@@ -520,7 +528,11 @@ class UnfiledEmailsController extends Controller
         abort_unless((int) $communication->agency_id === (int) $agencyId, 404);
 
         $deal = Deal::query()->visibleTo($user)->findOrFail($validated['deal_id']);
-        abort_if($deal->deal_v2_id === null, 422, 'This deal has no DR2 twin to link a communication to.');
+        // Defense-in-depth, not the primary fix (dealSearch() above now excludes these
+        // deals from the picker entirely) — a stale client, a forged deal_id, or a
+        // future caller could still reach here. Plain language: no internal jargon
+        // ("DR2 twin", "deal_v2_id") ever reaches the agent (Johan, 2026-08-22).
+        abort_if($deal->deal_v2_id === null, 422, "This deal hasn't been added to the Deal Register yet, so this email can't be filed to it. Pick a different deal.");
 
         try {
             $link = $this->linking->link($communication, $deal->deal_v2_id, $agencyId, $user, (bool) ($validated['move'] ?? false));
@@ -582,7 +594,11 @@ class UnfiledEmailsController extends Controller
         $agencyId = $user->effectiveAgencyId();
 
         $deal = Deal::query()->visibleTo($user)->findOrFail($validated['deal_id']);
-        abort_if($deal->deal_v2_id === null, 422, 'This deal has no DR2 twin to link a communication to.');
+        // Defense-in-depth, not the primary fix (dealSearch() above now excludes these
+        // deals from the picker entirely) — a stale client, a forged deal_id, or a
+        // future caller could still reach here. Plain language: no internal jargon
+        // ("DR2 twin", "deal_v2_id") ever reaches the agent (Johan, 2026-08-22).
+        abort_if($deal->deal_v2_id === null, 422, "This deal hasn't been added to the Deal Register yet, so this email can't be filed to it. Pick a different deal.");
 
         $filed = [];
         foreach ($validated['communication_ids'] as $commId) {
