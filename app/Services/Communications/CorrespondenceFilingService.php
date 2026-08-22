@@ -101,20 +101,20 @@ class CorrespondenceFilingService
 
         $match = $this->matcher->resolve($agencyId, $msg, $attorney);
 
-        // Verified learned-ref → file silently, no suspense. Degrade to suspense if
-        // we cannot resolve an uploader (never break the ingest).
-        if ($match['tier'] === CorrespondenceMatchService::TIER_AUTO && $match['deal_id']) {
-            $deal = $this->findDeal((int) $match['deal_id'], $agencyId);
-            $uploader = $deal ? $this->resolveUploader(null, $comm, $deal) : null;
-            if ($deal && $uploader) {
-                $this->fileToDeal($comm, $deal, $uploader, $match['signal_type'], $match['signal_value']);
-                $this->bumpLearnedHits($agencyId, $provider?->id, $match['signal_type'], $match['signal_value']);
-                $this->audit('auto_filed', $comm, (int) $deal->id, $match);
-                return 'filed';
-            }
-        }
+        // CX-113 Phase H (Johan, 2026-08-22, standing rule, restated twice): "suggest,
+        // never auto-file." This used to file TIER_AUTO (a verified learned-ref) SILENTLY
+        // here — no suspense row, no human, nothing to review. Killed outright: the
+        // Bauhinia Gardens investigation proved the ladder this tier is built on is wrong
+        // most of the time for a high-frequency party (12 of 15 real pending suggestions
+        // on staging pointed at the SAME deal regardless of the email's actual content).
+        // TIER_AUTO now falls through to the SAME suspense-row path as every other tier —
+        // confidenceFor(TIER_AUTO) already maps to CONF_HIGH, so it still surfaces as the
+        // strongest suggestion, pre-filled, one click to confirm. It just no longer files
+        // itself. bumpLearnedHits() (below, now unused) was only ever called from the
+        // silent-file branch removed here — no other tier bumped hits on confirm either,
+        // so this isn't moved anywhere; left in place, unused, rather than deleted.
 
-        // Otherwise raise a suspense row for first-verify / manual link.
+        // Raise a suspense row for first-verify / manual link — every tier, always.
         $suspense = CommunicationFilingSuspense::create([
             'agency_id'                    => $agencyId,
             'communication_id'             => $comm->id,
