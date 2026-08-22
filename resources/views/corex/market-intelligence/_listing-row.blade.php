@@ -164,6 +164,32 @@
             </a>
             @endif
 
+            {{-- Possible-match hint (2026-08-22, Johan — the 43 Ridge investigation:
+                 "it should have been caught in mic before it was shown as pitch
+                 now"). ADVISORY ONLY — never suppresses the row, never blocks a
+                 pitch, exactly per Johan's instruction that MIC's cost of a miss
+                 (wasted prospecting effort) is a different order of problem from
+                 deeds' (double stock on a live listing). Computed asynchronously
+                 (ComputePossibleStockMatchJob) — reading possible_property_id/
+                 possible_match_verdict here costs nothing extra; they're already
+                 columns on the row this template was handed. Never shown
+                 alongside IN STOCK — a confident match already answers the
+                 question. --}}
+            @if(!$isCompanyStock && $listing->possible_match_verdict)
+                @php
+                    $possibleLabel = match($listing->possible_match_verdict) {
+                        'confident_sectional_unit' => 'Might already be ours — check',
+                        'possible_sectional_no_unit' => 'We hold something in this complex — check which unit',
+                        'possible_freehold_single' => 'Might already be ours — check',
+                        'possible_freehold_ambiguous' => 'We hold this address already — more than one record, check',
+                        default => 'Might already be ours — check',
+                    };
+                @endphp
+                <span style="{{ $tagAmber }}" title="{{ $possibleLabel }} — a nearby property in our own stock, matched by location, not confirmed by address.">
+                    {{ $possibleLabel }}
+                </span>
+            @endif
+
             {{-- BUG 3 — sole/exclusive mandate badge. Only visible when the
                  agent has toggled "Show sole/exclusive mandates" on, since the
                  pool excludes these by default. --}}

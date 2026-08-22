@@ -2,6 +2,7 @@
 
 namespace App\Observers;
 
+use App\Jobs\Prospecting\ComputePossibleStockMatchJob;
 use App\Models\ProspectingListing;
 use App\Services\PropertyMatchScoringService;
 use App\Services\Prospecting\ProspectingStockMatchService;
@@ -19,6 +20,7 @@ class ProspectingListingObserver
     {
         $this->recomputeAndNotify($listing);
         $this->matchStock($listing);
+        $this->queuePossibleMatch($listing);
     }
 
     /**
@@ -35,6 +37,30 @@ class ProspectingListingObserver
 
         if (isset($dirty['normalized_address']) || isset($dirty['suburb'])) {
             $this->matchStock($listing);
+            $this->queuePossibleMatch($listing);
+        }
+
+        // Pass 1/2 just confidently matched this row (matchStock() above, or a
+        // direct edit) — a stale possible-tier hint from before that must not
+        // keep showing once a real match exists. Cheap: no query, just a
+        // conditional clear on a model already in memory.
+        if (isset($dirty['matched_property_id']) && $listing->matched_property_id !== null && $listing->possible_property_id !== null) {
+            app(ProspectingStockMatchService::class)->setPossibleMatch($listing, null);
+        }
+    }
+
+    /**
+     * 2026-08-22 (Johan — 43 Ridge). Queued, never synchronous — see
+     * ComputePossibleStockMatchJob's own docblock for why (this check is
+     * genuinely more expensive than Pass 1/2, and a bulk portal-scrape ingest
+     * must not pay its cost on the request thread). GPS-less listings never
+     * even enter the queue — the job would no-op on them anyway, but skipping
+     * the dispatch entirely avoids paying queue overhead for nothing.
+     */
+    private function queuePossibleMatch(ProspectingListing $listing): void
+    {
+        if ($listing->latitude && $listing->longitude && (float) $listing->latitude !== 0.0) {
+            ComputePossibleStockMatchJob::dispatch($listing->id);
         }
     }
 

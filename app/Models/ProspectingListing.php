@@ -53,6 +53,12 @@ class ProspectingListing extends Model
         'first_seen_email_date',
         'matched_property_id',
         'matched_at',
+        // Possible-match (2026-08-22) — a SEPARATE, advisory-only signal from
+        // matched_property_id above. See ComputePossibleStockMatchJob.
+        'possible_property_id',
+        'possible_match_verdict',
+        'possible_match_candidate_ids',
+        'possible_matched_at',
         'tracked_property_id',
         'mandate_type',
         // MIC SOLD / OFF-MARKET + REF-TRACKING (cc2) — portal lifecycle
@@ -71,6 +77,9 @@ class ProspectingListing extends Model
         'price_changed_at'      => 'datetime',
         'first_seen_email_date' => 'datetime',
         'matched_at'            => 'datetime',
+        'possible_property_id'          => 'integer',
+        'possible_match_candidate_ids'  => 'array',
+        'possible_matched_at'           => 'datetime',
         'tracked_property_id'   => 'integer',
         'portal_status_changed_at' => 'datetime',
         'off_market_at'            => 'datetime',
@@ -336,6 +345,33 @@ class ProspectingListing extends Model
         $segments = array_filter(array_map('trim', explode(',', (string) $address)));
         $streetSegment = $segments ? strtolower(end($segments)) : '';
         if (preg_match('/^(\d+)\b/', $streetSegment, $m)) {
+            return $m[1];
+        }
+        return null;
+    }
+
+    /**
+     * The unit/door number, when the free-text address has one readable —
+     * conservative by design (2026-08-22, matcher-accuracy build): the FIRST
+     * comma-segment is where a unit/complex reference lives per the same
+     * P24/PP convention parseStreetNumber() relies on ("[complex/unit],
+     * [street]") — but unlike the street number, a unit reference is
+     * genuinely ambiguous free text ("B1 Allesreg", "Unit 5, Parklands", "27
+     * (2) Casa-Uvongo"). Only a clean leading alnum token is extracted; a
+     * messy or absent one returns null rather than guess — the confidence
+     * gate this feeds (ProspectingStockMatchService::findPossibleMatch())
+     * treats "no unit parsed" as an honest POSSIBLE, never a forced CONFIDENT.
+     */
+    public static function parseUnitNumber(?string $address): ?string
+    {
+        $segments = array_filter(array_map('trim', explode(',', (string) $address)));
+        if (count($segments) < 2) {
+            return null; // no separate unit/complex segment at all
+        }
+        $first = reset($segments);
+        $first = preg_replace('/^unit\s*/i', '', trim($first));
+        $first = preg_replace('/^(?:no|door|flat)\.?\s*/i', '', $first);
+        if (preg_match('/^([a-z]?\d+[a-z]?)\b/i', $first, $m)) {
             return $m[1];
         }
         return null;
