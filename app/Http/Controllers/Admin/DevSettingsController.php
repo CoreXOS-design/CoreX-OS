@@ -18,7 +18,7 @@ class DevSettingsController extends Controller
      * Sections of the Dev Settings hub. ?s=<key> drives the right pane, same
      * contract as the main settings hub (CoreX\SettingsController::index).
      */
-    private const SECTIONS = ['compliance', 'demo', 'queue_worker_emails'];
+    private const SECTIONS = ['compliance', 'demo', 'queue_worker_emails', 'queue_backlog_emails'];
 
     public function index(Request $request)
     {
@@ -33,6 +33,7 @@ class DevSettingsController extends Controller
             'demoModeEnabled'          => DevSetting::bool('demo_mode_enabled'),
             'isProduction'             => app()->environment('production'),
             'queueWorkerAlertEmails'   => DevSetting::queueWorkerAlertEmails(),
+            'queueBacklogAlertEmails'  => DevSetting::queueBacklogAlertEmails(),
         ]);
     }
 
@@ -60,6 +61,12 @@ class DevSettingsController extends Controller
             return redirect()->route('admin.dev-settings.index', ['s' => 'queue_worker_emails'])
                 ->withErrors(['queue_alert_emails' => $error])
                 ->with('warning', 'Other settings were saved, but the queue worker email list was not — fix the error below.');
+        }
+
+        if (($error = $this->saveQueueBacklogAlertEmails($request)) !== null) {
+            return redirect()->route('admin.dev-settings.index', ['s' => 'queue_backlog_emails'])
+                ->withErrors(['queue_backlog_alert_emails' => $error])
+                ->with('warning', 'Other settings were saved, but the queue backlog email list was not — fix the error below.');
         }
 
         // Demo mode is an auth bypass — flipping it (on OR off) requires the
@@ -134,6 +141,36 @@ class DevSettingsController extends Controller
         $unique = array_values(array_unique(array_map('strtolower', $emails)));
 
         DevSetting::set('queue_worker_alert_emails', json_encode($unique));
+
+        return null;
+    }
+
+    /**
+     * Recipients for the queue-backlog critical alert (corex:queue-healthcheck).
+     * Blank rows (the empty slot the UI always leaves for adding one more) are
+     * dropped before validation so an untouched form doesn't fail it.
+     *
+     * @return string|null An error message if any entered address is invalid, else null (saved).
+     */
+    private function saveQueueBacklogAlertEmails(Request $request): ?string
+    {
+        $emails = array_values(array_filter(
+            (array) $request->input('queue_backlog_alert_emails', []),
+            fn ($e) => trim((string) $e) !== ''
+        ));
+
+        $validator = validator(
+            ['queue_backlog_alert_emails' => $emails],
+            ['queue_backlog_alert_emails' => 'array', 'queue_backlog_alert_emails.*' => 'email:filter|max:255'],
+        );
+
+        if ($validator->fails()) {
+            return $validator->errors()->first();
+        }
+
+        $unique = array_values(array_unique(array_map('strtolower', $emails)));
+
+        DevSetting::set('queue_backlog_alert_emails', json_encode($unique));
 
         return null;
     }
