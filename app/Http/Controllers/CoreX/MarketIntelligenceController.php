@@ -963,10 +963,9 @@ class MarketIntelligenceController extends Controller
         // Sale price bands feed the filter rail "By price band" section — both paths.
         $prospectingSetupPriceBandsSale    = $setupSvc->priceBandsFor($agencyId, 'sale');
 
-        // Setup-wizard datasets + the redundant second listing resolution
-        // ($resolvedListings/$snapshot/$segmentLabels — the double-resolution flagged
-        // as a separate task) are full-page-only. The fragment partials render none
-        // of them, so the tick path skips this whole block (biggest single saving).
+        // Setup-wizard datasets are full-page-only. The fragment partials
+        // render none of them, so the tick path skips this whole block
+        // (biggest single saving on the tick path).
         if (! $isFragment) {
         $prospectingSetupTowns             = \App\Models\Prospecting\Town::withoutGlobalScopes()
                                                 ->where('agency_id', $agencyId)
@@ -979,16 +978,24 @@ class MarketIntelligenceController extends Controller
         $prospectingSetupPriceBandsRental  = $setupSvc->priceBandsFor($agencyId, 'rental');
         $prospectingSetupSuggestionRegions = app(\App\Services\Prospecting\RegionSuggestionService::class)->regions();
         $prospectingSetupUnmappedSuburbs   = $setupSvc->unmappedSuburbsFor($agencyId);
+        } // end !$isFragment (setup-wizard data)
 
-        $filters         = $this->buildFiltersFromRequest($request, $agencyId);
-        $snapshot        = $intelligence->snapshot($filters);
-        $resolvedListings = $resolver->paginate(
-            $filters,
-            perPage: (int) ($request->query('per_page') ?: 25),
-            page:    (int) ($request->query('page') ?: 1),
-        );
-        $segmentLabels   = $this->buildSegmentLabelMap($config, $agencyId);
-        } // end !$isFragment (setup-wizard data + redundant double-resolution)
+        // MIC SPEED FIX (Johan, 2026-08-22) — $snapshot/$resolvedListings/
+        // $segmentLabels (and the $filters built only to feed them) used to be
+        // computed here on every full page load: snapshot() ~6.3s + paginate()
+        // ~4.1s = ~10.3s, BOTH independently resolving the same 39k-row
+        // ProspectingListingResolver::all() set that the real render path
+        // below (built from its own $query->get() at the top of this method)
+        // never touches. Confirmed by exhaustive search: work.blade.php and
+        // every partial it includes never reference $snapshot, $resolvedListings,
+        // $segmentLabels, or $filters — the values were computed, boxed into
+        // compact() for the view, and never read. This was the "double
+        // resolution" flagged as known technical debt; removing it changes
+        // no rendered output because nothing downstream ever consumed it.
+        // If a future feature on this screen genuinely needs an intelligence
+        // snapshot or a segment-label map, call $intelligence->snapshot()
+        // fresh at that call site — do not resurrect this block "just in
+        // case" the way it silently outlived whatever originally read it.
 
         $listingStates = app(\App\Services\Prospecting\ProspectingListingStateEnricher::class)
             ->enrich($listings->items(), $agencyId);
@@ -1163,7 +1170,6 @@ class MarketIntelligenceController extends Controller
             'prospectingSetupTowns', 'prospectingSetupPropertyTypes', 'prospectingSetupBedroomSegments',
             'prospectingSetupPriceBandsSale', 'prospectingSetupPriceBandsRental', 'prospectingSetupSuggestionRegions',
             'prospectingSetupUnmappedSuburbs',
-            'snapshot', 'resolvedListings', 'filters', 'segmentLabels',
             'listingStates',
             'buyerTiers', 'tierConfig',
             'presets', 'activePreset', 'isProspectingManager',
