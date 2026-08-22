@@ -32,7 +32,7 @@ class CommunicationLink extends Model
 
     protected $fillable = [
         'agency_id', 'communication_id', 'linkable_type', 'linkable_id',
-        'link_method', 'confidence', 'confirmed_by', 'confirmed_at',
+        'source_attachment_id', 'link_method', 'confidence', 'confirmed_by', 'confirmed_at',
     ];
 
     protected $casts = [

@@ -101,8 +101,25 @@ final class Dr2CommunicationAttachmentFilingTest extends TestCase
         ], $over));
     }
 
-    /** A real, content-addressed, correctly (en/de)crypted attachment — same path ingest uses. */
-    private function attachment(Communication $comm, string $bytes, string $filename = 'FICA copy.pdf'): CommunicationAttachment
+    /**
+     * A real, content-addressed, correctly (en/de)crypted attachment — same path
+     * ingest uses. $bytes is wrapped with a genuine PDF magic-number header
+     * (%PDF-) so it passes the CX-114 PDF-only filter by CONTENT, matching how a
+     * real PDF is verified (never trust filename/mime). Use nonPdfAttachment()
+     * below for the deliberately-excluded case.
+     */
+    private function attachment(Communication $comm, string $bytes, string $filename = 'FICA copy.pdf', ?string $mime = 'application/pdf'): CommunicationAttachment
+    {
+        return $this->rawAttachment($comm, "%PDF-1.4\n" . $bytes, $filename, $mime);
+    }
+
+    /** Deliberately NOT a PDF by content — e.g. a signature image (image001.png). */
+    private function nonPdfAttachment(Communication $comm, string $bytes, string $filename = 'image001.png', ?string $mime = 'image/png'): CommunicationAttachment
+    {
+        return $this->rawAttachment($comm, $bytes, $filename, $mime);
+    }
+
+    private function rawAttachment(Communication $comm, string $bytes, string $filename, ?string $mime): CommunicationAttachment
     {
         $stored = app(CommunicationStorageService::class)->store($this->agencyId, 'attachment', $bytes);
 
@@ -110,7 +127,7 @@ final class Dr2CommunicationAttachmentFilingTest extends TestCase
             'agency_id' => $this->agencyId,
             'communication_id' => $comm->id,
             'filename' => $filename,
-            'mime' => 'application/pdf',
+            'mime' => $mime,
             'size_bytes' => strlen($bytes),
             'content_hash' => $stored['content_hash'],
             'storage_path' => $stored['path'],
@@ -123,7 +140,7 @@ final class Dr2CommunicationAttachmentFilingTest extends TestCase
         $comm = $this->comm();
         $this->attachment($comm, 'FICA copy bytes ' . Str::random(20));
 
-        $this->actingAs($this->agent)
+        $response = $this->actingAs($this->agent)
             ->postJson(route('deals-dr2.communications.link', $this->deal), ['communication_id' => $comm->id])
             ->assertCreated();
 
@@ -141,6 +158,10 @@ final class Dr2CommunicationAttachmentFilingTest extends TestCase
             'linkable_id' => $doc->id,
             'link_method' => CommunicationLink::METHOD_ATTACHMENT,
         ]);
+
+        // Failure visibility (Johan, 2026-08-22) — the filing outcome is no longer
+        // silent; the response says exactly what happened to the attachment.
+        $response->assertJson(['attachments' => ['filed' => 1, 'skipped_duplicate' => 0, 'skipped_non_pdf' => 0, 'failed' => 0]]);
     }
 
     public function test_filing_without_attachments_creates_no_documents_and_still_links(): void
@@ -279,5 +300,67 @@ final class Dr2CommunicationAttachmentFilingTest extends TestCase
             ->assertCreated(); // the LINK still succeeds
 
         $this->assertSame(0, Document::where('deal_id', $this->dealV2Id)->count(), 'no document for the missing blob, but nothing else broke');
+    }
+
+    // ──────────────────────── CX-114: PDF-only filter (Johan, 2026-08-22) ────────────────────────
+
+    public function test_a_non_pdf_attachment_is_not_filed_but_the_email_still_links(): void
+    {
+        $comm = $this->comm();
+        $this->nonPdfAttachment($comm, "\x89PNG\r\n" . Str::random(40), 'image001.png', 'image/png');
+
+        $response = $this->actingAs($this->agent)
+            ->postJson(route('deals-dr2.communications.link', $this->deal), ['communication_id' => $comm->id])
+            ->assertCreated();
+
+        $this->assertSame(0, Document::where('deal_id', $this->dealV2Id)->count(), 'signature/logo images must never reach the deal document library');
+        $this->assertDatabaseHas('communication_links', [
+            'communication_id' => $comm->id, 'linkable_type' => DealV2::class, 'linkable_id' => $this->dealV2Id,
+        ], 'the email itself still files — only the document side is filtered');
+        $response->assertJson(['attachments' => ['filed' => 0, 'skipped_duplicate' => 0, 'skipped_non_pdf' => 1, 'failed' => 0]]);
+    }
+
+    public function test_the_filter_checks_real_bytes_not_the_sender_supplied_mime_or_filename(): void
+    {
+        // Mislabelled: mime and extension both say PDF, content does not start with %PDF-.
+        // A mislabelled file must not slip through (Johan, 2026-08-22).
+        $comm = $this->comm();
+        $this->nonPdfAttachment($comm, 'this is actually just a text file ' . Str::random(20), 'fake.pdf', 'application/pdf');
+
+        $this->actingAs($this->agent)
+            ->postJson(route('deals-dr2.communications.link', $this->deal), ['communication_id' => $comm->id])
+            ->assertCreated();
+
+        $this->assertSame(0, Document::where('deal_id', $this->dealV2Id)->count(), 'mime/extension claiming PDF is not enough — content must actually be a PDF');
+    }
+
+    public function test_a_genuine_pdf_with_wrong_mime_and_odd_filename_is_still_filed(): void
+    {
+        // A correctly-formed PDF with an odd filename/mime must not be excluded
+        // (Johan, 2026-08-22).
+        $comm = $this->comm();
+        $this->nonPdfAttachment($comm, "%PDF-1.4\n" . Str::random(20), 'attachment.dat', 'application/octet-stream');
+
+        $this->actingAs($this->agent)
+            ->postJson(route('deals-dr2.communications.link', $this->deal), ['communication_id' => $comm->id])
+            ->assertCreated();
+
+        $doc = Document::where('deal_id', $this->dealV2Id)->first();
+        $this->assertNotNull($doc, 'real PDF content must be filed regardless of a wrong mime or extension');
+        $this->assertSame('application/pdf', $doc->mime_type, 'the stored mime is the VERIFIED type, not the untrusted sender-supplied one');
+    }
+
+    public function test_mixed_pdf_and_non_pdf_attachments_file_only_the_pdf_and_report_both(): void
+    {
+        $comm = $this->comm();
+        $this->attachment($comm, 'genuine transfer document ' . Str::random(20), 'Transfer Docs.pdf');
+        $this->nonPdfAttachment($comm, "\xFF\xD8\xFF" . Str::random(40), 'image002.jpg', 'image/jpeg');
+
+        $response = $this->actingAs($this->agent)
+            ->postJson(route('deals-dr2.communications.link', $this->deal), ['communication_id' => $comm->id])
+            ->assertCreated();
+
+        $this->assertSame(1, Document::where('deal_id', $this->dealV2Id)->count());
+        $response->assertJson(['attachments' => ['filed' => 1, 'skipped_duplicate' => 0, 'skipped_non_pdf' => 1, 'failed' => 0]]);
     }
 }

@@ -154,7 +154,15 @@ class Dr2CommunicationLinkController extends Controller
             ], 409);
         }
 
-        return response()->json(['ok' => true, 'link_id' => $link->id], 201);
+        return response()->json([
+            'ok'          => true,
+            'link_id'     => $link->id,
+            // CX-114 (Johan, 2026-08-22) — "a filing that half-worked must say so".
+            // filed/skipped_duplicate/skipped_non_pdf/failed, per
+            // CommunicationDealLinkingService::fileAttachments(). The data is no
+            // longer silent; whether/how the frontend surfaces it is cc2's call.
+            'attachments' => $link->attachment_filing ?? null,
+        ], 201);
     }
 
     /**

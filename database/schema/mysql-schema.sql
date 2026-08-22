@@ -2810,6 +2810,30 @@ CREATE TABLE `commission_ledger` (
   CONSTRAINT `commission_ledger_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `commission_setting_audit_log`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `commission_setting_audit_log` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `commission_setting_id` bigint unsigned DEFAULT NULL,
+  `action` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `old_values` json DEFAULT NULL,
+  `new_values` json DEFAULT NULL,
+  `performed_by_user_id` bigint unsigned DEFAULT NULL,
+  `performed_at` timestamp NOT NULL,
+  `notes` text COLLATE utf8mb4_unicode_ci,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `commission_setting_audit_log_commission_setting_id_foreign` (`commission_setting_id`),
+  KEY `commission_setting_audit_log_performed_by_user_id_foreign` (`performed_by_user_id`),
+  KEY `csa_agency_time_idx` (`agency_id`,`performed_at`),
+  CONSTRAINT `commission_setting_audit_log_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `commission_setting_audit_log_commission_setting_id_foreign` FOREIGN KEY (`commission_setting_id`) REFERENCES `commission_settings` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `commission_setting_audit_log_performed_by_user_id_foreign` FOREIGN KEY (`performed_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `commission_settings`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -3118,6 +3142,7 @@ CREATE TABLE `communication_links` (
   `communication_id` bigint unsigned NOT NULL,
   `linkable_type` varchar(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `linkable_id` bigint unsigned NOT NULL,
+  `source_attachment_id` bigint unsigned DEFAULT NULL,
   `link_method` enum('deterministic','attorney_ref','ellie_suggested','manual','attachment') COLLATE utf8mb4_unicode_ci NOT NULL,
   `confidence` decimal(5,2) DEFAULT NULL,
   `confirmed_by` bigint unsigned DEFAULT NULL,
@@ -3130,9 +3155,11 @@ CREATE TABLE `communication_links` (
   KEY `comm_link_comm_fk` (`communication_id`),
   KEY `comm_link_confby_fk` (`confirmed_by`),
   KEY `comm_link_morph_idx` (`linkable_type`,`linkable_id`),
+  KEY `comm_link_src_att_fk` (`source_attachment_id`),
   CONSTRAINT `comm_link_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `comm_link_comm_fk` FOREIGN KEY (`communication_id`) REFERENCES `communications` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `comm_link_confby_fk` FOREIGN KEY (`confirmed_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+  CONSTRAINT `comm_link_confby_fk` FOREIGN KEY (`confirmed_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `comm_link_src_att_fk` FOREIGN KEY (`source_attachment_id`) REFERENCES `communication_attachments` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `communication_mailboxes`;
@@ -15323,3 +15350,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1179,'2026_08_21_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1180,'2026_08_22_090000_add_recipient_identifiers_to_communications_table',233);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1181,'2026_08_22_090100_create_dr2_email_dismissals_table',233);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1182,'2026_08_22_000001_add_attachment_to_communication_links_link_method_enum',234);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1183,'2026_08_21_210000_create_commission_setting_audit_log_table',235);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1184,'2026_08_22_000002_add_source_attachment_id_to_communication_links',236);
