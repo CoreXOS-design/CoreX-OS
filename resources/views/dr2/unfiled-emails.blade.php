@@ -52,6 +52,25 @@
     just its type) so a diluted match (Johan's "koos from ooba" case) visibly reads
     weaker than a unique one. Presentation only — ranking, filtering, filing, dedup,
     and the suggestion popup are all byte-for-byte the same logic as Phase E.
+
+    CX-113 Phase I (Johan, 2026-08-22) — Comms Suspense retirement: "I like the look
+    a lot more" (that screen's two-column card, content left / action panel right)
+    "but the unfiled emails functionality." Card rebuilt two-column to match; the
+    action panel's bottom splits in two per Johan's own words — "split the bottom in
+    2... to auto matched and search. auto matched is based on our calcs if it matches
+    a current deal." AUTO MATCHED (UnfiledEmailsController::autoMatchesFor(), server-
+    side, computed with the page) shows OUR ranking's confident matches — reusing
+    scoreDeal()/matchSignalsFor() (multi-party corroboration included) — as a plain
+    evidence sentence, one click to file; genuinely says so when nothing is confident
+    rather than showing a weak guess. SEARCH is the existing manual route, unchanged
+    logic, now living in its own half of the split with "My Deals" on focus (Johan:
+    "repurpose that to show My deals for users... make filing easy") before the agent
+    types. Status chip + relative age + an attachment clip on the collapsed card and
+    the 3-button stack (Confirm & file / Search all deals / Reject) in the action
+    panel are the other Comms Suspense pieces salvaged, per Johan's own list.
+    Behaviour frozen — ranking, filtering, filing, dedup, removal are the exact same
+    logic as Phase E/G/H; this phase is presentation plus the new autoMatchesFor() read
+    path only.
 --}}
 @extends('layouts.corex')
 
@@ -68,33 +87,21 @@
         dealQ: '', dealResults: [], dealSearching: false, filing: false, err: '',
         suggestModal: false, suggestDeal: null, suggestions: [], suggestSelected: [], batchFiling: false,
         expandedId: null, expandedHtml: '', expanding: false,
-        filingSuggestion: null, filingSuggestionLoading: false,
         removeId: null, removing: false, removeOther: '',
+        // CX-113 Phase I (Johan, 2026-08-22) — repurpose the deal dropdown to show the
+        // agent's own deals for quick filing. Server-rendered once with the page
+        // (window global, set outside this attribute — see the scripts push below;
+        // never a literal double-quote anywhere in THIS attribute, this file has
+        // shipped that exact mistake four times already). Opening the search box with
+        // nothing typed shows this immediately instead of an empty list; typing 2+
+        // characters replaces it with the real ranked search (searchDeals(), unchanged).
+        myDeals: window.DR2_MY_DEALS || [],
         openPicker(commId, move = false){
             if(this.filingId === commId) return; // already active on this row — don't wipe what's typed
-            this.filingId = commId; this.moveMode = move; this.dealQ=''; this.dealResults=[]; this.err='';
-            this.fetchFilingSuggestion(commId);
+            this.filingId = commId; this.moveMode = move; this.dealQ=''; this.err='';
+            this.dealResults = this.myDeals;
         },
-        closePicker(){ this.filingId = null; this.moveMode = false; this.filingSuggestion = null; },
-        // CX-113 Phase D (Johan, 2026-08-21) — auto-suggest the deal from filing
-        // history; suggest, never auto-file. Fetched once, when the row's search
-        // opens, before the agent has typed anything. Shown ABOVE the normal search
-        // results; typing a query doesn't clear it, but the real search results (once
-        // 2+ chars are typed) take visual priority — the suggestion is a starting
-        // point, never forced. NOTE: this comment sits inside the double-quoted x-data
-        // attribute — no literal double-quote character (the one this note is itself
-        // avoiding) may EVER appear on these lines, even in a comment; the browser's
-        // HTML parser terminates the attribute at the first one, regardless of JS
-        // syntax (confirmed live — this exact mistake shipped once already).
-        async fetchFilingSuggestion(commId){
-            this.filingSuggestion = null; this.filingSuggestionLoading = true;
-            try {
-                const r = await fetch('{{ url('deals-dr2/unfiled-emails') }}/' + commId + '/suggest', {headers:{Accept:'application/json'}});
-                const j = await r.json();
-                this.filingSuggestion = (j && j.deal_id) ? j : null;
-            } catch(e) { this.filingSuggestion = null; }
-            this.filingSuggestionLoading = false;
-        },
+        closePicker(){ this.filingId = null; this.moveMode = false; },
         async toggleExpand(commId){
             if(this.expandedId === commId){ this.expandedId = null; return; }
             this.expandedId = commId; this.expandedHtml = ''; this.expanding = true;
@@ -105,7 +112,7 @@
             this.expanding = false;
         },
         async searchDeals(){
-            if(this.dealQ.trim().length < 2){ this.dealResults = []; return; }
+            if(this.dealQ.trim().length < 2){ this.dealResults = this.myDeals; return; }
             this.dealSearching = true;
             try {
                 const r = await fetch('{{ route('deals-dr2.unfiled-emails.deal-search') }}?q=' + encodeURIComponent(this.dealQ.trim()) + '&communication_id=' + this.filingId, {headers:{Accept:'application/json'}});
@@ -410,7 +417,16 @@
                 @php($filedInfo = $filedInfoByCommId[$email->id] ?? null)
                 @php($dismissedInfo = $dismissedInfoByCommId[$email->id] ?? null)
                 @php($previewText = (string) ($email->body_display ?: ($email->body_text ?: $email->body_preview)))
+                @php($autoMatches = $autoMatchByCommId[$email->id] ?? [])
+                @php($topMatch = $autoMatches[0] ?? null)
+                @php($altMatches = array_slice($autoMatches, 1))
+                {{-- CX-113 Phase I — two-column card (Comms Suspense's own layout, salvaged
+                     per Johan: "I like the look a lot more"): content left, action panel
+                     right. flex-wrap (not a hard breakpoint) so the panel drops below the
+                     content instead of ever forcing horizontal overflow at 1024px. --}}
                 <div id="unfiled-row-{{ $email->id }}" class="rounded-md p-4" style="background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);">
+                <div style="display:flex;gap:1.25rem;flex-wrap:wrap;align-items:flex-start;">
+                <div style="flex:2 1 20rem;min-width:0;">
                     <div style="cursor:pointer;" @click="toggleExpand({{ $email->id }})">
                         {{-- Line 1 — SUBJECT, the thing an agent actually scans for. Real chevron
                              (same SVG path already used by the agent-picker dropdown elsewhere on
@@ -430,33 +446,35 @@
                             <div class="text-sm font-semibold truncate" style="min-width:0;flex:1;color:var(--text-primary);text-transform:capitalize;" title="{{ $email->subject ?: '(no subject)' }}">
                                 {{ $email->subject ?: '(no subject)' }}
                             </div>
-                            @if($state !== 'unfiled')
-                                <span class="flex-shrink-0" style="font-size:.68rem;padding:.1rem .5rem;border-radius:999px;font-weight:600;white-space:nowrap;{{ $filedInfo ? 'background:color-mix(in srgb, var(--ds-green,#059669) 15%, transparent);color:var(--ds-green,#059669);' : 'background:var(--surface-2,#f3f4f6);color:var(--text-muted,#9ca3af);' }}">{{ $filedInfo ? 'Filed' : 'Not filed' }}</span>
+                            {{-- CX-113 Phase I — attachment indicator (Comms Suspense shows filenames
+                                 inline; here just an existence clip — has_attachments is already a
+                                 column, no join needed). Real filenames still show on expand. --}}
+                            @if($email->has_attachments)
+                                <span class="flex-shrink-0" title="Has attachments" style="font-size:.8rem;">📎</span>
+                            @endif
+                        </div>
+                        {{-- CX-113 Phase I — status chip + relative age (Comms Suspense: "Needs a
+                             deal" / "1 day ago"), driven by OUR confidence threshold rather than the
+                             old ladder. Filed/Not-filed pill (state!=='unfiled') is unchanged. --}}
+                        <div class="flex items-center gap-2 flex-wrap" style="margin:.3rem 0 0 1.35rem;">
+                            @if($state !== 'unfiled' && $filedInfo)
+                                <span style="font-size:.68rem;padding:.1rem .5rem;border-radius:999px;font-weight:600;white-space:nowrap;background:color-mix(in srgb, var(--ds-green,#059669) 15%, transparent);color:var(--ds-green,#059669);">Filed</span>
+                            @elseif($state !== 'unfiled')
+                                <span style="font-size:.68rem;padding:.1rem .5rem;border-radius:999px;font-weight:600;white-space:nowrap;background:var(--surface-2,#f3f4f6);color:var(--text-muted,#9ca3af);">Not filed</span>
+                            @elseif($state === 'unfiled' && $topMatch)
+                                <span style="font-size:.68rem;padding:.1rem .5rem;border-radius:999px;font-weight:600;white-space:nowrap;background:color-mix(in srgb, var(--ds-green,#059669) 15%, transparent);color:var(--ds-green,#059669);">Match found</span>
+                            @elseif($state === 'unfiled')
+                                <span style="font-size:.68rem;padding:.1rem .5rem;border-radius:999px;font-weight:600;white-space:nowrap;background:color-mix(in srgb, var(--ds-amber,#f59e0b) 15%, transparent);color:var(--ds-amber,#f59e0b);">Needs a deal</span>
+                            @endif
+                            @if($email->occurred_at)
+                                <span class="text-xs" style="color:var(--text-muted,#9ca3af);">{{ $email->occurred_at->diffForHumans() }}</span>
                             @endif
                             {{-- CX-113 Phase G — "getting an email that should not be in here so how
                                  do i remove it?" Reversible: takes the row out of DR2's queue only,
-                                 never touches the Communication or its contact link. Shown for a row
-                                 that isn't already filed (a filed row is already correctly placed). --}}
-                            @if($state !== 'removed' && ! $filedInfo)
-                                <button type="button" class="flex-shrink-0 text-xs" @click.stop="removeId = (removeId === {{ $email->id }} ? null : {{ $email->id }})"
-                                        style="color:var(--text-muted,#9ca3af);font-weight:500;white-space:nowrap;">Not deal related?</button>
-                            @endif
+                                 never touches the Communication or its contact link. Moved into the
+                                 action panel's Reject button (Phase I) — the reason-picker now mounts
+                                 there, next to its trigger. --}}
                         </div>
-                        @if($state !== 'removed' && ! $filedInfo)
-                            <div x-show="removeId === {{ $email->id }}" x-cloak @click.stop
-                                 class="flex flex-wrap items-center gap-1.5" style="margin:.4rem 0 0 1.35rem;">
-                                @foreach($dismissalReasons as $key => $label)
-                                    @if($key !== 'other')
-                                        <button type="button" class="text-xs" :disabled="removing" @click="dismissEmail({{ $email->id }}, '{{ $key }}')"
-                                                style="padding:.2rem .55rem;border-radius:999px;border:1px solid var(--border,#e5e7eb);background:var(--surface-2,#f9fafb);color:var(--text-primary);">{{ $label }}</button>
-                                    @endif
-                                @endforeach
-                                <input type="text" x-model="removeOther" @click.stop placeholder="Other reason…"
-                                       class="corex-input text-xs" style="width:9rem;padding:.2rem .5rem;">
-                                <button type="button" class="text-xs" :disabled="removing || !removeOther.trim()" @click="dismissEmail({{ $email->id }}, 'other')"
-                                        style="padding:.2rem .55rem;border-radius:999px;border:1px solid var(--border,#e5e7eb);background:var(--surface-2,#f9fafb);color:var(--text-primary);">Remove</button>
-                            </div>
-                        @endif
                         {{-- Line 2 — sender · date, small and muted; secondary information recedes. --}}
                         <div class="text-xs truncate" style="margin:.25rem 0 0 1.35rem;color:var(--text-muted,#9ca3af);">
                             {{ $email->from_identifier ?: '(unknown)' }} · {{ optional($email->occurred_at)->format('j M Y H:i') }}
@@ -501,60 +519,159 @@
                         <div x-show="expanding" x-cloak class="text-xs" style="color:var(--text-muted,#9ca3af);">Loading…</div>
                         <div x-show="!expanding" x-html="expandedHtml"></div>
                     </div>
+                </div>
 
-                    {{-- CX-113 Phase E/F — deal search, full width, at the bottom of the card as
-                         its own visually distinct action zone (Johan: "bottom left... give it the
-                         full row width so results can carry real detail" — a card gives that
-                         naturally, no fixed columns to trap it inside). Same searchDeals()/file()/
-                         openPicker() state as before — presentation-only change. Hidden for a
-                         Removed row (Phase G) — an email flagged "not deal correspondence" isn't
-                         offered a deal to file to; Restore it first. --}}
-                    @if($state !== 'removed')
-                    <div class="mt-3 pt-3" style="border-top:1px solid var(--border,#e5e7eb);" @click.stop>
-                        <div style="position:relative;" @click.outside="filingId === {{ $email->id }} && closePicker()">
-                            <input type="text" autocomplete="off"
+                {{-- CX-113 Phase I — action panel, right column. Bottom split in two per
+                     Johan's own words: "split the bottom in 2... to auto matched and
+                     search." Hidden for a Removed row (Phase G) — an email flagged "not
+                     deal correspondence" isn't offered a deal to file to; Restore it first
+                     — and for an already-Filed row, which shows Move-only via the old
+                     single search box instead (unchanged). --}}
+                @if($state !== 'removed' && ! $filedInfo)
+                    <div style="flex:1 1 19rem;min-width:0;" @click.stop>
+                        {{-- AUTO MATCHED — Johan: "auto matched is based on our calcs if it
+                             matches a current deal." Server-computed (UnfiledEmailsController::
+                             autoMatchesFor(), same scoreDeal()/matchSignalsFor() dealSearch()
+                             uses — corroboration included), so it renders instantly with the
+                             page, no fetch. Each match is directly one-click-to-file, same as a
+                             search result. Genuinely says so when nothing clears the confidence
+                             bar — never a weak guess dressed as an answer. --}}
+                        <div class="rounded-md p-3" style="background:var(--surface-2,#f9fafb);border:1px solid var(--border,#e5e7eb);">
+                            <div style="font-size:.68rem;font-weight:700;color:var(--text-muted,#9ca3af);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.5rem;">Auto matched</div>
+                            @if($topMatch)
+                                <div class="rounded-md p-2.5" style="background:var(--surface,#fff);border:1px solid var(--brand-icon,#0ea5e9);cursor:pointer;"
+                                     @click="file({{ $email->id }}, {{ $topMatch['id'] }})">
+                                    <div class="flex items-center justify-between gap-2">
+                                        <span class="text-sm truncate" style="font-weight:600;color:var(--text-primary);min-width:0;">{{ $topMatch['label'] }}</span>
+                                        <span class="flex-shrink-0" style="font-size:.65rem;padding:.1rem .45rem;border-radius:999px;font-weight:600;white-space:nowrap;{{ $topMatch['status'] === 'Declined' ? 'background:color-mix(in srgb, var(--ds-crimson,#c41e3a) 15%, transparent);color:var(--ds-crimson,#c41e3a);' : ($topMatch['status'] === 'Pending' ? 'background:var(--surface-2,#f3f4f6);color:var(--text-muted,#9ca3af);' : 'background:color-mix(in srgb, var(--ds-green,#059669) 15%, transparent);color:var(--ds-green,#059669);') }}">{{ $topMatch['status'] }}</span>
+                                    </div>
+                                    <div class="text-xs" style="color:var(--text-secondary,var(--text-primary));margin-top:.3rem;line-height:1.4;">{{ $topMatch['signals'][0]['label'] ?? '' }}</div>
+                                </div>
+                                <button type="button" class="w-full text-xs font-semibold" style="margin-top:.5rem;padding:.5rem;border-radius:.375rem;background:var(--brand-default,#0b2a4a);color:#fff;"
+                                        @click="file({{ $email->id }}, {{ $topMatch['id'] }})">Confirm &amp; file {{ $topMatch['label'] }}</button>
+                                @if(count($altMatches))
+                                    <div style="margin-top:.6rem;padding-top:.5rem;border-top:1px solid var(--border,#e5e7eb);">
+                                        <div style="font-size:.65rem;color:var(--text-muted,#9ca3af);margin-bottom:.35rem;">Or:</div>
+                                        <div class="space-y-1.5">
+                                            @foreach($altMatches as $alt)
+                                                <div class="rounded-md p-2" style="background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);cursor:pointer;"
+                                                     @click="file({{ $email->id }}, {{ $alt['id'] }})">
+                                                    <div class="text-xs truncate" style="font-weight:600;color:var(--text-primary);">{{ $alt['label'] }}</div>
+                                                    <div class="text-xs truncate" style="color:var(--text-muted,#9ca3af);">{{ $alt['signals'][0]['label'] ?? '' }}</div>
+                                                </div>
+                                            @endforeach
+                                        </div>
+                                    </div>
+                                @endif
+                            @else
+                                <div class="text-xs" style="color:var(--text-muted,#9ca3af);">No confident match for this email — search below.</div>
+                            @endif
+                        </div>
+
+                        {{-- SEARCH — the manual route. My Deals on focus (Johan: "repurpose that
+                             to show My deals for users... make filing easy"), widens to the full
+                             ranked search the moment 2+ characters are typed. Same searchDeals()/
+                             file()/openPicker() state and endpoint as before — presentation only. --}}
+                        <div class="mt-3" style="position:relative;" @click.outside="filingId === {{ $email->id }} && closePicker()">
+                            <div style="font-size:.68rem;font-weight:700;color:var(--text-muted,#9ca3af);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.5rem;">Search</div>
+                            <input type="text" autocomplete="off" id="deal-search-{{ $email->id }}"
                                    :value="filingId === {{ $email->id }} ? dealQ : ''"
-                                   @focus="openPicker({{ $email->id }}, {{ $filedInfo ? 'true' : 'false' }})"
+                                   @focus="openPicker({{ $email->id }})"
                                    @input="dealQ = $event.target.value; searchDeals()"
                                    @keydown.escape="closePicker()"
-                                   placeholder="{{ $filedInfo ? 'Move to another deal…' : 'Search deal — address, seller, buyer, attorney…' }}"
-                                   class="corex-input text-sm" style="width:100%;max-width:38rem;">
-                            {{-- CX-113 Phase D — filing-history suggestion, shown BEFORE the agent
-                                 types anything; a real search takes over the moment they type. --}}
-                            <div x-show="filingId === {{ $email->id }} && dealQ.trim().length === 0 && filingSuggestion" x-cloak
-                                 style="position:relative;max-width:38rem;margin-top:.4rem;background:var(--surface-2,#f9fafb);border:1px solid var(--brand-icon,#0ea5e9);border-radius:.5rem;padding:.6rem .75rem;">
-                                <div style="font-size:.68rem;font-weight:600;color:var(--brand-icon,#0ea5e9);text-transform:uppercase;letter-spacing:.03em;margin-bottom:.2rem;">Suggested</div>
-                                <div class="text-sm" style="font-weight:600;cursor:pointer;color:var(--text-primary);"
-                                     :class="filing ? 'pointer-events-none opacity-50' : ''"
-                                     x-text="filingSuggestion && filingSuggestion.label"
-                                     @click="file({{ $email->id }}, filingSuggestion.deal_id)"></div>
-                                <div class="text-xs" style="color:var(--text-muted,#9ca3af);" x-text="filingSuggestion && filingSuggestion.reason"></div>
-                            </div>
-                            <div x-show="filingId === {{ $email->id }} && dealQ.trim().length === 0 && filingSuggestionLoading" x-cloak
-                                 class="text-xs" style="max-width:38rem;margin-top:.4rem;color:var(--text-muted,#9ca3af);">
-                                Checking filing history…
-                            </div>
+                                   placeholder="Address, seller, buyer, attorney…"
+                                   class="corex-input text-sm" style="width:100%;">
+                            <div x-show="filingId === {{ $email->id }} && dealQ.trim().length === 0 && dealResults.length" x-cloak
+                                 class="text-xs" style="margin-top:.4rem;color:var(--text-muted,#9ca3af);">My deals</div>
                             <div x-show="filingId === {{ $email->id }} && dealSearching" x-cloak
-                                 class="text-xs" style="max-width:38rem;margin-top:.4rem;color:var(--text-muted,#9ca3af);">
+                                 class="text-xs" style="margin-top:.4rem;color:var(--text-muted,#9ca3af);">
                                 Searching…
                             </div>
                             {{-- CX-113 Phase E — rich result cards: property address, status,
                                  parties, and WHY each deal is a candidate for THIS email (signal
                                  badges, strongest-first — the backend already sorts by score,
-                                 never re-sorted client-side). An unbadged result is a plain text
-                                 match — it naturally sorts last. Same card/border/spacing language
-                                 as the outer list, not a different visual system. --}}
+                                 never re-sorted client-side). A My-Deals entry (id+label only, no
+                                 signals/status/parties) renders the same template with those
+                                 pieces simply absent — x-show guards each optional field. --}}
                             <div x-show="filingId === {{ $email->id }} && !dealSearching && dealResults.length" x-cloak
-                                 class="space-y-2" style="max-width:38rem;margin-top:.5rem;max-height:24rem;overflow:auto;">
+                                 class="space-y-2" style="margin-top:.5rem;max-height:20rem;overflow:auto;">
                                 <template x-for="d in dealResults" :key="d.id">
                                     <div class="rounded-md p-3" style="border:1px solid var(--border,#e5e7eb);cursor:pointer;"
                                          :style="'border-radius:.375rem;padding:.65rem .8rem;border:1px solid var(--border,#e5e7eb);cursor:pointer;' + (filing ? 'pointer-events:none;opacity:.5;' : '')"
                                          @click="file({{ $email->id }}, d.id)">
                                         <div class="flex items-center justify-between gap-2">
                                             <span class="text-sm truncate" style="font-weight:600;color:var(--text-primary);min-width:0;" x-text="d.label"></span>
-                                            <span class="flex-shrink-0" :style="'font-size:.68rem;padding:.1rem .5rem;border-radius:999px;font-weight:600;white-space:nowrap;' + dealStatusPillStyle(d.status)" x-text="d.status"></span>
+                                            <span x-show="d.status" class="flex-shrink-0" :style="'font-size:.68rem;padding:.1rem .5rem;border-radius:999px;font-weight:600;white-space:nowrap;' + dealStatusPillStyle(d.status)" x-text="d.status"></span>
                                         </div>
-                                        <div class="text-xs truncate" style="color:var(--text-muted,#9ca3af);margin-top:.15rem;"
+                                        <div x-show="d.seller_name || d.buyer_name || d.attorney_name" class="text-xs truncate" style="color:var(--text-muted,#9ca3af);margin-top:.15rem;"
+                                             x-text="[d.seller_name ? ('Seller: ' + d.seller_name) : null, d.buyer_name ? ('Buyer: ' + d.buyer_name) : null, d.attorney_name ? ('Attorney: ' + d.attorney_name) : null].filter(Boolean).join('  ·  ')"></div>
+                                        <div x-show="d.signals && d.signals.length" class="flex flex-wrap" style="gap:.3rem;margin-top:.4rem;">
+                                            <template x-for="s in (d.signals || [])" :key="s.type + s.label">
+                                                <span :style="'font-size:.68rem;padding:.15rem .5rem;border-radius:999px;font-weight:600;' + signalBadgeStyle(s.score)" x-text="s.label"></span>
+                                            </template>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+
+                        {{-- CX-113 Phase I — 3-button stack (Comms Suspense's own decision
+                             hierarchy, salvaged): the likely answer, the manual route, the
+                             rejection. "Search all deals…" focuses the search box above (already
+                             inline — no modal, Johan's earlier explicit rule) rather than opening
+                             one. Reject reuses the existing reason-picker, unchanged, just
+                             relocated here from the old inline text-link trigger. --}}
+                        <div class="mt-3 pt-3" style="border-top:1px solid var(--border,#e5e7eb);display:flex;flex-direction:column;gap:.5rem;">
+                            <button type="button" class="w-full text-xs font-semibold" :disabled="! {{ $topMatch ? 'true' : 'false' }}"
+                                    style="padding:.55rem;border-radius:.375rem;background:var(--brand-default,#0b2a4a);color:#fff;{{ $topMatch ? '' : 'opacity:.4;cursor:not-allowed;' }}"
+                                    @click="{{ $topMatch ? 'file(' . $email->id . ', ' . $topMatch['id'] . ')' : '' }}">Confirm &amp; file</button>
+                            <button type="button" class="w-full text-xs" style="padding:.5rem;border-radius:.375rem;background:var(--surface-2,#f3f4f6);color:var(--text-secondary,var(--text-primary));border:1px solid var(--border,#e5e7eb);"
+                                    @click="openPicker({{ $email->id }}); $nextTick(() => document.getElementById('deal-search-{{ $email->id }}')?.focus())">Search all deals…</button>
+                            <button type="button" class="w-full text-xs" style="padding:.5rem;border-radius:.375rem;background:transparent;color:var(--ds-crimson,#c41e3a);border:1px solid var(--ds-crimson,#c41e3a);"
+                                    @click="removeId = (removeId === {{ $email->id }} ? null : {{ $email->id }})">Reject</button>
+                            <div x-show="removeId === {{ $email->id }}" x-cloak
+                                 class="flex flex-wrap items-center gap-1.5">
+                                @foreach($dismissalReasons as $key => $label)
+                                    @if($key !== 'other')
+                                        <button type="button" class="text-xs" :disabled="removing" @click="dismissEmail({{ $email->id }}, '{{ $key }}')"
+                                                style="padding:.2rem .55rem;border-radius:999px;border:1px solid var(--border,#e5e7eb);background:var(--surface-2,#f9fafb);color:var(--text-primary);">{{ $label }}</button>
+                                    @endif
+                                @endforeach
+                                <input type="text" x-model="removeOther" placeholder="Other reason…"
+                                       class="corex-input text-xs" style="width:9rem;padding:.2rem .5rem;">
+                                <button type="button" class="text-xs" :disabled="removing || !removeOther.trim()" @click="dismissEmail({{ $email->id }}, 'other')"
+                                        style="padding:.2rem .55rem;border-radius:999px;border:1px solid var(--border,#e5e7eb);background:var(--surface-2,#f9fafb);color:var(--text-primary);">Remove</button>
+                            </div>
+                        </div>
+                    </div>
+                @elseif($state !== 'removed' && $filedInfo)
+                    {{-- Already filed — the auto-matched/3-button treatment doesn't fit an
+                         item that's already resolved; the existing "move to another deal"
+                         search box (unchanged logic, openPicker's move=true) is enough. --}}
+                    <div style="flex:1 1 19rem;min-width:0;" @click.stop>
+                        <div style="position:relative;" @click.outside="filingId === {{ $email->id }} && closePicker()">
+                            <input type="text" autocomplete="off" id="deal-search-{{ $email->id }}"
+                                   :value="filingId === {{ $email->id }} ? dealQ : ''"
+                                   @focus="openPicker({{ $email->id }}, true)"
+                                   @input="dealQ = $event.target.value; searchDeals()"
+                                   @keydown.escape="closePicker()"
+                                   placeholder="Move to another deal…"
+                                   class="corex-input text-sm" style="width:100%;">
+                            <div x-show="filingId === {{ $email->id }} && dealQ.trim().length === 0 && dealResults.length" x-cloak
+                                 class="text-xs" style="margin-top:.4rem;color:var(--text-muted,#9ca3af);">My deals</div>
+                            <div x-show="filingId === {{ $email->id }} && dealSearching" x-cloak
+                                 class="text-xs" style="margin-top:.4rem;color:var(--text-muted,#9ca3af);">Searching…</div>
+                            <div x-show="filingId === {{ $email->id }} && !dealSearching && dealResults.length" x-cloak
+                                 class="space-y-2" style="margin-top:.5rem;max-height:20rem;overflow:auto;">
+                                <template x-for="d in dealResults" :key="d.id">
+                                    <div class="rounded-md p-3"
+                                         :style="'border-radius:.375rem;padding:.65rem .8rem;border:1px solid var(--border,#e5e7eb);cursor:pointer;' + (filing ? 'pointer-events:none;opacity:.5;' : '')"
+                                         @click="file({{ $email->id }}, d.id)">
+                                        <div class="flex items-center justify-between gap-2">
+                                            <span class="text-sm truncate" style="font-weight:600;color:var(--text-primary);min-width:0;" x-text="d.label"></span>
+                                            <span x-show="d.status" class="flex-shrink-0" :style="'font-size:.68rem;padding:.1rem .5rem;border-radius:999px;font-weight:600;white-space:nowrap;' + dealStatusPillStyle(d.status)" x-text="d.status"></span>
+                                        </div>
+                                        <div x-show="d.seller_name || d.buyer_name || d.attorney_name" class="text-xs truncate" style="color:var(--text-muted,#9ca3af);margin-top:.15rem;"
                                              x-text="[d.seller_name ? ('Seller: ' + d.seller_name) : null, d.buyer_name ? ('Buyer: ' + d.buyer_name) : null, d.attorney_name ? ('Attorney: ' + d.attorney_name) : null].filter(Boolean).join('  ·  ')"></div>
                                         <div x-show="d.signals && d.signals.length" class="flex flex-wrap" style="gap:.3rem;margin-top:.4rem;">
                                             <template x-for="s in (d.signals || [])" :key="s.type + s.label">
@@ -566,7 +683,8 @@
                             </div>
                         </div>
                     </div>
-                    @endif
+                @endif
+                </div>
                 </div>
             @endforeach
         </div>
@@ -606,4 +724,13 @@
         </div>
     </div>
 </div>
+
+@push('scripts')
+<script>
+    // CX-113 Phase I — "My deals" for the search box's on-focus quick list. Defined
+    // here, OUTSIDE the x-data attribute (a <script> block, unlike an HTML attribute,
+    // has no quote-termination trap), then read via window.DR2_MY_DEALS inside it.
+    window.DR2_MY_DEALS = @json($myDeals);
+</script>
+@endpush
 @endsection
