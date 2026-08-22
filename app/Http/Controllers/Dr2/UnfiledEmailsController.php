@@ -110,11 +110,23 @@ class UnfiledEmailsController extends Controller
 
         $dealPartyEmails = $this->dealParties->partyEmailsForAgency($agencyId);
 
+        // CX-113 Phase H (Johan, 2026-08-22) — "no-contact sender" catch. A comm parked
+        // by the AT-231 correspondence pipeline (CorrespondenceFilingService::park(),
+        // used for a sender with no saved Contact but a recognised attorney/supplier/
+        // party) gets a PROVISIONAL DealV2 link — confirmed_at null — for its suggested
+        // deal, same as any suggestion. "Filed" must mean a human confirmed it, not
+        // merely that a machine guess exists; without whereNotNull('confirmed_at') here
+        // every one of those rows was silently mis-classified as already-filed (masked
+        // with a blank filer/date, since confirmedBy/confirmed_at were null) and never
+        // reached Unfiled at all — confirmed empirically: all 15 real pending-suspense
+        // rows on staging already satisfy matchingAnyEmail() below and were only ever
+        // hidden by this.
         $hasActiveDealLink = function ($q) {
             $q->selectRaw('1')->from('communication_links')
                 ->whereColumn('communication_links.communication_id', 'communications.id')
                 ->where('communication_links.linkable_type', DealV2::class)
-                ->whereNull('communication_links.deleted_at');
+                ->whereNull('communication_links.deleted_at')
+                ->whereNotNull('communication_links.confirmed_at');
         };
         $hasActiveDismissal = function ($q) {
             $q->selectRaw('1')->from('communication_dr2_dismissals')
@@ -176,7 +188,9 @@ class UnfiledEmailsController extends Controller
         }
 
         $emails = $query->with(['links' => function ($q) {
-            $q->where('linkable_type', DealV2::class)->whereNull('deleted_at')->with('confirmedBy');
+            // Same confirmed_at fix as $hasActiveDealLink above — a provisional link
+            // must never surface as "Filed to X by (blank)" in $filedInfoByCommId below.
+            $q->where('linkable_type', DealV2::class)->whereNull('deleted_at')->whereNotNull('confirmed_at')->with('confirmedBy');
         }])->orderByDesc('occurred_at')->paginate(25)->withQueryString();
 
         // Filed-row display (Phase B: "which deal it is on and who filed it, with a
@@ -635,10 +649,13 @@ class UnfiledEmailsController extends Controller
             $communication = Communication::where('agency_id', $agencyId)
                 ->where('channel', Communication::CHANNEL_EMAIL)
                 ->whereNotExists(function ($q) {
+                    // Same confirmed_at fix as index()'s $hasActiveDealLink — a
+                    // provisional (unconfirmed) link must not count as already filed.
                     $q->selectRaw('1')->from('communication_links')
                         ->whereColumn('communication_links.communication_id', 'communications.id')
                         ->where('communication_links.linkable_type', DealV2::class)
-                        ->whereNull('communication_links.deleted_at');
+                        ->whereNull('communication_links.deleted_at')
+                        ->whereNotNull('communication_links.confirmed_at');
                 })
                 ->find($commId);
 
