@@ -279,6 +279,12 @@ final class DeedsCaptureController extends Controller
             if ($preview) {
                 $strategy = $matchEvidence->strategyFor($tp);
                 $panelRows = $matchEvidence->panelRows($tp, $preview);
+                // 2026-08-22 (matcher-accuracy build) — the actual candidate list, not
+                // just a count. Villa Del Sol (8 units, one stand) / Lynne Avenue (6
+                // portions, one stand): when more than one exists, list every one so
+                // the agent can see and pick, not just a "N possible matches" number
+                // with the top one silently pre-selected.
+                $candidates = $matchEvidence->candidates($tp, $strategy, (int) $agencyId);
                 $stockStatusByTp[$tp->id] = [
                     'state' => $preview->isStaleStock() ? 'stale' : 'live', 'property' => $preview, 'already' => false,
                     'age' => $ageResolver->resolve($preview),
@@ -286,11 +292,29 @@ final class DeedsCaptureController extends Controller
                         'rows' => $panelRows['rows'],
                         'hiddenCount' => $panelRows['hiddenCount'],
                         'strategy' => $strategy,
-                        'candidateCount' => $matchEvidence->candidateCount($tp, $strategy, (int) $agencyId),
+                        'candidateCount' => $candidates->count(),
+                        'candidates' => $candidates,
+                        'verdict' => $matchEvidence->verdict($tp, (int) $agencyId),
                     ],
                 ];
             } else {
-                $stockStatusByTp[$tp->id] = ['state' => 'not_promoted', 'property' => null, 'already' => false, 'age' => null, 'panel' => null];
+                // 2026-08-22 (matcher-accuracy build, property 15698 gap) —
+                // previewPropertyMatch() returning null now covers cases that used to
+                // look identical: genuinely nothing found, a structural strategy
+                // (sectional/erf/address) that found MORE THAN ONE candidate and
+                // deliberately refused to auto-pick one (see
+                // TrackedPropertyMatchOrCreateService::resolveOrLogAmbiguous), or a
+                // GPS-only signal (never confident alone). All three are visibly
+                // different from "nothing at all" — 15698's whole failure was that a
+                // near neighbour existed and nothing on screen ever said so.
+                $strategy = $matchEvidence->strategyFor($tp);
+                $structuralCandidates = $matchEvidence->candidates($tp, $strategy, (int) $agencyId);
+                $gpsCandidates = $matchEvidence->candidates($tp, 'gps_proximity', (int) $agencyId);
+                $stockStatusByTp[$tp->id] = [
+                    'state' => 'not_promoted', 'property' => null, 'already' => false, 'age' => null, 'panel' => null,
+                    'ambiguousCandidates' => $structuralCandidates->count() > 1 ? $structuralCandidates : null,
+                    'gpsOnlyCandidates' => $gpsCandidates->isNotEmpty() ? $gpsCandidates : null,
+                ];
             }
         }
 

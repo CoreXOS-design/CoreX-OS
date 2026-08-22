@@ -755,6 +755,41 @@
                                      buttons render with the comparison panel below, not here. --}}
                                 <div class="text-xs" style="color: var(--text-muted);">Decide using the comparison below ↓</div>
                             @else
+                                @if(!empty($stockStatus['ambiguousCandidates']) || !empty($stockStatus['gpsOnlyCandidates']))
+                                    {{-- 2026-08-22 (matcher-accuracy build, property 15698) — the matcher found
+                                         something close but refused to auto-pick, either because more than one
+                                         candidate shares the same erf/stand/complex (Villa Del Sol / Lynne
+                                         Avenue class of case) or because GPS proximity was the only signal
+                                         (never confident alone). 15698's whole failure was that a near
+                                         neighbour existed and nothing on screen ever said so — this is that
+                                         "so" moment. Purely informational: still an honest "Add as new" below,
+                                         but the agent now sees this first. --}}
+                                    <div class="text-xs rounded-md p-2.5 max-w-xs text-right" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 35%, var(--border)); color: var(--ds-amber, #f59e0b);">
+                                        @if(!empty($stockStatus['ambiguousCandidates']))
+                                            <div class="font-semibold">{{ $stockStatus['ambiguousCandidates']->count() }} possible matches — none picked automatically</div>
+                                            <ul class="mt-1 space-y-0.5 text-left">
+                                                @foreach($stockStatus['ambiguousCandidates'] as $cand)
+                                                    <li>
+                                                        <a href="{{ route('corex.properties.show', $cand->id) }}" target="_blank" rel="noopener" class="no-underline" style="color: inherit; text-decoration: underline;">
+                                                            {{ trim(($cand->street_number ?? '') . ' ' . ($cand->street_name ?? '')) ?: ('Property #' . $cand->id) }}{{ $cand->suburb ? ', ' . $cand->suburb : '' }}
+                                                        </a>
+                                                    </li>
+                                                @endforeach
+                                            </ul>
+                                        @elseif(!empty($stockStatus['gpsOnlyCandidates']))
+                                            <div class="font-semibold">{{ $stockStatus['gpsOnlyCandidates']->count() }} {{ $stockStatus['gpsOnlyCandidates']->count() === 1 ? 'property is' : 'properties are' }} within 25m — worth checking</div>
+                                            <ul class="mt-1 space-y-0.5 text-left">
+                                                @foreach($stockStatus['gpsOnlyCandidates'] as $cand)
+                                                    <li>
+                                                        <a href="{{ route('corex.properties.show', $cand->id) }}" target="_blank" rel="noopener" class="no-underline" style="color: inherit; text-decoration: underline;">
+                                                            {{ trim(($cand->street_number ?? '') . ' ' . ($cand->street_name ?? '')) ?: ('Property #' . $cand->id) }}{{ $cand->suburb ? ', ' . $cand->suburb : '' }}
+                                                        </a>
+                                                    </li>
+                                                @endforeach
+                                            </ul>
+                                        @endif
+                                    </div>
+                                @endif
                                 <form id="promote-form-{{ $tp->id }}" method="POST" action="{{ route('corex.deeds-capture.promote', $tp->id) }}"
                                       onsubmit="return confirm('Add this as a new property and link the owner? Any ticked contact numbers below will be added too.');">
                                     @csrf
@@ -788,14 +823,15 @@
                         <div class="mt-3 rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
                             <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
                                 <div class="text-xs font-bold uppercase tracking-wider" style="color: var(--text-muted);">Is this the same property?</div>
-                                @if($panel['candidateCount'] > 1)
-                                    {{-- Johan: "if more than one candidate exists, SAY SO on screen." Only the
-                                         top candidate (the one resolvePropertyMatch() itself would use) is
-                                         detailed below — see the deploy report for what fuller support would cost. --}}
-                                    <span class="text-xs font-semibold px-2 py-0.5 rounded-full" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color: var(--ds-amber, #f59e0b);">
-                                        {{ $panel['candidateCount'] }} possible matches found — showing the top one
-                                    </span>
-                                @endif
+                                {{-- 2026-08-22 (matcher-accuracy build) — resolvePropertyMatch() no longer
+                                     silently picks the top candidate when more than one exists (Villa Del
+                                     Sol: 8 units, one stand; Lynne Avenue: 6 portions, one stand). This panel
+                                     now only ever renders for a CONFIDENT, single-candidate match — an
+                                     ambiguous case surfaces below the Promote button instead (see
+                                     $stockStatus['ambiguousCandidates']), listing every candidate. --}}
+                                <span class="text-xs font-semibold px-2 py-0.5 rounded-full" style="background: color-mix(in srgb, var(--ds-green, #059669) 15%, transparent); color: var(--ds-green, #059669);">
+                                    Confident match
+                                </span>
                             </div>
                             <div class="text-[10px] mb-1" style="color: var(--text-muted);">
                                 <span style="color: var(--ds-green, #059669); font-weight:600;">Strong match</span> ·
