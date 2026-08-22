@@ -410,6 +410,93 @@ final class UnfiledEmailsTest extends TestCase
         $this->assertLessThan(20, $busyResult['signals'][0]['score']); // barely moves the ranking
     }
 
+    /** Registers $email as a buyer/seller-role deal_contacts party on the given deal. */
+    private function registerDealPartyOn(Deal $deal, string $email, string $role, string $firstName = 'Test', string $lastName = 'Party'): void
+    {
+        $contactId = (int) DB::table('contacts')->insertGetId([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->branchId, 'email' => $email,
+            'first_name' => $firstName, 'last_name' => $lastName,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('deal_contacts')->insert([
+            'deal_id' => $deal->id, 'contact_id' => $contactId, 'role' => $role,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
+    /**
+     * CX-113 Phase H (Johan, 2026-08-22, made twice): "just by having transfer
+     * attorney email plus seller email plus buyer email... should already give us a
+     * hell of a lot of positive linking... a high-frequency attorney alone barely
+     * moves it; that same attorney PLUS the seller pins it." The SAME attorney as the
+     * "barely moves the ranking" test above — still on 3 deals — but this time also
+     * co-occurring with the seller on the SAME email. Corroboration must override the
+     * frequency dilution entirely, not just partially.
+     */
+    public function test_deal_search_treats_two_matched_parties_as_near_conclusive_regardless_of_frequency(): void
+    {
+        $busyAttorney = 'busy-attorney-corrob@example.com';
+        $target = $this->makeCandidateDeal(['property_address' => '9 Corrob Rd']);
+        $this->registerAttorneyOnDeal($target, $busyAttorney);
+        $this->registerAttorneyOnDeal($this->makeCandidateDeal(['property_address' => '10 Corrob Rd']), $busyAttorney);
+        $this->registerAttorneyOnDeal($this->makeCandidateDeal(['property_address' => '11 Corrob Rd']), $busyAttorney);
+
+        $sellerEmail = 'corrob-seller@example.com';
+        $this->registerDealPartyOn($target, $sellerEmail, 'seller', 'Corrob', 'Seller');
+
+        $comm = $this->comm([
+            'subject' => 'No distinctive subject at all',
+            'from_identifier' => $busyAttorney,
+            'participant_identifiers' => [$busyAttorney, $sellerEmail],
+        ]);
+
+        $results = $this->actingAs($this->agent)
+            ->getJson(route('deals-dr2.unfiled-emails.deal-search') . '?q=Corrob&communication_id=' . $comm->id)
+            ->assertOk()
+            ->json();
+
+        $this->assertSame($target->id, $results[0]['id']); // ranks first despite the attorney being on 3 deals
+        $corrob = collect($results[0]['signals'])->firstWhere('type', 'corroboration');
+        $this->assertNotNull($corrob);
+        $this->assertStringContainsString('2 parties', $corrob['label']);
+        $this->assertStringContainsString('seller', $corrob['label']);
+        $this->assertStringContainsString('attorney', $corrob['label']);
+        $this->assertGreaterThanOrEqual(200, $corrob['score']);
+        // Strictly greater than the single-party near-conclusive ceiling (100) —
+        // corroboration must outrank even a UNIQUE single-party match, not just a diluted one.
+        $this->assertGreaterThan(100, $corrob['score']);
+    }
+
+    public function test_deal_search_treats_three_matched_parties_as_certain(): void
+    {
+        $target = $this->makeCandidateDeal(['property_address' => '5 Certain Rd']);
+        $attorneyEmail = 'certain-attorney@example.com';
+        $this->registerAttorneyOnDeal($target, $attorneyEmail);
+        $sellerEmail = 'certain-seller@example.com';
+        $this->registerDealPartyOn($target, $sellerEmail, 'seller', 'Certain', 'Seller');
+        $buyerEmail = 'certain-buyer@example.com';
+        $this->registerDealPartyOn($target, $buyerEmail, 'buyer', 'Certain', 'Buyer');
+
+        $comm = $this->comm([
+            'subject' => 'No distinctive subject',
+            'from_identifier' => $attorneyEmail,
+            'participant_identifiers' => [$attorneyEmail, $sellerEmail, $buyerEmail],
+        ]);
+
+        $results = $this->actingAs($this->agent)
+            ->getJson(route('deals-dr2.unfiled-emails.deal-search') . '?q=Certain&communication_id=' . $comm->id)
+            ->assertOk()
+            ->json();
+
+        $corrob = collect($results[0]['signals'])->firstWhere('type', 'corroboration');
+        $this->assertNotNull($corrob);
+        $this->assertStringContainsString('3 parties', $corrob['label']);
+        $this->assertStringContainsString('attorney', $corrob['label']);
+        $this->assertStringContainsString('seller', $corrob['label']);
+        $this->assertStringContainsString('buyer', $corrob['label']);
+        $this->assertSame(300, $corrob['score']); // 3+ parties scores strictly higher than 2
+    }
+
     public function test_deal_search_badges_a_party_surname_found_in_the_subject(): void
     {
         DB::table('deals')->where('id', $this->deal->id)->update([
