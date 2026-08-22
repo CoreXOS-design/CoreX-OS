@@ -21,11 +21,6 @@
         information processed through CoreX is R R Technologies (Pty) Ltd. For any privacy query
         you can reach us at <a href="mailto:{{ $contactEmail }}">{{ $contactEmail }}</a>.
     </p>
-    <p>
-        <strong>Registered company details:</strong> [TODO — company registration number,
-        registered address and Information Officer name to be inserted here. Contact
-        {{ $contactEmail }} in the meantime.]
-    </p>
 
     <h2>2. Information we collect, and how</h2>
     <p>We collect the following categories of information:</p>
@@ -202,11 +197,6 @@
             Information Regulator (<a href="https://inforegulator.org.za" rel="noopener">inforegulator.org.za</a>)
             if you believe your information has been mishandled.</li>
     </ul>
-    <p>
-        <strong>Information Officer:</strong> [TODO — Information Officer name and dedicated
-        contact email to be inserted here. Until then, direct requests to
-        <a href="mailto:{{ $contactEmail }}">{{ $contactEmail }}</a>.]
-    </p>
 
     <h2>12. Security</h2>
     <p>

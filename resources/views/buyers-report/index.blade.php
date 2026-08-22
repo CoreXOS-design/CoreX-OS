@@ -28,6 +28,7 @@
             </p>
         </div>
         <div class="flex items-end gap-3 flex-wrap">
+            @include('buyers-report._print-buttons')
             @include('buyers-report._type-selector', ['type' => $type, 'types' => $types])
             @include('performance.agency-report._period-selector', ['preset' => $preset, 'presets' => $presets, 'compareMode' => $compareMode, 'compareModes' => $compareModes])
         </div>

@@ -64,6 +64,11 @@ class CommissionSetting extends Model
         return $this->belongsTo(Agency::class);
     }
 
+    public function auditEntries()
+    {
+        return $this->hasMany(CommissionSettingAuditEntry::class)->latest('performed_at');
+    }
+
     // ── Accessors ──
 
     /**
