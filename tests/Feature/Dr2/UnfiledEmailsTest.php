@@ -256,6 +256,53 @@ final class UnfiledEmailsTest extends TestCase
         $this->assertStringNotContainsString('2 Other Rd', $labels);
     }
 
+    /**
+     * Johan, 2026-08-22: "DR2 no twin link to link comm to" — he picked a real search
+     * result and filing refused. Root cause: dealSearch() never excluded deals with no
+     * DR2 twin (deal_v2_id null — 74 of 154 real deals on staging), so the picker
+     * offered results it could never file to. This is the search-side fix: such a deal
+     * must never appear in the picker at all.
+     */
+    public function test_deal_search_excludes_a_deal_with_no_dr2_twin(): void
+    {
+        Deal::withoutEvents(fn () => Deal::withoutGlobalScopes()->create([
+            'period' => '2026-03', 'deal_date' => '2026-03-01', 'property_value' => 900_000, 'total_commission' => 51_750,
+            'reference' => 'REG-' . Str::random(5), 'deal_no' => random_int(1000, 9999), 'deal_type' => 'cash',
+            'seller_name' => 'No Twin Seller', 'property_address' => '3 No Twin Rd',
+            'agency_id' => $this->agencyId, 'branch_id' => $this->branchId, 'deal_v2_id' => null,
+        ]))->agents()->attach($this->agent->id, ['side' => 'selling']);
+
+        $results = $this->actingAs($this->agent)
+            ->getJson(route('deals-dr2.unfiled-emails.deal-search') . '?q=No Twin')
+            ->assertOk()
+            ->json();
+
+        $this->assertEmpty($results);
+    }
+
+    /** Belt-and-suspenders: even a forged/stale deal_id for a no-twin deal gets a
+     *  plain-language refusal, never the internal "DR2 twin"/deal_v2_id wording. */
+    public function test_filing_to_a_deal_with_no_dr2_twin_fails_with_a_plain_language_message(): void
+    {
+        $noTwinDeal = Deal::withoutEvents(fn () => Deal::withoutGlobalScopes()->create([
+            'period' => '2026-03', 'deal_date' => '2026-03-01', 'property_value' => 900_000, 'total_commission' => 51_750,
+            'reference' => 'REG-' . Str::random(5), 'deal_no' => random_int(1000, 9999), 'deal_type' => 'cash',
+            'seller_name' => 'No Twin Seller', 'property_address' => '3 No Twin Rd',
+            'agency_id' => $this->agencyId, 'branch_id' => $this->branchId, 'deal_v2_id' => null,
+        ]));
+        $noTwinDeal->agents()->attach($this->agent->id, ['side' => 'selling']);
+        $comm = $this->comm(['subject' => 'File to a no-twin deal']);
+
+        $resp = $this->actingAs($this->agent)
+            ->postJson(route('deals-dr2.unfiled-emails.file', $comm), ['deal_id' => $noTwinDeal->id])
+            ->assertStatus(422);
+
+        $message = $resp->json('message');
+        $this->assertStringNotContainsString('twin', strtolower($message));
+        $this->assertStringNotContainsString('deal_v2_id', $message);
+        $this->assertStringContainsString('Deal Register', $message);
+    }
+
     public function test_deal_search_matches_by_attorney_name_not_just_address_or_deal_no(): void
     {
         // CX-113 Phase C — "not just deal number": the row-level deal picker must also
