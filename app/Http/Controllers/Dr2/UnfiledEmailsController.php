@@ -41,6 +41,16 @@ use Illuminate\View\View;
  */
 class UnfiledEmailsController extends Controller
 {
+    /**
+     * CX-113 Phase I (Johan, 2026-08-22) — "auto matched is based on our calcs if it
+     * matches a current deal... if nothing matches confidently, say so honestly rather
+     * than showing a weak guess." A single near-conclusive party match (100/95) or a
+     * learned-history hit (90) clears it; a diluted frequent-party match (max 25 once a
+     * party is on 2+ deals) or a subject/property-only hit (50/20) does not — those stay
+     * search-only. Multi-party corroboration (200/300) clears it by a wide margin.
+     */
+    private const AUTO_MATCH_CONFIDENCE_THRESHOLD = 90;
+
     public function __construct(
         private CommunicationDealLinkingService $linking,
         private Dr2DealPartyEmailResolver $dealParties,
@@ -90,6 +100,19 @@ class UnfiledEmailsController extends Controller
 
         $canPickAgent  = in_array($scope, ['branch', 'all'], true);
         $agentList     = $canPickAgent ? $this->agentList($user, $scope) : collect();
+
+        // CX-113 Phase I (Johan, 2026-08-22) — "quite like the click dropdown showing
+        // all deals... repurpose that to show My deals for users. That will be a
+        // shorter list and make filing easy." Same visibleTo scope + no-twin
+        // exclusion as dealSearch()/autoMatchesFor() — never offers a deal filing
+        // would then refuse.
+        $myDeals = Deal::query()->visibleTo($user)->whereNotNull('deal_v2_id')
+            ->orderByDesc('id')->limit(50)
+            ->get(['id', 'deal_no', 'property_address'])
+            ->map(fn (Deal $d) => [
+                'id'    => (int) $d->id,
+                'label' => trim(($d->deal_no ? "#{$d->deal_no} · " : '') . ($d->property_address ?: '')),
+            ]);
         $filterAgentId = $request->has('agent_id') ? (string) $request->query('agent_id', '') : '';
         $selectedAgent = ($canPickAgent && $filterAgentId !== '')
             ? $agentList->firstWhere('id', (int) $filterAgentId)
@@ -218,6 +241,28 @@ class UnfiledEmailsController extends Controller
             ];
         }
 
+        // CX-113 Phase I (Johan, 2026-08-22) — "auto matched" panel, computed
+        // server-side (not a per-row fetch — Alpine never boots in this rig's own
+        // screenshot verification, and it renders instantly with the page either way).
+        // Candidate deals for a given email come from its OWN participants
+        // (Dr2DealPartyEmailResolver::dealMatchesForEmails() — the same reverse lookup
+        // built for the recipients card) plus Dr2FilingSuggestionService's learned
+        // history — deliberately NOT every visible deal; a party-blind text search is
+        // what the Search half of the split is for. Scored via the SAME scoreDeal()
+        // dealSearch() uses (corroboration included) — one ranking. Only rows not
+        // already filed need this — computed for every state but 'removed' (where the
+        // whole filing zone is hidden) and 'filed' (already resolved).
+        $autoMatchByCommId = [];
+        if ($state !== 'removed' && $state !== 'filed') {
+            $partyFrequencyForAutoMatch = $this->dealParties->partyDealFrequency($agencyId);
+            foreach ($emails->getCollection() as $c) {
+                if (isset($filedInfoByCommId[$c->id])) {
+                    continue; // already filed — no auto-match zone for this row
+                }
+                $autoMatchByCommId[$c->id] = $this->autoMatchesFor($c, $user, $agencyId, $partyFrequencyForAutoMatch);
+            }
+        }
+
         // CX-113 Phase G — dismissal display for the Removed state (who removed it,
         // why, when) plus the Restore action's target id.
         $dismissedInfoByCommId = [];
@@ -246,6 +291,8 @@ class UnfiledEmailsController extends Controller
             'selectedAgent'     => $selectedAgent,
             'state'             => $state,
             'filedInfoByCommId' => $filedInfoByCommId,
+            'autoMatchByCommId' => $autoMatchByCommId,
+            'myDeals'           => $myDeals,
             'dismissedInfoByCommId' => $dismissedInfoByCommId,
             'dismissalReasons'  => CommunicationDr2Dismissal::REASONS,
         ]);
@@ -338,24 +385,38 @@ class UnfiledEmailsController extends Controller
         // match barely worth anything for disambiguation.
         $partyFrequency = $communication ? $this->dealParties->partyDealFrequency($agencyId) : [];
 
-        $results = $deals->map(function (Deal $d) use ($communication, $historySuggestion, $partyFrequency) {
-            $signals = $communication ? $this->matchSignalsFor($communication, $d, $historySuggestion, $partyFrequency) : [];
-            $score = array_sum(array_column($signals, 'score'));
+        $results = $deals->map(fn (Deal $d) => $this->scoreDeal($d, $communication, $historySuggestion, $partyFrequency))
+            ->sortByDesc('score')->values();
 
-            // CX-113 Phase E refinement 1 (Johan, 2026-08-21) — "the same property can
-            // have several deals over time... only 1 is proceeding... dr2 status will
-            // play an important part." Real staging values: P/G/R/D (Pending/Granted/
-            // Registered/Declined — no separate cancelled/collapsed/completed code
-            // exists in the data or the model). Proceeding = anything but Declined. A
-            // mild ranking NUDGE, not a hard filter or an override of real content
-            // signals — declined deals still show, still rank on their own signals,
-            // just not ahead of an equally-signalled proceeding one. Status itself is
-            // shown on every card regardless (below), not just used for scoring.
-            if ($communication && $d->accepted_status !== 'D') {
-                $score += 15;
-            }
+        return response()->json($results->all());
+    }
 
-            return [
+    /**
+     * CX-113 Phase E/I — one deal's score + signals against $communication. Shared by
+     * dealSearch() (text-search results) and autoMatch()/the server-side "Auto
+     * Matched" panel (Phase I, no text query — candidate deals come from the email's
+     * own participants) — ONE ranking, never two, so a deal scores identically
+     * whether the agent finds it by typing or the system finds it for them.
+     */
+    private function scoreDeal(Deal $d, ?Communication $communication, ?array $historySuggestion, array $partyFrequency): array
+    {
+        $signals = $communication ? $this->matchSignalsFor($communication, $d, $historySuggestion, $partyFrequency) : [];
+        $score = array_sum(array_column($signals, 'score'));
+
+        // CX-113 Phase E refinement 1 (Johan, 2026-08-21) — "the same property can
+        // have several deals over time... only 1 is proceeding... dr2 status will
+        // play an important part." Real staging values: P/G/R/D (Pending/Granted/
+        // Registered/Declined — no separate cancelled/collapsed/completed code
+        // exists in the data or the model). Proceeding = anything but Declined. A
+        // mild ranking NUDGE, not a hard filter or an override of real content
+        // signals — declined deals still show, still rank on their own signals,
+        // just not ahead of an equally-signalled proceeding one. Status itself is
+        // shown on every card regardless (below), not just used for scoring.
+        if ($communication && $d->accepted_status !== 'D') {
+            $score += 15;
+        }
+
+        return [
                 'id'              => (int) $d->id,
                 'label'           => trim(($d->deal_no ? "#{$d->deal_no} · " : '') . ($d->property_address ?: '')),
                 'property_address' => $d->property_address,
@@ -365,10 +426,44 @@ class UnfiledEmailsController extends Controller
                 'attorney_name'   => $d->attorney_name,
                 'signals'         => $signals,
                 'score'           => $score,
-            ];
-        })->sortByDesc('score')->values();
+        ];
+    }
 
-        return response()->json($results->all());
+    /**
+     * CX-113 Phase I — top confident matches for one email, strongest first, capped
+     * at 3. Candidate deals come from the email's OWN From/To/Cc participants
+     * (Dr2DealPartyEmailResolver::dealMatchesForEmails()) plus the learned-history
+     * verdict — never a party-blind scan of every visible deal; that is what Search
+     * (the other half of the split) is for. Empty array means "say so honestly", not
+     * "show a weak guess" — the view renders that as its own explicit state.
+     */
+    private function autoMatchesFor(Communication $communication, User $user, int $agencyId, array $partyFrequency): array
+    {
+        $addresses = collect([$communication->from_identifier])
+            ->merge($communication->participant_identifiers ?? [])
+            ->filter()->unique()->values()->all();
+
+        $dealMatches = $this->dealParties->dealMatchesForEmails($agencyId, $addresses);
+        $candidateDealIds = collect($dealMatches)
+            ->flatMap(fn ($matches) => collect($matches)->pluck('deal_id'))
+            ->unique();
+
+        $historySuggestion = $this->filingSuggestions->suggestFor($communication);
+        if ($historySuggestion) {
+            $candidateDealIds->push($historySuggestion['deal_id']);
+        }
+        $candidateDealIds = $candidateDealIds->unique()->values();
+
+        if ($candidateDealIds->isEmpty()) {
+            return [];
+        }
+
+        $deals = Deal::query()->visibleTo($user)->whereIn('id', $candidateDealIds)
+            ->get(['id', 'deal_no', 'property_address', 'seller_name', 'buyer_name', 'attorney_name', 'accepted_status']);
+
+        return $deals->map(fn (Deal $d) => $this->scoreDeal($d, $communication, $historySuggestion, $partyFrequency))
+            ->filter(fn ($r) => $r['score'] >= self::AUTO_MATCH_CONFIDENCE_THRESHOLD)
+            ->sortByDesc('score')->take(3)->values()->all();
     }
 
     private function dealStatusLabel(?string $code): string
