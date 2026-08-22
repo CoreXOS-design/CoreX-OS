@@ -761,7 +761,7 @@
         <div class="pcard-v2 relative overflow-hidden flex flex-col">
 
             {{-- Thumbnail — full-bleed, touches top & sides (spec §9) --}}
-            <a href="{{ route('corex.properties.show', $property) }}" class="relative block h-40 flex-shrink-0 overflow-hidden" style="background:linear-gradient(135deg, var(--surface-2), var(--surface));">
+            <a href="{{ route('corex.properties.show', $property) }}" target="_blank" rel="noopener" class="relative block h-40 flex-shrink-0 overflow-hidden" style="background:linear-gradient(135deg, var(--surface-2), var(--surface));">
                 @if($thumb)
                     <img src="{{ $property->thumbFor($thumb) }}" alt="{{ $property->title }}" class="w-full h-full object-cover" loading="lazy" width="600" height="400">
                 @else
@@ -820,7 +820,7 @@
                 <div class="text-[1.375rem] font-bold leading-none tabular-nums mb-1.5" style="color:var(--text-primary);">{{ $property->formattedPrice() }}</div>
 
                 {{-- Address (primary — an agent recognises the address first) --}}
-                <a href="{{ route('corex.properties.show', $property) }}" class="text-sm font-semibold leading-snug line-clamp-1 transition-all duration-300" style="color:var(--text-primary);" onmouseover="this.style.color='var(--brand-icon,#0ea5e9)'" onmouseout="this.style.color='var(--text-primary)'">
+                <a href="{{ route('corex.properties.show', $property) }}" target="_blank" rel="noopener" class="text-sm font-semibold leading-snug line-clamp-1 transition-all duration-300" style="color:var(--text-primary);" onmouseover="this.style.color='var(--brand-icon,#0ea5e9)'" onmouseout="this.style.color='var(--text-primary)'">
                     {{ $addrLine ?? ($property->title ?: '—') }}
                 </a>
 
@@ -880,6 +880,7 @@
                     </div>
                     <div class="flex items-center gap-1">
                         <a href="{{ route('corex.properties.show', $property) }}"
+                           target="_blank" rel="noopener"
                            class="corex-btn-outline text-[10px] px-2 py-1">View</a>
                         <a href="{{ route('corex.properties.ad', $property) }}"
                            target="_blank"
@@ -965,7 +966,7 @@
                 <tr class="transition-all duration-300" style="border-bottom:1px solid var(--border);"
                     onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
                     <td class="px-3 py-2">
-                        <a href="{{ route('corex.properties.show', $property) }}" class="block w-16 h-16 rounded-md overflow-hidden flex-shrink-0" style="background:linear-gradient(135deg, var(--surface-2), var(--surface));">
+                        <a href="{{ route('corex.properties.show', $property) }}" target="_blank" rel="noopener" class="block w-16 h-16 rounded-md overflow-hidden flex-shrink-0" style="background:linear-gradient(135deg, var(--surface-2), var(--surface));">
                             @if($rowThumb)
                                 <img src="{{ $property->thumbFor($rowThumb) }}" alt="{{ $property->title }}" class="w-full h-full object-cover" loading="lazy" width="64" height="64">
                             @else
@@ -979,7 +980,7 @@
                         </a>
                     </td>
                     <td class="px-4 py-2.5">
-                        <a href="{{ route('corex.properties.show', $property) }}" class="font-semibold text-sm transition-all duration-300" style="color:var(--text-primary);" onmouseover="this.style.color='var(--brand-icon,#0ea5e9)'" onmouseout="this.style.color='var(--text-primary)'">
+                        <a href="{{ route('corex.properties.show', $property) }}" target="_blank" rel="noopener" class="font-semibold text-sm transition-all duration-300" style="color:var(--text-primary);" onmouseover="this.style.color='var(--brand-icon,#0ea5e9)'" onmouseout="this.style.color='var(--text-primary)'">
                             {{ Str::limit($property->title, 35) }}
                         </a>
                         @if($property->p24_ref)
@@ -1028,7 +1029,7 @@
                     <td class="px-4 py-2.5 text-right">
                         <div class="flex items-center justify-end gap-1">
                             @include('corex.properties.partials.syndication-button', ['property' => $property, 'variant' => 'row'])
-                            <a href="{{ route('corex.properties.show', $property) }}" class="corex-btn-outline text-[10px] px-2 py-1">View</a>
+                            <a href="{{ route('corex.properties.show', $property) }}" target="_blank" rel="noopener" class="corex-btn-outline text-[10px] px-2 py-1">View</a>
                             <a href="{{ route('corex.properties.ad', $property) }}" target="_blank" class="corex-btn-outline text-[10px] px-2 py-1">Ad</a>
                             <form method="POST" action="{{ route('corex.properties.destroy', $property) }}"
                                   onsubmit="return confirm('Delete \'{{ addslashes($property->title) }}\'?')">
