@@ -379,23 +379,36 @@ class UnfiledEmailsController extends Controller
     {
         $signals = [];
 
-        // 1) Email address match — sender or a participant IS a named party on this
-        // exact deal. Reuses Dr2DealPartyEmailResolver's per-deal role resolution — no
-        // separate matcher. Weighted by how DISCRIMINATING that party actually is
-        // (Johan: "koos from ooba does all our bonds... matches dozens of deals
-        // equally"): unique-to-this-deal is near-conclusive; a party who turns up on
-        // many deals barely moves the ranking, and the badge says so honestly rather
-        // than implying it identifies this one.
+        // 1) Email address match — every participant (From, To, AND Cc — the full
+        // recipient list, not just the sender) checked against every named role on
+        // this deal. Reuses Dr2DealPartyEmailResolver's per-deal role resolution — no
+        // separate matcher.
+        //
+        // MULTI-PARTY CORROBORATION (Johan, 2026-08-22, made twice): "just by having
+        // transfer attorney email plus seller email plus buyer email, or a combination
+        // of should already give us a hell of a lot of positive linking... a
+        // high-frequency attorney alone barely moves it; that same attorney PLUS the
+        // seller pins it." ONE matched role is weighted by how DISCRIMINATING that
+        // party is (the "koos from ooba" problem — on many deals, barely moves the
+        // ranking, unchanged from before). TWO OR MORE distinct matched roles on the
+        // SAME email is treated as near-conclusive to certain REGARDLESS of any single
+        // party's own frequency — co-occurrence is the signal, not any one address.
         $roleEmails = $this->dealParties->partyEmailsByRoleForDeal($deal->id);
         $roleDisplay = [
             'buyer' => 'buyer', 'seller' => 'seller', 'attorney' => 'attorney',
             'bond_originator' => 'bond originator', 'bond_attorney' => 'bond attorney',
             'coc_supplier' => 'COC supplier', 'other_party' => 'party',
         ];
+        // Denormalised on Deal — no per-role name (only these three exist); a matched
+        // role without one falls back to the role label alone in the evidence sentence.
+        $roleName = [
+            'seller' => $deal->seller_name, 'buyer' => $deal->buyer_name, 'attorney' => $deal->attorney_name,
+        ];
         $from = strtolower(trim((string) $communication->from_identifier));
         $participants = collect($communication->participant_identifiers ?? [])
             ->map(fn ($e) => strtolower(trim((string) $e)))->all();
 
+        $matches = []; // role => ['email' => ..., 'is_sender' => bool]
         foreach ($roleEmails as $role => $emails) {
             $matchedEmail = null;
             $isSender = false;
@@ -405,12 +418,30 @@ class UnfiledEmailsController extends Controller
             } elseif ($hit = array_values(array_intersect($participants, $emails))) {
                 $matchedEmail = $hit[0];
             }
-            if ($matchedEmail === null) {
-                continue;
+            if ($matchedEmail !== null) {
+                $matches[$role] = ['email' => $matchedEmail, 'is_sender' => $isSender];
             }
+        }
 
+        if (count($matches) >= 2) {
+            $evidence = collect($matches)->map(function ($m, $role) use ($roleDisplay, $roleName) {
+                $roleLabel = $roleDisplay[$role] ?? 'party';
+                $name = $roleName[$role] ?? null;
+                return $name ? "{$name} ({$roleLabel})" : "the {$roleLabel}";
+            })->values()->implode(', ');
+            $n = count($matches);
+            $label = "{$n} parties on this email are on this deal — {$evidence}";
+            // Fixed, not frequency-weighted (Johan: co-occurrence pins it regardless of
+            // any single party's own frequency) — clearly outranks every single-signal
+            // score below (max 100) and scales again at 3+ ("certain").
+            $score = $n >= 3 ? 300 : 200;
+            $signals[] = ['type' => 'corroboration', 'label' => $label, 'score' => $score];
+        } elseif (count($matches) === 1) {
+            $role = array_key_first($matches);
+            $matchedEmail = $matches[$role]['email'];
+            $isSender = $matches[$role]['is_sender'];
             $freq = max(1, $partyFrequency[$matchedEmail] ?? 1);
-            $roleLabel = $roleDisplay[$role];
+            $roleLabel = $roleDisplay[$role] ?? 'party';
             if ($freq <= 1) {
                 $label = ($isSender ? 'Sender is the ' : 'A recipient is the ') . "{$roleLabel} on this deal";
                 $score = $isSender ? 100 : 95;
@@ -422,7 +453,6 @@ class UnfiledEmailsController extends Controller
                 $score = max(5, (int) round(100 / ($freq ** 2)));
             }
             $signals[] = ['type' => 'email', 'label' => $label, 'score' => $score];
-            break;
         }
 
         // 2) Learned filing history — Dr2FilingSuggestionService's own verdict, reused
