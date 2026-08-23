@@ -1,5 +1,66 @@
 # 2026-08-23 — Live error-reduction: scan-deals, OversightDigestJob, P24 activations, buyer-match regeneration
 
+## ⚠ FIRST THING NEXT SESSION — RegenerateBuyerMatchesJob self-chaining is broken on live
+
+**Read this before anything else in this file, and before touching `RegenerateBuyerMatchesJob` again.**
+
+**What's broken:** the chunked agency-wide regenerate path (see §4b below) is supposed to
+self-dispatch a continuation job after each 40-contact chunk, until the whole agency has
+been covered for that rotation. On live, it does not. `chain_continuation: true` computes
+correctly and `self::dispatch(...)` is called, but no continuation job ever reaches the
+queue.
+
+**Why:** `RegenerateBuyerMatchesJob` implements plain `ShouldBeUnique`. Traced directly in
+Laravel's own source (`vendor/laravel/framework/src/Illuminate/Queue/CallQueuedHandler.php`,
+`call()` method): for plain `ShouldBeUnique`, the uniqueness lock is released at line 73,
+**after** `dispatchThroughMiddleware()` — i.e. after `handle()` has already fully run and
+returned. My design comment claimed "ShouldBeUnique's lock releases as soon as a job starts
+processing (before handle() runs)" — that is the behaviour of a *different* interface,
+`ShouldBeUniqueUntilProcessing`, and I used the wrong one. The self-dispatch call, made from
+inside `handle()`'s own `finally` block, tries to acquire the SAME lock key
+(`'regen-buyer-matches:{agencyId}:all'`) that the currently-executing job itself still
+holds. `dispatch()` on a `ShouldBeUnique` job silently no-ops when the lock can't be
+acquired — no exception, no log line, nothing. That silence is why this wasn't caught
+until real end-to-end verification on live.
+
+**The fix — one line:** change `class RegenerateBuyerMatchesJob implements ShouldQueue,
+ShouldBeUnique` to implement `ShouldBeUniqueUntilProcessing` instead (import
+`Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing`). That interface releases the
+lock before `handle()` runs, which is the semantic the design always intended and the
+design comment already (incorrectly) claimed was already true.
+
+**The proof this needs before it goes anywhere near live again — do not skip this, it is
+the exact thing that didn't happen this time:** an actual end-to-end demonstration that a
+chained continuation reaches the `jobs` table. Concretely, on staging: dispatch the
+agency-wide (`contactId=null`, `truncate=false`) shape against an agency with more than 40
+qualifying contacts, let the first chunk run to completion, and **query the `jobs` table
+directly afterward** to confirm a new `RegenerateBuyerMatchesJob` row exists with the same
+`agencyId` and the carried `rotationStartedAt`. Do this via the REAL queue (`::dispatch()`,
+a real worker), not a direct `handle()` call and not a simulated/manual loop — the bug only
+exists in the interaction between the queue's lock bookkeeping and a job dispatching its
+own successor, which a direct call bypasses entirely. That's precisely how this passed
+every other check tonight (mechanism proof at full scale, real-data chunk-boundary
+fingerprint, live gate verification) without ever exercising the one code path that was
+actually broken.
+
+Once that's proven on staging, redeploy is code-only — no new migration, no schema
+change, same tag-then-fast-forward procedure as tonight.
+
+**Current impact, precisely stated, not minimised or catastrophised:** this is not a
+data-safety issue. Every guarantee that protects MIC's tiers is intact and was proven on
+live: bounded runs (exactly 40 contacts per invocation, confirmed), no upfront agency-wide
+wipe (confirmed — `truncate=false` on this path, unchanged), no holes (5 sampled untouched
+contacts had identical row counts before and after a real chunk ran), idempotent per-contact
+writes (unchanged from the earlier, separately-proven fix). The failure mode is narrower
+than "doesn't work": the rotation doesn't *guarantee* forward progress via self-chaining
+the way it was designed to. It instead relies on the next natural `PropertyObserver` trigger
+(a property save in that agency) to pick up the next 40-contact slice. Given agency 1's
+observed save frequency, the rotation will still complete — just on the schedule of natural
+triggers rather than immediately chained ticks. Slower than designed, not worse than the
+pre-deploy state (which had no guaranteed completion mechanism at all).
+
+---
+
 **Author:** cc3 (lane-3). **Goal, in Johan's words:** "fix what you can. as long as we
 are not activating more alerts I'm fine with it. so keep it off, but fix it so we
 have less errors running." Reducing error VOLUME, not adding visibility. Every fix
@@ -8,9 +69,11 @@ send yesterday, and where a fix newly enables something that never ran before,
 it's gated behind a flag defaulting OFF with the real volume measured, not
 guessed.
 
-**Scope:** staging only, own commit per fix, all four deployed to `origin/Staging`
-and the served `/corex-staging` checkout, none touched live. `DesyndicatePropertyFromPortalsJob`
-was explicitly left alone per instruction (cc6 owns the permanent warning on it).
+**Scope:** built and proven on staging first for all four items, own commit per fix.
+All four were taken to live the same night, after Johan's explicit go, following the
+tag → migrate → code → verify procedure in the live-deploy section near the end of this
+file. `DesyndicatePropertyFromPortalsJob` was explicitly left alone per instruction (cc6
+owns the permanent warning on it).
 
 ---
 
@@ -79,11 +142,28 @@ Commit: `0735e97b0` (second half — `OversightDigestJob.php`).
 
 **Investigation finding (reported before any fix, per instruction):** NOT a
 credential or P24 API-health issue. No HTTP-error-level log entries anywhere
-(no 401/403/429/5xx), and the method's own success log line ("P24 activation
-sync complete") appears ZERO times in live's current log — it has never
-finished. Every failure is `MaxAttemptsExceededException` (a killed process,
-not a caught exception) — the signature of a job dying mid-loop from its own
-300s timeout, not of P24 rejecting anything.
+(no 401/403/429/5xx). Every failure is `MaxAttemptsExceededException` (a
+killed process, not a caught exception) — the signature of a job dying
+mid-loop from its own 300s timeout, not of P24 rejecting anything.
+
+**Correction, made during live verification, not before Johan was told
+otherwise:** the original investigation searched `laravel.log` for the
+method's own success line ("P24 activation sync complete") and found zero
+matches, and reported from that that the job "has never finished." That
+search missed the dedicated `property24` log channel (a separate daily-rotated
+file, `storage/logs/property24-*.log`, configured in `config/logging.php` —
+`Log::channel('property24')`, not the default channel). Checking that channel
+during live verification showed the OLD code actually completing successfully
+three times in the hour before this fix deployed (185/186 synced each time).
+**The corrected picture: the old code alternated between completing and
+timing out — it was not a 100% failure rate.** The 3,951 accumulated failures
+are real; the claim that it never once succeeded was wrong, and rested on an
+incomplete log search. This does not change the fix's validity: bounded and
+rotated guarantees completion within budget on every single run, which is
+still strictly better than a job that sometimes finishes and sometimes dies
+depending on how close the property count pushes it to the 300-second wall —
+but the severity as originally reported was overstated, and the correction is
+recorded here because it was already passed to Johan before it was caught.
 
 **Root cause:** `syncAllActivations()` looped over every qualifying property
 (186 on live, 183 on staging) making one sequential HTTP call each, inside a
@@ -296,3 +376,121 @@ listings = 0.89s. Full per-contact cost (fetch already eliminated) ≈ 10s.
 each contact holds = the real shape of the cost. 60 contacts fit in the job's
 600s timeout at today's per-contact cost; agency 1 has 380 and is presumably
 not the largest agency this will ever need to run for.
+
+---
+
+## Live deploy — 2026-08-23, same night, Johan's explicit go
+
+All four items above were built and proven on staging first, then taken to live
+together after Johan's explicit instruction. This is the record of that deploy:
+what was done, what was checked before touching anything, and the true state
+live was left in.
+
+**Safety tag:** `live-pre-error-reduction-batch-20260823-192716`, pushed to origin,
+at `main`'s pre-deploy HEAD `414f688d5`.
+
+**Migration hardening, done before touching live, not assumed:** both new-column
+migrations were originally written as `ALGORITHM=INPLACE, LOCK=NONE` — the
+"should be instant" choice for a plain nullable column add. Tested directly on
+staging's own `properties`/`contacts` tables (near-identical scale to live,
+~10k rows each) before trusting that assumption: **it took 26-38 seconds of
+genuine "altering table" execution** (confirmed via `SHOW PROCESSLIST` and
+`performance_schema.metadata_locks` — not a lock wait, MySQL was actually
+working that whole time). Switched to `ALGORITHM=INSTANT` (MySQL 8.0.12+'s true
+metadata-only path, eligible since neither column needs a backfilled default) —
+measured 300-400ms on staging. `INSTANT` cannot be combined with an explicit
+`LOCK=` clause — MySQL errors outright (confirmed by hitting the error, not by
+reading about it). Both migrations committed with the corrected algorithm
+(`e51eb4790`) before deployment.
+
+**On live itself:** both migrations ran in 885.72ms and 739.45ms respectively —
+matching the staging measurement, confirming the fix rather than assuming it
+would generalise. Deploy order was migration-then-code specifically so no
+request window could hit the new job classes before the columns existed.
+Confirmed (not assumed) that old code tolerates the new columns being present:
+fetched a real `Property` and `Contact` from a column-added database using
+calls that never reference either column, then called `save()` — both worked
+cleanly, no exception. A code-only rollback (leaving the columns in place)
+would be harmless.
+
+**Rollback plan, for the record:** code — `git revert` (new commits, never
+`reset --hard`, never force-push) on `main`, pushed, then
+`git -C /corex merge --ff-only origin/main`, the same fast-forward mechanism
+used for the forward deploy. Migration — both `down()` methods exist and use
+`ALGORITHM=INSTANT` too; independent of code rollback, not automatically
+paired with it, since the column is confirmed harmless to leave in place.
+
+**Gate results, each checked against real live behaviour, not inferred:**
+
+1. **`scan-deals`: PASS.** Ran clean, exit 0, 0.465s. Flag confirmed `false`
+   in live config. Zero new `deal.milestone_due` dispatch rows (0→0 across the
+   run). No new crash log entries after deploy.
+2. **`OversightDigestJob`: PASS.** Ran directly (4.98s, real live data) and via
+   the real restarted queue worker (2s, twice, including one job whose stale
+   pre-deploy reservation had to be released first — see below). `failed_jobs`
+   count for this class read **655 → 655 → 655** across three checks spanning
+   the whole deploy window. Flat, which was the actual bar, not just "it ran."
+3. **`SyncProperty24Activations`: PASS**, after ruling out a false alarm. One
+   stale job — dispatched and already running under the OLD code before the
+   restart, its `attempts` counter already at 1 when its orphaned reservation
+   (see below) was released — hit `MaxAttemptsExceededException` on Laravel's
+   own pre-flight attempts check, before the new code ever ran. Timeline-traced
+   to confirm this rather than assumed; my code was never actually invoked for
+   that specific failure. A genuinely fresh dispatch completed in 29s, stamped
+   exactly 40 properties, zero new failures. See the correction above the P24
+   section for the "never completed" claim that also needed fixing.
+4. **`RegenerateBuyerMatchesJob`: chunking gate and data-safety PASS; found the
+   self-chaining bug documented at the top of this file.** Verified all four
+   real dispatch shapes against the live class directly via reflection —
+   chunking activates ONLY for `(agencyId=1, contactId=null, truncate=false)`,
+   exactly the `PropertyObserver` shape, `false` for every other shape. A real
+   dispatch of that shape processed exactly 40 contacts in 6m48s, zero new
+   failures. Five sampled untouched contacts (not yet reached by the chunk)
+   had byte-identical row counts before and after — no holes. The
+   self-chaining continuation did not reach the queue; see the top of this
+   file for the full diagnosis and required fix.
+
+**An operational side-effect worth recording, not a bug:** restarting
+`corex-worker-live` and `corex-worker-live-buyer-matching` to load the new
+code interrupted whatever those workers were mid-processing at that moment,
+leaving their DB job reservations "stuck" (not stale by Laravel's own
+`retry_after` reckoning) because live's `DB_QUEUE_RETRY_AFTER=3900` (65
+minutes) — a pre-existing live-specific config value, not something touched
+tonight. Confirmed via `ps`/`/proc` that the current worker processes were
+genuinely idle (not silently working on them) before manually clearing
+`reserved_at` on the three affected job rows so they could be picked up fresh.
+Standard, safe post-restart cleanup — but worth remembering: any worker
+restart on live orphans in-flight jobs for up to 65 minutes unless someone
+manually releases them, and that number is easy to get wrong if you assume
+staging's shorter default.
+
+**Current true state, left in production:**
+- Code: `main` at `76716a4c2`, matches `origin/main` exactly, nothing unpushed.
+- Both migrations ran, both columns present and confirmed harmless if ever
+  rolled back to independently.
+- `notifications:scan-deals`: crash fixed, confirmed dispatching nothing new
+  with the flag off.
+- `OversightDigestJob`: N+1 fixed, confirmed completing, failure count flat
+  across the deploy window.
+- `SyncProperty24Activations`: bounded to 40 properties per run, rotation
+  cursor confirmed advancing on live's real 186-property set, zero new
+  failures from a fresh dispatch.
+- `RegenerateBuyerMatchesJob`: bounded to 40 contacts per invocation on the
+  `PropertyObserver` path, confirmed on live. No upfront wipe (unchanged from
+  before — `truncate=false` was already the production shape). No holes in
+  existing buyer-match data (verified by sample). Idempotent per-contact
+  writes (unchanged from the earlier, separately-proven N+1 fix). Rotation
+  now advances via natural `PropertyObserver` triggers rather than the
+  intended self-chaining, until the fix at the top of this file lands.
+- All queues confirmed drained of anything stuck; `corex.matches.regenerating`
+  cache flag confirmed cleared, not held; all supervisor-managed live workers
+  confirmed `RUNNING` with healthy uptimes; `php8.3-fpm` confirmed active.
+  Nothing half-applied.
+
+**Known housekeeping, not urgent:** a handful of `/tmp/rbm_*`, `/tmp/oversight_*`,
+and one `/tmp/p24_chunk_verify.php` measurement scripts from tonight's staging
+verification could not be deleted — `rm` was denied outright in this session's
+permission mode regardless of target, confirmed by retrying. They contain
+internal staging contact IDs/scores, nothing live, nothing secret, and nothing
+references them. Safe to clear whenever someone with the right permissions
+gets to it.
