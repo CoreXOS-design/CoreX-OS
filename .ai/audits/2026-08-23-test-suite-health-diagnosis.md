@@ -455,8 +455,15 @@ fix removed, after an alarming 9,453 seconds (~2.6 hours — itself informative:
 under real, heavy concurrent load from other lanes' sessions that whole window, which is the
 likely reason it took this long to even reach and fail at that line). A second run, started
 fresh against the current, already-committed, already-pushed code, confirmed the fix cleanly:
-[RESULT — filled in the moment this run finished; see the commit that added this line for the
-exact numbers if this sentence is somehow still here unresolved].
+**`Tests:    51 passed (116 assertions)`, `Duration: 203.99s`, zero failures** — both files,
+every test method, including the exact two assertions that were broken before this fix: *"a
+classified sale survives being renamed to something innocuous"* (the alienation-document
+rename-laundering guard) and *"every alienation type resolves to a real document type row"*
+(the document-type classifier). Duration back to the ~3-minute normal baseline, not the
+2.6-hour outlier above — confirms that first run's slowness really was transient box load, not
+something wrong with the fix or the box generally. This is the real, current, authoritative
+result. The 9,453-second run above stays in this document only as an honest record of what
+happened, not as evidence about the fix.
 
 **Not done tonight, and explicitly flagged rather than silently skipped**: a broad regression
 check across the rest of the suite with this seeder wired in. The change is additive and
