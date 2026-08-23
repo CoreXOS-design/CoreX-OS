@@ -2433,12 +2433,50 @@ class MarketIntelligenceController extends Controller
     }
 
     /**
+     * MIC aggregate caching (2026-08-23) — a stable fingerprint of a query
+     * builder's resolved SQL + bindings, used as (part of) a cache key so two
+     * requests that filter identically always share a cache entry, and two
+     * that filter differently never collide. Correct by construction: every
+     * WHERE/scope condition that could change the answer (agency, visibility
+     * scope, every active list filter) is already baked into the builder by
+     * the time it reaches here, so there is no separate list of filter
+     * params to keep in sync by hand — the risk this exists to avoid.
+     */
+    private function queryFingerprint($builder): string
+    {
+        if ($builder === null) {
+            return 'null';
+        }
+        return md5($builder->toSql() . '|' . json_encode($builder->getBindings()));
+    }
+
+    /**
      * F.2 Row 1 — informational snapshot tiles. One grouped pass over the
      * canvass pool (or full set when audit toggle is on) plus a tiny aggregate
      * for cross-listed groups.
+     *
+     * MIC aggregate caching (2026-08-23) — cached 60s, matching the existing
+     * mi.sidebar_count precedent a few hundred lines above (same screen, same
+     * "doesn't need to be accurate to the second" reasoning Johan gave for
+     * this exact aggregate class: "6,188 properties matched" / "PITCH NOW
+     * 9,412" don't need real-time truth, the listings underneath do — those
+     * are untouched). 60s: short enough that two agents loading this screen a
+     * minute apart never see a number more than a minute stale, long enough
+     * to eliminate the dominant per-request cost (this method's queries were
+     * ~1-2s of the measured floor) for every reload inside that window.
+     * Key includes agency, the in-stock flag, a fingerprint of $scopedBase
+     * (which already encodes agency + visibility scope + every active list
+     * filter — see queryFingerprint()), and suburbFilter separately since
+     * it's read outside $scopedBase too (the in-stock KPI's own suburb
+     * narrowing). Never keyed by user — nothing this method returns differs
+     * per viewer, only per what the LIST is filtered to.
      */
     protected function computeSnapshotKpis(int $agencyId, bool $includeInStock, $scopedBase = null, ?string $suburbFilter = null): array
     {
+        $cacheKey = 'mic.kpis.' . $agencyId . '.' . ($includeInStock ? '1' : '0')
+            . '.' . $this->queryFingerprint($scopedBase) . '.' . ($suburbFilter ?? '');
+
+        return Cache::remember($cacheKey, 60, function () use ($agencyId, $includeInStock, $scopedBase, $suburbFilter) {
         // BUG B — when the caller (Work mode) hands us the filtered list query, the
         // pool metrics count from THAT exact query so the KPI tiles move with every
         // active filter and can never drift from the list. Without it (Analyse mode,
@@ -2520,6 +2558,7 @@ class MarketIntelligenceController extends Controller
             'new_today'          => $newToday,
             'cross_listed'       => $crossListed,
         ];
+        });
     }
 
     /**
@@ -2527,6 +2566,18 @@ class MarketIntelligenceController extends Controller
      * Owner-scoped counts (Log outcomes, My claims, Expiring) use the viewer.
      *
      * Returns: ['pitch_now_high','pitch_now','log_outcomes','my_claims','expiring' => int]
+     *
+     * MIC aggregate caching (2026-08-23) — cached 60s, same reasoning/TTL as
+     * computeSnapshotKpis above. Keyed by viewerId as well as agency+suburb+
+     * thresholds — unlike the other two cached methods, this one genuinely
+     * mixes an agency-wide figure (pitch_now_high/pitch_now) with per-VIEWER
+     * ones (log_outcomes/my_claims/expiring are each scoped to $viewerId's
+     * own claims/outreach). Omitting viewerId from the key would mean agent
+     * A's cache entry could serve agent B "my claims: 4" that are actually
+     * A's four claims, not B's — exactly the wrong-key risk flagged before
+     * building this. Costs a little cache-sharing efficiency (each agent
+     * gets their own entry even for the agency-wide half); correctness over
+     * efficiency was the explicit instruction.
      */
     protected function computeActionPresetCounts(
         int $agencyId,
@@ -2534,6 +2585,16 @@ class MarketIntelligenceController extends Controller
         SuggestedActionThresholds $thresholds,
         ?string $suburbFilter = null,
     ): array {
+        $thresholdsFingerprint = md5(implode('|', [
+            $thresholds->high_value_strong_min,
+            $thresholds->outcome_stale_days,
+            $thresholds->outcome_overdue_days,
+            $thresholds->expiry_warning_hours,
+        ]));
+        $cacheKey = 'mic.action_preset_counts.' . $agencyId . '.' . ($viewerId ?? 'null')
+            . '.' . ($suburbFilter ?? '') . '.' . $thresholdsFingerprint;
+
+        return Cache::remember($cacheKey, 60, function () use ($agencyId, $viewerId, $thresholds, $suburbFilter) {
         $strongMin = (int) $thresholds->high_value_strong_min;
         $hasSuburb = $suburbFilter !== null && trim($suburbFilter) !== '';
 
@@ -2630,12 +2691,23 @@ class MarketIntelligenceController extends Controller
             'my_claims'      => $myClaims,
             'expiring'       => $expiring,
         ];
+        });
     }
 
     /**
      * F.2 filter rail — top suburbs / types / beds with counts. Same canvass-
      * pool scope as the listings query so each count matches what clicking
      * would show.
+     *
+     * MIC aggregate caching (2026-08-23) — cached 60s, same reasoning/TTL as
+     * computeSnapshotKpis. Keyed by agency, in-stock flag, a fingerprint of
+     * $scopedBase (encodes agency + visibility scope + every list filter
+     * except the 3 rail dimensions themselves — see queryFingerprint()),
+     * activeSuburb, and a fingerprint of $stockCountBySuburb (the injected
+     * synthetic-stock per-suburb counts, only non-empty on the manager audit
+     * toggle — empty in the common case, so this adds no cache fragmentation
+     * for the normal screen). Never keyed by user — nothing here differs per
+     * viewer, only per what the LIST is filtered to.
      */
     protected function computeFilterRailAggregates(
         int $agencyId,
@@ -2644,6 +2716,11 @@ class MarketIntelligenceController extends Controller
         ?string $activeSuburb = null,
         array $stockCountBySuburb = [],
     ): array {
+        $cacheKey = 'mic.filter_rail.' . $agencyId . '.' . ($includeInStock ? '1' : '0')
+            . '.' . $this->queryFingerprint($scopedBase) . '.' . ($activeSuburb ?? '')
+            . '.' . md5(json_encode($stockCountBySuburb));
+
+        return Cache::remember($cacheKey, 60, function () use ($agencyId, $includeInStock, $scopedBase, $activeSuburb, $stockCountBySuburb) {
         // BUG B — in Work mode the caller hands us $railCountBase: the list query
         // with every filter applied EXCEPT the three rail dimensions (suburb,
         // property_type, bedrooms_exact). Each facet counts from a fresh clone of
@@ -2739,6 +2816,7 @@ class MarketIntelligenceController extends Controller
             'by_type'   => $byType,
             'by_beds'   => $byBeds,
         ];
+        });
     }
 
     /**
