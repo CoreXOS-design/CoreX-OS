@@ -160,8 +160,15 @@ computes a brand-new numbered `TEST_DB_DATABASE` nobody has granted yet gets a f
 "Access denied," unrelated to the SUPER/`SET_USER_ID` issue above but equally blocking.
 Grant every app-DB test user the same wildcard pattern from day one on the new box.
 
-*(Diagnosis only — nothing has been applied to this box's live MySQL yet; the `SET_USER_ID`
-grant for `nexus` here is pending Johan's go-ahead, tracked separately from this note.)*
+*(Update, 2026-08-23 21:11 SAST: Johan approved. `GRANT SET_USER_ID ON *.* TO 'nexus'@'localhost';`
+is now applied on THIS box's live MySQL — confirmed via a `SHOW GRANTS`
+diff showing exactly that one line added, and by an actual passing test run that created all
+four AT-321/AT-321-C triggers under `nexus`'s own name (`Definer: nexus@localhost`), which is
+the thing that used to fail with error 1419. Full before/after grants, the exact statement,
+and the proof are in `.ai/audits/2026-08-23-test-suite-health-diagnosis.md` §4. This note's
+own recommendation — grant this to every app-DB user at provisioning time on the NEW server —
+still stands unchanged: this fixes the current box, it doesn't mean the new server inherits it
+automatically.)*
 
 ---
 *Companion to tonight's disk-cleanup: 45 stale git worktrees reclaimed
