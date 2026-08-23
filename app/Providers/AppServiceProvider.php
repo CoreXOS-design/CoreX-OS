@@ -193,8 +193,9 @@ class AppServiceProvider extends ServiceProvider
         \Illuminate\Support\Facades\Queue::after(function () {
             try { \App\Support\Audit\PropertyAuditContext::pop(); } catch (\Throwable) {}
         });
-        \Illuminate\Support\Facades\Queue::failing(function () {
+        \Illuminate\Support\Facades\Queue::failing(function (\Illuminate\Queue\Events\JobFailed $event) {
             try { \App\Support\Audit\PropertyAuditContext::pop(); } catch (\Throwable) {}
+            \App\Support\Queue\QueueFailureAlerter::handle($event);
         });
         if ($this->app->runningInConsole()) {
             \Illuminate\Support\Facades\Event::listen(
