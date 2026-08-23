@@ -76,34 +76,72 @@ class OversightDigestJob implements ShouldQueue
                 ->get()
                 ->keyBy('category');
 
+            // Pass 1 — filter by enabled/disabled and resolve this row's channel +
+            // threshold. No queries here: $prefs is already loaded above, and
+            // DEFAULTS is a constant. Building this list first (instead of doing
+            // the existence check inline per row) is what makes batching the
+            // existence check below possible.
+            //
+            // NOTE (found 2026-08-23, reported not fixed — see the audit): the
+            // threshold here falls back to a flat 24h when no explicit preference
+            // row exists, NOT to UserOversightPreference::DEFAULTS[category]
+            // ['threshold_hours'] the way OversightService::feed() does at its own
+            // threshold lookup. With zero preference rows saved anywhere on
+            // staging today, every category's idempotency window is effectively
+            // 24h flat right now, not the intended 168/336/720h for
+            // deals_near_expiry/expiring_mandates/expiring_ffcs. Left exactly
+            // as-is — changing re-nudge cadence is a product decision, not a
+            // mechanical bug fix, and it directly shapes the volume numbers this
+            // run() method exists to measure honestly, bug included. This
+            // batching pass preserves the EXACT same per-row threshold value this
+            // loop always computed — only the existence check that follows is
+            // batched, not this.
+            $candidates = [];
+            $maxThresholdHours = 0;
             foreach ($rows as $row) {
                 $pref = $prefs[$row['category']] ?? null;
                 if ($pref && !$pref->enabled) {
                     continue;
                 }
                 $channel = $pref?->notify_channel ?? (UserOversightPreference::DEFAULTS[$row['category']]['notify_channel'] ?? 'in_app');
-
-                // NOTE (found 2026-08-23, reported not fixed — see the audit):
-                // this falls back to a flat 24h when no explicit preference row
-                // exists, NOT to UserOversightPreference::DEFAULTS[category]
-                // ['threshold_hours'] the way OversightService::feed() does at
-                // its own threshold lookup. With zero preference rows saved
-                // anywhere on staging today, every category's idempotency
-                // window is effectively 24h flat right now, not the intended
-                // 168/336/720h for deals_near_expiry/expiring_mandates/
-                // expiring_ffcs. Left exactly as-is — changing re-nudge cadence
-                // is a product decision, not a mechanical bug fix, and it
-                // directly shapes the volume numbers this run() method exists
-                // to measure honestly, bug included.
                 $thresholdHours = max(1, (int) ($pref->threshold_hours ?? 24));
+                $candidates[] = ['row' => $row, 'channel' => $channel, 'threshold_hours' => $thresholdHours];
+                $maxThresholdHours = max($maxThresholdHours, $thresholdHours);
+            }
 
-                $alreadyAlerted = OversightNudge::query()
-                    ->where('to_user_id', $manager->id)
-                    ->where('category', $row['category'])
-                    ->where('subject_type', $row['subject_type'])
-                    ->where('subject_id', $row['subject_id'])
-                    ->where('created_at', '>=', now()->subHours($thresholdHours))
-                    ->exists();
+            if (empty($candidates)) {
+                continue;
+            }
+
+            // Batched existence check — ONE query for this manager (measured:
+            // 2,923 of 3,041 total queries in a dry run were this exact exists()
+            // query, one per (manager, row) — 96% of the job's cost, and why it
+            // timed out on every run). Fetches every OversightNudge this manager
+            // has ever received within the WIDEST threshold window any candidate
+            // row needs, then each row is checked in-memory against its OWN
+            // threshold below — same per-row cutoff as before, computed from one
+            // fetch instead of one query per row.
+            $recentNudges = OversightNudge::query()
+                ->where('to_user_id', $manager->id)
+                ->where('created_at', '>=', now()->subHours($maxThresholdHours))
+                ->get(['category', 'subject_type', 'subject_id', 'created_at']);
+
+            $latestAlertedAt = [];
+            foreach ($recentNudges as $nudge) {
+                $key = $nudge->category . '|' . $nudge->subject_type . '|' . $nudge->subject_id;
+                if (!isset($latestAlertedAt[$key]) || $nudge->created_at->gt($latestAlertedAt[$key])) {
+                    $latestAlertedAt[$key] = $nudge->created_at;
+                }
+            }
+
+            foreach ($candidates as $candidate) {
+                $row            = $candidate['row'];
+                $channel        = $candidate['channel'];
+                $thresholdHours = $candidate['threshold_hours'];
+
+                $key = $row['category'] . '|' . $row['subject_type'] . '|' . $row['subject_id'];
+                $lastAlertedAt = $latestAlertedAt[$key] ?? null;
+                $alreadyAlerted = $lastAlertedAt !== null && $lastAlertedAt->gte(now()->subHours($thresholdHours));
 
                 if ($alreadyAlerted) {
                     continue;
@@ -133,6 +171,13 @@ class OversightDigestJob implements ShouldQueue
                     'message'      => '[digest] ' . $row['summary'],
                     'sent_at'      => now(),
                 ]);
+
+                // Keep the in-memory index current — defensive, in case a later
+                // row in this SAME manager's candidate list shares the identical
+                // (category, subject_type, subject_id) key (feed() should never
+                // produce that, but the pre-fetched snapshot above would not
+                // otherwise see a nudge created moments ago in this same run).
+                $latestAlertedAt[$key] = $nudge->created_at;
 
                 if (in_array($channel, ['in_app', 'both'], true)) {
                     DatabaseNotification::create([
