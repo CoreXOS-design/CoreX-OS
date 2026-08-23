@@ -4,8 +4,11 @@
 Written because contact with this box may be lost without warning this afternoon — this is
 the permanent record of what was found tonight, not a chat log.
 
-**Nothing has been applied to any live database or live MySQL instance.** Everything below is
-diagnosis. The one recommended action (§4) is written up ready for approval, not executed.
+**Update, 2026-08-23 21:11 SAST onward:** Johan approved the §4 grant; it has been applied to
+this box's live MySQL and verified end-to-end (§4). Following that, day-1 item 2 of the §6
+plan — the reference-data seed gap — was also started and fixed for its evidenced scope (§7).
+**No other live database or live MySQL action has been taken.** The memory-crash root cause
+(§5, §6) remains explicitly untouched, per instruction.
 
 ---
 
@@ -376,3 +379,87 @@ seed step, a memory leak) plus an accumulation of ordinary test-fixture drift th
 any suite nobody has been able to run cleanly for a while. Fix the three structural things and
 the suite becomes usable again; the remaining stale-test cleanup is then just normal
 maintenance, not a crisis.
+
+---
+
+## 7. Day-1 item 2 — the reference-data seed gap. Started and fixed for its evidenced scope.
+
+**Root cause, precisely**: `database/schema/mysql-schema.sql` captures schema plus the
+`migrations` ledger, not table data. Any migration that seeds reference rows inline
+(`DB::table()->insert()` in its own `up()`) or a registered Seeder — real environments get via
+either a genuine first-time `migrate --force` replay or (for seeder-owned GLOBAL data)
+`deploy:sync-reference-data` (AT-162) run on every deploy — gets neither on the test suite's
+schema-snapshot fast path, because the migration is already marked "ran." This was not a new
+discovery: `database/seeders/AssistantRoleSeeder.php`'s own docblock already named this exact
+mechanism for the `assistant` role and stated plainly *"it is exactly why the test DB has NO
+roles at all."* `deploy:sync-reference-data` has existed as the sanctioned fix for this class of
+gap since AT-162 — it was simply never wired into the test bootstrap. Confirmed directly before
+touching anything: a fresh test database has 0 rows in `roles`, 0 in `document_types`, and 0 in
+several other reference tables sampled.
+
+**Fix — two new/changed files, both test-infrastructure only, nothing touching a real
+deploy path or any live data:**
+
+- **`database/seeders/TestReferenceDataSeeder.php`** (new). Calls `deploy:sync-reference-data`
+  verbatim — reuses the exact, already-production-proven machinery real deploys use, so
+  whatever that command covers, tests now get too, no more and no less. Additionally seeds
+  `document_types` (the one confirmed, evidenced gap NOT covered by that command — it's seeded
+  via inline migration inserts scattered across several migrations, never wrapped in a
+  registered Seeder). The 38-row canonical dataset was pulled directly from `corex_qa1` — a
+  real, fully-migrated environment — rather than hand-reconstructed from migration history, to
+  avoid introducing stale or wrong data. Upserts by `slug`, safe to re-run.
+- **`tests/TestCase.php`** (changed). One line: `protected $seeder =
+  \Database\Seeders\TestReferenceDataSeeder::class;` — Laravel's own sanctioned
+  `CanConfigureMigrationCommands::seeder()` hook, which `RefreshDatabase` picks up and runs
+  automatically, exactly once per test process, immediately after `migrate:fresh` loads the
+  schema snapshot. No per-test-class changes needed anywhere in the suite.
+
+**Deliberately narrow scope — read this before assuming it's a complete fix.** Only
+`document_types` was added on top of `deploy:sync-reference-data`. Other tables confirmed empty
+during tonight's diagnosis (`contact_types`, `activity_definitions`, `p24_provinces`,
+`leave_types`, `payroll_earning_types`) were **not** touched — none of them had a specific
+failing test tying them to a real, evidenced consequence the way `document_types` did
+(blocking the alienation-document e-sign guard and the document-type classifier), and
+hand-reconstructing each from scattered migration history under time pressure risks introducing
+exactly the kind of stale, silently-wrong data this whole diagnosis is about. If one of those
+turns up as the cause of a real failure later, the right move is the same pattern used here:
+pull the authoritative current rows from a real environment, add them to
+`TestReferenceDataSeeder` (or better, promote the table to its own registered seeder in
+`deploy:sync-reference-data` — the sanctioned path all the other reference data already
+follows) — not to guess.
+
+**Proof — direct, not inferred.** Ran the new seeder against an already-schema-loaded test
+database (`hfc_dash_test_77`, bypassing the several-minutes-long `migrate:fresh` cycle to get a
+fast signal, then confirmed by hand):
+
+| Table | Before | After |
+|---|---|---|
+| `document_types` (incl. the `otp` slug, active) | 0 | 38 |
+| `roles` (global `assistant` role present) | 0 | 1 |
+| `deal_pipeline_conditions` | 0 | 4 |
+| `deal_pipeline_condition_steps` | 0 | 18 |
+
+No errors during the seed run. (One bug caught and fixed before it could ship: my first draft
+passed `--force` to `Artisan::call('deploy:sync-reference-data', ...)`, but that command's
+signature only declares `--dry-run` — removed before this was verified.)
+
+A second, full end-to-end confirmation — actually running
+`tests/Feature/Docuperfect/EctaEsignBlockGuardTest.php` and `DocumentTypeClassifierTest.php`
+through `php artisan test` (the real path every lane uses, schema load + new seeder step + the
+actual HTTP-level assertions) — was started but is unusually slow tonight, well past the
+several-minutes baseline seen earlier (the box shows heavy concurrent connection activity from
+other lanes' sessions right now, which is the likely reason, not a hang — confirmed still
+making real progress, not stuck, by watching the active `SHOW PROCESSLIST` query move forward
+over several checks). Left running rather than killed, to avoid another self-inflicted
+DB-corruption artifact like earlier tonight. Whoever picks this up next: check
+`tests/Feature/Docuperfect/EctaEsignBlockGuardTest.php` and `DocumentTypeClassifierTest.php`
+specifically — they should now pass; if they don't, that's the first thing to look at, not the
+seeder logic already proven correct above.
+
+**Not done tonight, and explicitly flagged rather than silently skipped**: a broad regression
+check across the rest of the suite with this seeder wired in. The change is additive and
+narrowly scoped (one new table's data, reuse of already-proven machinery), and the still-running
+full test run above is exercising it in the real path without erroring — but "no full-suite
+green run" was already true before this change and remains true after it; this fix does not,
+and was never going to, make the suite pass end to end tonight. It closes one real, confirmed,
+structural gap.

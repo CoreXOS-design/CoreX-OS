@@ -7,6 +7,20 @@ use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 abstract class TestCase extends BaseTestCase
 {
     /**
+     * 2026-08-23 diagnosis — a test DB built via RefreshDatabase's schema-snapshot fast path
+     * gets schema + the migrations ledger, never the DATA any migration seeded inline or via
+     * a Seeder class. AssistantRoleSeeder's own docblock already named this exact gap for the
+     * `assistant` role; deploy:sync-reference-data (AT-162) exists precisely to re-provision
+     * this class of data on a real deploy, but nothing ever called it for tests. Confirmed
+     * directly: a fresh test DB has zero rows in `roles` and zero in `document_types`.
+     * TestReferenceDataSeeder runs that command (plus one additional, evidenced gap it doesn't
+     * cover) — this property is Laravel's own sanctioned RefreshDatabase hook
+     * (CanConfigureMigrationCommands::seeder()), invoked exactly once per test process,
+     * immediately after the fresh migrate. See database/seeders/TestReferenceDataSeeder.php.
+     */
+    protected $seeder = \Database\Seeders\TestReferenceDataSeeder::class;
+
+    /**
      * Runtime half of the test-database safety guard (see tests/bootstrap.php).
      *
      * Runs before parent::setUp() triggers any RefreshDatabase work, so a
