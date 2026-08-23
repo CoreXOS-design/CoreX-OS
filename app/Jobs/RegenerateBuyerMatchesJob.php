@@ -98,10 +98,31 @@ class RegenerateBuyerMatchesJob implements ShouldQueue, ShouldBeUnique
 
             $contactIds = $this->buildContactIdQuery()->pluck('contact_id')->unique()->values();
 
+            // Fetch each agency-wide pool ONCE and share it across every contact
+            // below, instead of recomputeForBuyer()/recomputeProspectingMatchesForBuyer()
+            // each re-running their own agency-scoped query per contact — neither
+            // pool depends on contactId, only on agencyId, so per-contact refetching
+            // bought nothing. Measured on staging (agency 1, 380 contacts, same scale
+            // as live's 388): 32,972 active prospecting listings re-fetched fresh on
+            // every contact was the dominant cost. Only pre-fetches when this job is
+            // scoped to a single agency (the failing case in production, and the only
+            // shape where "fetch once per agency" is a bounded, known-size pool) —
+            // the null-agencyId cross-agency super-admin rebuild path is untouched.
+            $candidatePool = null;
+            $listingsPool  = null;
+            if ($this->agencyId !== null) {
+                $candidatePool = app(\App\Services\Matching\MatchingService::class)->matchableCandidatePool($this->agencyId);
+                $listingsPool  = \App\Models\ProspectingListing::withoutGlobalScopes()
+                    ->where('agency_id', $this->agencyId)
+                    ->where('is_active', 1)
+                    ->whereNull('deleted_at')
+                    ->get();
+            }
+
             foreach ($contactIds as $cid) {
                 try {
-                    $scoring->recomputeForBuyer((int) $cid);
-                    $scoring->recomputeProspectingMatchesForBuyer((int) $cid);
+                    $scoring->recomputeForBuyer((int) $cid, $candidatePool);
+                    $scoring->recomputeProspectingMatchesForBuyer((int) $cid, $listingsPool);
                     $contactsProcessed++;
                 } catch (Throwable $e) {
                     $errors[] = ['contact_id' => (int) $cid, 'error' => $e->getMessage()];

@@ -473,11 +473,18 @@ class MatchingService
      * non-off-market property regardless of agent/branch (agent_id=null means
      * propertiesForMatch() never constrains by agent for this call shape
      * either), fetched ONCE per agency and reused across every match's filter
-     * pass. Deliberately does NOT eager-load agent/branch —
-     * propertyCountsForMatches() only counts; score() never reads either
-     * relation and neither does the counts assembly above.
+     * pass instead of one propertiesForMatch() SQL round-trip per match.
+     *
+     * Public: used by propertyCountsForMatches() below (agent_id=null,
+     * include_hidden=true — the "All Core Matches" oversight page) AND by
+     * PropertyMatchScoringService::recomputeForBuyer() when it's given a
+     * pre-fetched pool (agent_id=null, include_hidden=false —
+     * RegenerateBuyerMatchesJob's per-agency buyer-match regeneration, the
+     * SAME propertiesForMatch() N+1 shape, third and fourth time this exact
+     * pattern has turned up in one day). Deliberately does NOT eager-load
+     * agent/branch — neither caller's scoring path reads either relation.
      */
-    private function matchableCandidatePool(?int $agencyId): Collection
+    public function matchableCandidatePool(?int $agencyId): Collection
     {
         $query = Property::query()
             ->where(function (Builder $sub) {
@@ -495,20 +502,27 @@ class MatchingService
 
     /**
      * PHP mirror of propertiesForMatch()'s per-match WHERE clauses — see that
-     * method for the SQL this must stay identical to. agent_id/branch_id/
-     * hidden are not re-checked here: propertyCountsForMatches() is the only
-     * caller, always with the agent_id=null/include_hidden=true override
-     * shape, so those three conditions are already no-ops in
-     * propertiesForMatch() too under that shape.
+     * method for the SQL this must stay identical to. agent_id/branch_id are
+     * not re-checked here: both callers (propertyCountsForMatches(),
+     * PropertyMatchScoringService::recomputeForBuyer()) always use
+     * agent_id=null with no branch_id override, so those two conditions are
+     * already no-ops in propertiesForMatch() too under either call shape.
+     * include_hidden DOES differ between callers (true for the oversight
+     * counts page, false for buyer-match regeneration), so it's the one
+     * parameter this takes rather than assuming a single fixed shape.
      */
-    private function matchSurvivesFilters(Property $p, ContactMatch $match): bool
+    private function matchSurvivesFilters(Property $p, ContactMatch $match, bool $includeHidden = true): bool
     {
-        // propertyCountsForMatches() always evaluates in relaxed mode — same
-        // as propertiesForMatch()'s default ($overrides['relaxed'] never set
-        // by propertyCountsFor()).
+        // Both callers always evaluate in relaxed mode — same as
+        // propertiesForMatch()'s default ($overrides['relaxed'] never set by
+        // either).
         $priceTol = 0.30;
         $countTol = 1;
         $sizeTol  = 0.30;
+
+        if (!$includeHidden && !empty($match->hidden_property_ids) && in_array($p->id, $match->hidden_property_ids, true)) {
+            return false;
+        }
 
         $listingType = $match->listing_type;
         if ($listingType) {
@@ -554,6 +568,50 @@ class MatchingService
         }
 
         return true;
+    }
+
+    /**
+     * Batched equivalent of calling propertiesForMatch($m, ['agent_id' => null,
+     * 'include_hidden' => false]) once per $match and keeping the best score
+     * per property across all of them — same result,
+     * count($candidatePool)-worth of in-memory filtering instead of
+     * count($matches) SQL round-trips.
+     *
+     * Built for PropertyMatchScoringService::recomputeForBuyer(), which
+     * previously called propertiesForMatch() once per wishlist for every one
+     * of an agency's buyer contacts (388 contacts on agency 1 — the exact
+     * same propertiesForMatch() N+1 shape as
+     * ContactMatchController::propertyCountsFor(), just triggered from a
+     * different call site). $candidatePool is expected to come from
+     * matchableCandidatePool() above, fetched ONCE per job run and shared
+     * across every contact — not re-fetched per contact.
+     *
+     * @param  \Illuminate\Support\Collection<int,ContactMatch>  $matches
+     * @param  \Illuminate\Support\Collection<int,Property>      $candidatePool
+     * @return array<int,array{score:int,tier:?string}> keyed by property_id
+     */
+    public function bestScoreAcrossMatches($matches, Collection $candidatePool): array
+    {
+        $best = [];
+        foreach ($matches as $match) {
+            if (!$match->isCountable()) {
+                continue;
+            }
+            foreach ($candidatePool as $p) {
+                if (!$this->matchSurvivesFilters($p, $match, includeHidden: false)) {
+                    continue;
+                }
+                $score = $this->score($p, $match);
+                if ($score < self::MIN_SCORE_TO_DISPLAY) {
+                    continue;
+                }
+                if (!isset($best[$p->id]) || $score > $best[$p->id]['score']) {
+                    $best[$p->id] = ['score' => $score, 'tier' => self::tierFor($score)];
+                }
+            }
+        }
+
+        return $best;
     }
 
     /**
