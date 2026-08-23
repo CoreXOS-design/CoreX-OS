@@ -37,13 +37,8 @@ class FeedbackReportMail extends Mailable implements ShouldQueue
 
     public function content(): Content
     {
-        // markdown:, not view: — found and fixed alongside OversightNudgeMail
-        // (2026-08-23): this template also uses @component('mail::message'),
-        // which only resolves the `mail::` view namespace via the Markdown
-        // renderer that `markdown:` routes through. Same root-cause bug,
-        // second occurrence.
         return new Content(
-            markdown: 'emails.feedback-report',
+            view: 'emails.feedback-report',
             with: [
                 'report' => $this->report,
                 'submitter' => $this->submitter,

@@ -193,9 +193,8 @@ class AppServiceProvider extends ServiceProvider
         \Illuminate\Support\Facades\Queue::after(function () {
             try { \App\Support\Audit\PropertyAuditContext::pop(); } catch (\Throwable) {}
         });
-        \Illuminate\Support\Facades\Queue::failing(function (\Illuminate\Queue\Events\JobFailed $event) {
+        \Illuminate\Support\Facades\Queue::failing(function () {
             try { \App\Support\Audit\PropertyAuditContext::pop(); } catch (\Throwable) {}
-            \App\Support\Queue\QueueFailureAlerter::handle($event);
         });
         // MIC speed round 3 (2026-08-23) — Agency::find()'s per-request memo
         // (App\Models\Agency::$findMemo) must never leak a stale Agency into

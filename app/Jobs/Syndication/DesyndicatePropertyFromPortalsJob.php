@@ -41,20 +41,8 @@ use Illuminate\Support\Facades\Log;
  * off current syndication status so retries never double-delist.
  *
  * Audit: .ai/audits/mandate-expiry-desyndication-2026-06-20.md,
- *        .ai/audits/syndication-bug-sweep-2026-06-20.md (PP-1),
- *        .ai/audits/2026-08-23-queue-failed-jobs-triage.md (bulk-retry hazard)
+ *        .ai/audits/syndication-bug-sweep-2026-06-20.md (PP-1)
  * Non-Negotiable #9 — cross-pillar reactivity (Mandate/Property → Syndication).
- *
- * ⚠ NEVER BULK-RETRY FAILED ROWS OF THIS JOB WITHOUT PER-ROW REVIEW. (Johan,
- * 2026-08-23, re: the 710 rows in failed_jobs failing on P24 HTTP 401 since
- * April 2026.) This job de-lists real properties from real live portals. A
- * property that failed to de-list months ago may since have been re-listed,
- * sold, or had its status legitimately changed — blind-retrying a stale
- * failure risks de-listing a property that should currently be live, which is
- * real-world harm to a real agency's business, not a technical inconvenience.
- * Any retry of this job's failed_jobs backlog MUST first confirm, per
- * property, that off-market/de-syndication is still the correct current
- * action — never a bulk `php artisan queue:retry` sweep on this class.
  */
 class DesyndicatePropertyFromPortalsJob implements ShouldQueue
 {

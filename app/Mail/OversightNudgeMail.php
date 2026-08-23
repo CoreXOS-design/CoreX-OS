@@ -29,15 +29,8 @@ class OversightNudgeMail extends Mailable
 
     public function content(): Content
     {
-        // markdown:, not view: — this template uses @component('mail::message'),
-        // which only resolves the `mail::` view namespace via the Markdown
-        // renderer that `markdown:` routes through (Content::view does plain
-        // Blade rendering and never registers that namespace). Every send of
-        // this mailable failed with "No hint path defined for [mail]" since it
-        // shipped (10,356 rows in failed_jobs) — same fix already applied
-        // correctly in QueueWorkerDownMail/QueueBacklogAlertMail.
         return new Content(
-            markdown: 'emails.oversight-nudge',
+            view: 'emails.oversight-nudge',
             with: [
                 'nudge'   => $this->nudge,
                 'manager' => $this->manager,

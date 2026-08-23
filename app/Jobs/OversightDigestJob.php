@@ -13,7 +13,6 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 
@@ -25,16 +24,6 @@ use Illuminate\Support\Str;
  * Idempotency is achieved via the `oversight_nudges` table — we record an
  * auto-nudge per (manager, agent, subject, category) and skip if one exists
  * within the last threshold window.
- *
- * NUDGE EMAILS ARE OFF BY DEFAULT (Johan, 2026-08-23 — see config/oversight.php
- * and .ai/audits/2026-08-23-queue-failed-jobs-triage.md). The gate is on the
- * outbound Mail::queue() call only, inside run() below — the OversightNudge
- * idempotency row and the in-app DatabaseNotification are UNCHANGED by this
- * flag and keep recording normally. This is deliberate: if idempotency
- * tracking were also suppressed while off, every nudge that "should" have
- * fired during the off period would look brand new the instant this is
- * switched on and all fire in one burst — recreating the exact flood the
- * flag exists to prevent.
  */
 class OversightDigestJob implements ShouldQueue
 {
@@ -42,24 +31,6 @@ class OversightDigestJob implements ShouldQueue
 
     public function handle(OversightService $service): void
     {
-        $this->run($service, persist: true);
-    }
-
-    /**
-     * Core evaluation loop, shared between the real hourly run (persist=true)
-     * and the read-only volume-report command (persist=false — evaluates
-     * against real current state via the SAME idempotency query, but never
-     * writes OversightNudge/DatabaseNotification rows and never sends mail,
-     * so running the report changes nothing and can be run as often as
-     * needed without consuming the idempotency window it's trying to measure).
-     *
-     * @return array<int, array{manager_id:int, manager_email:?string, category:string, channel:string, subject_type:string, subject_id:int|string, threshold_hours:int}>
-     *         Every item that WOULD fire (or did fire, when persist=true) on this run.
-     */
-    public function run(OversightService $service, bool $persist): array
-    {
-        $fired = [];
-
         $managers = User::query()
             ->whereNotNull('agency_id')
             ->get()
@@ -83,44 +54,16 @@ class OversightDigestJob implements ShouldQueue
                 }
                 $channel = $pref?->notify_channel ?? (UserOversightPreference::DEFAULTS[$row['category']]['notify_channel'] ?? 'in_app');
 
-                // NOTE (found 2026-08-23, reported not fixed — see the audit):
-                // this falls back to a flat 24h when no explicit preference row
-                // exists, NOT to UserOversightPreference::DEFAULTS[category]
-                // ['threshold_hours'] the way OversightService::feed() does at
-                // its own threshold lookup. With zero preference rows saved
-                // anywhere on staging today, every category's idempotency
-                // window is effectively 24h flat right now, not the intended
-                // 168/336/720h for deals_near_expiry/expiring_mandates/
-                // expiring_ffcs. Left exactly as-is — changing re-nudge cadence
-                // is a product decision, not a mechanical bug fix, and it
-                // directly shapes the volume numbers this run() method exists
-                // to measure honestly, bug included.
-                $thresholdHours = max(1, (int) ($pref->threshold_hours ?? 24));
-
                 $alreadyAlerted = OversightNudge::query()
                     ->where('to_user_id', $manager->id)
                     ->where('category', $row['category'])
                     ->where('subject_type', $row['subject_type'])
                     ->where('subject_id', $row['subject_id'])
-                    ->where('created_at', '>=', now()->subHours($thresholdHours))
+                    ->where('created_at', '>=', now()->subHours(max(1, (int) ($pref->threshold_hours ?? 24))))
                     ->exists();
 
                 if ($alreadyAlerted) {
                     continue;
-                }
-
-                $fired[] = [
-                    'manager_id'      => $manager->id,
-                    'manager_email'   => $manager->email,
-                    'category'        => $row['category'],
-                    'channel'         => $channel,
-                    'subject_type'    => $row['subject_type'],
-                    'subject_id'      => $row['subject_id'],
-                    'threshold_hours' => $thresholdHours,
-                ];
-
-                if (!$persist) {
-                    continue; // dry run — evaluate only, never write, never send
                 }
 
                 $nudge = OversightNudge::create([
@@ -149,20 +92,9 @@ class OversightDigestJob implements ShouldQueue
                 }
 
                 if (in_array($channel, ['email', 'both'], true) && $manager->email) {
-                    if (config('oversight.nudges_enabled')) {
-                        Mail::to($manager->email)->queue(new OversightNudgeMail($nudge, $manager));
-                    } else {
-                        Log::info('OversightDigestJob: nudge email suppressed (oversight.nudges_enabled=false)', [
-                            'manager_id'   => $manager->id,
-                            'category'     => $row['category'],
-                            'subject_type' => $row['subject_type'],
-                            'subject_id'   => $row['subject_id'],
-                        ]);
-                    }
+                    Mail::to($manager->email)->queue(new OversightNudgeMail($nudge, $manager));
                 }
             }
         }
-
-        return $fired;
     }
 }
