@@ -273,6 +273,26 @@ Also written into `.ai/audits/2026-08-23-server-migration-notes.md` §7 (pushed 
 `origin/Staging`, commit `7896a237b`, coordinated with cc1 who owns that file) so the new
 server gets this grant correct at provisioning time instead of inheriting the same gap.
 
+**Step 5 — ran the full suite as `nexus` on Staging, as far as it goes.** It bootstrapped
+cleanly (no delay, no error, straight into test execution — nothing else newly blocks the
+bootstrap) and then crashed on the same PHP memory-exhaustion error described in §5 below,
+`routes/web.php` line 3756 this time (a different line than QA1's line 4561 — the two
+checkouts' route files aren't byte-identical — same failure class).
+
+| | Pre-grant baseline (QA1, different branch) | Post-grant (Staging, `nexus`) |
+|---|---|---|
+| Outcome | Crashed | Crashed |
+| Passed before crash | 2,463 | 2,457 |
+| Failed before crash | 2,042 | 2,003 |
+| Last module reached | Entering `Presentation` | Entering `Presentation` |
+
+Nearly identical stopping point and counts, on two different checkouts, before and after the
+grant. This is useful confirmation, not just a shrug: **it shows the memory crash is
+independent of the privilege issue** — the grant fixed exactly and only what it was meant to
+fix (bootstrap), and had zero effect, positive or negative, on the separate memory problem,
+exactly as expected going in. Nothing new blocks the bootstrap. The memory crash remains
+exactly as described in §5 — not investigated tonight, per instruction.
+
 ---
 
 ## 5. The state of the suite, in plain language
