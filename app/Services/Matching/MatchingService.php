@@ -401,6 +401,162 @@ class MatchingService
     }
 
     /**
+     * Batched counts-only equivalent of calling
+     * propertiesForMatch($m, ['agent_id' => null, 'include_hidden' => true])
+     * once per match — same results, one query per distinct agency instead of
+     * one-to-three queries PER MATCH. Built for
+     * ContactMatchController::propertyCountsFor() (the "All Core Matches"
+     * oversight page), which needs total/visible/hidden counts for
+     * potentially hundreds of matches on one page load — the per-match call
+     * was the page's N+1.
+     *
+     * This assumes EXACTLY that override shape (no agent_id constraint,
+     * hidden properties counted). It is NOT a general replacement for
+     * propertiesForMatch(), which stays SQL-first and untouched for its
+     * single-match, usually agent-scoped callers (results(), printList(),
+     * candidatesForProperty()) — pushing `WHERE agent_id = X` into SQL is the
+     * right, selective thing to do there, and would be wrong here (this path
+     * needs every agent's properties, for every match, on one page).
+     *
+     * Correctness note: matchSurvivesFilters() below is a PHP mirror of
+     * propertiesForMatch()'s WHERE-clause logic above (listing type + status,
+     * category, property_type, price/beds/baths/garages/floor/erf tolerance
+     * bands, suburb ids) and must be kept in lockstep with it — there is
+     * deliberately no single shared implementation, because the single-match
+     * path filters in SQL and this one filters an already-fetched in-memory
+     * candidate set. score() itself IS shared (called unchanged, verbatim) —
+     * only the WHERE-equivalent filtering is duplicated, and only here.
+     *
+     * @param  \Illuminate\Support\Collection<int,ContactMatch>  $matches
+     * @return array<int,array{total:int,visible:int,hidden:int}>
+     */
+    public function propertyCountsForMatches($matches): array
+    {
+        $counts = [];
+        $candidatesByAgency = [];
+
+        foreach ($matches as $match) {
+            if (!$match->isCountable()) {
+                $counts[$match->id] = ['total' => 0, 'hidden' => 0, 'visible' => 0];
+                continue;
+            }
+
+            $agencyId = $match->agency_id;
+            if (!array_key_exists($agencyId, $candidatesByAgency)) {
+                $candidatesByAgency[$agencyId] = $this->matchableCandidatePool($agencyId);
+            }
+            $candidates = $candidatesByAgency[$agencyId];
+
+            $resolved = $candidates
+                ->filter(fn (Property $p) => $this->matchSurvivesFilters($p, $match))
+                ->map(function (Property $p) use ($match) {
+                    $sc = $this->score($p, $match);
+                    $p->setAttribute('match_score', $sc);
+                    return $p;
+                })
+                ->filter(fn (Property $p) => $p->match_score >= self::MIN_SCORE_TO_DISPLAY);
+
+            $hiddenIds = $match->hidden_property_ids ?? [];
+            $hidden = $resolved->filter(fn ($p) => in_array($p->id, $hiddenIds, true))->count();
+            $counts[$match->id] = [
+                'total'   => $resolved->count(),
+                'hidden'  => $hidden,
+                'visible' => $resolved->count() - $hidden,
+            ];
+        }
+
+        return $counts;
+    }
+
+    /**
+     * The agency-wide "could possibly match something" candidate pool — every
+     * non-off-market property regardless of agent/branch (agent_id=null means
+     * propertiesForMatch() never constrains by agent for this call shape
+     * either), fetched ONCE per agency and reused across every match's filter
+     * pass. Deliberately does NOT eager-load agent/branch —
+     * propertyCountsForMatches() only counts; score() never reads either
+     * relation and neither does the counts assembly above.
+     */
+    private function matchableCandidatePool(?int $agencyId): Collection
+    {
+        $query = Property::query()
+            ->where(function (Builder $sub) {
+                $sub->whereNull('status')
+                    ->orWhereRaw('LOWER(TRIM(status)) NOT IN ('
+                        . collect(self::NON_MATCHABLE_STATUSES)->map(fn ($s) => "'$s'")->implode(',')
+                        . ')');
+            });
+        if ($agencyId) {
+            $query->where('agency_id', $agencyId);
+        }
+
+        return $query->get();
+    }
+
+    /**
+     * PHP mirror of propertiesForMatch()'s per-match WHERE clauses — see that
+     * method for the SQL this must stay identical to. agent_id/branch_id/
+     * hidden are not re-checked here: propertyCountsForMatches() is the only
+     * caller, always with the agent_id=null/include_hidden=true override
+     * shape, so those three conditions are already no-ops in
+     * propertiesForMatch() too under that shape.
+     */
+    private function matchSurvivesFilters(Property $p, ContactMatch $match): bool
+    {
+        // propertyCountsForMatches() always evaluates in relaxed mode — same
+        // as propertiesForMatch()'s default ($overrides['relaxed'] never set
+        // by propertyCountsFor()).
+        $priceTol = 0.30;
+        $countTol = 1;
+        $sizeTol  = 0.30;
+
+        $listingType = $match->listing_type;
+        if ($listingType) {
+            if ($p->listing_type !== $listingType) {
+                return false;
+            }
+            $allowedStatuses = self::STATUS_BY_LISTING_TYPE[$listingType] ?? null;
+            if ($allowedStatuses !== null && $p->status !== null && !in_array(strtolower($p->status), $allowedStatuses, true)) {
+                return false;
+            }
+        }
+
+        $category = $match->category;
+        if ($category && $p->category !== null && $p->category !== $category) {
+            return false;
+        }
+
+        $propertyTypes = $match->propertyTypeList();
+        if (!empty($propertyTypes) && $p->property_type !== null && !in_array($p->property_type, $propertyTypes, true)) {
+            return false;
+        }
+
+        $numLooseOk = function ($val, string $op, int $threshold): bool {
+            if ($val === null) {
+                return true; // property side NULL is never penalised
+            }
+            return $op === '>=' ? ((int) $val >= $threshold) : ((int) $val <= $threshold);
+        };
+
+        if ($match->price_min && !$numLooseOk($p->price, '>=', (int) floor($match->price_min * (1 - $priceTol)))) return false;
+        if ($match->price_max && !$numLooseOk($p->price, '<=', (int) ceil($match->price_max * (1 + $priceTol)))) return false;
+        if ($match->beds_min && !$numLooseOk($p->beds, '>=', max(0, (int) $match->beds_min - $countTol))) return false;
+        if ($match->baths_min && !$numLooseOk($p->baths, '>=', max(0, (int) $match->baths_min - $countTol))) return false;
+        if ($match->garages_min && !$numLooseOk($p->garages, '>=', max(0, (int) $match->garages_min - $countTol))) return false;
+        if ($match->floor_size_min && !$numLooseOk($p->size_m2, '>=', (int) floor($match->floor_size_min * (1 - $sizeTol)))) return false;
+        if ($match->floor_size_max && !$numLooseOk($p->size_m2, '<=', (int) ceil($match->floor_size_max * (1 + $sizeTol)))) return false;
+        if ($match->erf_size_min && !$numLooseOk($p->erf_size_m2, '>=', (int) floor($match->erf_size_min * (1 - $sizeTol)))) return false;
+        if ($match->erf_size_max && !$numLooseOk($p->erf_size_m2, '<=', (int) ceil($match->erf_size_max * (1 + $sizeTol)))) return false;
+
+        $suburbIds = $match->p24SuburbIdList();
+        if (!empty($suburbIds) && !in_array($p->p24_suburb_id, $suburbIds, true)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
      * Hard-filter SQL — applies match criteria as WHERE clauses against contact_matches
      * given a candidate property.  Returns true only if the *match* could plausibly
      * cover this *property*. (Reverse of propertiesForMatch.)
