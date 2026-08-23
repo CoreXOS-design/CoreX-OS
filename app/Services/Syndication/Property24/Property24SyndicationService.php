@@ -16,6 +16,24 @@ class Property24SyndicationService
     private Property24ListingMapper $mapper;
 
     /**
+     * SyncProperty24Activations (2026-08-23) — safety ceiling on how many
+     * properties syncAllActivations() checks in one job invocation. Was
+     * unbounded: 186 properties x 1 sequential HTTP call each, inside a 300s
+     * job timeout, never once completed on live (zero "P24 activation sync
+     * complete" log lines found; every attempt died mid-loop as
+     * MaxAttemptsExceededException — a killed process, not a caught error).
+     * 40 gives a ~7.5s-per-property budget inside the 300s ceiling, well
+     * clear even of an unusually slow P24 response. Same STALE-FIRST
+     * ordering idiom as P24StatsService::NIGHTLY_MAX_LISTINGS (AT-200) —
+     * see syncAllActivations() — so at the current scale (186 properties,
+     * every 15 minutes) the whole set rotates through in ~5 ticks, and the
+     * cap stays a safety ceiling rather than a starvation risk as the count
+     * grows. Deliberately sequential (one HTTP call at a time, same as
+     * today) — bounding the PER-RUN size, not adding concurrent P24 calls.
+     */
+    public const ACTIVATION_SYNC_MAX_PER_RUN = 40;
+
+    /**
      * The ONLY P24 call a refresh of an unchanged listing may make: the listing
      * POST itself. See auditRefreshCost — this is a budget, not a description.
      */
@@ -666,6 +684,15 @@ class Property24SyndicationService
         $this->bindClientForProperty($property);
         $result = $this->client->isOnPortal($property->id, (int) $property->p24_ref);
 
+        // ATTEMPT cursor, not a success cursor (same reasoning as
+        // P24StatsService::p24_stats_synced_at, AT-200) — stamped whether this
+        // check succeeded or not, via a raw update so it never fires model
+        // events. A chronically-failing listing must still rotate away in
+        // syncAllActivations()'s stale-first ordering, or it would sort first
+        // forever and starve the rest of the batch.
+        \Illuminate\Support\Facades\DB::table('properties')->where('id', $property->id)
+            ->update(['p24_activation_last_checked_at' => now()]);
+
         if (!$result['success']) {
             return ['success' => false, 'message' => $result['message'] ?? 'Status check failed', 'status' => $property->p24_syndication_status];
         }
@@ -742,9 +769,27 @@ class Property24SyndicationService
         // Include 'active' so live listings are periodically re-verified against
         // is-on-portal — otherwise a P24-side removal (expiry, moderation) leaves
         // CoreX showing 'active' forever. submitted/pending await first activation.
+        //
+        // STALE-FIRST + BOUNDED (2026-08-23) — same idiom as P24StatsService's
+        // p24_stats_synced_at (AT-200): order by the per-property "last ATTEMPTED"
+        // cursor, NULLs (never checked) first, then oldest, and cap the batch at
+        // ACTIVATION_SYNC_MAX_PER_RUN. This was unbounded — every qualifying
+        // property, one sequential HTTP call each, inside one 300s job — and never
+        // completed once on live (186 properties currently qualify). Bounding the
+        // batch and rotating stale-first means the full set is covered across
+        // several 15-minute ticks instead of one run trying (and failing) to do
+        // all of it; total P24 call RATE is unchanged — still one call at a time,
+        // sequential, same as before, just spread over more runs.
+        $totalQualifying = Property::where('p24_syndication_enabled', true)
+            ->whereIn('p24_syndication_status', ['submitted', 'pending', 'active'])
+            ->whereNotNull('p24_ref')->count();
+
         $properties = Property::where('p24_syndication_enabled', true)
             ->whereIn('p24_syndication_status', ['submitted', 'pending', 'active'])
-            ->whereNotNull('p24_ref')->get();
+            ->whereNotNull('p24_ref')
+            ->orderByRaw('p24_activation_last_checked_at IS NOT NULL, p24_activation_last_checked_at ASC')
+            ->limit(self::ACTIVATION_SYNC_MAX_PER_RUN)
+            ->get();
 
         $synced = 0;
         $errors = 0;
@@ -753,8 +798,8 @@ class Property24SyndicationService
             $result['success'] ? $synced++ : $errors++;
         }
 
-        $this->log('info', "P24 activation sync complete: {$synced} synced, {$errors} errors, {$reaped} reaped");
-        return ['synced' => $synced, 'errors' => $errors, 'reaped' => $reaped, 'total' => $properties->count()];
+        $this->log('info', "P24 activation sync complete: {$synced} synced, {$errors} errors, {$reaped} reaped, {$properties->count()}/{$totalQualifying} checked this run");
+        return ['synced' => $synced, 'errors' => $errors, 'reaped' => $reaped, 'total' => $properties->count(), 'total_qualifying' => $totalQualifying];
     }
 
     /**
