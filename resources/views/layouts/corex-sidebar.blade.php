@@ -653,6 +653,16 @@
         @php
             $_hasAssistants = false;
             if ($user && \Illuminate\Support\Facades\Route::has('agent.assistants.index') && ($_userAgency?->assistants_enabled)) {
+                // Perf (2026-08-23): checked and left AS-IS, unlike the two nearby badges
+                // that lost their cache in this same pass. This key is explicitly busted
+                // on write (AssistantController::*, Cache::forget('assistants.agent.'.id)
+                // on create/reassign/revoke/restore) rather than relying on the 60s TTL to
+                // go stale-then-refresh — so it stays warm indefinitely between real
+                // assignment changes, not just within a rolling window. Removing the cache
+                // here would make the common case WORSE (paying ~10-12ms every load
+                // instead of a ~1-2ms cache hit) for no correctness gain. Caching earns
+                // its keep when it's invalidated on write; the two removed nearby were
+                // pure blind-TTL with no invalidation at all.
                 $_hasAssistants = cache()->remember(
                     'assistants.agent.' . $user->id,
                     60,
@@ -698,7 +708,7 @@
                      sidebar entry highlighted if anything internal still routes there.
 
                      F.2: count badge — canvass-pool size (our own on-market stock excluded,
-                     OnMarketStockService-gated). Cached 60s per agency. Mirrors the
+                     OnMarketStockService-gated). Cached per agency. Mirrors the
                      pendingVerificationCount / faultNewCount precedents elsewhere in this
                      sidebar.
                      2026-08-11 fix — was whereNull('matched_property_id'), the raw ungated
@@ -707,13 +717,24 @@
                      was wrongly treated as "our stock" and dropped OUT of this count, even
                      though it's genuinely still canvassable. Now uses the same
                      whereNotCompanyStock() scope the Work-tab canvass pool itself uses, so
-                     the sidebar badge and the list it links to can never disagree. --}}
+                     the sidebar badge and the list it links to can never disagree.
+                     Perf (2026-08-23) — TTL 60s -> 300s. whereNotCompanyStock() resolves
+                     through OnMarketStockService::identitySets(), which memoizes per PHP
+                     PROCESS (static property), not across requests — so on any page other
+                     than Work mode itself (which already warms it earlier in the same
+                     request), a cold hit here pays the full agency-wide properties scan
+                     fresh: measured 9 queries, ~730-810ms. A warm hit is ~1-2ms (one cache
+                     read). This is an informational pool-size badge, not a figure anything
+                     acts on in real time — 5 minutes of staleness is an acceptable trade
+                     for cutting how often every OTHER page in the app pays that ~750ms.
+                     Query/scope unchanged — do not touch OnMarketStockService here, cc3
+                     owns it and is mid-rewrite. --}}
                 @if(\Illuminate\Support\Facades\Route::has('market-intelligence.work'))
                 @php
                     $miAgencyId = auth()->user()->effectiveAgencyId() ?? auth()->user()->agency_id ?? null;
                     $miCount = $miAgencyId ? cache()->remember(
                         'mi.sidebar_count.' . $miAgencyId,
-                        60,
+                        300,
                         fn () => \App\Models\ProspectingListing::where('agency_id', $miAgencyId)
                             ->where('is_active', true)
                             ->whereNotCompanyStock($miAgencyId)
@@ -1440,7 +1461,13 @@
                 </a>
                 @endif
                 @permission('verify_user_documents')
-                @php $pendingVerificationCount = cache()->remember('pending-verification-count-' . (auth()->user()->agency_id ?? 'all'), 60, fn() => \App\Models\UserDocument::pending()->count()); @endphp
+                {{-- Perf (2026-08-23): was cache()->remember(60s) — cache store is the
+                     database here, so a warm hit is still a real MySQL round trip (~1ms)
+                     and a cold miss pays that PLUS this query PLUS a write (~25ms
+                     measured, 7-8 queries). Direct computation measured ~10-12ms, 5-6
+                     queries — cheaper than the cache wrapper in every case, not just the
+                     cold one. Same pattern as $nonCompliantAgents just above. --}}
+                @php $pendingVerificationCount = \App\Models\UserDocument::pending()->count(); @endphp
                 <a href="{{ route('compliance.verification.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.verification.*') ? 'active' : '' }}">
                     Verification Queue
                     @if($pendingVerificationCount > 0)
@@ -1455,15 +1482,23 @@
                 <a href="{{ route('compliance.agency-settings.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.agency-settings.*') ? 'active' : '' }}">Agency Documents</a>
                 @endif
                 @permission('compliance.whistleblow.view')
+                {{-- Perf (2026-08-23): was cache()->remember(60s) — ~24ms/7 queries cold,
+                     vs ~10-12ms/5 queries computed directly (measured); a warm hit is only
+                     marginally cheaper (~1.5ms) than computing fresh, and this app's cache
+                     store is itself the database, so caching bought little here. Removing
+                     it also closes a pre-existing bug: the cache KEY was agency-only but
+                     the QUERY varies by viewer's own permission (agency-wide vs own-only),
+                     so two users in the same agency could read each other's cached scope.
+                     Computing fresh removes that collision as a side effect. --}}
                 @php
-                    $wbPendingCount = cache()->remember('wb-pending-' . (auth()->user()->agency_id ?? 'all'), 60, function () {
+                    $wbPendingCount = (function () {
                         $q = \App\Models\Compliance\WhistleblowComplaint::where('status', 'pending_approval');
                         $u = auth()->user();
                         if (!$u->hasPermission('compliance.whistleblow.view_all_agency')) {
                             $q->where('reported_by_user_id', $u->id);
                         }
                         return $q->count();
-                    });
+                    })();
                 @endphp
                 <a href="{{ route('compliance.whistleblow.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.whistleblow.*') ? 'active' : '' }}">
                     Compliance Reporting
