@@ -23,6 +23,16 @@ live on staging as of this write-up (`config('oversight.nudges_enabled')` return
 **Read §2 before you flip it.** The bug being fixed is not the same question as whether it's
 safe to enable — that's what the volume analysis below is for.
 
+**The kill switch and the root-cause fix do different jobs, and shipping only one of them would
+be a trap.** The kill switch stops today's bleeding — with it off, nothing is ever queued, so
+nothing can fail, regardless of whether the mail-namespace bug is fixed. The root-cause fix is
+what makes the switch *usable later* — without it, the moment someone flips the switch on, it
+would just resume the exact same 10,000-failure pattern instead of actually sending anything.
+Ship the fix without the switch and this evening's mail flood repeats immediately. Ship the
+switch without the fix and it can never safely be turned on, because turning it on would just
+recreate the failed_jobs backlog, not deliver a working feature. Both, together, is the only
+version of this that is actually finished.
+
 <details>
 <summary>Reasoning (click if you need it — you probably don't)</summary>
 
