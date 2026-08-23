@@ -45,6 +45,16 @@
         <span style="color: var(--text-muted); font-weight:normal;">&middot; ID {{ $capture->id_number }}</span>
     </div>
 
+    {{-- 2026-08-22 (Johan) — replaces the old silent-dismiss behaviour. This person is
+         already linked as a seller via another path (e.g. Outreach's "+ Link as seller"),
+         so this card is no longer an open action waiting on the agent — but the numbers
+         below are still real and still pickable if wanted; nothing here was discarded. --}}
+    @if($capture->sellerAlreadyLinked ?? false)
+        <div class="text-xs mb-2 px-2 py-1 rounded" style="background: color-mix(in srgb, var(--brand-button, #0ea5e9) 12%, transparent); color: var(--brand-button, #0ea5e9);">
+            Seller already linked to a property via another path — these numbers are still here if you want to add them.
+        </div>
+    @endif
+
     @if($formId)
         {{-- Nested case — no own <form>; every input below carries form="{{ $formId }}". --}}
         <input type="hidden" name="tva[{{ $capture->id }}][target]" :value="target" form="{{ $formId }}">
