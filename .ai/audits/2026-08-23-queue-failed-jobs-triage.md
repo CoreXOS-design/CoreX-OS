@@ -20,6 +20,41 @@ Proven by rendering against real staging data and a real end-to-end queued send 
 See `app/Support/Queue/QueueFailureAlerter.php`'s own docblock and the 2026-08-23 commits on
 `Staging` for the full change.
 
+### 1a. Backlog decision — DISCARD, not retry (Johan, 2026-08-23)
+
+The 10,356 (live) / 9,961 (staging) `failed_jobs` rows for this class are to be **archived
+then deleted, never retried**. Written down here because whoever finds a 10,000-row archive
+file a year from now should be able to see this was a decision, not neglect.
+
+**Why discard rather than retry, once the fix is live:** these are automated "action
+required" nudges to real managers, some many weeks old by the time any retry would run.
+Retrying would not "catch up" a manager on 10,356 items — it would land as a burst of stale
+alerts about things many of them will already have handled through other means in the
+meantime, with no way for the recipient to tell an urgent current nudge from a weeks-late
+echo. **A stale automated nudge arriving weeks late is worse for a client relationship than
+the nudge never having arrived at all** — it reads as CoreX being broken or ignored, not as
+CoreX catching up. Nothing real is lost by discarding: `OversightDigestJob` runs hourly and
+re-evaluates every manager's outstanding items on its own idempotency key (manager, category,
+subject, within the configured threshold window) — anything still genuinely outstanding gets
+a fresh, correctly-timed nudge on its own, not a batch of backdated ones.
+
+**Mechanics, when Johan authorises the live cherry-pick** (not yet — see safety contract
+below): `php artisan corex:archive-discard-oversight-nudge-failures`
+(`app/Console/Commands/ArchiveAndDiscardOversightNudgeFailures.php`). Scoped exactly to
+`payload->displayName = 'App\Mail\OversightNudgeMail'` (JSON-path exact match, not a LIKE
+substring) — provably never touches `SyncProperty24Activations`,
+`RegenerateBuyerMatchesJob`, `OversightDigestJob`, or `DesyndicatePropertyFromPortalsJob`
+rows, which remain the evidence of real unresolved problems (§2, §3). Defaults to a dry run
+(prints the exact SQL and row count, changes nothing) unless `--execute` is passed. When
+executed: archives every matching row in full to a JSON file on the data volume
+(`/mnt/HC_Volume_103099143/corex-backups/` by default), verifies the written file's row count
+against the query before deleting anything, then deletes by the exact row ids just archived
+(not a second run of the same WHERE clause). Mechanism proven correct on staging 2026-08-23
+via an isolated synthetic-data test (3 target rows + 2 real-class-name control rows) —
+precise scoping confirmed, real backlog and control rows both left untouched. The real
+9,961-row staging backlog itself was deliberately NOT archived/deleted in that proof, pending
+explicit instruction — dry-run only was run against it.
+
 ## 2. The other four failure classes — investigated, not bulk-fixed
 
 None share the mail-namespace root cause. Do not treat these as fixed by the mail fix above.
@@ -45,6 +80,13 @@ currently be live** — a real, external, business-facing harm to a real agency,
 technical inconvenience recoverable by re-running a job. Any retry of this class's
 `failed_jobs` backlog requires per-property confirmation of current status first. No bulk
 `php artisan queue:retry` sweep on this class, ever, by anyone, without that review.
+
+Contrast deliberately with §1a: OversightNudgeMail's backlog is safe to discard because the
+cost of being wrong is a manager missing (or re-receiving late) an internal notification —
+recoverable, low-stakes, and self-healing via the hourly digest. This job's backlog is the
+opposite: the cost of being wrong is an incorrect, externally-visible, real-world action
+against a live listing. Never bulk-act on this one; the other one is fine to bulk-discard
+once archived. Same backlog, opposite treatment, for a reason — not an inconsistency.
 
 ## 4. Recurring pattern — OversightDigestJob's unbounded pull + per-row PHP work
 
@@ -103,6 +145,9 @@ Johan to approve separately.
 - `app/Mail/QueueJobFailureDigestMail.php` + `resources/views/emails/queue-job-failure-digest.blade.php`
 - `app/Mail/QueueFailedJobsGrowthAlertMail.php` + `resources/views/emails/queue-failed-jobs-growth-alert.blade.php`
 - `tests/Feature/Queue/QueueFailureAlertingTest.php`, `tests/Feature/Queue/QueueHealthcheckFailedJobsGrowthTest.php`
+- `app/Console/Commands/ArchiveAndDiscardOversightNudgeFailures.php` — the archive-then-discard
+  tool for §1a. Dry-run by default; `--execute` required to actually archive/delete. Not run
+  against the real backlog anywhere yet — awaiting Johan's explicit go for the live cherry-pick.
 - This file.
 
 **Modified:**
