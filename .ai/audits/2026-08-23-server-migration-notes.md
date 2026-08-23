@@ -5,6 +5,24 @@ Written 2026-08-23 during a disk-cleanup pass on the current box (85-86% full on
 things we found that are artefacts of *this* box, not properties of CoreX —
 don't carry them over as-is.
 
+## ⚠️ READ THIS FIRST: this box serves FOUR other production sites, not just CoreX
+
+Confirmed live via nginx's own active config (`nginx -T`), not just leftover
+checkouts — someone is actually visiting these right now:
+
+| Domain | Docroot | Notes |
+|---|---|---|
+| `hfcoastal.co.za` / `www.hfcoastal.co.za` | `/var/www/home-finders-coastal` (3.8G) | the agency's own public website — also bound on port 1050 at the server's public IP |
+| `themandatecompany.co.za` / `www.themandatecompany.co.za` | `/var/www/hfc-website` (182M) | |
+| `corexweb.co.za` / `www.corexweb.co.za` | `/var/www/corex-os-website` (117M) | also the port-8095 `default_server` |
+| `performance.hfcoastal.co.za` (+ port 8083, `127.0.0.1:8088`) | `/var/www/agent-targets` (484M) | multiple vhosts point at this one docroot |
+
+**If whoever plans the move only knows about CoreX, this migration takes down
+four other live sites with no warning.** Each of these needs its own explicit
+decision — move it too, stand it up somewhere else, or knowingly retire it —
+made before cutover, not discovered after. None of them were touched during
+tonight's cleanup for exactly this reason.
+
 ## 1. Put `storage/app` on the data volume from day one
 
 On this box, `storage/app` is ~27GB (14G property photos, 11G private client
@@ -37,7 +55,38 @@ automatically — it needs to be recreated on the new box's Supervisor install.
 If Redis goes in per #2, queues should probably move to `redis` too at the
 same time rather than staying on `database` out of inertia.
 
-## 4. Other artefacts of this box, not of CoreX
+## 4. No logrotate existed for Laravel's own logs — must exist from day one on the new box
+
+Fixed tonight on this box (`/etc/logrotate.d/corex-laravel`, daily/14-day/
+compress/copytruncate, covering both `/corex/storage/logs/*.log` and
+`/corex-staging/storage/logs/*.log`), but the fact that **no such config
+existed at all** — `/etc/logrotate.d/` had entries for nginx, php-fpm, mysql,
+nothing for Laravel — is itself the finding. Live's `laravel.log` had grown to
+112MB unbounded before tonight; Staging's to 43MB. Whoever provisions the new
+box needs to ship a logrotate config for these logs as part of initial setup,
+not add it after they're already 100MB+. `copytruncate` matters specifically
+because these logs are held open continuously by long-running PHP-FPM/queue
+workers that are never told to reopen their file handle.
+
+## 5. Two pre-deploy mysqldumps under `/var/backups/hfc` — deliberately left in place
+
+`nexus_os-pre-deploy-20260822-111156.sql.gz` (137M) and
+`hfc_staging-pre-deploy-20260820-201458.sql.gz` (71M), 208MB total, sitting on
+the root filesystem (`/var/backups`) rather than the data volume — technically
+a violation of this project's own disk-hygiene rule (dumps belong on
+`/mnt/HC_Volume_103099143`). **Deliberately not deleted or moved tonight**:
+days before a server migration is exactly when you want a rollback point, and
+moving them right before cutover is the wrong moment to touch them. On the new
+box, mysqldump output should default to the data volume from the start so this
+class of dump never lands on the system disk in the first place. Separately,
+the *real* nightly backup mechanisms are correctly configured already and need
+to be recreated on the new box, not just copied: `/etc/cron.d/nexus_os-backup`
+(nightly 02:30 → `/mnt/HC_Volume_103099143/db-backups`, 14-day retention) and
+the off-box restic-to-Hetzner job (`/etc/cron.d/corex-offbox-backup`, 03:30
+nightly + a 09:15 health check) — the latter needs new SFTP/restic credentials
+for whatever destination the new box uses.
+
+## 6. Other artefacts of this box, not of CoreX
 
 - **DISK CRITICAL alerting is a bare cron script**, not real monitoring:
   `*/5 * * * * /mnt/HC_Volume_103099143/bin/disk-alarm.sh` checks `/` and the
@@ -46,16 +95,6 @@ same time rather than staying on `database` out of inertia.
   as long as the condition holds, which is why every pane got spammed tonight.
   Worth replacing with real monitoring (or at least a fire-once/hour debounce)
   on the new box rather than recreating the same script verbatim.
-- **Two ad-hoc mysqldumps under `/var/backups/hfc`** (137M `nexus_os`, 71M
-  `hfc_staging`, both "pre-deploy" dumps) sit on the root filesystem, in
-  violation of the project's own disk-hygiene rule (dumps belong on the data
-  volume). Separate from these, there's a proper root cron
-  (`/etc/cron.d/nexus_os-backup`, nightly 02:30 → `/mnt/HC_Volume_103099143/
-  db-backups`, 14-day retention) and an off-box restic-to-Hetzner job
-  (`/etc/cron.d/corex-offbox-backup`, 03:30 nightly + a 09:15 health check).
-  Both of those are real infrastructure that needs to be recreated on the new
-  box (new SFTP/restic credentials for the off-box leg); the ad-hoc
-  `/var/backups/hfc` dumps do not — they're one-off deploy artefacts.
 - **Stale/disabled cron entries nobody has revisited**: Staging's own
   `schedule:run` cron has been commented out since 2026-08-21 ("staging DB
   refresh in progress") and never re-enabled; a QA1 sync job has been
@@ -73,24 +112,15 @@ same time rather than staying on `database` out of inertia.
   exactly the class of problem that has bitten this project before (see the
   vendor/autoloader incidents already in `CLAUDE.md`). Start the new box with
   every write to a served checkout going through the FPM user, never root.
-- **No logrotate for Laravel's own logs.** `/etc/logrotate.d/` has entries for
-  nginx, php-fpm, mysql — nothing for `storage/logs/*.log`. Live's
-  `laravel.log` is 112MB and growing; Staging's is 43MB. Add a logrotate
-  config for both on the new box from day one (daily/weekly rotation,
-  compress, sane retention) instead of letting it grow unbounded again.
-- **`/var/www` carries 4.5GB of separate, unrelated live sites** on this same
-  box (`home-finders-coastal` — the actual `hfcoastal.co.za` site — plus
-  `agent-targets`, `hfc-website` i.e. `themandatecompany.co.za`, and
-  `corex-os-website` i.e. `corexweb.co.za`/the port-8095 default vhost). All
-  four are confirmed live via nginx's own active config, not just old
-  checkouts. If the migration is CoreX-only, these need their own decision —
-  they don't move automatically just because CoreX does, and they weren't
-  touched during tonight's cleanup for exactly that reason.
 - **A `/video-boom` cron job** (`node cleanup-temp.js`, nightly at 02:00) is
   an entirely unrelated tenant on this box — not CoreX, don't carry it over
   by habit when copying root's crontab.
 
 ---
-*Companion to tonight's disk-cleanup inventory (git worktrees, ~4.7GB reclaimable
-on `/` from stale worktrees under `/` and `/tmp` — see conductor chat log for
-the full per-worktree table; nothing was deleted without Johan's confirmation).*
+*Companion to tonight's disk-cleanup: 45 stale git worktrees reclaimed
+(~5.5GB) from `/` and `/tmp` after per-worktree verification (branch refs
+confirmed to persist, or pushed to origin first); the current detached-HEAD
+commit that had no branch was tagged `archive/qa1-comp-stock-cascade` before
+its worktree was removed, so it stays reachable. Nothing was deleted without
+Johan's explicit confirmation. Full per-worktree table in the conductor chat
+log.*
