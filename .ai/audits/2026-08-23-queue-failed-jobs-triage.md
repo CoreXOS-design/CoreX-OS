@@ -186,6 +186,82 @@ call sites — this job was never wired into it. Reads as abandoned async scaffo
 design pivot within the same original build. Not deleted — batched with other cleanup for
 Johan to approve separately.
 
+## 7. Nudge emails held OFF by kill switch — volume analysis (2026-08-23, later same day)
+
+**Change of requirement, Johan:** the mail fix working is not the same as it being safe to turn
+on. CoreX's original live cutover flooded staff with email; a manager-facing feature that has
+never once fired in production, switched on with zero prior volume data, risked repeating that
+at real managers' inboxes. New instruction: fix the bug, but do not let it send — add a
+config-driven kill switch, default OFF, and produce real volume numbers before anyone decides
+whether to turn it on.
+
+**Kill switch**: `config/oversight.php` `nudges_enabled`, default `false` via
+`OVERSIGHT_NUDGES_ENABLED` — same doctrine as `docuperfect.async_completion`. Gates ONLY the
+`Mail::to(...)->queue(new OversightNudgeMail(...))` call inside `OversightDigestJob::run()`
+(refactored from `handle()` so the same evaluation logic can run read-only). **Not** a
+dispatch-and-short-circuit design — nothing is queued at all while off, because a queued
+Mailable is processed by Laravel's own internal `SendQueuedMailable` job with no clean
+framework hook to abort mid-flight, so not queuing in the first place is simpler and by
+construction can never produce a `failed_jobs` row. The `OversightNudge` idempotency row and
+the in-app `DatabaseNotification` are deliberately **unaffected** by the flag and keep
+recording normally — if they didn't, every nudge that "should" have fired during the off
+period would look brand new the moment this is switched on and all fire in one burst, which is
+the exact flood this flag exists to prevent.
+
+**Proven on staging, flag OFF**: ran the real `OversightDigestJob::run(persist: true)` — the
+exact hourly production code path. 2,684 nudge-worthy items evaluated, 334 in email-channel
+categories. `jobs` table: 0→0. `failed_jobs`: 6,459→6,459. `OversightNudgeMail` jobs queued: 0.
+`Mail::assertNothingSent()`: pass.
+
+**Proven on staging, flag ON**: flipped the flag, queued a real `OversightNudgeMail` (using a
+real nudge the flag-off run had just created) to `proof-test@corexos.invalid` — never a real
+manager. Sent cleanly through the real queue (83ms), zero new `failed_jobs` rows.
+
+### The volume answer — this is the real finding
+
+The flag-off run above persisted real `OversightNudge` rows, which is the most authoritative
+possible source (real managers, real current data, not a simulation):
+
+| | |
+|---|---|
+| Nudge-worthy items, one run (any channel) | 2,684 |
+| Email-channel items, one run | 334 |
+| Distinct managers who would receive email, one run | 5 |
+| **Worst case, single manager, one run** | **82 emails** (manager #44, angelique@hfcoastal.co.za — 64 `deals_near_expiry` + 18 `expiring_mandates`) |
+| Next worst | 76, 76, 75 emails (three more managers) |
+
+**Does idempotency prevent repeat nudges across runs, or would a manager get the same nudge
+every hour?** Not hourly — but this needs the fuller picture, and it is the more concerning
+half of the answer. `OversightDigestJob` runs hourly (`routes/console.php:305`,
+`Schedule::job(...)->hourly()`), and the idempotency check does correctly prevent the exact
+same (manager, category, subject) triple from re-firing inside its threshold window. BUT: the
+threshold lookup (`OversightDigestJob::run()`, the `$pref->threshold_hours ?? 24` line) falls
+back to a **flat 24 hours** when no `UserOversightPreference` row exists for that manager —
+**not** the per-category default (168h/336h/720h for
+deals_near_expiry/expiring_mandates/expiring_ffcs) the way `OversightService::feed()` correctly
+does at its own threshold lookup. **Zero `UserOversightPreference` rows exist on staging at
+all**, so every category currently runs on the flat 24h window regardless of its intended
+cadence. Net effect: a manager will not be re-nudged for the same item within the same hour,
+but almost certainly WILL be re-nudged for the same still-outstanding item the next day, and
+the day after that, for as long as the underlying deal/mandate/FFC stays in its "near expiry"
+window — which for `expiring_ffcs` (intended 30-day cadence) or `expiring_mandates` (intended
+14-day cadence) could be weeks of daily repeats for the same item. **Manager #44's 82 emails
+in one run is plausibly close to their daily total, sustained, not a one-time burst** — worse
+than "flood every hour", but the flood recurs daily instead of hourly. This is reported, not
+fixed — correcting the fallback is a product decision about intended re-nudge cadence, not a
+mechanical bug fix, and belongs in the same conversation as the enable decision, not silently
+changed underneath it.
+
+**Recommendation to Johan, not a decision made here:** before enabling, the flat-24h-fallback
+finding above should be resolved one way or another (either fix the fallback to genuinely use
+the per-category defaults, or make a deliberate call that 24h is fine) — otherwise "turning it
+on" means the very first day produces sustained ~80-email/day volume for at least one manager,
+which is close to the outcome this whole exercise exists to avoid.
+
+Repeatable, non-mutating tool for re-checking volume later without side effects:
+`php artisan corex:oversight-nudge-volume-report` (`app/Console/Commands/OversightNudgeVolumeReport.php`)
+— runs the same evaluation read-only, writes and sends nothing, safe to run as often as needed.
+
 ## Files created/modified (2026-08-23)
 
 **Created:**
@@ -194,8 +270,10 @@ Johan to approve separately.
 - `app/Mail/QueueFailedJobsGrowthAlertMail.php` + `resources/views/emails/queue-failed-jobs-growth-alert.blade.php`
 - `tests/Feature/Queue/QueueFailureAlertingTest.php`, `tests/Feature/Queue/QueueHealthcheckFailedJobsGrowthTest.php`
 - `app/Console/Commands/ArchiveAndDiscardOversightNudgeFailures.php` — the archive-then-discard
-  tool for §1a. Dry-run by default; `--execute` required to actually archive/delete. Not run
-  against the real backlog anywhere yet — awaiting Johan's explicit go for the live cherry-pick.
+  tool for §1a. Dry-run by default; `--execute` required to actually archive/delete.
+  **Executed on staging 2026-08-23 — see §1a's own update for the result.**
+- `config/oversight.php`, `app/Console/Commands/OversightNudgeVolumeReport.php` — the kill
+  switch and volume-report tool for §7.
 - This file.
 
 **Modified:**
@@ -204,3 +282,5 @@ Johan to approve separately.
 - `app/Console/Commands/QueueHealthcheck.php` — added `checkFailedJobsGrowth()`.
 - `app/Jobs/Syndication/DesyndicatePropertyFromPortalsJob.php` — bulk-retry hazard warning.
 - `.ai/specs/queue-worker-monitoring.md` — changelog entry for the above.
+- `app/Jobs/OversightDigestJob.php` — refactored `handle()` into `run($service, $persist)`;
+  gated the `Mail::queue()` call behind `oversight.nudges_enabled` (§7).
