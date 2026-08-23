@@ -286,8 +286,13 @@ directly as the two jobs' different trigger shapes allow:
   false, $traceId, $rotationStartedAt)`) whenever contacts remain, carrying a
   `rotationStartedAt` timestamp through the chain so each continuation knows
   which contacts have already been touched THIS rotation versus a prior one.
-  `ShouldBeUnique`'s lock releases as soon as a job starts processing (before
-  `handle()` runs), so this does not self-deadlock.
+  **Claimed here, at design time: "`ShouldBeUnique`'s lock releases as soon as
+  a job starts processing (before `handle()` runs), so this does not
+  self-deadlock." That claim is WRONG — see the correction at the very top of
+  this file. It's the reason the self-chaining doesn't actually work on live.
+  Left standing here, struck through in spirit rather than deleted, so the
+  gap between what was designed and what was verified is visible in one
+  place.**
 
 **Proof — mechanism, at full real scale (380 contacts, no scoring run, purely
 the selection/cursor logic):** simulated the rotation end to end. Exactly 10
