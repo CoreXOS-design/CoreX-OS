@@ -262,6 +262,49 @@ Repeatable, non-mutating tool for re-checking volume later without side effects:
 `php artisan corex:oversight-nudge-volume-report` (`app/Console/Commands/OversightNudgeVolumeReport.php`)
 — runs the same evaluation read-only, writes and sends nothing, safe to run as often as needed.
 
+## 8. Live deploy attempt, 2026-08-23 ~19:30 — rolled back, root cause understood, redeploy pending
+
+Deployed the whole batch to live (tag `pre-queue-alerting-batch-20260823-1930` on `d2da51f27`,
+merged through `bb647129e`), ran a four-part verification gate. Rolled back (clean `git revert`,
+commit `29834be21`, not a manual working-tree patch or `git reset --hard`) after one of the four
+checks came back wrong. Root cause investigated and understood before any redeploy decision.
+
+**The lesson worth keeping, more than the incident itself:** GATE 1 — the one that actually
+mattered, whether a REAL forced failure on live sends email — PASSED, with direct evidence.
+Triggered a genuine failure, read the actual live log file (not a mock, not an assertion
+library — those don't exist in a production `composer install`) and found the real
+`production.CRITICAL` entry, then confirmed the alert digest's debounce cache key was never
+set, proving the code returned before ever reaching the point where it would consider sending
+mail. `a.roets12@gmail.com` (the real, live-configured recipient) received nothing.
+
+The check that failed was a secondary one — total `jobs` table row count, before vs. after a
+~90-second test window. It went 2→3. Investigated from the safe, rolled-back position rather
+than reasoned past on live: the real live worker log
+(`/corex/storage/logs/worker.log`) shows `App\Jobs\SyncProperty24Activations` running on a
+clean, unbroken 15-minute cadence — 18:45:06, 19:00:43, 19:15:06, 19:30:07, **19:45:07** — the
+last one landing exactly inside the test window, matching its pre-existing
+`everyFifteenMinutes()` schedule (`routes/console.php:213`) precisely. Nothing to do with
+today's code. The batch's own actual claim — zero `OversightNudgeMail` jobs queued with the
+switch off — was 0→0 throughout, correct the whole time.
+
+**That is the right way round for a gate to be wrong.** A too-strict gate (measuring total
+table depth on a system that's constantly and legitimately writing to that table) cost one
+redeploy cycle — inconvenient, ten minutes. A too-loose gate — one that would have let a real
+problem through because it wasn't watching closely enough — would have cost Johan's staff an
+inbox full of mail on the one evening he'd said twice to keep it quiet. Err toward the gate
+that over-reacts to noise, never the one that under-reacts to a real signal.
+
+**The fix is to the verification method, not the deployed code.** Any future check of "did
+this deploy queue anything new" must scope to the specific job class under test
+(`payload->displayName = '<Class>'`), never to the raw row count of a table a live system
+writes to continuously for unrelated reasons. The application code did not need fixing —
+the test needed fixing.
+
+Batch currently on the shelf, not live. `origin/main` at `29834be21`. Redeploy is a clean
+`git revert 29834be21` (or re-cherry-pick the original 10, order already proven:
+`138f4d262 → 51d26cfb1 → 047a0c1b3 → 3ee5749e8 → 923148d58 → 0c4d90488 → afa9be14b →
+4d1786c5b → 3dd6a8c47 → ab53e28c9`), pending Johan's call on tonight vs. tomorrow.
+
 ## Files created/modified (2026-08-23)
 
 **Created:**
