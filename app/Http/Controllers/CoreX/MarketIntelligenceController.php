@@ -779,69 +779,28 @@ class MarketIntelligenceController extends Controller
             ? asset('storage/' . $agencyRecord->logo_path)
             : null;
 
-        // Full-page shell only: the top-bar $stats and the suburb/type dropdown
-        // lists are not rendered by the fragment partials, so the tick path skips
-        // them (the fragment stats-strip reads $snapshotKpis, the rail reads
-        // $filterRailAggregates — both computed below on every path).
-        if (! $isFragment) {
-        // Stats — also reflect the same in-stock filter AND the same AT-380
-        // visibility scope the user has selected, so the headline counts agree
-        // with the table below them.
-        $statsBase = ProspectingListing::where('agency_id', $agencyId)->where('is_active', true)
-            ->visibleTo($user, $micScope);
-        if (! ($request->boolean('include_in_stock') && $isProspectingManager)) {
-            $statsBase->whereNotCompanyStock($agencyId);
-        }
-        $weekAgo = Carbon::now()->subDays(7);
-
-        $crossListed = DB::table('prospecting_listings')
-            ->where('agency_id', $agencyId)
-            ->whereNull('deleted_at')
-            ->where('is_active', true)
-            ->whereNotNull('property_group_id')
-            ->select('property_group_id')
-            ->groupBy('property_group_id')
-            ->havingRaw('COUNT(DISTINCT portal_source) > 1')
-            ->get()
-            ->count();
-
-        $matchedListingCount = DB::table('prospecting_buyer_matches')
-            ->join('prospecting_listings', 'prospecting_listings.id', '=', 'prospecting_buyer_matches.prospecting_listing_id')
-            ->where('prospecting_listings.agency_id', $agencyId)
-            ->where('prospecting_listings.is_active', true)
-            ->whereNull('prospecting_buyer_matches.dismissed_at')
-            ->distinct('prospecting_buyer_matches.prospecting_listing_id')
-            ->count('prospecting_buyer_matches.prospecting_listing_id');
-
-        $stats = [
-            // Pool total as DISTINCT properties (rotating-ref de-dup) — consistent
-            // with the $active KPI + the per-suburb facet counts.
-            'total'            => (int) (clone $statsBase)->selectRaw(
-                                    app(\App\Services\Prospecting\OnMarketStockService::class)->distinctPropertyCountSql() . ' as c'
-                                  )->value('c'),
-            'avg_price'        => (int) (clone $statsBase)->avg('price'),
-            'new_this_week'    => (clone $statsBase)->where('first_seen_at', '>=', $weekAgo)->count(),
-            'price_reductions' => ProspectingListing::where('agency_id', $agencyId)
-                                    ->visibleTo($user, $micScope)
-                                    ->where('price_changed_at', '>=', $weekAgo)->count(),
-            'cross_listed'     => $crossListed,
-            'buyer_matched'    => $matchedListingCount,
-            // TRUE in-stock = count of our ON-MARKET owned properties (canonical
-            // OnMarketStockService), not the exact-ref listing match that undercounts.
-            'in_stock'         => app(\App\Services\Prospecting\OnMarketStockService::class)
-                                    ->totalCount($agencyId),
-        ];
-
-        $suburbs = ProspectingListing::where('agency_id', $agencyId)
-            ->visibleTo($user, $micScope)
-            ->whereNotNull('suburb')->where('suburb', '!=', '')
-            ->distinct()->orderBy('suburb')->pluck('suburb');
-
-        $propertyTypes = ProspectingListing::where('agency_id', $agencyId)
-            ->visibleTo($user, $micScope)
-            ->whereNotNull('property_type')->where('property_type', '!=', '')
-            ->distinct()->orderBy('property_type')->pluck('property_type');
-        } // end !$isFragment (stats + facet lists)
+        // MIC stats-floor round (2026-08-23) — $stats/$suburbs/$propertyTypes
+        // REMOVED. Confirmed dead by exhaustive search: work.blade.php and
+        // every partial it includes never reference $stats, $suburbs, or
+        // $propertyTypes (the visible stats-strip reads $snapshotKpis, the
+        // suburb/type dropdowns read $filterRailAggregates — both computed
+        // separately below, unaffected by this removal). The comment this
+        // replaces already said as much ("the fragment stats-strip reads
+        // $snapshotKpis... both computed below on every path") without
+        // anyone following through and deleting the superseded computation
+        // it was describing — same class of leftover as the
+        // $snapshot/$resolvedListings/$segmentLabels removal on 2026-08-22
+        // a few hundred lines below. This was costing 6-7 real queries
+        // (including the two heaviest COUNT(DISTINCT CASE...) dedup scans
+        // in the whole request — 'total' and the crossListed/matchedListing
+        // aggregates) on every full-page load, computed and handed to the
+        // view, never rendered. Removing it changes no visible output —
+        // verified via the 12-case fingerprint diff and full invariant
+        // suite, same standard as every other change this session.
+        // If a future feature on this screen genuinely needs these figures,
+        // compute them fresh at that call site — do not resurrect this
+        // block "just in case" the way it silently outlived whatever
+        // originally read it.
 
         // $users feeds the filter rail "captured by" list — needed on both paths.
         // Scoped the same as the main table: a branch/own-scoped user should not
@@ -1143,7 +1102,7 @@ class MarketIntelligenceController extends Controller
         }
 
         return view('corex.market-intelligence.work', compact(
-            'listings', 'stats', 'suburbs', 'propertyTypes', 'users', 'claimStats', 'regenerating',
+            'listings', 'users', 'claimStats', 'regenerating',
             'prospectingSetupTowns', 'prospectingSetupPropertyTypes', 'prospectingSetupBedroomSegments',
             'prospectingSetupPriceBandsSale', 'prospectingSetupPriceBandsRental', 'prospectingSetupSuggestionRegions',
             'prospectingSetupUnmappedSuburbs',
