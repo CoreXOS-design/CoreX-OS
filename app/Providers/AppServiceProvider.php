@@ -197,6 +197,14 @@ class AppServiceProvider extends ServiceProvider
             try { \App\Support\Audit\PropertyAuditContext::pop(); } catch (\Throwable) {}
             \App\Support\Queue\QueueFailureAlerter::handle($event);
         });
+        // MIC speed round 3 (2026-08-23) — Agency::find()'s per-request memo
+        // (App\Models\Agency::$findMemo) must never leak a stale Agency into
+        // the NEXT queued job on a long-running worker. Reset before every
+        // job starts; HTTP requests need no equivalent hook (php-fpm tears
+        // down all static state between requests).
+        \Illuminate\Support\Facades\Queue::before(function () {
+            \App\Models\Agency::forgetFindMemo();
+        });
         if ($this->app->runningInConsole()) {
             \Illuminate\Support\Facades\Event::listen(
                 \Illuminate\Console\Events\CommandStarting::class,
