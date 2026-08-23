@@ -305,6 +305,62 @@ Batch currently on the shelf, not live. `origin/main` at `29834be21`. Redeploy i
 `138f4d262 → 51d26cfb1 → 047a0c1b3 → 3ee5749e8 → 923148d58 → 0c4d90488 → afa9be14b →
 4d1786c5b → 3dd6a8c47 → ab53e28c9`), pending Johan's call on tonight vs. tomorrow.
 
+## 9. Redeployed to live, 2026-08-23 ~20:00 — all four gates pass, corrected
+
+Johan reviewed §8, was satisfied the code was exonerated and GATE 2 was a badly-specified
+check of his own. Redeployed: fresh tag on live's actual current HEAD (recomputed, not reused
+— live had moved three times since the first attempt, including cc5's 4 performance commits),
+cherry-pick re-tested clean against that real HEAD, `origin/main` now at `414f688d5`.
+
+GATE 2 rewritten before redeploy: counts `OversightNudgeMail`-specific queued jobs only
+(`payload like '%OversightNudgeMail%'` in the `jobs` table), never the raw table depth that
+tripped the first attempt. GATE 1 repeated fresh against this actual deployment rather than
+reusing the first attempt's evidence — real forced failure, real live log entry
+(`production.CRITICAL: Queue job failed: LiveRedeployVerifyJob`), debounce key never set. All
+four gates passed cleanly this time, no ambiguity.
+
+**Confirmation that mattered most**: two timestamped, read-only counts of `OversightNudgeMail`
+failed_jobs, 15m22s apart — 10,487 at 20:17:42, 10,487 at 20:33:04. Flat, with normal
+production traffic (the same `SyncProperty24Activations`/`OversightDigestJob` cron cycles that
+tripped the first attempt's gate) continuing around it the whole time.
+
+## 10. Backlog cleared, 2026-08-23 ~21:00 — Johan's explicit go, first destructive live action of the day
+
+Johan: "yes clear the 10487 nudge failures." Ran `corex:archive-discard-oversight-nudge-failures
+--execute` on live. Dry run reconfirmed 10,487 immediately before executing (unchanged from the
+20:33 reading — nothing new was generating them, consistent with the switch staying off).
+
+Archived to
+`/mnt/HC_Volume_103099143/corex-backups/queue-job-archives/failed-oversight-nudges-production-20260823-205907.json`
+(159MB). Verified as more than a row-count match: opened the file, confirmed `row_count` (10,487)
+matches the actual `rows` array length, and read a real sample record — genuine payload, and an
+exception field containing the exact root-cause text
+(`InvalidArgumentException: No hint path defined for [mail]`) with a real stack trace and a
+`failed_at` of 2026-05-27 — consistent with this dating back to when the feature first shipped.
+Deleted by the exact 10,487 archived ids, not a second run of the WHERE clause.
+
+Before/after, all five classes:
+
+| Class | Before | After |
+|---|---|---|
+| **OversightNudgeMail (target)** | **10,487** | **0** |
+| SyncProperty24Activations | 3,951 | 3,951 |
+| RegenerateBuyerMatchesJob | 1,076 | 1,076 |
+| OversightDigestJob | 654 | 654 |
+| DesyndicatePropertyFromPortalsJob | 710 | 710 |
+
+The four non-target classes are byte-identical before and after — confirms the delete-by-archived-id
+scoping held exactly as designed. **`DesyndicatePropertyFromPortalsJob`'s 710 rows were
+deliberately left in place** — per §3, those are the evidence of a real unresolved problem (a
+job that de-lists properties from live portals), and the same reasoning that says never
+bulk-retry them says never casually delete them either. Nothing about this backlog clear
+changes that.
+
+**Both kill switches confirmed still OFF after the delete**: `oversight.nudges_enabled` =
+`false`, `queue_alerting.failure_digest_emails_enabled` = `false`. Clearing the backlog is
+purely archival housekeeping — it does not turn anything back on. Stated plainly here so this
+entry is never later misread as "the feature was re-enabled."
+
 ## Files created/modified (2026-08-23)
 
 **Created:**
