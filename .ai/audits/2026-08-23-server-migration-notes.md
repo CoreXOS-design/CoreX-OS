@@ -116,6 +116,53 @@ for whatever destination the new box uses.
   an entirely unrelated tenant on this box — not CoreX, don't carry it over
   by habit when copying root's crontab.
 
+## 7. MySQL: grant `SET_USER_ID` to every app-DB user on day one — the test suite silently can't bootstrap without it
+
+Found tonight (cc2) diagnosing "no lane can run the test suite": this box has
+`log_bin_trust_function_creators=OFF` with binlog `ON`. `database/schema/mysql-schema.sql`
+(the snapshot `RefreshDatabase` loads for a fast test-DB bootstrap) contains literal
+`CREATE TRIGGER` DDL for the AT-321 / AT-321-C audit-backstop triggers. Creating a trigger
+under those binlog settings requires `SUPER` or the narrower MySQL 8 `SET_USER_ID` dynamic
+privilege — without it:
+
+```
+ERROR 1419 (HY000): You do not have the SUPER privilege and binary logging is
+enabled (you *might* want to use the less safe log_bin_trust_function_creators
+variable)
+```
+
+Laravel's schema-load pipes the whole snapshot through the plain `mysql` CLI in one
+shot (`MySqlSchemaState::load()`), which aborts on the *first* SQL error — so this
+isn't a soft/skippable failure, it's a **fatal, whole-bootstrap-aborting** one, and it
+hits early (the `contacts` trigger sorts alphabetically near the top of the dump).
+Confirmed directly as `nexus` (Staging's app-DB user) on a scratch trigger — reproduces
+the exact error above. `corexqa1`, `corexqa2`, `corexdev`, and `corex_test` on this box
+already carry `SET_USER_ID` and are unaffected; `nexus` does not have it and is broken.
+
+**On the new server, grant this to every app-DB user at provisioning time, not after
+someone discovers the suite is broken again:**
+
+```sql
+GRANT SET_USER_ID ON *.* TO '<app-db-user>'@'localhost';
+-- and for any user connecting over TCP 127.0.0.1 too (Laravel's .env DB_HOST), e.g.:
+GRANT SET_USER_ID ON *.* TO '<app-db-user>'@'127.0.0.1';
+```
+
+Not full `SUPER` — `SET_USER_ID` is the narrow privilege that covers exactly this case
+(creating a routine/trigger/view with binlog on) and grants zero data access on its own;
+it only unlocks trigger/routine creation in schemas the user can already write to.
+
+**Also worth carrying over — a smaller, separate friction point:** app-DB test users on
+this box only have `ALL PRIVILEGES` on specific, individually pre-created
+`hfc_dash_test_<N>` schemas — no wildcard — except `corex_test`, which already has
+`` GRANT ALL PRIVILEGES ON `hfc\_dash\_test%`.* `` (a wildcard grant). A worktree that
+computes a brand-new numbered `TEST_DB_DATABASE` nobody has granted yet gets a flat
+"Access denied," unrelated to the SUPER/`SET_USER_ID` issue above but equally blocking.
+Grant every app-DB test user the same wildcard pattern from day one on the new box.
+
+*(Diagnosis only — nothing has been applied to this box's live MySQL yet; the `SET_USER_ID`
+grant for `nexus` here is pending Johan's go-ahead, tracked separately from this note.)*
+
 ---
 *Companion to tonight's disk-cleanup: 45 stale git worktrees reclaimed
 (~5.5GB) from `/` and `/tmp` after per-worktree verification (branch refs
