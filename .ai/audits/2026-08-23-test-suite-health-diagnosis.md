@@ -215,11 +215,63 @@ routine/trigger creation in schemas `nexus` can already write to. `nexus` alread
 PRIVILEGES` on `hfc_staging`, `nexus_os`, and several `hfc_dash_test_*` schemas — this grant
 changes nothing about that footprint.
 
-**Status: NOT APPLIED.** This requires Johan's explicit go-ahead before touching this box's
-live MySQL grants, per his own instruction. Already written up in
-`.ai/audits/2026-08-23-server-migration-notes.md` §7 (pushed to `origin/Staging`, commit
-`7896a237b`, coordinated with cc1 who owns that file) so the new server gets this grant
-correct at provisioning time instead of inheriting the same silent gap.
+**Status: APPLIED.** Johan approved; applied 2026-08-23 21:11 SAST on this box's live MySQL,
+following the procedure he specified.
+
+**Before (recorded first, verbatim, as the rollback reference):**
+
+```
+Grants for nexus@localhost
+GRANT USAGE ON *.* TO `nexus`@`localhost`
+GRANT ALL PRIVILEGES ON `hfc_dash_test`.* TO `nexus`@`localhost`
+GRANT ALL PRIVILEGES ON `hfc_dash_test_20`.* TO `nexus`@`localhost`
+GRANT ALL PRIVILEGES ON `hfc_dash_test_21`.* TO `nexus`@`localhost`
+GRANT ALL PRIVILEGES ON `hfc_dash_test_77`.* TO `nexus`@`localhost`
+GRANT ALL PRIVILEGES ON `hfc_dash_test_78`.* TO `nexus`@`localhost`
+GRANT ALL PRIVILEGES ON `hfc_staging`.* TO `nexus`@`localhost`
+GRANT ALL PRIVILEGES ON `nexus_os`.* TO `nexus`@`localhost`
+```
+
+**Statement applied** (MySQL 8.0.46 — `GRANT` takes effect immediately in this version;
+`FLUSH PRIVILEGES` is not required and was not run):
+
+```sql
+GRANT SET_USER_ID ON *.* TO 'nexus'@'localhost';
+```
+
+**After — confirmed by re-reading the grants. Diff is exactly one line, nothing else changed:**
+
+```diff
+ GRANT USAGE ON *.* TO `nexus`@`localhost`
++GRANT SET_USER_ID ON *.* TO `nexus`@`localhost`
+ GRANT ALL PRIVILEGES ON `hfc_dash_test`.* TO `nexus`@`localhost`
+ GRANT ALL PRIVILEGES ON `hfc_dash_test_20`.* TO `nexus`@`localhost`
+ GRANT ALL PRIVILEGES ON `hfc_dash_test_21`.* TO `nexus`@`localhost`
+ GRANT ALL PRIVILEGES ON `hfc_dash_test_77`.* TO `nexus`@`localhost`
+ GRANT ALL PRIVILEGES ON `hfc_dash_test_78`.* TO `nexus`@`localhost`
+ GRANT ALL PRIVILEGES ON `hfc_staging`.* TO `nexus`@`localhost`
+ GRANT ALL PRIVILEGES ON `nexus_os`.* TO `nexus`@`localhost`
+```
+
+**Proved, not inferred.** Ran the real Laravel test bootstrap as `nexus` against `/corex-staging`
+(`php artisan test tests/Feature/ProfileTest.php`) — the exact code path that previously died
+with error 1419. It passed clean: 5/5 tests, 19 assertions, `Duration: 164.60s`. Then went one
+step further than "the test suite said pass" — queried `SHOW TRIGGERS` directly on the
+resulting `hfc_dash_test` database and confirmed all four AT-321/AT-321-C audit triggers
+(`corex_contact_audit_after_insert`, `corex_contact_audit_after_update`,
+`corex_property_audit_after_insert`, `corex_property_audit_after_update`) physically exist,
+each with `Definer: nexus@localhost` and a `Created` timestamp of 2026-08-23 21:09–21:10 —
+created by `nexus`, during this exact run, moments after the grant landed. That is the
+end-to-end proof the grant does what it was supposed to.
+
+**What it unblocked**: Staging's own lane (and any lane using the `nexus` account) can now
+bootstrap a fresh test database at all. This was the single hard blocker described in §0 item 1
+— it is now cleared. It does not touch, and was never expected to touch, the memory-crash
+problem in §5 — see the full-suite run result there.
+
+Also written into `.ai/audits/2026-08-23-server-migration-notes.md` §7 (pushed to
+`origin/Staging`, commit `7896a237b`, coordinated with cc1 who owns that file) so the new
+server gets this grant correct at provisioning time instead of inheriting the same gap.
 
 ---
 
