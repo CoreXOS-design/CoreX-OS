@@ -536,51 +536,64 @@ class MarketIntelligenceController extends Controller
             $query->orderBy('last_seen_at', 'desc');
         }
 
+        // MIC speed round 4 (2026-08-23) — SQL-side pagination.
+        // .ai/specs/mic-speed-option1-full-set-pagination-design.md.
+        //
+        // canUseFastPath() gates every state that needs buyer-match-aggregate
+        // data (score band, matched_only, buyer-derived sort) or full-set
+        // stock injection across the WHOLE list before slicing — those stay
+        // on the slow path below, byte-for-byte unchanged. The fast path
+        // resolves exactly this page's group keys in SQL (see
+        // ProspectingListingPageResolver::resolvePage — LIMIT/OFFSET at the
+        // GROUP level, not the raw row level) and hydrates only those
+        // groups, instead of the whole matching set (this agency: tens of
+        // thousands of rows). Both paths call the SAME buildGroupedRows()/
+        // applyP24EmailCrossReference()/attachBuyerMatchCounts() — a
+        // pre-filtered INPUT change, not a second implementation that could
+        // drift from the first.
+        $page = (int) $request->get('page', 1);
+        $perPage = 50;
+        $pageResolver = app(\App\Services\Prospecting\ProspectingListingPageResolver::class);
+        $useFastPath = $pageResolver->canUseFastPath($request, $isProspectingManager, $selectedBuyerId);
+        $injectedStockCountBySuburb = [];
+
+        if ($useFastPath) {
+            $effectiveSortBy = in_array($sortBy, $allowedSorts) ? $sortBy : 'last_seen_at';
+            $effectiveSortDir = $sortDir === 'asc' ? 'asc' : 'desc';
+
+            $resolved = $pageResolver->resolvePage(clone $query, $effectiveSortBy, $effectiveSortDir, $page, $perPage);
+            $pageGroups = $pageResolver->hydrateGroups(clone $query, $resolved['ids'], $effectiveSortBy, $effectiveSortDir);
+
+            $this->applyP24EmailCrossReference($pageGroups);
+            $rows = $this->buildGroupedRows($pageGroups);
+
+            // buildGroupedRows()/groupBy() groups by the SQL fetch order of
+            // $pageGroups (hydrateGroups has no ORDER BY of its own), not
+            // necessarily $resolved['ids']'s order — pin explicitly to the
+            // order the group-resolution query already computed correctly.
+            $orderIndex = array_flip($resolved['ids']);
+            $rows = $rows->sortBy(fn ($r) => $orderIndex[$r->id] ?? PHP_INT_MAX)->values();
+
+            // Band is guaranteed inactive by canUseFastPath() — same floor/ceiling
+            // the slow path would compute in that (bandActive === false) state.
+            $this->attachBuyerMatchCounts($rows, $agencyId, 50, 100);
+            if ($selectedBuyerId) {
+                $this->attachSelectedBuyerScore($rows, $agencyId, $selectedBuyerId);
+            }
+
+            $listings = new LengthAwarePaginator(
+                $rows,
+                $resolved['total'],
+                $perPage,
+                $page,
+                ['path' => $request->url(), 'query' => $request->query()]
+            );
+        } else {
         $allListings = $query->get();
 
-        // Cross-reference P24 email imports
-        $p24Refs = $allListings->filter(fn($l) => str_starts_with($l->portal_ref ?? '', 'P24-'))
-            ->pluck('portal_ref')->filter()->unique()->values()->toArray();
+        $this->applyP24EmailCrossReference($allListings);
 
-        if (count($p24Refs) > 0) {
-            $emailData = \App\Models\P24Listing::whereIn('p24_listing_number', $p24Refs)
-                ->select('p24_listing_number', 'first_seen_date', 'original_price', 'times_seen', 'listing_status')
-                ->get()->keyBy('p24_listing_number');
-
-            foreach ($allListings as $listing) {
-                if (str_starts_with($listing->portal_ref ?? '', 'P24-')) {
-                    $num = $listing->portal_ref;
-                    if (isset($emailData[$num])) {
-                        $match = $emailData[$num];
-                        $listing->email_first_seen = $match->first_seen_date;
-                        $listing->email_original_price = $match->original_price;
-                        $listing->email_times_seen = $match->times_seen;
-                        $listing->email_listing_status = $match->listing_status;
-                    }
-                }
-            }
-        }
-
-        $grouped = $allListings->groupBy(function ($item) {
-            return $item->property_group_id ?? 'single_' . $item->id;
-        });
-
-        $rows = $grouped->map(function ($group) {
-            $primary = $group->first();
-            $primary->portals = $group->map(function ($l) {
-                return [
-                    'source' => $l->portal_source,
-                    'ref'    => $l->portal_ref,
-                    'url'    => $l->portal_url,
-                ];
-            })->values()->toArray();
-            // PITCHED-state (Johan 2026-08-14) — worklist row flags for cc5 to render the "Pitched"
-            // label + route the click to the property record. is_pitched = Create & continue
-            // committed (pitched_at set); property_id = the linked/created Property.
-            $primary->is_pitched  = ! empty($primary->pitched_at);
-            $primary->property_id = $primary->matched_property_id ? (int) $primary->matched_property_id : null;
-            return $primary;
-        })->values();
+        $rows = $this->buildGroupedRows($allListings);
 
         // AT-75 — %-match band from the slider/tile (default: agency threshold → 100).
         // The band lower bound also lowers the per-listing count floor so the
@@ -594,47 +607,13 @@ class MarketIntelligenceController extends Controller
         // Count floor: respect a band that dips below the default 50 "is-a-match" floor.
         $countFloor = $bandActive ? $scoreMin : 50;
 
-        // Buyer match counts per listing (distinct buyers within the active band).
-        $listingIds = $rows->pluck('id')->toArray();
-        $matchCounts = collect();
-        $matchTopScores = collect();
-        if (!empty($listingIds)) {
-            $matchRows = DB::table('prospecting_buyer_matches')
-                ->whereIn('prospecting_listing_id', $listingIds)
-                ->where('agency_id', $agencyId)
-                ->whereNull('dismissed_at')
-                ->where('score', '>=', $countFloor)
-                ->where('score', '<=', $scoreMax)
-                ->select(
-                    'prospecting_listing_id',
-                    DB::raw('COUNT(DISTINCT contact_id) as match_count'),
-                    DB::raw('MAX(score) as top_score')
-                )
-                ->groupBy('prospecting_listing_id')
-                ->get();
-            $matchCounts = $matchRows->pluck('match_count', 'prospecting_listing_id');
-            $matchTopScores = $matchRows->pluck('top_score', 'prospecting_listing_id');
-        }
-        foreach ($rows as $row) {
-            $row->buyer_match_count = (int) ($matchCounts[$row->id] ?? 0);
-            $row->buyer_match_top_score = isset($matchTopScores[$row->id]) ? (int) $matchTopScores[$row->id] : null;
-        }
+        $this->attachBuyerMatchCounts($rows, $agencyId, $countFloor, $scoreMax);
 
         // AT-242 — in buyer mode, attach THAT buyer's own cached Core Matches
         // score to each row (the number the agent is prospecting on) so the row
         // shows the buyer-specific match, not the max across all buyers.
-        if ($selectedBuyerId && !empty($listingIds)) {
-            $selectedBuyerScores = DB::table('prospecting_buyer_matches')
-                ->whereIn('prospecting_listing_id', $listingIds)
-                ->where('contact_id', $selectedBuyerId)
-                ->where('agency_id', $agencyId)
-                ->whereNull('dismissed_at')
-                ->pluck('score', 'prospecting_listing_id');
-            foreach ($rows as $row) {
-                $row->selected_buyer_score = isset($selectedBuyerScores[$row->id])
-                    ? (int) $selectedBuyerScores[$row->id]
-                    : null;
-            }
+        if ($selectedBuyerId) {
+            $this->attachSelectedBuyerScore($rows, $agencyId, $selectedBuyerId);
         }
 
         // AT-75 — when a %-band is active, keep only listings whose top match is
@@ -675,7 +654,6 @@ class MarketIntelligenceController extends Controller
         // renders it non-interactively (links to the Property, no listing slideover).
         // Per-suburb count of injected synthetic rows — fed to the filter rail so its
         // by-suburb count reflects the surfaced stock too (list total ⇄ rail agree).
-        $injectedStockCountBySuburb = [];
         if ($request->boolean('include_in_stock') && $isProspectingManager) {
             $onMarketStock = app(\App\Services\Prospecting\OnMarketStockService::class);
             // Which on-market properties are ALREADY represented by a company-stock
@@ -718,8 +696,6 @@ class MarketIntelligenceController extends Controller
             )->values();
         }
 
-        $page = $request->get('page', 1);
-        $perPage = 50;
         $listings = new LengthAwarePaginator(
             $rows->forPage($page, $perPage),
             $rows->count(),
@@ -727,6 +703,7 @@ class MarketIntelligenceController extends Controller
             $page,
             ['path' => $request->url(), 'query' => $request->query()]
         );
+        } // end slow path
 
         // Company-stock map for the visible page (Johan's model): listing_id →
         // agency Property id, by exact portal_ref OR exact normalized_address match
@@ -1188,6 +1165,133 @@ class MarketIntelligenceController extends Controller
             // just wired through so the list header can show its composition.
             'injectedStockCountBySuburb',
         ));
+    }
+
+    /**
+     * MIC speed round 4 — extracted verbatim from work() so the fast (SQL-
+     * paginated) and slow (full-hydration) paths share ONE implementation
+     * instead of two that could drift. Mutates each listing in place with
+     * email_first_seen/email_original_price/email_times_seen/email_listing_status
+     * where a matching P24 email-import record exists.
+     */
+    private function applyP24EmailCrossReference(\Illuminate\Support\Collection $listings): void
+    {
+        $p24Refs = $listings->filter(fn ($l) => str_starts_with($l->portal_ref ?? '', 'P24-'))
+            ->pluck('portal_ref')->filter()->unique()->values()->toArray();
+
+        if (count($p24Refs) === 0) {
+            return;
+        }
+
+        $emailData = \App\Models\P24Listing::whereIn('p24_listing_number', $p24Refs)
+            ->select('p24_listing_number', 'first_seen_date', 'original_price', 'times_seen', 'listing_status')
+            ->get()->keyBy('p24_listing_number');
+
+        foreach ($listings as $listing) {
+            if (str_starts_with($listing->portal_ref ?? '', 'P24-')) {
+                $num = $listing->portal_ref;
+                if (isset($emailData[$num])) {
+                    $match = $emailData[$num];
+                    $listing->email_first_seen = $match->first_seen_date;
+                    $listing->email_original_price = $match->original_price;
+                    $listing->email_times_seen = $match->times_seen;
+                    $listing->email_listing_status = $match->listing_status;
+                }
+            }
+        }
+    }
+
+    /**
+     * MIC speed round 4 — extracted verbatim from work(). Collapses rows
+     * sharing property_group_id (rotating-ref re-scrapes of the same real
+     * property across portals) into one row, siblings attached as
+     * ->portals. Shared by both the fast and slow paths — on the fast
+     * path $listings is already pre-filtered to just this page's groups
+     * (representative + siblings) by ProspectingListingPageResolver::
+     * hydrateGroups(), so this is the SAME code running on a ~50-150 row
+     * input instead of the full matching set, not a second implementation.
+     */
+    private function buildGroupedRows(\Illuminate\Support\Collection $listings): \Illuminate\Support\Collection
+    {
+        $grouped = $listings->groupBy(function ($item) {
+            return $item->property_group_id ?? 'single_' . $item->id;
+        });
+
+        return $grouped->map(function ($group) {
+            $primary = $group->first();
+            $primary->portals = $group->map(function ($l) {
+                return [
+                    'source' => $l->portal_source,
+                    'ref'    => $l->portal_ref,
+                    'url'    => $l->portal_url,
+                ];
+            })->values()->toArray();
+            // PITCHED-state (Johan 2026-08-14) — worklist row flags for cc5 to render the "Pitched"
+            // label + route the click to the property record. is_pitched = Create & continue
+            // committed (pitched_at set); property_id = the linked/created Property.
+            $primary->is_pitched  = ! empty($primary->pitched_at);
+            $primary->property_id = $primary->matched_property_id ? (int) $primary->matched_property_id : null;
+            return $primary;
+        })->values();
+    }
+
+    /**
+     * MIC speed round 4 — extracted verbatim from work(). Batched buyer-
+     * match count/top-score attach, one query regardless of $rows size.
+     * Shared by both paths — the fast path never has an active score band
+     * (canUseFastPath() excludes it), so it always calls this with the
+     * fixed 50/100 floor/ceiling the slow path would ALSO compute in that
+     * exact (bandActive === false) state.
+     */
+    private function attachBuyerMatchCounts(\Illuminate\Support\Collection $rows, int $agencyId, int $countFloor, int $scoreMax): void
+    {
+        $listingIds = $rows->pluck('id')->toArray();
+        $matchCounts = collect();
+        $matchTopScores = collect();
+        if (!empty($listingIds)) {
+            $matchRows = DB::table('prospecting_buyer_matches')
+                ->whereIn('prospecting_listing_id', $listingIds)
+                ->where('agency_id', $agencyId)
+                ->whereNull('dismissed_at')
+                ->where('score', '>=', $countFloor)
+                ->where('score', '<=', $scoreMax)
+                ->select(
+                    'prospecting_listing_id',
+                    DB::raw('COUNT(DISTINCT contact_id) as match_count'),
+                    DB::raw('MAX(score) as top_score')
+                )
+                ->groupBy('prospecting_listing_id')
+                ->get();
+            $matchCounts = $matchRows->pluck('match_count', 'prospecting_listing_id');
+            $matchTopScores = $matchRows->pluck('top_score', 'prospecting_listing_id');
+        }
+        foreach ($rows as $row) {
+            $row->buyer_match_count = (int) ($matchCounts[$row->id] ?? 0);
+            $row->buyer_match_top_score = isset($matchTopScores[$row->id]) ? (int) $matchTopScores[$row->id] : null;
+        }
+    }
+
+    /**
+     * MIC speed round 4 — extracted verbatim from work() (AT-242). Attaches
+     * the selected buyer's own cached Core Matches score per row.
+     */
+    private function attachSelectedBuyerScore(\Illuminate\Support\Collection $rows, int $agencyId, int $selectedBuyerId): void
+    {
+        $listingIds = $rows->pluck('id')->toArray();
+        if (empty($listingIds)) {
+            return;
+        }
+        $selectedBuyerScores = DB::table('prospecting_buyer_matches')
+            ->whereIn('prospecting_listing_id', $listingIds)
+            ->where('contact_id', $selectedBuyerId)
+            ->where('agency_id', $agencyId)
+            ->whereNull('dismissed_at')
+            ->pluck('score', 'prospecting_listing_id');
+        foreach ($rows as $row) {
+            $row->selected_buyer_score = isset($selectedBuyerScores[$row->id])
+                ? (int) $selectedBuyerScores[$row->id]
+                : null;
+        }
     }
 
     /**
