@@ -64,29 +64,50 @@ class SoftDeleteRegistryService
      * Categories (ordered, Pillars first) → models that currently have at least
      * one archived record, each carrying its archived count. A model whose
      * count query throws is silently skipped so the page always renders.
+     *
+     * Perf (2026-08-23): was one COUNT(*) query per soft-deletable model,
+     * uncached, on every load — ~280 models registered on this app, measured
+     * ~1.6s of SQL alone. Cached 5 minutes. Key includes BOTH agency and
+     * owner-status: modelsFor() returns a genuinely different MODEL SET for an
+     * owner (every soft-deletable model) vs a regular member (agency-scoped
+     * only) — not just different counts on the same set — and each model's
+     * own count is already agency-scoped via its normal global scope
+     * (onlyTrashed()->count(), no withoutGlobalScopes() call). Caching without
+     * both dimensions in the key would leak one agency's — or one role's —
+     * counts to another, the same class of bug as tonight's wb-pending fix.
+     * This is a low-traffic admin utility page, not a live badge anything
+     * else reads — 5 minutes of staleness on an archive-count list is a safe
+     * trade for turning ~280 round trips into ~1 on every load but the first
+     * in the window.
      */
     public function categoriesWithCounts(User $user): Collection
     {
-        $rows = $this->modelsFor($user)
-            ->map(function (array $entry) {
-                $count = $this->safeCount($entry['class']);
-                if ($count === null || $count === 0) {
-                    return null;
-                }
-                return array_merge($entry, ['count' => $count]);
-            })
-            ->filter()
-            ->values();
+        $cacheKey = 'admin.soft-deletes.categories.'
+            . ($user->effectiveAgencyId() ?? 'none') . '.'
+            . ($user->isOwnerRole() ? 'owner' : 'member');
 
-        return $rows
-            ->groupBy('category')
-            ->map(fn (Collection $models, string $category) => [
-                'category' => $category,
-                'total'    => $models->sum('count'),
-                'models'   => $models->sortBy('label')->values(),
-            ])
-            ->sortBy(fn (array $g) => $this->categoryOrder($g['category']))
-            ->values();
+        return \Illuminate\Support\Facades\Cache::remember($cacheKey, 300, function () use ($user) {
+            $rows = $this->modelsFor($user)
+                ->map(function (array $entry) {
+                    $count = $this->safeCount($entry['class']);
+                    if ($count === null || $count === 0) {
+                        return null;
+                    }
+                    return array_merge($entry, ['count' => $count]);
+                })
+                ->filter()
+                ->values();
+
+            return $rows
+                ->groupBy('category')
+                ->map(fn (Collection $models, string $category) => [
+                    'category' => $category,
+                    'total'    => $models->sum('count'),
+                    'models'   => $models->sortBy('label')->values(),
+                ])
+                ->sortBy(fn (array $g) => $this->categoryOrder($g['category']))
+                ->values();
+        });
     }
 
     public function totalArchived(User $user): int
