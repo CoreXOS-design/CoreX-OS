@@ -50,7 +50,7 @@ class ArchiveAndDiscardOversightNudgeFailures extends Command
 {
     protected $signature = 'corex:archive-discard-oversight-nudge-failures
         {--execute : Actually archive and delete. Without this flag, nothing is written or deleted.}
-        {--path=/mnt/HC_Volume_103099143/corex-backups : Base directory for the archive file (must be on the data volume, never /).}';
+        {--path=/mnt/HC_Volume_103099143/corex-backups/queue-job-archives : Base directory for the archive file (must be on the data volume, never /, and writable by the www-data FPM/CLI user).}';
 
     protected $description = 'Archive then discard failed_jobs rows for App\\Mail\\OversightNudgeMail specifically — see class docblock for the full reasoning and safety contract.';
 
