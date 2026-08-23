@@ -66,6 +66,14 @@ class QueueFailureAlerter
 
     private static function notify(JobFailed $event, string $jobClass, string $queue, string $exceptionClass, string $exceptionMessage): void
     {
+        // Held off by default (Johan, 2026-08-23) — see config/queue_alerting.php.
+        // Log::critical in handle() above already fired unconditionally before
+        // notify() was ever called; this flag affects only whether an email
+        // ALSO goes out, never whether the failure was logged.
+        if (!config('queue_alerting.failure_digest_emails_enabled')) {
+            return;
+        }
+
         try {
             // Atomic per-class debounce — first failure of this class in the
             // window sends; every other failure of the SAME class in the same
