@@ -172,6 +172,14 @@ class QueueHealthcheck extends Command
 
     private function notifyGrowth(int $newFailures, int $totalFailedJobs): void
     {
+        // Held off by default (Johan, 2026-08-23) — see config/queue_alerting.php.
+        // The Log::critical + non-zero exit code in checkFailedJobsGrowth() above
+        // already fired unconditionally before notifyGrowth() was ever called;
+        // this flag affects only whether an email ALSO goes out.
+        if (!config('queue_alerting.failure_digest_emails_enabled')) {
+            return;
+        }
+
         try {
             if (!Cache::add('queue-failed-jobs-growth-alert', 1, now()->addMinutes(self::ALERT_TTL_MINUTES))) {
                 return;
