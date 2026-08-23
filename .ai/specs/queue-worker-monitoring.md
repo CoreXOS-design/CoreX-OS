@@ -180,6 +180,10 @@ agencies never see or configure it. This setting is the same category. Not a wiz
 - `/etc/sudoers.d/corex-supervisor-status` (host, not in repo)
 - `app/Mail/QueueBacklogAlertMail.php` (2026-08-22)
 - `resources/views/emails/queue-backlog-alert.blade.php` (2026-08-22)
+- `app/Support/Queue/QueueFailureAlerter.php` (2026-08-23) — real `Queue::failing()` alerting;
+  see `.ai/audits/2026-08-23-queue-failed-jobs-triage.md` for the full investigation.
+- `app/Mail/QueueJobFailureDigestMail.php` + `resources/views/emails/queue-job-failure-digest.blade.php` (2026-08-23)
+- `app/Mail/QueueFailedJobsGrowthAlertMail.php` + `resources/views/emails/queue-failed-jobs-growth-alert.blade.php` (2026-08-23)
 
 **Modified:**
 - `app/Services/System/ServerHealthService.php` — inject `SupervisorWorkerStatusService`,
@@ -192,5 +196,12 @@ agencies never see or configure it. This setting is the same category. Not a wiz
   the "Queue backlog emails" pane).
 - `resources/views/admin/system-health/index.blade.php` — new "Queue Workers" panel.
 - `app/Console/Commands/QueueHealthcheck.php` (2026-08-22) — wire `notify()` to email
-  `queue_backlog_alert_emails` on a stalled backlog, throttled 15 min.
+  `queue_backlog_alert_emails` on a stalled backlog, throttled 15 min. (2026-08-23: added
+  `checkFailedJobsGrowth()` — a failing job is deleted from `jobs` the instant it fails, so
+  the oldest-waiting-job check alone reported a rapidly-failing queue as healthy. Tracks
+  failed_jobs COUNT growth between runs via a cached checkpoint, not the cumulative total.)
 - `routes/console.php` — schedule `corex:queue-worker-liveness-alert` every minute.
+- `app/Providers/AppServiceProvider.php` (2026-08-23) — `Queue::failing()` previously only
+  popped the audit-context stack; now also calls `QueueFailureAlerter::handle()`.
+- `app/Jobs/Syndication/DesyndicatePropertyFromPortalsJob.php` (2026-08-23) — added a
+  bulk-retry hazard warning to the class docblock (see the audit above, §3).
