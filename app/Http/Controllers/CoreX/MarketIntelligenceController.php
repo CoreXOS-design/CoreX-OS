@@ -2455,28 +2455,46 @@ class MarketIntelligenceController extends Controller
      * canvass pool (or full set when audit toggle is on) plus a tiny aggregate
      * for cross-listed groups.
      *
-     * MIC aggregate caching (2026-08-23) — cached 60s, matching the existing
-     * mi.sidebar_count precedent a few hundred lines above (same screen, same
-     * "doesn't need to be accurate to the second" reasoning Johan gave for
-     * this exact aggregate class: "6,188 properties matched" / "PITCH NOW
-     * 9,412" don't need real-time truth, the listings underneath do — those
-     * are untouched). 60s: short enough that two agents loading this screen a
-     * minute apart never see a number more than a minute stale, long enough
-     * to eliminate the dominant per-request cost (this method's queries were
-     * ~1-2s of the measured floor) for every reload inside that window.
-     * Key includes agency, the in-stock flag, a fingerprint of $scopedBase
-     * (which already encodes agency + visibility scope + every active list
-     * filter — see queryFingerprint()), and suburbFilter separately since
-     * it's read outside $scopedBase too (the in-stock KPI's own suburb
-     * narrowing). Never keyed by user — nothing this method returns differs
-     * per viewer, only per what the LIST is filtered to.
+     * MIC aggregate caching (2026-08-23) — stale-while-revalidate via Laravel's
+     * built-in Cache::flexible() [fresh=60s, stale ceiling=300s]. Fresh window
+     * unchanged from the plain-TTL version (60s, matching mi.sidebar_count).
+     * Past that, an expired-but-present entry is served IMMEDIATELY (the
+     * requesting agent never waits for a recompute) while a refresh is
+     * deferred to run after the response is sent (Laravel's defer(), invoked
+     * post-response via InvokeDeferredCallbacks — under php-fpm this uses
+     * fastcgi_finish_request(), so the recompute genuinely does not delay
+     * what the browser receives). Chosen over plain 60s TTL because cold
+     * (first-hit-per-window) turned out to be the COMMON case for a single
+     * agent working normally, not the exception — filter/page/sort changes
+     * reset the cache key constantly, so most real loads never benefit from
+     * a short flat TTL; SWR makes "cold" mean "first time ever for this
+     * exact key," not "first time this minute."
+     * Stampede protection is built into Cache::flexible() itself (an atomic
+     * DatabaseStore lock around the refresh — DatabaseStore implements
+     * LockProvider) — ten agents hitting an expired key at once trigger one
+     * winning refresh, the other nine no-op. Lock explicitly bounded to 10s
+     * (Cache::flexible()'s default of 0 maps to DatabaseLock's 24-HOUR
+     * fallback timeout internally — a crashed/hung refresh would otherwise
+     * block every future refresh attempt for a day, not ten seconds).
+     * Hard ceiling: 300s (5 min) total. Cache::flexible() stores the value
+     * with the STORE's own TTL set to the stale ceiling, so if refresh keeps
+     * failing for 5 straight minutes the entry genuinely expires and the
+     * NEXT request pays a synchronous, guaranteed-fresh recompute — never
+     * "a value from last Tuesday." 5 minutes chosen because every failed
+     * refresh attempt gets retried by the NEXT request past the fresh
+     * window (not just one attempt), so in practice a real blip clears
+     * within seconds; 5 minutes is the safety net for total failure, not
+     * the expected staleness — and even fully stale for 5 minutes is well
+     * inside "glanceable, not real-time" for a screen whose own This Week
+     * panel already says "refreshed every 6 hours."
+     * Keying unchanged from the plain-TTL version — see queryFingerprint().
      */
     protected function computeSnapshotKpis(int $agencyId, bool $includeInStock, $scopedBase = null, ?string $suburbFilter = null): array
     {
         $cacheKey = 'mic.kpis.' . $agencyId . '.' . ($includeInStock ? '1' : '0')
             . '.' . $this->queryFingerprint($scopedBase) . '.' . ($suburbFilter ?? '');
 
-        return Cache::remember($cacheKey, 60, function () use ($agencyId, $includeInStock, $scopedBase, $suburbFilter) {
+        return Cache::flexible($cacheKey, [60, 300], function () use ($agencyId, $includeInStock, $scopedBase, $suburbFilter) {
         // BUG B — when the caller (Work mode) hands us the filtered list query, the
         // pool metrics count from THAT exact query so the KPI tiles move with every
         // active filter and can never drift from the list. Without it (Analyse mode,
@@ -2558,7 +2576,7 @@ class MarketIntelligenceController extends Controller
             'new_today'          => $newToday,
             'cross_listed'       => $crossListed,
         ];
-        });
+        }, ['seconds' => 10]);
     }
 
     /**
@@ -2567,17 +2585,19 @@ class MarketIntelligenceController extends Controller
      *
      * Returns: ['pitch_now_high','pitch_now','log_outcomes','my_claims','expiring' => int]
      *
-     * MIC aggregate caching (2026-08-23) — cached 60s, same reasoning/TTL as
-     * computeSnapshotKpis above. Keyed by viewerId as well as agency+suburb+
-     * thresholds — unlike the other two cached methods, this one genuinely
-     * mixes an agency-wide figure (pitch_now_high/pitch_now) with per-VIEWER
-     * ones (log_outcomes/my_claims/expiring are each scoped to $viewerId's
-     * own claims/outreach). Omitting viewerId from the key would mean agent
-     * A's cache entry could serve agent B "my claims: 4" that are actually
-     * A's four claims, not B's — exactly the wrong-key risk flagged before
-     * building this. Costs a little cache-sharing efficiency (each agent
-     * gets their own entry even for the agency-wide half); correctness over
-     * efficiency was the explicit instruction.
+     * MIC aggregate caching (2026-08-23) — stale-while-revalidate, same
+     * mechanism/fresh-stale windows/lock bound as computeSnapshotKpis above
+     * (see that docblock for the full Cache::flexible() reasoning). Keyed by
+     * viewerId as well as agency+suburb+thresholds — unlike the other two
+     * cached methods, this one genuinely mixes an agency-wide figure
+     * (pitch_now_high/pitch_now) with per-VIEWER ones (log_outcomes/
+     * my_claims/expiring are each scoped to $viewerId's own claims/
+     * outreach). Omitting viewerId from the key would mean agent A's cache
+     * entry could serve agent B "my claims: 4" that are actually A's four
+     * claims, not B's — exactly the wrong-key risk flagged before building
+     * this. Costs a little cache-sharing efficiency (each agent gets their
+     * own entry even for the agency-wide half); correctness over efficiency
+     * was the explicit instruction.
      */
     protected function computeActionPresetCounts(
         int $agencyId,
@@ -2594,7 +2614,7 @@ class MarketIntelligenceController extends Controller
         $cacheKey = 'mic.action_preset_counts.' . $agencyId . '.' . ($viewerId ?? 'null')
             . '.' . ($suburbFilter ?? '') . '.' . $thresholdsFingerprint;
 
-        return Cache::remember($cacheKey, 60, function () use ($agencyId, $viewerId, $thresholds, $suburbFilter) {
+        return Cache::flexible($cacheKey, [60, 300], function () use ($agencyId, $viewerId, $thresholds, $suburbFilter) {
         $strongMin = (int) $thresholds->high_value_strong_min;
         $hasSuburb = $suburbFilter !== null && trim($suburbFilter) !== '';
 
@@ -2691,7 +2711,7 @@ class MarketIntelligenceController extends Controller
             'my_claims'      => $myClaims,
             'expiring'       => $expiring,
         ];
-        });
+        }, ['seconds' => 10]);
     }
 
     /**
@@ -2699,15 +2719,17 @@ class MarketIntelligenceController extends Controller
      * pool scope as the listings query so each count matches what clicking
      * would show.
      *
-     * MIC aggregate caching (2026-08-23) — cached 60s, same reasoning/TTL as
-     * computeSnapshotKpis. Keyed by agency, in-stock flag, a fingerprint of
-     * $scopedBase (encodes agency + visibility scope + every list filter
-     * except the 3 rail dimensions themselves — see queryFingerprint()),
-     * activeSuburb, and a fingerprint of $stockCountBySuburb (the injected
-     * synthetic-stock per-suburb counts, only non-empty on the manager audit
-     * toggle — empty in the common case, so this adds no cache fragmentation
-     * for the normal screen). Never keyed by user — nothing here differs per
-     * viewer, only per what the LIST is filtered to.
+     * MIC aggregate caching (2026-08-23) — stale-while-revalidate, same
+     * mechanism/fresh-stale windows/lock bound as computeSnapshotKpis above
+     * (see that docblock for the full Cache::flexible() reasoning). Keyed by
+     * agency, in-stock flag, a fingerprint of $scopedBase (encodes agency +
+     * visibility scope + every list filter except the 3 rail dimensions
+     * themselves — see queryFingerprint()), activeSuburb, and a fingerprint
+     * of $stockCountBySuburb (the injected synthetic-stock per-suburb
+     * counts, only non-empty on the manager audit toggle — empty in the
+     * common case, so this adds no cache fragmentation for the normal
+     * screen). Never keyed by user — nothing here differs per viewer, only
+     * per what the LIST is filtered to.
      */
     protected function computeFilterRailAggregates(
         int $agencyId,
@@ -2720,7 +2742,7 @@ class MarketIntelligenceController extends Controller
             . '.' . $this->queryFingerprint($scopedBase) . '.' . ($activeSuburb ?? '')
             . '.' . md5(json_encode($stockCountBySuburb));
 
-        return Cache::remember($cacheKey, 60, function () use ($agencyId, $includeInStock, $scopedBase, $activeSuburb, $stockCountBySuburb) {
+        return Cache::flexible($cacheKey, [60, 300], function () use ($agencyId, $includeInStock, $scopedBase, $activeSuburb, $stockCountBySuburb) {
         // BUG B — in Work mode the caller hands us $railCountBase: the list query
         // with every filter applied EXCEPT the three rail dimensions (suburb,
         // property_type, bedrooms_exact). Each facet counts from a fresh clone of
@@ -2816,7 +2838,7 @@ class MarketIntelligenceController extends Controller
             'by_type'   => $byType,
             'by_beds'   => $byBeds,
         ];
-        });
+        }, ['seconds' => 10]);
     }
 
     /**
