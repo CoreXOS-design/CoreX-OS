@@ -55,6 +55,54 @@ precise scoping confirmed, real backlog and control rows both left untouched. Th
 9,961-row staging backlog itself was deliberately NOT archived/deleted in that proof, pending
 explicit instruction — dry-run only was run against it.
 
+**EXECUTED on staging, 2026-08-23 06:35, Johan's explicit go.** Default `--path` fixed first
+— `corex-backups/` is `root:root` 755 (holds root-run mysqldump backups), so the command's own
+first `--execute` attempt (as `www-data`, correctly — never artisan-as-root on a served
+checkout) failed at the `file_put_contents` step with Permission Denied, **before reaching the
+delete step** — nothing was touched by that failed attempt. Fixed by creating a dedicated
+`corex-backups/queue-job-archives/` subdirectory owned by `www-data` and repointing the
+command's default there (`app/Console/Commands/ArchiveAndDiscardOversightNudgeFailures.php`).
+
+Archived 9,961 rows to
+`/mnt/HC_Volume_103099143/corex-backups/queue-job-archives/failed-oversight-nudges-staging-20260823-063515.json`
+(151MB, row count verified against the query before any delete ran), then deleted the same
+9,961 rows by their exact archived ids. Before/after counts for the other four classes,
+confirming precise scoping held on the real backlog, not just the synthetic proof:
+
+| Class | Before | After |
+|---|---|---|
+| SyncProperty24Activations | 3,947 | 3,947 |
+| RegenerateBuyerMatchesJob | 1,052 | 1,052 |
+| OversightDigestJob | 598 | 598 |
+| DesyndicatePropertyFromPortalsJob | 712 | 712 |
+| OversightNudgeMail | 9,961 | 0 |
+| **Total failed_jobs** | **16,420** | **6,459** |
+
+16,420 − 9,961 = 6,459 exactly — arithmetic and per-class counts both confirm nothing else
+moved. **Live's equivalent backlog (10,356 rows) has NOT been touched** — this ran on staging
+only; live requires Johan cherry-picking this himself, separately, per his instruction.
+
+### 1b. Deployment consideration — this is not "cleaning up test junk"
+
+**Flagging this because Johan's own working assumption going in was wrong, and the correction
+matters more than the row count.** These were never leftover e-sign test emails. They are real
+manager-facing oversight nudges, and — per §1 — **they have never once been delivered
+successfully in production**, since the day the feature shipped. The actual finding here is
+not "10,356 junk rows cleaned up"; it is **a manager-facing notification feature has been
+silently dead for its entire life, and nobody knew, because nothing surfaced the failure**
+(that gap is what §5's `Queue::failing()` rewrite exists to close going forward).
+
+**Consequence for the live deploy, specifically:** the moment the mail-namespace fix reaches
+live, `OversightDigestJob`'s hourly run will start successfully delivering nudges to managers
+who have never received one before — not "resuming" a feature they know, but a notification
+type appearing in their inbox with no prior warning. Without context, this will read to a
+manager as either a brand-new, unannounced feature, or as CoreX suddenly starting to email
+them unprompted — neither is the impression this feature was originally supposed to make.
+**Someone should tell the managers this is coming before it goes live, not after** — a heads-up
+that "oversight nudges" is a real, sanctioned CoreX notification, not spam and not new. This is
+a rollout/communications step, not a code change, and outside what a deploy can do on its
+own — recorded here so it isn't lost between "the code is ready" and "the code is live."
+
 ## 2. The other four failure classes — investigated, not bulk-fixed
 
 None share the mail-namespace root cause. Do not treat these as fixed by the mail fix above.
