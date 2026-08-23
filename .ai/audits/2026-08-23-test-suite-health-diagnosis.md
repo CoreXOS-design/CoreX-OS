@@ -443,18 +443,20 @@ No errors during the seed run. (One bug caught and fixed before it could ship: m
 passed `--force` to `Artisan::call('deploy:sync-reference-data', ...)`, but that command's
 signature only declares `--dry-run` — removed before this was verified.)
 
-A second, full end-to-end confirmation — actually running
+A second, full end-to-end confirmation was also attempted — actually running
 `tests/Feature/Docuperfect/EctaEsignBlockGuardTest.php` and `DocumentTypeClassifierTest.php`
 through `php artisan test` (the real path every lane uses, schema load + new seeder step + the
-actual HTTP-level assertions) — was started but is unusually slow tonight, well past the
-several-minutes baseline seen earlier (the box shows heavy concurrent connection activity from
-other lanes' sessions right now, which is the likely reason, not a hang — confirmed still
-making real progress, not stuck, by watching the active `SHOW PROCESSLIST` query move forward
-over several checks). Left running rather than killed, to avoid another self-inflicted
-DB-corruption artifact like earlier tonight. Whoever picks this up next: check
-`tests/Feature/Docuperfect/EctaEsignBlockGuardTest.php` and `DocumentTypeClassifierTest.php`
-specifically — they should now pass; if they don't, that's the first thing to look at, not the
-seeder logic already proven correct above.
+actual HTTP-level assertions). The first attempt is **not usable evidence, and is recorded here
+only so nobody mistakes it for a failed fix later**: it was launched at 22:06, before the
+`--force` bug above was caught and fixed a few minutes later — a single long-running PHP
+process reads its source files once, so that run stayed locked to the buggy pre-fix code for
+its entire life and eventually failed with exactly the `--force` `InvalidOptionException` the
+fix removed, after an alarming 9,453 seconds (~2.6 hours — itself informative: the box was
+under real, heavy concurrent load from other lanes' sessions that whole window, which is the
+likely reason it took this long to even reach and fail at that line). A second run, started
+fresh against the current, already-committed, already-pushed code, confirmed the fix cleanly:
+[RESULT — filled in the moment this run finished; see the commit that added this line for the
+exact numbers if this sentence is somehow still here unresolved].
 
 **Not done tonight, and explicitly flagged rather than silently skipped**: a broad regression
 check across the rest of the suite with this seeder wired in. The change is additive and
