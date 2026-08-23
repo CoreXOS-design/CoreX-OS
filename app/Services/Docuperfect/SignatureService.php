@@ -3488,34 +3488,80 @@ class SignatureService
             }
         }
 
-        // 1. Lock the document
-        $template->update([
-            'status' => SignatureTemplate::STATUS_COMPLETED,
-            'completed_at' => now(),
-        ]);
+        // Async e-sign completion (config('docuperfect.async_completion'), default OFF).
+        // Decided once, up front, so every branch below reads the same values.
+        $asyncCompletion = (bool) config('docuperfect.async_completion');
+        $pdfSync = $asyncCompletion && (bool) config('docuperfect.async_completion_pdf_sync');
 
-        SignatureAuditLog::log(
-            $template,
-            SignatureAuditLog::ACTION_COMPLETED,
-            SignatureAuditLog::ACTOR_SYSTEM,
-            'System',
-            documentHash: $template->document_hash,
-        );
+        // 1. Lock the document, write the audit log, and seal — wrapped in one explicit
+        // transaction (TRANSACTIONAL OUTBOX) so that when async_completion is on and
+        // pdfSync is off, FinalizeSignedDocumentJob::dispatch() below lands in the SAME
+        // transaction as the status write. QUEUE_CONNECTION=database means the queued
+        // job is a row in this same MySQL database — dispatching it inside this
+        // transaction makes the job-row INSERT atomic with the status UPDATE: either
+        // both commit or neither does. There is no window where a signing is COMPLETED
+        // but its follow-up work was never queued. (When the flag is off, this wraps
+        // the exact same three calls with no dispatch inside — same statements, now
+        // grouped, no behaviour change.)
+        DB::transaction(function () use ($template, $asyncCompletion, $pdfSync) {
+            $template->update([
+                'status' => SignatureTemplate::STATUS_COMPLETED,
+                'completed_at' => now(),
+            ]);
 
-        // E-Sign P1 — seal the FINAL completed copy as a distinct terminal version
-        // (additive, passive, fail-open). Captures "the copy at completion" even when
-        // the last hop produced no new bake, and closes the hash chain for the document.
-        if ($template->document) {
-            app(\App\Services\Docuperfect\DocumentSealService::class)->seal(
-                $template->document,
-                \App\Services\Docuperfect\DocumentSealService::EVENT_COMPLETED,
-                [
-                    'template'   => $template,
-                    'actor_type' => SignatureAuditLog::ACTOR_SYSTEM,
-                    'actor_name' => 'System',
-                    'actor_role' => 'completion',
-                ]
+            SignatureAuditLog::log(
+                $template,
+                SignatureAuditLog::ACTION_COMPLETED,
+                SignatureAuditLog::ACTOR_SYSTEM,
+                'System',
+                documentHash: $template->document_hash,
             );
+
+            // E-Sign P1 — seal the FINAL completed copy as a distinct terminal version
+            // (additive, passive, fail-open). Captures "the copy at completion" even when
+            // the last hop produced no new bake, and closes the hash chain for the document.
+            if ($template->document) {
+                app(\App\Services\Docuperfect\DocumentSealService::class)->seal(
+                    $template->document,
+                    \App\Services\Docuperfect\DocumentSealService::EVENT_COMPLETED,
+                    [
+                        'template'   => $template,
+                        'actor_type' => SignatureAuditLog::ACTOR_SYSTEM,
+                        'actor_name' => 'System',
+                        'actor_role' => 'completion',
+                    ]
+                );
+            }
+
+            // Outbox dispatch — only the "everything deferred, including PDF" mode
+            // belongs inside this transaction. pdfSync mode generates the PDF
+            // synchronously AFTER this transaction commits (a 9-18s Puppeteer call
+            // must never run inside an open DB transaction — see below), so its
+            // job dispatch necessarily happens in its own follow-up transaction.
+            if ($asyncCompletion && !$pdfSync) {
+                \App\Jobs\Docuperfect\FinalizeSignedDocumentJob::dispatch($template->id, null);
+            }
+        });
+
+        if ($pdfSync) {
+            // Johan's compliance call (2026-08-23): a few seconds' delay on the PDF is
+            // fine by default, but this switch exists so "the sealed PDF must exist at
+            // the instant of completion" can be restored with a config change alone,
+            // no code change. Generate it synchronously — exactly the legacy inline
+            // behaviour — then queue only the remaining steps (link/file/email/lease)
+            // with the PDF already in hand. Deliberately outside the transaction above:
+            // a slow/failing Puppeteer render must never hold a DB transaction open.
+            //
+            // Residual gap, smaller than today's: a crash between this line committing
+            // the PDF write and the dispatch below succeeding would leave a completed +
+            // sealed-PDF document whose filing/linking/emails never got queued — the
+            // same "logged, recoverable, manual follow-up" state today's fully-inline
+            // path already accepts for ANY failure in steps 2-6. This narrows that
+            // window to one dispatch call; it does not reintroduce it.
+            $pdfPaths = $this->resolveOrGenerateSignedPdf($template);
+            DB::transaction(function () use ($template, $pdfPaths) {
+                \App\Jobs\Docuperfect\FinalizeSignedDocumentJob::dispatch($template->id, $pdfPaths);
+            });
         }
 
         // Auto-points (mandate.signed) — a mandate e-sign document reaching the
@@ -3557,72 +3603,205 @@ class SignatureService
         // or failing PDF/file/email NEVER undoes completion; failures are
         // logged and recoverable. (No active transaction => runs inline,
         // same effect, still after the status write.)
-        DB::afterCommit(function () use ($template) {
-            try {
-                // 2. Generate both signed PDF versions (internal + client)
-                $pdfPaths = $this->pdfService->generate($template);
+        //
+        // Gated on !$asyncCompletion: when the flag is on, FinalizeSignedDocumentJob
+        // (dispatched inside the transaction above, or after sync PDF generation in
+        // pdfSync mode) already does exactly this work on a queue worker — running it
+        // again here would duplicate the email send and the auto-file/link steps.
+        // This block is intentionally left byte-for-byte identical to its pre-flag
+        // form (see resolveOrGenerateSignedPdf()/runPostCompletionCascade() for the
+        // async path's equivalent, idempotency-guarded version of the same 5 steps)
+        // rather than refactored to share code with the new path — this is the
+        // default, always-on-today behaviour, and the lowest-risk change here is no
+        // change at all beyond the gate.
+        if (!$asyncCompletion) {
+            DB::afterCommit(function () use ($template) {
+                try {
+                    // 2. Generate both signed PDF versions (internal + client)
+                    $pdfPaths = $this->pdfService->generate($template);
 
-                if ($pdfPaths) {
-                    $template->update([
-                        'signed_pdf_path' => $pdfPaths['internal'],
-                        'signed_pdf_client_path' => $pdfPaths['client'],
-                    ]);
-
-                    SignatureAuditLog::log(
-                        $template,
-                        SignatureAuditLog::ACTION_DOCUMENT_COMPLETED,
-                        SignatureAuditLog::ACTOR_SYSTEM,
-                        'System',
-                        metadata: [
+                    if ($pdfPaths) {
+                        $template->update([
                             'signed_pdf_path' => $pdfPaths['internal'],
                             'signed_pdf_client_path' => $pdfPaths['client'],
-                            'total_signatures' => $template->signatures()->count(),
-                            'parties_completed' => $template->partyProgress(),
-                        ],
-                        documentHash: $template->document_hash,
-                    );
-                } else {
-                    Log::error('SignatureService: Signed PDF generation failed, emails will NOT include PDF attachment', [
+                        ]);
+
+                        SignatureAuditLog::log(
+                            $template,
+                            SignatureAuditLog::ACTION_DOCUMENT_COMPLETED,
+                            SignatureAuditLog::ACTOR_SYSTEM,
+                            'System',
+                            metadata: [
+                                'signed_pdf_path' => $pdfPaths['internal'],
+                                'signed_pdf_client_path' => $pdfPaths['client'],
+                                'total_signatures' => $template->signatures()->count(),
+                                'parties_completed' => $template->partyProgress(),
+                            ],
+                            documentHash: $template->document_hash,
+                        );
+                    } else {
+                        Log::error('SignatureService: Signed PDF generation failed, emails will NOT include PDF attachment', [
+                            'template_id' => $template->id,
+                            'document_id' => $template->document_id,
+                            'document_name' => $template->document->name ?? 'unknown',
+                            'has_flattened_pages' => !empty($template->flattened_pages_json),
+                            'page_count' => $template->document->template?->page_count ?? 0,
+                        ]);
+                    }
+
+                    // 3. Link document to contacts via pivot (FICA / compliance)
+                    $this->linkDocumentToContacts($template, $pdfPaths);
+
+                    // 4. Auto-file signed document to Contact + Property Drive.
+                    //
+                    // HD-7 (§11-B) — THIS NOW RUNS BEFORE THE EMAIL, AND THAT REORDER *IS* THE FIX.
+                    // Filing is what produces the per-document PDFs; emailing used to run first, so the
+                    // only file that existed when the parties were written to was the one merged PDF of
+                    // the whole pack. The ceremony was not CHOOSING to send a stapled document — it was
+                    // sending the only thing that existed yet. File first, and the documents are there.
+                    $signedDocuments = $this->autoFileSignedDocument($template, $pdfPaths);
+
+                    // 5. Email signed copies — client to signers, internal to agent.
+                    $this->sendCompletionEmails($template, $pdfPaths, $signedDocuments);
+
+                    // 6. Extract lease data if this is a lease/rental document
+                    if ($this->isLeaseDocument($template)) {
+                        $this->createLeaseRecord($template);
+                    }
+                } catch (\Throwable $e) {
+                    // The signing is already COMPLETED and committed. Post-
+                    // completion delivery/filing failure is logged and
+                    // recoverable — it must NOT surface as a rollback or a
+                    // 500 that implies the signing failed.
+                    Log::error('SignatureService: post-completion (PDF/file/email) step failed — document remains COMPLETED', [
                         'template_id' => $template->id,
                         'document_id' => $template->document_id,
-                        'document_name' => $template->document->name ?? 'unknown',
-                        'has_flattened_pages' => !empty($template->flattened_pages_json),
-                        'page_count' => $template->document->template?->page_count ?? 0,
+                        'error' => $e->getMessage(),
+                        'trace' => $e->getTraceAsString(),
                     ]);
                 }
+            });
+        }
+    }
 
-                // 3. Link document to contacts via pivot (FICA / compliance)
-                $this->linkDocumentToContacts($template, $pdfPaths);
+    /**
+     * Idempotent PDF generation for the async completion path — reuse existing
+     * signed_pdf_path/signed_pdf_client_path (and skip re-writing their audit log
+     * entry) if a prior attempt already produced them and the files still exist on
+     * disk. A queued job can be retried or (rarely) dispatched twice; this is what
+     * stops a retry from re-running two Puppeteer renders for a PDF that already
+     * exists, and from writing a second ACTION_DOCUMENT_COMPLETED audit entry.
+     *
+     * @return array{internal:string,client:string}|null
+     */
+    private function resolveOrGenerateSignedPdf(SignatureTemplate $template): ?array
+    {
+        $disk = \Illuminate\Support\Facades\Storage::disk('local');
+        if (
+            $template->signed_pdf_path && $template->signed_pdf_client_path
+            && $disk->exists($template->signed_pdf_path) && $disk->exists($template->signed_pdf_client_path)
+        ) {
+            return [
+                'internal' => $template->signed_pdf_path,
+                'client'   => $template->signed_pdf_client_path,
+            ];
+        }
 
-                // 4. Auto-file signed document to Contact + Property Drive.
-                //
-                // HD-7 (§11-B) — THIS NOW RUNS BEFORE THE EMAIL, AND THAT REORDER *IS* THE FIX.
-                // Filing is what produces the per-document PDFs; emailing used to run first, so the
-                // only file that existed when the parties were written to was the one merged PDF of
-                // the whole pack. The ceremony was not CHOOSING to send a stapled document — it was
-                // sending the only thing that existed yet. File first, and the documents are there.
-                $signedDocuments = $this->autoFileSignedDocument($template, $pdfPaths);
+        $pdfPaths = $this->pdfService->generate($template);
 
-                // 5. Email signed copies — client to signers, internal to agent.
-                $this->sendCompletionEmails($template, $pdfPaths, $signedDocuments);
+        if ($pdfPaths) {
+            $template->update([
+                'signed_pdf_path' => $pdfPaths['internal'],
+                'signed_pdf_client_path' => $pdfPaths['client'],
+            ]);
 
-                // 6. Extract lease data if this is a lease/rental document
-                if ($this->isLeaseDocument($template)) {
-                    $this->createLeaseRecord($template);
-                }
-            } catch (\Throwable $e) {
-                // The signing is already COMPLETED and committed. Post-
-                // completion delivery/filing failure is logged and
-                // recoverable — it must NOT surface as a rollback or a
-                // 500 that implies the signing failed.
-                Log::error('SignatureService: post-completion (PDF/file/email) step failed — document remains COMPLETED', [
-                    'template_id' => $template->id,
-                    'document_id' => $template->document_id,
-                    'error' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString(),
-                ]);
-            }
-        });
+            SignatureAuditLog::log(
+                $template,
+                SignatureAuditLog::ACTION_DOCUMENT_COMPLETED,
+                SignatureAuditLog::ACTOR_SYSTEM,
+                'System',
+                metadata: [
+                    'signed_pdf_path' => $pdfPaths['internal'],
+                    'signed_pdf_client_path' => $pdfPaths['client'],
+                    'total_signatures' => $template->signatures()->count(),
+                    'parties_completed' => $template->partyProgress(),
+                ],
+                documentHash: $template->document_hash,
+            );
+        } else {
+            Log::error('SignatureService: Signed PDF generation failed, emails will NOT include PDF attachment', [
+                'template_id' => $template->id,
+                'document_id' => $template->document_id,
+                'document_name' => $template->document->name ?? 'unknown',
+                'has_flattened_pages' => !empty($template->flattened_pages_json),
+                'page_count' => $template->document->template?->page_count ?? 0,
+            ]);
+        }
+
+        return $pdfPaths;
+    }
+
+    /**
+     * The async completion path's deferred cascade — PDF generation (if not already
+     * done in pdfSync mode), contact linking, auto-filing, completion emails, lease
+     * extraction. Called from FinalizeSignedDocumentJob. Every step is idempotent —
+     * this method is safe to call more than once for the same $template, which is
+     * what makes a queue retry or a duplicate dispatch safe rather than a duplicate-
+     * email or duplicate-lease-record bug. Does NOT catch exceptions — the job's
+     * handle() lets them propagate so Laravel's retry/backoff/failed_jobs mechanism
+     * actually engages, rather than swallowing failures the way the legacy inline
+     * closure above deliberately does (that closure has no queue behind it to retry
+     * into; this one does, and requirement 4 is "proper Job classes with retries and
+     * a failed_jobs row, not Log::error()").
+     *
+     * @param array{internal:string,client:string}|null $pdfPaths Pre-generated PDF
+     *   paths (pdfSync mode: generated synchronously before this ran). Null means
+     *   this method generates them itself.
+     */
+    public function runPostCompletionCascade(SignatureTemplate $template, ?array $pdfPaths = null): void
+    {
+        $template->refresh();
+
+        if ($pdfPaths === null) {
+            $pdfPaths = $this->resolveOrGenerateSignedPdf($template);
+        }
+
+        // 3. Link document to contacts via pivot (FICA / compliance) — already
+        // idempotent (updateOrInsert keyed on document_id+contact_id+party_role).
+        $this->linkDocumentToContacts($template, $pdfPaths);
+
+        // 4. Auto-file signed document to Contact + Property Drive — already
+        // idempotent (storage_path+source_type existence check per filed document;
+        // a duplicate hit returns the existing document's info rather than dropping
+        // it, so a retry's email attachment set is unaffected).
+        $signedDocuments = $this->autoFileSignedDocument($template, $pdfPaths);
+
+        // 5. Email signed copies — client to signers, internal to agent. Atomic
+        // claim: only the invocation that flips completion_emails_sent_at from NULL
+        // actually sends. Duplicate client emails are explicitly the single worst
+        // outcome here — this is what makes a retry, or two workers picking up a
+        // duplicate queue entry concurrently, send at most once, not twice.
+        $claimed = SignatureTemplate::where('id', $template->id)
+            ->whereNull('completion_emails_sent_at')
+            ->update(['completion_emails_sent_at' => now()]);
+
+        if ($claimed) {
+            $this->sendCompletionEmails($template, $pdfPaths, $signedDocuments);
+        } else {
+            Log::info('runPostCompletionCascade: completion emails already sent, skipping duplicate dispatch', [
+                'template_id' => $template->id,
+            ]);
+        }
+
+        // 6. Extract lease data if this is a lease/rental document — guarded against
+        // a duplicate LeaseRecord, which createLeaseRecord() itself does not check
+        // (it was never called more than once per template before this job existed).
+        if (
+            $this->isLeaseDocument($template)
+            && !LeaseRecord::where('signature_template_id', $template->id)->exists()
+        ) {
+            $this->createLeaseRecord($template);
+        }
     }
 
     /**
@@ -3725,9 +3904,19 @@ class SignatureService
         ?int $propertyId,
         array $contactLinks,
     ): ?array {
-        // Avoid duplicate filings
-        if (\App\Models\Document::where('storage_path', $pdfPath)->where('source_type', 'esign')->exists()) {
-            return null;
+        // Avoid duplicate filings. Return the EXISTING filed document's info rather than
+        // null — a queued/retried finalize job calls this again after a prior attempt
+        // already filed successfully, and the caller (autoFileSignedDocument) needs the
+        // real shape back to build the email attachment list; dropping it here silently
+        // degraded a retry's email to the merged-PDF fallback instead of the filed copy.
+        $existing = \App\Models\Document::where('storage_path', $pdfPath)->where('source_type', 'esign')->first();
+        if ($existing) {
+            return [
+                'path'               => $pdfPath,
+                'name'               => $existing->original_name,
+                'template_id'        => $document->template?->id,
+                'is_signed_document' => true,
+            ];
         }
 
         $docTemplate = $document->template;
@@ -3826,8 +4015,17 @@ class SignatureService
             $individualPdfPath = "{$baseDir}/{$tplId}_client.pdf";
             $fullStoragePath = $disk->path($individualPdfPath);
 
-            // Dedup check
-            if (\App\Models\Document::where('storage_path', $individualPdfPath)->where('source_type', 'esign')->exists()) {
+            // Dedup check. A retried/queued finalize job reaches this after a prior attempt
+            // already filed this individual document — carry its info into $filed instead
+            // of dropping it, or a retry's completion email silently loses this attachment.
+            $existingIndividual = \App\Models\Document::where('storage_path', $individualPdfPath)->where('source_type', 'esign')->first();
+            if ($existingIndividual) {
+                $filed[] = [
+                    'path'               => $individualPdfPath,
+                    'name'               => $existingIndividual->original_name,
+                    'template_id'        => (int) $tplId,
+                    'is_signed_document' => true,
+                ];
                 continue;
             }
 

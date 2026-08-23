@@ -3606,8 +3606,23 @@ CSS;
             ]);
         }
 
-        // Already verified in this session — show download button
+        // Already verified in this session — show download button, UNLESS the signed
+        // PDF hasn't landed yet (async completion mode: completion is instant, the
+        // PDF follows within seconds). Never claim "ready" for a file that isn't
+        // there — show a distinct "finalising" state instead of a download button
+        // that would 404/error, and instead of the "not yet fully signed" error,
+        // which would wrongly suggest the signing itself is incomplete.
         if (session("download_verified_{$token}")) {
+            if (!$template->signed_pdf_path) {
+                return view('docuperfect.signatures.external.download', [
+                    'request' => $signingRequest,
+                    'token' => $token,
+                    'finalising' => true,
+                    'document' => $document,
+                    'template' => $template,
+                ]);
+            }
+
             return view('docuperfect.signatures.external.download', [
                 'request' => $signingRequest,
                 'token' => $token,
