@@ -34,10 +34,18 @@ class BuyerDetailController extends Controller
         // first so the card layout naturally puts the primary at the top.
         // Notes tab (2026-08-20, Johan) — same relation, same rows
         // contacts/show.blade.php already reads (contact_notes.user).
+        //
+        // reorder() is load-bearing (2026-08-24, found verifying the chevron
+        // fix) — Contact::matches() is hasMany(...)->latest(), so without
+        // clearing that first, the generated SQL was
+        // "order by created_at desc, is_primary desc, updated_at desc":
+        // created_at, not is_primary, was the real sort key, so the
+        // most-recently-created wishlist opened by default, not the primary
+        // one, on any buyer whose primary wasn't also their newest wishlist.
         $contact->load(['agent', 'contactNotes.user']);
         $contact->setRelation(
             'matches',
-            $contact->matches()->orderByDesc('is_primary')->orderByDesc('updated_at')->get()
+            $contact->matches()->reorder()->orderByDesc('is_primary')->orderByDesc('updated_at')->get()
         );
 
         // AT-363 — per-wishlist match count badge + the default-expanded
