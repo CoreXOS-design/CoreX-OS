@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Docuperfect;
 
 use App\Models\Contact;
+use App\Models\Docuperfect\EsignRecipientPreset;
 use App\Models\Docuperfect\SignatureRequest;
 use App\Models\Docuperfect\Template;
 use DOMDocument;
@@ -2202,8 +2203,14 @@ final class RoleBlockExpansionService
             // The composite full-name column the CDS generator really emits for a party's
             // name blank — without this the seller's name simply never prefills.
             case 'first_name+last_name':
+                if ($contact->isEntity()) {
+                    return $this->blankToNull($this->renderEntityParty($contact, includeRegNo: false));
+                }
                 return $this->blankToNull(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? ''));
             case 'name_surname_id':
+                if ($contact->isEntity()) {
+                    return $this->blankToNull($this->renderEntityParty($contact, includeRegNo: true));
+                }
                 $full = trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? ''));
                 $id = trim((string) ($contact->id_number ?? ''));
                 return $this->blankToNull($id !== '' ? ($full . ' (ID: ' . $id . ')') : $full);
@@ -2224,6 +2231,84 @@ final class RoleBlockExpansionService
                 return $this->blankToNull($contact->address);
         }
         return null;
+    }
+
+    /**
+     * Entity-rep body-text rendering (Johan, 2026-08-24 — the piece §6.2 of
+     * .ai/specs/contact-entity-type.md flagged as pipeline-gated and never
+     * built when the rest of the entity-rep foundation shipped). Renders the
+     * ACTUAL document clause naming an entity/estate party, e.g.
+     * "Estate Late John Smith (Reg: 1234/2026), herein represented by Jane
+     * Smith (Executor)" — reuses the SAME agency-editable EsignRecipientPreset
+     * wording that already drives the recipient caption, so a single template
+     * governs both; only the reg-no segment is composed here (outside the
+     * token engine), mirroring how name_surname_id already appends "(ID: …)"
+     * for a natural person — done outside substitute() specifically so a
+     * blank entity_reg_no collapses cleanly instead of leaving a dangling
+     * "(Reg: )" (substitute()'s own collapse regex only strips a fully-empty
+     * "()", not one containing literal text).
+     */
+    private function renderEntityParty(Contact $entity, bool $includeRegNo): string
+    {
+        $name = (string) ($entity->entity_name ?: $entity->full_name);
+        if ($includeRegNo) {
+            $reg = trim((string) ($entity->entity_reg_no ?? ''));
+            if ($reg !== '') {
+                $name .= ' (Reg: ' . $reg . ')';
+            }
+        }
+
+        $resolved = $this->resolveDocumentRepresentative($entity);
+        if ($resolved === null) {
+            return $name;
+        }
+        [$rep, $capacity, $isProxy] = $resolved;
+
+        $preset = EsignRecipientPreset::resolveFor((int) $entity->agency_id, 'entity');
+        $template = $isProxy && filled($preset->proxy_phrasing_template)
+            ? $preset->proxy_phrasing_template
+            : ($preset->phrasing_template ?: EsignRecipientPreset::DEFAULT_PHRASING);
+
+        // Splice the reg-no-augmented name in place of the template's bare
+        // {entity_name} token before the token engine runs, so the remaining
+        // tokens ({rep_name}/{capacity}) still substitute normally.
+        $template = str_replace('{entity_name}', $name, $template);
+
+        return EsignRecipientPreset::substitute($template, $entity, $rep, $capacity);
+    }
+
+    /**
+     * The ONE representative to name in the document body clause: the proxy
+     * if one exists (they sign instead of everyone else — the body should say
+     * so), else the primary rep, else the first (lowest pivot id) as a
+     * defensive floor. Mirrors Contact::proxyAwareRepresentatives()'s
+     * first-match-wins style. A multi-representative, non-proxied entity
+     * (e.g. 3 co-directors, none proxied) still needs exactly ONE name in a
+     * grammatical legal clause — signingRepresentatives() correctly sends
+     * every one of them a signing link; this picks who the SENTENCE names.
+     *
+     * @return array{0: Contact, 1: ?string, 2: bool}|null [rep, capacity, isProxy]
+     */
+    private function resolveDocumentRepresentative(Contact $entity): ?array
+    {
+        if (! $entity->isEntity()) {
+            return null;
+        }
+
+        $reps = $entity->representatives()->get();
+        if ($reps->isEmpty()) {
+            return null;
+        }
+
+        $proxy = $reps->first(fn (Contact $r) => (bool) ($r->pivot->signs_as_proxy ?? false));
+        if ($proxy) {
+            return [$proxy, $proxy->pivot->capacity, true];
+        }
+
+        $primary = $reps->first(fn (Contact $r) => (bool) ($r->pivot->is_primary ?? false));
+        $chosen = $primary ?? $reps->first();
+
+        return [$chosen, $chosen->pivot->capacity, false];
     }
 
     /**
