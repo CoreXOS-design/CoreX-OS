@@ -1277,8 +1277,13 @@
                      same permission, one nav location instead of two. --}}
                 @endpermission
                 @permission('view_listings')
+                {{-- HIDDEN 2026-08-24 (Johan, quick wins) — menu-only hide, legacy/pre-CoreX
+                     screen; route + permission gate left fully live. Reversible: delete the
+                     "@if(false)"/"@endif" pair below. --}}
+                @if(false)
                 @if(\Illuminate\Support\Facades\Route::has('admin.listings.stock'))
                 <a href="{{ route('admin.listings.stock') }}" class="corex-nav-subitem {{ request()->routeIs('admin.listings.stock*') ? 'active' : '' }}">Company Listing Stock</a>
+                @endif
                 @endif
                 @endpermission
                 @permission('view_deals')
@@ -1288,10 +1293,23 @@
                 @endif
                 @endpermission
                 @permission('view_listings')
+                {{-- HIDDEN 2026-08-24 (Johan, quick wins) — menu-only hide, legacy/pre-CoreX
+                     screen; route + permission gate left fully live. Reversible: delete the
+                     "@if(false)"/"@endif" pair below. --}}
+                @if(false)
                 <a href="{{ route('admin.listings.agents') }}" class="corex-nav-subitem {{ request()->routeIs('admin.listings.agents*') ? 'active' : '' }}">Listing Stock</a>
+                @endif
                 @endpermission
                 @permission('access_import_listings')
+                {{-- HIDDEN 2026-08-24 (Johan, quick wins) — menu-only hide, legacy/pre-CoreX
+                     screen; route + permission gate left fully live. NOTE: this is the ONLY
+                     write path into ListingStock anywhere in the codebase, and TvController.php
+                     (:98, :252) reads ListingStock for the live TV display — hide only, do not
+                     remove without re-checking that dependency. Reversible: delete the
+                     "@if(false)"/"@endif" pair below. P24 Auto-Import stays visible, untouched. --}}
+                @if(false)
                 <a href="{{ route('admin.listings.import') }}" class="corex-nav-subitem {{ request()->routeIs('admin.listings.import*') ? 'active' : '' }}">Import Listings</a>
+                @endif
                 <a href="{{ route('admin.minion.setup') }}" class="corex-nav-subitem {{ request()->routeIs('admin.minion.*') ? 'active' : '' }}">P24 Auto-Import</a>
                 @endpermission
                 {{-- Daily Activities group — summary + merged Setup. De-dupe: the Branch
