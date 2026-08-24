@@ -20,12 +20,22 @@ class EsignEntityRecipientTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function entityWithReps(int $agencyId, int $reps, ?int $proxyIdx = null): array
+    private function makeAgencyWithBranch(): array
     {
-        $entity = Contact::factory()->create(['agency_id' => $agencyId, 'contact_kind' => Contact::TYPE_ENTITY, 'entity_name' => 'Estate Late John Smith', 'entity_reg_no' => 'EST-1']);
+        $agency = Agency::create(['name' => 'Test Agency ' . uniqid(), 'slug' => 'test-agency-' . uniqid()]);
+        $branchId = \Illuminate\Support\Facades\DB::table('branches')->insertGetId([
+            'agency_id' => $agency->id, 'name' => 'Default',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        return [$agency, $branchId];
+    }
+
+    private function entityWithReps(int $agencyId, int $branchId, int $reps, ?int $proxyIdx = null): array
+    {
+        $entity = Contact::create(['agency_id' => $agencyId, 'branch_id' => $branchId, 'contact_kind' => Contact::TYPE_ENTITY, 'entity_name' => 'Estate Late John Smith', 'entity_reg_no' => 'EST-1', 'first_name' => 'Estate Late John Smith', 'last_name' => '']);
         $repModels = [];
         for ($i = 0; $i < $reps; $i++) {
-            $r = Contact::factory()->create(['agency_id' => $agencyId, 'contact_kind' => Contact::TYPE_NATURAL_PERSON, 'first_name' => 'Rep' . $i, 'last_name' => 'Person', 'email' => "rep{$i}@x.test"]);
+            $r = Contact::create(['agency_id' => $agencyId, 'branch_id' => $branchId, 'contact_kind' => Contact::TYPE_NATURAL_PERSON, 'first_name' => 'Rep' . $i, 'last_name' => 'Person', 'email' => "rep{$i}@x.test"]);
             ContactRepresentative::create([
                 'entity_contact_id' => $entity->id, 'representative_contact_id' => $r->id,
                 'capacity' => 'Executor', 'signs_as_proxy' => ($proxyIdx === $i),
@@ -44,8 +54,8 @@ class EsignEntityRecipientTest extends TestCase
 
     public function test_phrasing_template_renders_and_collapses_empty_capacity(): void
     {
-        $agency = Agency::factory()->create();
-        [$entity, $reps] = $this->entityWithReps($agency->id, 1);
+        [$agency, $branchId] = $this->makeAgencyWithBranch();
+        [$entity, $reps] = $this->entityWithReps($agency->id, $branchId, 1);
         $preset = EsignRecipientPreset::defaultFor($agency->id);
 
         $phrase = $preset->renderPhrase($entity, $reps[0], 'Executor');
@@ -58,9 +68,9 @@ class EsignEntityRecipientTest extends TestCase
 
     public function test_entity_recipient_expands_to_all_reps_no_proxy(): void
     {
-        $agency = Agency::factory()->create();
+        [$agency, $branchId] = $this->makeAgencyWithBranch();
         $user = User::factory()->create(['agency_id' => $agency->id]);
-        [$entity] = $this->entityWithReps($agency->id, 3);
+        [$entity] = $this->entityWithReps($agency->id, $branchId, 3);
 
         $out = $this->expand([['role' => 'seller', 'name' => $entity->entity_name, 'email' => '', '_contact_id' => $entity->id]], $user);
 
@@ -78,9 +88,9 @@ class EsignEntityRecipientTest extends TestCase
 
     public function test_entity_recipient_with_proxy_expands_to_single_signer(): void
     {
-        $agency = Agency::factory()->create();
+        [$agency, $branchId] = $this->makeAgencyWithBranch();
         $user = User::factory()->create(['agency_id' => $agency->id]);
-        [$entity, $reps] = $this->entityWithReps($agency->id, 4, proxyIdx: 1);
+        [$entity, $reps] = $this->entityWithReps($agency->id, $branchId, 4, proxyIdx: 1);
 
         $out = $this->expand([['role' => 'seller', '_contact_id' => $entity->id]], $user);
 
@@ -91,9 +101,9 @@ class EsignEntityRecipientTest extends TestCase
 
     public function test_rep_less_entity_flagged_not_dropped(): void
     {
-        $agency = Agency::factory()->create();
+        [$agency, $branchId] = $this->makeAgencyWithBranch();
         $user = User::factory()->create(['agency_id' => $agency->id]);
-        $entity = Contact::factory()->create(['agency_id' => $agency->id, 'contact_kind' => Contact::TYPE_ENTITY, 'entity_name' => 'Rep-less Pty']);
+        $entity = Contact::create(['agency_id' => $agency->id, 'branch_id' => $branchId, 'contact_kind' => Contact::TYPE_ENTITY, 'entity_name' => 'Rep-less Pty', 'first_name' => 'Rep-less Pty', 'last_name' => '']);
 
         $out = $this->expand([['role' => 'seller', '_contact_id' => $entity->id]], $user);
 
@@ -103,9 +113,9 @@ class EsignEntityRecipientTest extends TestCase
 
     public function test_natural_person_recipient_passes_through(): void
     {
-        $agency = Agency::factory()->create();
+        [$agency, $branchId] = $this->makeAgencyWithBranch();
         $user = User::factory()->create(['agency_id' => $agency->id]);
-        $person = Contact::factory()->create(['agency_id' => $agency->id, 'contact_kind' => Contact::TYPE_NATURAL_PERSON, 'first_name' => 'Jo', 'last_name' => 'Soap']);
+        $person = Contact::create(['agency_id' => $agency->id, 'branch_id' => $branchId, 'contact_kind' => Contact::TYPE_NATURAL_PERSON, 'first_name' => 'Jo', 'last_name' => 'Soap']);
 
         $out = $this->expand([['role' => 'buyer', 'name' => 'Jo Soap', '_contact_id' => $person->id]], $user);
 

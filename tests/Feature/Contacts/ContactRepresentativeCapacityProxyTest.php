@@ -19,18 +19,26 @@ class ContactRepresentativeCapacityProxyTest extends TestCase
 
     private function makeEntityWithReps(int $repCount): array
     {
-        $agency = Agency::factory()->create();
+        $agency = Agency::create(['name' => 'Test Agency ' . uniqid(), 'slug' => 'test-agency-' . uniqid()]);
+        $branchId = \Illuminate\Support\Facades\DB::table('branches')->insertGetId([
+            'agency_id' => $agency->id, 'name' => 'Default',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
 
-        $entity = Contact::factory()->create([
+        $entity = Contact::create([
             'agency_id'    => $agency->id,
+            'branch_id'    => $branchId,
             'contact_kind' => Contact::TYPE_ENTITY,
             'entity_name'  => 'Estate Late John Smith',
+            'first_name'   => 'Estate Late John Smith',
+            'last_name'    => '',
         ]);
 
         $reps = [];
         for ($i = 1; $i <= $repCount; $i++) {
-            $reps[] = Contact::factory()->create([
+            $reps[] = Contact::create([
                 'agency_id'    => $agency->id,
+                'branch_id'    => $branchId,
                 'contact_kind' => Contact::TYPE_NATURAL_PERSON,
                 'first_name'   => 'Rep' . $i,
                 'last_name'    => 'Person',
@@ -86,10 +94,17 @@ class ContactRepresentativeCapacityProxyTest extends TestCase
 
     public function test_natural_person_has_no_signing_reps(): void
     {
-        $agency = Agency::factory()->create();
-        $person = Contact::factory()->create([
+        $agency = Agency::create(['name' => 'Test Agency ' . uniqid(), 'slug' => 'test-agency-' . uniqid()]);
+        $branchId = \Illuminate\Support\Facades\DB::table('branches')->insertGetId([
+            'agency_id' => $agency->id, 'name' => 'Default',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $person = Contact::create([
             'agency_id'    => $agency->id,
+            'branch_id'    => $branchId,
             'contact_kind' => Contact::TYPE_NATURAL_PERSON,
+            'first_name'   => 'Jo',
+            'last_name'    => 'Soap',
         ]);
 
         $this->assertFalse($person->hasProxyRepresentative());
@@ -101,7 +116,7 @@ class ContactRepresentativeCapacityProxyTest extends TestCase
         [$entity, $reps] = $this->makeEntityWithReps(3);
         $agency = $entity->agency_id;
 
-        $user = \App\Models\User::factory()->create(['agency_id' => $agency]);
+        $user = \App\Models\User::factory()->create(['agency_id' => $agency, 'role' => 'admin']);
 
         // Set rep0 proxy, then rep1 proxy via the controller — rep0 must be demoted.
         $this->actingAs($user)
