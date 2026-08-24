@@ -34,19 +34,44 @@ class PublicAgencyPropertiesController extends Controller
         return view('public.agency-properties.index', compact('agency', 'properties'));
     }
 
-    public function show(string $agencySlug, Property $property)
+    public function show(string $agencySlug, string $property)
     {
         $agency = Agency::where('slug', $agencySlug)->firstOrFail();
-        abort_unless($property->agency_id === $agency->id, 404);
+
+        // 2026-08-24 (Johan) — public-link resilience: 167 non-marketable
+        // properties agency-wide plain-404'd here with no agency context,
+        // despite the URL already carrying the agency slug (audit item #4,
+        // .ai/audits/2026-08-24-public-link-resilience-audit.md). Same shape
+        // of bug as the seller-live-link and property-preview fixes done
+        // earlier today — a sold/withdrawn/deleted property looks the same
+        // as a link that never existed. Fetch unscoped so we control the
+        // not-found/wrong-agency/deleted case ourselves instead of letting
+        // implicit route-model-binding throw before this method runs.
+        $propertyModel = Property::withoutGlobalScopes()->withTrashed()->find($property);
+
+        if (!$propertyModel || $propertyModel->deleted_at !== null || (int) $propertyModel->agency_id !== (int) $agency->id) {
+            return $this->showUnavailable($agency);
+        }
 
         // Public listing — must be compliance-ready
         $svc = app(\App\Services\Compliance\MarketingReadinessService::class);
-        if (!$svc->isMarketable($property)) {
-            abort(404);
+        if (!$svc->isMarketable($propertyModel)) {
+            return $this->showUnavailable($agency);
         }
 
-        $property->load('agent');
+        $propertyModel->load('agent');
 
-        return view('public.agency-properties.show', compact('agency', 'property'));
+        return view('public.agency-properties.show', ['agency' => $agency, 'property' => $propertyModel]);
+    }
+
+    private function showUnavailable(Agency $agency)
+    {
+        $fallbackContact = app(\App\Services\Leads\SharedLinkReengagementService::class)->agencyFallbackContact($agency);
+
+        return response()->view('public.agency-properties.unavailable', [
+            'agency'        => $agency,
+            'fallbackPhone' => $fallbackContact['phone'],
+            'fallbackEmail' => $fallbackContact['email'],
+        ], 404);
     }
 }
