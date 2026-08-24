@@ -141,6 +141,25 @@ class SalesMandatoryDisclosureEsignSeeder extends Seeder
         // overriding the fragile baked numeric id in the data file.
         $row['document_type_id'] = $this->documentTypeId('disclosure', 'Disclosure', 'shared');
 
+        // 2026-08-24 (cc2, MDF live-deploy prep, per Johan) — attribution, added on top of
+        // the captured JSON: `columns` never set agency_id (raw DB::table() insert, no
+        // BelongsToAgency to auto-fill it — Template.php deliberately has none, see its own
+        // 2026-08-15 docblock). Resolved by name, never hard-coded, so this stays correct
+        // on any environment regardless of numeric id drift.
+        //
+        // is_global=1 (from `columns`, unchanged) is DELIBERATE, not an oversight this fix
+        // should have caught: per cc6's 2026-08-24 tenant-isolation fix
+        // (.ai/audits/2026-08-24-template-is-global-multitenancy-fix.md), is_global=true is
+        // now understood as "every agency on the platform, forever" and was closed off as a
+        // default on every USER-FACING template-creation path — but a standard regulatory
+        // form every agency must receive identically (this one: PPA 22/2019 s70 / Regs 2022
+        // s36) is exactly the legitimate, deliberate case that flag exists for. Confirmed
+        // directly with cc6 before this was added: raw server-side writes (seeders,
+        // migrations, artisan) were never in scope of that fix. agency_id is still stamped
+        // here for correct attribution even though is_global bypasses the agency_id check
+        // entirely at query time (Template::scopeVisibleTo() / isVisibleToAgency()).
+        $row['agency_id'] = \App\Models\Agency::where('name', 'Home Finders Coastal')->value('id');
+
         $existingId = DB::table('docuperfect_templates')
             ->where('name', self::TEMPLATE_NAME)
             ->where('template_type', 'cds')
