@@ -3034,6 +3034,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/',       [\App\Http\Controllers\Admin\SystemUpdateController::class, 'index'])->name('index');
         Route::post('/',      [\App\Http\Controllers\Admin\SystemUpdateController::class, 'store'])->name('store');
 
+        // Bulk Email — the Bulk Email tab on this same admin page.
+        // Spec: .ai/specs/system-updates-bulk-email.md §10
+        Route::get('/bulk-email',       [\App\Http\Controllers\Admin\BulkEmailController::class, 'create'])->name('bulk-email.create');
+        Route::post('/bulk-email/send', [\App\Http\Controllers\Admin\BulkEmailController::class, 'send'])->name('bulk-email.send');
+
         Route::get('/{update}',            [\App\Http\Controllers\Admin\SystemUpdateController::class, 'show'])->whereNumber('update')->name('show');
         Route::get('/{update}/edit',       [\App\Http\Controllers\Admin\SystemUpdateController::class, 'edit'])->whereNumber('update')->name('edit');
         Route::get('/{update}/preview',    [\App\Http\Controllers\Admin\SystemUpdateController::class, 'preview'])->whereNumber('update')->name('preview');

@@ -28,13 +28,28 @@
         </div>
     @endif
 
-    {{-- Archived toggle. Selected state uses the documented soft active-control recipe
-         (brand-icon border + faint brand-icon tint), the same one the Properties filter
-         tiles use — not a neutral grey fill, which reads as "disabled" beside its sibling. --}}
+    {{-- Top-level tabs: Updates (this page) | Bulk Email. Same soft active-control
+         recipe as the Active/Archived toggle below, one level up. --}}
     @php
         $suTabOn  = 'background:color-mix(in srgb, var(--brand-icon) 10%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 40%, transparent); color:var(--brand-icon);';
         $suTabOff = 'background:transparent; border:1px solid var(--border); color:var(--text-secondary);';
     @endphp
+    <div class="flex items-center gap-2 text-xs">
+        <a href="{{ route('admin.system-updates.index') }}"
+           class="px-3 py-1.5 rounded-md no-underline font-semibold"
+           style="{{ $suTabOn }}">
+            Updates
+        </a>
+        <a href="{{ route('admin.system-updates.bulk-email.create') }}"
+           class="px-3 py-1.5 rounded-md no-underline font-semibold"
+           style="{{ $suTabOff }}">
+            Bulk Email
+        </a>
+    </div>
+
+    {{-- Archived toggle. Selected state uses the documented soft active-control recipe
+         (brand-icon border + faint brand-icon tint), the same one the Properties filter
+         tiles use — not a neutral grey fill, which reads as "disabled" beside its sibling. --}}
     <div class="flex items-center gap-2 text-xs">
         <a href="{{ route('admin.system-updates.index') }}"
            class="px-3 py-1.5 rounded-md no-underline"
