@@ -1487,7 +1487,21 @@ final class EntryPointController extends Controller
         $propertyId = $this->ensurePropertyForListing($agencyId, $listing, $request->user());
         // Manual link (or explicit RE-ADD) — source=manual, and it CLEARS any sticky removal so the
         // agent's deliberate re-add sticks against the deed auto-link (R2).
-        $svc->linkSellerToProperty((int) $contact->id, $propertyId, 'manual');
+        //
+        // Edinburgh erf 364 remediation (Johan, 2026-08-24) — the escape hatch. `override`
+        // is a plain client-supplied flag, deliberately trusted for nothing on its own:
+        // linkSellerToProperty() re-checks the ACTOR's own role via PropertyDuplicateBlockGuard
+        // before honouring it, so an agent sending override=true from a crafted request still
+        // gets blocked server-side. This is only how a branch_manager/admin's own
+        // already-decided override actually reaches the write.
+        $svc->linkSellerToProperty(
+            (int) $contact->id,
+            $propertyId,
+            'manual',
+            actor: $request->user(),
+            override: $request->boolean('override_active_link_block'),
+            overrideReason: $request->filled('override_reason') ? (string) $request->input('override_reason') : null,
+        );
         $svc->clearRemoval((int) $listing->id, $contact->id_number ? (string) $contact->id_number : null);
         // 2026-08-18's dismissMatchingTvaCapture() call used to live here — it silently
         // marked every pending TVA number "reviewed" the moment a seller was linked this

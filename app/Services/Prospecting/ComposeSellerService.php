@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Prospecting;
 
+use App\Exceptions\DuplicateSellerLinkBlockedException;
 use App\Models\Contact;
 use App\Models\ContactDeadEndFlag;
 use App\Models\Property;
@@ -11,9 +12,13 @@ use App\Models\Prospecting\TrackedProperty;
 use App\Models\Prospecting\TvaContactCapture;
 use App\Models\Prospecting\TvaContactCaptureItem;
 use App\Models\Scopes\ContactScope;
+use App\Models\User;
 use App\Services\Contacts\ContactIdentifierService;
 use App\Services\ContactDuplicateService;
+use App\Services\Prospecting\PropertyDuplicateBlockGuard;
+use App\Services\Prospecting\PropertyMatchDecisionService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * MIC compose — multi-seller link (Part A) + TVA number picker (Part B) — Johan 2026-08-14.
@@ -31,6 +36,8 @@ class ComposeSellerService
     public function __construct(
         private readonly ContactDuplicateService $dupes,
         private readonly ContactIdentifierService $identifiers,
+        private readonly PropertyDuplicateBlockGuard $blockGuard,
+        private readonly PropertyMatchDecisionService $matchDecisions,
     ) {}
 
     /**
@@ -312,9 +319,99 @@ class ComposeSellerService
         ]);
     }
 
-    /** Link a contact to the property as a seller (idempotent). `source`: 'deed' | 'manual'. */
-    public function linkSellerToProperty(int $contactId, int $propertyId, string $source = 'manual'): void
-    {
+    /**
+     * Link a contact to the property as a seller (idempotent). `source`: 'deed' | 'manual'.
+     *
+     * Edinburgh erf 364 remediation (Johan, 2026-08-24) — this used to write a
+     * bare updateOrInsert with no query against existing links at all, so a
+     * contact already linked to an ACTIVE, on-market property could be
+     * silently linked to a brand-new second property too. Now queries first:
+     * a contact already linked (role=seller) to a DIFFERENT, on-market
+     * property is a CERTAIN match (same seller, currently-live listing
+     * elsewhere) and is hard-blocked — not a warning, per Johan's settled
+     * model (certain = block, probable = review queue, and this is the
+     * certain case).
+     *
+     * $actor / $override / $overrideReason are the escape hatch (item 2):
+     * only a branch_manager or admin can clear the block
+     * (PropertyDuplicateBlockGuard — the SAME checkpoint the deeds-capture
+     * promote() flow already reserves for exactly this decision), and every
+     * use is recorded via PropertyMatchDecisionService (who, when, the
+     * reason given) — an agent cannot self-clear it; omitting $override
+     * always blocks, it never silently proceeds.
+     *
+     * @throws DuplicateSellerLinkBlockedException  blocked, no valid override supplied.
+     * @throws \RuntimeException  override requested but the actor isn't authorised, or gave no reason.
+     */
+    public function linkSellerToProperty(
+        int $contactId,
+        int $propertyId,
+        string $source = 'manual',
+        ?User $actor = null,
+        bool $override = false,
+        ?string $overrideReason = null,
+    ): void {
+        $conflict = DB::table('contact_property')
+            ->join('properties', 'properties.id', '=', 'contact_property.property_id')
+            ->where('contact_property.contact_id', $contactId)
+            ->where('contact_property.role', 'seller')
+            ->where('contact_property.property_id', '!=', $propertyId)
+            ->whereNull('properties.deleted_at')
+            ->whereNotIn('properties.status', Property::OFF_MARKET_STATUSES)
+            ->first(['properties.id as property_id', 'properties.address', 'properties.status']);
+
+        if ($conflict) {
+            $agencyId = (int) Property::withoutGlobalScopes()->where('id', $propertyId)->value('agency_id');
+            $decision = $this->matchDecisions->record(
+                agencyId: $agencyId,
+                subjectType: 'seller_link',
+                subjectKey: 'contact:' . $contactId,
+                matchedType: 'property',
+                matchedId: (int) $conflict->property_id,
+                strategy: 'active_seller_link',
+                reason: 'Contact already linked as seller to an on-market property.',
+                incomingFacts: ['new_property_id' => $propertyId, 'source' => $source],
+            );
+
+            if (!$override) {
+                $this->matchDecisions->recordOutcome($decision, 'blocked');
+                throw new DuplicateSellerLinkBlockedException(
+                    $contactId,
+                    (int) $conflict->property_id,
+                    (string) $conflict->address,
+                    (string) $conflict->status,
+                );
+            }
+
+            if (!$actor || !$this->blockGuard->authorizeOverride($actor, 'active_seller_link')) {
+                $this->matchDecisions->recordOutcome($decision, 'blocked');
+                throw new \RuntimeException('Only a branch manager or admin can override an active seller-link block.');
+            }
+
+            if ($overrideReason === null || trim($overrideReason) === '') {
+                $this->matchDecisions->recordOutcome($decision, 'blocked');
+                throw new \RuntimeException('An override reason is required to link a seller past an active-stock block.');
+            }
+
+            $this->matchDecisions->confirm($decision, (int) $actor->id);
+            $this->matchDecisions->recordOutcome($decision, 'active_link_override');
+
+            // Every use logged — who, when, reason. An agent cannot reach this
+            // line at all (authorizeOverride() already refused above); this is
+            // the branch_manager/admin's own action being recorded, not theirs.
+            Log::warning('seller-link active-stock block overridden', [
+                'contact_id'              => $contactId,
+                'new_property_id'         => $propertyId,
+                'conflicting_property_id' => (int) $conflict->property_id,
+                'conflicting_address'     => $conflict->address,
+                'conflicting_status'      => $conflict->status,
+                'overridden_by_user_id'   => $actor->id,
+                'overridden_by_role'      => $actor->effectiveRole(),
+                'reason'                  => $overrideReason,
+                'at'                      => now()->toIso8601String(),
+            ]);
+        }
+
         DB::table('contact_property')->updateOrInsert(
             ['contact_id' => $contactId, 'property_id' => $propertyId],
             ['role' => 'seller', 'source' => $source, 'updated_at' => now(), 'created_at' => now()],

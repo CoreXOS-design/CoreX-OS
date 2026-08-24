@@ -685,6 +685,14 @@ final class DeedsCaptureController extends Controller
     public function promote(Request $request, TrackedProperty $trackedProperty, TrackedPropertyMatchOrCreateService $matcher)
     {
         $user = $request->user();
+        // Edinburgh erf 364 remediation (Johan, 2026-08-24) — checked HERE, not only
+        // via the route's permission:deeds_capture.promote middleware. The route
+        // gate is defence in depth; this is the one that can never be routed around
+        // by a future internal caller, a queued job, or a test hitting the method
+        // directly. deeds_capture.access (every agent's flat grant) was never
+        // sufficient authority to convert a capture into live stock — that's exactly
+        // the gap that let Edinburgh happen with no role check at all.
+        abort_unless($user->hasPermission('deeds_capture.promote'), 403, 'Promoting a deeds capture to stock requires branch manager or admin.');
         $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
         abort_if((int) $trackedProperty->agency_id !== (int) $agencyId, 404);
         $this->assertPropertyInDeedsScope($user, $trackedProperty);

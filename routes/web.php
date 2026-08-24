@@ -2362,6 +2362,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/contact/{contact}/documents', [\App\Http\Controllers\Compliance\FicaController::class, 'contactDocuments'])->name('contact-documents');
         Route::get('/{submission}', [\App\Http\Controllers\Compliance\FicaController::class, 'show'])->name('show');
         Route::get('/{submission}/pdf', [\App\Http\Controllers\Compliance\FicaController::class, 'downloadPdf'])->name('pdf');
+        Route::get('/{submission}/completion-report', [\App\Http\Controllers\Compliance\FicaController::class, 'completionReport'])->name('completion-report');
         Route::post('/{submission}/agent-approve', [\App\Http\Controllers\Compliance\FicaController::class, 'agentApprove'])->name('agent-approve');
         Route::post('/{submission}/tfs-screen', [\App\Http\Controllers\Compliance\FicaController::class, 'screenTfs'])->name('tfs-screen');
         Route::post('/{submission}/tfs-force-download', [\App\Http\Controllers\Compliance\FicaController::class, 'tfsForceDownload'])->name('tfs-force-download');
@@ -4714,7 +4715,15 @@ Route::middleware(['auth', 'permission:deeds_capture.access'])
     ->name('corex.deeds-capture.')
     ->group(function () {
         Route::get('/', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'index'])->name('index');
+        // Edinburgh erf 364 remediation (Johan, 2026-08-24) — promote() used to sit
+        // behind the SAME flat deeds_capture.access every agent holds; the approval
+        // gate Johan believed existed was never built. This route-level middleware
+        // is defence in depth, not the only gate — promote() itself also checks
+        // deeds_capture.promote, since a middleware-only check is exactly the kind
+        // of gate a later refactor (a queued job, an internal call, a test that
+        // calls the controller method directly) can silently bypass.
         Route::post('/{trackedProperty}/promote', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'promote'])
+            ->middleware('permission:deeds_capture.promote')
             ->whereNumber('trackedProperty')->name('promote');
         // 2 Venice Drive incident (2026-08-21) — confirming "same property" on a
         // BLOCKED match records the decision and clears the row; it can never
