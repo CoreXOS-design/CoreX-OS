@@ -262,9 +262,28 @@ class Template extends Model
             return;
         }
         $agencyId = $user->effectiveAgencyId();
-        if (!$agencyId || !$this->branches()->where('branches.agency_id', $agencyId)->exists()) {
+
+        // 2026-08-24 mismatch fix: a template with branches assigned is
+        // explicitly narrowed to those branches -- honor that exactly as
+        // before. A template with NO branches assigned is not "narrowed to
+        // nothing" -- it falls back to the same is_global-aware agency match
+        // scopeVisibleTo() and isVisibleToAgency() already use for listing.
+        // Before this fix the two disagreed: a branch-less, agency-matching
+        // template was LISTED (scopeVisibleTo) but 404'd here the instant it
+        // was opened -- the exact shape that stranded every template created
+        // via the PDF-upload and .docx-import paths (neither links a branch).
+        if ($this->branches()->exists()) {
+            if ($agencyId && $this->branches()->where('branches.agency_id', $agencyId)->exists()) {
+                return;
+            }
             abort(404);
         }
+
+        if ($this->isVisibleToAgency($agencyId)) {
+            return;
+        }
+
+        abort(404);
     }
 
     public function documents()

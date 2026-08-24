@@ -567,7 +567,7 @@ class DocumentImporterController extends Controller
         ]);
 
         try {
-            $template = $generator->generate($draft, $templateName, $user->id);
+            $template = $generator->generate($draft, $templateName, $user->id, $user->effectiveAgencyId());
 
             // ES-6.4 — persist confirmed insertable_blocks onto the new
             // template. Form posts a JSON-encoded array under
