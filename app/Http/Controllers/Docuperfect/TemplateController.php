@@ -236,18 +236,17 @@ class TemplateController extends Controller
 
         // 2026-08-24 footgun guard — checked BEFORE any field is written, against the
         // request's intended values, not the model's current (pre-update) state. Zero
-        // branches on a non-global template is NOT stranding by itself —
-        // Template::assertAccessibleBy() falls back to an agency_id match. It IS
-        // stranding, reachable by nobody but an owner-role user, when there's no
-        // agency_id to fall back to either. Refuse that specific combination outright
-        // rather than silently saving into it — this is exactly the shape (is_global
-        // toggled off, no branches picked) that stranded template #52 after it was
-        // created correctly.
-        if ($request->has('allowed_branches') && !$request->boolean('is_global')) {
+        // branches is NOT stranding by itself — Template::assertAccessibleBy() falls
+        // back to an agency_id match. It IS stranding, reachable by nobody but an
+        // owner-role user, when there's no agency_id to fall back to either. Refuse
+        // that specific combination outright rather than silently saving into it —
+        // this is exactly the shape (branches cleared to zero) that stranded template
+        // #52 after it was created correctly.
+        if ($request->has('allowed_branches')) {
             $wouldHaveNoBranches = empty($request->input('allowed_branches', []));
             if ($wouldHaveNoBranches && !$template->agency_id) {
                 return response()->json([
-                    'error' => 'This template has no agency assigned, so it must be either Global or have at least one branch selected — otherwise nobody but a system owner will be able to open it.',
+                    'error' => 'This template has no agency assigned, so it must have at least one branch selected — otherwise nobody but a system owner will be able to open it.',
                 ], 422);
             }
         }
@@ -270,9 +269,12 @@ class TemplateController extends Controller
             $val = $request->input('category');
             $data['category'] = in_array($val, ['sales', 'rentals']) ? $val : null;
         }
-        if ($request->has('is_global')) {
-            $data['is_global'] = $request->boolean('is_global');
-        }
+        // 2026-08-24 — is_global is deliberately never written from a request. There
+        // is no UI control for it any more (see the removed checkboxes in
+        // templates/edit.blade.php and templates/edit-web.blade.php); this endpoint
+        // must not honor an is_global key even if one arrives some other way (a raw
+        // API call, a stale cached form, dev tools), or removing the checkbox would
+        // have been cosmetic rather than an actual closure of the platform-wide leak.
         if ($request->has('is_esign')) {
             $data['is_esign'] = $request->boolean('is_esign');
         }
@@ -292,13 +294,11 @@ class TemplateController extends Controller
         }
 
         if ($request->has('allowed_branches')) {
-            if ($request->boolean('is_global')) {
-                $template->branches()->detach();
-            } else {
-                // The stranding case (empty branches + no agency_id) was already
-                // refused above, before $data was written — safe to sync as-is here.
-                $template->branches()->sync($request->input('allowed_branches', []));
-            }
+            // The stranding case (empty branches + no agency_id) was already refused
+            // above, before $data was written — safe to sync as-is here. No is_global
+            // branch any more: there is no request-input path left that can set it, so
+            // "sync to the submitted branches" is the only remaining behavior.
+            $template->branches()->sync($request->input('allowed_branches', []));
         }
 
         // Save signature zones (replace-all pattern)
