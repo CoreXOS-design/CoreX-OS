@@ -23,6 +23,30 @@ decision — move it too, stand it up somewhere else, or knowingly retire it —
 made before cutover, not discovered after. None of them were touched during
 tonight's cleanup for exactly this reason.
 
+## ⚠️ CHECKLIST ITEM — MUST BE DONE BEFORE THE OLD BOX IS DECOMMISSIONED
+
+*(Added 2026-08-24, following a read-only stranded-file investigation —
+`.ai/audits/perf-sweep-and-blank-pdf-findings-2026-08-23.md` §4 is the source
+for the Set A / Set B terminology below. This is a one-way door, not a
+"degrades gracefully" item — get it wrong and the recovery option disappears
+permanently, not partially.)*
+
+- [ ] **`/mnt/HC_Volume_103099143/corex-storage/` must be carried over to the
+  new box's data volume IN FULL before the old box is decommissioned.** The
+  currently-served `storage/app` tree is NOT sufficient — it is missing files
+  that exist only on this old volume.
+- [ ] **Verify the copy landed correctly**: as of 2026-08-24 this volume
+  contains **19,405 files, 6,246,725,422 bytes (≈5.82 GiB)**. Whoever performs
+  the move should confirm the destination matches this file count and byte
+  total (`find <dest> -type f | wc -l` and `du -sb <dest>`) before treating
+  the old volume as safe to remove.
+- [ ] **Why this matters**: as of 2026-08-24 this volume is the SOLE recovery
+  source for 11 signed documents (Set A — docuperfect e-sign PDFs) and is
+  being checked as a possible source for 42 agent compliance documents
+  (Set B — FFC certificates, ID copies, tax clearance certs). If this volume
+  is not carried over, those recovery options disappear permanently rather
+  than degrade — there is no other copy anywhere else on this box.
+
 ## 1. Put `storage/app` on the data volume from day one
 
 On this box, `storage/app` is ~27GB (14G property photos, 11G private client
