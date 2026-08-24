@@ -74,9 +74,16 @@
     <template x-teleport="body">
         <div x-show="open" x-cloak x-transition.opacity
              @click.outside="(!$refs.shareBtn || !$refs.shareBtn.contains($event.target)) && (open = false, back())"
-             :style="`position:fixed; top:${menuTop}px; left:${menuLeft}px;`"
-             class="z-50 w-56 rounded-md py-1"
-             style="background:var(--surface);border:1px solid var(--border);box-shadow:0 8px 30px rgba(0,0,0,0.18);">
+             {{-- 2026-08-24 (Johan, regression fix) — a single :style STRING binding here
+                  previously coexisted with a separate static `style=` attribute for the
+                  panel's own background/border/shadow. Alpine's string-form :style REPLACES
+                  the element's inline style wholesale at runtime rather than merging with
+                  it (object-form :style merges; a template-literal string does not) — so
+                  the static style was silently discarded the instant Alpine ran, leaving a
+                  transparent panel with correct position but no paint. Folded into ONE
+                  binding so there is nothing left to conflict. --}}
+             :style="{ position: 'fixed', top: menuTop + 'px', left: menuLeft + 'px', background: 'var(--surface)', border: '1px solid var(--border)', boxShadow: '0 8px 30px rgba(0,0,0,0.18)' }"
+             class="z-50 w-56 rounded-md py-1">
 
             {{-- Step 1: whose details — skipped entirely for an assistant (AT-267: an
                  assistant may only ever share with the listing agent's info, same rule
