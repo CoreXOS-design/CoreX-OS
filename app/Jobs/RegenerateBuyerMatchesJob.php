@@ -7,7 +7,7 @@ namespace App\Jobs;
 use App\Models\ContactMatch;
 use App\Services\PropertyMatchScoringService;
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -47,8 +47,24 @@ use Throwable;
  * and self-chains a continuation until every contact has been touched at
  * least once for the rotation. Every other call shape (single-contact,
  * cross-agency rebuild, explicit truncate=true) is unchanged.
+ *
+ * ShouldBeUniqueUntilProcessing, not plain ShouldBeUnique (2026-08-24 fix):
+ * the chunking design above needs the uniqueness lock released BEFORE
+ * handle() runs, because the last thing handle() does — inside its own
+ * finally block — is self::dispatch() a continuation under the SAME
+ * uniqueId. Plain ShouldBeUnique releases the lock only after handle()
+ * returns (confirmed in Laravel's own CallQueuedHandler::call(), not
+ * assumed), so that self-dispatch was trying to acquire a lock the very
+ * same execution still held, and Dispatchable::dispatch() silently no-ops
+ * when a unique lock can't be acquired — no exception, nothing in the
+ * logs. Shipped 2026-08-23 with the wrong interface; the continuation
+ * never reached the queue. See
+ * .ai/audits/2026-08-23-live-error-reduction-scan-deals-oversight-p24-buyer-matches.md
+ * for the full diagnosis. ShouldBeUniqueUntilProcessing releases the lock
+ * before processing starts, which is the semantic this was always
+ * designed around.
  */
-class RegenerateBuyerMatchesJob implements ShouldQueue, ShouldBeUnique
+class RegenerateBuyerMatchesJob implements ShouldQueue, ShouldBeUniqueUntilProcessing
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -238,9 +254,10 @@ class RegenerateBuyerMatchesJob implements ShouldQueue, ShouldBeUnique
             Cache::forget('corex.matches.regenerating');
 
             if ($chainContinuation) {
-                // ShouldBeUnique's lock releases as soon as a job starts
-                // processing (before handle() runs) — dispatching our own
-                // continuation from inside handle() does not self-deadlock.
+                // ShouldBeUniqueUntilProcessing's lock releases as soon as a
+                // job starts processing (before handle() runs) — dispatching
+                // our own continuation from inside handle() does not
+                // self-deadlock.
                 self::dispatch($this->agencyId, null, false, $this->traceId, $rotationStartedAt);
             }
         }
