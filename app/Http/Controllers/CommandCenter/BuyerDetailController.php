@@ -305,6 +305,11 @@ class BuyerDetailController extends Controller
             'preapproval_expires_at'    => 'nullable|date',
             'preapproval_institution'   => 'nullable|string|max:100',
             'name'                      => 'nullable|string|max:120',
+            // AT-CM-clear-fix — see ContactMatchController::validatePayload()'s
+            // identical marker. The full criteria form (_match-form.blade.php, shared
+            // with Core Matches) always renders this; only default a missing group to
+            // an explicit empty array below when it's present.
+            'criteria_groups_present'   => 'sometimes',
         ]);
 
         // Cross-field: bedrooms_max must be >= beds_min when both present (spec D4).
@@ -327,7 +332,23 @@ class BuyerDetailController extends Controller
             }
         });
 
-        return $validator->validate();
+        $data = $validator->validate();
+
+        // AT-CM-clear-fix — a browser submits NOTHING for a checkbox/chip group with
+        // every item unchecked, so validate() legitimately omits these keys, and
+        // extractMatchFields()/$match->update() correctly leave an omitted key
+        // untouched — right for a genuine partial submit, wrong here: the full form
+        // always renders all five groups, so absent means cleared, not unseen. Only
+        // default when the full-form marker is present.
+        if ($request->has('criteria_groups_present')) {
+            foreach (['property_types', 'p24_suburb_ids', 'must_have_features', 'nice_to_have_features', 'deal_breakers'] as $group) {
+                if (!isset($data[$group])) {
+                    $data[$group] = [];
+                }
+            }
+        }
+
+        return $data;
     }
 
     private function applyPreapproval(Contact $contact, array $validated): void

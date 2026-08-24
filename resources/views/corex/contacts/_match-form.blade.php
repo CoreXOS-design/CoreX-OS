@@ -63,6 +63,16 @@
                       class="space-y-5">
                     @csrf
                     @if($isEdit) @method('PUT') @endif
+                    {{-- AT-CM-clear-fix — marks this as the FULL criteria form, so the server
+                         can tell "every item in a group was unchecked" (this form, group absent)
+                         apart from a genuine partial submit like the "Make Primary" mini-form
+                         (contacts/show.blade.php), which never renders this. Checkbox/chip
+                         groups (property_types, p24_suburb_ids, the three feature buckets)
+                         submit NOTHING when emptied — a plain text input still submits an empty
+                         string, which is why only these five fields need this. See
+                         ContactMatchController::validatePayload() / BuyerDetailController::
+                         validateWishlistPayload() for the server-side half. --}}
+                    <input type="hidden" name="criteria_groups_present" value="1">
 
                     {{-- AT-71 — countable-buyer indicator (non-blocking / absorb, BUILD_STANDARD §3).
                          The wishlist still SAVES while empty; this just warns the agent that an
