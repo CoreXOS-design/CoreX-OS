@@ -89,6 +89,58 @@ final class BulkEmailBroadcastTest extends SystemUpdateTestCase
         $this->assertSame(3, $broadcast->recipient_count); // owner + admin + agent
     }
 
+    public function test_deactivated_users_never_receive_a_bulk_email(): void
+    {
+        Mail::fake();
+
+        $deactivated = User::factory()->create([
+            'agency_id' => $this->agency->id,
+            'role'      => 'agent',
+            'is_active' => false,
+        ]);
+
+        $this->actingAs($this->owner)->post(route('admin.system-updates.bulk-email.send'), [
+            'subject'     => 'CoreX maintenance tonight at 22:00',
+            'body'        => 'Body',
+            'target_type' => 'all',
+        ])->assertRedirect();
+
+        Mail::assertNotQueued(BulkAnnouncementMail::class, function ($mail) use ($deactivated) {
+            return $mail->hasTo($deactivated->email);
+        });
+
+        $broadcast = BulkEmailBroadcast::firstOrFail();
+        // owner + admin + agent — the deactivated user is not counted either.
+        $this->assertSame(3, $broadcast->recipient_count);
+    }
+
+    public function test_soft_deleted_users_never_receive_a_bulk_email(): void
+    {
+        Mail::fake();
+
+        $deleted = User::factory()->create([
+            'agency_id' => $this->agency->id,
+            'role'      => 'agent',
+            'is_active' => true,
+        ]);
+        $deletedEmail = $deleted->email;
+        $deleted->delete();
+
+        $this->actingAs($this->owner)->post(route('admin.system-updates.bulk-email.send'), [
+            'subject'     => 'CoreX maintenance tonight at 22:00',
+            'body'        => 'Body',
+            'target_type' => 'all',
+        ])->assertRedirect();
+
+        Mail::assertNotQueued(BulkAnnouncementMail::class, function ($mail) use ($deletedEmail) {
+            return $mail->hasTo($deletedEmail);
+        });
+
+        $broadcast = BulkEmailBroadcast::firstOrFail();
+        // owner + admin + agent — the soft-deleted user is not counted either.
+        $this->assertSame(3, $broadcast->recipient_count);
+    }
+
     public function test_a_plain_agent_is_forbidden(): void
     {
         $this->actingAs($this->agent)->get(route('admin.system-updates.bulk-email.create'))->assertForbidden();
