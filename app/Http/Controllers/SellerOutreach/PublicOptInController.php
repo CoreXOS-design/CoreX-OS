@@ -34,6 +34,9 @@ final class PublicOptInController extends Controller
     {
         $send = $this->resolveSend($token);
         $contact = $this->resolveContact($send);
+        if (!$contact) {
+            return $this->renderArchived($send);
+        }
 
         return $this->render($send, alreadyOptedIn: $contact->messaging_opted_in_at !== null && $contact->messaging_opt_out_at === null, done: false);
     }
@@ -43,6 +46,9 @@ final class PublicOptInController extends Controller
     {
         $send = $this->resolveSend($token);
         $contact = $this->resolveContact($send);
+        if (!$contact) {
+            return $this->renderArchived($send);
+        }
 
         $this->consent->optInContact(
             contact:     $contact,
@@ -69,17 +75,33 @@ final class PublicOptInController extends Controller
         }
     }
 
-    private function resolveContact(SellerOutreachSend $send): Contact
+    /**
+     * 2026-08-24 (Johan) — public-link resilience audit item #5: mirrors
+     * PublicOptOutController's fix. An archived contact is a valid-but-dead
+     * link (the token already resolved above), so it renders the branded
+     * "nothing to manage" page rather than the same bare 404 an unrecognised
+     * token gets (resolveSend() aborts 404 first for that case, unchanged).
+     */
+    private function resolveContact(SellerOutreachSend $send): ?Contact
     {
-        try {
-            return Contact::withoutGlobalScopes()
-                ->whereNull('deleted_at')
-                ->where('id', $send->contact_id)
-                ->where('agency_id', $send->agency_id)
-                ->firstOrFail();
-        } catch (ModelNotFoundException) {
-            abort(404);
-        }
+        return Contact::withoutGlobalScopes()
+            ->whereNull('deleted_at')
+            ->where('id', $send->contact_id)
+            ->where('agency_id', $send->agency_id)
+            ->first();
+    }
+
+    private function renderArchived(SellerOutreachSend $send)
+    {
+        $agencyName = (string) (DB::table('agencies')->where('id', $send->agency_id)->value('name') ?: 'our agency');
+
+        return response()
+            ->view('seller-outreach.archived', [
+                'agencyName'    => $agencyName,
+                'agencyLogoUrl' => null,
+                'brand'         => [],
+            ], 410)
+            ->header('X-Robots-Tag', 'noindex, nofollow');
     }
 
     private function render(SellerOutreachSend $send, bool $alreadyOptedIn, bool $done)

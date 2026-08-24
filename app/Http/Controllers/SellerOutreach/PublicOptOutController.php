@@ -59,6 +59,9 @@ final class PublicOptOutController extends Controller
     {
         $send = $this->resolveSend($token);
         $contact = $this->resolveContact($send);
+        if (!$contact) {
+            return $this->renderArchived($send);
+        }
 
         return $this->render($send, $contact, done: false);
     }
@@ -71,6 +74,9 @@ final class PublicOptOutController extends Controller
     {
         $send = $this->resolveSend($token);
         $contact = $this->resolveContact($send);
+        if (!$contact) {
+            return $this->renderArchived($send);
+        }
         $agencyId = (int) $send->agency_id;
 
         $action = (string) $request->input('action', self::ACTION_STOP_MARKETING);
@@ -152,18 +158,36 @@ final class PublicOptOutController extends Controller
         }
     }
 
-    private function resolveContact(SellerOutreachSend $send): Contact
+    /**
+     * 2026-08-24 (Johan) — public-link resilience audit item #5: an archived
+     * contact used to abort(404) here, identical to an unrecognised token —
+     * indistinguishable dead ends (2 live today). Per the 3-branch policy: the
+     * TOKEN was real (resolveSend() already succeeded, above), so this is a
+     * valid-but-dead link and may say so specifically; an unrecognised token
+     * never reaches this line at all (resolveSend() aborts 404 first, and
+     * stays generic). Null return lets the caller render the branded
+     * "nothing to manage" page instead of a bare error.
+     */
+    private function resolveContact(SellerOutreachSend $send): ?Contact
     {
-        try {
-            return Contact::withoutGlobalScopes()
-                ->whereNull('deleted_at')
-                ->where('id', $send->contact_id)
-                ->where('agency_id', $send->agency_id)
-                ->firstOrFail();
-        } catch (ModelNotFoundException) {
-            // Contact archived after the message went out — nothing to opt out.
-            abort(404);
-        }
+        return Contact::withoutGlobalScopes()
+            ->whereNull('deleted_at')
+            ->where('id', $send->contact_id)
+            ->where('agency_id', $send->agency_id)
+            ->first();
+    }
+
+    private function renderArchived(SellerOutreachSend $send)
+    {
+        $branding = \App\Models\Agency::publicBrandingFor((int) $send->agency_id);
+
+        return response()
+            ->view('seller-outreach.archived', [
+                'agencyName'    => $branding['name'],
+                'agencyLogoUrl' => $branding['logoUrl'],
+                'brand'         => $branding['colors'],
+            ], 410)
+            ->header('X-Robots-Tag', 'noindex, nofollow');
     }
 
     private function render(SellerOutreachSend $send, Contact $contact, bool $done)
