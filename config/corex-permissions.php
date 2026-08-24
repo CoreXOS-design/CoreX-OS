@@ -507,7 +507,7 @@ return [
         // Communication::scopeVisibleTo() enforces it) — never a shared-mailbox concept, HFC
         // has none. Deliberately NOT added to any role's `include` list here — Johan sets the
         // defaults himself in Role Manager; unset resolves to 'own', the safe default.
-        ['key' => 'dr2_unfiled_emails.view',      'label' => 'View Unfiled Emails List',    'section' => 'deals-v2',         'type' => 'action',  'module' => 'dr2_unfiled_emails', 'sort_order' => 20],
+        ['key' => 'dr2_unfiled_emails.view',      'label' => 'View Deal Register Unfiled Emails List',    'section' => 'deals-v2',         'type' => 'action',  'module' => 'dr2_unfiled_emails', 'sort_order' => 20],
 
         // ── Agencies ── REMOVED 2026-05-07: System Owner only (see agency-admin-rule.md).
         // Routes now gated by `owner_only` middleware. No permission keys needed.
