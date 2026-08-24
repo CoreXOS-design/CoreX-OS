@@ -680,10 +680,18 @@ class WebTemplateDataService
 
     /**
      * Bug 1: resolve a single contact column across EVERY recipient of a role,
-     * joined with ' and ' — the exact join resolveFieldGroupValue uses (so a
-     * plain "Seller ID" field renders "3112 and 6789", consistent with the
-     * field-grouped name field). One recipient → single value, no separator.
-     * Zero matching recipients → '' (caller falls back as before).
+     * joined with Johan's join rule (joinPartiesWithAnd — comma between,
+     * "and" before the last) — the exact join resolveFieldGroupValue uses (so
+     * a plain "Seller ID" field renders "3112, 6789 and 9999", consistent
+     * with the field-grouped name field). One recipient → single value, no
+     * separator. Zero matching recipients → '' (caller falls back as before).
+     *
+     * excludeSubstituteOnlyRecipients() — same reason as resolveFieldGroupValue()
+     * below: a row that exists solely as another party's substitute signer
+     * (e.g. a deceased seller's executor) already appears inside that party's
+     * own resolved clause; without this exclusion every plain joined field
+     * (ID, address, phone) would ALSO double-count them as an independent
+     * third seller, not just the name clause.
      */
     private function resolveContactColumnAllRecipients(?string $contactType, string $column, array $recipients): string
     {
@@ -694,7 +702,7 @@ class WebTemplateDataService
         $role = $norm($role);
 
         $parts = [];
-        foreach ($recipients as $r) {
+        foreach ($this->excludeSubstituteOnlyRecipients($recipients) as $r) {
             if ($norm(strtolower($r['role'] ?? '')) !== $role) {
                 continue;
             }
@@ -704,7 +712,56 @@ class WebTemplateDataService
             }
         }
 
-        return implode(' and ', $parts);
+        return $this->joinPartiesWithAnd($parts);
+    }
+
+    /**
+     * Johan, 2026-08-25 (cc1's finding on 49d8de43b) — a recipient promoted
+     * to an ordinary SignatureRequest solely so a deceased party's slot
+     * binding has someone real to point at (ESignWizardController's
+     * bindSlotToContact(), wizard.blade.php) already appears — by name and
+     * full ID — INSIDE the party they represent's own resolved clause
+     * ("Late Estate of X herein represented by Y"). Listing them again in a
+     * role's plain "every recipient" join names the same person twice: once
+     * correctly as the representative, once more as though they were an
+     * independent co-party. Display-only — this never touches the
+     * recipients array itself, so the promoted row still gets its own real
+     * SignatureRequest and signing link; it is excluded only from the
+     * VIEWS that enumerate "every {role}" for display.
+     *
+     * @param  list<array<string,mixed>>  $recipients
+     * @return list<array<string,mixed>>
+     */
+    private function excludeSubstituteOnlyRecipients(array $recipients): array
+    {
+        return array_values(array_filter(
+            $recipients,
+            fn (array $r) => empty($r['_deceased_substitute_for'])
+        ));
+    }
+
+    /**
+     * Johan's join rule (2026-08-24, per RecipientTemplate.php's own
+     * .ai history): comma between, "and" before the last one. Plain
+     * `implode(' and', ...)` (this function's prior body, and
+     * resolveFieldGroupValue()'s) reads "A and B and C" for 3+ items —
+     * wrong per spec, and exactly what cc1 flagged in the rendered body.
+     * Self-contained here rather than calling EsignRecipientPreset's
+     * private equivalent (a different file, not touched by this change).
+     */
+    private function joinPartiesWithAnd(array $items): string
+    {
+        $items = array_values(array_filter($items, fn ($i) => trim((string) $i) !== ''));
+        if (count($items) === 0) {
+            return '';
+        }
+        if (count($items) === 1) {
+            return $items[0];
+        }
+
+        $last = array_pop($items);
+
+        return implode(', ', $items) . ' and ' . $last;
     }
 
     /**
@@ -1182,10 +1239,16 @@ class WebTemplateDataService
 
         if (empty($contactType) || empty($memberColumns)) return '';
 
-        // Collect ALL recipients matching this role (supports multiple per role)
+        // Collect ALL recipients matching this role (supports multiple per role) —
+        // EXCEPT a recipient that exists solely as another party's substitute
+        // signer (Johan, 2026-08-25, cc1's finding). That row already appears,
+        // in full, inside the party they represent's own resolved clause below
+        // (resolvedPartyName() reads the UNFILTERED $recipients to find them by
+        // local key); listing them again here as a plain party would name the
+        // same person twice — see excludeSubstituteOnlyRecipients().
         $roleLookup = strtolower($contactType);
         $contacts = [];
-        foreach ($recipients as $r) {
+        foreach ($this->excludeSubstituteOnlyRecipients($recipients) as $r) {
             if (strtolower($r['role'] ?? '') === $roleLookup) {
                 $contacts[] = $r;
             }
@@ -1227,7 +1290,7 @@ class WebTemplateDataService
             }
         }
 
-        return implode(' and ', $displayParts);
+        return $this->joinPartiesWithAnd($displayParts);
     }
 
     /**
