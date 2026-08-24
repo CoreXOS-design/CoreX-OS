@@ -59,7 +59,14 @@
                 if (!this.open) {
                     const r = this.$refs.shareBtn.getBoundingClientRect();
                     this.menuTop = r.bottom + 4;
-                    this.menuLeft = Math.min(r.right - 224, window.innerWidth - 232);
+                    {{-- 2026-08-24 (Johan, follow-up) — clamp BOTH edges, not just the
+                         right one. A trigger button close to the left edge of a narrow
+                         panel (e.g. the Properties detail sidebar's Actions column) made
+                         r.right - 224 go negative, rendering the menu off-screen to the
+                         left with no lower bound to stop it. Same clamp shape already
+                         used in this codebase for an anchored popover (docuperfect
+                         importer/review.blade.php's selection toolbar). --}}
+                    this.menuLeft = Math.max(8, Math.min(r.right - 224, window.innerWidth - 232));
                 }
                 this.open = !this.open;
             } }"
