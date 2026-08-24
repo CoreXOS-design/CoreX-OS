@@ -1332,7 +1332,15 @@
                  outer container class scopes Step-5-specific behaviour
                  (e.g. fill-mode field highlighting) without forking the
                  layout itself. --}}
-            <div x-show="previewRenderType === 'web' && previewHtml" class="overflow-y-auto" style="max-height: calc(100vh - 200px);">
+            {{-- Johan, 2026-08-24 (fault A): this used to carry its own
+                 overflow-y-auto + a hardcoded max-height: calc(100vh - 200px)
+                 nested inside the right panel's own overflow-y-auto (line
+                 1264 above) — a second, disconnected scroll boundary sized
+                 off the raw viewport instead of the actual flex-allocated
+                 space, and the reason the whole page scrolled instead of
+                 just this panel. One panel, one scroll container: the right
+                 panel (line 1264) owns scrolling; this is plain flow content. --}}
+            <div x-show="previewRenderType === 'web' && previewHtml">
                 <link href="/css/corex-document.css" rel="stylesheet">
                 {{-- WET-INK change marks in the Fill & Review preview render from the ONE canonical stylesheet
                      the signing view + PDF use (DocumentChangeHighlighter::styleBlock() renders the same
