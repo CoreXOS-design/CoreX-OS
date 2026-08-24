@@ -242,19 +242,8 @@ Route::middleware('auth')->group(function () {
             Route::post('/{rcrQuestionnaire}/import-csv', [\App\Http\Controllers\Compliance\Rcr\RcrQuestionnaireAdminController::class, 'importCsv'])->name('import-csv');
         });
 
-    // Phase 3i — admin deal-link-review queue.
-    Route::bind('reviewItem', fn ($id) => \App\Models\DealLinkReviewQueue::findOrFail($id));
     // Phase 3j — SG document binding.
     Route::bind('sgDoc', fn ($id) => \App\Models\PropertySgDocument::findOrFail($id));
-    Route::prefix('corex/admin/deal-link-review')
-        ->name('corex.admin.deal-link-review.')
-        ->group(function () {
-            Route::get('/',                        [\App\Http\Controllers\Admin\DealLinkReviewController::class, 'index'])->name('index');
-            Route::get('/{reviewItem}',            [\App\Http\Controllers\Admin\DealLinkReviewController::class, 'show'])->name('show');
-            Route::post('/{reviewItem}/link',      [\App\Http\Controllers\Admin\DealLinkReviewController::class, 'link'])->name('link');
-            Route::post('/{reviewItem}/skip',      [\App\Http\Controllers\Admin\DealLinkReviewController::class, 'skip'])->name('skip');
-            Route::post('/{reviewItem}/unlink',    [\App\Http\Controllers\Admin\DealLinkReviewController::class, 'unlink'])->name('unlink');
-        });
 
     // Phase 7 — refresh request inbox + per-row actions.
     Route::prefix('corex/presentations/refresh-requests')
