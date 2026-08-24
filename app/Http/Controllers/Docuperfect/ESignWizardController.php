@@ -477,26 +477,32 @@ class ESignWizardController extends Controller
             $stepData['details'] = $propDefaults;
         }
 
-        // Recipients: auto-populate from the property + expand any entity into
-        // its representative(s) — the ONE shared pipeline every body/preview
-        // render must go through (see prepareRecipientsForMerge() docblock —
-        // fault 3, round 2: templatePages() was computing the body from raw,
-        // un-prepared step_data, so a live-refreshed preview could show
-        // different text than the page's own initial load — the "two systems
-        // will drift" trap Johan named, just one level up from the party-name
-        // resolution itself).
+        // Recipients: auto-populate from the property — the ONE shared
+        // pipeline every body/preview render must go through (see
+        // prepareRecipientsForMerge() docblock — fault 3, round 2:
+        // templatePages() was computing the body from raw, un-prepared
+        // step_data, so a live-refreshed preview could show different text
+        // than the page's own initial load — the "two systems will drift"
+        // trap Johan named, just one level up from the party-name
+        // resolution itself). $stepData stays RAW/un-expanded from here on —
+        // it feeds the recipients step's own editable form ('recipients'
+        // view var below) and gets returned to the client; $mergeStepData is
+        // the ONLY thing that ever sees an entity substituted for its
+        // representative (fault 3, round 3 — see expandRecipientsForMerge()
+        // docblock for why that substitution must never reach the form).
         $stepData = $this->prepareRecipientsForMerge($stepData, $template, $request->user(), $step);
+        $mergeStepData = $this->expandRecipientsForMerge($stepData, $request->user());
 
         // Auto-fill fields from wizard step data (property, recipients, details)
         // Contact fields with multiple contacts of the same role (e.g., 2 lessors)
         // are concatenated with ' & ' (e.g., "Koos Kombuis & Lienkie Kombuis")
-        $fields = $this->autoFillFields($fields, $stepData);
+        $fields = $this->autoFillFields($fields, $mergeStepData);
 
         // Pre-fill field values from WebTemplateDataService (resolved from step_data)
         $resolvedValues = [];
         if ($template && ($template->render_type ?? 'pdf') === 'web') {
             $resolvedValues = app(WebTemplateDataService::class)
-                ->resolve($template->id, $stepData, $request->user());
+                ->resolve($template->id, $mergeStepData, $request->user());
         }
 
         // Build unified ordered field list for step 5 (document order, no party grouping)
@@ -589,15 +595,17 @@ class ESignWizardController extends Controller
         }
 
         // Auto-fill field group display values from recipients
-        $allWizardFields = $this->autoFillFieldGroupDisplays($allWizardFields, $stepData);
+        $allWizardFields = $this->autoFillFieldGroupDisplays($allWizardFields, $mergeStepData);
 
         // E-sign walk-fix FIX 1 + FIX 2 — expand role-bound fields per
         // recipient so a 3-seller session renders N inputs (each
         // pre-filled from THAT specific recipient's contact), not one
         // concatenated " and "-joined value. Mirrors B2.5/B3's recipient
         // loop engine on the recipient signing surface — same loop,
-        // same identity convention, same chip labels.
-        $expandedWizardFields = $this->expandWizardFieldsPerRecipient($allWizardFields, $stepData);
+        // same identity convention, same chip labels. Uses $mergeStepData
+        // (expanded) — an entity's representative is who actually fills
+        // these fields in, not the entity itself.
+        $expandedWizardFields = $this->expandWizardFieldsPerRecipient($allWizardFields, $mergeStepData);
 
         $contactTypes = DB::table('contact_types')
             ->where('is_active', true)
@@ -1320,8 +1328,12 @@ class ESignWizardController extends Controller
                 // SAME way showStep()'s initial page load does — see
                 // prepareRecipientsForMerge()'s docblock. Without this, a refreshed
                 // preview showed different — or missing — party text than the page just
-                // loaded with.
+                // loaded with. Safe to reassign $stepData straight to the EXPANDED form
+                // here (unlike showStep()) — this endpoint only ever returns rendered
+                // HTML/pages, never an editable recipients form (fault 3, round 3 — see
+                // expandRecipientsForMerge()'s docblock for why that distinction matters).
                 $stepData = $this->prepareRecipientsForMerge($stepData, $template, $user, (int) ($flow->current_step ?? 1));
+                $stepData = $this->expandRecipientsForMerge($stepData, $user);
             }
         }
 
@@ -3222,16 +3234,49 @@ class ESignWizardController extends Controller
             }
         }
 
-        // ENTITY RECIPIENT EXPANSION (Johan 2026-08-15) — replace any entity/company
-        // recipient with its proxy-aware signing representative(s), each rendered
-        // "{entity}, herein represented by {rep} ({capacity})". Runs for BOTH
-        // auto-populated and manually-picked recipients; no-op when none are entities.
-        $recipients = $this->expandEntityRecipients($recipients, $user);
-
-        // Update stepData recipients so autoFillFields (and every merge that
-        // reads $stepData['recipients']) can see the auto-populated/expanded set.
+        // Deliberately NO entity expansion here — see expandRecipientsForMerge().
+        // This method's output feeds the recipients STEP'S OWN editable form
+        // (the 'recipients' view var showStep() seeds the Alpine list from,
+        // and what gets saved back on "Next"). Fault 3, round 3 (Johan,
+        // 2026-08-24): expansion used to happen HERE and get written back
+        // into $stepData['recipients'] — which this same array fed straight
+        // into that editable form. The agent's screen (and the client-side
+        // "Signs via its representative" preview) still looked right, but
+        // the underlying row had silently become the REPRESENTATIVE's own
+        // identity (first_name/last_name/_contact_id all HA Pretorius, not
+        // the company) with only the display `name` field still holding the
+        // composed clause. The agent clicked Next, that row got saved
+        // AS THE RECIPIENT, and the company was permanently gone from the
+        // data — flow 279's exact failure. Expansion is a presentation-layer
+        // operation for document-body merge purposes ONLY; it must never
+        // reach anything that becomes what gets edited or saved as "the
+        // recipient."
         if (!empty($recipients)) {
             $stepData['recipients'] = ['recipients' => $recipients];
+        }
+
+        return $stepData;
+    }
+
+    /**
+     * ENTITY RECIPIENT EXPANSION (Johan 2026-08-15, re-scoped 2026-08-24) —
+     * replace any entity/company recipient with its proxy-aware signing
+     * representative(s), each rendered "{entity}, herein represented by
+     * {rep} ({capacity})". Takes an ALREADY-prepared $stepData (see
+     * prepareRecipientsForMerge()) and returns a NEW copy with expansion
+     * applied — the caller's own $stepData is untouched, so a form fed from
+     * it never sees the expanded/substituted identities. Use this ONLY for
+     * document-body/preview merge calls (autoFillFields, WebTemplateDataService
+     * ::resolve(), field-group/per-recipient field expansion) — never for
+     * anything that becomes editable state or gets saved back.
+     */
+    private function expandRecipientsForMerge(array $stepData, $user): array
+    {
+        $recipients = $stepData['recipients']['recipients'] ?? [];
+        $expanded = $this->expandEntityRecipients($recipients, $user);
+
+        if (!empty($expanded)) {
+            $stepData['recipients'] = ['recipients' => $expanded];
         }
 
         return $stepData;
