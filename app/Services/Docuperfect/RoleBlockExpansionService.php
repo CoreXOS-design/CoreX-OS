@@ -2288,9 +2288,19 @@ final class RoleBlockExpansionService
      * ready for that binding layer to call resolveFor()/substitute() —
      * deliberately not wired into this method until the binding exists.
      */
+    /**
+     * Fault 3, round 5 (Johan, 2026-08-24) — "display and signing are not
+     * being treated as separate questions." DISPLAY names every
+     * representative, always, regardless of proxy — a proxy flag changes
+     * only who SIGNS (Contact::signingRepresentatives()), never who is
+     * NAMED. This used to pick exactly ONE representative to name (the
+     * proxy if any, else primary, else first) — correct for "who signs,"
+     * wrong for "who is named," and the two are different questions with
+     * different answers whenever more than one representative exists.
+     */
     public function composeEntityPartyText(Contact $entity, bool $includeRegNo = true): string
     {
-        $resolved = $this->resolveDocumentRepresentative($entity);
+        $reps = $this->resolveDocumentRepresentatives($entity);
 
         $name = (string) ($entity->entity_name ?: $entity->full_name);
         if ($includeRegNo) {
@@ -2299,56 +2309,35 @@ final class RoleBlockExpansionService
                 $name .= ' (Reg: ' . $reg . ')';
             }
         }
-        if ($resolved === null) {
+        if (empty($reps)) {
             return $name;
         }
-        [$rep, $capacity, $isProxy] = $resolved;
 
-        $preset = EsignRecipientPreset::resolveFor((int) $entity->agency_id, 'entity');
-        $template = $isProxy && filled($preset->proxy_phrasing_template)
-            ? $preset->proxy_phrasing_template
-            : ($preset->phrasing_template ?: EsignRecipientPreset::DEFAULT_PHRASING);
-
-        // Splice the reg-no-augmented name in place of the template's bare
-        // {entity_name} token before the token engine runs, so the remaining
-        // tokens ({rep_name}/{capacity}) still substitute normally.
-        $template = str_replace('{entity_name}', $name, $template);
-
-        return EsignRecipientPreset::substitute($template, $entity, $rep, $capacity);
+        // A separate composer from EsignRecipientPreset::substitute()
+        // deliberately — that one is single-representative (still correct,
+        // still used, for the recipient-search preview and each expanded
+        // signer's own individual label/caption). This clause names
+        // EVERYONE, so it needs its own list-join, not a single-slot
+        // template token.
+        return EsignRecipientPreset::composePartyClause($name, $reps);
     }
 
     /**
-     * The ONE representative to name in the document body clause: the proxy
-     * if one exists (they sign instead of everyone else — the body should say
-     * so), else the primary rep, else the first (lowest pivot id) as a
-     * defensive floor. Mirrors Contact::proxyAwareRepresentatives()'s
-     * first-match-wins style. A multi-representative, non-proxied entity
-     * (e.g. 3 co-directors, none proxied) still needs exactly ONE name in a
-     * grammatical legal clause — signingRepresentatives() correctly sends
-     * every one of them a signing link; this picks who the SENTENCE names.
+     * EVERY representative to NAME in the document body clause — no
+     * filtering by proxy status, no picking "the one." Natural join order
+     * (pivot creation order), matching how an agent added them.
      *
-     * @return array{0: Contact, 1: ?string, 2: bool}|null [rep, capacity, isProxy]
+     * @return array<int, array{0: Contact, 1: ?string, 2: bool}> [rep, capacity, isProxy] per rep
      */
-    private function resolveDocumentRepresentative(Contact $entity): ?array
+    private function resolveDocumentRepresentatives(Contact $entity): array
     {
         if (! $entity->isEntity()) {
-            return null;
+            return [];
         }
 
-        $reps = $entity->representatives()->get();
-        if ($reps->isEmpty()) {
-            return null;
-        }
-
-        $proxy = $reps->first(fn (Contact $r) => (bool) ($r->pivot->signs_as_proxy ?? false));
-        if ($proxy) {
-            return [$proxy, $proxy->pivot->capacity, true];
-        }
-
-        $primary = $reps->first(fn (Contact $r) => (bool) ($r->pivot->is_primary ?? false));
-        $chosen = $primary ?? $reps->first();
-
-        return [$chosen, $chosen->pivot->capacity, false];
+        return $entity->representatives()->get()
+            ->map(fn (Contact $r) => [$r, $r->pivot->capacity, (bool) ($r->pivot->signs_as_proxy ?? false)])
+            ->all();
     }
 
     /**

@@ -613,6 +613,22 @@ class ESignWizardController extends Controller
             ->orderBy('name')
             ->get(['id', 'name']);
 
+        // Fault 3, round 5 (Johan, 2026-08-24) — step 6's "Signing Order" list
+        // (wizard.blade.php) iterates this SAME `recipients` array and is
+        // where an agent sets each signer's email/order/skip before sending.
+        // It must show who will actually SIGN — an entity's representative(s),
+        // never the entity itself, which cannot sign and routinely has no
+        // email (Johan's exact "Deferred, details not yet known, undeliverable"
+        // finding). Steps 1-5 keep the RAW form (the company as one editable
+        // row — see prepareRecipientsForMerge()'s docblock for why); only at
+        // step 6, once recipient editing is done, does the view get the
+        // signing-expanded array — the SAME expansion prepareSigning() now
+        // uses to actually create the SignatureRequest rows, so what the
+        // agent confirms here is exactly what gets created.
+        $recipientsForView = $step === 6
+            ? $this->expandEntityRecipients($stepData['recipients']['recipients'] ?? [], $request->user())
+            : ($stepData['recipients']['recipients'] ?? []);
+
         return view('docuperfect.esign.wizard', [
             'flow'           => $flow,
             'step'           => $step,
@@ -623,7 +639,7 @@ class ESignWizardController extends Controller
             'allWizardFields' => $allWizardFields,
             'expandedWizardFields' => $expandedWizardFields,
             'pageImages'     => $pageImages,
-            'recipients'     => $stepData['recipients']['recipients'] ?? [],
+            'recipients'     => $recipientsForView,
             'stepData'       => $stepData,
             'templates'      => $templates,
             'documentTypes'  => $documentTypes,
@@ -1992,6 +2008,24 @@ class ESignWizardController extends Controller
         }
 
         $recipients = $stepData['recipients']['recipients'] ?? [];
+        // Fault 3, round 5 (Johan, 2026-08-24) — the ACTUAL blocker: this raw
+        // array is what the SignatureRequest-creation loop below reads
+        // directly, and an entity recipient here is still the COMPANY
+        // contact — which cannot sign and routinely has no email. Left
+        // unexpanded, the ceremony got exactly one SignatureRequest, bound
+        // to the entity itself, with an empty email — "Deferred, details
+        // not yet known," undeliverable. Johan's rule, verbatim: "it will
+        // always be natural person signing... An entity never signs."
+        // expandEntityRecipients() replaces an entity row with its actual
+        // SIGNING representative(s) — every non-proxied one, or the sole
+        // proxy — each bound to THAT person's own contact_id/name/email, and
+        // every one carrying the SAME (correctly all-reps-listed)
+        // _party_clause_text so whichever of them opens their link sees the
+        // company's full representation named correctly in the document
+        // body. This is the generation-time twin of expandRecipientsForMerge()
+        // — same expansion, no dedup: signing genuinely needs one row per
+        // actual signer, unlike the preview body's single mention.
+        $recipients = $this->expandEntityRecipients($recipients, $user);
         // Sort recipients by SA signing convention: Agent → Tenant/Buyer → Landlord/Seller → Witness
         $recipients = $this->sortRecipientsBySigningOrder($recipients);
         // Support both old format (array of entries) and new format ({delivery_mode, parties: [...]})
@@ -3275,8 +3309,34 @@ class ESignWizardController extends Controller
         $recipients = $stepData['recipients']['recipients'] ?? [];
         $expanded = $this->expandEntityRecipients($recipients, $user);
 
-        if (!empty($expanded)) {
-            $stepData['recipients'] = ['recipients' => $expanded];
+        // Fault 3, round 5 (Johan, 2026-08-24) — expandEntityRecipients()
+        // correctly produces one row per SIGNER (needed for the eventual
+        // signature-request loop: every non-proxied representative signs,
+        // so every one needs their own row there). But for MERGE/preview
+        // purposes the entity is ONE party in the document body — three
+        // signer rows for the same company, each now carrying the SAME
+        // (correctly all-reps-listed) _party_clause_text, still read as
+        // three separate "sellers" to resolveFieldGroupValue()'s "and"-join,
+        // tripling the identical clause. Collapse every row sharing the
+        // same _entity_contact_id down to its first occurrence — display
+        // (this array) shows the entity once; expandEntityRecipients()'s
+        // own un-collapsed output is what the real signing-request loop
+        // must still use.
+        $seenEntities = [];
+        $deduped = [];
+        foreach ($expanded as $r) {
+            $entityId = $r['_entity_contact_id'] ?? null;
+            if ($entityId !== null) {
+                if (isset($seenEntities[$entityId])) {
+                    continue;
+                }
+                $seenEntities[$entityId] = true;
+            }
+            $deduped[] = $r;
+        }
+
+        if (!empty($deduped)) {
+            $stepData['recipients'] = ['recipients' => $deduped];
         }
 
         return $stepData;

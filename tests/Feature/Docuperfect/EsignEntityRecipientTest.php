@@ -73,6 +73,49 @@ class EsignEntityRecipientTest extends TestCase
         $this->assertStringNotContainsString('()', $noCapPhrase);
     }
 
+    /**
+     * Fault 3, round 4 (Johan, 2026-08-24): flow 279 rendered "...herein
+     * represented by HA Pretorius (Representative)" — a role label
+     * identifying nobody — because {capacity}'s fallback for "unset" was the
+     * literal word "Representative", and capacity is unset far more often
+     * than not (it has a real UI — Contact -> Representatives -> Capacity —
+     * but is frequently left blank). The rep's OWN ID must render instead,
+     * the same convention a natural-person party already gets everywhere
+     * else in this system.
+     */
+    public function test_a_representative_with_no_capacity_renders_their_own_id_not_the_word_representative(): void
+    {
+        [$agency, $branchId] = $this->makeAgencyWithBranch();
+        $entity = Contact::create(['agency_id' => $agency->id, 'branch_id' => $branchId, 'contact_kind' => Contact::TYPE_ENTITY, 'entity_name' => '1502 Beaumont Prop CC', 'entity_reg_no' => '201001792823', 'first_name' => '1502 Beaumont Prop CC', 'last_name' => '']);
+        $rep = Contact::create(['agency_id' => $agency->id, 'branch_id' => $branchId, 'contact_kind' => Contact::TYPE_NATURAL_PERSON, 'first_name' => 'HA', 'last_name' => 'Pretorius', 'id_number' => '7004065141082']);
+        ContactRepresentative::create(['entity_contact_id' => $entity->id, 'representative_contact_id' => $rep->id, 'capacity' => null]);
+
+        $preset = EsignRecipientPreset::defaultFor($agency->id);
+        $phrase = $preset->renderPhrase($entity, $rep->fresh(), null);
+
+        $this->assertSame('1502 Beaumont Prop CC, herein represented by HA Pretorius (ID: 7004065141082)', $phrase);
+        $this->assertStringNotContainsString('Representative)', $phrase, 'The role-label fallback must never appear.');
+    }
+
+    /**
+     * Johan's own instinct, honoured: a representative with NEITHER capacity
+     * NOR an ID on file renders as a bare name — nothing in brackets that
+     * implies information the record doesn't actually carry.
+     */
+    public function test_a_representative_with_no_capacity_and_no_id_renders_as_a_bare_name(): void
+    {
+        [$agency, $branchId] = $this->makeAgencyWithBranch();
+        $entity = Contact::create(['agency_id' => $agency->id, 'branch_id' => $branchId, 'contact_kind' => Contact::TYPE_ENTITY, 'entity_name' => 'Bare Trading CC', 'first_name' => 'Bare Trading CC', 'last_name' => '']);
+        $rep = Contact::create(['agency_id' => $agency->id, 'branch_id' => $branchId, 'contact_kind' => Contact::TYPE_NATURAL_PERSON, 'first_name' => 'Jo', 'last_name' => 'Soap']);
+        ContactRepresentative::create(['entity_contact_id' => $entity->id, 'representative_contact_id' => $rep->id, 'capacity' => null]);
+
+        $preset = EsignRecipientPreset::defaultFor($agency->id);
+        $phrase = $preset->renderPhrase($entity, $rep->fresh(), null);
+
+        $this->assertSame('Bare Trading CC, herein represented by Jo Soap', $phrase);
+        $this->assertStringNotContainsString('(', $phrase, 'No bracket implying information that is not on file.');
+    }
+
     public function test_entity_recipient_expands_to_all_reps_no_proxy(): void
     {
         [$agency, $branchId] = $this->makeAgencyWithBranch();
@@ -91,6 +134,26 @@ class EsignEntityRecipientTest extends TestCase
             $this->assertStringContainsString('on behalf of', $r['_signature_caption']);
             $this->assertStringContainsString('Executor', $r['_signature_caption']);
         }
+
+        // Fault 3, round 5 (Johan, 2026-08-24) — "display and signing are not
+        // being treated as separate questions." SIGNING correctly produced 3
+        // rows (every non-proxied rep signs), but each row's OWN
+        // _party_clause_text — the document body's actual clause — used to
+        // be resolved independently per row and always picked the SAME ONE
+        // "canonical" rep, regardless of which of the 3 rows it was
+        // attached to (flow 280's exact failure: three identical company
+        // mentions, each naming only the primary signatory; the other two
+        // representatives named nowhere). DISPLAY must list every
+        // representative and must be IDENTICAL across every row for the
+        // same entity — the clause describes the SAME legal party
+        // regardless of who happens to be opening which link.
+        $clauseTexts = array_unique(array_column($out, '_party_clause_text'));
+        $this->assertCount(1, $clauseTexts, 'Every expanded row for the SAME entity must carry the IDENTICAL clause text.');
+        $clause = $clauseTexts[0];
+        foreach ($out as $r) {
+            $repName = trim($r['first_name'] . ' ' . $r['last_name']);
+            $this->assertStringContainsString($repName, $clause, "Every representative ({$repName}) must be named in the shared clause — not just the one whose row this is.");
+        }
     }
 
     public function test_entity_recipient_with_proxy_expands_to_single_signer(): void
@@ -101,9 +164,60 @@ class EsignEntityRecipientTest extends TestCase
 
         $out = $this->expand([['role' => 'seller', '_contact_id' => $entity->id]], $user);
 
+        // SIGNING: only the proxy gets a row — Johan's rule, "only the proxy
+        // needs to sign" — this was already correct and must stay so.
         $this->assertCount(1, $out);
         $this->assertSame($reps[1]->id, $out[0]['_contact_id']);
         $this->assertSame('rep1@x.test', $out[0]['email']);
+
+        // DISPLAY: the proxy's own row must still NAME EVERY representative,
+        // not just the one who happens to be the sole signer — "all parties
+        // still show... only the proxy signs" (Elize's rule, verbatim). This
+        // was flow 281's exact failure: HA Pretorius/Steve Jobs vanished
+        // from the document entirely because collapsing to one SIGNING row
+        // also collapsed the DISPLAY clause down to that one person.
+        $clause = $out[0]['_party_clause_text'];
+        foreach ($reps as $rep) {
+            $this->assertStringContainsString($rep->fresh()->full_name, $clause, 'Every representative must be named, whether or not they are the one signing.');
+        }
+        $this->assertStringContainsString('duly authorised representative', $clause, 'The proxy is annotated in the clause, not silently indistinguishable from the others.');
+    }
+
+    /**
+     * Fault 3, round 5 (Johan, 2026-08-24), bug 1 — expandEntityRecipients()
+     * correctly produces 3 signing rows for 3 non-proxied reps, but
+     * resolveFieldGroupValue()'s "and"-join treats every row sharing
+     * role=seller as a SEPARATE party, tripling the (now-identical) clause:
+     * flow 280's exact failure, the CC named three times as though three
+     * separate companies. expandRecipientsForMerge() must collapse rows
+     * sharing the same entity down to ONE for merge/preview purposes — the
+     * document has one seller, however many people sign for it. This does
+     * NOT apply to expandEntityRecipients()'s own raw output, which the
+     * real SignatureRequest-creation loop still needs un-collapsed (every
+     * signer needs their own row there).
+     */
+    public function test_merge_dedupes_one_row_per_entity_even_though_signing_needs_several(): void
+    {
+        [$agency, $branchId] = $this->makeAgencyWithBranch();
+        $user = User::factory()->create(['agency_id' => $agency->id]);
+        [$entity] = $this->entityWithReps($agency->id, $branchId, 3);
+
+        $stepData = [
+            'recipients' => ['recipients' => [
+                ['role' => 'seller', 'name' => $entity->entity_name, '_contact_id' => $entity->id],
+            ]],
+        ];
+
+        // expandEntityRecipients() itself still returns all 3 (signing needs them).
+        $rawExpanded = $this->expand($stepData['recipients']['recipients'], $user);
+        $this->assertCount(3, $rawExpanded, 'expandEntityRecipients() itself is unchanged — signing still needs one row per signer.');
+
+        // But the MERGE path collapses to one.
+        $merged = $this->callPrivate('expandRecipientsForMerge', [$stepData, $user]);
+        $mergedRecipients = $merged['recipients']['recipients'];
+
+        $this->assertCount(1, $mergedRecipients, 'The document has ONE seller — merge/preview must show the entity once, not once per signer.');
+        $this->assertSame($entity->id, $mergedRecipients[0]['_entity_contact_id']);
     }
 
     public function test_rep_less_entity_flagged_not_dropped(): void

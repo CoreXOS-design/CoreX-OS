@@ -177,8 +177,17 @@ final class EntityRepresentativePartyRenderingTest extends TestCase
         $this->assertStringContainsString('Mary Proxy', $out);
     }
 
-    /** Multiple reps, none proxied — the body clause names the PRIMARY, not all of them. */
-    public function test_multiple_reps_no_proxy_uses_primary(): void
+    /**
+     * Fault 3, round 5 (Johan, 2026-08-24) — this test's own name and
+     * assertions used to encode the bug: multiple reps, none proxied, and
+     * the clause named only the PRIMARY, silently dropping the others. That
+     * was Johan's exact flow-280 finding — three real directors, one named
+     * three times, two named nowhere — and this test asserted it as
+     * correct. Display and signing are different questions: every
+     * representative is named, always; only a flagged proxy changes who
+     * SIGNS. Renamed and re-asserted to match.
+     */
+    public function test_multiple_reps_no_proxy_names_everyone(): void
     {
         $company = $this->makeContact([
             'contact_kind' => Contact::TYPE_ENTITY, 'entity_name' => 'Acme Properties (Pty) Ltd',
@@ -191,8 +200,10 @@ final class EntityRepresentativePartyRenderingTest extends TestCase
 
         $out = $this->render('name_surname_id', $company);
 
-        $this->assertStringContainsString('Second Director', $out);
-        $this->assertStringNotContainsString('First Director', $out);
+        $this->assertStringContainsString(
+            'Acme Properties (Pty) Ltd, herein represented by First Director (Director) and Second Director (Director)',
+            $out
+        );
     }
 
     /** Entity with NO linked representative — the spec's own valid "scraper case". No dangling clause. */

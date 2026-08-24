@@ -125,12 +125,34 @@ class EsignRecipientPreset extends Model
     }
 
     /** Substitute the four representation tokens into a template string. */
+    /**
+     * Johan, 2026-08-24 (fault 3, round 4) — the representative renders with
+     * their own ID number, the SAME convention every natural-person party
+     * already uses ("HA Pretorius (ID: 7004065141082)"), not the word
+     * "(Representative)" — a role label that identifies nobody. That word
+     * was {capacity}'s fallback when a rep's capacity is unset (the common
+     * case today — capacity has a real UI, on the contact's own
+     * Representatives section, but is frequently left blank) — conflating
+     * "no capacity on file" with "no identity" was the actual bug. ID
+     * belongs to {rep_name} now, not the capacity fallback.
+     *
+     * When a rep genuinely has no ID on file either: render the bare name,
+     * nothing in brackets — never a label implying information that isn't
+     * there (Johan's own instinct, matching RecipientTemplate::withIdSuffix()
+     * — the equivalent choke point for the Late Estate clause).
+     *
+     * {capacity} now collapses to '' when unset (was 'Representative') — the
+     * existing empty-"()" cleanup below removes it cleanly either way.
+     */
     public static function substitute(string $template, Contact $entity, Contact $rep, ?string $capacity): string
     {
+        $repId = trim((string) ($rep->id_number ?? ''));
+        $repName = (string) $rep->full_name;
+
         $out = strtr($template, [
             '{entity_name}'   => (string) ($entity->entity_name ?: $entity->full_name),
-            '{rep_name}'      => (string) $rep->full_name,
-            '{capacity}'      => (string) ($capacity ?: 'Representative'),
+            '{rep_name}'      => $repId !== '' ? "{$repName} (ID: {$repId})" : $repName,
+            '{capacity}'      => (string) ($capacity ?: ''),
             '{entity_reg_no}' => (string) ($entity->entity_reg_no ?? ''),
         ]);
 
@@ -138,6 +160,71 @@ class EsignRecipientPreset extends Model
         $out = preg_replace('/\(\s*\)/', '', $out);
 
         return trim(preg_replace('/\s{2,}/', ' ', $out));
+    }
+
+    /**
+     * Fault 3, round 5 (Johan, 2026-08-24) — "display and signing are not
+     * being treated as separate questions... every representative is named,
+     * regardless of whether a proxy exists." Names EVERY representative
+     * passed in, joined "A, B and C" (comma between, "and" before the
+     * last) — never collapses to one, unlike substitute()/{rep_name}, which
+     * is deliberately single-slot and stays that way for its own callers
+     * (the recipient-search preview, each expanded signer's own label).
+     *
+     * A proxy's own entry carries ", duly authorised representative" —
+     * Johan confirmed this wording is right — attached to THAT person only,
+     * never the whole clause; every other representative renders plainly.
+     * Capacity, when present, joins the ID inside the SAME bracket
+     * ("(ID: x, Capacity)") — the established single-rep convention this
+     * whole system already used (EntityRepresentativePartyRenderingTest's
+     * "Acme Ltd, herein represented by John Director (Director)"), extended
+     * rather than replaced: a rep with no ID keeps showing "(Capacity)"
+     * exactly as before; ID is additive, not a second bracket.
+     *
+     * @param array<int, array{0: Contact, 1: ?string, 2: bool}> $reps [rep, capacity, isProxy] per rep
+     */
+    public static function composePartyClause(string $entityName, array $reps): string
+    {
+        $entries = array_map(
+            fn (array $item) => self::formatRepresentativeEntry($item[0], $item[1], $item[2]),
+            $reps
+        );
+
+        $repList = self::joinWithAnd($entries);
+
+        return trim(preg_replace('/\s{2,}/', ' ', "{$entityName}, herein represented by {$repList}"));
+    }
+
+    private static function formatRepresentativeEntry(Contact $rep, ?string $capacity, bool $isProxy): string
+    {
+        $id = trim((string) ($rep->id_number ?? ''));
+        $cap = trim((string) ($capacity ?? ''));
+        $name = (string) $rep->full_name;
+
+        $bracket = implode(', ', array_filter([
+            $id !== '' ? "ID: {$id}" : null,
+            $cap !== '' ? $cap : null,
+        ]));
+
+        $entry = $bracket !== '' ? "{$name} ({$bracket})" : $name;
+
+        return $isProxy ? "{$entry}, duly authorised representative" : $entry;
+    }
+
+    /** Johan's join rule (2026-08-24): comma between, "and" before the last one. */
+    private static function joinWithAnd(array $items): string
+    {
+        $items = array_values(array_filter($items, fn ($i) => trim((string) $i) !== ''));
+        if (count($items) === 0) {
+            return '';
+        }
+        if (count($items) === 1) {
+            return $items[0];
+        }
+
+        $last = array_pop($items);
+
+        return implode(', ', $items) . ' and ' . $last;
     }
 
     /** Party-name phrasing. $isProxy selects the proxy phrasing when defined. */
