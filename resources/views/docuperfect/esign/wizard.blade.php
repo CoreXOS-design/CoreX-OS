@@ -87,11 +87,21 @@
         </div>
     @endif
 
-    {{-- ===== TWO-PANEL LAYOUT ===== --}}
-    <div class="flex-1 flex min-h-0 overflow-hidden">
+    {{-- ===== TWO-PANEL LAYOUT =====
+         Johan, 2026-08-24 (fault A, round 2) — "both sides scroll together"
+         reported again, this time on /docuperfect/esign/create. create()
+         and showStep() both render THIS one view (wizard.blade.php), so
+         there was never a second, unfixed copy of this markup to find —
+         but the layout's own scroll contract lived only in loose Tailwind
+         utility classes with nothing naming or documenting it as a
+         contract. esign-two-pane-row / esign-pane below + the matching
+         corex.css rule make it explicit: every /docuperfect/esign/* screen
+         renders through this shell, so the contract is inherited, not
+         re-implemented per screen. --}}
+    <div class="esign-two-pane-row flex-1 flex min-h-0 overflow-hidden">
 
         {{-- LEFT PANEL --}}
-        <div class="overflow-y-auto flex flex-col"
+        <div class="esign-pane overflow-y-auto flex flex-col"
              :style="'background: var(--surface); width:' + leftPanelPx + 'px; min-width:250px; max-width:50vw;'">
             <div class="flex-1 p-6 pb-24">
 
@@ -1261,7 +1271,7 @@
              position:fixed (see STICKY BOTTOM BAR above), so nothing scrolls
              UNDER it by default; this is the same margin-of-safety the left
              panel already carried. --}}
-        <div class="flex-1 overflow-y-auto p-6 pb-24 min-w-0" style="background: var(--bg);"
+        <div class="esign-pane flex-1 overflow-y-auto p-6 pb-24 min-w-0" style="background: var(--bg);"
              @mouseup="onPreviewStrikeSelect()" @click="onPreviewMarkClick($event)">
             {{-- Fill & Review strike-out hint (Step 5, web templates) --}}
             <template x-if="currentStep === 5 && previewRenderType === 'web'">

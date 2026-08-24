@@ -3304,6 +3304,25 @@ html.dark .corex-sidebar {
 .esign-shell { margin: -1rem; height: 100%; }
 @media (min-width: 1024px) { .esign-shell { margin: -1.5rem; height: 100%; } }
 
+/* Two independently-scrolling panes (Johan, 2026-08-24, fault A round 2 —
+   "now both sides scroll together", reported on /docuperfect/esign/create).
+   The wizard's header, step bar and footer stay fixed; ONLY the left input
+   pane and the right document-preview pane scroll, each on its own. This is
+   a property of the shell layout, not something re-implemented per screen:
+   every /docuperfect/esign/* page (create, step/N for every step, ...)
+   renders through the ONE wizard.blade.php view, so a screen only fails to
+   inherit this if it stops using .esign-two-pane-row/.esign-pane — that IS
+   the bug to fix, not a per-screen CSS patch.
+   min-height:0 here is explicit belt-and-suspenders, not a workaround for an
+   observed browser bug: a flex item already resolves its automatic
+   min-height to 0 when its own overflow is non-visible, which .esign-pane's
+   overflow-y:auto already satisfies. Declaring it here removes the
+   dependency on that being correctly inferred every time this markup is
+   touched — the NEXT edit that wraps a pane in one more div, or drops
+   overflow-y-auto from a class list, does not get a fourth round of this. */
+.esign-two-pane-row { min-height: 0; }
+.esign-pane { min-height: 0; overflow-y: auto; }
+
 /* --- 11. DocuPerfect template card (AT-336) -------------------------------- */
 /* `.corex-template-card` was carried on the /docuperfect/templates grid card with
    NO rule behind it — so the card had `transition-all` and nothing to transition,
