@@ -2555,10 +2555,23 @@ class PropertyController extends Controller
 
     public function livePreview(Property $property, \Illuminate\Http\Request $request)
     {
-        // Public listing preview — gate by marketing readiness
+        // Public listing preview — gate by marketing readiness. Same shape
+        // of bug as the wishlist share link (Johan, 2026-08-24): this page
+        // is reachable from real WhatsApp/Email links agents already send
+        // clients (share-actions.blade.php), and a property sells, gets
+        // withdrawn, or drops out of compliance readiness far more often
+        // than a wishlist gets archived — a hard 404 here is the SAME dead
+        // end, just on a surface agents use more. Render a courteous page
+        // instead; a property ID that never existed at all still 404s via
+        // route-model-binding before this method even runs — nothing to be
+        // courteous about there.
         $svc = app(\App\Services\Compliance\MarketingReadinessService::class);
         if (!$svc->isMarketable($property)) {
-            abort(404);
+            $property->load('agency');
+
+            return response()->view('corex.properties.preview-unavailable', [
+                'agency' => $property->agency,
+            ], 404);
         }
         $property->load(['agent', 'branch', 'agency']);
 

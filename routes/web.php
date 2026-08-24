@@ -176,6 +176,9 @@ Route::get('/', function () {
 Route::get('/shared/match/{token}', [\App\Http\Controllers\SharedMatchController::class, 'show'])->name('shared.match');
 Route::get('/shared/match/{token}/view/{property}', [\App\Http\Controllers\SharedMatchController::class, 'recordView'])->name('shared.match.view');
 Route::post('/shared/match/{token}/feedback/{property}', [\App\Http\Controllers\SharedMatchController::class, 'feedback'])->name('shared.match.feedback');
+Route::post('/shared/match/{token}/reengage', [\App\Http\Controllers\SharedMatchController::class, 'reengage'])
+    ->middleware('throttle:reengage-shared-link')
+    ->name('shared.match.reengage');
 
 // Public agency property listings (no auth) — /{slug}/properties
 Route::get('/{agencySlug}/properties', [\App\Http\Controllers\PublicAgencyPropertiesController::class, 'index'])
