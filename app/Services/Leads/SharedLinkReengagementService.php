@@ -5,18 +5,17 @@ namespace App\Services\Leads;
 use App\Events\Leads\NewPortalLeadReceived;
 use App\Models\Agency;
 use App\Models\Contact;
-use App\Models\ContactMatch;
 use App\Models\PortalLead;
 use App\Models\User;
 
 /**
  * "Ask my agent to set up a new list for me" — the re-engagement action on
  * the expired-share-link page (Johan, 2026-08-24). The visitor is already a
- * known Contact (the archived ContactMatch identifies them); this is not a
- * match-or-create like WebsiteLeadService — it lands one PortalLead against
- * the contact CoreX already has, into the same pipeline agents already
- * watch (Real Estate → Portal Leads, mobile push, the agency-scoped toast),
- * so it is a lead an agent actually sees, not a row nobody reads.
+ * known Contact — this is not a match-or-create like WebsiteLeadService; it
+ * lands one PortalLead against the contact CoreX already has, into the same
+ * pipeline agents already watch (Real Estate → Portal Leads, mobile push,
+ * the agency-scoped toast), so it is a lead an agent actually sees, not a
+ * row nobody reads.
  *
  * Public, unauthenticated endpoint — rate-limited per token (see the
  * 'reengage-shared-link' limiter in AppServiceProvider) so it cannot be
@@ -30,12 +29,8 @@ class SharedLinkReengagementService
      */
     private const DUPLICATE_WINDOW_MINUTES = 30;
 
-    public function capture(ContactMatch $expiredMatch): PortalLead
+    public function capture(Contact $contact, int $agencyId): PortalLead
     {
-        /** @var Contact $contact */
-        $contact = $expiredMatch->contact()->withoutGlobalScopes()->firstOrFail();
-        $agencyId = (int) $expiredMatch->agency_id;
-
         $duplicate = PortalLead::query()
             ->withoutGlobalScopes()
             ->where('agency_id', $agencyId)
@@ -48,7 +43,7 @@ class SharedLinkReengagementService
             return $duplicate;
         }
 
-        [$agent, $agentIsCurrent] = $this->resolveAgent($contact, $expiredMatch);
+        $agent = $this->resolveAgent($contact);
 
         $lead = new PortalLead([
             'agency_id'                 => $agencyId,
@@ -65,12 +60,9 @@ class SharedLinkReengagementService
             'message'                   => 'Clicked their expired wishlist share link and asked their agent to set up a new list.',
             'is_whatsapp'               => false,
             'lead_source_raw'           => [
-                'source'                => 'shared_link_expired',
-                'expired_match_id'      => $expiredMatch->id,
-                'expired_share_slug'    => $expiredMatch->share_slug,
-                'expired_share_token'   => $expiredMatch->share_token,
-                'resolved_agent_id'     => $agent?->id,
-                'resolved_agent_is_current_owner' => $agentIsCurrent,
+                'source'            => 'shared_link_expired',
+                'contact_id'        => $contact->id,
+                'resolved_agent_id' => $agent?->id,
             ],
             'received_at'               => now(),
         ]);
@@ -83,33 +75,26 @@ class SharedLinkReengagementService
     }
 
     /**
-     * The buyer's CURRENT agent (Contact::agent_id) is the right target, not
-     * necessarily whoever originally created the archived wishlist — an
-     * agent can leave or a buyer can be reassigned since that wishlist was
-     * made. Falls back to null (agency-level contact only, no notified
-     * agent) when the current agent is gone or deactivated; the public page
-     * itself falls back to agency contact details in that same case.
-     *
-     * @return array{0: ?User, 1: bool}
+     * The buyer's CURRENT agent (Contact::agent_id) — not whoever originally
+     * created whichever wishlist happened to be archived, since an agent can
+     * leave or a buyer can be reassigned since then. Null when the current
+     * agent is gone or deactivated; the public page itself falls back to
+     * agency contact details in that same case — never show a stale agent's
+     * name.
      */
-    private function resolveAgent(Contact $contact, ContactMatch $expiredMatch): array
+    private function resolveAgent(Contact $contact): ?User
     {
         $current = $contact->agent;
         if ($current && $current->is_active && $current->deleted_at === null) {
-            return [$current, true];
+            return $current;
         }
 
-        $creator = $expiredMatch->createdBy;
-        if ($creator && $creator->is_active && $creator->deleted_at === null) {
-            return [$creator, false];
-        }
-
-        return [null, false];
+        return null;
     }
 
     /**
      * Agency-level fallback contact for the expired-link page when no active
-     * agent could be resolved — never show a stale agent's name.
+     * agent could be resolved.
      */
     public function agencyFallbackContact(Agency $agency): array
     {

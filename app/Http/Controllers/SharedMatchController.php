@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Agency;
+use App\Models\BuyerClientPageLink;
 use App\Models\Contact;
 use App\Models\ContactMatch;
 use App\Models\ContactMatchFeedback;
@@ -22,18 +23,37 @@ class SharedMatchController extends Controller
 
     public function show(Request $request, string $token)
     {
-        // Public page — no auth — bypass agency scope so the token resolves.
-        // A token whose OWN wishlist has since been archived (Johan,
-        // 2026-08-24 — a real buyer hit this: a link an agent already sent
-        // 404'd hard the moment that one wishlist was archived, even though
-        // resolveMatch() never checks whether the buyer has other active
-        // wishlists) now renders a courteous "no longer available" page
-        // instead of a blank 404. A token that never existed at all still
-        // 404s — nothing to be courteous about, and nothing to leak either
-        // way.
+        // Public page — no auth — bypass agency scope. Three token shapes
+        // resolve here, tried in order:
+        //  1. A per-wishlist token (contact_matches.share_slug/share_token)
+        //     pointing at a still-ACTIVE wishlist — the original, unchanged
+        //     behaviour. Every one of the 484 links already sent before this
+        //     buyer-level link existed keeps resolving exactly like this.
+        //  2. A buyer-level token (buyer_client_page_links.slug, 2026-08-24)
+        //     — the canonical link the Share button on the buyer header
+        //     hands out now. Resolves to that buyer's PRIMARY active
+        //     wishlist as the anchor, so it is always primary-first,
+        //     identical on every visit, no per-click variation.
+        //  3. A per-wishlist token whose OWN wishlist has since been
+        //     archived (Johan, 2026-08-24 — a real buyer hit this: a link an
+        //     agent already sent 404'd hard the moment that one wishlist was
+        //     archived, even though nothing checked whether the buyer had
+        //     other active wishlists).
+        // A token matching none of the above still 404s plainly — nothing to
+        // be courteous about, and nothing to leak either way.
+        $overrides = $this->criteriaOverridesFromRequest($request);
+
         try {
             $match = $this->resolveMatch($token, ['contact', 'createdBy']);
         } catch (ModelNotFoundException $e) {
+            $buyerLink = BuyerClientPageLink::withoutGlobalScope(AgencyScope::class)
+                ->with('contact')
+                ->where('slug', $token)
+                ->first();
+            if ($buyerLink) {
+                return $this->showViaBuyerLink($buyerLink, $overrides, $request);
+            }
+
             $archived = ContactMatch::withoutGlobalScope(AgencyScope::class)
                 ->withTrashed()
                 ->whereNotNull('deleted_at')
@@ -47,25 +67,30 @@ class SharedMatchController extends Controller
                 throw $e; // genuinely unknown token — the normal 404
             }
 
-            return $this->showExpired($archived);
+            // The archived wishlist this token pointed at may still have an
+            // active sibling for the same buyer — if so this is exactly
+            // AT-266's multi-wishlist page and there is nothing to apologise
+            // for, so route straight there via the sibling's own token.
+            // Only a buyer with ZERO active wishlists left sees the expired
+            // page. (A buyer-level token never needs this check — its own
+            // resolution in showViaBuyerLink() already finds any active
+            // wishlist directly.)
+            $sibling = ContactMatch::withoutGlobalScope(AgencyScope::class)
+                ->where('contact_id', $archived->contact_id)
+                ->where('agency_id', $archived->agency_id)
+                ->where('status', ContactMatch::STATUS_ACTIVE)
+                ->first();
+            if ($sibling) {
+                $liveToken = $sibling->share_slug ?: $sibling->share_token;
+                if ($liveToken) {
+                    return redirect()->route('shared.match', ['token' => $liveToken]);
+                }
+            }
+
+            return $this->showExpired($archived->contact, (int) $archived->agency_id, $token);
         }
 
         $contact = $match->contact;
-
-        $overrides = array_filter([
-            'category'      => $request->input('category'),
-            'property_type' => $request->input('property_type'),
-            'price_min'     => $request->filled('price_min') ? (int) $request->input('price_min') : null,
-            'price_max'     => $request->filled('price_max') ? (int) $request->input('price_max') : null,
-            'beds_min'      => $request->filled('beds_min')  ? (int) $request->input('beds_min')  : null,
-            'baths_min'     => $request->filled('baths_min') ? (int) $request->input('baths_min') : null,
-            'garages_min'   => $request->filled('garages_min') ? (int) $request->input('garages_min') : null,
-            'floor_size_min' => $request->filled('floor_size_min') ? (int) $request->input('floor_size_min') : null,
-            'floor_size_max' => $request->filled('floor_size_max') ? (int) $request->input('floor_size_max') : null,
-            'erf_size_min'  => $request->filled('erf_size_min') ? (int) $request->input('erf_size_min') : null,
-            'erf_size_max'  => $request->filled('erf_size_max') ? (int) $request->input('erf_size_max') : null,
-            'suburbs'       => $request->input('suburbs'),
-        ], fn ($v) => $v !== null && $v !== '' && $v !== []);
 
         Property::withoutEvents(fn () => null); // no-op, keep observers on
 
@@ -84,58 +109,94 @@ class SharedMatchController extends Controller
         return view('shared.match', compact('match', 'contact', 'matchGroups', 'token', 'agency'));
     }
 
+    private function criteriaOverridesFromRequest(Request $request): array
+    {
+        return array_filter([
+            'category'      => $request->input('category'),
+            'property_type' => $request->input('property_type'),
+            'price_min'     => $request->filled('price_min') ? (int) $request->input('price_min') : null,
+            'price_max'     => $request->filled('price_max') ? (int) $request->input('price_max') : null,
+            'beds_min'      => $request->filled('beds_min')  ? (int) $request->input('beds_min')  : null,
+            'baths_min'     => $request->filled('baths_min') ? (int) $request->input('baths_min') : null,
+            'garages_min'   => $request->filled('garages_min') ? (int) $request->input('garages_min') : null,
+            'floor_size_min' => $request->filled('floor_size_min') ? (int) $request->input('floor_size_min') : null,
+            'floor_size_max' => $request->filled('floor_size_max') ? (int) $request->input('floor_size_max') : null,
+            'erf_size_min'  => $request->filled('erf_size_min') ? (int) $request->input('erf_size_min') : null,
+            'erf_size_max'  => $request->filled('erf_size_max') ? (int) $request->input('erf_size_max') : null,
+            'suburbs'       => $request->input('suburbs'),
+        ], fn ($v) => $v !== null && $v !== '' && $v !== []);
+    }
+
     /**
-     * The archived wishlist this token pointed at still has other active
-     * siblings for the SAME buyer — if it does, this is exactly AT-266's
-     * multi-wishlist page and there is nothing to apologise for, so route
-     * straight there via one of the sibling's own tokens. Only a buyer with
-     * ZERO active wishlists left sees the "no longer available" page.
+     * A buyer-level token always resolves to the SAME page format the
+     * per-wishlist path renders — no second page to maintain (Johan,
+     * 2026-08-24). The anchor is the buyer's primary active wishlist (or
+     * the first active one if none is flagged primary), so buildMatchGroups()
+     * naturally puts it first and open — identical on every visit, no
+     * per-click variation, no stored expansion state, no anchor handling.
+     * Zero active wishlists routes into the SAME expired page the
+     * per-wishlist path uses.
+     */
+    private function showViaBuyerLink(BuyerClientPageLink $buyerLink, array $overrides, Request $request)
+    {
+        $anchor = ContactMatch::withoutGlobalScope(AgencyScope::class)
+            ->where('contact_id', $buyerLink->contact_id)
+            ->where('agency_id', $buyerLink->agency_id)
+            ->where('status', ContactMatch::STATUS_ACTIVE)
+            ->orderByDesc('is_primary')
+            ->orderBy('created_at')
+            ->with(['contact', 'createdBy'])
+            ->first();
+
+        if (!$anchor) {
+            return $this->showExpired($buyerLink->contact, (int) $buyerLink->agency_id, $buyerLink->slug);
+        }
+
+        $contact = $anchor->contact;
+        Property::withoutEvents(fn () => null); // no-op, keep observers on
+        $matchGroups = $this->buildMatchGroups($anchor, $contact, $overrides, $request);
+        $agency = $buyerLink->agency_id
+            ? Agency::withoutGlobalScope(AgencyScope::class)->find($buyerLink->agency_id)
+            : null;
+        $token = $buyerLink->slug;
+
+        return view('shared.match', ['match' => $anchor] + compact('contact', 'matchGroups', 'token', 'agency'));
+    }
+
+    /**
+     * No active wishlist left for this buyer — reachable via either an
+     * archived per-wishlist token with no active siblings, or the buyer-level
+     * token when every wishlist is archived.
      *
      * PRIVACY (Johan, 2026-08-24, non-optional): this URL may have been
      * forwarded to anyone. The expired page must not name the buyer, their
      * criteria, price range, or any matched property — a visitor learns only
      * that a list existed and is now closed.
      */
-    private function showExpired(ContactMatch $archived)
+    private function showExpired(Contact $contact, int $agencyId, string $reengageToken)
     {
-        // Default SoftDeletingScope already excludes archived rows here, so
-        // finding one at all means the buyer has a genuinely active sibling.
-        $sibling = ContactMatch::withoutGlobalScope(AgencyScope::class)
-            ->where('contact_id', $archived->contact_id)
-            ->where('agency_id', $archived->agency_id)
-            ->where('status', ContactMatch::STATUS_ACTIVE)
-            ->first();
-
-        if ($sibling) {
-            $liveToken = $sibling->share_slug ?: $sibling->share_token;
-            if ($liveToken) {
-                return redirect()->route('shared.match', ['token' => $liveToken]);
-            }
-        }
-
-        $contact = $archived->contact()->withoutGlobalScopes()->first();
-        $agency = $archived->agency_id
-            ? Agency::withoutGlobalScope(AgencyScope::class)->find($archived->agency_id)
-            : null;
+        $agency = $agencyId ? Agency::withoutGlobalScope(AgencyScope::class)->find($agencyId) : null;
 
         $agentService = app(SharedLinkReengagementService::class);
-        $currentAgent = $contact?->agent;
+        $currentAgent = $contact->agent;
         $showAgent = $currentAgent && $currentAgent->is_active && $currentAgent->deleted_at === null;
         $fallbackContact = $agency ? $agentService->agencyFallbackContact($agency) : ['phone' => null, 'email' => null];
 
         return response()->view('shared.match-expired', [
-            'archived'        => $archived,
-            'agency'          => $agency,
-            'agent'           => $showAgent ? $currentAgent : null,
-            'fallbackPhone'   => $fallbackContact['phone'],
-            'fallbackEmail'   => $fallbackContact['email'],
+            'reengageToken' => $reengageToken,
+            'agency'        => $agency,
+            'agent'         => $showAgent ? $currentAgent : null,
+            'fallbackPhone' => $fallbackContact['phone'],
+            'fallbackEmail' => $fallbackContact['email'],
         ], 404);
     }
 
     /**
      * "Ask my agent to set up a new list for me" — public, unauthenticated,
      * rate-limited per token (routes/web.php: throttle:reengage-shared-link).
-     * Reachable only from the expired-link page itself.
+     * Reachable only from the expired-link page itself. Accepts either token
+     * shape — a legacy per-wishlist token (active or archived) or the
+     * buyer-level token.
      */
     public function reengage(Request $request, string $token, SharedLinkReengagementService $service): RedirectResponse
     {
@@ -144,9 +205,16 @@ class SharedMatchController extends Controller
             ->where(function ($q) use ($token) {
                 $q->where('share_slug', $token)->orWhere('share_token', $token);
             })
-            ->firstOrFail();
+            ->first();
 
-        $service->capture($match);
+        if ($match) {
+            $service->capture($match->contact()->withoutGlobalScopes()->firstOrFail(), (int) $match->agency_id);
+        } else {
+            $buyerLink = BuyerClientPageLink::withoutGlobalScope(AgencyScope::class)
+                ->where('slug', $token)
+                ->firstOrFail();
+            $service->capture($buyerLink->contact()->withoutGlobalScopes()->firstOrFail(), (int) $buyerLink->agency_id);
+        }
 
         return redirect()->route('shared.match', ['token' => $token])
             ->with('reengage_sent', true);

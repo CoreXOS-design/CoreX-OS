@@ -81,7 +81,7 @@
                     Thanks — we've let your agent know. They'll be in touch to set up a new list for you.
                 </div>
             @else
-                <form method="POST" action="{{ route('shared.match.reengage', ['token' => $archived->share_slug ?: $archived->share_token]) }}">
+                <form method="POST" action="{{ route('shared.match.reengage', ['token' => $reengageToken]) }}">
                     @csrf
                     <button type="submit" class="btn-primary w-full sm:w-auto">
                         Ask my agent to set up a new list for me

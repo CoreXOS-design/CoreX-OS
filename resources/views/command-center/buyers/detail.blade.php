@@ -95,6 +95,10 @@
                     <button type="submit" class="corex-btn-outline corex-btn-on-brand">Build Viewing Pack</button>
                 </form>
                 <a href="{{ route('corex.contacts.show', $buyer) }}" class="corex-btn-outline corex-btn-on-brand no-underline">Contact Record</a>
+                {{-- Share actions are buyer-level, not per-wishlist (Johan, 2026-08-24) —
+                     WhatsApp/Email/Client Page live here once, not duplicated on every
+                     wishlist card below. --}}
+                @include('command-center.buyers._buyer-share-bar', ['buyer' => $buyer])
                 @if($buyer->buyer_state !== 'lost')
                 <button type="button" x-data x-on:click="$refs.lostModal.showModal()"
                         class="corex-btn-outline corex-btn-on-brand">
@@ -441,9 +445,11 @@
                         </div>
                     </div>
 
-                    {{-- Parity — the same WhatsApp/Email/PDF/Client Page actions and stat
-                         chips Core Matches results has, via the identical shared partial
-                         (Johan, 2026-08-24). Overrides the partial's colour custom
+                    {{-- Print/PDF (wishlist-specific) + the stat chips, via the identical
+                         shared partial Core Matches results has (Johan, 2026-08-24).
+                         WhatsApp/Email/Client Page are buyer-level now — showShareActions:
+                         false hides them here; they live once on the buyer header above
+                         (_buyer-share-bar). Overrides the partial's colour custom
                          properties for this card's light --surface background instead of
                          the dedicated page's dark banner — the partial's own defaults stay
                          untouched, so match-results.blade.php is unaffected. --}}
@@ -457,7 +463,7 @@
                                 --match-action-bar-outline-bg: transparent;
                                 --match-action-bar-outline-color: var(--text-secondary);
                                 --match-action-bar-outline-border: var(--border);">
-                        @include('corex.contacts._match-action-bar', ['contact' => $buyer, 'match' => $wishlist, 'matchCount' => $wishlistCount])
+                        @include('corex.contacts._match-action-bar', ['contact' => $buyer, 'match' => $wishlist, 'matchCount' => $wishlistCount, 'showShareActions' => false])
                     </div>
 
                     {{-- Inline accordion: this wishlist's matches, ALL of them, in

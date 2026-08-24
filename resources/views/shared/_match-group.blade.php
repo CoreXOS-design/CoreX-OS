@@ -60,6 +60,15 @@
             </div>
         </div>
         <span class="ds-badge ds-badge-info flex-shrink-0">{{ number_format($totalCount) }} match{{ $totalCount === 1 ? '' : 'es' }}</span>
+        {{-- Affordance (Johan, 2026-08-24, same chevron as the internal Buyers
+             Pipeline screen) — <summary>'s native marker is suppressed
+             site-wide (see match.blade.php's <style>), so without this the
+             header read as plain text with nothing showing it opens. Pure
+             CSS rotation via details[open], since <details>/<summary> has no
+             Alpine state to key off. --}}
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0 match-group-chevron" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="color: var(--text-muted);">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+        </svg>
     </summary>
     <div class="px-5 lg:px-6 pb-6 pt-1 space-y-4">
         @include('shared._match-group-body')

@@ -114,6 +114,8 @@
         summary { list-style: none; }
         summary::-webkit-details-marker { display: none; }
         summary::marker { content: ""; }
+        .match-group-chevron { transition: transform 150ms ease; }
+        details[open] > summary .match-group-chevron { transform: rotate(180deg); }
     </style>
 </head>
 <body>
