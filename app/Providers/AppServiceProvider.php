@@ -241,6 +241,7 @@ class AppServiceProvider extends ServiceProvider
             'corex.market-intelligence._listing-row',
             'corex.market-intelligence._slideover-buyer-row',
             'prospecting._buyer-matches-panel',
+            'command-center.buyers.detail',
         ], \App\View\Composers\OutreachWindowComposer::class);
 
         Agency::observe(AgencyObserver::class);
