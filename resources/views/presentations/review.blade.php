@@ -529,8 +529,23 @@
                             </div>
                         </div>
                     @empty
+                        {{-- 2026-08-24 — "No comparable sales were found for this
+                             subject" implied a search ran and came up empty. The
+                             real state is that none were HYDRATED into this
+                             presentation, which is a different fact with a
+                             different next action: no report imported at all
+                             (upload one) vs a report imported but nothing
+                             extracted from it (the browse tool or the report
+                             itself needs attention). Reuses $importSummary's
+                             reports_imported, the same honest source the banner
+                             above already draws on — one truth, not a second
+                             guess at the same question. --}}
                         <div class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">
-                            No comparable sales were found for this subject. Use “Browse more freehold comps” below to pull in sales beyond the auto-pool.
+                            @if(($importSummary['reports_imported'] ?? 0) === 0)
+                                No CMA report has been imported for this property yet, so no comparable sales are loaded. Upload a CMA report, or use “Browse more freehold comps” below to search directly.
+                            @else
+                                A CMA report was imported, but no comparable sales were extracted from it for this presentation. Use “Browse more freehold comps” below to search directly, or check the uploaded report.
+                            @endif
                         </div>
                     @endforelse
                 </div>
