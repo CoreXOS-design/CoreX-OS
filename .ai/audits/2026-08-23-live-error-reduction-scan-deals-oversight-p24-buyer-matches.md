@@ -1,63 +1,84 @@
 # 2026-08-23 — Live error-reduction: scan-deals, OversightDigestJob, P24 activations, buyer-match regeneration
 
-## ⚠ FIRST THING NEXT SESSION — RegenerateBuyerMatchesJob self-chaining is broken on live
+## ✅ RESOLVED 2026-08-24 — RegenerateBuyerMatchesJob self-chaining fixed and proven on both staging and live
 
-**Read this before anything else in this file, and before touching `RegenerateBuyerMatchesJob` again.**
-
-**What's broken:** the chunked agency-wide regenerate path (see §4b below) is supposed to
+**What was broken:** the chunked agency-wide regenerate path (see §4b below) is supposed to
 self-dispatch a continuation job after each 40-contact chunk, until the whole agency has
-been covered for that rotation. On live, it does not. `chain_continuation: true` computes
-correctly and `self::dispatch(...)` is called, but no continuation job ever reaches the
+been covered for that rotation. On live, it did not. `chain_continuation: true` computed
+correctly and `self::dispatch(...)` was called, but no continuation job ever reached the
 queue.
 
-**Why:** `RegenerateBuyerMatchesJob` implements plain `ShouldBeUnique`. Traced directly in
+**Why:** `RegenerateBuyerMatchesJob` implemented plain `ShouldBeUnique`. Traced directly in
 Laravel's own source (`vendor/laravel/framework/src/Illuminate/Queue/CallQueuedHandler.php`,
 `call()` method): for plain `ShouldBeUnique`, the uniqueness lock is released at line 73,
 **after** `dispatchThroughMiddleware()` — i.e. after `handle()` has already fully run and
-returned. My design comment claimed "ShouldBeUnique's lock releases as soon as a job starts
-processing (before handle() runs)" — that is the behaviour of a *different* interface,
-`ShouldBeUniqueUntilProcessing`, and I used the wrong one. The self-dispatch call, made from
-inside `handle()`'s own `finally` block, tries to acquire the SAME lock key
-(`'regen-buyer-matches:{agencyId}:all'`) that the currently-executing job itself still
-holds. `dispatch()` on a `ShouldBeUnique` job silently no-ops when the lock can't be
-acquired — no exception, no log line, nothing. That silence is why this wasn't caught
-until real end-to-end verification on live.
+returned. The original design comment claimed "ShouldBeUnique's lock releases as soon as a
+job starts processing (before handle() runs)" — that is the behaviour of a *different*
+interface, `ShouldBeUniqueUntilProcessing`, and the wrong one was used. The self-dispatch
+call, made from inside `handle()`'s own `finally` block, was trying to acquire the SAME lock
+key (`'regen-buyer-matches:{agencyId}:all'`) that the currently-executing job itself still
+held. `dispatch()` on a `ShouldBeUnique` job silently no-ops when the lock can't be
+acquired — no exception, no log line, nothing. That silence is why it wasn't caught until
+real end-to-end verification.
 
-**The fix — one line:** change `class RegenerateBuyerMatchesJob implements ShouldQueue,
-ShouldBeUnique` to implement `ShouldBeUniqueUntilProcessing` instead (import
+**The fix — one line:** `class RegenerateBuyerMatchesJob implements ShouldQueue,
+ShouldBeUnique` → implements `ShouldBeUniqueUntilProcessing` instead (import
 `Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing`). That interface releases the
-lock before `handle()` runs, which is the semantic the design always intended and the
-design comment already (incorrectly) claimed was already true.
+lock before `handle()` runs — the semantic the design always intended.
 
-**The proof this needs before it goes anywhere near live again — do not skip this, it is
-the exact thing that didn't happen this time:** an actual end-to-end demonstration that a
-chained continuation reaches the `jobs` table. Concretely, on staging: dispatch the
-agency-wide (`contactId=null`, `truncate=false`) shape against an agency with more than 40
-qualifying contacts, let the first chunk run to completion, and **query the `jobs` table
-directly afterward** to confirm a new `RegenerateBuyerMatchesJob` row exists with the same
-`agencyId` and the carried `rotationStartedAt`. Do this via the REAL queue (`::dispatch()`,
-a real worker), not a direct `handle()` call and not a simulated/manual loop — the bug only
-exists in the interaction between the queue's lock bookkeeping and a job dispatching its
-own successor, which a direct call bypasses entirely. That's precisely how this passed
-every other check tonight (mechanism proof at full scale, real-data chunk-boundary
-fingerprint, live gate verification) without ever exercising the one code path that was
-actually broken.
+**The proof, done properly this time — real queue, real dispatches, no shortcuts:**
+On staging, reset agency 17's 5 wishlist-active contacts, temporarily shrank
+`AGENCY_REGEN_MAX_PER_RUN` to 2 and redirected the job onto an isolated, uniquely-named test
+queue (`rbm-selfchain-test-20260824`) that no other process on the box polls — necessary
+because the self-chained continuation re-invokes the same constructor, which would otherwise
+also fall onto the shared `buyer-matching` queue where the real, already-deployed
+`corex-worker-staging` could grab it and contaminate the test with the real chunk size.
+Dispatched via `::dispatch()`, processed one hop at a time with `queue:work --once` against
+the real framework pipeline (never a manual `handle()` call):
+  - Hop 1 (job id 386584): 2 contacts, `chain_continuation: true`. Directly unserialized the
+    resulting continuation's raw payload (job id 386585) **while it sat unconsumed in the
+    `jobs` table** — `agencyId=17, contactId=NULL, truncate=false, rotationStartedAt` a real
+    non-null Carbon (`2026-08-24 04:13:20.799513`), correctly carried through from the
+    parent. This is the exact thing that didn't happen last time — a genuinely queued
+    continuation with the right state, inspected directly, not inferred.
+  - Hop 2: 2 more contacts, `chain_continuation: true`, new continuation queued.
+  - Hop 3: final 1 contact, `chain_continuation: false`, queue drained to 0.
+  - Total 2+2+1 = 5, zero overlap, all 5 contacts stamped. **Termination confirmed** — the
+    rotation does not loop forever; it stops exactly when the agency is fully covered.
+  - Reverted both temporary test values (`AGENCY_REGEN_MAX_PER_RUN` back to `40`, queue name
+    back to `'buyer-matching'`), confirmed via `git diff` against `origin/Staging` that only
+    the intended interface change and its doc comment remained.
+  - Re-ran once more on the served staging checkout with the real deployed config (chunk
+    size 40, real `buyer-matching` queue, real worker): all 5 of agency 17's contacts
+    completed in a single hop with `chain_continuation: false`, correctly not chaining since
+    5 < 40 — confirms the real, deployed chunk size is in effect.
+  - Re-confirmed all three prior guarantees still hold under the new interface: chunking
+    gate (`isChunkedAgencyRun()`) returns `true` only for the PropertyObserver shape
+    (`agencyId` set, `contactId=null`, `truncate=false`) and `false` for single-contact,
+    cross-agency, and explicit-truncate shapes — unchanged; no upfront wipe, since
+    `truncateScope()` is only ever called when `truncate=true`, which this path never is —
+    unchanged; prospecting-match row counts stayed constant across every hop (137
+    throughout), never reset to zero.
+  - A stuck `cache_locks` row was found and cleared mid-testing — traced to my own flawed
+    interim methodology (manually deleting a dispatched job's row and calling `handle()`
+    directly to peek at it, which bypasses the framework's lock-release pipeline entirely
+    and left the original dispatch's lock held). Not a flaw in the fix itself; redid the
+    test using only the real `::dispatch()` + `queue:work` pipeline once diagnosed.
 
-Once that's proven on staging, redeploy is code-only — no new migration, no schema
-change, same tag-then-fast-forward procedure as tonight.
+**Deployed to live 2026-08-24:** tagged `pre-rbm-selfchain-fix-20260824` on live's prior
+HEAD (`e8f6bafdd`) before touching anything. Isolated-worktree cherry-pick of the single
+staging commit (`8d5a53e85` → `8f548681b` on live, same content), confirmed `origin/main`
+had not moved since the tag, fast-forwarded `origin/main` and the served `/corex` checkout
+in place, `php -l` clean, caches cleared. No schema change — only
+`corex-worker-live-buyer-matching` needed a restart, confirmed the queue was empty first
+(no in-flight job to orphan against live's 65-minute `retry_after`). Post-restart gates:
+zero new `failed_jobs` rows for this class, zero stuck `regen-buyer-matches` cache locks,
+empty queue, no errors in `laravel.log`. Confirmed `/corex` (`nexus_os`) and
+`/corex-staging` (`hfc_staging`) are genuinely separate databases — a coincidental match on
+agency-17 contact/row counts between the two was seed-data lineage, not a live/staging leak.
 
-**Current impact, precisely stated, not minimised or catastrophised:** this is not a
-data-safety issue. Every guarantee that protects MIC's tiers is intact and was proven on
-live: bounded runs (exactly 40 contacts per invocation, confirmed), no upfront agency-wide
-wipe (confirmed — `truncate=false` on this path, unchanged), no holes (5 sampled untouched
-contacts had identical row counts before and after a real chunk ran), idempotent per-contact
-writes (unchanged from the earlier, separately-proven fix). The failure mode is narrower
-than "doesn't work": the rotation doesn't *guarantee* forward progress via self-chaining
-the way it was designed to. It instead relies on the next natural `PropertyObserver` trigger
-(a property save in that agency) to pick up the next 40-contact slice. Given agency 1's
-observed save frequency, the rotation will still complete — just on the schedule of natural
-triggers rather than immediately chained ticks. Slower than designed, not worse than the
-pre-deploy state (which had no guaranteed completion mechanism at all).
+**Current state:** fixed, proven via real queue dispatches on staging, deployed to live,
+verified healthy. No open follow-up on this item.
 
 ---
 
