@@ -764,11 +764,30 @@ class WebTemplateDataService
      * (still mid-edit) falls back to the raw name rather than breaking the
      * preview; only generation-time resolution (ESignWizardController) hard
      * -fails on that.
+     *
+     * Fault 3 (Johan, 2026-08-24) — a SECOND representation system exists
+     * alongside RecipientTemplate: an entity/company Contact expanded by
+     * ESignWizardController::expandEntityRecipients() into its natural-
+     * person representative(s), each row already carrying the resolved
+     * "entity, herein represented by rep (capacity)" clause as
+     * _party_clause_text — the SAME value the recipient panel shows
+     * (searchContacts()'s `representation`). That resolution is checked
+     * FIRST, before falling through to raw name / RecipientTemplate: an
+     * expanded row's first_name/last_name are deliberately the
+     * REPRESENTATIVE's own (needed elsewhere — signing, notification), so
+     * building a display name from them here would render the
+     * representative as if signing in their own right and drop the company
+     * entirely, exactly the bug this fixes.
      */
     private function resolvedPartyName(array $recipient, array $allRecipients): string
     {
         $rawName = trim(($recipient['first_name'] ?? '') . ' ' . ($recipient['last_name'] ?? ''));
         $rawName = $rawName !== '' ? $rawName : (string) ($recipient['name'] ?? '');
+
+        $entityClause = trim((string) ($recipient['_party_clause_text'] ?? ''));
+        if ($entityClause !== '') {
+            return $entityClause;
+        }
 
         $templateId = $recipient['_recipient_template_id'] ?? null;
         $bindings   = $recipient['_slot_bindings'] ?? null;
@@ -786,6 +805,26 @@ class WebTemplateDataService
         } catch (\App\Exceptions\DanglingSlotBindingException $e) {
             return $rawName;
         }
+    }
+
+    /**
+     * True when resolvedPartyName() will return an already-composed clause
+     * (entity representation or a bound RecipientTemplate) rather than a
+     * bare name. resolveFieldGroupValue() uses this to skip appending its
+     * own trailing "(ID: xxx)" — a resolved clause is a complete sentence
+     * (matching the recipient panel's own reference text, which carries no
+     * ID number), not a name meant to be decorated further.
+     */
+    private function hasResolvedPartyClause(array $recipient): bool
+    {
+        if (trim((string) ($recipient['_party_clause_text'] ?? '')) !== '') {
+            return true;
+        }
+
+        $templateId = $recipient['_recipient_template_id'] ?? null;
+        $bindings   = $recipient['_slot_bindings'] ?? null;
+
+        return (bool) $templateId && is_array($bindings) && !empty($bindings);
     }
 
     /**
@@ -1180,7 +1219,7 @@ class WebTemplateDataService
                 }
             }
             $line = $hasNameColumn ? $this->resolvedPartyName($contact, $recipients) : implode(' ', $nameParts);
-            if (!empty($idNumber)) {
+            if (!empty($idNumber) && !$this->hasResolvedPartyClause($contact)) {
                 $line .= ' (ID: ' . $idNumber . ')';
             }
             if (!empty(trim($line))) {

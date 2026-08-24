@@ -477,109 +477,15 @@ class ESignWizardController extends Controller
             $stepData['details'] = $propDefaults;
         }
 
-        // Recipients from step data — handle double-nested structure
-        // Must run BEFORE autoFillFields so contact-sourced fields can resolve
-        $recipientsData = $stepData['recipients'] ?? [];
-        $recipients = isset($recipientsData['recipients']) && is_array($recipientsData['recipients'])
-            ? $recipientsData['recipients']
-            : (is_array($recipientsData) && !empty($recipientsData) && isset($recipientsData[0]) ? $recipientsData : []);
-
-        // Auto-populate linked contacts from property if no non-agent recipients exist
-        $hasNonAgent = collect($recipients)->contains(fn($r) => ($r['role'] ?? '') !== 'agent');
-        if (!$hasNonAgent && $step >= 3) {
-            $propertyId = $stepData['property']['property_id'] ?? null;
-            $propertySource = $stepData['property']['_property_source'] ?? null;
-
-            // Load contacts from properties table (rental_properties has no contacts relationship)
-            if ($propertyId && $propertySource === 'properties') {
-                $prop = Property::with(['contacts' => fn($q) => $q->withPivot('role')])->find($propertyId);
-                if ($prop) {
-                    // Determine correct fallback role from template signing_parties, then document context
-                    $signingParties = $template->signing_parties ?? [];
-                    $defaultOwnerRole = collect($signingParties)->first(fn($r) => $r !== 'agent' && $r !== 'creator')
-                        ?? ($template->isSalesDocument($propertySource) ? 'seller' : 'landlord');
-
-                    // Build allowed esign_roles from template's signing_parties
-                    $allowedEsignRoles = $this->buildAllowedEsignRoles($signingParties);
-
-                    // Agent is always first recipient (added by JS), so just add linked contacts
-                    foreach ($prop->contacts as $contact) {
-                        $recipientRole = $this->resolveLinkedContactRole($contact, $allowedEsignRoles, $defaultOwnerRole);
-                        if ($recipientRole === null) {
-                            continue; // Not a party this document needs.
-                        }
-
-                        $recipients[] = [
-                            'order'       => count($recipients) + 1,
-                            'role'        => $recipientRole,
-                            'name'        => $contact->first_name . ' ' . $contact->last_name,
-                            'first_name'  => $contact->first_name ?? '',
-                            'last_name'   => $contact->last_name ?? '',
-                            'id_number'   => $contact->id_number ?? '',
-                            'email'       => $contact->email ?? '',
-                            'cell'        => $contact->phone ?? '',
-                            'address'     => $contact->address ?? '',
-                            '_contact_id' => $contact->id,
-                            'bank_name'           => $contact->bank_name ?? '',
-                            'bank_account_name'   => $contact->bank_account_name ?? '',
-                            'bank_account_number' => $contact->bank_account_number ?? '',
-                            'bank_branch_name'    => $contact->bank_branch_name ?? '',
-                            'bank_branch_code'    => $contact->bank_branch_code ?? '',
-                            'bank_account_type'   => $contact->bank_account_type ?? '',
-                        ];
-                    }
-                }
-            }
-            // BL-3: rental/letting docs select a rental_properties row, which
-            // has NO contact_property pivot and NO contacts relationship —
-            // only the denormalised landlord_name/landlord_email/landlord_phone
-            // scalars (no tenant data exists on that table). Before this branch
-            // the block above was gated on source==='properties', so letting
-            // e-sign started with zero recipients. Synthesise the landlord
-            // recipient from those scalars, gated by the template's allowed
-            // esign roles, in the same shape as the sales branch. Tenant cannot
-            // be auto-resolved from rental_properties — manual-add covers it.
-            elseif ($propertyId && $propertySource === 'rental_properties') {
-                $rentalProp = RentalProperty::find($propertyId);
-                if ($rentalProp && (!empty($rentalProp->landlord_name) || !empty($rentalProp->landlord_email))) {
-                    $signingParties = $template->signing_parties ?? [];
-                    $defaultOwnerRole = collect($signingParties)->first(fn($r) => $r !== 'agent' && $r !== 'creator')
-                        ?? ($template->isSalesDocument($propertySource) ? 'seller' : 'landlord');
-                    $allowedEsignRoles = $this->buildAllowedEsignRoles($signingParties);
-
-                    // The landlord maps to esign_role 'lessor'. Skip only if the
-                    // template explicitly restricts roles and excludes lessor.
-                    $landlordAllowed = empty($allowedEsignRoles) || in_array('lessor', $allowedEsignRoles, true);
-                    if ($landlordAllowed) {
-                        $name = trim($rentalProp->landlord_name ?? '');
-                        $nameParts = $name !== '' ? preg_split('/\s+/', $name, 2) : ['', ''];
-                        $recipients[] = [
-                            'order'       => count($recipients) + 1,
-                            'role'        => $defaultOwnerRole,
-                            'name'        => $name,
-                            'first_name'  => $nameParts[0] ?? '',
-                            'last_name'   => $nameParts[1] ?? '',
-                            'id_number'   => '',
-                            'email'       => $rentalProp->landlord_email ?? '',
-                            'cell'        => $rentalProp->landlord_phone ?? '',
-                            'address'     => $rentalProp->full_address ?? '',
-                            '_contact_id' => null,
-                        ];
-                    }
-                }
-            }
-        }
-
-        // ENTITY RECIPIENT EXPANSION (Johan 2026-08-15) — replace any entity/company
-        // recipient with its proxy-aware signing representative(s), each rendered
-        // "{entity}, herein represented by {rep} ({capacity})". Runs for BOTH
-        // auto-populated and manually-picked recipients; no-op when none are entities.
-        $recipients = $this->expandEntityRecipients($recipients, $request->user());
-
-        // Update stepData recipients so autoFillFields can see auto-populated/expanded contacts
-        if (!empty($recipients)) {
-            $stepData['recipients'] = ['recipients' => $recipients];
-        }
+        // Recipients: auto-populate from the property + expand any entity into
+        // its representative(s) — the ONE shared pipeline every body/preview
+        // render must go through (see prepareRecipientsForMerge() docblock —
+        // fault 3, round 2: templatePages() was computing the body from raw,
+        // un-prepared step_data, so a live-refreshed preview could show
+        // different text than the page's own initial load — the "two systems
+        // will drift" trap Johan named, just one level up from the party-name
+        // resolution itself).
+        $stepData = $this->prepareRecipientsForMerge($stepData, $template, $request->user(), $step);
 
         // Auto-fill fields from wizard step data (property, recipients, details)
         // Contact fields with multiple contacts of the same role (e.g., 2 lessors)
@@ -709,7 +615,7 @@ class ESignWizardController extends Controller
             'allWizardFields' => $allWizardFields,
             'expandedWizardFields' => $expandedWizardFields,
             'pageImages'     => $pageImages,
-            'recipients'     => $recipients,
+            'recipients'     => $stepData['recipients']['recipients'] ?? [],
             'stepData'       => $stepData,
             'templates'      => $templates,
             'documentTypes'  => $documentTypes,
@@ -1407,6 +1313,15 @@ class ESignWizardController extends Controller
                 if (!empty($stepData['is_pack_flow']) && !empty($stepData['template_ids'])) {
                     $packTemplateIds = $stepData['template_ids'];
                 }
+
+                // Fault 3, round 2 (Johan, 2026-08-24) — this is the LIVE-REFRESH
+                // endpoint the wizard calls after every field edit (loadTemplatePreview),
+                // so it must prepare recipients (auto-populate + entity expansion) the
+                // SAME way showStep()'s initial page load does — see
+                // prepareRecipientsForMerge()'s docblock. Without this, a refreshed
+                // preview showed different — or missing — party text than the page just
+                // loaded with.
+                $stepData = $this->prepareRecipientsForMerge($stepData, $template, $user, (int) ($flow->current_step ?? 1));
             }
         }
 
@@ -3174,6 +3089,152 @@ class ESignWizardController extends Controller
         $slug = strtolower(trim((string) ($template->documentType?->slug ?? $template->template_type ?? '')));
 
         return $slug === 'mandate' ? SignatureTemplate::GROUP_ORDER_MANDATE : null;
+    }
+
+    /**
+     * Fault 3, round 2 (Johan, 2026-08-24) — the ONE recipient-preparation
+     * pipeline (auto-populate from the property + expand any entity into its
+     * representative(s)) every body/preview render goes through. Extracted
+     * from showStep() so templatePages() — the live-refresh endpoint the
+     * wizard calls after a field edit — computes the body from the SAME
+     * prepared data as the page's own initial load, not raw, un-prepared
+     * step_data. Before this, showStep() alone ran this pipeline: the first
+     * page load showed a company's correct "entity, herein represented by
+     * rep" clause, but any subsequent live refresh (templatePages()) fed
+     * WebTemplateDataService the UNEXPANDED entity row instead — dropping
+     * the representative and, for a flow with no saved recipients yet,
+     * resolving to nothing at all. Exactly the "two systems will drift"
+     * trap Johan named — this time one level up, in what feeds the party-
+     * name resolution rather than the resolution itself.
+     *
+     * Returns $stepData with 'recipients' set to the prepared array (mirrors
+     * the auto-populate/expand result showStep() always wrote back).
+     */
+    private function prepareRecipientsForMerge(array $stepData, ?Template $template, $user, int $step): array
+    {
+        // Recipients from step data — handle double-nested structure.
+        $recipientsData = $stepData['recipients'] ?? [];
+        $recipients = isset($recipientsData['recipients']) && is_array($recipientsData['recipients'])
+            ? $recipientsData['recipients']
+            : (is_array($recipientsData) && !empty($recipientsData) && isset($recipientsData[0]) ? $recipientsData : []);
+
+        // Auto-populate linked contacts from property if no non-agent recipients exist
+        $hasNonAgent = collect($recipients)->contains(fn($r) => ($r['role'] ?? '') !== 'agent');
+        if (!$hasNonAgent && $step >= 3 && $template) {
+            $propertyId = $stepData['property']['property_id'] ?? null;
+            $propertySource = $stepData['property']['_property_source'] ?? null;
+
+            // Load contacts from properties table (rental_properties has no contacts relationship)
+            if ($propertyId && $propertySource === 'properties') {
+                $prop = Property::with(['contacts' => fn($q) => $q->withPivot('role')])->find($propertyId);
+                if ($prop) {
+                    // Determine correct fallback role from template signing_parties, then document context
+                    $signingParties = $template->signing_parties ?? [];
+                    $defaultOwnerRole = collect($signingParties)->first(fn($r) => $r !== 'agent' && $r !== 'creator')
+                        ?? ($template->isSalesDocument($propertySource) ? 'seller' : 'landlord');
+
+                    // Build allowed esign_roles from template's signing_parties
+                    $allowedEsignRoles = $this->buildAllowedEsignRoles($signingParties);
+
+                    // Fault 3 (Johan, 2026-08-24) — a company AND its own director are
+                    // routinely BOTH linked to the same property (contact_property) for
+                    // CRM lookup purposes; that is correct data, not a duplicate. But the
+                    // document has ONE seller (the company) — the director only signs FOR
+                    // it, surfaced below by expandEntityRecipients(). Auto-populating the
+                    // director a SECOND time as their own independent recipient produced
+                    // two "seller" rows for the same legal signer: the entity's clause
+                    // ("1502 BEAUMONT PROP CC, herein represented by HA Pretorius") AND a
+                    // bare "HA Pretorius" row, both merging into the body as if they were
+                    // two separate owners ("HA Pretorius ... and HA Pretorius ..."). Skip
+                    // any linked contact who represents an entity ALSO linked here.
+                    $entityContactIds = $prop->contacts->filter(fn ($c) => $c->isEntity())->pluck('id')->all();
+
+                    // Agent is always first recipient (added by JS), so just add linked contacts
+                    foreach ($prop->contacts as $contact) {
+                        if (!$contact->isEntity() && !empty($entityContactIds)
+                            && $contact->representedEntities()->whereIn('contacts.id', $entityContactIds)->exists()) {
+                            continue; // Already covered via their entity's own expansion below.
+                        }
+
+                        $recipientRole = $this->resolveLinkedContactRole($contact, $allowedEsignRoles, $defaultOwnerRole);
+                        if ($recipientRole === null) {
+                            continue; // Not a party this document needs.
+                        }
+
+                        $recipients[] = [
+                            'order'       => count($recipients) + 1,
+                            'role'        => $recipientRole,
+                            'name'        => $contact->first_name . ' ' . $contact->last_name,
+                            'first_name'  => $contact->first_name ?? '',
+                            'last_name'   => $contact->last_name ?? '',
+                            'id_number'   => $contact->id_number ?? '',
+                            'email'       => $contact->email ?? '',
+                            'cell'        => $contact->phone ?? '',
+                            'address'     => $contact->address ?? '',
+                            '_contact_id' => $contact->id,
+                            'bank_name'           => $contact->bank_name ?? '',
+                            'bank_account_name'   => $contact->bank_account_name ?? '',
+                            'bank_account_number' => $contact->bank_account_number ?? '',
+                            'bank_branch_name'    => $contact->bank_branch_name ?? '',
+                            'bank_branch_code'    => $contact->bank_branch_code ?? '',
+                            'bank_account_type'   => $contact->bank_account_type ?? '',
+                        ];
+                    }
+                }
+            }
+            // BL-3: rental/letting docs select a rental_properties row, which
+            // has NO contact_property pivot and NO contacts relationship —
+            // only the denormalised landlord_name/landlord_email/landlord_phone
+            // scalars (no tenant data exists on that table). Before this branch
+            // the block above was gated on source==='properties', so letting
+            // e-sign started with zero recipients. Synthesise the landlord
+            // recipient from those scalars, gated by the template's allowed
+            // esign roles, in the same shape as the sales branch. Tenant cannot
+            // be auto-resolved from rental_properties — manual-add covers it.
+            elseif ($propertyId && $propertySource === 'rental_properties') {
+                $rentalProp = RentalProperty::find($propertyId);
+                if ($rentalProp && (!empty($rentalProp->landlord_name) || !empty($rentalProp->landlord_email))) {
+                    $signingParties = $template->signing_parties ?? [];
+                    $defaultOwnerRole = collect($signingParties)->first(fn($r) => $r !== 'agent' && $r !== 'creator')
+                        ?? ($template->isSalesDocument($propertySource) ? 'seller' : 'landlord');
+                    $allowedEsignRoles = $this->buildAllowedEsignRoles($signingParties);
+
+                    // The landlord maps to esign_role 'lessor'. Skip only if the
+                    // template explicitly restricts roles and excludes lessor.
+                    $landlordAllowed = empty($allowedEsignRoles) || in_array('lessor', $allowedEsignRoles, true);
+                    if ($landlordAllowed) {
+                        $name = trim($rentalProp->landlord_name ?? '');
+                        $nameParts = $name !== '' ? preg_split('/\s+/', $name, 2) : ['', ''];
+                        $recipients[] = [
+                            'order'       => count($recipients) + 1,
+                            'role'        => $defaultOwnerRole,
+                            'name'        => $name,
+                            'first_name'  => $nameParts[0] ?? '',
+                            'last_name'   => $nameParts[1] ?? '',
+                            'id_number'   => '',
+                            'email'       => $rentalProp->landlord_email ?? '',
+                            'cell'        => $rentalProp->landlord_phone ?? '',
+                            'address'     => $rentalProp->full_address ?? '',
+                            '_contact_id' => null,
+                        ];
+                    }
+                }
+            }
+        }
+
+        // ENTITY RECIPIENT EXPANSION (Johan 2026-08-15) — replace any entity/company
+        // recipient with its proxy-aware signing representative(s), each rendered
+        // "{entity}, herein represented by {rep} ({capacity})". Runs for BOTH
+        // auto-populated and manually-picked recipients; no-op when none are entities.
+        $recipients = $this->expandEntityRecipients($recipients, $user);
+
+        // Update stepData recipients so autoFillFields (and every merge that
+        // reads $stepData['recipients']) can see the auto-populated/expanded set.
+        if (!empty($recipients)) {
+            $stepData['recipients'] = ['recipients' => $recipients];
+        }
+
+        return $stepData;
     }
 
     /**
