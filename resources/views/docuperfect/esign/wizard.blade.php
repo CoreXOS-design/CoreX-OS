@@ -1251,8 +1251,12 @@
              style="background: var(--border);"
              @mousedown.prevent="startResize($event)"></div>
 
-        {{-- RIGHT PANEL: Document Preview --}}
-        <div class="flex-1 overflow-y-auto p-6 min-w-0" style="background: var(--bg);"
+        {{-- RIGHT PANEL: Document Preview.
+             pb-24 clearance matches the left panel's — the footer is now
+             position:fixed (see STICKY BOTTOM BAR above), so nothing scrolls
+             UNDER it by default; this is the same margin-of-safety the left
+             panel already carried. --}}
+        <div class="flex-1 overflow-y-auto p-6 pb-24 min-w-0" style="background: var(--bg);"
              @mouseup="onPreviewStrikeSelect()" @click="onPreviewMarkClick($event)">
             {{-- Fill & Review strike-out hint (Step 5, web templates) --}}
             <template x-if="currentStep === 5 && previewRenderType === 'web'">
@@ -1471,9 +1475,20 @@
         </div>
     </div>
 
-    {{-- ===== STICKY BOTTOM BAR ===== --}}
-    <div class="flex-shrink-0 px-6 py-3 flex items-center justify-between"
-         style="background: var(--surface); border-top: 1px solid var(--border);">
+    {{-- ===== STICKY BOTTOM BAR (Johan, 2026-08-24) =====
+         REGRESSION HISTORY: this exact "Next button off-screen" complaint was
+         fixed once before (AT-336, commit 116524211/b6c18af32) by capping
+         .esign-shell's height so this bar's flex-shrink:0 positioning stayed
+         within the viewport. That fix is still present (.esign-shell height:
+         100%, not calc(100% + Nrem)) — this is a NEW instance of the same
+         class of fragility, not a regression of that fix: flex-shrink:0
+         positioning is only ever as reliable as every ancestor's height
+         computation staying correct, and it broke again as soon as content
+         above it changed. Fixed properly this time with actual CSS position,
+         independent of the shell's height math entirely — it cannot go
+         off-screen again regardless of how tall either panel's content gets. --}}
+    <div class="px-6 py-3 flex items-center justify-between"
+         style="position: fixed; bottom: 0; left: var(--corex-sidebar-width); right: 0; z-index: 40; background: var(--surface); border-top: 1px solid var(--border);">
         <div>
             <button x-show="currentStep > 1" @click="goBack()"
                     class="corex-btn-outline">
