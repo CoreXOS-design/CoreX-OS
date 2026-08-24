@@ -26,7 +26,17 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('tracked_properties', function (Blueprint $table) {
-            $table->foreignId('deeds_captured_by_user_id')->nullable()->after('deeds_captured_at')
+            // No ->after('deeds_captured_at') — that column is added by a LATER-dated
+            // migration (2026_08_26_000000), so a fresh migrate:fresh (which runs every
+            // migration file in filename order, unlike an incrementally-migrated live
+            // database) would fail here with "Unknown column 'deeds_captured_at'" before
+            // that column exists. Column order in MySQL is cosmetic only — dropping the
+            // position hint costs nothing functionally and removes the ordering dependency
+            // between these two migrations entirely. Already-migrated environments
+            // (production, Staging — both ran this before 2026_08_26_000000 existed, per
+            // their migrations table batch numbers) are unaffected: this file's CONTENT
+            // change doesn't re-run anything already recorded.
+            $table->foreignId('deeds_captured_by_user_id')->nullable()
                 ->constrained('users')->nullOnDelete();
             $table->index('deeds_captured_by_user_id', 'idx_tracked_props_deeds_captured_by');
         });

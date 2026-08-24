@@ -901,7 +901,21 @@ class MarketIntelligenceController extends Controller
 
         // Setup-wizard datasets are full-page-only. The fragment partials
         // render none of them, so the tick path skips this whole block
-        // (biggest single saving on the tick path).
+        // (biggest single saving).
+        //
+        // 2026-08-20 — REMOVED the redundant second listing resolution that
+        // used to sit here ($filters/$snapshot/$resolvedListings/
+        // $segmentLabels via $intelligence->snapshot()/$resolver->paginate(),
+        // ~10.5s of the ~14-22s MIC load time, unconditional on every
+        // full-page request regardless of role/scope/row count — see the
+        // profile in the incident report). Confirmed by grep across every
+        // view/partial `work()` renders (work.blade.php and everything it
+        // @includes): none of those four variables were referenced by name
+        // anywhere in the render tree. They were computed and thrown away
+        // on every single load. $filters/$snapshot/$resolvedListings/
+        // $segmentLabels are still built the same way in analyse() (a
+        // genuinely separate, agency-wide mode that DOES use them) —
+        // that path is untouched.
         if (! $isFragment) {
         $prospectingSetupTowns             = \App\Models\Prospecting\Town::withoutGlobalScopes()
                                                 ->where('agency_id', $agencyId)

@@ -49,4 +49,25 @@ return [
         'help_intro'   => 'Call the agent who sent this document. They can walk you through anything that is unclear.',
     ],
 
+    /*
+    |---------------------------------------------------------------------
+    | Async completion (post-signing cascade)
+    |---------------------------------------------------------------------
+    | Default OFF. When enabled, SignatureService::completeDocument() enqueues
+    | FinalizeSignedDocumentJob (PDF generation, contact linking, auto-filing,
+    | completion emails, lease extraction) instead of running that cascade
+    | inline on the last signer's request. The status write, audit log, and
+    | document seal remain synchronous either way — those are the durable
+    | legal record and are never deferred.
+    |
+    | async_completion_pdf_sync: when true (and async_completion is also
+    | true), PDF generation stays synchronous — run inline, same as legacy
+    | behaviour — and only linking/filing/emailing/lease-extraction are
+    | queued. Exists so "the sealed PDF must exist at the instant of
+    | completion" can be restored with a config change alone, no code
+    | change, no redeploy of logic — only ever a settings flip.
+    */
+    'async_completion' => (bool) env('DOCUPERFECT_ASYNC_COMPLETION', false),
+    'async_completion_pdf_sync' => (bool) env('DOCUPERFECT_ASYNC_COMPLETION_PDF_SYNC', false),
+
 ];

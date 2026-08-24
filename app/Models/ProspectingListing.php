@@ -53,6 +53,12 @@ class ProspectingListing extends Model
         'first_seen_email_date',
         'matched_property_id',
         'matched_at',
+        // Possible-match (2026-08-22) — a SEPARATE, advisory-only signal from
+        // matched_property_id above. See ComputePossibleStockMatchJob.
+        'possible_property_id',
+        'possible_match_verdict',
+        'possible_match_candidate_ids',
+        'possible_matched_at',
         'tracked_property_id',
         'mandate_type',
         // MIC SOLD / OFF-MARKET + REF-TRACKING (cc2) — portal lifecycle
@@ -71,6 +77,9 @@ class ProspectingListing extends Model
         'price_changed_at'      => 'datetime',
         'first_seen_email_date' => 'datetime',
         'matched_at'            => 'datetime',
+        'possible_property_id'          => 'integer',
+        'possible_match_candidate_ids'  => 'array',
+        'possible_matched_at'           => 'datetime',
         'tracked_property_id'   => 'integer',
         'portal_status_changed_at' => 'datetime',
         'off_market_at'            => 'datetime',
@@ -138,18 +147,36 @@ class ProspectingListing extends Model
      *            'own' (mirrors CalendarEvent::scopeVisibleTo()).
      *   all    → no extra narrowing (whole agency)
      *   none   → nothing (no access)
+     *
+     * 2026-08-20 — 'own' no longer filters on captured_by_user_id. Live data
+     * (HFC, agency 1): 39,240 of 39,556 listings (99.2%) are captured_by the
+     * account that ran the bulk import, not the individual agent working the
+     * lead — only 2 of ~14 agents have ANY personally-captured rows at all.
+     * captured_by_user_id records who ran the ingest, not who a listing is
+     * relevant to; it was never a per-agent ownership signal for this table.
+     * 'own' collapsed to zero results for every agent/office_admin as soon
+     * as import volume swamped the tiny slice of real per-agent captures
+     * (fine at ship time on 9,595 rows; broken today on 39,556). branch_id
+     * is the only field on this table that actually reflects who a listing
+     * is relevant to, so 'own' now resolves through the same branch-based
+     * logic 'branch' already uses — 'own' stays the narrowest tier (still
+     * falls back to the same captured_by_user_id-only carve-out for a truly
+     * branchless, non-view-all user), it just no longer collapses to empty
+     * for the common case of an agent in a real branch.
      */
     public function scopeVisibleTo($query, User $user, ?string $scope)
     {
+        $branchScoped = fn ($q) => $user->effectiveBranchId()
+            ? $q->where('branch_id', $user->effectiveBranchId())
+            : ($user->hasPermission('branches.view_all')
+                ? $q
+                : $q->where('captured_by_user_id', $user->id));
+
         return match ($scope) {
-            'all'    => $query,
-            'branch' => $user->effectiveBranchId()
-                ? $query->where('branch_id', $user->effectiveBranchId())
-                : ($user->hasPermission('branches.view_all')
-                    ? $query
-                    : $query->where('captured_by_user_id', $user->id)),
-            'none'   => $query->whereRaw('1 = 0'),
-            default  => $query->where('captured_by_user_id', $user->id), // 'own' or null
+            'all'           => $query,
+            'branch', 'own' => $branchScoped($query),
+            'none'          => $query->whereRaw('1 = 0'),
+            default         => $branchScoped($query), // unset/null scope — same as 'own'
         };
     }
 
@@ -318,6 +345,33 @@ class ProspectingListing extends Model
         $segments = array_filter(array_map('trim', explode(',', (string) $address)));
         $streetSegment = $segments ? strtolower(end($segments)) : '';
         if (preg_match('/^(\d+)\b/', $streetSegment, $m)) {
+            return $m[1];
+        }
+        return null;
+    }
+
+    /**
+     * The unit/door number, when the free-text address has one readable —
+     * conservative by design (2026-08-22, matcher-accuracy build): the FIRST
+     * comma-segment is where a unit/complex reference lives per the same
+     * P24/PP convention parseStreetNumber() relies on ("[complex/unit],
+     * [street]") — but unlike the street number, a unit reference is
+     * genuinely ambiguous free text ("B1 Allesreg", "Unit 5, Parklands", "27
+     * (2) Casa-Uvongo"). Only a clean leading alnum token is extracted; a
+     * messy or absent one returns null rather than guess — the confidence
+     * gate this feeds (ProspectingStockMatchService::findPossibleMatch())
+     * treats "no unit parsed" as an honest POSSIBLE, never a forced CONFIDENT.
+     */
+    public static function parseUnitNumber(?string $address): ?string
+    {
+        $segments = array_filter(array_map('trim', explode(',', (string) $address)));
+        if (count($segments) < 2) {
+            return null; // no separate unit/complex segment at all
+        }
+        $first = reset($segments);
+        $first = preg_replace('/^unit\s*/i', '', trim($first));
+        $first = preg_replace('/^(?:no|door|flat)\.?\s*/i', '', $first);
+        if (preg_match('/^([a-z]?\d+[a-z]?)\b/i', $first, $m)) {
             return $m[1];
         }
         return null;

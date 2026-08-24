@@ -721,6 +721,25 @@
             </div>
         </div>
 
+        {{-- App Access — mobile "Delete my account" (Apple 5.1.1(v)).
+             Spec: .ai/specs/mobile-app-access.md §5. Unconditional: every
+             agent has this, unlike the settings-gated cards below. --}}
+        <div class="rounded-md p-5 mt-5" style="background:var(--surface); border:1px solid var(--border);">
+            <h3 class="text-base font-bold mb-1" style="color:var(--text-primary);">App Access</h3>
+            <p class="text-xs mb-4" style="color:var(--text-muted);">Whether you can log into the CoreX mobile app. Turning this off in the app (Delete my account) never affects your CoreX account here on the website.</p>
+            @if($user->hasAppAccess())
+                <span class="ds-badge ds-badge-success">Enabled</span>
+            @else
+                <div class="flex items-center gap-3 flex-wrap">
+                    <span class="ds-badge ds-badge-warning">Disabled &mdash; turned off in the mobile app on {{ $user->app_access_revoked_at->format('d M Y') }}</span>
+                    <form method="POST" action="{{ route('agent.portal.app-access.restore') }}">
+                        @csrf
+                        <button type="submit" class="corex-btn-primary text-xs">Turn App Access back on</button>
+                    </form>
+                </div>
+            @endif
+        </div>
+
         @if($user->portal_show_api_token)
         {{-- API Token --}}
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-top:20px;"

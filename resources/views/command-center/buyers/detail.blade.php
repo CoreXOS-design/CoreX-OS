@@ -95,6 +95,10 @@
                     <button type="submit" class="corex-btn-outline corex-btn-on-brand">Build Viewing Pack</button>
                 </form>
                 <a href="{{ route('corex.contacts.show', $buyer) }}" class="corex-btn-outline corex-btn-on-brand no-underline">Contact Record</a>
+                {{-- Share actions are buyer-level, not per-wishlist (Johan, 2026-08-24) —
+                     WhatsApp/Email/Client Page live here once, not duplicated on every
+                     wishlist card below. --}}
+                @include('command-center.buyers._buyer-share-bar', ['buyer' => $buyer])
                 @if($buyer->buyer_state !== 'lost')
                 <button type="button" x-data x-on:click="$refs.lostModal.showModal()"
                         class="corex-btn-outline corex-btn-on-brand">
@@ -367,7 +371,24 @@
                      style="background: var(--surface); border: 1px solid {{ $wishlist->is_primary ? 'var(--ds-amber, #f59e0b)' : 'var(--border)' }};">
                     {{-- Compact row: badges + price on line 1, condensed details + updated on line 2 --}}
                     <div class="flex items-center gap-3 px-4 py-2.5 flex-wrap">
-                        <div class="min-w-0 flex-1">
+                        {{-- The header IS the expand/collapse control (Johan, 2026-08-24) — a
+                             real <button>, not a styled div, so it's keyboard-reachable and
+                             carries aria-expanded. Before this, the only way to toggle a
+                             wishlist's matches was the small "View Matches" button in the
+                             actions row on the right — visually disconnected from the price/
+                             badges header, which looked like static text. That's why an
+                             expanded wishlist read as "stuck open" and a collapsed one read as
+                             "just a summary card" — nothing about the header signalled either
+                             was interactive. The chevron + hover + cursor here are the actual
+                             fix; the "View Matches" button stays as a secondary, explicit
+                             control wired to the same toggleWishlistMatches()/wishlistOpen
+                             state, so nothing regresses for anyone used to clicking it. --}}
+                        <button type="button" @click="toggleWishlistMatches({{ $wishlist->id }})"
+                                :aria-expanded="wishlistOpen[{{ $wishlist->id }}] ? 'true' : 'false'"
+                                aria-controls="wishlist-matches-{{ $wishlist->id }}"
+                                class="min-w-0 flex-1 text-left rounded-md transition-colors -mx-1.5 -my-1 px-1.5 py-1"
+                                style="cursor: pointer; background: transparent; border: none;"
+                                onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
                             <div class="flex items-center gap-2 flex-wrap">
                                 @if($wishlist->is_primary)
                                     <span class="ds-badge ds-badge-warning">Primary</span>
@@ -377,12 +398,18 @@
                                     <span class="text-sm font-bold whitespace-nowrap" style="color: var(--text-primary);">{{ $wishlist->priceRangeLabel() }}</span>
                                 @endif
                                 <span class="text-[10px]" style="color: var(--text-muted);">{{ str_replace('_', ' ', $wishlist->status) }}</span>
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 flex-shrink-0 transition-transform"
+                                     :class="{ 'rotate-180': wishlistOpen[{{ $wishlist->id }}] }"
+                                     fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="color: var(--text-muted);">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                                </svg>
                             </div>
                             <div class="text-[11px] mt-0.5 truncate" style="color: var(--text-secondary);">
                                 @if(!empty($detailBits)){{ implode(' · ', $detailBits) }} · @endif
                                 <span style="color: var(--text-muted);">Updated {{ $wishlist->updated_at->diffForHumans() }}</span>
+                                <span style="color: var(--text-muted);">· <span x-text="wishlistOpen[{{ $wishlist->id }}] ? 'Click to collapse' : 'Click to expand'"></span></span>
                             </div>
-                        </div>
+                        </button>
 
                         {{-- Actions: horizontal row + overflow menu for the rarer actions --}}
                         <div class="flex items-center gap-1.5 flex-shrink-0">
@@ -418,9 +445,11 @@
                         </div>
                     </div>
 
-                    {{-- Parity — the same WhatsApp/Email/PDF/Client Page actions and stat
-                         chips Core Matches results has, via the identical shared partial
-                         (Johan, 2026-08-24). Overrides the partial's colour custom
+                    {{-- Print/PDF (wishlist-specific) + the stat chips, via the identical
+                         shared partial Core Matches results has (Johan, 2026-08-24).
+                         WhatsApp/Email/Client Page are buyer-level now — showShareActions:
+                         false hides them here; they live once on the buyer header above
+                         (_buyer-share-bar). Overrides the partial's colour custom
                          properties for this card's light --surface background instead of
                          the dedicated page's dark banner — the partial's own defaults stay
                          untouched, so match-results.blade.php is unaffected. --}}
@@ -434,7 +463,7 @@
                                 --match-action-bar-outline-bg: transparent;
                                 --match-action-bar-outline-color: var(--text-secondary);
                                 --match-action-bar-outline-border: var(--border);">
-                        @include('corex.contacts._match-action-bar', ['contact' => $buyer, 'match' => $wishlist, 'matchCount' => $wishlistCount])
+                        @include('corex.contacts._match-action-bar', ['contact' => $buyer, 'match' => $wishlist, 'matchCount' => $wishlistCount, 'showShareActions' => false])
                     </div>
 
                     {{-- Inline accordion: this wishlist's matches, ALL of them, in
@@ -447,7 +476,7 @@
                          already rendered. Default-expanded wishlist's page 1 is
                          server-rendered directly; every other wishlist's page 1 (and
                          every wishlist's page 2+) is fetched as JSON and appended. --}}
-                    <div x-show="wishlistOpen[{{ $wishlist->id }}]" x-cloak x-collapse style="border-top: 1px solid var(--border);">
+                    <div id="wishlist-matches-{{ $wishlist->id }}" x-show="wishlistOpen[{{ $wishlist->id }}]" x-cloak x-collapse style="border-top: 1px solid var(--border);">
                         <div class="p-3">
                             <div class="space-y-3 overflow-y-auto"
                                  style="max-height: 600px;" x-ref="wlMatches{{ $wishlist->id }}">

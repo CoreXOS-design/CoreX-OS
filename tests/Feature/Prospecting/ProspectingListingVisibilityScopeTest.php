@@ -27,20 +27,59 @@ final class ProspectingListingVisibilityScopeTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_agent_sees_only_listings_they_captured(): void
+    /**
+     * 2026-08-20 — 'own' no longer means "captured_by_user_id === me". Live
+     * data proved that field records who ran the bulk import (99.2% of
+     * 39,556 rows on agency 1 are captured_by ONE account, not the working
+     * agent), so filtering on it collapsed 'own' to zero results for every
+     * agent/office_admin the instant import volume swamped the tiny slice
+     * of real per-agent captures. 'own' now resolves through the same real,
+     * populated branch_id signal 'branch' already uses — an agent sees
+     * their branch's canvassing pool regardless of who/what captured each
+     * row, and is still excluded from another branch's pool.
+     */
+    public function test_agent_sees_their_branchs_pool_regardless_of_who_captured_it(): void
     {
-        [$agencyId, $b1] = $this->seedAgency();
+        [$agencyId, $b1, $b2] = $this->seedAgency(twoBranches: true);
         $agentA = $this->makeUser($agencyId, $b1, 'agent');
         $agentB = $this->makeUser($agencyId, $b1, 'agent');
+        $importer = $this->makeUser($agencyId, $b1, 'admin');
 
-        $this->makeListing($agencyId, $b1, $agentA->id, 'P24-A');
+        // Mirrors live: virtually every real row is captured_by the bulk
+        // importer, not the agent it's actually relevant to.
+        $this->makeListing($agencyId, $b1, $importer->id, 'P24-BulkImported');
         $this->makeListing($agencyId, $b1, $agentB->id, 'P24-B');
+        $this->makeListing($agencyId, $b2, $importer->id, 'P24-OtherBranch');
 
         $this->assertSame('own', PermissionService::marketIntelligenceScope($agentA));
 
         $refs = $this->visibleRefs($agentA);
-        $this->assertContains('P24-A', $refs);
-        $this->assertNotContains('P24-B', $refs);
+        // The regression this fixes: a listing captured by someone else
+        // entirely, but in the agent's own branch, must be visible.
+        $this->assertContains('P24-BulkImported', $refs, 'own scope must not collapse to empty just because a different account captured the row');
+        $this->assertContains('P24-B', $refs);
+        // Still correctly scoped — another branch stays invisible.
+        $this->assertNotContains('P24-OtherBranch', $refs);
+    }
+
+    /**
+     * The exact live incident, reproduced: an agent with ZERO
+     * personally-captured listings (the real, common case — only 2 of ~14
+     * live agents ever personally captured anything) must still see their
+     * branch's pool, not an empty list.
+     */
+    public function test_agent_with_zero_personal_captures_still_sees_their_branch_pool(): void
+    {
+        [$agencyId, $b1] = $this->seedAgency();
+        $agent = $this->makeUser($agencyId, $b1, 'agent');
+        $someoneElse = $this->makeUser($agencyId, $b1, 'admin');
+
+        // $agent has captured NOTHING — every listing belongs to someone else.
+        $this->makeListing($agencyId, $b1, $someoneElse->id, 'P24-Never-Captured-By-Agent');
+
+        $refs = $this->visibleRefs($agent);
+        $this->assertNotEmpty($refs, 'an agent who never personally captured anything must not see an empty canvass pool');
+        $this->assertContains('P24-Never-Captured-By-Agent', $refs);
     }
 
     public function test_admin_scope_sees_whole_agency(): void

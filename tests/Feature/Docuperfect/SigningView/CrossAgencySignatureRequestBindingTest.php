@@ -61,8 +61,9 @@ final class CrossAgencySignatureRequestBindingTest extends TestCase
             'branch_id' => $branch->id,
         ]);
 
-        // agency_id stamped explicitly: SignatureTemplate uses BelongsToAgency
-        // and this row is created outside a request/auth context, so the
+        // agency_id stamped explicitly: SignatureTemplate now uses
+        // BelongsToAgency (Staging, 2026-08-15, unrelated to this fix) and
+        // this row is created outside a request/auth context, so the
         // trait's auto-stamp-from-Auth::user() hook has nothing to stamp
         // from -- a real controller-created row would auto-stamp correctly.
         $template = SignatureTemplate::create([

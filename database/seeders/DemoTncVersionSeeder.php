@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\DemoTncVersion;
+use App\Contracts\SyncableReferenceSeeder;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
 
@@ -28,7 +29,7 @@ use Illuminate\Support\Carbon;
  * acceptance would silently become evidence of text nobody ever agreed to. So it
  * creates or it does nothing.
  */
-class DemoTncVersionSeeder extends Seeder
+class DemoTncVersionSeeder extends Seeder implements SyncableReferenceSeeder
 {
     public function run(): void
     {

@@ -22,8 +22,19 @@
     Depends on $outreachWindow being composed onto the host view (see
     OutreachWindowComposer registration in AppServiceProvider) — falls back to
     "allowed" if absent, same as the page this was extracted from.
+
+    Optional:
+      $showShareActions   bool, default true — WhatsApp/Email/Client Page move
+                           to the buyer header on Buyers Pipeline (Johan,
+                           2026-08-24: share actions are buyer-level, not
+                           per-wishlist), so detail.blade.php's per-card
+                           inclusion passes false here and keeps only
+                           Print/PDF (wishlist-specific, stays on the card).
+                           match-results.blade.php never passes this — stays
+                           byte-identical to before.
 --}}
 @php
+    $showShareActions = $showShareActions ?? true;
     $defaultWaMsg = \App\Models\PerformanceSetting::get('matches_wa_message',
         "Hi {name}! \xf0\x9f\x91\x8b\n\nI've put together a personalised selection of properties that match your search criteria.\n\nView your property matches here:\n{link}\n\nFeel free to reach out if you'd like to arrange viewings or have any questions!"
     );
@@ -119,9 +130,11 @@
         },
     }" class="contents">
 
+    @if($showShareActions)
     {{-- AT-323 — SHARED post-send did-you-send confirmation modal (same component the contact page
          + outreach pitch-send use). Driven by this component's sentConfirm / confirmSent. --}}
     @include('partials.whatsapp-send-confirm-modal')
+    @endif
 
     {{-- display:contents above means this partial imposes NO layout of its own — the two
          rows below (stats, buttons) are direct children of whatever the CALLER wraps this
@@ -159,7 +172,7 @@
 
         {{-- Action buttons --}}
         <div class="flex items-center gap-2">
-            @if($waPhone)
+            @if($showShareActions && $waPhone)
             <button type="button" @click="showWaModal = true" class="corex-btn-primary" style="background: #25d366; box-shadow: none;">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
@@ -168,7 +181,7 @@
                 WhatsApp
             </button>
             @endif
-            @if($contact->email)
+            @if($showShareActions && $contact->email)
             {{-- Email the match list — opens the mail client and records the send so the
                  contact's email counter updates (same mechanism as the contact page). --}}
             <button type="button" @click="sendEmail()" class="corex-btn-outline inline-flex items-center gap-1.5"
@@ -214,12 +227,15 @@
                     </a>
                 </div>
             </div>
+            @if($showShareActions)
             <a href="{{ $match->sharedUrl() }}" target="_blank" class="corex-btn-outline" style="background: var(--match-action-bar-outline-bg, rgba(255,255,255,0.08)); color: var(--match-action-bar-outline-color, #fff); border-color: var(--match-action-bar-outline-border, rgba(255,255,255,0.2));">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.641 0-8.58-3.007-9.964-7.178Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
                 Client Page
             </a>
+            @endif
         </div>
 
+    @if($showShareActions)
     {{-- WhatsApp Modal --}}
     <div x-show="showWaModal" x-cloak
          class="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -284,4 +300,5 @@
             </div>
         </div>
     </div>
+    @endif
 </div>

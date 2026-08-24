@@ -1120,19 +1120,19 @@
                 @endif
                 @endpermission
                 {{-- Branch Manager section ends here (matches the section's own opening
-                     comment above) — permission-block fix, 2026-08-22. The matching
-                     @endpermission for view_branch_stats did not previously appear until
+                     comment above) — permission-block fix, 2026-08-22. Previously the
+                     matching @endpermission for view_branch_stats did not appear until
                      far below (after the Daily Activities/Setup groups), so EVERYTHING
-                     between here and there — Comms Suspense, RCR·FIC 2026, Deal Link
-                     Review, and the whole Daily Activities/Setup section — was silently
-                     gated behind view_branch_stats too, on top of whatever permission
-                     each item already checked on its own. cc1 found this on Wednesday;
-                     re-verified against this file's current content before fixing
-                     (global @permission/@endpermission count was already balanced at
-                     126/126, confirming a MISPLACED closing tag, not a missing one —
-                     the stray @endpermission this one replaces sat just before "Admin
-                     section" below and has been removed from there, not left as an
-                     extra). Same fix already verified on staging; landing on live now. --}}
+                     between here and there — Comms Suspense, Unfiled Emails, RCR·FIC
+                     2026, Deal Link Review, and the whole Daily Activities/Setup
+                     section — was silently gated behind view_branch_stats too, on top
+                     of whatever permission each item already checked on its own. cc1
+                     found this two days ago; re-verified against the current file
+                     before fixing (global @permission/@endpermission count was already
+                     balanced at 127/127, confirming this was a MISPLACED closing tag,
+                     not a missing one — the stray @endpermission this one replaces sat
+                     just before "Admin section" below and has been removed from there,
+                     not left as an extra). --}}
                 @endpermission
 
                 {{-- Comms Suspense retired from navigation (Johan, 2026-08-22): "we can
@@ -1140,8 +1140,12 @@
                      unfiled. no use having a menu item that will never work." Route,
                      controller, view and data are UNTOUCHED — only this nav entry (and
                      its pending-count badge) is gone. corex.comms-suspense.index still
-                     resolves directly for anyone with it bookmarked. Replaced below by
-                     the Unfiled Emails entry (CX-109) — that IS "the tech" Johan meant. --}}
+                     resolves directly for anyone with it bookmarked; see
+                     resources/views/layouts/corex-sidebar.blade.php:998-1002 for the
+                     one remaining "To File (attorney emails)" link to the same screen
+                     under Compliance — left alone, out of this task's stated scope,
+                     flagged to Johan separately rather than removed silently. --}}
+
                 {{-- CX-109 (Johan, 2026-08-20) — Unfiled Emails, DR2's primary email-filing workflow --}}
                 @permission('view_deals')
                 @if(\Illuminate\Support\Facades\Route::has('deals-dr2.unfiled-emails.index'))

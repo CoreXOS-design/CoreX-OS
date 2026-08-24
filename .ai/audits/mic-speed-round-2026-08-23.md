@@ -1,6 +1,6 @@
 # MIC speed round — 2026-08-23
 
-**Status:** shipped to Staging. Nothing on live — queued for Johan's explicit go-ahead.
+**Status:** shipped to Staging, then to live on 2026-08-23 (Johan tested Staging, confirmed it, explicitly authorised MIC-only live deploy). See §6 for the live deploy record.
 **Result:** Work-tab (`/corex/market-intelligence`) default screen load: **14,562ms → 2.18-2.27s warm, 2.54s on a just-expired cache, 6.3-6.5s only on the genuine first-ever touch of a filter combination.** 12/12 real-data fingerprints byte-identical to the pre-change baseline at every single step of every commit in this round — the screen does exactly what it did this morning, faster.
 
 This document exists because most of what made this land safely is not visible in the diff. Three optimisations were built, measured, and thrown away *because they didn't work* — that reasoning has to survive somewhere or someone re-discovers it the hard way. One finding (the sort tie-break) is a real, previously-invisible correctness risk that has nothing to do with speed. Read this before touching `MarketIntelligenceController::work()`, `ProspectingListingPageResolver`, `OnMarketStockService`, or any of the three cached aggregate methods again.
@@ -120,6 +120,77 @@ The optimiser's refusal to use `(agency_id, is_active)` today is a direct, mecha
 - **`OnMarketStockService::$identityCache` (and `$suburbCountCache`) carry the same class of latent risk this session's `Agency::find()` fix addressed for a different class — and it has not been fixed.** Both are plain `private static array` caches with the docblock's own words: "Request-scoped memoisation... the underlying property scan runs once." That's true and safe for a normal HTTP request under php-fpm (PHP tears down all static state between requests). It is **not** automatically safe for a long-running `queue:work` worker, the same failure mode Johan explicitly flagged for `Agency::find()` this session — nothing currently resets these between queued jobs. Not touched in this round (out of scope for a MIC-screen-speed task, and `OnMarketStockService` is used well beyond MIC), but flagged here because the pattern is now proven to exist twice in this codebase and is worth a deliberate sweep rather than a third discovery.
 - **`.git/config` on this checkout (`/corex-staging`) carries a repo-local `user` override attributing every commit made through it to "cc3 (lane-3)" regardless of who actually made it** — flagged by another lane mid-session. Not changed (neither lane should touch it), but the authorship trail on this specific checkout is not reliable — don't trust `git blame`/`git log --author` here without cross-checking commit content and dates.
 - **The stale-while-revalidate mechanism itself (§4) required a genuine Laravel-internals gotcha to test correctly**: authenticating a real `curl` request against this app requires replicating `Illuminate\Cookie\CookieValuePrefix` — Laravel's name-bound tamper-prefix prepended to a cookie's value before encryption — or `EncryptCookies` silently discards the cookie as tampered and issues a fresh anonymous session with no error surfaced anywhere. Cost real time to diagnose (the failure mode looks exactly like "the session just didn't take," not "the cookie was rejected"). Worth remembering for the next person who needs a real authenticated HTTP round-trip against this app rather than the transaction-rolled-back harness pattern.
+
+---
+
+## 6. Live deploy — 2026-08-23, executed record
+
+Johan tested the Staging build, confirmed it, and explicitly authorised **MIC only** to go to live. Deployed Sunday evening SAST (lowest-traffic window). This section records what was actually run, in order, not what was planned — the plan is above in §§1-5; this is the receipt.
+
+**Commit set (8 commits, cherry-picked onto live's HEAD, zero conflicts):**
+`500ba560a`, `094775529`, `7f831cdc9`, `b971810f5`, `ecb74eecd`, `14faac567`, `089d731ee`, and this audit doc itself (`5a309fa01`) — shipped with the code deliberately, so the reasoning above travels with the change on the one environment where undoing a wrong call is expensive.
+
+**Pre-flight, before touching anything:**
+- Live's exact pre-deploy HEAD confirmed: `222534fdc299e9ec76358a445776ff5dc002c592`.
+- P24 bulk-listings import (the `p24import`/`p24images` queues, not the hourly `p24:import` alert-email command — that's a different, much smaller job) checked via queue depth + `prospecting_listings.created_at` recency: not running, not imminent. The row set the fingerprint diff depends on was not shifting under it.
+- Live health checked directly: workers running, `failed_jobs` attributed by job class (ruled out anything new), error log clean, disk fine.
+- The cherry-pick was **tested in an isolated scratch worktree first**, not assumed — confirmed clean before touching the served checkout.
+- `Agency::find()` memoisation (`500ba560a`): both resets checked directly against the real code — `Queue::before(fn() => Agency::forgetFindMemo())` in `AppServiceProvider::boot()` covers the queued-job case, PHP's own per-request teardown covers the web case (static state doesn't survive between php-fpm requests). Comfortable shipping it with the rest; no reason to split it out.
+
+**Rollback — written and pasted to the conductor before deploying, per the standing rule against `git reset --hard` on a production checkout ([[.ai/CLAUDE.md]] global rules: tag before any deploy, roll back via `git checkout <tag>`, never a hard reset):**
+
+```bash
+cd /corex
+sudo -u www-data git checkout pre-mic-deploy-2026-08-23-1900
+sudo -u www-data HOME=/tmp composer dump-autoload -o
+sudo -u www-data HOME=/tmp php artisan view:clear
+sudo -u www-data HOME=/tmp php artisan route:clear
+sudo -u www-data HOME=/tmp php artisan cache:clear
+sudo systemctl restart php8.3-fpm
+```
+
+Tag: `pre-mic-deploy-2026-08-23-1900` → `222534fdc299e9ec76358a445776ff5dc002c592`. Note for whoever reads this tag's metadata later: it's a lightweight tag, so `git for-each-ref --format='%(creatordate)'` shows the *pointed-at commit's* committer date, not the moment the tag was created — don't read that field as "when this deploy happened."
+
+Component timings measured live, pre-deploy (safe/idempotent to run ahead of time): composer dump-autoload 12,416ms, view+route+cache clear 1,315ms, php8.3-fpm restart 319ms.
+
+**Deploy, as executed:** fast-forward cherry-pick onto live's HEAD (confirmed clean per pre-flight), push, `git -C /corex` deploy, `composer dump-autoload -o`, `view:clear`/`route:clear`/`cache:clear`, `systemctl restart php8.3-fpm` (live's actual pool — confirmed via the real nginx vhost, not assumed to match Staging's php8.2-fpm). **5 seconds wall-clock, end to end.** New HEAD: `d2da51f2777f649cadb99f4dd01b8c65bdbaa97a`.
+
+Queue workers were **deliberately not restarted** as part of this deploy. Reasoning, so the next person doesn't have to re-derive it: the MIC changes are web-path only apart from the `Agency::find()` memo, which is purely additive with no job behaving differently between old and new code — so the long-lived workers sitting on pre-deploy code were the *safe* state, not the risky one, and forcing a recycle would only have interrupted in-flight jobs for zero benefit. They picked up the new code on their own natural `--max-time=3600` cycle within the hour.
+
+**Step 5 — the gate.** A fresh live fingerprint baseline was captured immediately before deploying (not the stale morning one), then the identical 12-case harness was re-run immediately after. Direct JSON diff, not an assertion:
+
+```
+case                             fingerprint_identical
+action_preset_pitch_now_high     YES
+address_with_address             YES
+include_in_stock_off             YES
+include_in_stock_on              YES
+no_filter                        YES
+page_1                           YES
+page_2                           YES
+page_last                        YES
+search_handful                   YES
+search_zero                      YES
+sort_price_asc                   YES
+sort_suburb_asc                  YES
+
+ALL 12 IDENTICAL: YES
+```
+
+Twelve identical, zero rollback triggered. This is the actual correctness gate for the deploy; everything below it is confirmatory.
+
+**Step 6 — post-deploy confirmation:**
+- Real HTTP timing, `https://corexos.co.za/corex/market-intelligence`, authenticated as a real user (session cookie hand-built via `Illuminate\Cookie\CookieValuePrefix` + Laravel's own session/auth classes — same technique developed for Staging, redone for live's distinct `corex-os-session` cookie name): **cold 6.494s, warm 2.231s/2.217s/2.241s**, against ~11s this morning.
+- HTTP 200, total shown "31,262", exactly 50 unique `data-listing-id` values rendered on page 1.
+- All 21 live-owned supervisor worker processes confirmed `RUNNING` post-deploy.
+- `failed_jobs`: raw count in the post-deploy window was **not** assumed zero — checked directly. 92 failures in the 2h window, but every one is `App\Jobs\OversightDigestJob` / `App\Mail\OversightNudgeMail`, a pre-existing pattern with its earliest occurrence on 2026-05-26 and 11,140 total historically; zero of the six MIC-deploy files reference Oversight code; zero non-Oversight failures in the window. **Zero new failures attributable to this deploy.**
+- The invariant suite was run twice. First run crashed (`array_flip(): ... null given` at `company_stock_ids`) — traced to the harness copy used for live having been taken from the original unextended `run_one.php` rather than this round's extended copy that adds the `company_stock_ids`/`portals_by_representative` fingerprint fields; **not a deployed-code issue** — the 27 checks that ran before the crash (across `default_sort`, `sort_price_asc`, `sort_suburb_asc`) had all already passed. Fixed the harness, re-ran clean: **28 PASS / 0 FAIL / 3 SKIP** (skips are the expected exhaustive-mode skips, already independently proven by the 57.27-minute exhaustive walk on Staging — 626 pages, 31,275 unique ids, zero duplication, sum-of-pages exactly matches reported total).
+
+**One process anomaly investigated and ruled out, not just noted:** `corex-worker-live-buyer-matching_00` showed a short uptime post-deploy. Traced via `/var/log/supervisor/supervisord.log`: `exit status 12` (Laravel's own memory-limit self-termination — this worker's `queue:work` line carries no `--memory=` override, so it cycles on the framework default). **165 occurrences historically, running at roughly 15+/day for at least the 11 days before this deploy, including 5 on 2026-08-22 alone** — confirmed pre-existing and unrelated to the deploy, not caused by it.
+
+**Follow-up flagged for a separate prompt, not fixed tonight:** the buyer-matching worker hitting Laravel's default memory limit ~15 times a day is a real finding on its own, independent of MIC. A job that dies and restarts that often isn't healthy, it's failing quietly enough that nobody had noticed. The fix is either a `--memory=` override on its supervisor command or making the job chunk its work properly — choosing between those needs a look at what the job actually holds in memory during a `buyer-matching` run, which is out of scope for this round. Evidence is in `/var/log/supervisor/supervisord.log`, grep `buyer-matching_00.*exit status 12`.
+
+**Also flagged for Johan, unrelated to MIC, found during pre-flight health checks:** `notifications:scan-deals` is failing (undefined-method error — not investigated further, out of scope for this task), and live's `/corex/.git` had ~1,620 root-owned files from an earlier root-run `git worktree add`, blocking `www-data` git operations (fixed via `sudo chown -R www-data:www-data /corex/.git` — metadata-only, zero effect on repo content; this is the third checkout this pattern has hit this session, worth a dedicated sweep).
 
 ---
 

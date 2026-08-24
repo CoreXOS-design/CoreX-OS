@@ -1213,4 +1213,92 @@ final class UnfiledEmailsTest extends TestCase
             'linkable_id' => $contactId, 'deleted_at' => null,
         ]);
     }
+
+    // ── CX-113 Phase K — left-column evidence panel (Johan, 2026-08-22) ──────
+    // "show the agents why we are matching an email to a deal... show what did
+    // NOT match as well as what did." These cover the itemised seller/buyer/
+    // email/subject breakdown for both a confident match and a non-confident
+    // one — the panel must render honestly in both cases, not just when a
+    // match is strong.
+
+    public function test_evidence_panel_shows_matched_seller_email_and_unmatched_buyer_and_attorney_for_a_confident_match(): void
+    {
+        DB::table('deals')->where('id', $this->deal->id)->update([
+            'property_address' => 'Aloha Park Estate', 'buyer_name' => 'Unseen Buyer', 'attorney_name' => 'Unseen Attorney',
+        ]);
+
+        $comm = $this->comm([
+            'subject' => 'Aloha Park Estate documents',
+            'from_identifier' => 'conveyancer@bbb-attorneys.co.za', // registered as seller in setUp()
+        ]);
+
+        $resp = $this->actingAs($this->agent)->get(route('deals-dr2.unfiled-emails.index'))->assertOk();
+
+        // Seller — matched via the sender's email being the registered seller party.
+        $resp->assertSee('Seller — matched', false);
+        $resp->assertSee('conveyancer@bbb-attorneys.co.za', false);
+        // Buyer — no matching email at all, shown honestly as not matched.
+        $resp->assertSee('Buyer — not matched', false);
+        $resp->assertSee('Unseen Buyer', false);
+        // Subject — property address resolved (2+ significant words matched).
+        $resp->assertSee('matched the property address', false);
+        // Subject — attorney name never appears in the subject, shown as not matched.
+        $resp->assertSee('attorney name (Unseen Attorney)', false);
+        $resp->assertSee('not found in subject', false);
+    }
+
+    public function test_evidence_panel_shows_a_low_confidence_candidates_matched_and_unmatched_signals_when_no_confident_match_exists(): void
+    {
+        // Real case this mirrors (Johan): "linda@vdsatt.co.za — attorney on 9 deals"
+        // — a party email that DOES match, but is so undiscriminating (registered on
+        // many deals) that it must not, by itself, cross the confidence bar. Here the
+        // sender is the seller on TWO deals (frequency-decayed email score), and the
+        // property address genuinely appears in the body — real signals, correctly
+        // weak, must still surface itemised (not hidden just because it isn't
+        // confident) alongside the fields that did NOT match.
+        DB::table('deals')->where('id', $this->deal->id)->update([
+            'property_address' => 'Sunset Ridge', 'buyer_name' => null, 'attorney_name' => null,
+        ]);
+
+        $decoyDealV2Id = (int) DB::table('deals_v2')->insertGetId([
+            'reference' => 'DR2-' . Str::random(5), 'deal_type' => 'bond', 'listing_agent_id' => $this->agent->id,
+            'purchase_price' => 1_500_000, 'commission_amount' => 75_000, 'commission_vat' => 11_250,
+            'offer_date' => '2026-03-01', 'branch_id' => $this->branchId, 'agency_id' => $this->agencyId,
+            'created_by_id' => $this->agent->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $decoyDeal = Deal::withoutEvents(fn () => Deal::withoutGlobalScopes()->create([
+            'period' => '2026-03', 'deal_date' => '2026-03-01', 'property_value' => 900_000, 'total_commission' => 50_000,
+            'reference' => 'REG-' . Str::random(5), 'deal_no' => random_int(1000, 9999), 'deal_type' => 'bond',
+            'seller_name' => 'Unrelated Seller', 'property_address' => '9 Unrelated Close',
+            'agency_id' => $this->agencyId, 'branch_id' => $this->branchId, 'deal_v2_id' => $decoyDealV2Id,
+        ]));
+        $decoyDeal->agents()->attach($this->agent->id, ['side' => 'selling']);
+        $decoyContactId = (int) DB::table('contacts')->insertGetId([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->branchId, 'email' => 'conveyancer@bbb-attorneys.co.za',
+            'first_name' => 'Test', 'last_name' => 'Party', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('deal_contacts')->insert([
+            'deal_id' => $decoyDeal->id, 'contact_id' => $decoyContactId, 'role' => 'seller',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        // conveyancer@bbb-attorneys.co.za (registered as seller in setUp() on $this->deal
+        // too) is now a seller party on TWO deals — frequency 2 decays its email score
+        // from 100 to 25, well under the 90-point bar even combined with the property hit.
+        $comm = $this->comm([
+            'subject' => 'Weekly update',
+            'from_identifier' => 'conveyancer@bbb-attorneys.co.za',
+            'body_text' => 'Please see attached regarding Sunset Ridge documents.',
+        ]);
+
+        $resp = $this->actingAs($this->agent)->get(route('deals-dr2.unfiled-emails.index'))->assertOk();
+
+        $resp->assertSee('not confident enough', false);
+        // Email evidence — matched, but shown with its real (weak) specificity.
+        $resp->assertSee('seller on 2 deals', false);
+        // Subject — the property address genuinely resolved.
+        $resp->assertSee('matched the property address', false);
+        // Buyer — nothing on record, nothing to match, shown honestly as not matched.
+        $resp->assertSee('Buyer — not matched', false);
+    }
 }

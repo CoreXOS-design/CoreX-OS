@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Contracts\SyncableReferenceSeeder;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 
@@ -26,7 +27,7 @@ use Illuminate\Support\Facades\DB;
  * The blade view (resources/views/docuperfect/web-templates/cds/template-123
  * .blade.php) is committed in the repo — a DB reset never touches view files.
  */
-class SalesMandatoryDisclosureEsignSeeder extends Seeder
+class SalesMandatoryDisclosureEsignSeeder extends Seeder implements SyncableReferenceSeeder
 {
     public const TEMPLATE_NAME = 'Sales Mandatory Disclosure';
 

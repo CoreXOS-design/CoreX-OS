@@ -160,14 +160,6 @@ final class PresentationOutcomesDashboardTest extends TestCase
     }
 
     /**
-     * Discrepancy 1: the sidebar badge counts stale unlogged presentations, a
-     * genuinely different metric from the dashboard's own outcome count — so
-     * it must never be a bare number a user could mistake for an outcomes
-     * count. Proves the badge is present, labelled (not bare), and that its
-     * own count still disagrees with totalOutcomes on this exact fixture
-     * (proving labelling — not forced agreement — is what was applied here).
-     */
-    /**
      * Johan (2026-08-20), on the "5 due" badge: "This makes no sense. You are
      * showing outcomes and on the screen its about outcomes. yet you are
      * showing me 5 due? ... I would just remove it." A count on a menu item

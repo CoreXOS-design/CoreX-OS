@@ -437,11 +437,24 @@
                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);">________</code>
                         <span style="color: var(--text-secondary);">An underscore run &mdash; the usual Word fill-in line</span>
                     </div>
+                    <div class="flex items-center gap-2 text-xs mb-1">
+                        <code class="px-2 py-0.5 rounded font-mono font-bold whitespace-nowrap"
+                              style="background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);">……</code>
+                        <span style="color: var(--text-secondary);">An ellipsis run (two or more &ldquo;&hellip;&rdquo; characters) &mdash; the dotted fill-in line Word inserts on its own, common in HFC's offer-to-purchase documents</span>
+                    </div>
+                    <div class="flex items-center gap-2 text-xs mb-1">
+                        <code class="px-2 py-0.5 rounded font-mono font-bold whitespace-nowrap"
+                              style="background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);">....</code>
+                        <span style="color: var(--text-secondary);">A dot-leader run (four or more periods) &mdash; ordinary punctuation like &ldquo;...&rdquo; is never mistaken for a blank</span>
+                    </div>
                     <div class="flex items-center gap-2 text-xs">
                         <code class="px-2 py-0.5 rounded font-mono font-bold whitespace-nowrap"
                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);">[Full Name]</code>
                         <span style="color: var(--text-secondary);">A square-bracketed label</span>
                     </div>
+                    <p class="text-[0.6875rem] mt-2" style="color: var(--text-muted);">
+                        A blank immediately followed by a percent sign &mdash; e.g. <code class="font-mono">________%</code> or <code class="font-mono">……%</code> &mdash; is read as one field, not a blank plus separate text.
+                    </p>
                 </div>
 
                 <p class="text-xs mt-3" style="color: var(--text-muted);">

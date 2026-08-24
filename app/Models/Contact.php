@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 class Contact extends Model
@@ -358,6 +359,33 @@ class Contact extends Model
     public function matches(): HasMany
     {
         return $this->hasMany(ContactMatch::class)->latest();
+    }
+
+    public function clientPageLink(): HasOne
+    {
+        return $this->hasOne(\App\Models\BuyerClientPageLink::class);
+    }
+
+    /**
+     * The buyer's one permanent Client Page link (Johan, 2026-08-24) — "the
+     * first link created stays with this person." Find-or-create, never
+     * regenerated: every wishlist this buyer has now or gains later renders
+     * on this same URL, primary first and expanded (SharedMatchController
+     * resolves the anchor wishlist as the primary one for a buyer-level
+     * token — see resolveByBuyerToken()).
+     */
+    public function clientPageUrl(): string
+    {
+        $link = $this->clientPageLink;
+        if (! $link) {
+            $link = \App\Models\BuyerClientPageLink::create([
+                'agency_id'  => $this->agency_id,
+                'contact_id' => $this->id,
+            ]);
+            $this->setRelation('clientPageLink', $link);
+        }
+
+        return $link->url();
     }
 
     // ── AT-125 — multiple phones / emails per contact ──

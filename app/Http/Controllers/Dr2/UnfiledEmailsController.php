@@ -252,14 +252,29 @@ class UnfiledEmailsController extends Controller
         // dealSearch() uses (corroboration included) — one ranking. Only rows not
         // already filed need this — computed for every state but 'removed' (where the
         // whole filing zone is hidden) and 'filed' (already resolved).
+        // CX-113 Phase K (Johan, 2026-08-22) — left-column evidence panel. Computed
+        // from the SAME scoredCandidatesFor() call autoMatchByCommId already needs —
+        // ONE candidate-gathering + scoring pass per row, not two, so this does not
+        // add a second query set on top of what Phase I already costs.
         $autoMatchByCommId = [];
+        $evidenceByCommId = [];
         if ($state !== 'removed' && $state !== 'filed') {
             $partyFrequencyForAutoMatch = $this->dealParties->partyDealFrequency($agencyId);
             foreach ($emails->getCollection() as $c) {
                 if (isset($filedInfoByCommId[$c->id])) {
                     continue; // already filed — no auto-match zone for this row
                 }
-                $autoMatchByCommId[$c->id] = $this->autoMatchesFor($c, $user, $agencyId, $partyFrequencyForAutoMatch);
+                $scored = $this->scoredCandidatesFor($c, $user, $agencyId, $partyFrequencyForAutoMatch);
+                $autoMatchByCommId[$c->id] = $scored
+                    ->filter(fn ($r) => $r['score'] >= self::AUTO_MATCH_CONFIDENCE_THRESHOLD)
+                    ->take(3)->values()->all();
+                $best = $scored->first();
+                $evidenceByCommId[$c->id] = $best
+                    ? $this->buildEvidence($c, $best['deal'], $partyFrequencyForAutoMatch) + [
+                        'deal_label' => $best['label'],
+                        'confident'  => $best['score'] >= self::AUTO_MATCH_CONFIDENCE_THRESHOLD,
+                    ]
+                    : null;
             }
         }
 
@@ -292,6 +307,7 @@ class UnfiledEmailsController extends Controller
             'state'             => $state,
             'filedInfoByCommId' => $filedInfoByCommId,
             'autoMatchByCommId' => $autoMatchByCommId,
+            'evidenceByCommId'  => $evidenceByCommId,
             'myDeals'           => $myDeals,
             'dismissedInfoByCommId' => $dismissedInfoByCommId,
             'dismissalReasons'  => CommunicationDr2Dismissal::REASONS,
@@ -453,7 +469,22 @@ class UnfiledEmailsController extends Controller
      * (the other half of the split) is for. Empty array means "say so honestly", not
      * "show a weak guess" — the view renders that as its own explicit state.
      */
-    private function autoMatchesFor(Communication $communication, User $user, int $agencyId, array $partyFrequency): array
+    /**
+     * CX-113 Phase K (Johan, 2026-08-22) — extracted, behaviour-preserving, from what
+     * was autoMatchesFor() (Phase I), so index() can compute the "Auto Matched" panel
+     * AND the left-column evidence panel from ONE candidate-gathering + scoring pass
+     * per row instead of two (both are inlined directly in index() now — this is the
+     * shared piece; nothing here changes the filter/sort/take(3) Phase I shipped).
+     * reuse the EXACT same candidate-gathering + scoring for its "closest candidate,
+     * even if not confident" case, instead of a second parallel implementation.
+     * autoMatchesFor() itself is untouched in behaviour — same filter, same take(3),
+     * same sort — this only moves where the sort happens (now here, always) so both
+     * callers see the same ordering.
+     *
+     * @return \Illuminate\Support\Collection<int, array> every candidate, scored, sorted
+     *         strongest-first, UNFILTERED by confidence — the caller decides the bar.
+     */
+    private function scoredCandidatesFor(Communication $communication, User $user, int $agencyId, array $partyFrequency): \Illuminate\Support\Collection
     {
         $addresses = collect([$communication->from_identifier])
             ->merge($communication->participant_identifiers ?? [])
@@ -507,7 +538,7 @@ class UnfiledEmailsController extends Controller
         $candidateDealIds = $candidateDealIds->unique()->values();
 
         if ($candidateDealIds->isEmpty()) {
-            return [];
+            return collect();
         }
 
         $deals = Deal::query()->visibleTo($user)->whereIn('id', $candidateDealIds)
@@ -516,11 +547,10 @@ class UnfiledEmailsController extends Controller
         return $deals->map(function (Deal $d) use ($communication, $historySuggestion, $partyFrequency) {
             $result = $this->scoreDeal($d, $communication, $historySuggestion, $partyFrequency);
             $result['fileable'] = $d->deal_v2_id !== null;
+            $result['deal'] = $d;
 
             return $result;
-        })
-            ->filter(fn ($r) => $r['score'] >= self::AUTO_MATCH_CONFIDENCE_THRESHOLD)
-            ->sortByDesc('score')->take(3)->values()->all();
+        })->sortByDesc('score')->values();
     }
 
     private function dealStatusLabel(?string $code): string
@@ -531,6 +561,100 @@ class UnfiledEmailsController extends Controller
             'D'     => 'Declined',
             default => 'Pending',
         };
+    }
+
+    /**
+     * CX-113 Phase K (Johan, 2026-08-22) — left-column evidence panel: "use the
+     * massive space on the left... seller matched, buyer matched, email addresses
+     * matched, subject — what it resolved to. Show what did NOT match as well as
+     * what did." Evidence for the SINGLE best-scoring candidate found for this email
+     * — REGARDLESS of whether it clears the auto-match confidence bar, so a
+     * not-confident card can still honestly show what was checked and why it fell
+     * short, not just a blank. Called from index() (with the already-scored
+     * candidate list it built once for the same row) — see the itemised breakdown
+     * itself, below. Reuses the SAME building blocks
+     * matchSignalsFor() computes with (Dr2DealPartyEmailResolver's per-deal role
+     * resolver, partyNameWordIn(), propertyAddressWordsMatched()) — one taxonomy,
+     * never a second word-matcher — but records BOTH the matched AND the
+     * checked-but-not-matched case for every role/address/subject-word;
+     * matchSignalsFor() only ever records a hit. One extra query here
+     * (partyEmailsByRoleForDeal — the same one matchSignalsFor() already calls once
+     * per SCORED candidate) — bounded to the single best candidate per row, never
+     * the full candidate list, so this does not add a query per row on the hot path,
+     * only per row that already has something to show evidence for.
+     */
+    private function buildEvidence(Communication $communication, Deal $deal, array $partyFrequency): array
+    {
+        $roleEmails = $this->dealParties->partyEmailsByRoleForDeal($deal->id);
+        $roleDisplay = [
+            'buyer' => 'buyer', 'seller' => 'seller', 'attorney' => 'attorney',
+            'bond_originator' => 'bond originator', 'bond_attorney' => 'bond attorney',
+            'coc_supplier' => 'COC supplier', 'other_party' => 'party',
+        ];
+
+        $from = strtolower(trim((string) $communication->from_identifier));
+        $participants = collect($communication->participant_identifiers ?? [])
+            ->map(fn ($e) => strtolower(trim((string) $e)))->all();
+        $allAddresses = collect([$from])->merge($participants)->filter()->unique()->values();
+
+        // SELLER / BUYER — explicit matched-or-not, and to whom.
+        $sideEvidence = function (string $role) use ($roleEmails, $allAddresses, $deal, $roleDisplay) {
+            $name = $role === 'seller' ? $deal->seller_name : $deal->buyer_name;
+            $emails = $roleEmails[$role] ?? [];
+            $matchedEmail = ! empty($emails) ? collect($emails)->first(fn ($e) => $allAddresses->contains($e)) : null;
+
+            return [
+                'role'          => $roleDisplay[$role],
+                'name'          => $name,
+                'matched'       => $matchedEmail !== null,
+                'matched_email' => $matchedEmail,
+            ];
+        };
+
+        // EMAIL ADDRESSES — every address on THIS email, matched or not, with the
+        // same honest specificity note as the ranking's own single-party signal
+        // ("attorney on 9 deals" tells the agent the match is weak — that's the point).
+        $emailEvidence = $allAddresses->map(function ($addr) use ($roleEmails, $partyFrequency, $roleDisplay) {
+            foreach ($roleEmails as $role => $emails) {
+                if (in_array($addr, $emails, true)) {
+                    $freq = max(1, $partyFrequency[$addr] ?? 1);
+                    $roleLabel = $roleDisplay[$role] ?? 'party';
+                    $note = $freq <= 1 ? "{$roleLabel} on this deal" : "{$roleLabel} on {$freq} deals";
+
+                    return ['email' => $addr, 'matched' => true, 'note' => $note];
+                }
+            }
+
+            return ['email' => $addr, 'matched' => false, 'note' => 'not a known party on this deal'];
+        })->values()->all();
+
+        // SUBJECT — what was extracted and what it resolved to, reusing the SAME
+        // matchers matchSignalsFor() itself calls.
+        $subject = (string) $communication->subject;
+        $subjectEvidence = [];
+        foreach (['seller_name' => 'seller', 'buyer_name' => 'buyer', 'attorney_name' => 'attorney'] as $field => $role) {
+            $matchedWord = $this->partyNameWordIn($deal->$field, $subject);
+            $subjectEvidence[] = [
+                'checked' => $deal->$field ? "{$role} name ({$deal->$field})" : "{$role} name (none on record)",
+                'matched' => $matchedWord !== null,
+                'note'    => $matchedWord !== null ? "\"{$matchedWord}\" matched the {$role}" : 'not found in subject',
+            ];
+        }
+        $matchedPropertyWords = $this->propertyAddressWordsMatched($deal->property_address, $subject . ' ' . (string) $communication->body_text);
+        $subjectEvidence[] = [
+            'checked' => 'property address (' . ($deal->property_address ?: 'none on record') . ')',
+            'matched' => count($matchedPropertyWords) >= 2,
+            'note'    => count($matchedPropertyWords) >= 2
+                ? implode(', ', $matchedPropertyWords) . ' matched the property address'
+                : (count($matchedPropertyWords) === 1 ? 'only "' . $matchedPropertyWords[0] . '" matched — not enough on its own' : 'not found in subject or body'),
+        ];
+
+        return [
+            'seller'  => $sideEvidence('seller'),
+            'buyer'   => $sideEvidence('buyer'),
+            'emails'  => $emailEvidence,
+            'subject' => $subjectEvidence,
+        ];
     }
 
     /**

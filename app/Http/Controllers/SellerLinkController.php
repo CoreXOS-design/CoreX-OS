@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\Agency;
+use App\Models\Property;
 use App\Models\PropertyMarketingActivity;
 use App\Models\PropertySellerLink;
+use App\Services\Leads\SharedLinkReengagementService;
 use App\Services\PropertyIntelligenceService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -23,6 +25,25 @@ class SellerLinkController extends Controller
         }
 
         $property = $link->property;
+
+        // 2026-08-24 (Johan) — a soft-deleted property used to crash here:
+        // getFeedbackRollup(int $propertyId, ...) is strictly typed and
+        // $property->id on a null $property throws, uncaught, 500. And a
+        // CONCLUDED property (sold/transferred/rented/let_out — the single
+        // source of truth is Property::isConcluded(), never a raw status
+        // string compare) used to render as if still live: no error, but a
+        // wrong page — a seller or buyer holding the link sees a listing
+        // that looks current for a property that is gone. Worse than a
+        // crash, because nothing tells them. Both now get the same
+        // courteous treatment SharedMatchController::showExpired() and
+        // PublicPresentationController::renderUnavailable() already use —
+        // copy that pattern, not a third dialect of it.
+        if (!$property) {
+            return $this->showUnavailable($link, null, 'deleted');
+        }
+        if ($property->isConcluded()) {
+            return $this->showUnavailable($link, $property, 'sold');
+        }
 
         // Record access. This is a PUBLIC page — a failure to log the visit must
         // never 500 the seller out of their own report. Stamp agency_id from the
@@ -82,6 +103,42 @@ class SellerLinkController extends Controller
             'marketing' => $marketing,
             'link' => $link,
         ]);
+    }
+
+    /**
+     * VALID token, resource dead — either the property was soft-deleted
+     * ($property is null) or it's CONCLUDED (sold/transferred/rented/let_out).
+     * Same shape as SharedMatchController::showExpired(): resolve the agency
+     * from whatever's still resolvable, show the seller's current agent only
+     * if they're actually still live (is_active + not deleted), otherwise
+     * fall through to the agency's own contact details via the SAME shared
+     * fallback service every other public link in this codebase already
+     * uses — not a new resolver.
+     *
+     * A sold property is, commercially, a live buyer lead standing on the
+     * page — not just an error case — so the 'sold' reason gets its own
+     * "similar properties" call to action the 'deleted' reason doesn't
+     * (there's no agency-marketable property left to point at).
+     */
+    private function showUnavailable(PropertySellerLink $link, ?Property $property, string $reason)
+    {
+        $agencyId = $property?->agency_id ?? $link->agency_id;
+        $agency = $agencyId ? Agency::withoutGlobalScopes()->find($agencyId) : null;
+
+        $contact = $link->contact;
+        $agentService = app(SharedLinkReengagementService::class);
+        $currentAgent = $contact?->agent;
+        $showAgent = $currentAgent && $currentAgent->is_active && $currentAgent->deleted_at === null;
+        $fallbackContact = $agency ? $agentService->agencyFallbackContact($agency) : ['phone' => null, 'email' => null];
+
+        return response()->view('seller-link.unavailable', [
+            'reason'        => $reason,
+            'property'      => $property,
+            'agency'        => $agency,
+            'agent'         => $showAgent ? $currentAgent : null,
+            'fallbackPhone' => $fallbackContact['phone'],
+            'fallbackEmail' => $fallbackContact['email'],
+        ], 410);
     }
 
     /**

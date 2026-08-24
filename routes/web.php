@@ -2090,6 +2090,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::get('/signature/asset/{type}',  [\App\Http\Controllers\AgentSignatureController::class, 'asset'])
         ->where('type', 'signature|initial')->name('signature.asset');
 
+    // App Access restore — self-service, turned off via the mobile app's
+    // "Delete my account" (Apple 5.1.1(v)). Spec: .ai/specs/mobile-app-access.md §5.1
+    Route::post('/my-portal/app-access/restore', [\App\Http\Controllers\Agent\AgentPortalController::class, 'restoreAppAccess'])
+        ->middleware('permission:edit_own_profile')->name('agent.portal.app-access.restore');
+
     // Admin Multi-Branch Manager — admin self-assigns which branches they
     // manage (+ a default) from their own profile. Gated by the dedicated
     // permission (admins/owners only; branch managers already have one branch).
@@ -3033,6 +3038,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/create', [\App\Http\Controllers\Admin\SystemUpdateController::class, 'create'])->name('create');
         Route::get('/',       [\App\Http\Controllers\Admin\SystemUpdateController::class, 'index'])->name('index');
         Route::post('/',      [\App\Http\Controllers\Admin\SystemUpdateController::class, 'store'])->name('store');
+
+        // Bulk Email — the Bulk Email tab on this same admin page.
+        // Spec: .ai/specs/system-updates-bulk-email.md §10
+        Route::get('/bulk-email',       [\App\Http\Controllers\Admin\BulkEmailController::class, 'create'])->name('bulk-email.create');
+        Route::post('/bulk-email/send', [\App\Http\Controllers\Admin\BulkEmailController::class, 'send'])->name('bulk-email.send');
 
         Route::get('/{update}',            [\App\Http\Controllers\Admin\SystemUpdateController::class, 'show'])->whereNumber('update')->name('show');
         Route::get('/{update}/edit',       [\App\Http\Controllers\Admin\SystemUpdateController::class, 'edit'])->whereNumber('update')->name('edit');
