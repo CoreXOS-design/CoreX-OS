@@ -51,6 +51,16 @@ $loginHandler = function (Request $request) {
         ], 401);
     }
 
+    // Mobile "Delete my account" (Apple 5.1.1(v)) — checked AFTER the password
+    // so a wrong-password guess can never be used to probe whether an
+    // account has deleted app access. See .ai/specs/mobile-app-access.md §4.1.
+    if (! $user->hasAppAccess()) {
+        return response()->json([
+            'message' => 'This account has been deleted.',
+            'code'    => 'account_deleted',
+        ], 403);
+    }
+
     $token = $user->createToken('corex-mobile')->plainTextToken;
 
     $agency = $user->effectiveAgencyId()
@@ -270,7 +280,11 @@ Route::prefix('v1/demo-access')
 // ════════════════════════════════════════════════════════════════
 // Authenticated (sanctum) — canonical v1 routes
 // ════════════════════════════════════════════════════════════════
-Route::middleware('auth:sanctum')->group(function () {
+// app_access: mobile "Delete my account" (Apple 5.1.1(v)) — rejects an
+// already-issued token immediately once revoked. The one exception is the
+// delete-account route itself, opted out below so it stays reachable and
+// idempotent even after access is already off. Spec: .ai/specs/mobile-app-access.md §4.3
+Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
 
     // ─────────────────────────────────────────────────────────────
     // Canonical /api/v1/* surface
@@ -336,6 +350,14 @@ Route::middleware('auth:sanctum')->group(function () {
                 ] : null,
             ]);
         })->name('v1.profile');
+
+        // Mobile "Delete my account" (Apple 5.1.1(v)). Turns app_access OFF —
+        // see .ai/specs/mobile-app-access.md. Does not touch the User row.
+        // Opted OUT of the group's app_access gate so it stays reachable (and
+        // idempotent) even after access is already revoked.
+        Route::delete('/me/app-access', [\App\Http\Controllers\Api\V1\AppAccessController::class, 'destroy'])
+            ->withoutMiddleware(\App\Http\Middleware\EnsureAppAccess::class)
+            ->name('v1.me.app-access.destroy');
 
         Route::post('/logout', function (Request $request) {
             $request->user()->currentAccessToken()->delete();
