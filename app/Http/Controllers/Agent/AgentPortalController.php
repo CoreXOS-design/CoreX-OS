@@ -352,6 +352,19 @@ class AgentPortalController extends Controller
         return redirect()->route('agent.portal')->withFragment('profile')->with('success', 'Managed branches updated.');
     }
 
+    /**
+     * Self-service restore for App Access, turned off via the mobile app's
+     * "Delete my account" action (Apple 5.1.1(v)). Spec: .ai/specs/mobile-app-access.md §5.
+     */
+    public function restoreAppAccess(Request $request)
+    {
+        abort_unless($request->user()->hasPermission('edit_own_profile'), 403);
+
+        $request->user()->restoreAppAccess();
+
+        return redirect()->route('agent.portal')->withFragment('tools')->with('success', 'App access restored — you can log into the CoreX mobile app again.');
+    }
+
     public function uploadDocument(Request $request)
     {
         abort_unless(auth()->user()->hasPermission('upload_own_documents'), 403);

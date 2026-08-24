@@ -2090,6 +2090,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::get('/signature/asset/{type}',  [\App\Http\Controllers\AgentSignatureController::class, 'asset'])
         ->where('type', 'signature|initial')->name('signature.asset');
 
+    // App Access restore — self-service, turned off via the mobile app's
+    // "Delete my account" (Apple 5.1.1(v)). Spec: .ai/specs/mobile-app-access.md §5.1
+    Route::post('/my-portal/app-access/restore', [\App\Http\Controllers\Agent\AgentPortalController::class, 'restoreAppAccess'])
+        ->middleware('permission:edit_own_profile')->name('agent.portal.app-access.restore');
+
     // Admin Multi-Branch Manager — admin self-assigns which branches they
     // manage (+ a default) from their own profile. Gated by the dedicated
     // permission (admins/owners only; branch managers already have one branch).

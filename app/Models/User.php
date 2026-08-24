@@ -251,6 +251,7 @@ class User extends Authenticatable
         'email_verified_at' => 'datetime',
         'invited_at' => 'datetime',
         'first_login_at' => 'datetime',
+        'app_access_revoked_at' => 'datetime',
         'pp_exclusivity_explainer_seen_at' => 'datetime',
         'password' => 'hashed',
         'is_active' => 'boolean',
@@ -954,6 +955,36 @@ class User extends Authenticatable
     public function isPendingInvite(): bool
     {
         return $this->email_verified_at === null;
+    }
+
+    // ── App Access (mobile "Delete my account", Apple 5.1.1(v)) ──
+    // Spec: .ai/specs/mobile-app-access.md
+
+    /** NULL app_access_revoked_at = access ON. Gates the mobile Sanctum login only — never the web session. */
+    public function hasAppAccess(): bool
+    {
+        return is_null($this->app_access_revoked_at);
+    }
+
+    /**
+     * Mobile "Delete my account". Does NOT touch the User row itself, deals,
+     * commissions, or any other business data — only mobile-app access.
+     * Deletes ONLY the corex-mobile Sanctum token(s), never the separate
+     * Chrome-extension api_token or any other named personal token, and
+     * clears push device tokens so a revoked account also stops receiving
+     * pushes. Idempotent — safe to call again while already revoked.
+     */
+    public function revokeAppAccess(): void
+    {
+        $this->forceFill(['app_access_revoked_at' => now()])->save();
+        $this->tokens()->where('name', 'corex-mobile')->delete();
+        \App\Models\DeviceToken::where('user_id', $this->id)->delete();
+    }
+
+    /** Self-service restore from My Portal → Tools. No token/device-token side effect — the app issues a fresh token on next login. */
+    public function restoreAppAccess(): void
+    {
+        $this->forceFill(['app_access_revoked_at' => null])->save();
     }
 
     // ── Owner role checks (the ONLY hardcoded concept) ──

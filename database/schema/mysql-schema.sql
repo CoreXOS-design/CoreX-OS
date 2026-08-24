@@ -1711,9 +1711,9 @@ DROP TABLE IF EXISTS `bulk_email_broadcasts`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `bulk_email_broadcasts` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `subject` varchar(200) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `body` text COLLATE utf8mb4_unicode_ci NOT NULL,
-  `target_type` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `subject` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `body` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `target_type` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `target_agency_id` bigint unsigned DEFAULT NULL,
   `recipient_count` int unsigned NOT NULL,
   `sent_by_user_id` bigint unsigned DEFAULT NULL,
@@ -13023,6 +13023,7 @@ CREATE TABLE `users` (
   `paye_method` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `paye_value` decimal(10,2) DEFAULT NULL,
   `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `app_access_revoked_at` timestamp NULL DEFAULT NULL,
   `counts_for_branch_split` tinyint(1) NOT NULL DEFAULT '1',
   `can_capture_rentals` tinyint(1) NOT NULL DEFAULT '0',
   `sliding_enabled` tinyint(1) NOT NULL DEFAULT '0',
@@ -14519,3 +14520,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1094,'2026_08_24_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1095,'2026_08_25_000001_add_agency_id_to_tv_access_codes_table',279);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1096,'2026_08_25_000002_backfill_agency_id_on_tv_access_codes',279);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1097,'2026_08_25_000003_make_tv_access_codes_agency_id_not_null',279);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1098,'2026_08_24_000003_add_app_access_revoked_at_to_users_table',280);
